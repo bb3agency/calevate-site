@@ -19,7 +19,7 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Header, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -44,6 +44,7 @@ from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
+from apps.api.core.stepup import ClientActionCode, client_confirmation
 from apps.api.db.session import tenant_session
 from apps.api.engine.thinnest_numbers import BusinessDetails
 from apps.api.tenancy.engine_workspace import engine_has_workspaces
@@ -57,6 +58,12 @@ NumberBuyer = Annotated[Principal, Depends(requires("org:manage"))]
 #: `impersonation_not_available_here` before anything is read (D-730), as a top-up does.
 NumberOwner = Annotated[Principal, Depends(requires("org:manage", realm="client"))]
 NumberViewer = Annotated[Principal, Depends(requires("org:read"))]
+ConfirmAction = Annotated[str | None, Header(alias="X-Confirm-Action")]
+
+#: The emailed code a purchase takes (D-730), `buy_number:<slug>`: it rents a number on a
+#: monthly commitment and charges the first month at once. Pip's `number_buy` demands the
+#: same string on confirm (`ActionTool.action_code`, D-893 F4).
+BUY_ACTION = "buy_number"
 
 
 def _off() -> ProblemError:
@@ -316,12 +323,18 @@ class PurchasedOwnNumberOut(BaseModel):
         "Buys the number, charges this account's first month at the price the status shows, "
         "and points it at the chosen agent. Repeating the same `request_key` never buys a "
         "second number. Refused, with nothing charged, while the business is not verified "
-        "or its details not approved, or if somebody else took the number."
+        "or its details not approved, or if somebody else took the number. Needs the code "
+        "emailed for `buy_number:<slug>` in `X-Confirm-Action`."
     ),
 )
 async def purchase_own_number(
-    payload: PurchaseOwnNumberIn, request: Request, principal: NumberOwner
+    payload: PurchaseOwnNumberIn,
+    request: Request,
+    principal: NumberOwner,
+    code: ClientActionCode,
+    x_confirm_action: ConfirmAction = None,
 ) -> PurchasedOwnNumberOut:
+    await code.require(x_confirm_action, client_confirmation(request, BUY_ACTION))
     assert principal.tenant_id is not None
     if not engine_has_workspaces():
         raise _off()

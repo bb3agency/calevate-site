@@ -335,6 +335,15 @@ def _client_gates(slug: str) -> list[tuple[str, str, dict[str, Any] | None, str]
             {"role": "owner", "expected_role": "staff"},
             f"promote_owner:{slug}:{member}",
         ),
+        # D-893: renting a number commits the account to a monthly charge; Pip's
+        # `number_buy` demands the same code. Past the code it is refused, unbought, because
+        # the account has no voice workspace of its own here.
+        (
+            "POST",
+            "/v1/numbers/own/purchase",
+            {"number": "918012345678", "request_key": f"key-{invitee}"},
+            f"buy_number:{slug}",
+        ),
     ]
 
 

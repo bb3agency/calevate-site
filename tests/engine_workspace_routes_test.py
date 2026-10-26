@@ -40,6 +40,11 @@ async def _client_headers(tenant_id: UUID) -> dict[str, str]:
     return {"Authorization": f"Bearer dev:client:{user_id}", "X-Org-Slug": str(slug)}
 
 
+def _buy_headers(headers: dict[str, str]) -> dict[str, str]:
+    """The Buy button's confirmation; a dev token stands in for the emailed code."""
+    return {**headers, "X-Confirm-Action": f"buy_number:{headers['X-Org-Slug']}"}
+
+
 async def _admin_headers() -> dict[str, str]:
     admin_id = uuid.uuid4()
     async with untenanted_session() as session:
@@ -91,11 +96,15 @@ async def test_a_client_walks_status_search_buy_and_release_without_a_vendor_nam
 
         key = f"key-{uuid.uuid4().hex}"
         body = {"number": offered["numbers"][0]["number"], "request_key": key}
-        bought = await http.post("/v1/numbers/own/purchase", json=body, headers=headers)
+        bought = await http.post(
+            "/v1/numbers/own/purchase", json=body, headers=_buy_headers(headers)
+        )
         assert bought.status_code == 201, bought.text
         assert bought.json()["first_period"] == "charged"
         _white_label(bought.json())
-        again = await http.post("/v1/numbers/own/purchase", json=body, headers=headers)
+        again = await http.post(
+            "/v1/numbers/own/purchase", json=body, headers=_buy_headers(headers)
+        )
         assert again.json()["replayed"] is True
 
         number_id = bought.json()["number_id"]
@@ -124,7 +133,7 @@ async def test_the_status_says_set_up_while_the_workspace_is_not_ready(
         buy = await http.post(
             "/v1/numbers/own/purchase",
             json={"number": "918012345678", "request_key": f"key-{uuid.uuid4().hex}"},
-            headers=headers,
+            headers=_buy_headers(headers),
         )
     assert buy.status_code == 422 or buy.status_code == 409, buy.text
     assert "engine_workspace_not_provisioned" in buy.text

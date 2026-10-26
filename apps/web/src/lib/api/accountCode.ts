@@ -1,6 +1,7 @@
 /**
  * Client-realm actions that ask for a code typed for them (D-730): exporting calls or
- * leads, storing or replacing an integration credential, and adding an outbound endpoint.
+ * leads, storing or replacing an integration credential, adding an outbound endpoint and
+ * renting a phone number, among others.
  *
  * The action string is `<verb>:<org slug>` (`apps/api/core/stepup.client_confirmation`),
  * bound to the account the request is made in. The first attempt carries it as

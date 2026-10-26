@@ -20,6 +20,7 @@ import {
   type UseQueryResult,
 } from "@tanstack/react-query";
 
+import { accountAction, withAccountCode } from "./accountCode";
 import { agentKeys } from "./agents";
 import { apiRequest, type Session } from "./client";
 import type { components } from "./schema";
@@ -156,16 +157,23 @@ export function newRequestKey(): string {
 }
 
 /** **Spends money on a recurring commitment.** `retry: false`: a framework retry with a
- *  fresh body is the caller's key decision, never the library's. */
+ *  fresh body is the caller's key decision, never the library's. It asks for the code
+ *  emailed for `buy_number:<slug>` (D-730), as Pip's purchase does; the resend after the
+ *  code carries the same `request_key`, so it can never buy twice. */
 export function usePurchaseOwnNumber(session: Session) {
   const client = useQueryClient();
   return useMutation({
     retry: false,
-    mutationFn: (body: PurchaseOwnNumberIn) =>
-      apiRequest<PurchasedOwnNumber>(session, OWN_NUMBERS_PATHS.purchase, {
-        method: "POST",
-        body,
-      }),
+    mutationFn: (body: PurchaseOwnNumberIn) => {
+      const confirmAction = accountAction(session, "buy_number");
+      return withAccountCode(confirmAction, "Renting a phone number for your business.", () =>
+        apiRequest<PurchasedOwnNumber>(session, OWN_NUMBERS_PATHS.purchase, {
+          method: "POST",
+          body,
+          confirmAction,
+        }),
+      );
+    },
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ["own-numbers", session.orgSlug] });
       void client.invalidateQueries({ queryKey: ["campaign-numbers", session.orgSlug] });

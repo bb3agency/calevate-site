@@ -391,6 +391,12 @@ describe("buying a number", () => {
     });
     expect(sent[0].request_key).toMatch(/^[A-Za-z0-9_-]{8,100}$/);
     expect(sent[1].request_key).toBe(sent[0].request_key);
+    // Buying takes the emailed code for this account, as Pip's purchase does (D-893).
+    const confirms = calls
+      .filter((call) => call.path === OWN_NUMBERS_PATHS.purchase)
+      .map((call) => call.headers["X-Confirm-Action"]);
+    expect(confirms).toHaveLength(2);
+    for (const confirm of confirms) expect(confirm).toMatch(/^buy_number:[a-z0-9-]+$/);
   });
 
   it("mints a fresh key for a fresh press of Buy", async () => {

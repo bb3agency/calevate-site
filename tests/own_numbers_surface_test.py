@@ -35,7 +35,7 @@ from tests.engine_number_purchase_test import (
     _recorded,
     kyc_bundle,  # noqa: F401 - pytest fixture
 )
-from tests.engine_workspace_routes_test import _admin_headers, _client_headers
+from tests.engine_workspace_routes_test import _admin_headers, _buy_headers, _client_headers
 from tests.thinnest_fake_account import FakeAccount
 
 pytestmark = [pytest.mark.rls]
@@ -131,8 +131,12 @@ async def test_a_replayed_purchase_says_so_in_first_period(account: FakeAccount)
     headers = await _client_headers(tenant_id)
     body = {"number": account.available[0], "request_key": f"key-{uuid.uuid4().hex}"}
     async with _http() as http:
-        first = await http.post("/v1/numbers/own/purchase", json=body, headers=headers)
-        again = await http.post("/v1/numbers/own/purchase", json=body, headers=headers)
+        first = await http.post(
+            "/v1/numbers/own/purchase", json=body, headers=_buy_headers(headers)
+        )
+        again = await http.post(
+            "/v1/numbers/own/purchase", json=body, headers=_buy_headers(headers)
+        )
     assert first.json()["first_period"] == "charged"
     assert (again.json()["replayed"], again.json()["first_period"]) == (True, "replayed")
 
