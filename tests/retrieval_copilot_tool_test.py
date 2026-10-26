@@ -108,7 +108,9 @@ def test_the_schema_carries_no_field_that_could_name_another_account() -> None:
         for schema in copilot_service.tool_array("client")
         if schema["function"]["name"] == "search_knowledge"
     ]
-    assert list(tool["function"]["parameters"]["properties"]) == ["question"]
+    # `scope` (D-893 L8) chooses between two corpora of the SAME account — what the agents
+    # say, or everything the business gave us — and names no account, agent or source.
+    assert list(tool["function"]["parameters"]["properties"]) == ["question", "scope"]
 
 
 async def test_a_question_with_nothing_on_file_is_told_to_say_so() -> None:

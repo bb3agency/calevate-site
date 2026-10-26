@@ -128,6 +128,7 @@ from apps.api.copilot.agent_tool_actions import AGENT_TOOL_ACTIONS
 from apps.api.copilot.assist_actions import ASSIST_ACTIONS
 from apps.api.copilot.console_actions import CONSOLE_ACTIONS
 from apps.api.copilot.fact_actions import FACT_ACTIONS
+from apps.api.copilot.knowledge_actions import KNOWLEDGE_ACTIONS
 from apps.api.copilot.sanitize import strip_invisible
 from apps.api.copilot.schemas import (
     CopilotActionEvent,
@@ -881,52 +882,32 @@ PROPOSE_KNOWLEDGE: Final = WriteTool(
     where="on the What your agents know screen",
     schema=action_schema(
         "propose_knowledge",
-        "Propose adding a fact to the business's knowledge, which every one of its agents "
-        "answers from, so it can answer that question in future. Only for something the "
-        "person has just told you about their own business — never invent a price, a "
-        "policy or an opening time, and never repeat something a caller said. Confirming "
-        "adds it without review; the agents start using it once it has been published. "
-        "For several things at once, or a photo or file to learn from, use `knowledge_teach`."
-        + PROPOSES_ONLY,
+        # Trimmed for the prompt budget (D-893 L8, PIP-AGENT-PLAN §2a); every rule it states
+        # is kept, in fewer words.
+        "Propose a new knowledge note every agent answers from: only what the person just "
+        "told you about their own business — never invent a price, policy or time, never "
+        "repeat a caller. Several things, a photo or a file: `knowledge_teach`." + PROPOSES_ONLY,
         {
             "agent_id": {
                 "type": "string",
-                "description": (
-                    "The agent the person is looking at, taken from the SCREEN STATE. "
-                    "Never invented. It names the knowledge gap being answered; the "
-                    "knowledge itself is shared by every agent."
-                ),
+                "description": "The agent on the SCREEN STATE, never invented.",
             },
-            "name": {
-                "type": "string",
-                "description": (
-                    "A short title for this knowledge, e.g. 'Saturday opening hours'. At "
-                    f"most {kb_proposals.MAX_NAME_CHARS} characters."
-                ),
-            },
+            "name": {"type": "string", "description": "A short title."},
             "body": {
                 "type": "string",
-                "description": (
-                    "What the agent should know, in the words the person used. Write it "
-                    "the way you would tell a new receptionist. Do not include phone "
-                    "numbers, email addresses or identity numbers."
-                ),
+                "description": "In the person's words. No phone numbers, emails or ID numbers.",
             },
             "origin": {
                 "type": "string",
                 "enum": list(kb_proposals.PROPOSAL_ORIGINS),
-                "description": (
-                    "`gap_digest` when you are answering a knowledge gap the agent "
-                    "reported; `copilot` when the person simply volunteered the fact."
-                ),
+                "description": "`gap_digest` answering a reported gap, else `copilot`.",
             },
             "topic_key": {
                 "anyOf": [{"type": "string"}, {"type": "null"}],
                 "description": (
-                    "The recognised knowledge-gap topic this answers: "
+                    "With `gap_digest`, the gap's topic: "
                     + ", ".join(sorted(kb_proposals.CITABLE_TOPIC_KEYS))
-                    + ". REQUIRED with the `gap_digest` origin. Null otherwise — never a "
-                    "topic made out of what one caller asked."
+                    + ". Else null; never one made up."
                 ),
             },
         },
@@ -966,6 +947,8 @@ WRITE_TOOLS: Final[tuple[ActionTool, ...]] = (
     *AGENT_TOOL_ACTIONS,
     # D-893 lane L6: numbers, team, settings, integrations and billing settings.
     *ACCOUNT_ACTIONS,
+    # D-893 L8: rename, write or correct with a note, and put a removed note back.
+    *KNOWLEDGE_ACTIONS,
 )
 
 _BY_NAME: Final[dict[str, WriteTool]] = {tool.name: tool for tool in WRITE_TOOLS}

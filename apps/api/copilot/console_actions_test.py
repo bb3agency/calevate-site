@@ -35,6 +35,7 @@ from apps.api.copilot.agent_tool_actions import AGENT_TOOL_ACTIONS
 from apps.api.copilot.assist_actions import ASSIST_ACTIONS
 from apps.api.copilot.console_actions import CONSOLE_ACTIONS
 from apps.api.copilot.fact_actions import FACT_ACTIONS
+from apps.api.copilot.knowledge_actions import KNOWLEDGE_ACTIONS
 from apps.api.copilot.script_actions import SCRIPT_ACTIONS
 from apps.api.copilot.write_tools_test import _audit, _confirm, _principal, _user_of
 from apps.api.core.errors import ProblemError
@@ -148,6 +149,7 @@ def test_the_console_actions_are_appended_after_the_earlier_ones() -> None:
         + len(AGENT_SETUP_ACTIONS)
         + len(AGENT_TOOL_ACTIONS)
         + len(ACCOUNT_ACTIONS)
+        + len(KNOWLEDGE_ACTIONS)
     )
     assert names[-len(console) - later : -later] == console
     assert len(set(names)) == len(names)
@@ -793,7 +795,9 @@ async def test_knowledge_actions_refuse_what_they_cannot_name() -> None:
             tenant_id, token, "knowledge_link_add", {"name": None, "url": "file:///etc/passwd"}
         )
     with pytest.raises(ProblemError) as missing:
-        await _propose(tenant_id, token, "knowledge_remove", {"upload_id": str(uuid.uuid4())})
+        await _propose(
+            tenant_id, token, "knowledge_remove", {"item": f"file:{uuid.uuid4()}", "put_back": None}
+        )
     assert missing.value.status == 404
 
 

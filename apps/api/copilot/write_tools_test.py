@@ -278,6 +278,9 @@ def test_the_tool_schemas_are_the_same_bytes_for_every_caller() -> None:
         "auto_recharge_set",
         "low_balance_alert_set",
         "ai_allowance_extra",
+        # D-893 L8's knowledge rename and note APPEND.
+        "knowledge_rename",
+        "knowledge_note_save",
     ]
     for schema in write_tools.write_tool_schemas():
         function = schema["function"]

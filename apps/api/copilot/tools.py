@@ -74,6 +74,7 @@ from apps.api.crm.performance import performance
 from apps.api.crm.schemas import LeadOut, LeadStatus
 from apps.api.db.session import admin_session, tenant_session
 from apps.api.kb import service as kb_service
+from apps.api.kb.store import search_store, undelivered_source_ids
 from apps.api.retrieval.call_chunks import describe_hits
 from apps.api.retrieval.caller_search import MAX_K, search_caller_chunks
 from apps.api.retrieval.embedding import ASSIST_FEATURE_CALL_SEARCH
@@ -916,32 +917,17 @@ _DEGRADED_NOTE = (
 _MAX_NAMED_SOURCES: Final = 5
 
 
-def _sources_this_tool_cannot_read(sources: Sequence[Mapping[str, Any]]) -> list[str]:
-    """The names of LIVE sources whose content neither retrieval tier can see.
-
-    A published source with ZERO `kb_documents` rows is a PDF or a link (D-534):
-    `workers/kb_ingest.ingest_kb_source` extracts text for every other kind and not for those
-    two. Neither leaves us any text, and BOTH retrieval tiers are built from `kb_documents`
-    (T0 through `kb.service.active_knowledge`'s join, T3 through
-    `kb/service._PROJECT_SQL`'s), so neither can match a word of them. The agents get none
-    of it either: the engine adapter sends a source as its chunks' text and nothing else
-    (`engine/thinnest.attach_kb`), so the answer says the agents cannot use them (D-868).
-
-    THE FIX IS THE SENTENCE, NOT A WIDER TOOL. Making this reachable would mean extracting a
-    PDF into chunks, which changes what `agents/t0.py` compiles into the agent's PROMPT and
-    what a reviewer is shown — a voice-path decision with its own token budget (PROMPT-GUIDE
-    §2), not something a dashboard read tool may take on its own. What this tool owes the
-    client meanwhile is the truth: `_NOTHING_PUBLISHED` tells them to add a price list they
-    uploaded this morning, which sends them to do work that is already done and teaches them
-    the assistant is wrong about their own account.
-
-    `chunks` comes from `list_sources`, which is the Knowledge screen's own reader — so what
-    the assistant calls unreadable is derived from the same row the client is looking at.
-    """
+def _sources_agents_do_not_use(
+    sources: Sequence[Mapping[str, Any]], undelivered: set[UUID]
+) -> list[str]:
+    """The names of LIVE sources whose words the agents do not get: a PDF or a link while
+    `kb_send_extracted_files` is off, or one whose words could not be read (D-893 L8,
+    `kb/store.undelivered_source_ids`). Their words ARE on file and `search_knowledge`
+    with scope `everything` finds them; the agents' own answer cannot use them."""
     return [
         str(source["name"])[:80]
         for source in sources
-        if source["published_at"] is not None and source["is_active"] and not source["chunks"]
+        if source["is_active"] and source["id"] in undelivered
     ][:_MAX_NAMED_SOURCES]
 
 
@@ -975,18 +961,13 @@ async def _nothing_published(session: AsyncSession) -> str:
             + (f" — {waiting} is waiting for approval" if waiting else "")
             + ". That is a step outstanding on our side, not a gap in what they wrote."
         )
-    opaque = _sources_this_tool_cannot_read(sources)
+    opaque = _sources_agents_do_not_use(sources, await undelivered_source_ids(session))
     if opaque:
-        # THE FOURTH EMPTY KNOWLEDGE BASE, and the only one where the honest answer is
-        # about US. See `_sources_this_tool_cannot_read`.
         return (
-            "Nothing in the text this account has published matches that — but "
-            f"{len(opaque)} source(s) are a PDF or a web page whose words are not read yet, "
-            f"so neither this search nor the agents can use them: {', '.join(opaque)}. "
-            "Say exactly that and name them: they are saved, and reading them is being "
-            "added. Until then the person can type the key details as facts, or send the "
-            "same content as a Word, text, spreadsheet or photo file, on the What your "
-            "agents know screen."
+            "Nothing the agents use matches that. "
+            f"{len(opaque)} saved PDF(s) or web page(s) are not used by the agents yet: "
+            f"{', '.join(opaque)}. Their words are on file: search them with scope "
+            "`everything`, and say plainly that the agents do not use them yet."
         )
     return _NOTHING_PUBLISHED
 
@@ -1003,6 +984,9 @@ async def _search_knowledge(
     prompt, so the copilot could not answer the question a client asks most often about
     their own account — "what does my agent tell people about X?".
 
+    `scope: "everything"` is the other question — what the client GAVE us rather than what
+    the agents say — and goes to `_search_everything`; what follows is the agents' scope.
+
     ONLY APPROVED KNOWLEDGE IS REACHABLE, STRUCTURALLY. This does not read `kb_documents`;
     it reads the compiled block, and only `kb.service.publish_source` puts anything into
     that block, and only for an APPROVED source. The preview-and-approve gate is therefore
@@ -1018,6 +1002,9 @@ async def _search_knowledge(
     question = strip_invisible(str(args.get("question") or "")).strip()[:_MAX_QUESTION_CHARS]
     if not question:
         return _NOTHING_PUBLISHED
+    if args.get("scope") == "everything":
+        assert context.tenant_id is not None
+        return await _search_everything(session, context.tenant_id, question)
     # NOT-NONE BY `run_read_tool`'s SCOPE GUARD: this is a `tenant`-scoped tool, so it is
     # never reached without an account open (D-499 made `ToolContext.tenant_id` Optional so
     # the admin realm's platform tools could exist). An assert rather than a second refusal
@@ -1041,9 +1028,16 @@ async def _search_knowledge(
         # know something it does know.
         empty = await _nothing_published(session)
         return f"{_DEGRADED_NOTE}\n{empty}" if result.unmet_capability is not None else empty
+    # A searched passage from a PDF or a link the agents do not get is not something they
+    # tell callers (D-893 L8): it is left out here and named, never passed off as an answer.
+    undelivered = await undelivered_source_ids(session) if result.served_tier == "t3" else set()
+    used = [p for p in result.passages if p.provenance.source_id not in undelivered]
+    if not used:
+        empty = await _nothing_published(session)
+        return f"{_DEGRADED_NOTE}\n{empty}" if result.unmet_capability is not None else empty
     lines = [
         f"- {passage.text[:MAX_PASSAGE_CHARS]} [{passage.provenance.label}]"
-        for passage in result.passages[:MAX_PASSAGES]
+        for passage in used[:MAX_PASSAGES]
     ]
     body = _clean(
         _listing(
@@ -1056,6 +1050,26 @@ async def _search_knowledge(
         )
     )
     return f"{_DEGRADED_NOTE}\n{body}" if result.unmet_capability is not None else body
+
+
+async def _search_everything(session: AsyncSession, tenant_id: UUID, question: str) -> str:
+    """`kb/store.search_store`: the words of everything the client gave us — files, links,
+    photos and notes whether or not they are live, facts, the profile and waiting rules —
+    each hit naming its item and whether the agents use it (D-893 L8)."""
+    hits = await search_store(session, tenant_id=tenant_id, question=question)
+    if not hits:
+        return (
+            "Nothing the business gave us mentions that. Say so; it can be added on the "
+            "What your agents know screen."
+        )
+    lines = [
+        f"- {hit.text[:MAX_PASSAGE_CHARS]} [{hit.name}"
+        + (f" · {hit.ref}" if hit.ref else "")
+        + (" · agents use this" if hit.agents_use else " · agents do NOT use this yet")
+        + "]"
+        for hit in hits
+    ]
+    return _clean("\n".join([f"{len(hits)} passage(s) from what the business gave us:", *lines]))
 
 
 async def _leads_semantic_search(
@@ -1403,25 +1417,20 @@ READ_TOOLS: Final[tuple[ReadTool, ...]] = (
     ReadTool(
         name="search_knowledge",
         description=(
-            "Look up what this account's live voice agents tell callers: the approved "
-            "business facts and knowledge in their scripts (opening hours, address, "
-            "services and prices, staff, policies). Use it whenever the person asks what "
-            "their agent says or knows; what callers themselves asked is `search_calls`. "
-            "It cannot see the screen, other accounts, or anything not yet published."
+            "What the live agents tell callers (approved facts: hours, prices, policies); use "
+            "it when asked what the agent says or knows. Callers' words: `search_calls`. "
+            "Scope `everything`: all the business gave us, each hit saying if agents use it."
         ),
         parameters={
             "type": "object",
             "properties": {
                 "question": {
                     "type": "string",
-                    "description": (
-                        "The question in the caller's own words, e.g. 'what are the "
-                        "opening hours on Sunday'. Do not include names, phone numbers "
-                        "or email addresses."
-                    ),
-                }
+                    "description": "In the caller's words. No names, phone numbers or emails.",
+                },
+                "scope": {"anyOf": [{"type": "string"}, {"type": "null"}]},
             },
-            "required": ["question"],
+            "required": ["question", "scope"],
             "additionalProperties": False,
         },
         # THE SAME PERMISSION THE ROUTES SERVING THIS DATA DECLARE. `kb/routes.py:86-89`

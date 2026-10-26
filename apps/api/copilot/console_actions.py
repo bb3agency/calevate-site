@@ -75,6 +75,7 @@ from apps.api.copilot.actions import (
     parse_args,
 )
 from apps.api.copilot.identity import ASSISTANT_NAME
+from apps.api.copilot.knowledge_actions import KNOWLEDGE_REMOVE
 from apps.api.copilot.sanitize import strip_invisible
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
@@ -2731,8 +2732,8 @@ async def _execute_knowledge_link(
     return Executed(
         applied=True,
         detail=(
-            "The link is saved and appears on the What your agents know screen. Your agents "
-            "cannot read web pages yet, so they will not use it until that is added."
+            "The link is saved and appears on the What your agents know screen. We read "
+            "the page so you and Pip can open and search it."
         ),
         audit_summary={"upload_id": str(created["id"]), "source_id": str(created["source_id"])},
         object_id=str(created["source_id"]),
@@ -2750,93 +2751,15 @@ KNOWLEDGE_LINK_ADD: Final = ActionTool(
     where="on the What your agents know screen",
     schema=action_schema(
         "knowledge_link_add",
-        "Propose adding a web page the person names to the business's knowledge. Only a page "
-        "they gave you — never one you chose." + PROPOSES_ONLY,
+        "Propose adding to knowledge a web page the person gave you, never one you chose."
+        + PROPOSES_ONLY,
         {
-            "name": {
-                "anyOf": [{"type": "string"}, {"type": "null"}],
-                "description": "A short title, or null to use the page's own.",
-            },
-            "url": {"type": "string", "description": "The full web address."},
+            "name": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+            "url": {"type": "string"},
         },
     ),
     plan=_plan_knowledge_link,
     execute=_execute_knowledge_link,
-)
-
-
-class _KnowledgeRemoveArgs(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    upload_id: UUID
-
-
-async def _upload_row(session: AsyncSession, upload_id: UUID) -> tuple[str, str]:
-    row = (
-        await session.execute(
-            text(
-                "SELECT s.name, u.source_id FROM kb_uploads u "
-                "JOIN kb_sources s ON s.id = u.source_id "
-                "WHERE u.id = :uid"
-            ),
-            {"uid": upload_id},
-        )
-    ).first()
-    if row is None:
-        raise ProblemError.not_found("Knowledge document")
-    return strip_invisible(str(row[0])), str(row[1])
-
-
-async def _plan_knowledge_remove(
-    session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
-) -> Plan:
-    del actor
-    parsed = parse_args(_KnowledgeRemoveArgs, args)
-    name, source_id = await _upload_row(session, parsed.upload_id)
-    return Plan(
-        object_id=source_id,
-        title="Remove this from your knowledge",
-        summary=f"Take “{name}” off every agent and delete it.",
-        current="In your knowledge",
-        proposed="Deleted",
-        cost=None,
-        reversal="This cannot be undone; you would add the document or page again.",
-        args={"upload_id": str(parsed.upload_id)},
-    )
-
-
-async def _execute_knowledge_remove(
-    session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
-) -> Executed:
-    """`kb.uploads.remove_upload` — `DELETE /v1/kb/uploads/{id}`'s call."""
-    from apps.api.kb.uploads import remove_upload
-
-    parsed = parse_args(_KnowledgeRemoveArgs, args)
-    await remove_upload(session, tenant_id=actor.tenant_id, upload_id=parsed.upload_id)
-    return Executed(
-        applied=True,
-        detail="It is removed from every agent and deleted.",
-        audit_summary={"upload_id": str(parsed.upload_id)},
-    )
-
-
-KNOWLEDGE_REMOVE: Final = ActionTool(
-    name="knowledge_remove",
-    tier="confirm",
-    undo=None,
-    permission="kb:write",
-    object_type="kb_source",
-    audit_action="kb.removed",
-    where="on the What your agents know screen",
-    schema=action_schema(
-        "knowledge_remove",
-        "Propose removing a document or web page from the business's knowledge. Take the "
-        "`upload_id` from `knowledge_sources`; typed facts are edited on the What your "
-        "agents know screen." + PROPOSES_ONLY,
-        {"upload_id": {"type": "string", "description": "From `knowledge_sources`."}},
-    ),
-    plan=_plan_knowledge_remove,
-    execute=_execute_knowledge_remove,
 )
 
 

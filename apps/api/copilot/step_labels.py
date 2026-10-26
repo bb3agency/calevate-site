@@ -90,6 +90,8 @@ STEP_LABELS: Final[dict[str, StepLabel]] = {
     "business_hours_set": _l("Setting your hours", "Set your hours"),
     "knowledge_link_add": _l("Adding a web page", "Added a web page"),
     "knowledge_remove": _l("Removing knowledge", "Removed knowledge"),
+    "knowledge_rename": _l("Renaming knowledge", "Renamed knowledge"),
+    "knowledge_note_save": _l("Saving a note", "Saved a note"),
     "number_buy": _l("Buying the number", "Bought the number"),
     "number_release": _l("Releasing the number", "Released the number"),
     "agent_test_call": _l("Placing a test call", "Placed a test call"),

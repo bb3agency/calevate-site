@@ -14,17 +14,12 @@ answers it differently by KIND:
 * a `.txt`/`.csv`/`.docx`/`.xlsx` upload and a photograph are read into TEXT by the
   conversion lane (`workers/kb_ingest._extract` → `kb_service.store_extracted_text`), so
   they have chunks and are reachable;
-* a **PDF** and a **scraped link** are NOT (`ingest_kb_source`: `if kind not in ("pdf",
-  "url")`). That is deliberate and is argued where it is written — a PDF *is* the document
-  the engine is handed, so what a reviewer opens is byte-for-byte what the agent answers
-  from, and a link is scraped by the engine itself. Neither leaves us any text.
+* a **PDF** and a **link** are read into a COPY of their words (D-893 L8,
+  `workers/kb_read.py`) that the agents get only while `kb_send_extracted_files` is on.
 
-The consequence for the copilot was not deliberate, and it is what these tests pin: those
-two kinds are live, published, working knowledge that the agent CAN answer from on a call
-and the dashboard assistant cannot see at all. The remedy is not to widen the tool —
-inventing text for a PDF would change what goes into the agent's PROMPT, which is a voice
-path decision and not this one's — it is that the tool must SAY SO instead of telling a
-client to add a price list they have already uploaded.
+So the agents' answer must name a live PDF the agents do not use rather than quote it or
+tell the client to add what they already uploaded; `tests/kb_read_copy_test.py` covers the
+copy itself and the `everything` scope that searches it.
 """
 
 from __future__ import annotations
@@ -153,18 +148,15 @@ async def test_an_unapproved_upload_is_not_reachable_and_the_client_is_told_why(
     assert "waiting for approval" in answer or "NONE of them" in answer
 
 
-async def test_a_published_pdf_is_said_to_reach_neither_the_copilot_nor_the_agents(
+async def test_a_published_pdf_the_agents_do_not_use_is_named_and_never_quoted(
     s3: FakeS3,
 ) -> None:
-    """A published PDF has no text on our side, so neither the copilot nor the agents use it.
+    """A live PDF whose words the agents do not get is NAMED, never passed off as an answer.
 
-    Neither a PDF nor a link leaves `kb_documents` a row, so neither tier of the retrieval
-    port has anything to match, and the engine adapter sends a source as that text alone
-    (`engine/thinnest.attach_kb`), so the agents get nothing from it either (D-868).
-
-    The answer must say so and name the file: `_NOTHING_PUBLISHED` would tell the client to
-    add something they uploaded this morning, and "the agent can answer from it" would be
-    false.
+    Since D-893 L8 a PDF's words are read into our copy, and they reach the agents only while
+    `kb_send_extracted_files` is on. With it off (the default) the agents' answer must not
+    say "nothing on file" (the client uploaded it this morning) and must not claim the agent
+    answers from it: it names the file as saved and not used yet.
     """
     tenant_id, _agent_id = await _tenant_with_published_agent()
     async with tenant_session(tenant_id) as session:
@@ -188,4 +180,4 @@ async def test_a_published_pdf_is_said_to_reach_neither_the_copilot_nor_the_agen
         "the tool did not name the published source whose text it cannot read"
     )
     # …and it says the agents cannot use it either, rather than claiming they can.
-    assert "nor the agents can use them" in answer
+    assert "not used by the agents yet" in answer
