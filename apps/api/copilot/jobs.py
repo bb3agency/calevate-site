@@ -104,7 +104,16 @@ async def create_job(
     goal: str,
     screen_route: str,
 ) -> JobRow:
-    """Insert one queued job and its outbox message, in the caller's transaction."""
+    """Insert one queued job and its outbox message, in the caller's transaction.
+
+    The count and the insert run under a per-person transaction lock, as
+    `attachments.begin` does for uploads: without it two parallel requests both read the
+    room the other is about to use and both insert past `MAX_ACTIVE_JOBS_PER_USER`.
+    """
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:lock, 0))"),
+        {"lock": f"copilot-jobs:{user_id}"},
+    )
     active = (
         await session.execute(
             text(

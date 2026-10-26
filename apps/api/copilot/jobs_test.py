@@ -7,6 +7,7 @@ world as it is then, or declines it.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from uuid import UUID
 
@@ -98,6 +99,21 @@ async def test_a_person_may_run_only_two_jobs_at_once() -> None:
     await _job(tenant_id, token)
     with pytest.raises(jobs.TooManyJobsError):
         await _job(tenant_id, token)
+
+
+async def test_parallel_requests_cannot_start_more_than_the_limit_between_them() -> None:
+    """Each `_job` is its own tenant session on its own connection. FAILS IF the count and
+    the insert are not serialised per person: every request reads zero active jobs."""
+    tenant_id, _slug, token = await _make_tenant()
+    attempts = jobs.MAX_ACTIVE_JOBS_PER_USER + 3
+    outcomes = await asyncio.gather(
+        *(_job(tenant_id, token, goal=f"task {n}") for n in range(attempts)),
+        return_exceptions=True,
+    )
+    started = [o for o in outcomes if isinstance(o, jobs.JobRow)]
+    refused = [o for o in outcomes if isinstance(o, jobs.TooManyJobsError)]
+    assert len(started) == jobs.MAX_ACTIVE_JOBS_PER_USER
+    assert len(refused) == attempts - jobs.MAX_ACTIVE_JOBS_PER_USER
 
 
 async def test_copilot_jobs_rls_returns_zero_rows_across_tenants() -> None:
