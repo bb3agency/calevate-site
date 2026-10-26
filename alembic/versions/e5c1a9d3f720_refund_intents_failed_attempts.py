@@ -1,7 +1,7 @@
 """a refund claim records the provider refund it became, and fails instead of vanishing
 
 Revision ID: e5c1a9d3f720
-Revises: c8a4e2f7b913
+Revises: d5f1a3c7e902
 Create Date: 2026-10-26 18:00:00.000000
 
 A refund attempt that failed definitively was DELETEd from `refund_intents`, so the next
@@ -21,7 +21,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "e5c1a9d3f720"
-down_revision: str | None = "c8a4e2f7b913"
+down_revision: str | None = "d5f1a3c7e902"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
