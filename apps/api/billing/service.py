@@ -1791,17 +1791,18 @@ def _month_bounds(month: str, *, since: datetime | None = None) -> dict[str, dat
     `since` RAISES THE FLOOR AND NEVER LOWERS IT (D-536). A trial's start or end is a
     counting-period boundary (`billing/trials.counter_epoch`), and the client's own usage
     figures are counted from it rather than from the 1st — "when the trial is over the
-    numbers should start from 0 again". `max` rather than replacement is the whole safety
-    property: a boundary in a PREVIOUS month must not widen a month's window backwards,
-    and a boundary in a FUTURE month cannot reach a month that is already closed.
+    numbers should start from 0 again". Only a boundary INSIDE the month moves the floor: one
+    in a previous month must not widen the window backwards, and one after the month has
+    ended (a trial opened in October, read against July) must leave the closed month whole.
+    A plain `max` emptied that month instead, and `usage_summary` carries the epoch into the
+    statement and the margin, so July's overage lines read zero.
 
-    Passed only by the CLIENT-facing reads. Our own cost and margin reads
-    (`billing/attribution.py`, `tier_usage`, `margin_for_tenant`, the invoice) deliberately
-    never pass it: what a trial cost us must stay true and countable for ever, which is the
-    only way anybody can say what a trial was worth.
+    Our own cost reads (`billing/attribution.py`, `tier_usage`, `_tier_totals` for the
+    margin's cost) never pass it: what a trial cost us must stay countable for ever.
     """
     start, end = ist_month_window(month)
-    return {"month_from": max(start, since) if since is not None else start, "month_to": end}
+    floor = since if since is not None and start < since < end else start
+    return {"month_from": floor, "month_to": end}
 
 
 # "…and it is a CALL row", for the cost query that prices minutes. Spelled NEGATIVELY

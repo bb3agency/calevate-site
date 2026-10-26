@@ -596,3 +596,50 @@ async def test_a_trial_closed_after_its_end_date_stops_counting_at_the_end_date(
 
     assert summed == Decimal("1.8000"), "only the call inside the trial is the trial's cost"
     assert epoch == trial.ends_at, "the paid period starts where the trial stopped covering"
+
+
+async def test_a_trial_opened_later_leaves_an_earlier_closed_month_whole() -> None:
+    """A counting boundary after a month has ended does not reach back into it.
+
+    `usage_summary` floors its window at the trial epoch, and it is what the statement and
+    the margin read. `max(month start, epoch)` with an October trial emptied July: a closed
+    month's minutes, and with them its overage lines, read zero.
+    """
+    from apps.api.billing.plans import ist_billing_month
+    from apps.api.billing.service import usage_summary
+
+    tenant_id, agent_id = await _tenant()
+    now = datetime.now(UTC)
+    earlier = now - timedelta(days=75)
+    month = ist_billing_month(earlier)
+    async with tenant_session(tenant_id) as session:
+        call_id = uuid7()
+        await session.execute(
+            text(
+                "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, "
+                "to_e164, status, created_at, updated_at) VALUES (:i, :t, :a, :e, "
+                "'outbound', '+919876500002', 'completed', :o, :o)"
+            ),
+            {
+                "i": call_id,
+                "t": tenant_id,
+                "a": agent_id,
+                "e": f"exec_{uuid.uuid4().hex[:12]}",
+                "o": earlier,
+            },
+        )
+        await session.execute(
+            text(
+                "INSERT INTO usage_events (id, tenant_id, call_id, unit_type, qty, "
+                "unit_cost_paid, occurred_at, created_at) VALUES (:i, :t, :c, "
+                "'telephony_s', 120, 0.0050, :o, now())"
+            ),
+            {"i": uuid7(), "t": tenant_id, "c": call_id, "o": earlier},
+        )
+        before = await usage_summary(session, tenant_id=tenant_id, month=month)
+        await start_trial(session, tenant_id=tenant_id, days=7, actor_user_id=None, at=now)
+        after = await usage_summary(session, tenant_id=tenant_id, month=month)
+
+    assert Decimal(str(before["minutes_used"])) == Decimal("2.00")
+    assert after["minutes_used"] == before["minutes_used"]
+    assert after["calls"] == before["calls"] == 1
