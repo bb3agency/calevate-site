@@ -1226,7 +1226,9 @@ def _approval_code(row: action_log.ActionRow) -> str | None:
     tool = write_tools.tool_named(row.tool)
     if tool is None or tool.action_code is None:
         return None
-    return tool.action_code(row.args_redacted or {})
+    # The unredacted copy: an owner invitation's code is bound to the address, which the
+    # redacted one masks, and the proposer and the approvers already know it.
+    return tool.action_code(row.pending_args or row.args_redacted or {})
 
 
 def action_out(row: action_log.ActionRow, *, realm: action_log.ActionRealm) -> CopilotActionOut:

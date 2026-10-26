@@ -28,11 +28,11 @@ from apps.api.copilot.schemas import (
 
 #: The largest cacheable prefix each surface may carry, in estimated tokens. A change that
 #: grows one past its budget fails here and has to argue for the room. The client prefix is
-#: the system prompt plus the area tools (D-893): ~11,500 when the area tools landed (the
-#: tool array went from ~13,300 to ~6,100), with room for the D-893 lanes' actions up to
-#: the tool-array budget below. The admin account surface carries the leads and calls
-#: lens (D-893, ~520 tokens) on its flat `leads_search` and `calls_recent`.
-PREFIX_BUDGET_TOKENS = {"client": 17_500, "admin_account": 10_100, "admin_console": 6_500}
+#: the system prompt plus the area tools (D-893), every lane's actions included; the tool
+#: array alone has its own budget below. The admin account surface offers the client's
+#: reads as flat tools, so it carries the leads and calls lens (~520 tokens) on
+#: `leads_search` and `calls_recent` and the D-893 lanes' reads in full.
+PREFIX_BUDGET_TOKENS = {"client": 17_500, "admin_account": 10_350, "admin_console": 6_500}
 
 #: The client tool array alone (PIP-AGENT-PLAN §2a): every read and action of every area.
 TOOL_ARRAY_BUDGET_TOKENS = 12_000

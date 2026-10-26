@@ -105,10 +105,10 @@ INTROS: Final[dict[Area, tuple[str, str]]] = {
     "campaigns": ("Look up outbound campaigns.", "Create and run outbound campaigns."),
     "agents": ("Look up voice agents.", "Create, change, publish and pause voice agents."),
     "knowledge": ("Look up what the agents know.", "Change what the agents know."),
-    "numbers": ("Look up phone numbers.", "Buy or release phone numbers."),
+    "numbers": ("Look up phone numbers.", "Buy, release and assign numbers; forwarded lines."),
     "team": ("Look up the team.", "Change the team."),
     "settings": ("Look up account settings.", "Change business details and settings."),
-    "integrations": ("Look up lead sources and connections.", "Change connections."),
+    "integrations": ("Look up lead sources and connections.", "Change lead sources, connections."),
     "billing": ("Look up credit and statements.", "Change billing settings (never pay)."),
     "reports": ("Numbers, quality and what needs attention.", "Make reports."),
     "routines": ("Look up repeating jobs.", "Create and change repeating jobs."),
@@ -134,7 +134,8 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
     AreaEntry(
         "search_knowledge",
         "knowledge",
-        "what the agents tell callers; what callers said is calls_find search_calls",
+        "what the agents tell callers; scope everything: all the business gave, each hit "
+        "saying if agents use it; what callers said: calls_find search_calls",
     ),
     AreaEntry(
         "search_calls",
@@ -146,10 +147,17 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
     AreaEntry("call_detail", "calls", "one call in full, redacted transcript"),
     AreaEntry("calls_live", "calls", "calls in progress now"),
     AreaEntry("callbacks_list", "callbacks", "call-backs, when due and their state"),
-    AreaEntry("knowledge_sources", "knowledge", "facts, files and links given, and their state"),
+    AreaEntry(
+        "knowledge_sources",
+        "knowledge",
+        "facts, notes, files, photos, links, rules and the profile, each with its state and "
+        "[ref]; `find` = words in a name, or a [ref] to read it a page at a time",
+    ),
     AreaEntry("numbers_list", "numbers", "the account's numbers and their agents"),
     AreaEntry("numbers_available", "numbers", "cities with numbers to buy"),
-    AreaEntry("billing_overview", "billing", "credit balance and statements"),
+    AreaEntry(
+        "billing_overview", "billing", "credit balance and statements; limits: billing_settings"
+    ),
     AreaEntry("verification_status", "settings", "verification, pledge and profile still needed"),
     AreaEntry("integrations_status", "integrations", "lead sources, connections, failures"),
     AreaEntry("needs_attention", "reports", "what needs attention now"),
@@ -168,7 +176,7 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
     ),
     AreaEntry("agent_create", "agents", "a new draft agent; ask name, direction, language first"),
     AreaEntry("agent_rename", "agents", "the agent's dashboard name"),
-    AreaEntry("agent_publish", "agents", "put an agent live"),
+    AreaEntry("agent_publish", "agents", "put an agent live; to try in chat only: agent_prepare"),
     AreaEntry("campaign_launch", "campaigns", "start calling a campaign's contacts"),
     AreaEntry("lead_assign", "leads", "give one lead to a team member (user_id null: nobody)"),
     AreaEntry("lead_rename", "leads", "correct one lead's name"),
@@ -218,12 +226,21 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
         "agents",
         "the same for a live agent; not live: agent_capture_fields_set",
     ),
-    AreaEntry("agent_changes_apply", "agents", "put a live agent's saved change live"),
+    AreaEntry(
+        "agent_changes_apply",
+        "agents",
+        "put a live agent's saved change live; drop it: agent_script_discard; a reviewed "
+        "draft: agent_script_put_live",
+    ),
     AreaEntry("agent_deactivate", "agents", "pause a live agent"),
     AreaEntry("agent_delete", "agents", "delete an agent that is not live"),
     AreaEntry("business_hours_set", "settings", "opening hours, all seven days"),
     AreaEntry("knowledge_link_add", "knowledge", "add a web page the person gave"),
-    AreaEntry("knowledge_remove", "knowledge", "remove a file or page (upload_id)"),
+    AreaEntry(
+        "knowledge_remove",
+        "knowledge",
+        "remove a file, photo, link or note by [ref]; put_back restores a removed note",
+    ),
     AreaEntry("number_buy", "numbers", "rent a number in a city; spends credit"),
     AreaEntry("number_release", "numbers", "give up a number"),
     AreaEntry(
@@ -270,6 +287,97 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
         "calls",
         "an agent calls many leads as a campaign, by `lens` or lead_ids; ask consent_source; "
         "one lead now: call_place",
+    ),
+    # D-893 lanes L4-L8: reads.
+    AreaEntry(
+        "agent_settings",
+        "agents",
+        "one part of an agent's set-up, with the ids its actions take",
+    ),
+    AreaEntry(
+        "billing_settings",
+        "billing",
+        "spending limits, auto-recharge, low-credit warning; balance: billing_overview",
+    ),
+    AreaEntry(
+        "knowledge_questions", "knowledge", "questions the agents need answered, with drafts"
+    ),
+    # D-893 L4: the agent page's buttons.
+    AreaEntry("agent_restore", "agents", "bring a deleted agent back, paused"),
+    AreaEntry(
+        "agent_prepare",
+        "agents",
+        "get a draft or paused agent ready to try in chat; on the phone: agent_publish",
+    ),
+    AreaEntry(
+        "agent_script_put_live",
+        "agents",
+        "save the reviewed script draft and put it live; a waiting change: agent_changes_apply",
+    ),
+    AreaEntry(
+        "agent_script_discard",
+        "agents",
+        "drop a live agent's saved script change; put it live: agent_changes_apply",
+    ),
+    AreaEntry(
+        "agent_script_version_restore", "agents", "copy an earlier script version to the draft"
+    ),
+    AreaEntry(
+        "agent_settings_set",
+        "agents",
+        "how it sounds and handles calls, longest call, AI model, caller memory",
+    ),
+    AreaEntry("agent_handover_set", "agents", "who it may put a caller through to, in order"),
+    AreaEntry("agent_action_set", "agents", "add (action_id null) or change an in-call action"),
+    AreaEntry("agent_action_switch", "agents", "switch one in-call action, or all, on or off"),
+    AreaEntry("agent_action_remove", "agents", "remove an in-call action"),
+    AreaEntry("lead_fields_keep_draft", "agents", "keep some lead details lead_fields_draft made"),
+    AreaEntry("lead_fields_reset", "agents", "lead details back to the standard set"),
+    AreaEntry("lead_suggestion_answer", "agents", "accept or turn down a lead-detail suggestion"),
+    # D-893 L6: the account's own settings. Lead sources sit with integrations because
+    # `integrations_status` is the read that names their ids.
+    AreaEntry("number_assign", "numbers", "which agent uses one of the numbers, or none"),
+    AreaEntry("forwarding_line_add", "numbers", "track an existing number forwarded here"),
+    AreaEntry("forwarding_line_change", "numbers", "how a tracked number forwards"),
+    AreaEntry("forwarding_line_remove", "numbers", "stop tracking an existing number"),
+    AreaEntry("forwarding_line_test", "numbers", "a test call to a tracked number"),
+    AreaEntry("team_invite", "team", "email an invitation"),
+    AreaEntry("team_member_role", "team", "change a member's role"),
+    AreaEntry("team_member_remove", "team", "remove a member"),
+    AreaEntry("team_invitation", "team", "resend or cancel an invitation"),
+    AreaEntry("line_protection_phone", "settings", "backup phone when the agent cannot answer"),
+    AreaEntry("lead_source_create", "integrations", "a new lead source address"),
+    AreaEntry("lead_source_edit", "integrations", "which agent answers a lead source"),
+    AreaEntry("lead_source_switch", "integrations", "pause or resume a lead source"),
+    AreaEntry("lead_source_rotate", "integrations", "a new secret for a lead source"),
+    AreaEntry("lead_calling_rules", "integrations", "when and how new leads are called"),
+    AreaEntry("held_lead_decide", "integrations", "call or drop a lead held after hours"),
+    AreaEntry("crm_endpoint_create", "integrations", "send events to a webhook address"),
+    AreaEntry("crm_endpoint_edit", "integrations", "an endpoint's events or opt-ins"),
+    AreaEntry("crm_endpoint_act", "integrations", "switch an endpoint off or re-key it"),
+    AreaEntry("crm_delivery_resend", "integrations", "resend a failed delivery"),
+    AreaEntry("spend_caps_set", "billing", "monthly spending and minute limits"),
+    AreaEntry("auto_recharge_set", "billing", "auto-recharge on, off or its amounts"),
+    AreaEntry("low_balance_alert_set", "billing", "the low-credit warning amount"),
+    AreaEntry("ai_allowance_extra", "billing", "extra AI help this month, paid from credit"),
+    # D-893 L8 and L5: the knowledge store, guided questions and practice tests.
+    AreaEntry("knowledge_rename", "knowledge", "rename a file, link or note"),
+    AreaEntry(
+        "knowledge_note_save",
+        "knowledge",
+        "a note's new text, or a note correcting a file or link, in the person's words",
+    ),
+    AreaEntry(
+        "knowledge_question_settle",
+        "knowledge",
+        "answer a knowledge_questions question in their words, or null to dismiss it",
+    ),
+    AreaEntry("knowledge_fact_change", "knowledge", "edit, pin, unpin, move or remove one fact"),
+    AreaEntry("agent_tests_run", "agents", "run an agent's practice tests"),
+    AreaEntry(
+        "agent_test_add",
+        "agents",
+        "save a hand-written practice test; from a call: call_test_prepare",
     ),
 )
 

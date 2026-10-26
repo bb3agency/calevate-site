@@ -3,7 +3,7 @@
 For every tool: the planner's canonical arguments and refusals; the change through
 `run_immediate` or `confirm` with its `audit_log` and `copilot_actions` rows; for an
 immediate tool the Undo and its compare-and-swap refusal; the permission refused inside the
-tool; the emailed-code tools refused until Pip's confirm can ask for the code; and the
+tool; the emailed code each gated tool asks for on confirm, as its button does; and the
 reads that name every id the actions take. Every test mints its own tenant.
 """
 
@@ -21,12 +21,8 @@ from sqlalchemy import text
 from tests.api_security_test import _make_tenant
 from tests.forwarding_fixtures import add_line, give_calevate_number
 
-from apps.api.copilot import account_actions, service, tools, write_tools
-from apps.api.copilot.account_actions import (
-    ACCOUNT_ACTIONS,
-    ACCOUNT_CODE_ACTIONS,
-    ACCOUNT_TOOL_AREAS,
-)
+from apps.api.copilot import areas, service, tools, write_tools
+from apps.api.copilot.account_actions import ACCOUNT_ACTIONS
 from apps.api.copilot.write_tools_test import _audit, _confirm, _principal, _user_of
 from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session, untenanted_session
@@ -140,8 +136,7 @@ def test_the_account_actions_are_appended_as_one_block_and_each_has_an_area() ->
     start = names.index(mine[0])
     assert names[start : start + len(mine)] == mine
     assert start > len(names) // 2
-    assert set(ACCOUNT_TOOL_AREAS) == set(mine)
-    assert set(ACCOUNT_TOOL_AREAS.values()) <= {
+    assert {areas.AREA_OF[name] for name in mine} == {
         "numbers",
         "team",
         "settings",
@@ -168,29 +163,36 @@ def test_nothing_here_pays_tops_up_or_approves_a_payment_method() -> None:
             assert word not in tool.name, tool.name
 
 
+def _code_of(name: str, args: dict[str, Any]) -> str | None:
+    tool = write_tools.tool_named(name)
+    assert tool is not None and tool.action_code is not None, name
+    return tool.action_code(args)
+
+
 def test_each_code_gated_tool_names_the_string_its_button_sends() -> None:
-    slug = "acme-clinic"
-    assert (
-        ACCOUNT_CODE_ACTIONS["forwarding_line_add"]({}, slug) == "add_forwarded_number:acme-clinic"
-    )
-    assert ACCOUNT_CODE_ACTIONS["forwarding_line_test"]({}, slug) == "forwarding_test:acme-clinic"
-    assert ACCOUNT_CODE_ACTIONS["crm_endpoint_create"]({}, slug) == "create_endpoint:acme-clinic"
+    gated = {tool.name for tool in ACCOUNT_ACTIONS if tool.action_code is not None}
+    assert gated == {
+        "forwarding_line_add",
+        "forwarding_line_test",
+        "team_invite",
+        "team_member_role",
+        "crm_endpoint_create",
+    }
+    assert _code_of("forwarding_line_add", {}) == "add_forwarded_number:{org}"
+    assert _code_of("forwarding_line_test", {}) == "forwarding_test:{org}"
+    assert _code_of("crm_endpoint_create", {}) == "create_endpoint:{org}"
     owner_invite = {"email": " A@B.in ", "role": "owner"}
-    assert ACCOUNT_CODE_ACTIONS["team_invite"](owner_invite, slug) == (
-        "invite_owner:acme-clinic:a@b.in"
-    )
-    assert ACCOUNT_CODE_ACTIONS["team_invite"]({"email": "a@b.in", "role": "staff"}, slug) is None
+    assert _code_of("team_invite", owner_invite) == "invite_owner:{org}:a@b.in"
+    assert _code_of("team_invite", {"email": "a@b.in", "role": "staff"}) is None
     user = str(uuid.uuid4())
-    assert ACCOUNT_CODE_ACTIONS["team_member_role"]({"user_id": user, "role": "owner"}, slug) == (
-        f"promote_owner:acme-clinic:{user}"
+    assert _code_of("team_member_role", {"user_id": user, "role": "owner"}) == (
+        f"promote_owner:{{org}}:{user}"
     )
-    assert (
-        ACCOUNT_CODE_ACTIONS["team_member_role"]({"user_id": user, "role": "staff"}, slug) is None
-    )
+    assert _code_of("team_member_role", {"user_id": user, "role": "staff"}) is None
 
 
 @pytest.mark.parametrize(
-    ("name", "args"),
+    ("name", "args", "template"),
     [
         (
             "forwarding_line_add",
@@ -202,9 +204,13 @@ def test_each_code_gated_tool_names_the_string_its_button_sends() -> None:
                 "ring_seconds": 0,
                 "calevate_number_id": None,
             },
+            "add_forwarded_number:{org}",
         ),
-        ("forwarding_line_test", {"line_id": str(uuid.uuid4())}),
-        ("team_invite", {"email": "new@example.com", "role": "owner"}),
+        (
+            "team_invite",
+            {"email": "new@example.com", "role": "owner"},
+            "invite_owner:{org}:new@example.com",
+        ),
         (
             "crm_endpoint_create",
             {
@@ -214,17 +220,49 @@ def test_each_code_gated_tool_names_the_string_its_button_sends() -> None:
                 "include_transcript": False,
                 "include_raw_transcript": False,
             },
+            "create_endpoint:{org}",
         ),
     ],
 )
-async def test_a_code_gated_tool_is_refused_until_the_confirm_asks_for_the_code(
-    name: str, args: dict[str, Any]
+async def test_a_code_gated_tool_asks_for_its_buttons_code_on_confirm(
+    name: str, args: dict[str, Any], template: str
 ) -> None:
-    assert account_actions.CODE_GATE_ON_CONFIRM is False
     tenant_id, _slug, token = await _make_tenant()
-    with pytest.raises(write_tools.WriteRefusedError) as refused:
-        await _propose(tenant_id, token, name, args)
-    assert "code we email" in refused.value.reason
+    proposal = await _propose(tenant_id, token, name, args)
+    assert proposal.confirm_action == template
+    with pytest.raises(ProblemError) as missing:
+        await _confirm(tenant_id, _user_of(token), proposal.token)
+    assert missing.value.code == "step_up_required"
+
+
+async def test_an_owner_invitation_runs_once_its_code_is_checked() -> None:
+    tenant_id, _slug, token = await _make_tenant()
+    proposal = await _propose(
+        tenant_id, token, "team_invite", {"email": "Owner2@Example.com", "role": "owner"}
+    )
+    checked: list[str] = []
+
+    async def check(action: str) -> None:
+        checked.append(action)
+
+    async with tenant_session(tenant_id) as session:
+        done = await write_tools.confirm(
+            session,
+            proposal.token,
+            principal=_principal(tenant_id, _user_of(token)),
+            ip=None,
+            code_check=check,
+        )
+    assert done.applied is True
+    assert checked == ["invite_owner:{org}:owner2@example.com"]
+
+
+async def test_a_staff_invitation_needs_no_code() -> None:
+    tenant_id, _slug, token = await _make_tenant()
+    proposal = await _propose(
+        tenant_id, token, "team_invite", {"email": "desk@example.com", "role": "staff"}
+    )
+    assert proposal.confirm_action is None
 
 
 @pytest.mark.parametrize("tool", ACCOUNT_ACTIONS, ids=lambda tool: tool.name)
@@ -366,7 +404,7 @@ async def test_an_invitation_is_cancelled_or_resent() -> None:
     assert await _one(tenant_id, "SELECT 1 FROM invitations WHERE id = :i", i=invitation_id) is None
 
 
-async def test_a_member_is_demoted_or_removed_and_self_and_promotion_are_refused() -> None:
+async def test_a_member_is_demoted_or_removed_self_is_refused_and_promotion_asks_a_code() -> None:
     tenant_id, _slug, token = await _make_tenant()
     colleague = await _add_member(tenant_id, "owner")
     with pytest.raises(write_tools.WriteRefusedError) as self_change:
@@ -380,11 +418,13 @@ async def test_a_member_is_demoted_or_removed_and_self_and_promotion_are_refused
     assert done.applied is True
     role = await _one(tenant_id, "SELECT role FROM memberships WHERE user_id = :u", u=colleague)
     assert role[0] == "staff"
-    with pytest.raises(write_tools.WriteRefusedError) as promotion:
-        await _propose(
-            tenant_id, token, "team_member_role", {"user_id": str(colleague), "role": "owner"}
-        )
-    assert "code we email" in promotion.value.reason
+    promotion = await _propose(
+        tenant_id, token, "team_member_role", {"user_id": str(colleague), "role": "owner"}
+    )
+    assert promotion.confirm_action == f"promote_owner:{{org}}:{colleague}"
+    with pytest.raises(ProblemError) as missing:
+        await _confirm(tenant_id, _user_of(token), promotion.token)
+    assert missing.value.code == "step_up_required"
     await _do(tenant_id, token, "team_member_remove", {"user_id": str(colleague)})
     assert (
         await _one(tenant_id, "SELECT 1 FROM memberships WHERE user_id = :u", u=colleague) is None

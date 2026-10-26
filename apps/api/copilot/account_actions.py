@@ -32,15 +32,16 @@ Creating or re-keying a lead source or endpoint returns a secret exactly once. I
 
 ═══ THE EMAILED CODE ═══
 
-Some buttons here need a code typed for that one act (`core/stepup.ActionCode`, D-730).
-`ACCOUNT_CODE_ACTIONS` names each such tool and builds the exact `X-Confirm-Action` string
-its button sends. Until Pip's confirm can ask for that code (lane F, PIP-AGENT-PLAN F4), the
-planner refuses those tools and names the screen, so no code-gated act runs on a bare click.
+Some buttons here need a code typed for that one act (`core/stepup.ActionCode`, D-730). Each
+such tool declares `ActionTool.action_code`, the template of the exact `X-Confirm-Action`
+string its button's route checks, so confirming or approving it through Pip demands the same
+code (D-893 F4): adding or testing a forwarded number, inviting an owner, making someone an
+owner, and creating a webhook endpoint.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from datetime import date, time
 from decimal import Decimal, InvalidOperation
 from typing import Any, Final, Literal
@@ -61,6 +62,7 @@ from apps.api.copilot.actions import (
     UndoRecord,
     UndoRefusedError,
     WriteRefusedError,
+    account_code,
     action_schema,
     parse_args,
 )
@@ -69,13 +71,19 @@ from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.db.ownership import assert_visible
 
-#: Whether Pip's confirm demands the emailed code a button demands (lane F). False until
-#: that lands: the code-gated tools below refuse at plan time rather than run without it.
-CODE_GATE_ON_CONFIRM: Final = False
 
-#: `(canonical args, org slug) -> the X-Confirm-Action string`, or None when THIS call needs
-#: no code (an invitation as staff). Each string is the one the button's route demands.
-CodeAction = Callable[[Mapping[str, Any], str], str | None]
+def _owner_invite_code(args: Mapping[str, Any]) -> str | None:
+    """`tenancy/routes.invite_owner_confirmation`: bound to the address; staff need none."""
+    if args.get("role") != "owner":
+        return None
+    return f"invite_owner:{{org}}:{str(args['email']).strip().lower()}"
+
+
+def _owner_promotion_code(args: Mapping[str, Any]) -> str | None:
+    """`tenancy/routes.promote_owner_confirmation`: bound to the person; staff need none."""
+    if args.get("role") != "owner":
+        return None
+    return f"promote_owner:{{org}}:{args['user_id']}"
 
 
 def _principal_of(actor: ToolActor) -> Principal:
@@ -93,15 +101,6 @@ def _masked(phone: str) -> str:
     from apps.workers.redaction import redact
 
     return redact(phone).text
-
-
-def _code_gate(screen: str) -> None:
-    if not CODE_GATE_ON_CONFIRM:
-        raise WriteRefusedError(
-            "this needs the code we email the person for this one act, which the assistant "
-            f"cannot ask for yet, so nothing was proposed. It is done on the {screen} screen; "
-            "tell the person exactly this"
-        )
 
 
 async def _agent_name(session: AsyncSession, agent_id: UUID) -> str:
@@ -283,7 +282,6 @@ def _line_args(parsed: _LineChoices) -> dict[str, Any]:
 
 async def _plan_line_add(session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]) -> Plan:
     del session, actor
-    _code_gate("Phone numbers")
     parsed = parse_args(_LineAddArgs, args)
     number = strip_invisible(parsed.number.strip())
     return Plan(
@@ -334,6 +332,7 @@ FORWARDING_LINE_ADD: Final = ActionTool(
     name="forwarding_line_add",
     tier="confirm",
     undo=None,
+    action_code=account_code("add_forwarded_number"),
     permission="org:manage",
     object_type="forwarded_line",
     audit_action="forwarding.line_added",
@@ -568,7 +567,6 @@ async def _plan_line_test(session: AsyncSession, actor: ToolActor, args: Mapping
     del actor
     from apps.api.forwarding.service import read_line
 
-    _code_gate("Phone numbers")
     parsed = parse_args(_LineIdArgs, args)
     line = await read_line(session, parsed.line_id)
     return Plan(
@@ -615,6 +613,7 @@ FORWARDING_LINE_TEST: Final = ActionTool(
     name="forwarding_line_test",
     tier="confirm",
     undo=None,
+    action_code=account_code("forwarding_test"),
     permission="org:manage",
     object_type="forwarded_line",
     audit_action="forwarding.test_requested",
@@ -650,8 +649,6 @@ async def _plan_team_invite(
     from apps.api.tenancy.members import assert_role_is_grantable
 
     parsed = parse_args(_InviteArgs, args)
-    if parsed.role == "owner":
-        _code_gate("Team")
     assert_role_is_grantable(actor.role, parsed.role)
     email = str(parsed.email).strip().lower()
     return Plan(
@@ -696,6 +693,7 @@ TEAM_INVITE: Final = ActionTool(
     name="team_invite",
     tier="confirm",
     undo=None,
+    action_code=_owner_invite_code,
     permission="org:manage",
     object_type="invitation",
     audit_action="member.invited",
@@ -744,8 +742,6 @@ async def _plan_member_role(
     held, name = await _member(session, parsed.user_id)
     if held == parsed.role:
         raise WriteRefusedError(f"{name} is already {_ROLE_WORDS[held]}")
-    if parsed.role == "owner":
-        _code_gate("Team")
     return Plan(
         object_id=str(parsed.user_id),
         title="Change a team member's role",
@@ -789,6 +785,7 @@ TEAM_MEMBER_ROLE: Final = ActionTool(
     name="team_member_role",
     tier="confirm",
     undo=None,
+    action_code=_owner_promotion_code,
     permission="org:manage",
     object_type="membership",
     audit_action="member.role_changed",
@@ -1765,7 +1762,6 @@ async def _plan_endpoint_create(
         assert_recording_ready_opt_in,
     )
 
-    _code_gate("Integrations")
     parsed = parse_args(_EndpointCreateArgs, args)
     url = strip_invisible(parsed.url.strip())
     if not url.startswith("https://"):
@@ -1830,6 +1826,7 @@ CRM_ENDPOINT_CREATE: Final = ActionTool(
     name="crm_endpoint_create",
     tier="confirm",
     undo=None,
+    action_code=account_code("create_endpoint"),
     permission="org:manage",
     object_type="outbound_webhook",
     audit_action="integration_endpoint.created",
@@ -2511,65 +2508,6 @@ ACCOUNT_ACTIONS: Final[tuple[ActionTool, ...]] = (
 )
 
 
-def _with_slug(verb: str) -> CodeAction:
-    return lambda _args, slug: f"{verb}:{slug}"
-
-
-def _owner_invite(args: Mapping[str, Any], slug: str) -> str | None:
-    if args.get("role") != "owner":
-        return None
-    return f"invite_owner:{slug}:{str(args['email']).strip().lower()}"
-
-
-def _owner_promotion(args: Mapping[str, Any], slug: str) -> str | None:
-    if args.get("role") != "owner":
-        return None
-    return f"promote_owner:{slug}:{args['user_id']}"
-
-
-#: The tools whose console button demands an emailed code, and the exact confirmation each
-#: route checks (`forwarding/routes.ADD_ACTION` / `TEST_ACTION`,
-#: `tenancy/routes.invite_owner_confirmation` / `promote_owner_confirmation`, the
-#: `create_endpoint` verb of `integrations/routes.create_endpoint`).
-ACCOUNT_CODE_ACTIONS: Final[Mapping[str, CodeAction]] = {
-    "forwarding_line_add": _with_slug("add_forwarded_number"),
-    "forwarding_line_test": _with_slug("forwarding_test"),
-    "team_invite": _owner_invite,
-    "team_member_role": _owner_promotion,
-    "crm_endpoint_create": _with_slug("create_endpoint"),
-}
-
-#: Each tool's area for Pip's area facade (PIP-AGENT-PLAN F1, `copilot/areas.py`).
-ACCOUNT_TOOL_AREAS: Final[Mapping[str, str]] = {
-    "number_assign": "numbers",
-    "forwarding_line_add": "numbers",
-    "forwarding_line_change": "numbers",
-    "forwarding_line_remove": "numbers",
-    "forwarding_line_test": "numbers",
-    "team_invite": "team",
-    "team_member_role": "team",
-    "team_member_remove": "team",
-    "team_invitation": "team",
-    "line_protection_phone": "settings",
-    "lead_source_create": "settings",
-    "lead_source_edit": "settings",
-    "lead_source_switch": "settings",
-    "lead_source_rotate": "settings",
-    "lead_calling_rules": "settings",
-    "held_lead_decide": "settings",
-    "crm_endpoint_create": "integrations",
-    "crm_endpoint_edit": "integrations",
-    "crm_endpoint_act": "integrations",
-    "crm_delivery_resend": "integrations",
-    "spend_caps_set": "billing",
-    "auto_recharge_set": "billing",
-    "low_balance_alert_set": "billing",
-    "ai_allowance_extra": "billing",
-}
-
 __all__ = [
     "ACCOUNT_ACTIONS",
-    "ACCOUNT_CODE_ACTIONS",
-    "ACCOUNT_TOOL_AREAS",
-    "CODE_GATE_ON_CONFIRM",
 ]

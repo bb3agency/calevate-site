@@ -400,8 +400,9 @@ class ActionTool:
     #: The emailed-code action string the console BUTTON for this act demands (D-730), as a
     #: template over the arguments with `{org}` for the account's slug — e.g.
     #: `lambda args: "buy_number:{org}"`. Confirming or approving it then demands the same
-    #: code (D-893 F4); `None` when the button asks for none.
-    action_code: Callable[[Mapping[str, Any]], str] | None = None
+    #: code (D-893 F4); `None` when the button asks for none, and the template returns
+    #: `None` for a call its button would not gate (inviting staff rather than an owner).
+    action_code: Callable[[Mapping[str, Any]], str | None] | None = None
 
     def __post_init__(self) -> None:
         # A CONFIRM action may declare an Undo too (D-893 F4): it needed a click because it

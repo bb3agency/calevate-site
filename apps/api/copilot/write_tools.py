@@ -1673,7 +1673,8 @@ async def _require_action_code(
 ) -> None:
     """The console button's emailed code, demanded of the same act through Pip (D-893 F4).
     A caller with no way to check one (a background run) is refused, never let through."""
-    if tool.action_code is None:
+    template = None if tool.action_code is None else tool.action_code(args)
+    if template is None:
         return
     if code_check is None:
         raise ProblemError(
@@ -1683,7 +1684,7 @@ async def _require_action_code(
             detail="This change needs a code sent to your email, typed for it.",
             remediation="Confirm it from the assistant panel, where you will be asked for one.",
         )
-    await code_check(tool.action_code(args))
+    await code_check(template)
 
 
 async def _record_undo(

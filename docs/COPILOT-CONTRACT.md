@@ -116,7 +116,7 @@ Registering a client tool is therefore one more step:
 
 ```python
 # apps/api/copilot/areas.py — ENTRIES, appended inside the area's block
-AreaEntry("lead_set_status", "leads", "one lead's status; many leads: leads_bulk_update"),
+(AreaEntry("lead_set_status", "leads", "one lead's status; many leads: leads_bulk_update"),)
 ```
 
 * `line` is all the model reads about the tool besides its generated `name(arg, ...)` and
@@ -133,8 +133,8 @@ AreaEntry("lead_set_status", "leads", "one lead's status; many leads: leads_bulk
 * Tool-choice cases name `<area tool>:<action>` (`leads_do:lead_set_status`); flat tools
   (`set_fields`, `open_screen`, `run_in_background`) keep their names.
 * Budget: the client tool array is at most 12,000 estimated tokens
-  (`prompt_budget_test.TOOL_ARRAY_BUDGET_TOKENS`); it was ~13,300 as 71 tools and ~6,100 as
-  23 area tools.
+  (`prompt_budget_test.TOOL_ARRAY_BUDGET_TOKENS`); it was ~13,300 as 71 tools before the
+  D-893 lanes and is ~10,100 as 26 area tools with every lane's actions (~118 actions).
 * The admin realm still offers its tools one by one.
 
 ## 3. The permission check, inside the tool
@@ -160,10 +160,11 @@ is checked inside:
   string). The proposal frame and the Approvals row carry it as `confirm_action`; the browser
   sends it, `{org}` filled in, as `X-Confirm-Action` through `withAccountCode`, and
   `confirm` / `approve` check it (`core/stepup.account_code_check`) before the token is
-  spent. A background run cannot type a code, so it never executes such an action. Today:
-  `number_buy` (`buy_number`). Lanes adding exports, owner invites or integration endpoints
-  to Pip declare the verb their route uses (`export_leads`, `invite_owner` + email,
-  `create_endpoint`).
+  spent. A background run cannot type a code, so it never executes such an action. A
+  template returns `None` for a call its button would not gate (an invitation as staff).
+  Today: `number_buy` (`buy_number`, the Buy button's own code), `forwarding_line_add`,
+  `forwarding_line_test`, `team_invite` and `team_member_role` to owner, and
+  `crm_endpoint_create` (§17).
 * Admin actions use `role_has(actor.role, tool.permission)` and refuse an impersonating
   operator; set `confirm_action` to the step-up string the console button sends, and the
   admin confirm door demands that header plus a fresh second factor. Set it to `None`
@@ -627,8 +628,7 @@ lived in a route body it moved into a service both doors call.
 * **Never through Pip:** connecting an account (keys, OAuth), and switching caller memory on
   before the owner has confirmed its statement on the Settings tab — the planner refuses and
   sends the person there; `set_caller_memory` is always called with `attested_by=None`.
-* **The prefix budget** rose to 25,100 tokens (with §17) while each action is its own tool;
-  `docs/PIP-AGENT-PLAN.md` §3 F1's area tools replace the per-tool array.
+* **Area:** every tool here is on `agents_find` / `agents_do` (§2a).
 * Tests: `copilot/agent_setup_actions_test.py`, `copilot/agent_tool_actions_test.py`; tool
   choice: the `c-agent-*`, `c-script-put-live`, `c-script-discard`, `c-script-version`,
   `c-lead-*` cases.
@@ -639,8 +639,8 @@ lived in a route body it moved into a service both doors call.
 |---|---|---|
 | numbers | `number_assign` (confirm), `forwarding_line_add` (confirm, code), `forwarding_line_change` (immediate), `forwarding_line_remove` (confirm), `forwarding_line_test` (confirm, code) | `number_catalog.assign_number_to_agent`, `forwarding.service.create_line` / `update_line` / `delete_line`, `forwarding.testing.start_test` |
 | team | `team_invite` (confirm; code for an owner), `team_member_role` (confirm; code to make an owner), `team_member_remove`, `team_invitation` (resend or cancel) | `tenancy.members.send_team_invitation`, `change_member_role`, `remove_member`, `resend_and_mail_invitation`, `revoke_invitation` |
-| settings | `line_protection_phone`, `lead_source_create`, `lead_source_edit` (immediate), `lead_source_switch` (immediate), `lead_source_rotate`, `lead_calling_rules`, `held_lead_decide` | `healer.protection.set_fallback_phone` / `clear_fallback_phone`, `ingest.service.create_lead_source` / `set_source_agent` / `set_active` / `rotate_secret`, `lead_policy.save_and_apply` / `release_held` / `drop_held` |
-| integrations | `crm_endpoint_create` (confirm, code), `crm_endpoint_edit`, `crm_endpoint_act` (switch off, new secret), `crm_delivery_resend` | `integrations.service.create_webhook_endpoint` / `update_endpoint` / `deactivate_endpoint` / `rotate_endpoint_secret` / `resend_delivery` |
+| settings | `line_protection_phone` | `healer.protection.set_fallback_phone` / `clear_fallback_phone` |
+| integrations | `lead_source_create`, `lead_source_edit` (immediate), `lead_source_switch` (immediate), `lead_source_rotate`, `lead_calling_rules`, `held_lead_decide`, `crm_endpoint_create` (confirm, code), `crm_endpoint_edit`, `crm_endpoint_act` (switch off, new secret), `crm_delivery_resend` | `ingest.service.create_lead_source` / `set_source_agent` / `set_active` / `rotate_secret`, `lead_policy.save_and_apply` / `release_held` / `drop_held`, `integrations.service.create_webhook_endpoint` / `update_endpoint` / `deactivate_endpoint` / `rotate_endpoint_secret` / `resend_delivery` |
 | billing | `spend_caps_set`, `auto_recharge_set`, `low_balance_alert_set` (immediate), `ai_allowance_extra` | `caps.apply_client_caps`, `auto_recharge.save_auto_recharge`, `billing.service.set_low_balance_line`, `ai_quota.purchase_ai_overage` |
 
 Unmarked tools are confirm. Reads: `numbers_list` (numbers, forwarded numbers, calls at once,
@@ -654,12 +654,14 @@ with its id) and `billing_settings`.
 * **Secrets are shown once, to the person.** A new lead source, endpoint or rotated secret goes
   in `Executed.detail` (the confirming person's response) and never in `recorded`, the audit
   summary or a Plan.
-* **The emailed code (D-730).** `ACCOUNT_CODE_ACTIONS` names each tool whose button needs a code
-  and builds its exact `X-Confirm-Action` (`add_forwarded_number:<slug>`,
-  `forwarding_test:<slug>`, `invite_owner:<slug>:<email>`, `promote_owner:<slug>:<user id>`,
-  `create_endpoint:<slug>`). While `CODE_GATE_ON_CONFIRM` is false (until Pip's confirm can ask
-  for the code, PIP-AGENT-PLAN F4) those planners refuse and name the screen.
-* **Areas.** `ACCOUNT_TOOL_AREAS` maps each tool to its area for the F1 facade.
+* **The emailed code (D-730).** Each tool whose button needs a code declares
+  `ActionTool.action_code`, the template of its route's exact `X-Confirm-Action` with `{org}`
+  for the slug (`add_forwarded_number:{org}`, `forwarding_test:{org}`,
+  `invite_owner:{org}:<email>` and `promote_owner:{org}:<user id>` only when the role is owner,
+  `create_endpoint:{org}`); the proposal and the waiting approval carry it as
+  `confirm_action`, and confirming or approving demands that code (§3).
+* **Areas.** Lead sources sit with integrations, where `integrations_status` names their ids;
+  every tool's area is in `copilot/areas.py`.
 * Tests: `apps/api/copilot/account_actions_test.py`, `tests/account_settings_routes_test.py`;
   tool choice: the `c-number-*`, `c-forwarding-*`, `c-team-*`, `c-invite-*`, `c-backup-phone`,
   `c-source-*`, `c-calling-hours`, `c-held-call`, `c-endpoint-off`, `c-delivery-resend`,
