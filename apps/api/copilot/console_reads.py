@@ -351,7 +351,16 @@ async def _callbacks_list(
         _clean(
             f"- {row['status']} · due {ist_stamp(row['requested_at'])} · "
             f"{row['attempts']} attempt(s)"
-            + (f" · last refused: {row['last_refusal_rule']}" if row["last_refusal_rule"] else "")
+            + (
+                # D-914: held while its campaign is paused, called off when it stopped.
+                f" · {callbacks_service.CAMPAIGN_PAUSED_REASON}"
+                if row["held"]
+                else f" · {row['last_refusal_reason']}"
+                if row["last_refusal_rule"] == callbacks_service.CAMPAIGN_STOPPED_RULE
+                else f" · last refused: {row['last_refusal_rule']}"
+                if row["last_refusal_rule"]
+                else ""
+            )
         )
         + f" [callback_id {row['id']}]"
         + (f" [lead_id {row['lead_id']}]" if row["lead_id"] else "")
@@ -807,16 +816,22 @@ async def _campaign_detail(
                 f"Picked up {round(found['pickup_rate'] * 100)}% of the {found['tried']} tried; "
                 f"average connected call {found['average_call_s'] or 0}s."
             )
+        lines.append(
+            f"Calls placed {found['calls']} (call-backs included), {found['connected_calls']} "
+            f"answered, reaching {found['people_answered']} people. The counts below are "
+            "people, each once, by their latest answered call."
+        )
         if found["outcome_tags"]:
             tags = ", ".join(f"{k} {v}" for k, v in found["outcome_tags"].items())
-            lines.append(f"What the conversations came to: {tags}.")
+            lines.append(f"People by what their conversation came to: {tags}.")
         if found["business_outcomes"]:
             mine = ", ".join(f"{o['label']} {o['count']}" for o in found["business_outcomes"])
-            lines.append(f"By the agent's own outcomes: {mine}.")
+            lines.append(f"People by the agent's own outcomes: {mine}.")
         for field in found["fields"]:
             values = ", ".join(f"{v['value']} {v['count']}" for v in field["values"] if v["count"])
             lines.append(
-                f"{field['label']}: {values or 'none yet'}; not captured {field['not_captured']}."
+                f"{field['label']} (people): {values or 'none yet'}; "
+                f"not given {field['not_captured']}."
             )
         lines.append(
             f"Leads from this campaign: {found['leads']} ({found['hot_leads']} hot); "

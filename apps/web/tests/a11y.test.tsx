@@ -3370,6 +3370,7 @@ const CLIENT_SCREENS: Screen[] = [
           explanation: "Waiting for the time they asked for.",
           last_call_id: null,
           settled_at: null,
+          held: false,
           note: "wants the Gachibowli listing",
         },
         {
@@ -3383,6 +3384,7 @@ const CLIENT_SCREENS: Screen[] = [
           explanation: "This number is on the do-not-call list.",
           last_call_id: null,
           settled_at: "2026-09-01T10:31:00Z",
+          held: false,
           note: null,
         },
       ],

@@ -60,6 +60,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.models import CALL_CAP_MAX_S
 from apps.api.callbacks.models import STATUSES
+from apps.api.compliance.audit import write_audit
 from apps.api.db.result import rowcount_of
 from apps.workers.redaction import redact
 
@@ -127,6 +128,46 @@ UNATTEMPTED_REASON: Final[str] = (
 )
 
 
+#: A CAMPAIGN'S CALL-BACKS FOLLOW THE CAMPAIGN (D-914, founder 28 Oct 2026). A call-back
+#: belongs to the campaign of the call it was promised on (D-905, `_CAMPAIGN_OF`); one
+#: promised on a call outside any campaign is unaffected by all of this.
+#:
+#: * While the campaign is PAUSED, for any reason, its call-backs are held: never claimed,
+#:   never expired, and the row says so (`CAMPAIGN_PAUSED_RULE`/`_REASON`).
+#: * When it RESUMES, each held call-back whose time has passed is dialled at the next
+#:   moment the platform's and the campaign's calling hours allow, through the ordinary
+#:   claim, so `MAX_PER_TICK` and the tick's line budget pace them (no burst); DNC, credit
+#:   and the halt are the gate's at dial time as for every call-back. Its two hours of
+#:   `GRACE` count from that moment (`grace_from`), not from the promised time that passed
+#:   during the pause.
+#: * When it is STOPPED (cancelled), its waiting call-backs are called off with
+#:   `CAMPAIGN_STOPPED_REASON`, audited.
+#:
+#: A pause therefore holds a promise rather than breaking it: a pause is "not now", and the
+#: caller who asked to be rung back still wants the call once the business says go.
+CAMPAIGN_PAUSED_RULE: Final = "campaign_paused"
+CAMPAIGN_PAUSED_REASON: Final = (
+    "On hold while its campaign is paused. It will be called once the campaign resumes."
+)
+CAMPAIGN_STOPPED_RULE: Final = "campaign_stopped"
+CAMPAIGN_STOPPED_REASON: Final = "Its campaign was stopped."
+
+#: The campaign of the call-back aliased `s` is `campaigns c` reached through `calls k`, the
+#: call it was promised on. A call-back of a call-back follows the chain, because the first
+#: call-back's own call carries the campaign (`link_callback_to_call`).
+_PAUSED_OR_STOPPED: Final = (
+    "EXISTS (SELECT 1 FROM calls k JOIN campaigns c ON c.id = k.campaign_id "
+    "WHERE k.id = s.source_call_id AND c.status IN ('paused', 'cancelled'))"
+)
+#: Whether the call-back aliased `s` is held right now: waiting, and its campaign paused.
+#: Read live for the screen, so a pause shows the moment it lands rather than on the next
+#: tick's mark.
+_HELD: Final = (
+    "(s.status = 'scheduled' AND EXISTS (SELECT 1 FROM calls k JOIN campaigns c "
+    "ON c.id = k.campaign_id WHERE k.id = s.source_call_id AND c.status = 'paused'))"
+)
+
+
 @dataclass(frozen=True, slots=True)
 class DueCallback:
     """One claimed promise, with everything the dial needs and nothing more."""
@@ -142,6 +183,10 @@ class DueCallback:
     booked_at: datetime | None = None
     #: The call it was promised on, whose campaign and list row the dial inherits (D-905).
     source_call_id: UUID | None = None
+    #: Set when a campaign pause held it (D-914); such a call-back also keeps to its
+    #: campaign's calling hours, given here (None: the platform window only).
+    grace_from: datetime | None = None
+    campaign_calling_hours: dict[str, Any] | None = None
 
 
 #: `source_execution_id` prefix of a call-back a PERSON in the account scheduled for a lead
@@ -255,18 +300,135 @@ async def expire_stale(session: AsyncSession, *, now: datetime | None = None) ->
     not go out.
 
     A `dialing` row is deliberately NOT expired here: it is either ringing or already rang,
-    and `settle_dialled` is what ends it.
+    and `settle_dialled` is what ends it. Nor is one its campaign's pause holds (D-914):
+    its two hours start when the campaign resumes (`release_resumed`), from `grace_from`.
     """
     result = await session.execute(
         text(
             "UPDATE scheduled_callbacks SET status = 'missed', settled_at = now(), "
             "  last_refusal_reason = coalesce(last_refusal_reason, :fallback), "
             "  updated_at = now() "
-            "WHERE status = 'scheduled' AND requested_at < :cutoff"
+            "WHERE status = 'scheduled' "
+            "  AND greatest(requested_at, coalesce(grace_from, requested_at)) < :cutoff "
+            "  AND last_refusal_rule IS DISTINCT FROM :held"
         ),
-        {"cutoff": (now or datetime.now(UTC)) - GRACE, "fallback": UNATTEMPTED_REASON},
+        {
+            "cutoff": (now or datetime.now(UTC)) - GRACE,
+            "fallback": UNATTEMPTED_REASON,
+            "held": CAMPAIGN_PAUSED_RULE,
+        },
     )
     return rowcount_of(result)
+
+
+async def hold_for_paused_campaigns(session: AsyncSession) -> int:
+    """Mark every waiting call-back of a paused campaign as held (D-914). Returns how many
+    were newly marked.
+
+    The mark is the refusal pair the screen already explains a waiting row with, so a held
+    call-back reads "On hold while its campaign is paused" with no new screen state, and it
+    is what `release_resumed` finds once the campaign runs again. Written once per row, not
+    per tick (`IS DISTINCT FROM`). Runs before `expire_stale` in the same transaction, so a
+    call-back whose campaign paused cannot run out of time behind the pause.
+    """
+    result = await session.execute(
+        text(
+            "UPDATE scheduled_callbacks s SET last_refusal_rule = :rule, "
+            "  last_refusal_reason = :reason, updated_at = now() "
+            "FROM calls k JOIN campaigns c ON c.id = k.campaign_id "
+            "WHERE k.id = s.source_call_id AND s.status = 'scheduled' AND c.status = 'paused' "
+            "  AND s.last_refusal_rule IS DISTINCT FROM :rule"
+        ),
+        {"rule": CAMPAIGN_PAUSED_RULE, "reason": CAMPAIGN_PAUSED_REASON},
+    )
+    return rowcount_of(result)
+
+
+async def release_resumed(session: AsyncSession, *, now: datetime | None = None) -> int:
+    """Put the held call-backs of a campaign that is no longer paused back in line (D-914).
+    Returns how many.
+
+    Each is due at the first moment at or after the later of now and its promised time that
+    the campaign's calling hours (inside the platform's 09:00-21:00 IST) allow, and its
+    `GRACE` counts from there. A call-back whose campaign or source call is gone (erased by
+    retention) is released on the platform window rather than held for ever.
+    """
+    # Imported here: `campaigns.scheduling` imports `compliance.service`, which imports
+    # this module.
+    from apps.api.campaigns.scheduling import first_dial_not_before
+
+    moment = now or datetime.now(UTC)
+    rows = (
+        await session.execute(
+            text(
+                "SELECT s.id, s.requested_at, c.calling_hours FROM scheduled_callbacks s "
+                "LEFT JOIN calls k ON k.id = s.source_call_id "
+                "LEFT JOIN campaigns c ON c.id = k.campaign_id "
+                "WHERE s.status = 'scheduled' AND s.last_refusal_rule = :rule "
+                "  AND c.status IS DISTINCT FROM 'paused' "
+                "FOR UPDATE OF s SKIP LOCKED"
+            ),
+            {"rule": CAMPAIGN_PAUSED_RULE},
+        )
+    ).all()
+    if not rows:
+        return 0
+    ids = [row[0] for row in rows]
+    due = [first_dial_not_before(max(moment, row[1]), row[2]) for row in rows]
+    result = await session.execute(
+        text(
+            "UPDATE scheduled_callbacks s SET grace_from = v.at, next_attempt_at = v.at, "
+            "  last_refusal_rule = NULL, last_refusal_reason = NULL, updated_at = now() "
+            "FROM unnest(CAST(:ids AS uuid[]), CAST(:ats AS timestamptz[])) AS v(id, at) "
+            "WHERE s.id = v.id AND s.status = 'scheduled' AND s.last_refusal_rule = :rule"
+        ),
+        {"ids": ids, "ats": due, "rule": CAMPAIGN_PAUSED_RULE},
+    )
+    return rowcount_of(result)
+
+
+async def call_off_for_stopped_campaigns(
+    session: AsyncSession, *, tenant_id: UUID, campaign_id: UUID | None = None
+) -> int:
+    """Call off the waiting call-backs of stopped campaigns, one campaign or every one in
+    the account (D-914). Returns how many, and writes one `system` audit row per campaign
+    that had any, in the caller's transaction.
+
+    The stop control calls it for its campaign, so the screen is truthful the moment the
+    campaign stops; the tick calls it for every stopped campaign, so a campaign cancelled
+    by any other path cannot leave a call-back to ring. A `dialing` row is left alone for
+    `cancel_for_phones`' reason: its phone may already be ringing.
+    """
+    params: dict[str, Any] = {"rule": CAMPAIGN_STOPPED_RULE, "reason": CAMPAIGN_STOPPED_REASON}
+    only = ""
+    if campaign_id is not None:
+        only, params["cid"] = "AND c.id = :cid ", campaign_id
+    rows = (
+        await session.execute(
+            text(
+                "UPDATE scheduled_callbacks s SET status = 'cancelled', settled_at = now(), "
+                "  last_refusal_rule = :rule, last_refusal_reason = :reason, updated_at = now() "
+                "FROM calls k JOIN campaigns c ON c.id = k.campaign_id "
+                "WHERE k.id = s.source_call_id AND s.status = 'scheduled' "
+                f"  AND c.status = 'cancelled' {only}"
+                "RETURNING c.id"
+            ),
+            params,
+        )
+    ).all()
+    per_campaign: dict[UUID, int] = {}
+    for (cid,) in rows:
+        per_campaign[UUID(str(cid))] = per_campaign.get(UUID(str(cid)), 0) + 1
+    for cid, count in sorted(per_campaign.items()):
+        await write_audit(
+            session,
+            action="callbacks.called_off",
+            tenant_id=tenant_id,
+            object_type="campaign",
+            object_id=str(cid),
+            summary={"reason": CAMPAIGN_STOPPED_RULE, "count": count},
+        )
+    return len(rows)
 
 
 async def settle_dialled(session: AsyncSession, *, now: datetime | None = None) -> int:
@@ -334,10 +496,15 @@ async def claim_due(
         await session.execute(
             text(
                 "WITH picked AS MATERIALIZED ("
-                "  SELECT id FROM scheduled_callbacks "
+                "  SELECT id FROM scheduled_callbacks s "
                 "  WHERE status = 'scheduled' AND requested_at <= :now "
                 "  AND (next_attempt_at IS NULL OR next_attempt_at <= :now) "
-                "  ORDER BY requested_at, id LIMIT :n FOR UPDATE SKIP LOCKED"
+                # Held or called off with its campaign (D-914), read here as well as
+                # marked by the passes before the claim: a pause that lands between the
+                # mark and this statement still stops the dial.
+                "  AND last_refusal_rule IS DISTINCT FROM :held "
+                f"  AND NOT {_PAUSED_OR_STOPPED} "
+                "  ORDER BY requested_at, id LIMIT :n FOR UPDATE OF s SKIP LOCKED"
                 ") "
                 # The refusal that deferred the last attempt is cleared: it is what the
                 # client's screen explains a row with, and from here the row is either
@@ -347,9 +514,11 @@ async def claim_due(
                 "  last_refusal_reason = NULL, updated_at = now() "
                 "FROM picked WHERE s.id = picked.id "
                 "RETURNING s.id, s.agent_id, s.lead_id, s.phone_e164, s.requested_at, s.note, "
-                "  s.source_execution_id, s.booked_at, s.source_call_id"
+                "  s.source_execution_id, s.booked_at, s.source_call_id, s.grace_from, "
+                "  (SELECT c.calling_hours FROM calls k JOIN campaigns c "
+                "   ON c.id = k.campaign_id WHERE k.id = s.source_call_id)"
             ),
-            {"now": now or datetime.now(UTC), "n": limit},
+            {"now": now or datetime.now(UTC), "n": limit, "held": CAMPAIGN_PAUSED_RULE},
         )
     ).all()
     return [
@@ -363,6 +532,8 @@ async def claim_due(
             source_execution_id=row[6],
             booked_at=row[7],
             source_call_id=UUID(str(row[8])) if row[8] else None,
+            grace_from=row[9],
+            campaign_calling_hours=row[10] if isinstance(row[10], dict) else None,
         )
         for row in rows
     ]
@@ -405,6 +576,39 @@ async def _defer_where(
         },
     )
     return rowcount_of(result)
+
+
+async def defer_to_window(
+    session: AsyncSession, callback: DueCallback, *, rule: str, reason: str | None
+) -> datetime | None:
+    """For a call-back released from a campaign hold (D-914): when the campaign's calling
+    hours (inside the platform's) are closed now, put it back to wait for their next
+    opening, its grace moving with it, and return that instant. None when they are open and
+    the dial may go ahead.
+
+    Only a released call-back, because it is the only kind that may be dialled after its
+    two hours: the window it was released into can close behind a busy line, and ending it
+    as missed at 23:00 would break the promise the hold kept. Any other call-back keeps to
+    the gate's own window and `GRACE` from its promised time, as before.
+    """
+    from apps.api.campaigns.scheduling import first_dial_not_before
+
+    if callback.grace_from is None:
+        return None
+    moment = datetime.now(UTC)
+    opens = first_dial_not_before(moment, callback.campaign_calling_hours)
+    if opens <= moment:
+        return None
+    await session.execute(
+        text(
+            "UPDATE scheduled_callbacks SET status = 'scheduled', attempts = attempts - 1, "
+            "  next_attempt_at = :at, grace_from = :at, last_refusal_rule = :rule, "
+            "  last_refusal_reason = :reason, updated_at = now() "
+            "WHERE id = :id AND status = 'dialing'"
+        ),
+        {"id": callback.id, "at": opens, "rule": rule, "reason": reason},
+    )
+    return opens
 
 
 async def defer_recalled(
@@ -654,8 +858,8 @@ async def list_callbacks(
             text(
                 "SELECT id, agent_id, phone_e164, requested_at, status, attempts, "
                 "  last_refusal_rule, last_refusal_reason, last_call_id, lead_id, note, "
-                "  settled_at "
-                f"FROM scheduled_callbacks{where} ORDER BY requested_at {order}, id LIMIT :n"
+                f"  settled_at, {_HELD} AS held "
+                f"FROM scheduled_callbacks s{where} ORDER BY requested_at {order}, id LIMIT :n"
             ),
             {"n": limit},
         )
@@ -669,7 +873,7 @@ async def get_callback(session: AsyncSession, callback_id: UUID) -> dict[str, An
             text(
                 "SELECT id, agent_id, phone_e164, requested_at, status, attempts, "
                 "  last_refusal_rule, last_refusal_reason, last_call_id, lead_id, note, "
-                "  settled_at FROM scheduled_callbacks WHERE id = :id"
+                f"  settled_at, {_HELD} AS held FROM scheduled_callbacks s WHERE id = :id"
             ),
             {"id": callback_id},
         )
@@ -679,6 +883,10 @@ async def get_callback(session: AsyncSession, callback_id: UUID) -> dict[str, An
 
 
 __all__ = [
+    "CAMPAIGN_PAUSED_REASON",
+    "CAMPAIGN_PAUSED_RULE",
+    "CAMPAIGN_STOPPED_REASON",
+    "CAMPAIGN_STOPPED_RULE",
     "CLIENT_SCHEDULE_PREFIX",
     "GRACE",
     "LIVE_STATUSES",
@@ -689,6 +897,7 @@ __all__ = [
     "UNATTEMPTED_REASON",
     "DueCallback",
     "book",
+    "call_off_for_stopped_campaigns",
     "cancel_for_phones",
     "cancel_for_phones_fleet_wide",
     "cancel_one",
@@ -697,10 +906,13 @@ __all__ = [
     "context_note",
     "defer",
     "defer_recalled",
+    "defer_to_window",
     "expire_stale",
     "get_callback",
+    "hold_for_paused_campaigns",
     "link_callback_to_call",
     "list_callbacks",
+    "release_resumed",
     "settle",
     "settle_dialled",
 ]

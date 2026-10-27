@@ -38,6 +38,7 @@ function waiting(n: number): ScheduledCallback {
     explanation: "Booked for the time the caller asked for.",
     last_call_id: null,
     settled_at: null,
+    held: false,
     note: null,
   };
 }
@@ -67,6 +68,20 @@ describe("moving a call-back", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     const body = sent(calls, "PATCH", `/v1/callbacks/${row.id}`);
     expect(String(body?.at)).toMatch(/T\d\d:\d\d:00\+05:30$/);
+  });
+});
+
+describe("a call-back its campaign's pause holds (D-914)", () => {
+  it("reads On hold with the reason, and a waiting one does not", async () => {
+    const held: ScheduledCallback = {
+      ...waiting(1),
+      held: true,
+      explanation: "On hold while its campaign is paused. It will be called once the campaign resumes.",
+    };
+    await renderClientPage(<CallbacksPage />, { "/v1/me": OWNER, [LIST]: [held, waiting(2)] });
+    expect(await screen.findByText("On hold")).toBeTruthy();
+    expect(screen.getByText(/will be called once the campaign resumes/)).toBeTruthy();
+    expect(screen.getAllByText("Waiting").length).toBeGreaterThan(0);
   });
 });
 

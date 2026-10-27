@@ -16334,6 +16334,8 @@ export interface components {
             outcomes: {
                 [key: string]: number;
             };
+            /** People Answered */
+            people_answered: number;
             /** Pickup Rate */
             pickup_rate: number | null;
             /** Recent Leads */
@@ -28300,6 +28302,8 @@ export interface components {
             attempts: number;
             /** Explanation */
             explanation: string;
+            /** Held */
+            held: boolean;
             /**
              * Id
              * Format: uuid
