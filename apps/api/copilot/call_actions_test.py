@@ -328,6 +328,20 @@ async def test_many_call_backs_are_moved_as_one_plan_and_an_ended_one_is_left_ou
     assert after[0][1] == after[1][1] == at.astimezone(UTC)
 
 
+async def test_a_move_whose_time_has_passed_by_approval_leaves_the_call_back_alone() -> None:
+    tenant_id, _slug, token = await _make_tenant()
+    actor = _actor(tenant_id, _user_of(token))
+    ids = await _waiting_callbacks(tenant_id, 1)
+    before = await _statuses(tenant_id, ids)
+    gone = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
+    async with tenant_session(tenant_id) as session:
+        outcome = await call_actions._run_change(
+            session, actor, {"change": "move", "at": gone}, ids[0]
+        )
+    assert outcome == plans.TargetOutcome("skipped", "That time has passed.")
+    assert await _statuses(tenant_id, ids) == before
+
+
 async def test_waiting_call_backs_of_a_lens_are_called_off() -> None:
     tenant_id, _slug, token = await _make_tenant()
     actor = _actor(tenant_id, _user_of(token))
