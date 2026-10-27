@@ -97,6 +97,7 @@ def test_every_batched_arm_actually_carries_the_limit() -> None:
     unbounded statement, which is exactly what this file exists to prevent."""
     for sql in (
         retention._COPILOT_TURN_SUBJECT_SQL,
+        retention._COPILOT_MEMORY_SUBJECT_SQL,
         retention._OUTBOX_SUBJECT_SQL,
         retention._OUTBOX_TENANT_SQL,
     ):
@@ -114,5 +115,9 @@ def test_the_unindexable_arms_are_the_batched_ones() -> None:
         and "regexp_replace" in value
         and value.strip().startswith("DELETE")
     ]
-    assert sorted(digit_matchers) == ["_COPILOT_TURN_SUBJECT_SQL", "_OUTBOX_SUBJECT_SQL"]
+    assert sorted(digit_matchers) == [
+        "_COPILOT_MEMORY_SUBJECT_SQL",
+        "_COPILOT_TURN_SUBJECT_SQL",
+        "_OUTBOX_SUBJECT_SQL",
+    ]
     assert all("LIMIT :batch" in getattr(retention, name) for name in digit_matchers)
