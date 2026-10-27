@@ -5,6 +5,7 @@ import type { UseMutationResult } from "@tanstack/react-query";
 import { Bookmark, Trash2 } from "lucide-react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import type { Session } from "@/lib/api/client";
 import { TEXT_ACTION } from "@/components/console/section";
 import { FIELD_INLINE, FIELD_LABEL, ProblemNotice } from "@/components/ui";
 
@@ -44,8 +45,9 @@ export function SavedViewBar<V extends NamedView, B extends { name: string }>({
   writeReason,
   onApply,
   bodyFor,
-  save,
-  remove,
+  session,
+  useSave,
+  useRemove,
   allLabel,
   describe,
   notice,
@@ -59,8 +61,10 @@ export function SavedViewBar<V extends NamedView, B extends { name: string }>({
   onApply: (view: V | undefined) => void;
   /** The current filters as a view body; `rolling` keeps ranges ending today moving. */
   bodyFor: (name: string, rolling: boolean) => B;
-  save: UseMutationResult<V, unknown, SaveViewVars<B>>;
-  remove: UseMutationResult<unknown, unknown, string>;
+  session: Session;
+  /** The screen's save and delete hooks, created here because their feedback is given here. */
+  useSave: (session: Session) => UseMutationResult<V, unknown, SaveViewVars<B>>;
+  useRemove: (session: Session) => UseMutationResult<unknown, unknown, string>;
   /** The picker's "no view" entry, e.g. "All leads (no view)". */
   allLabel: string;
   /** One line on what the chosen view shows, or null. */
@@ -71,6 +75,8 @@ export function SavedViewBar<V extends NamedView, B extends { name: string }>({
   rollingNote: string | null;
 }) {
   const ids = useId();
+  const save = useSave(session);
+  const remove = useRemove(session);
   // A new view closes its form and becomes the chosen one, so its success is a toast; an
   // update keeps its button, whose face says it. A refused name is said beside the form.
   const saving = useActionFeedback(save, {

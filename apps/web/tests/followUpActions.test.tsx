@@ -46,7 +46,7 @@ function call(over: Partial<CallSummary> = {}): CallSummary {
 }
 
 function routes(over: Record<string, unknown> = {}) {
-  return { "/v1/me": ME, "/v1/agents": [], "/v1/calls?limit=100": [call()], ...over };
+  return { "/v1/me": ME, "/v1/agents": [], "/v1/calls?limit=100": [call()], "/v1/calls/views": { items: [] }, ...over };
 }
 
 const page = (

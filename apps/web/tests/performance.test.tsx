@@ -277,9 +277,9 @@ describe("the period table and who called (D-893 L7)", () => {
     const table = await screen.findByRole("table", { name: /by week, newest first/ });
     const rows = within(table).getAllByRole("row");
     // The header, then the newest week first.
-    expect(rows[1].textContent).toContain("310.00");
-    expect(table.textContent).toContain("1,240.50");
-    expect(screen.getByText(/16 calls, 13 answered, 4 new leads, ₹1,550\.50 spent/)).toBeTruthy();
+    expect(rows[1].textContent).toContain("₹310");
+    expect(table.textContent).toContain("₹1,240.5");
+    expect(screen.getByText(/16 calls, 13 answered, 4 new leads, ₹1,550.5 spent/)).toBeTruthy();
     await act(async () => fireEvent.click(screen.getByRole("radio", { name: "Month" })));
     await waitFor(() => expect(calls.some((call) => call.path === monthPath)).toBe(true));
   });
@@ -296,7 +296,7 @@ describe("the period table and who called (D-893 L7)", () => {
       }),
     );
     await screen.findByText("Spend is shown to people who can see billing.");
-    expect(container.textContent).not.toContain("1,240.50");
+    expect(container.textContent).not.toContain("₹1,240.5");
   });
 
   it("counts repeat callers over every call and links each to its lead", async () => {

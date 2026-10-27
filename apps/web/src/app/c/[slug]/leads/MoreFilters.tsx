@@ -71,8 +71,6 @@ export function MoreFilters({
   calls: LeadCallFilters;
 }) {
   const { session } = useClientRealm();
-  const save = useSaveView(session);
-  const remove = useDeleteView(session);
   const today = istDateStamp();
   const moving = [calls.created, calls.lastCall].filter(
     (range): range is DateRange => range !== null && endsToday(range, today),
@@ -122,8 +120,9 @@ export function MoreFilters({
           writeReason={saveViewReason}
           onApply={onApplyView}
           bodyFor={(name, rolling) => ({ name, filters: viewFilters(rolling), columns })}
-          save={save}
-          remove={remove}
+          session={session}
+          useSave={useSaveView}
+          useRemove={useDeleteView}
           allLabel="All leads (no view)"
           describe={(view) => describeLeadView(view.filters)}
           notice={staleNotice}

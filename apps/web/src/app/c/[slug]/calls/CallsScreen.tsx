@@ -184,8 +184,6 @@ export function CallsScreen({ slug }: { slug: string }) {
      sees. Saving and applying are exact inverses, so a view puts back what it held and
      clears the rest. */
   const callViews = useCallViews(session);
-  const saveCallView = useSaveCallView(session);
-  const deleteCallView = useDeleteCallView(session);
   const [activeViewId, setActiveViewId] = useState<string | undefined>();
   const mayView = useActAccess(session, "leads:write", "leads.saved_view", "save a view");
   const callViewFilters = (rolling: boolean): CallViewFilters => ({
@@ -507,8 +505,9 @@ export function CallsScreen({ slug }: { slug: string }) {
           writeReason={mayView.reason}
           onApply={applyCallView}
           bodyFor={(name, rolling) => ({ name, filters: callViewFilters(rolling) })}
-          save={saveCallView}
-          remove={deleteCallView}
+          session={session}
+          useSave={useSaveCallView}
+          useRemove={useDeleteCallView}
           allLabel="All calls (no view)"
           describe={(view) => describeCallView(view.filters)}
           rollingNote={

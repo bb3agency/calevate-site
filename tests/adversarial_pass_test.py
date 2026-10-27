@@ -615,6 +615,7 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("PATCH", "/v1/agents/{agent_id}/call-handling", {"end_call_on_finish": False}, {}),
     ("GET", "/v1/callbacks/{callback_id}", {}, {}),
     ("DELETE", "/v1/callbacks/{callback_id}", {}, {}),
+    ("PATCH", "/v1/callbacks/{callback_id}", {"at": "2030-01-07T11:00:00+05:30"}, {}),
     ("GET", "/v1/calls/{call_id}", {}, {}),
     ("GET", "/v1/calls/{call_id}/callback", {}, {}),
     ("POST", "/v1/calls/{call_id}/callback", {}, {}),

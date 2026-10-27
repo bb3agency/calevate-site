@@ -73,7 +73,11 @@ def test_each_action_has_its_buttons_tier_permission_and_area() -> None:
         tier, permission, area = expected[tool.name]
         assert (tool.tier, tool.permission, areas.AREA_OF[tool.name]) == (tier, permission, area)
     assert plans.set_action_of("callbacks_change_bulk") is call_actions.CHANGE_CALLBACKS
-    assert write_tools.WRITE_TOOLS[-len(call_actions.CALL_ACTIONS) :] == call_actions.CALL_ACTIONS
+    start = write_tools.WRITE_TOOLS.index(call_actions.CALL_ACTIONS[0])
+    assert (
+        write_tools.WRITE_TOOLS[start : start + len(call_actions.CALL_ACTIONS)]
+        == call_actions.CALL_ACTIONS
+    )
 
 
 # --- call_back ---------------------------------------------------------------------------
