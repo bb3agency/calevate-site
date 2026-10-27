@@ -360,7 +360,14 @@ async def test_a_campaign_schedule_can_be_undone_back_to_a_draft() -> None:
 
 
 def test_every_immediate_action_has_an_undo_and_only_reviewed_confirm_ones_do() -> None:
-    reviewed = {"callback_book", "callback_reschedule", "business_hours_set", "campaign_schedule"}
+    reviewed = {
+        "callback_book",
+        "callback_reschedule",
+        "business_hours_set",
+        "campaign_schedule",
+        # D-893 L2: the previous field list is the exact inverse, restored under a CAS.
+        "lead_source_mapping",
+    }
     for tool in write_tools.WRITE_TOOLS:
         if tool.tier == "immediate":
             assert tool.undo is not None, tool.name

@@ -149,13 +149,13 @@ def test_only_the_reviewed_account_actions_skip_the_click() -> None:
     immediate = {tool.name for tool in ACCOUNT_ACTIONS if tool.tier == "immediate"}
     assert immediate == {
         "forwarding_line_change",
-        "lead_source_edit",
         "low_balance_alert_set",
     }
     for name in (
         "ai_allowance_extra",
         "auto_recharge_set",
         "held_lead_decide",
+        "lead_source_edit",
         "lead_source_switch",
         "team_invite",
     ):
@@ -480,8 +480,8 @@ async def test_a_lead_source_shows_its_secret_once_and_never_logs_it() -> None:
     assert "shown once" in await _action_summary(tenant_id, "lead_source_rotate")
 
 
-async def test_a_lead_source_is_paused_and_resumed_on_a_click_and_repointed_with_an_undo() -> None:
-    tenant_id, slug, token = await _make_tenant()
+async def test_a_lead_source_is_paused_resumed_and_repointed_only_on_a_click() -> None:
+    tenant_id, _slug, token = await _make_tenant()
     agent_id = await _agent_of(tenant_id)
     await _do(tenant_id, token, "lead_source_create", {"source": "custom", "agent_id": None})
     source_id = str((await _one(tenant_id, "SELECT id FROM inbound_webhooks"))[0])
@@ -504,15 +504,13 @@ async def test_a_lead_source_is_paused_and_resumed_on_a_click_and_repointed_with
             tenant_id, token, "lead_source_switch", {"lead_source_id": source_id, "on": True}
         )
 
-    pointed = await _run(
-        tenant_id,
-        token,
-        "lead_source_edit",
-        {"lead_source_id": source_id, "agent_id": str(agent_id)},
-    )
-    assert (await _one(tenant_id, "SELECT agent_id FROM inbound_webhooks"))[0] == agent_id
-    assert (await _undo(token, slug, pointed.action_id)).status_code == 200
+    # An agentless source refuses every lead; naming an agent starts them ringing.
+    pointing = {"lead_source_id": source_id, "agent_id": str(agent_id)}
+    with pytest.raises(write_tools.WriteRefusedError):
+        await _run(tenant_id, token, "lead_source_edit", pointing)
     assert (await _one(tenant_id, "SELECT agent_id FROM inbound_webhooks"))[0] is None
+    await _do(tenant_id, token, "lead_source_edit", pointing)
+    assert (await _one(tenant_id, "SELECT agent_id FROM inbound_webhooks"))[0] == agent_id
 
 
 async def test_the_calling_rules_merge_with_the_plan_and_held_leads_are_decided() -> None:

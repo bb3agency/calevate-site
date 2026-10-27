@@ -29,7 +29,9 @@ from apps.api.copilot.call_actions import CALL_ACTIONS
 from apps.api.copilot.campaign_actions import CAMPAIGN_ACTIONS
 from apps.api.copilot.fact_actions import FACT_ACTIONS
 from apps.api.copilot.knowledge_actions import KNOWLEDGE_ACTIONS
+from apps.api.copilot.lead_actions import LEAD_ACTIONS
 from apps.api.copilot.question_actions import TRAINING_ACTIONS
+from apps.api.copilot.routine_actions import ROUTINE_ACTIONS
 from apps.api.copilot.schemas import CopilotProposalEvent
 from apps.api.copilot.set_actions import SET_ACTIONS
 from apps.api.copilot.write_tools_test import _audit, _confirm, _outbox_jobs, _principal, _user_of
@@ -81,6 +83,8 @@ def test_each_is_on_its_buttons_permission_and_only_the_form_filler_skips_the_cl
         + len(SET_ACTIONS)
         + len(CALL_ACTIONS)
         + len(CAMPAIGN_ACTIONS)
+        + len(ROUTINE_ACTIONS)
+        + len(LEAD_ACTIONS)
     )
     assert write_tools.WRITE_TOOLS[-count - after : -after] == assist_actions.ASSIST_ACTIONS
 

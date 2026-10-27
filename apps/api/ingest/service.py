@@ -1319,7 +1319,7 @@ async def set_source_agent(
     session: AsyncSession, *, webhook_id: UUID, agent_id: UUID | None
 ) -> UUID | None:
     """Point a lead source at another agent (or none): `PATCH /v1/lead-sources/{id}` and
-    Pip's `lead_source_edit`. Returns the agent it had, for the audit row and Pip's Undo.
+    Pip's `lead_source_edit`. Returns the agent it had, for the audit row.
 
     The agent is checked as at creation (`create_lead_source`): visible to this tenant and
     not deleted, because the FK knows nothing about tenancy and a deleted agent can never
