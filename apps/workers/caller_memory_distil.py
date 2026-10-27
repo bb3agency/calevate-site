@@ -92,7 +92,6 @@ from uuid import UUID
 import httpx
 from arq import Retry
 from calevate_shared.backoff import jittered_delay_s
-from calevate_shared.engine import azure_openai_base_url
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -116,8 +115,9 @@ from apps.api.core.settings import get_settings
 from apps.api.crm.assist import ASSIST_FEATURE_CALLER_MEMORY
 from apps.api.db.session import tenant_session
 from apps.workers import chat
+from apps.workers.background_leg import BackgroundLeg, background_leg
 from apps.workers.caller_embeddings import tenants_with_caller_data
-from apps.workers.extraction import AZURE_PROVIDER, azure_credentials
+from apps.workers.extraction import azure_credentials
 from apps.workers.set_aside import (
     REFUSED_INPUT_SET_ASIDE,
     RefusalStreak,
@@ -187,6 +187,23 @@ DISTIL_MAX_TOKENS: Final = 256
 #: Whole-request timeout. Blocking call, nobody waiting on an HTTP connection —
 #: `AzureOpenAIExtractor`'s reasoning for keeping the ARQ path's budget off the edge one.
 DISTIL_TIMEOUT_S: Final = 30.0
+
+#: Gemini's answer shape, driven by `json_schema` as on every other Gemini assist here
+#: (`copilot_memory._GEMINI_FORMAT`); Azure keeps `json_object`. Same `{"facts": [...]}` that
+#: `facts_of` parses either way.
+_GEMINI_FORMAT: Final[dict[str, Any]] = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "caller_memory_facts",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {"facts": {"type": "array", "items": {"type": "string"}}},
+            "required": ["facts"],
+            "additionalProperties": False,
+        },
+    },
+}
 
 _SYSTEM_PROMPT: Final = (
     "You read a transcript of ONE phone call between a business's AI receptionist and a "
@@ -370,7 +387,7 @@ async def _distil_call(
     agent_id: UUID,
     phone_e164: str,
     occurred_at: datetime,
-    leg: chat.ChatLeg,
+    distil: BackgroundLeg,
 ) -> tuple[int, bool]:
     """One finished call → memory rows. Returns (rows written, whether a model was called).
 
@@ -392,6 +409,7 @@ async def _distil_call(
         return 0, False
 
     transcript = "\n".join(f"{row[0]}: {row[1]}" for row in turns)
+    leg = distil.leg
     async with provider_health.watch("memory", chat.provider_of(leg), model=leg.wire_model):
         outcome = await chat.complete(
             leg,
@@ -401,7 +419,7 @@ async def _distil_call(
             ],
             timeout_s=DISTIL_TIMEOUT_S,
             temperature=0,
-            response_format={"type": "json_object"},
+            response_format=_GEMINI_FORMAT if distil.is_gemini else {"type": "json_object"},
             max_tokens=DISTIL_MAX_TOKENS,
         )
     if outcome.finish_reason == "length":
@@ -439,10 +457,9 @@ async def _distil_call(
             tokens_in=outcome.usage.prompt_tokens,
             tokens_out=outcome.usage.output_tokens,
             cached_tokens_in=outcome.usage.cached_tokens_in,
-            # THE SETTING, NOT `leg.wire_model` — `copilot_memory`'s reason: on Azure
-            # `wire_model` is a DEPLOYMENT name (D-410/D-417), for which
-            # `rates.llm_inr_per_ktok` publishes no price and would raise.
-            model=get_settings().azure_openai_model,
+            # `meter_model`, never `leg.wire_model`: on Azure `wire_model` is a DEPLOYMENT
+            # name (D-410/D-417), for which `rates.llm_inr_per_ktok` publishes no price.
+            model=distil.meter_model,
             feature=ASSIST_FEATURE_CALLER_MEMORY,
         )
     else:
@@ -468,7 +485,7 @@ class _Tally:
 
 
 async def _sweep_tenant(
-    tally: _Tally, *, tenant_id: UUID, leg: chat.ChatLeg, budget: int, excluded: list[str]
+    tally: _Tally, *, tenant_id: UUID, distil: BackgroundLeg, budget: int, excluded: list[str]
 ) -> None:
     """One tenant's share of the tick, counted into `tally`."""
     async with tenant_session(tenant_id) as session:
@@ -510,7 +527,7 @@ async def _sweep_tenant(
                     agent_id=UUID(str(row[1])),
                     phone_e164=phone,
                     occurred_at=row[3],
-                    leg=leg,
+                    distil=distil,
                 )
         except httpx.HTTPStatusError as failure:
             if not chat.refused_this_input(failure):
@@ -542,20 +559,17 @@ async def distil_caller_memories(ctx: dict[str, Any]) -> str:
         # be a second record of the same caller that nothing on this engine reads.
         log.info("caller_memory_distil_engine_remembers", extra={"engine": engine})
         return "engine_remembers"
-    credentials = azure_credentials()
-    if credentials is None:
+    # Gemini first, Azure only if configured, never the Sarvam standby: the rows are durable
+    # and read back into later calls (`background_leg`'s reason).
+    distil = background_leg(azure_credentials())
+    if distil is None:
         # Tolerant boot (BACKEND-PATTERNS §2): a deployment with no language credential runs
         # every other queue. Not an alert — it is a configuration state an operator already
-        # sees at `/healthz/ready`, and alerting hourly on it is how an alert becomes noise.
-        log.info("caller_memory_distil_no_provider", extra={"provider": AZURE_PROVIDER})
+        # sees at `/healthz/ready` (and, for a Gemini key that cannot serve, in
+        # `assistant_gemini_unavailable`), and alerting hourly on it is how an alert becomes
+        # noise.
+        log.info("caller_memory_distil_no_provider")
         return "no_provider"
-    resource, api_key, deployment = credentials
-    leg = chat.ChatLeg(
-        url=f"{azure_openai_base_url(resource)}/chat/completions",
-        api_key=api_key,
-        wire_model=deployment,
-        dialect="openai",
-    )
 
     try:
         tenants = await tenants_with_caller_data()
@@ -580,7 +594,7 @@ async def distil_caller_memories(ctx: dict[str, Any]) -> str:
         tally = _Tally()
         try:
             await _sweep_tenant(
-                tally, tenant_id=tenant_id, leg=leg, budget=budget, excluded=excluded
+                tally, tenant_id=tenant_id, distil=distil, budget=budget, excluded=excluded
             )
         except (httpx.HTTPError, TimeoutError) as failure:
             # The provider, for THIS tenant's call. That call's transaction rolls back, so it
