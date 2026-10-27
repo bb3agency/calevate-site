@@ -37,7 +37,7 @@ from apps.api.billing.credit_expiry import (
     lapse_notice_key,
     lapsing_lots,
 )
-from apps.api.billing.service import to_paise
+from apps.api.billing.display import display_inr
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.core.transport import get_transport
@@ -136,10 +136,10 @@ async def expire_credit_lots(ctx: dict[str, Any]) -> str:
     return str(summary)
 
 
-def compose_lapse_notice(*, credits_inr: Decimal, expires_at: datetime, slug: str) -> str:
+def compose_lapse_notice(*, remaining: Decimal, expires_at: datetime, slug: str) -> str:
     """The email body, in a business owner's words. No vendor name."""
     lines = [
-        f"₹{credits_inr} of your calling credit lapses on {ist_moment(expires_at)}.",
+        f"{display_inr(remaining)} of your calling credit lapses on {ist_moment(expires_at)}.",
         "",
         "Credit still unused then is removed from your balance and is not refunded. Your "
         "calls always use your oldest credit first, so calls you make before then use this "
@@ -184,7 +184,7 @@ async def notify_credit_lapsing(ctx: dict[str, Any], payload: dict[str, Any]) ->
         return "no_billing_email"
     subject, heading, preheader = LAPSE_NOTICE_COPY
     body = compose_lapse_notice(
-        credits_inr=to_paise(lot.credits_remaining), expires_at=lot.expires_at, slug=str(slug)
+        remaining=lot.credits_remaining, expires_at=lot.expires_at, slug=str(slug)
     )
     message = from_text(
         subject=subject, preheader=preheader, heading=heading, text=body, cta="See your credit"
