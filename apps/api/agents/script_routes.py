@@ -55,6 +55,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import (
+    fix_guard,
     publishing,
     script_builder,
     script_proposals,
@@ -588,6 +589,10 @@ class ImprovementOut(BaseModel):
     facts: list[ProposedFactOut]
     #: Edits the AI suggested that did not fit the script and were left out.
     dropped: int = 0
+    #: Of those, edits left out for what they said: taking away something the agent does,
+    #: narrowing what it handles, fixing a test our platform rules own, or a reason that
+    #: claims an effect (`fix_guard`, D-909). Includes a stored edit withheld when shown.
+    withheld: int = 0
     #: The tests it was made for.
     for_keys: list[str]
     #: Set when a fallback model wrote it (D-127 G-6): show it.
@@ -598,6 +603,33 @@ class ImprovementOut(BaseModel):
     tested: bool = False
 
 
+SuggestionsState = Literal["none", "working", "ready", "none_offered", "failed", "kept"]
+
+
+class TestSuggestionsOut(BaseModel):
+    """Where "Suggest a fix" stands for this run, as ONE state (D-909), so a screen never shows
+    an older suggestion beside a newer failure as if both were current.
+
+    `none`: never asked. `working`: being worked out; poll. `ready`: `improvement` holds the
+    suggestions. `none_offered`: the round finished with nothing to offer (nothing would fix
+    these tests, the same question was already answered, or every suggestion was withheld);
+    `note` says which. `failed`: the round could not be worked out (AI help unavailable or
+    used up, or our fault); `note` says why and what to do, and no older suggestion is
+    offered. `kept`: the owner kept the suggestions."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    state: SuggestionsState
+    #: The run the state belongs to (`TestRunOut.id`).
+    generated_for_run_id: UUID
+    #: In the owner's words; null when `ready`, `working` or `none`.
+    note: str | None = None
+    #: When the suggestions on offer (or kept) were written.
+    created_at: datetime | None = None
+    #: The tests the suggestions were written for.
+    for_keys: list[str] = Field(default_factory=list)
+
+
 class TestScoreOut(BaseModel):
     """The owner's score (`trial_results.owner_score`)."""
 
@@ -605,7 +637,9 @@ class TestScoreOut(BaseModel):
 
     #: Tests in the score that worked on every try.
     passed: int
-    #: Tests in the score: the ones the script or the knowledge decides.
+    #: Tests in the score: every test that worked on every try (rule checks included), and
+    #: the failures the script or the knowledge can fix. Failures ours, a setting's, marked
+    #: wrong or unjudged are left out (D-909).
     judged: int
     total: int
     #: Of `judged`, tests that worked on some tries only.
@@ -685,6 +719,9 @@ class TestRunOut(BaseModel):
     sounds: list[TestSoundCountOut] = Field(default_factory=list)
     #: A machine code when `failed`: `stalled` when its job stopped part-way.
     error_code: str | None = None
+    #: "Suggest a fix" as one state; read this rather than combining `improvement`,
+    #: `improving`, `improve_note` and `improve_stop`.
+    suggestions: TestSuggestionsOut | None = None
 
 
 class TestHistoryOut(BaseModel):
@@ -854,25 +891,74 @@ def _result_out(
 _EDIT_FIELDS: Final = frozenset(ScriptEditOut.model_fields)
 
 
+def _on_offer(raw: dict[str, Any] | None) -> tuple[list[dict[str, Any]], int] | None:
+    """The stored edits still on offer and how many are withheld, or None when the proposal
+    is not on offer at all (none, pre-D-823, kept, or replaced by a later round)."""
+    if (
+        not raw
+        or not isinstance(raw.get("edits"), list)
+        or raw.get("settled_at")
+        or raw.get("superseded_at")
+    ):
+        return None
+    return fix_guard.offered_edits(raw)
+
+
 def _improvement_out(raw: dict[str, Any] | None) -> ImprovementOut | None:
     """The stored proposal, or None. A proposal made before D-823 is a whole script with no
-    edits, which nothing on today's screen can review; the owner asks for fixes again."""
-    # One the owner already kept is not offered again (`settle_improvement`).
-    if not raw or not isinstance(raw.get("edits"), list) or raw.get("settled_at"):
+    edits, which nothing on today's screen can review; the owner asks for fixes again. One
+    the owner kept (`settle_improvement`) or a later round replaced (`superseded_at`) is not
+    offered, and an edit `fix_guard` refuses today is withheld, whenever it was written."""
+    on_offer = _on_offer(raw)
+    if raw is None or on_offer is None:
         return None
+    offered, withheld = on_offer
     return ImprovementOut(
         base=raw.get("base") or "live",
         edits=[
             ScriptEditOut.model_validate({k: v for k, v in e.items() if k in _EDIT_FIELDS})
-            for e in raw["edits"]
-            if isinstance(e, dict)
+            for e in offered
         ],
         facts=[ProposedFactOut.model_validate(f) for f in raw.get("facts") or []],
-        dropped=int(raw.get("dropped") or 0),
+        dropped=int(raw.get("dropped") or 0) + withheld,
+        withheld=int(raw.get("withheld") or 0) + withheld,
         for_keys=[str(k) for k in raw.get("for_keys") or []],
         disclosure=raw.get("disclosure"),
         created_at=raw["created_at"],
         tested=bool(raw.get("tested")),
+    )
+
+
+#: Stops after which the round produced nothing to offer, and stops where it failed.
+_NONE_OFFERED_STOPS: Final = frozenset({"completed", "no_change", "nothing_fixable_by_script"})
+_FAILED_STOPS: Final = frozenset({"failed", "budget"})
+
+
+def _suggestions_out(
+    run: test_conversations.TestRun, shown: ImprovementOut | None
+) -> TestSuggestionsOut:
+    raw = run.improvement or {}
+    state: SuggestionsState
+    if run.improving:
+        state = "working"
+    elif shown is not None and (shown.edits or shown.facts):
+        state = "ready"
+    elif raw.get("settled_at") and not raw.get("superseded_at"):
+        state = "kept"
+    elif run.improve_stop in _FAILED_STOPS:
+        state = "failed"
+    elif run.improve_stop in _NONE_OFFERED_STOPS or shown is not None:
+        state = "none_offered"
+    else:
+        state = "none"
+    on_offer = state in ("ready", "kept")
+    created = raw.get("created_at") if on_offer else None
+    return TestSuggestionsOut(
+        state=state,
+        generated_for_run_id=run.id,
+        note=run.improve_note if state in ("none_offered", "failed") else None,
+        created_at=datetime.fromisoformat(created) if isinstance(created, str) else None,
+        for_keys=[str(k) for k in raw.get("for_keys") or []] if on_offer else [],
     )
 
 
@@ -908,6 +994,7 @@ def _run_out(
     previous: test_conversations.TestRun | None = None,
 ) -> TestRunOut:
     comparison, changes = _comparison(run, previous)
+    shown = _improvement_out(run.improvement)
     return TestRunOut(
         id=run.id,
         status=run.status,  # type: ignore[arg-type]
@@ -922,7 +1009,7 @@ def _run_out(
             for r in run.results
             if isinstance(r, dict)
         ],
-        improvement=_improvement_out(run.improvement),
+        improvement=shown,
         note=run.note,
         improving=run.improving,
         improve_note=run.improve_note,
@@ -939,6 +1026,7 @@ def _run_out(
             if kind in _SOUND_KINDS
         ],
         error_code=run.error_code,
+        suggestions=_suggestions_out(run, shown),
     )
 
 
@@ -1126,8 +1214,10 @@ async def apply_suggested_edits(
     """The one place a kept edit is applied: the same `script_edits.apply_edit` that built
     the proposal, onto the copy the owner holds now, so an edit made since is never undone."""
     run = await test_conversations.get_run(session, agent_id, run_id)
-    stored = (run.improvement or {}).get("edits") or []
-    by_id = {str(e.get("id")): e for e in stored if isinstance(e, dict)}
+    # Only what is on offer may be applied: a withheld, kept or replaced edit reads as one
+    # that changed since the owner opened the suggestions.
+    offered, _withheld = _on_offer(run.improvement) or ([], 0)
+    by_id = {str(e.get("id")): e for e in offered}
     if any(i not in by_id for i in payload.edits):
         raise ProblemError.business_rule(
             "agent_tests_unknown_edit",

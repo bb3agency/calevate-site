@@ -987,6 +987,11 @@ def _parsed_with_problems[T](
     try:
         return parse(data), None
     except UnusableAnswerError as unusable:
+        # The problems themselves are logged by the parse that raised them, where it knows
+        # which parts are ours to log (hard rule 6); this line says a repair was asked for.
+        log.info(
+            "script_assist_answer_sent_back", extra={"problems": unusable.problems.count("; ") + 1}
+        )
         return None, unusable.problems
     except (TypeError, ValueError, KeyError, AttributeError) as failure:
         log.warning("script_assist_answer_unusable", extra={"error": type(failure).__name__})
@@ -1009,6 +1014,12 @@ def _parsed[T](
         return None
     try:
         return parse(data)
+    except UnusableAnswerError as unusable:
+        log.warning(
+            "script_assist_answer_unusable",
+            extra={"error": "UnusableAnswerError", "problems": unusable.problems.count("; ") + 1},
+        )
+        return None
     except (TypeError, ValueError, KeyError, AttributeError) as failure:
         log.warning("script_assist_answer_unusable", extra={"error": type(failure).__name__})
         return None

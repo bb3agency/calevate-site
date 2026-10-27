@@ -15,10 +15,13 @@ baseline). "Test again" therefore asks exactly the tests of the run it repeats
 (`test_conversations.request_run`), and `compare` reads before and after per test: fixed,
 newly broken, still failing, still working, or new.
 
-The OWNER'S SCORE counts only what the owner's script and knowledge decide. The four rule
-checks every agent keeps, anything our platform owns, a test the owner marked wrong and a
-test nobody could judge are left out of it and shown on their own, so fixing the script can
-always move the score and nothing the owner cannot change can sink it.
+The OWNER'S SCORE counts every test that worked on every try, and a failure only when the
+owner's script or knowledge can fix it. A failure our platform owns (a rule check, a
+platform-rule test), a test the owner marked wrong and a test nobody could judge are left
+out of it and shown on their own, so nothing the owner cannot change can sink it. A rule
+check that worked counts (D-909): a run whose only failures are ours reads "3 of 3", never
+"0 of 0" (founder, 28 Oct 2026). Rejected: leaving passing rule checks out too (D-828's
+first rule), which gave a run of 3 right and 3 ours a score of nothing at all.
 
 Pure functions over stored result dicts; results stored before D-828 (one try, no `trials`)
 read as a single try.
@@ -72,16 +75,41 @@ _FAILING: Final = frozenset({"failed", "needs_fix"})
 _SEVERITY: Final[dict[str, int]] = {"passed": 0, "unjudged": 1, "needs_fix": 2, "failed": 3}
 
 
+#: Standing callers (`specimen_scenarios.CLASSES`) whose good answer is a platform rule in
+#: `calevate_shared.engine` (numbers, claims of done, goodbye, a shorter repeat), so a fail
+#: is ours to fix and never goes to the script improver (D-899).
+PLATFORM_RULE_TESTS: Final = frozenset(
+    {
+        "specimen_done_without_action",
+        "specimen_number_already_known",
+        "specimen_partial_number",
+        "specimen_goodbye_mid_question",
+        "specimen_asks_to_repeat",
+    }
+)
+
+
 def owner_of(fix: str | None) -> Owner | None:
     return _OWNER_OF_FIX.get(fix or "")
 
 
 def result_owner(raw: dict[str, Any]) -> Owner | None:
-    """A stored result's owner. Results stored before D-823 carry only `fix`."""
+    """A stored result's owner. Results stored before D-823 carry only `fix`. A failed
+    platform-rule test is ours even when it was stored as the script's (before D-899 the
+    judge could say so, and the improver then rewrote the script to chase it)."""
     owner = raw.get("owner")
-    if owner in OWNERS:
-        return cast(Owner, owner)
-    return owner_of(raw.get("fix")) or _UNNAMED_OWNER.get(str(raw.get("verdict")))
+    found: Owner | None = (
+        cast(Owner, owner)
+        if owner in OWNERS
+        else owner_of(raw.get("fix")) or _UNNAMED_OWNER.get(str(raw.get("verdict")))
+    )
+    if (
+        found in OWNERS_SCRIPT
+        and str(raw.get("key")) in PLATFORM_RULE_TESTS
+        and raw.get("verdict") in _FAILING
+    ):
+        return "platform"
+    return found
 
 
 #: What one try keeps besides the scenario: enough to read that try on its own.
@@ -180,8 +208,11 @@ def reliably_failing(result: dict[str, Any]) -> bool:
 
 
 def in_owner_score(result: dict[str, Any], wrong_keys: Iterable[str] = ()) -> bool:
-    """Counted in the owner's score: a test their script or knowledge decides."""
-    if str(result.get("key")) in set(wrong_keys) or result.get("probe"):
+    """Counted in the owner's score: every test that worked on every try, and a failure
+    only when their script or knowledge can fix it (D-909). A rule check that worked counts
+    like any other test; one that failed is ours and left out, as is anything marked wrong
+    or unjudged."""
+    if str(result.get("key")) in set(wrong_keys):
         return False
     rel = reliability(result)
     if rel == "unjudged":
@@ -307,6 +338,7 @@ def worst_first(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
 __all__ = [
     "OWNERS",
     "OWNERS_SCRIPT",
+    "PLATFORM_RULE_TESTS",
     "TRIALS",
     "Change",
     "Comparison",

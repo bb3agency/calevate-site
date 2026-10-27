@@ -192,6 +192,13 @@ NO_EDITS_NOTE: Final = (
     "failed and who can fix it."
 )
 
+#: Every change the AI wrote was withheld (`fix_guard`): it took away something the agent
+#: does, narrowed what it handles, or chased a test our rules own (D-909).
+WITHHELD_NOTE: Final = (
+    "No suggestion is offered for these tests: the changes worked out would have taken "
+    "away something your agent does. Each result says why it failed and who can fix it."
+)
+
 Pause = Callable[[], Awaitable[None]]
 
 
@@ -906,7 +913,7 @@ async def improve_run(
             run_id=run_id,
             improvement=record,
             stop=stop,
-            note=None if found else NO_EDITS_NOTE,
+            note=None if found else (WITHHELD_NOTE if record.get("withheld") else NO_EDITS_NOTE),
         )
         await _meter_in(session, tenant_id, answer, ASSIST_FEATURE_TEST_IMPROVE)
     return stop, record
@@ -991,6 +998,7 @@ __all__ = [
     "PAUSE_S",
     "PLATFORM_FAILURE_CODE",
     "SAME_INPUT_NOTE",
+    "WITHHELD_NOTE",
     "improve_agent_test_run",
     "improve_run",
     "judge_all",

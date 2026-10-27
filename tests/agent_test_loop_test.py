@@ -465,7 +465,7 @@ def test_an_answer_whose_every_edit_is_unusable_is_sent_back_once_with_why() -> 
     empty = agent_test_ai.proposal_from_model(
         {"edits": [], "facts": []}, current=CURRENT, keys=set(), fact_ids=set()
     )
-    assert empty == {"edits": [], "dropped": 0, "facts": []}
+    assert empty == {"edits": [], "dropped": 0, "withheld": 0, "facts": []}
 
 
 def test_a_new_step_stops_at_the_step_limit() -> None:
@@ -659,9 +659,12 @@ async def test_a_run_tries_every_test_three_times_and_test_again_asks_the_same_t
     # Hand-over is off on this agent: an honest "nobody can take the call" passes.
     person = next(r for r in done.results if r.get("probe") == "person")
     assert person["verdict"] == "passed"
-    # The owner's score counts the tests the script or knowledge decides, never the rules.
+    # The owner's score counts every test that worked, rule checks included (D-909), and
+    # the failures the script or knowledge can fix.
     counted = [r for r in done.results if trial_results.in_owner_score(r)]
-    assert all(not r.get("probe") for r in counted)
+    assert {r["probe"] for r in counted if r.get("probe")} == {
+        r["probe"] for r in done.results if r.get("probe") and r["verdict"] == "passed"
+    }
     assert done.score.counted == len(counted) and done.score.passed == len(counted) - 1
     # The rule checks never reach the judge (D-823); what the judge said about the rest is
     # kept per try for calibration.

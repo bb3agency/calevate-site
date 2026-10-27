@@ -37,7 +37,8 @@ A RUN, in a worker (`apps/workers/agent_test_conversations.py`):
 6. **Every failure has an owner** (`Owner`): the script, the knowledge, a setting (with the
    setting to open and why), the platform (an alarm to us, and "we're fixing this" to the
    owner), or the test itself, once the owner marks it wrong (`mark_wrong`). The owner's
-   score counts only what the script and knowledge decide (`trial_results.owner_score`).
+   score counts every test that worked and the failures the script and knowledge can fix
+   (`trial_results.owner_score`).
 
 "IMPROVE MY AGENT" (`apps/workers/agent_test_ai.propose_improvement`) turns the failures the
 script or the knowledge owns, and that failed on most of their tries, into small edits
@@ -822,18 +823,7 @@ class Judged:
 
 _SEVERITY: Final[dict[str, int]] = {"passed": 0, "unjudged": 1, "needs_fix": 2, "failed": 3}
 
-#: Standing callers (`specimen_scenarios.CLASSES`) whose good answer is a platform rule in
-#: `calevate_shared.engine` (numbers, claims of done, goodbye, a shorter repeat), so a fail
-#: is ours to fix and never goes to the script improver.
-PLATFORM_RULE_TESTS: Final = frozenset(
-    {
-        "specimen_done_without_action",
-        "specimen_number_already_known",
-        "specimen_partial_number",
-        "specimen_goodbye_mid_question",
-        "specimen_asks_to_repeat",
-    }
-)
+PLATFORM_RULE_TESTS: Final = trial_results.PLATFORM_RULE_TESTS
 
 
 def decide(
@@ -1210,8 +1200,8 @@ class TestRun:
 
     @property
     def score(self) -> trial_results.OwnerScore:
-        """The owner's score (`trial_results.owner_score`): only tests their script or
-        knowledge decides, each passed only when it worked on every try."""
+        """The owner's score (`trial_results.owner_score`): every test that worked on every
+        try, and the failures their script or knowledge can fix."""
         return trial_results.owner_score(self.results, self.wrong_keys)
 
     @property
@@ -1678,13 +1668,27 @@ async def store_improve_stop(
     session: AsyncSession, *, agent_id: UUID, run_id: UUID, stop: ImproveStop, note: str
 ) -> None:
     """The round ended without a new proposal: why, in the owner's words, and the reason
-    code, and it stops showing as being worked out."""
+    code, and it stops showing as being worked out.
+
+    A proposal from an earlier round is marked `superseded_at` unless this round stopped as
+    `no_change` (the same question already answered, or nothing chosen failed): the owner
+    asked again and it failed, so the older suggestion is not shown beside the failure as if
+    it were the answer (founder, 28 Oct 2026). It stays stored, as a kept one does."""
     await session.execute(
         text(
             "UPDATE agent_test_runs SET improve_requested_at = NULL, improve_note = :note, "
-            "improve_stop = :stop, updated_at = now() WHERE id = :id AND agent_id = :aid"
+            "improve_stop = :stop, updated_at = now(), "
+            "improvement = CASE WHEN improvement IS NOT NULL AND :supersede "
+            "THEN improvement || jsonb_build_object('superseded_at', now()) ELSE improvement END "
+            "WHERE id = :id AND agent_id = :aid"
         ),
-        {"id": run_id, "aid": agent_id, "note": note[:400], "stop": stop},
+        {
+            "id": run_id,
+            "aid": agent_id,
+            "note": note[:400],
+            "stop": stop,
+            "supersede": stop != "no_change",
+        },
     )
 
 

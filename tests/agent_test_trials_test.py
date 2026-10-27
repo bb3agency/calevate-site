@@ -108,9 +108,9 @@ def _run(results: list[dict[str, Any]], **fields: Any) -> TestRun:
     )
 
 
-def test_the_owners_score_counts_only_what_their_script_or_knowledge_decides() -> None:
+def test_the_owners_score_leaves_out_only_failures_the_owner_cannot_fix() -> None:
     """FAILS IF a failure the owner cannot fix sinks their score (the screenshot's "We're
-    fixing this" counted under "Need a fix")."""
+    fixing this" counted under "Need a fix"), or a test that worked is left out."""
     results = [
         _test("works", "passed", "passed", "passed"),
         _test("flaky", "passed", "failed", "passed"),
@@ -123,7 +123,8 @@ def test_the_owners_score_counts_only_what_their_script_or_knowledge_decides() -
         _test("wrong", "failed", "failed", "failed"),
     ]
     score = _run(results, wrong_keys=frozenset({"wrong"})).score
-    assert (score.passed, score.counted, score.unreliable) == (1, 3, 1)
+    # A rule check that worked counts (D-909); one that failed is ours and left out.
+    assert (score.passed, score.counted, score.unreliable) == (2, 4, 1)
     assert (score.ours, score.check, score.setting) == (2, 1, 1)
     places = {r["key"]: trial_results.standing(r, {"wrong"}) for r in results}
     assert places == {
