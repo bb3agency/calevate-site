@@ -224,7 +224,9 @@ async def test_only_the_owner_and_an_operator_apply_it_and_never_across_tenants(
         foreign = await client.post(
             f"/v1/agents/{agent_id}/call-handling/give-callers-time", headers=other_owner
         )
-        by_staff = await client.post(f"/v1/agents/{_a}/call-handling/give-callers-time", headers=staff)
+        by_staff = await client.post(
+            f"/v1/agents/{_a}/call-handling/give-callers-time", headers=staff
+        )
         by_operator = await client.post(
             f"/v1/admin/tenants/{tenant_id}/agents/{agent_id}/call-handling/give-callers-time",
             headers=operator,

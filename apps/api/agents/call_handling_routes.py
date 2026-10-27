@@ -5,7 +5,7 @@
     GET   /v1/organization/call-handling                            the account's defaults
     PUT   /v1/organization/call-handling                            set them (owner)
     POST  /v1/organization/call-handling/all-agents                 one value on every agent
-    POST  /v1/agents/{agent_id}/call-handling/give-callers-time        the "Give callers time" preset
+    POST  /v1/agents/{agent_id}/call-handling/give-callers-time     its silence preset
     GET   /v1/admin/tenants/{tid}/agents/{aid}/call-handling        the operator's view
     PATCH /v1/admin/tenants/{tid}/agents/{aid}/call-handling        the operator's door
     POST  /v1/admin/tenants/{tid}/agents/{aid}/call-handling/give-callers-time   the same preset
