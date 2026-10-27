@@ -199,6 +199,7 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "script-versions",
     "script-proposal",
     "call-handling",
+    "turn-detection",
     "reply-length",
     "voice-tuning",
     "llm-defaults",
