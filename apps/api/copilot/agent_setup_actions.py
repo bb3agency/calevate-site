@@ -24,6 +24,7 @@ click it saves.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
@@ -562,8 +563,11 @@ Setting = Literal[
     "longest_call_minutes",
     "ai_model",
     "caller_memory",
+    "caller_has_screen",
 ]
 SETTINGS: Final[tuple[str, ...]] = get_args(Setting)
+#: Settings with no account default: each agent's own, on or off.
+_PER_AGENT_SWITCHES: Final = frozenset({"opening_waits_for_caller", "caller_has_screen"})
 VOICE_SETTINGS: Final = frozenset({"speed", "volume", "emotion"})
 HANDLING_SETTINGS: Final = frozenset(
     {*call_handling.SETTING_FIELDS, *call_handling.AGENT_ONLY_FIELDS}
@@ -588,6 +592,7 @@ _LABELS: Final[dict[str, str]] = {
     "longest_call_minutes": "longest one call may run",
     "ai_model": "AI model",
     "caller_memory": "remembers returning callers",
+    "caller_has_screen": "guides callers through their screen",
 }
 
 _ON: Final = frozenset({"on", "yes", "true"})
@@ -620,10 +625,9 @@ def _for_all(parsed: _SettingsArgs) -> bool:
     """Refuses the one call-handling setting that has no account default."""
     if parsed.scope != "all_agents":
         return False
-    if any(c.setting == "opening_waits_for_caller" for c in parsed.changes):
-        raise WriteRefusedError(
-            "`opening_waits_for_caller` is set per agent; send it with `scope` `this_agent`"
-        )
+    own = next((c.setting for c in parsed.changes if c.setting in _PER_AGENT_SWITCHES), None)
+    if own is not None:
+        raise WriteRefusedError(f"`{own}` is set per agent; send it with `scope` `this_agent`")
     return True
 
 
@@ -665,10 +669,10 @@ def _parse(setting: str, raw: str) -> Any:
     """One change's value in the shape its writer takes; `default` follows the account's
     or the voice's own value (None)."""
     value = strip_invisible(raw.strip())
-    defaultable = setting not in ("opening_waits_for_caller", "caller_memory")
+    defaultable = setting not in (*_PER_AGENT_SWITCHES, "caller_memory")
     if defaultable and value.lower() == _DEFAULT:
         return None
-    if setting in ("opening_waits_for_caller", "end_call_on_finish", "caller_memory"):
+    if setting in (*_PER_AGENT_SWITCHES, "end_call_on_finish", "caller_memory"):
         return _switch(setting, value)
     if setting in ("speed", "volume"):
         try:
@@ -745,6 +749,7 @@ class _Current:
     model: str | None
     caller_memory: bool
     attested: bool
+    caller_has_screen: bool
 
 
 async def _current(session: AsyncSession, agent_id: UUID) -> _Current:
@@ -752,6 +757,7 @@ async def _current(session: AsyncSession, agent_id: UUID) -> _Current:
         await session.execute(
             text(
                 "SELECT a.max_call_duration_s, a.llm_model, a.caller_memory_enabled, "
+                "a.caller_has_screen, "
                 # Attested to the CURRENT statement (D-900): an older acceptance is asked again.
                 "o.caller_memory_attested_at IS NOT NULL AND COALESCE("
                 "o.caller_memory_attestation_version, 0) >= :statement FROM agents a "
@@ -769,7 +775,8 @@ async def _current(session: AsyncSession, agent_id: UUID) -> _Current:
         cap_s=None if row[0] is None else int(row[0]),
         model=None if row[1] is None else str(row[1]),
         caller_memory=bool(row[2]),
-        attested=bool(row[3]),
+        caller_has_screen=bool(row[3]),
+        attested=bool(row[4]),
     )
 
 
@@ -785,6 +792,8 @@ def _current_value(current: _Current, setting: str) -> Any:
         return current.cap_s
     if setting == "ai_model":
         return tier_of_model(current.model) if current.model is not None else None
+    if setting == "caller_has_screen":
+        return current.caller_has_screen
     return current.caller_memory
 
 
@@ -931,6 +940,12 @@ async def _execute_settings(
         )
         if not memory.unchanged:
             moved.append("caller_memory")
+    if "caller_has_screen" in values:
+        screen = await publishing.set_caller_has_screen(
+            tenant_id=actor.tenant_id, agent_id=agent_id, enabled=bool(values["caller_has_screen"])
+        )
+        if not screen.unchanged:
+            moved.append("caller_has_screen")
     voice = {s: v for s, v in values.items() if s in VOICE_SETTINGS}
     if voice:
         _state, voice_moved = await voice_tuning.set_voice_tuning(
@@ -990,6 +1005,48 @@ async def _execute_settings(
     )
 
 
+#: Words that say a call walks the person through something on their phone or computer
+#: (D-906). A hint for Pip to ASK the owner, never a switch it flips: a false match costs one
+#: question, which is why plain words like "app" and "website" are enough.
+_SCREEN_WORDS: Final = re.compile(
+    r"\b(?:install\w*|download\w*|apps?|website|web ?site|log ?in|sign ?(?:up|in)|browser|"
+    r"chrome|tap|click|screen|online form|fill (?:in|out)|step by step|troubleshoot\w*)\b"
+    r"|యాప్|ఇన్‌?స్టాల్|డౌన్‌?లోడ్|వెబ్‌?సైట్|లాగిన్|ఐకాన్"
+    r"|ऐप|इंस्टॉल|डाउनलोड|वेबसाइट|लॉगिन",
+    re.IGNORECASE,
+)
+
+
+async def screen_guide_hint(session: AsyncSession, agent_id: UUID, context: str) -> str:
+    """A sentence for Pip when `context` (a campaign's name) plus the agent's live script say
+    the calls are screen-guided and the agent's switch is off, or plainly are not and it is
+    on; empty otherwise. Pip asks the owner, then proposes `agent_settings_set`."""
+    row = (
+        await session.execute(
+            text(
+                "SELECT a.caller_has_screen, pv.body FROM agents a LEFT JOIN prompt_versions pv "
+                "ON pv.id = COALESCE(a.live_prompt_id, a.system_prompt_id) "
+                "WHERE a.id = :aid AND a.deleted_at IS NULL"
+            ),
+            {"aid": agent_id},
+        )
+    ).first()
+    if row is None:
+        return ""
+    guided = bool(_SCREEN_WORDS.search(f"{context}\n{row[1] or ''}"))
+    if guided and not row[0]:
+        return (
+            " These calls look like they walk people through their phone or computer: ask "
+            "the owner whether to switch on the agent's caller_has_screen (agent_settings_set)."
+        )
+    if row[0] and not guided:
+        return (
+            " Its agent is set to guide callers through a screen, which these calls do not "
+            "seem to need: ask the owner whether to switch caller_has_screen off."
+        )
+    return ""
+
+
 AGENT_SETTINGS_SET: Final = ActionTool(
     name="agent_settings_set",
     tier="confirm",
@@ -1007,7 +1064,10 @@ AGENT_SETTINGS_SET: Final = ActionTool(
         "turn_silence_ms, end_call_on_finish (on/off), nudge_after_seconds (0 never), "
         "nudge_count, nudge_phrase, end_after_silence_seconds, filler_lines (separated by |), "
         "ambience (off, office, office-quiet), ambience_volume_pct, longest_call_minutes, "
-        "ai_model (standard, plus, pro), caller_memory (on/off). `scope` `all_agents` puts "
+        "ai_model (standard, plus, pro), caller_memory (on/off), caller_has_screen (on/off: "
+        "on when the calls walk the person through something on their phone or computer, "
+        "such as installing an app, a website or a form; ask the owner first). `scope` "
+        "`all_agents` puts "
         "the call-handling settings (pause, hang-up, quiet caller, filler lines, background "
         "sound) on every agent of the account, replacing any agent's own; `default` then "
         "means Calevate's. Use it only when the person asks for all agents. Current values: "

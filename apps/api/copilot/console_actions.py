@@ -79,6 +79,7 @@ from apps.api.copilot.actions import (
 from apps.api.copilot.actions import (
     principal_of as _principal_of,
 )
+from apps.api.copilot.agent_setup_actions import screen_guide_hint
 from apps.api.copilot.knowledge_actions import KNOWLEDGE_REMOVE
 from apps.api.copilot.sanitize import strip_invisible
 from apps.api.copilot.set_actions import CAMPAIGN_ADD_LEADS, LEADS_BULK_UPDATE
@@ -1074,9 +1075,10 @@ async def _execute_campaign_create(
         dlt_template_id=None,
         concurrency=3,
     )
+    hint = await screen_guide_hint(session, parsed.agent_id, parsed.name)
     return Executed(
         applied=True,
-        detail=f"“{parsed.name}” exists as a draft. Add contacts to it, then launch it.",
+        detail=f"“{parsed.name}” exists as a draft. Add contacts to it, then launch it.{hint}",
         audit_summary={"campaign_id": str(campaign_id), "classification": parsed.classification},
         object_id=str(campaign_id),
     )

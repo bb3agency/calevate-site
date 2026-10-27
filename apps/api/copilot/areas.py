@@ -332,7 +332,7 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
     AreaEntry(
         "agent_settings_set",
         "agents",
-        "how it sounds and handles calls, longest call, AI model, caller memory",
+        "how it sounds and handles calls, longest call, AI model, caller memory, screen guide",
     ),
     AreaEntry("agent_handover_set", "agents", "who it may put a caller through to, in order"),
     AreaEntry("agent_action_set", "agents", "add (action_id null) or change an in-call action"),

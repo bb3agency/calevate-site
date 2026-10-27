@@ -52,6 +52,10 @@ export type DisclosureOut = components["schemas"]["DisclosureOut"];
 export type CallerMemoryIn = components["schemas"]["CallerMemoryIn"];
 export type CallerMemoryOut = components["schemas"]["CallerMemoryOut"];
 
+/** Whether callers follow this agent's steps on a screen of their own (D-906). */
+export type CallerScreenIn = components["schemas"]["CallerScreenIn"];
+export type CallerScreenOut = components["schemas"]["CallerScreenOut"];
+
 /**
  * One field the agent is configured to capture. Derived from `AgentOut` rather
  * than aliased a second time — it is the same row the CRM already names
@@ -172,6 +176,25 @@ export function useSetCallerMemory(
         client.invalidateQueries({ queryKey: agentKeys.one(session.orgSlug, agentId) }),
         // Accepting the updated statement clears "Caller memory paused" (D-900).
         client.invalidateQueries({ queryKey: attentionKey(session.orgSlug) }),
+      ]),
+  });
+}
+
+export function useSetCallerScreen(
+  session: Session,
+  agentId: string,
+): UseMutationResult<CallerScreenOut, Error, CallerScreenIn> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: CallerScreenIn) =>
+      apiRequest<CallerScreenOut>(session, `/v1/agents/${agentId}/caller-screen`, {
+        method: "PATCH",
+        body: payload,
+      }),
+    onSuccess: () =>
+      Promise.all([
+        client.invalidateQueries({ queryKey: agentKeys.all(session.orgSlug) }),
+        client.invalidateQueries({ queryKey: agentKeys.one(session.orgSlug, agentId) }),
       ]),
   });
 }

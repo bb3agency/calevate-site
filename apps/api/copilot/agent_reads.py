@@ -47,8 +47,8 @@ async def _settings_part(session: AsyncSession, agent_id: UUID) -> list[str]:
     row = (
         await session.execute(
             text(
-                "SELECT max_call_duration_s, llm_model, caller_memory_enabled FROM agents "
-                "WHERE id = :aid"
+                "SELECT max_call_duration_s, llm_model, caller_memory_enabled, "
+                "caller_has_screen FROM agents WHERE id = :aid"
             ),
             {"aid": agent_id},
         )
@@ -75,7 +75,7 @@ async def _settings_part(session: AsyncSession, agent_id: UUID) -> list[str]:
             else f"default ({CALL_CAP_DEFAULT_S // 60} min)"
         )
         + f". AI model: {LLM_TIER_LABELS[tier] if tier else 'the account default'}."
-        + f" Caller memory: {_on(row[2])}.",
+        + f" Caller memory: {_on(row[2])}. caller_has_screen: {_on(row[3])}.",
     ]
     return lines
 

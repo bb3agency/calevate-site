@@ -99,6 +99,7 @@ const AGENT: Agent = {
   caller_memory_notice_line: "I keep a short note of what you ask about.",
   caller_memory_enabled: false,
   caller_memory_paused: false,
+  caller_has_screen: false,
   recording_notice_enabled: true,
   opening_line: "Namaskaram, this is an AI assistant calling for Sri Clinic.",
   script_opening_line: "",

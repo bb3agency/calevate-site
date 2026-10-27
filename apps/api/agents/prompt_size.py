@@ -20,14 +20,15 @@ from uuid import UUID
 
 from calevate_shared.call_script import STYLE_HEADER
 from calevate_shared.engine import (
-    CALL_INSTRUCTIONS,
     CLIENT_SCRIPT_CLOSE,
     CLIENT_SCRIPT_OPEN,
     LAYER_SEPARATOR,
     AgentConfig,
     PromptLayer,
     VoiceEngine,
+    call_instructions,
     engine_prompt_layers,
+    sends_our_call_rules,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -226,13 +227,13 @@ async def publish_config(
 def measure_config(cfg: AgentConfig, engine: VoiceEngine) -> PromptSize:
     limits = hosted_agent_limits(engine)
     # Ours replace the engine's default call rules only where it has them (D-850).
-    ours = cfg.engine_call_instructions and limits.default_call_rules_chars is not None
+    ours = sends_our_call_rules(cfg) and limits.default_call_rules_chars is not None
     return measure(
         cfg,
         limits.prompt_chars,
         native_steps=len(cfg.script_steps),
         engine_added=limits.added_prompt_chars,
-        call_rules=len(CALL_INSTRUCTIONS) if ours else limits.default_call_rules_chars or 0,
+        call_rules=len(call_instructions(cfg)) if ours else limits.default_call_rules_chars or 0,
         call_rules_ours=ours,
     )
 

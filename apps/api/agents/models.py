@@ -586,6 +586,9 @@ class Agent(PKMixin, TimestampMixin, Base):
     opening_waits_for_caller: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default="false"
     )
+    # The caller follows the agent's steps on a screen of their own (D-906): the owner's
+    # switch, off by default, read into the composed prompt at publish.
+    caller_has_screen: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     # The client's voice settings (F3, F9): the silence prompt, hanging up after silence,
     # filler lines and the background sound. NULL inherits the account's, then Calevate's.
     nudge_after_seconds: Mapped[int | None] = mapped_column(Integer)

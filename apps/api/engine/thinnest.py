@@ -53,7 +53,6 @@ import httpx
 from calevate_shared.call_script import business_line_of, substitute_variables
 from calevate_shared.calling_window import CALLING_HOURS_RULE, DEFAULT_WINDOW
 from calevate_shared.engine import (
-    CALL_INSTRUCTIONS,
     DETAILS_VARIABLE,
     E164,
     NAME_VARIABLE,
@@ -85,11 +84,13 @@ from calevate_shared.engine import (
     WebhookVerdict,
     call_details_value,
     call_reason_value,
+    call_instructions,
     compose_engine_prompt,
     compose_first_utterance,
     contact_call_variables,
     neutralise_markers,
     phone_value,
+    sends_our_call_rules,
     today_value,
 )
 from calevate_shared.engine_scope import raw_of, scoped_handle
@@ -2260,15 +2261,16 @@ class ThinnestEngine:
             # decimals, 0.05-1 (same page); we hold whole percent.
             "ambience": cfg.ambience,
             "ambienceVolume": round(cfg.ambience_volume_pct / 100, 2),
-            # Our call rules in place of the engine's defaults (D-850), or `null` for the
-            # defaults; always stated, so switching off puts every agent back on them.
+            # Our call rules in place of the engine's defaults (D-850; always for a screen
+            # agent, D-906), or `null` for the defaults; always stated, so switching off puts
+            # every other agent back on them.
             CALL_INSTRUCTIONS_FIELD: self._within(
-                CALL_INSTRUCTIONS,
+                call_instructions(cfg),
                 CALL_INSTRUCTIONS_MAX_CHARS,
                 code="engine_call_instructions_too_long",
                 what="call rules",
             )
-            if cfg.engine_call_instructions
+            if sends_our_call_rules(cfg)
             else None,
             **PLATFORM_VOICE_VALUES,
         }

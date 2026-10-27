@@ -97,7 +97,7 @@ def test_the_style_layer_states_the_directives_the_guide_specifies() -> None:
     # The language's own register moved to the SPOKEN REGISTER section (D-714), which names
     # each language the agent speaks; this block says to mirror the caller's register.
     assert "caller's language and register" in block
-    assert "repeat it" in block
+    assert "ask them to repeat" in block
     # D-714: the answer first. Turn length, one question a turn, titles in full and varied
     # openings are ThinnestAI's own speaking rules, which every call keeps (D-814).
     assert "lead with the answer" in block

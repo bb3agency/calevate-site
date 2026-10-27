@@ -103,6 +103,8 @@ class AgentOut(BaseModel):
     #: (D-900). `caller_memory_statement` is then the statement to accept; null otherwise.
     caller_memory_paused: bool = False
     caller_memory_statement: str | None = None
+    #: The caller follows the agent's steps on a screen of their own (D-906).
+    caller_has_screen: bool = False
     #: The NOTICES this agent says after its opening line, composed by the server from the
     #: two switches. Empty string = both off: the agent volunteers neither and opens on its
     #: opening line. Composed here rather than left to the screen because a UI that

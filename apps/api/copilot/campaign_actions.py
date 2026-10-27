@@ -45,6 +45,7 @@ from apps.api.copilot.actions import (
     action_schema,
     parse_args,
 )
+from apps.api.copilot.agent_setup_actions import screen_guide_hint
 from apps.api.copilot.sanitize import strip_invisible
 from apps.api.core.errors import ProblemError
 from apps.api.db.ownership import assert_visible
@@ -246,9 +247,15 @@ async def _execute_edit(
     written = await campaign_controls.update_draft(
         session, campaign_id=parsed.campaign_id, changes=_edit_changes(parsed, current)
     )
+    # A new agent for the campaign is the moment its screen guide is worth asking about (D-906).
+    hint = (
+        await screen_guide_hint(session, parsed.agent_id, str(current["name"]))
+        if parsed.agent_id is not None
+        else ""
+    )
     return Executed(
         applied=bool(written),
-        detail="Saved. It is still a draft and calls nobody until it is launched.",
+        detail=f"Saved. It is still a draft and calls nobody until it is launched.{hint}",
         audit_summary={"fields": written},
     )
 

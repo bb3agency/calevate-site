@@ -963,9 +963,34 @@ def opened_again(reply: str) -> str | None:
     return None
 
 
-def claims_done(text: str) -> bool:
-    """Does this agent line say something was done (placed, saved, booked, sent)?"""
-    return bool(_CLAIMS_DONE.search(text))
+#: A caller saying they have done something themselves, on their own screen: "done", "it's
+#: saved", "అయింది", "సేవ్ చేశాను", "हो गया" (D-906). The agent's "saved, good" after that
+#: acknowledges the caller's act, which `ACTION_CLAIM_RULE` allows ("or they say they did").
+_CALLER_DONE: Final = re.compile(
+    r"\bdone\b|\bdid it\b|\bit worked\b|\bit(?:\Ws| is) (?:there|saved|added|open|"
+    r"installed|showing)\b|\bi(?:\Wve| have)? ?(?:added|saved|tapped|clicked|pressed|"
+    r"installed|typed|opened|entered)\b"
+    r"|అయింది|అయిపోయింది|ఐంది|చేశాను|చేసాను|చేసేశాను|చేసేసాను|నొక్కాను|వచ్చింది|"
+    r"కనిపిస్తోంది|కనిపిస్తుంది"
+    r"|हो\s*(?:गया|गई|गए)|कर\s*(?:दिया|लिया|दी|ली)|दबा\s*(?:दिया|दी)|आ\s*(?:गया|गई)",
+    re.IGNORECASE,
+)
+#: What turns a caller's "done" into its opposite: "not done", "కాలేదు", "नहीं हुआ".
+_CALLER_NOT: Final = re.compile(
+    r"\bnot\b|n\Wt\b|\bnever\b|లేదు|కాలేదు|రాలేదు|అవ్వలేదు|नहीं|नही", re.IGNORECASE
+)
+
+
+def caller_says_done(said: str) -> bool:
+    """Does this caller line report something they did themselves? A question or a negative
+    never does."""
+    return bool(_CALLER_DONE.search(said)) and "?" not in said and not _CALLER_NOT.search(said)
+
+
+def claims_done(text: str, *, caller_said: str = "") -> bool:
+    """Does this agent line say something was done (placed, saved, booked, sent)? Not when it
+    follows the caller saying they did it (`caller_says_done`): that acknowledges their act."""
+    return bool(_CLAIMS_DONE.search(text)) and not caller_says_done(caller_said)
 
 
 #: The agent saying it already told the caller something: "as I said", "చెప్పాను కదా",
@@ -1180,7 +1205,7 @@ def conversation_problems(
                     "or the caller said.",
                 ),
             )
-        if claims_done(reply) and not acted:
+        if claims_done(reply, caller_said=said) and not acted:
             found.setdefault(
                 "unconfirmed_action",
                 TurnProblem(
@@ -1270,6 +1295,7 @@ __all__ = [
     "SOUND_KINDS",
     "Exchange",
     "TurnProblem",
+    "caller_says_done",
     "claims_done",
     "claims_said_before",
     "conversation_problems",

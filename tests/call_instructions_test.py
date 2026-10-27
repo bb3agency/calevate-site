@@ -91,7 +91,7 @@ COVERAGE: dict[str, tuple[tuple[str, str], ...]] = {
     DEFAULT_CALL_RULES[4]: ((OURS, "No markdown, emoji, brackets"),),
     # Turned round: "say so rather than going quiet" put a "one second" filler before answers;
     # the engine speaks its own filler after two seconds of silence.
-    DEFAULT_CALL_RULES[5]: ((OURS, "Never announce a search or a wait"),),
+    DEFAULT_CALL_RULES[5]: ((OURS, "Never announce or narrate a search or a wait"),),
     DEFAULT_CALL_RULES[6]: ((OURS, "or still unclear after two tries: say so"),),
     DEFAULT_CALL_RULES[7]: (
         (OURS, "never a guess: a place or address, a project, stock or availability, a price"),

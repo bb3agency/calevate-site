@@ -55,6 +55,7 @@ from calevate_shared.spoken_style import (
     prompt_example_line,
     register_guidance,
     shipped_pack_choice,
+    spelled_address,
 )
 
 # Domain aliases.
@@ -2895,8 +2896,8 @@ VOICE_STYLE_GUIDANCE: Final = (
     'amount that could be a range or a decimal ("one two crores") as which one '
     '("one to two crores?").\n'
     f"{_REGISTER_BULLET}"
-    "- Could not hear? Ask them to repeat it. Asked to repeat? Say it shorter.\n"
-    "- Never announce a search or a wait, or narrate one.\n"
+    "- Could not hear? Ask them to repeat. Asked to repeat? Say it shorter.\n"
+    "- Never announce or narrate a search or a wait.\n"
     "- Close with what happens next and anything else, then one goodbye and nothing more. "
     "End only then or when asked, never while they talk or ask."
 )
@@ -2904,11 +2905,50 @@ VOICE_STYLE_GUIDANCE: Final = (
 #: language to answer in, so this bullet keeps only what neither says.
 _PACK_REGISTER_BULLET: Final = f'- Never say "uhm". {_SWITCH_RULE}\n'
 
+#: AN AGENT WHOSE CALLER FOLLOWS ALONG ON A SCREEN (`AgentConfig.caller_has_screen`, D-906):
+#: a guided setup or support call, where the caller installs an app or fills a form while the
+#: agent talks them through it. Off, HOW TO SPEAK is unchanged byte for byte.
+#: - "Never repeat a sentence" is right for a conversation and wrong for a step the caller
+#:   could not do: saying it again, shorter, is how a person guides someone through a screen.
+#:   Narrowed here rather than for every agent, because every other agent repeating itself
+#:   was the fault that sentence answers (D-739).
+#: - One step a turn, then wait for "done": two steps in one turn are lost on a phone, and an
+#:   agent that moves on before the caller has tapped leaves them on the wrong screen.
+#: - A label is said word for word, in the call's letters (D-861), so the caller can match
+#:   what they hear to what they see; the "no lists or links" bullet stays, because it is
+#:   about what the agent writes, not about what is on the caller's screen.
+#: - A web address is spelled by English letter names, a comma between, in the call's letters
+#:   (`spoken_style.spelled_address`): "A" written as one Telugu letter reads as the Telugu
+#:   word for "which", and the comma gives each letter its own pause.
+_NO_REPEAT: Final = "Never re-ask what they said or repeat a sentence."
+_SCREEN_NO_REPEAT: Final = (
+    "Never re-ask what they said or repeat a sentence; a step they could not do, say again, "
+    "shorter."
+)
+_SCREEN_ANCHOR: Final = "never say the time now.\n"
 
-def _how_to_speak(pack: PackChoice | None) -> str:
-    if pack is None:
-        return VOICE_STYLE_GUIDANCE
-    return VOICE_STYLE_GUIDANCE.replace(_REGISTER_BULLET, _PACK_REGISTER_BULLET)
+
+def screen_steps_bullet(language: str | None) -> str:
+    """The HOW TO SPEAK bullet a screen agent carries, with its language's spelled example."""
+    example = spelled_address(language)
+    spelled = f' ("{example}")' if example else ""
+    return (
+        "- They follow you on their screen: one step a turn, naming what to tap by its label "
+        "word for word in the call's letters, then wait until they say it is done. Spell a web "
+        "address one letter at a time, each by its English letter name in the call's letters, "
+        f'a comma between, "dot" as a word{spelled}.\n'
+    )
+
+
+def _how_to_speak(pack: PackChoice | None, cfg: AgentConfig | None = None) -> str:
+    guidance = VOICE_STYLE_GUIDANCE
+    if pack is not None:
+        guidance = guidance.replace(_REGISTER_BULLET, _PACK_REGISTER_BULLET)
+    if cfg is not None and cfg.caller_has_screen:
+        guidance = guidance.replace(_NO_REPEAT, _SCREEN_NO_REPEAT).replace(
+            _SCREEN_ANCHOR, f"{_SCREEN_ANCHOR}{screen_steps_bullet(cfg.language_primary)}"
+        )
+    return guidance
 
 
 #: The sentence that says the facts are in the engine's knowledge base rather than in the
@@ -3049,10 +3089,14 @@ CANNOT_HELP_HEADER: Final = "--- PLATFORM RULES: WHAT YOU CAN DO ---"
 #: are named because under "booked or done" a Telugu agent said "సైట్ విజిట్ ఖరారు చేశాను" (I
 #: have fixed the site visit) on the production call of 24 Oct 2026 (D-877): the model did not
 #: read fixing a slot as booking it.
+#: "Or they say they did" (D-906): what the CALLER did on their own screen ("saved?", "yes,
+#: saved") is theirs to report and ours to acknowledge; the rule is about claiming the
+#: business did something. Paid for by "for the team to confirm" and two HOW TO SPEAK trims,
+#: so the per-call budget did not grow.
 ACTION_CLAIM_RULE: Final = (
     "- Never say anything is booked, fixed, confirmed or done unless a tool did it on this "
-    "call: say it is noted and the team will confirm, and offer nothing no tool does. Say a "
-    "tool's figure exactly, a failed one plainly.\n"
+    "call or they say they did: say it is noted for the team to confirm; offer nothing no "
+    "tool does. Say a tool's figure exactly, a failed one plainly.\n"
     '- Never say "as I said" about what you did not say.'
 )
 
@@ -3090,6 +3134,31 @@ CALL_INSTRUCTIONS: Final = (
     "You are on a phone call, speaking out loud: the caller hears every word and sees "
     "nothing, so never mention lists, links, buttons or images."
 )
+#: The call frame of an agent whose caller follows along on a screen (D-906): what the caller
+#: sees is their own screen, never what the agent writes, so naming the buttons on it is
+#: allowed and the agent's own lists, links and images still are not. The steps themselves
+#: are HOW TO SPEAK's (`screen_steps_bullet`), which the practice chat reads too. A screen
+#: agent always sends this (`sends_our_call_rules`): the engine's default call rules say
+#: "never refer to lists, links, buttons or images" (`docs/vendor/thinnest-speaking-rules-
+#: 2026-10-18.md`), and only replacing them removes that sentence.
+SCREEN_CALL_INSTRUCTIONS: Final = (
+    "You are on a phone call, speaking out loud: the caller hears every word and sees only "
+    "their own screen, never what you write, so never mention lists, links or images of yours."
+)
+
+
+def call_instructions(cfg: AgentConfig) -> str:
+    """Our call frame for this agent, sent while `sends_our_call_rules` holds."""
+    return SCREEN_CALL_INSTRUCTIONS if cfg.caller_has_screen else CALL_INSTRUCTIONS
+
+
+def sends_our_call_rules(cfg: AgentConfig) -> bool:
+    """Whether this agent's call rules are ours rather than the engine's defaults: the
+    console's switch (`engine_call_instructions`, D-850, gate T-33), or a screen agent
+    whatever that switch says (founder, 27 Oct 2026, D-906), because the defaults forbid
+    naming buttons. The publish body, the drift sweep and the size report all read this."""
+    return cfg.engine_call_instructions or cfg.caller_has_screen
+
 
 #: The number a call is on is already the lead's (`leads.phone_e164` comes from the call), so
 #: asking for it again is re-asking known data, and on an outbound call it asks the person we
@@ -3317,7 +3386,7 @@ def _when_you_cannot_help_section(cfg: AgentConfig) -> str:
     """
     if cfg.callbacks_offered:
         follow_up = "offer a call back; book it only if they want one"
-        nobody = "offer a call back instead"
+        nobody = "offer a call back"
     else:
         follow_up = "say the business will get back to them. Never offer or book a call back"
         nobody = "the business will get back to them"
@@ -4005,6 +4074,11 @@ class AgentConfig(BaseModel):
     #: carries `FORWARDED_LINE_RULE`, to ask for a call-back number when the network hides
     #: the caller's. Read at publish; adding or removing a forwarded number republishes.
     forwarded_line: bool = False
+    #: The caller follows the agent's steps on a screen of their own (D-906,
+    #: `agents.caller_has_screen`): HOW TO SPEAK gains `screen_steps_bullet` and our call frame
+    #: becomes `SCREEN_CALL_INSTRUCTIONS`. Excluded from every dump for `detect_machines`'
+    #: reason; the prompt it composes is what publish and drift compare.
+    caller_has_screen: bool = Field(default=False, exclude=True)
     #: Hang up when an answering machine picks up an outbound call: the CLIENT's switch, off
     #: by default (founder decision 14, 10 Oct 2026; `lead_call_policies.detect_machines`).
     #: Only an engine with the setting reads it. Excluded from every dump for
@@ -4485,7 +4559,7 @@ def engine_prompt_layers(
         pack = None
     parts: list[tuple[PromptLayer, str]] = [
         ("preamble", platform_rules_preamble(cfg)),
-        ("how_to_speak", _how_to_speak(pack)),
+        ("how_to_speak", _how_to_speak(pack, cfg)),
         # Platform-written, so OUTSIDE the client fence, and absent on a one-language agent
         # without a language pack.
         ("languages", _languages_section(cfg, pack)),
@@ -6390,6 +6464,7 @@ __all__ = [
     "REPLY_TOKENS_MAX",
     "REPLY_TOKENS_MIN",
     "ROLE_BUSINESS_MAX_CHARS",
+    "SCREEN_CALL_INSTRUCTIONS",
     "TEST_CALL_OPENING_RULE",
     "THIS_CALL_HEADER",
     "TODAY_LINE",
@@ -6456,6 +6531,7 @@ __all__ = [
     "call_reason_value",
     "call_variable_key",
     "contact_call_variables",
+    "call_instructions",
     "engine_prompt_layers",
     "fill_caller_memory_slot",
     "neutralise_markers",
@@ -6464,6 +6540,8 @@ __all__ = [
     "platform_rules_preamble",
     "render_caller_memory",
     "role_sentence",
+    "screen_steps_bullet",
+    "sends_our_call_rules",
     "tenant_of_pipecat_ref",
     "today_value",
     "without_this_call",

@@ -101,7 +101,9 @@ AGENT_ROSTER_SQL = (
     # The capture schema's version, the editor's save token (`expected_version`).
     "es.version, "
     # The caller-memory statement this account accepted, appended for the reason above.
-    "o.caller_memory_attestation_version "
+    "o.caller_memory_attestation_version, "
+    # Whether the caller follows along on a screen (D-906), appended for the reason above.
+    "a.caller_has_screen "
     "FROM agents a LEFT JOIN extraction_schemas es ON es.id = a.extraction_schema_id "
     "LEFT JOIN organizations o ON o.id = a.tenant_id "
     "LEFT JOIN prompt_versions pv ON pv.id = COALESCE(a.live_prompt_id, a.system_prompt_id) "
@@ -174,6 +176,7 @@ def agent_out(r: Any) -> AgentOut:
         caller_memory_enabled=bool(r[18]),
         caller_memory_paused=paused,
         caller_memory_statement=CALLER_MEMORY_ATTESTATION if paused else None,
+        caller_has_screen=bool(r[25]),
         archived_at=r[13],
         inbound_number_count=int(r[14]),
         llm_tier=tier_of_model(r[15]),

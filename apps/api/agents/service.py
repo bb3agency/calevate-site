@@ -529,6 +529,8 @@ class AgentRow(TypedDict):
     hot_facts: NotRequired[tuple[str, ...]]
     #: An operator's turn detection for this agent alone (D-901); None follows the console.
     turn_detection: NotRequired[TurnDetection | None]
+    #: The caller follows the agent's steps on a screen of their own (D-906).
+    caller_has_screen: NotRequired[bool]
 
 
 #: Where `_load_agent`'s call settings start, the account's follow, and the columns after them.
@@ -643,7 +645,9 @@ async def _load_agent(
                 # Whether the opening waits for the person's first words (D-871).
                 "a.opening_waits_for_caller, "
                 # An operator's turn detection for this agent alone (D-901).
-                "a.turn_detection "
+                "a.turn_detection, "
+                # Whether the caller follows the agent's steps on a screen (D-906).
+                "a.caller_has_screen "
                 "FROM agents a LEFT JOIN prompt_versions pv "
                 # The APPLIED pointer, not the draft one — see the module docstring.
                 "ON pv.id = COALESCE(a.live_prompt_id, a.system_prompt_id) "
@@ -729,6 +733,7 @@ async def _load_agent(
         "business_name": row[_AFTER + 7],
         "opening_waits_for_caller": bool(row[_AFTER + 8]),
         "turn_detection": turn_detection_of(row[_AFTER + 9]),
+        "caller_has_screen": bool(row[_AFTER + 10]),
         # A restricted free trial never places a call back (D-697), so its agents must not
         # offer one (founder decision 1, 10 Oct 2026).
         "callbacks_offered": await restricting_trial(session, tenant_id=tenant_id) is None,
@@ -929,6 +934,7 @@ def _to_config(
         interrupt_words=settings.thinnest_interrupt_words,
         has_phone_number=bool(agent.get("has_phone_number", False)),
         forwarded_line=bool(agent.get("forwarded_line", False)),
+        caller_has_screen=bool(agent.get("caller_has_screen", False)),
         # THE NOTICES THE AGENT VOLUNTEERS BEFORE ITS OPENING LINE, composed from this
         # agent's two toggles by the one composer (D-163). The opening line itself (the
         # greeting) stays in the script and is never replaced by these (D-708). Empty is a

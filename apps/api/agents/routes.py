@@ -82,6 +82,7 @@ from apps.api.agents.models import (
 )
 from apps.api.agents.publishing import (
     audit_action_for,
+    set_caller_has_screen,
     set_caller_memory,
     set_disclosure_posture,
 )
@@ -1313,6 +1314,66 @@ async def set_caller_memory_route(
             if result.attested_version is not None
             else None
         ),
+    )
+
+
+class CallerScreenIn(BaseModel):
+    """Switch "caller follows along on a screen" for one agent (D-906)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool
+
+
+class CallerScreenOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    agent_id: UUID
+    enabled: bool
+    #: Did the voice platform get the change? False on an agent that is not live yet.
+    engine_synced: bool
+
+
+@router.patch(
+    "/v1/agents/{agent_id}/caller-screen",
+    response_model=CallerScreenOut,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Say whether callers follow this agent's steps on a screen of their own (D-906)",
+    description=(
+        "For an agent that walks callers through an app or a website while they hold the "
+        "phone: on, it may name what is on their screen, gives one step at a time and waits "
+        "until they say it is done, says a step again more shortly when they could not do it, "
+        "and spells a web address letter by letter. Off for every agent unless switched on.\n\n"
+        "Applies immediately: a live agent is re-published to the voice platform in the "
+        "same transaction, and if that push fails nothing is saved."
+    ),
+)
+async def set_caller_screen_route(
+    agent_id: UUID,
+    payload: CallerScreenIn,
+    session: Session,
+    request: Request,
+    principal: Principal = Depends(requires("org:manage")),
+) -> CallerScreenOut:
+    """`org:manage`, the owner's: it changes how the agent speaks to every caller, like the
+    disclosure switches beside it."""
+    assert principal.tenant_id is not None  # client realm; `requires()` resolves it
+    result = await set_caller_has_screen(
+        tenant_id=principal.tenant_id, agent_id=agent_id, enabled=payload.enabled
+    )
+    if not result.unchanged:
+        await write_audit(
+            session,
+            action=f"agent.caller_has_screen_{'enabled' if result.enabled else 'disabled'}",
+            actor=principal,
+            tenant_id=principal.tenant_id,
+            object_type="agent",
+            object_id=str(agent_id),
+            ip=client_request_ip(request),
+            summary={"engine_synced": result.engine_synced},
+        )
+    return CallerScreenOut(
+        agent_id=result.agent_id, enabled=result.enabled, engine_synced=result.engine_synced
     )
 
 
