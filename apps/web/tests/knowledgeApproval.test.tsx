@@ -218,9 +218,10 @@ describe("the approval gate as the client sees it", () => {
     // A state we have no copy for is shown as itself — a client whose submission is
     // stuck in an unfamiliar state still has to be able to see that it is stuck, and
     // quote the word to support.
-    const { container } = await renderKnowledge([
-      source({ state: "withdrawn_by_reviewer" as SourceWire["state"] }),
-    ]);
+    // Off-contract on purpose (a server newer than this build), so the plain literal.
+    const { container } = await renderKnowledge([], {
+      "/v1/kb/notes": { notes: [{ ...source(), state: "withdrawn_by_reviewer" }] },
+    });
 
     await screen.findByText("Opening hours");
     expect(container.textContent).toContain("withdrawn_by_reviewer");
