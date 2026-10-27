@@ -62,7 +62,7 @@ describe("calling off a call-back", () => {
 
     expect(await screen.findByText("Waiting")).toBeTruthy();
     expect(
-      await screen.findByText("Only an account owner can call off a call-back."),
+      await screen.findByText("Only an account owner can move or call off a call-back."),
     ).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Call it off" })).toBeNull();
     expect(calls.some((call) => call.method === "DELETE")).toBe(false);
