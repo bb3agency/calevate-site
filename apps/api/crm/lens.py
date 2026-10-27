@@ -184,6 +184,7 @@ LEAD_ROW_FILTER_FIELDS: Final = frozenset(
         "callback_open",
         "follow_up",
         "captured",
+        "campaign_id",
     }
 )
 
@@ -203,6 +204,7 @@ class LeadRowFilters:
     callback_open: bool | None = None
     follow_up: Literal["done", "not_done"] | None = None
     captured: tuple[CapturedFieldFilterIn, ...] = field(default_factory=tuple)
+    campaign_id: UUID | None = None
 
     @classmethod
     def of(cls, lens: LeadLensIn) -> LeadRowFilters:
@@ -219,6 +221,7 @@ class LeadRowFilters:
             callback_open=lens.callback_open,
             follow_up=lens.follow_up,
             captured=tuple(lens.captured),
+            campaign_id=lens.campaign_id,
         )
 
 
@@ -265,6 +268,14 @@ def lead_row_clauses(filters: LeadRowFilters, params: dict[str, Any]) -> list[st
             f"AND s.tenant_id = l.tenant_id AND {_OPEN_CALLBACK})"
         )
         out.append(exists if filters.callback_open else f"NOT {exists}")
+    if filters.campaign_id is not None:
+        # Any call of the campaign, not only the latest: a lead it reached stays its lead
+        # after another call (`ix_calls_campaign_started` leads with `campaign_id`).
+        out.append(
+            "EXISTS (SELECT 1 FROM calls c WHERE c.lead_id = l.id "
+            "AND c.campaign_id = :lens_campaign_id)"
+        )
+        params["lens_campaign_id"] = filters.campaign_id
     for index, wanted in enumerate(filters.captured):
         params[f"lens_ck{index}"] = wanted.key
         if wanted.op == "equals":
@@ -392,6 +403,8 @@ def describe_lead_lens(lens: LeadLensIn) -> str:
         parts.append("owned by one person")
     if lens.agent_id:
         parts.append("of one agent")
+    if lens.campaign_id:
+        parts.append("reached by one campaign")
     parts += [f"{c.key.replace('_', ' ')} {c.op} “{c.value}”" for c in lens.captured]
     parts += [f"{entry.partition(':')[0].replace('_', ' ')} filter" for entry in lens.f]
     return "every lead" if not parts else "leads " + ", ".join(parts)

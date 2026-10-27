@@ -14819,6 +14819,15 @@ export interface components {
             /** Submitted At */
             submitted_at: string | null;
         };
+        /** BusinessOutcomeCountOut */
+        BusinessOutcomeCountOut: {
+            /** Count */
+            count: number;
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+        };
         /** BusinessProfileOut */
         BusinessProfileOut: {
             /** Agents Updated */
@@ -16072,6 +16081,10 @@ export interface components {
         CampaignResultsOut: {
             /** Average Call S */
             average_call_s: number | null;
+            /** Business Outcomes */
+            business_outcomes: components["schemas"]["BusinessOutcomeCountOut"][];
+            /** Business Outcomes Unset */
+            business_outcomes_unset: number;
             /** Calls */
             calls: number;
             /** Connected Calls */
@@ -16080,6 +16093,8 @@ export interface components {
             contacts: number;
             /** Credits Spent Inr */
             credits_spent_inr: string | null;
+            /** Fields */
+            fields: components["schemas"]["FieldBreakdownOut"][];
             /** Hot Leads */
             hot_leads: number;
             /** Leads */
@@ -20581,6 +20596,20 @@ export interface components {
             voice_id: string;
         };
         /**
+         * FieldBreakdownOut
+         * @description One choice field: how many people hold each value (D-905).
+         */
+        FieldBreakdownOut: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Not Captured */
+            not_captured: number;
+            /** Values */
+            values: components["schemas"]["FieldValueCountOut"][];
+        };
+        /**
          * FieldLimit
          * @description One column of the client's leads list that the configured model does not fill.
          *
@@ -20592,6 +20621,13 @@ export interface components {
             label: string;
             /** Scenarios */
             scenarios: number;
+        };
+        /** FieldValueCountOut */
+        FieldValueCountOut: {
+            /** Count */
+            count: number;
+            /** Value */
+            value: string;
         };
         /** FirstRunOut */
         FirstRunOut: {
@@ -23012,6 +23048,8 @@ export interface components {
             assigned_to?: string | null;
             /** Callback Open */
             callback_open?: boolean | null;
+            /** Campaign Id */
+            campaign_id?: string | null;
             /** Captured */
             captured?: components["schemas"]["CapturedFieldFilterIn"][];
             /** Columns */
@@ -23152,6 +23190,8 @@ export interface components {
             assigned_to?: string | null;
             /** Callback Open */
             callback_open?: boolean | null;
+            /** Campaign Id */
+            campaign_id?: string | null;
             /** Captured */
             captured?: components["schemas"]["CapturedFieldFilterIn"][];
             /** Columns */

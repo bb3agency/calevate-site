@@ -86,6 +86,9 @@ export function resultsFixture(over: Partial<CampaignResults> = {}): CampaignRes
     recent_leads: [],
     opt_outs: 0,
     credits_spent_inr: "0.00",
+    business_outcomes: [],
+    business_outcomes_unset: 0,
+    fields: [],
     ...over,
   };
 }

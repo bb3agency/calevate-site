@@ -60,6 +60,7 @@ LEAD_LENS_SCHEMA: Final[dict[str, Any]] = _nullable(
             "follow_up": _FOLLOW_UP,
             "agent_id": _nullable({"type": "string"}),
             "assigned_to": _nullable({"type": "string"}),
+            "campaign_id": _nullable({"type": "string"}),
             "captured": _nullable(
                 {
                     "type": "array",
@@ -90,6 +91,7 @@ LEAD_LENS_SCHEMA: Final[dict[str, Any]] = _nullable(
             "follow_up",
             "agent_id",
             "assigned_to",
+            "campaign_id",
             "captured",
         ],
         "additionalProperties": False,

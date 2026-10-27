@@ -810,6 +810,14 @@ async def _campaign_detail(
         if found["outcome_tags"]:
             tags = ", ".join(f"{k} {v}" for k, v in found["outcome_tags"].items())
             lines.append(f"What the conversations came to: {tags}.")
+        if found["business_outcomes"]:
+            mine = ", ".join(f"{o['label']} {o['count']}" for o in found["business_outcomes"])
+            lines.append(f"By the agent's own outcomes: {mine}.")
+        for field in found["fields"]:
+            values = ", ".join(f"{v['value']} {v['count']}" for v in field["values"] if v["count"])
+            lines.append(
+                f"{field['label']}: {values or 'none yet'}; not captured {field['not_captured']}."
+            )
         lines.append(
             f"Leads from this campaign: {found['leads']} ({found['hot_leads']} hot); "
             f"opt-outs {found['opt_outs']}."

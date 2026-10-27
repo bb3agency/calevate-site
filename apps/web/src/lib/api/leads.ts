@@ -307,6 +307,8 @@ export interface LeadLens {
   callback_open?: boolean;
   /** Captured details: each matches the field's text exactly or contains it. */
   captured?: CapturedFilter[];
+  /** Leads one campaign reached: any of its calls spoke to them (D-905). */
+  campaign_id?: string;
 }
 
 export type CapturedFilter = Schemas["CapturedFieldFilterIn"];
@@ -353,6 +355,7 @@ export function lensBody(
     last_outcome: lens.last_outcome,
     direction: lens.direction,
     follow_up: lens.follow_up,
+    campaign_id: lens.campaign_id,
     ...paging,
   };
   for (const [key, value] of Object.entries(scalars)) {

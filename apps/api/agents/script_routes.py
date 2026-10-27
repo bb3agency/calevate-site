@@ -63,6 +63,7 @@ from apps.api.agents import (
 from apps.api.agents.engine_limits import too_long_sentence
 from apps.api.agents.script_edits import MAX_EDITS, ScriptEdit, apply_edits
 from apps.api.billing.ai_quota import require_ai_assist
+from apps.api.campaigns.contact_details import list_columns
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import assert_view_as_may, client_request_ip, requires
 from apps.api.core.context import Principal
@@ -255,6 +256,7 @@ def preview_out(preview: script_builder.Preview) -> PreviewOut:
 _STANDARD_VARIABLES = [
     VariableSuggestion(key=key, label=label) for key, label in STANDARD_VARIABLES
 ]
+_STANDARD_KEYS = frozenset(key for key, _ in STANDARD_VARIABLES)
 
 
 @router.get(
@@ -295,7 +297,16 @@ async def get_script(agent_id: UUID, session: Session, _: ScriptReader) -> Scrip
         version=loaded.version,
         is_freeform=loaded.is_freeform,
         has_pending=loaded.has_pending,
-        standard_variables=_STANDARD_VARIABLES,
+        # The caller's name, then the columns of this agent's campaign lists, each of which
+        # a call placed for that list fills (D-905).
+        standard_variables=[
+            *_STANDARD_VARIABLES,
+            *(
+                VariableSuggestion(key=key, label=f"From your list: {header}")
+                for key, header in await list_columns(session, agent_id=agent_id)
+                if key not in _STANDARD_KEYS
+            ),
+        ],
     )
 
 

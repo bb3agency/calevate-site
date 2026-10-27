@@ -216,6 +216,30 @@ class CampaignLeadOut(Strict):
     updated_at: datetime
 
 
+class BusinessOutcomeCountOut(Strict):
+    key: str
+    #: The outcome's label as the calls recorded it.
+    label: str
+    count: int
+
+
+class FieldValueCountOut(Strict):
+    value: str
+    #: People holding this value; zero for a declared value nobody gave.
+    count: int
+
+
+class FieldBreakdownOut(Strict):
+    """One choice field: how many people hold each value (D-905)."""
+
+    key: str
+    label: str
+    #: Declared values first, in their order, then values captured outside the list.
+    values: list[FieldValueCountOut]
+    #: People the campaign spoke to with no value for it.
+    not_captured: int
+
+
 class CampaignResultsOut(Strict):
     """A campaign's totals (FLOWS §5): reach, conversations, leads, spend."""
 
@@ -237,6 +261,12 @@ class CampaignResultsOut(Strict):
     #: What these calls took from the credit balance, in rupees (NUMERIC). None for a role
     #: that may not see billing.
     credits_spent_inr: Decimal | None
+    #: The agent's own outcomes (D-836) over the connected calls, most common first.
+    business_outcomes: list[BusinessOutcomeCountOut]
+    #: Connected calls that came to none of the agent's own outcomes.
+    business_outcomes_unset: int
+    #: Each choice field the agent captures, over the people its connected calls reached.
+    fields: list[FieldBreakdownOut]
 
 
 class OptOutOut(Strict):
@@ -257,8 +287,12 @@ class CampaignPageOut(Strict):
 #: How much per-contact variable text one row may carry, and why there is a number
 #: at all (D-302).
 #:
-#: `custom` is stored as `campaign_contacts.custom` jsonb AND rendered into the agent's
-#: prompt as engine `user_data`. Both halves were bounded only by the 2 MiB body cap, so
+#: `custom` is stored as `campaign_contacts.custom` jsonb AND sent with every call placed for
+#: the contact as Place Call variables, which the agent reads on its THIS CALL lines and as
+#: `{{column}}` (D-905, `calevate_shared.engine.contact_call_variables`). ThinnestAI takes
+#: up to 20 variables and cuts each value at 150 characters (docs.thinnest.ai api-reference/
+#: calls/place-call `variables`, read 27 Oct 2026). Both halves were bounded only by the 2 MiB
+#: body cap, so
 #: one `POST` of 5,000 contacts could durably store — and later speak from — megabytes of
 #: caller-authored text. Storage growth decided by a caller is the same defect the list
 #: ceilings above answer, seen from the write side; text that reaches a PROMPT is the
@@ -277,9 +311,11 @@ MAX_CONTACT_CUSTOM_VALUE_LEN = 200
 
 class ContactIn(Strict):
     phone: str = Field(min_length=8, max_length=20)
+    #: Any script: a name written in Telugu script is spoken as written, which is how it
+    #: sounds best; a Latin spelling is read by the voice as best it can (D-905).
     name: str | None = Field(default=None, max_length=120)
-    # Extra per-contact variables rendered into the agent prompt (Bolna user_data),
-    # bounded in all three dimensions — see the constants above.
+    # Extra per-contact values the call carries as variables, bounded in all three
+    # dimensions — see the constants above.
     custom: dict[
         Annotated[str, StringConstraints(max_length=MAX_CONTACT_CUSTOM_KEY_LEN)],
         Annotated[str, StringConstraints(max_length=MAX_CONTACT_CUSTOM_VALUE_LEN)],

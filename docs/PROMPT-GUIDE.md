@@ -64,8 +64,10 @@ rules, the date line and per-turn blocks such as a transfer instruction. Three t
 - **The cache runs from the start up to our first per-call variable.** So every value the
   engine fills per call (`{{name}}`) goes in THIS CALL, after every fixed line of ours
   (`calevate_shared.engine.THIS_CALL_HEADER`; `tests/prompt_call_details_order_test.py`). The
-  only platform value today is the forwarded-line flag (`caller_number_hidden`, D-746); its
-  rule stays in WHAT YOU CAN DO and reads the value from THIS CALL. A `{{variable}}` a client
+  platform values are today's date, the name, the forwarded-line flag (`caller_number_hidden`,
+  D-746) and, on an agent that dials, the number dialled, the contact's list row and the
+  call's reason (D-905: `Number`, `Details`, `Why this call`, outbound and both only); a rule that reads one stays in
+  WHAT YOU CAN DO and reads the value from THIS CALL. A `{{variable}}` a client
   writes into its own script stays where the client wrote it, so a script that uses one ends
   the cached prefix there; the script is matched verbatim on read-back, so the platform does
   not move the client's words.

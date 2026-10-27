@@ -165,7 +165,10 @@ export function rowsToEntries(table: string[][]): { entries: ContactEntry[]; dro
     };
   }
   const phoneIdx = header.findIndex((cell) => PHONE_HEADER.test(cell));
-  const nameIdx = header.findIndex((cell, i) => i !== phoneIdx && NAME_HEADER.test(cell));
+  // A column headed exactly "name" wins over one that merely contains the word, so a
+  // "Village name" column before it is kept as a variable rather than taken as the name.
+  const exactName = header.findIndex((cell, i) => i !== phoneIdx && cell.trim().toLowerCase() === "name");
+  const nameIdx = exactName >= 0 ? exactName : header.findIndex((cell, i) => i !== phoneIdx && NAME_HEADER.test(cell));
   const varCols: { index: number; key: string }[] = [];
   header.forEach((cell, index) => {
     if (index === phoneIdx || index === nameIdx || cell === "") return;

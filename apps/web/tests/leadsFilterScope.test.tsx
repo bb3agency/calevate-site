@@ -395,6 +395,23 @@ describe("the call filters (D-893) are server filters on the one lens", () => {
   });
 });
 
+describe("a campaign's results link narrows the table to the leads it reached (D-905)", () => {
+  it("sends the campaign on the lens and lets the chip lift it", async () => {
+    window.history.replaceState(null, "", "/?campaign_id=camp-1");
+    try {
+      const { calls } = await renderClientPage(<LeadsPage />, routes());
+      await waitFor(() => expect(lastSearchLens(calls).campaign_id).toBe("camp-1"));
+      const chip = await screen.findByRole("button", { name: "One campaign's leads" });
+      await act(async () => {
+        fireEvent.click(chip);
+      });
+      await waitFor(() => expect(lastSearchLens(calls).campaign_id).toBeUndefined());
+    } finally {
+      window.history.replaceState(null, "", "/");
+    }
+  });
+});
+
 describe("the derivation is exhaustive over the lens, not over the filters we remembered", () => {
   it("answers for every narrowing key the lens has, and for nothing else", () => {
     // `columns` changes what a row SHOWS, never which rows there are.
@@ -405,6 +422,7 @@ describe("the derivation is exhaustive over the lens, not over the filters we re
         "ask",
         "assigned_to",
         "callback_open",
+        "campaign_id",
         "captured",
         "created_from",
         "created_to",

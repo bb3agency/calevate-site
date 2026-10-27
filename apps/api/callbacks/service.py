@@ -61,6 +61,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents.models import CALL_CAP_MAX_S
 from apps.api.callbacks.models import STATUSES
 from apps.api.db.result import rowcount_of
+from apps.workers.redaction import redact
 
 #: How long past the promised time we keep trying before giving up and SAYING SO.
 #:
@@ -139,6 +140,8 @@ class DueCallback:
     #: What booked it (`lead-ingest:`, `lead-retry:` … for a new lead's call, D-716).
     source_execution_id: str | None = None
     booked_at: datetime | None = None
+    #: The call it was promised on, whose campaign and list row the dial inherits (D-905).
+    source_call_id: UUID | None = None
 
 
 #: `source_execution_id` prefix of a call-back a PERSON in the account scheduled for a lead
@@ -158,7 +161,11 @@ def context_note(requested_at: datetime, note: str | None, *, source: str | None
     one-line summary of the request, bounded at `MAX_NOTE` where it entered.
 
     IST, because it is read out to a person in India.
+
+    The note goes through the transcript redactor (D-905): the agent wrote it from what the
+    caller said, and on ThinnestAI it reaches the agent's instructions as a call variable.
     """
+    note = redact(note).text if note else note
     when = (requested_at.astimezone(UTC) + IST).strftime("%d %b at %H:%M")
     if source is not None and source.startswith(CLIENT_SCHEDULE_PREFIX):
         opening = f"The business arranged this follow-up call for {when}."
@@ -340,7 +347,7 @@ async def claim_due(
                 "  last_refusal_reason = NULL, updated_at = now() "
                 "FROM picked WHERE s.id = picked.id "
                 "RETURNING s.id, s.agent_id, s.lead_id, s.phone_e164, s.requested_at, s.note, "
-                "  s.source_execution_id, s.booked_at"
+                "  s.source_execution_id, s.booked_at, s.source_call_id"
             ),
             {"now": now or datetime.now(UTC), "n": limit},
         )
@@ -355,6 +362,7 @@ async def claim_due(
             note=row[5],
             source_execution_id=row[6],
             booked_at=row[7],
+            source_call_id=UUID(str(row[8])) if row[8] else None,
         )
         for row in rows
     ]
@@ -460,7 +468,7 @@ async def settle(
 
 
 def link_callback_to_call(
-    callback_id: UUID,
+    callback_id: UUID, *, campaign_id: UUID | None = None
 ) -> Callable[[AsyncSession, UUID], Awaitable[None]]:
     """`dispatch_call`'s `on_reserved` hook: point the promise at the call it became.
 
@@ -469,6 +477,12 @@ def link_callback_to_call(
     the vendor can seize a line. Without it, a response lost on the way back from the engine
     would leave a `dialing` callback with nothing to settle against, and `settle_dialled`'s
     stuck arm would end it `failed` when the phone may well have rung.
+
+    `campaign_id` is the campaign of the call it was promised on (D-905): stamped on the new
+    call so the campaign's results, spend and complaint-spike check count it, written here
+    for `campaign_dispatch._link_contact_to_call`'s reason (nothing later writes the column).
+    The contact's own `last_call_id` is left on the campaign's call: its outcome is what the
+    campaign achieved, and the call-back joins its row by number like an opt-out does.
     """
 
     async def link(session: AsyncSession, call_id: UUID) -> None:
@@ -479,6 +493,11 @@ def link_callback_to_call(
             ),
             {"call": call_id, "id": callback_id},
         )
+        if campaign_id is not None:
+            await session.execute(
+                text("UPDATE calls SET campaign_id = :cid WHERE id = :call"),
+                {"cid": campaign_id, "call": call_id},
+            )
 
     return link
 

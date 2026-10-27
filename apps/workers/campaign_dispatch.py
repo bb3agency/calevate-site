@@ -101,6 +101,7 @@ from apps.api.agents.service import (
 )
 from apps.api.billing.plans import NOW_SQL, plan_in_effect_sql
 from apps.api.campaigns.complaint_spike import check_complaint_spike
+from apps.api.campaigns.contact_details import contact_details_of
 from apps.api.campaigns.controls import account_pause_reason, auto_pause
 from apps.api.campaigns.scheduling import complete_or_rearm, due_schedules, fire_schedule
 from apps.api.campaigns.service import (
@@ -946,7 +947,7 @@ async def _dispatch_for_campaign(
     # runs in its own short transaction, so losing one loses at most one dial's
     # bookkeeping and never un-rings a phone.
 
-    for contact_id, phone, name, _custom, attempts in claimed:
+    for contact_id, phone, name, custom, attempts in claimed:
         async with tenant_session(tenant_id) as session:
             # THE CAMPAIGN's own two live facts, re-read per contact for exactly the
             # reason the big red switch is: the claim COMMITTED, and everything after it
@@ -1028,6 +1029,7 @@ async def _dispatch_for_campaign(
                     context_note=None,
                     on_reserved=_link_contact_to_call(contact_id, campaign_id, phone),
                     number_id=number_id,
+                    contact_details=contact_details_of(custom),
                 )
             except ContactNoLongerClaimedError:
                 # Settled by another writer since the claim (an erasure, in practice).

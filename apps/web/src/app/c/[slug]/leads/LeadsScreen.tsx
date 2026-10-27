@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 import { useActionFeedback } from "@/components/arc/feedback";
 import { useFollowUpActions } from "@/components/calls/followUpActions";
-import { ProblemNotice, RestrictionNote, Skeleton, formatCount } from "@/components/ui";
+import { FilterChip, ProblemNotice, RestrictionNote, Skeleton, formatCount } from "@/components/ui";
 import { InfoTip } from "@/components/console/infoTip";
 import { AskAssistant } from "@/components/copilot/AskAssistant";
 import { PlanCard } from "@/components/copilot/PlanCard";
@@ -75,7 +76,9 @@ export function LeadsScreen() {
   /** Which captured field is "what they want". A failed read falls back to the core key. */
   const leadFields = useLeadFields(session);
   const needKey = leadFields.data?.need_key ?? "need";
-  const f = useLeadsLens(needKey);
+  // A campaign's results link here with `?campaign_id=` to show the leads it reached.
+  const params = useSearchParams();
+  const f = useLeadsLens(needKey, { campaignId: params.get("campaign_id") || undefined });
   const { lens } = f;
 
   const leads = useLeadsUnderLens(session, lens, { limit: PAGE_SIZE, offset: f.offset || undefined });
@@ -293,6 +296,13 @@ export function LeadsScreen() {
           )}
         </div>
       </div>
+
+      {f.campaignId && (
+        <div role="group" aria-label="Campaign filter" className="flex flex-wrap items-center gap-2">
+          <FilterChip label="One campaign's leads" active onClick={() => f.setCampaignId(undefined)} />
+          <span className="text-meta text-ink-muted">Press it to see every lead.</span>
+        </div>
+      )}
 
       <div id={`${panelId}-more`} className={filtersOpen ? undefined : "hidden sm:block"}>
       <MoreFilters

@@ -61,6 +61,7 @@ const IN_FORCE: Record<LeadFilterKey, (lens: LeadLens) => boolean> = {
   follow_up: (lens) => lens.follow_up !== undefined,
   callback_open: (lens) => lens.callback_open !== undefined,
   captured: (lens) => (lens.captured?.length ?? 0) > 0,
+  campaign_id: (lens) => Boolean(lens.campaign_id),
 };
 
 /** Every key that narrows the rows, in one place — the screen's clear-all iterates it. */

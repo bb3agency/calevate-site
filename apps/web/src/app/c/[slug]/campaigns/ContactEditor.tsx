@@ -253,7 +253,7 @@ export function ContactEditor({
       {entries.length === 0 ? (
         <FileDrop
           label="Your contacts file"
-          hint="A CSV with a column called phone is all it needs. Up to 4 MB."
+          hint="A CSV with a column called phone is all it needs. A name is said best written in your agent's language, such as Telugu script. The agent hears your other columns, like village, on each call. Up to 4 MB."
           accept={CSV_ACCEPT}
           validate={(file) =>
             file.size > MAX_FILE_BYTES

@@ -7270,6 +7270,30 @@
         "title": "BusinessDetailsStateOut",
         "type": "object"
       },
+      "BusinessOutcomeCountOut": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "count"
+        ],
+        "title": "BusinessOutcomeCountOut",
+        "type": "object"
+      },
       "BusinessProfileOut": {
         "additionalProperties": false,
         "properties": {
@@ -11007,6 +11031,17 @@
             ],
             "title": "Average Call S"
           },
+          "business_outcomes": {
+            "items": {
+              "$ref": "#/components/schemas/BusinessOutcomeCountOut"
+            },
+            "title": "Business Outcomes",
+            "type": "array"
+          },
+          "business_outcomes_unset": {
+            "title": "Business Outcomes Unset",
+            "type": "integer"
+          },
           "calls": {
             "title": "Calls",
             "type": "integer"
@@ -11030,6 +11065,13 @@
               }
             ],
             "title": "Credits Spent Inr"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/FieldBreakdownOut"
+            },
+            "title": "Fields",
+            "type": "array"
           },
           "hot_leads": {
             "title": "Hot Leads",
@@ -11106,7 +11148,10 @@
           "hot_leads",
           "recent_leads",
           "opt_outs",
-          "credits_spent_inr"
+          "credits_spent_inr",
+          "business_outcomes",
+          "business_outcomes_unset",
+          "fields"
         ],
         "title": "CampaignResultsOut",
         "type": "object"
@@ -22521,6 +22566,39 @@
         "title": "FetchPreviewIn",
         "type": "object"
       },
+      "FieldBreakdownOut": {
+        "additionalProperties": false,
+        "description": "One choice field: how many people hold each value (D-905).",
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "not_captured": {
+            "title": "Not Captured",
+            "type": "integer"
+          },
+          "values": {
+            "items": {
+              "$ref": "#/components/schemas/FieldValueCountOut"
+            },
+            "title": "Values",
+            "type": "array"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "values",
+          "not_captured"
+        ],
+        "title": "FieldBreakdownOut",
+        "type": "object"
+      },
       "FieldLimit": {
         "additionalProperties": false,
         "description": "One column of the client's leads list that the configured model does not fill.\n\nNamed by the client's own LABEL, never our key: `budget_lakhs` is our column and\n\"Budget (lakhs)\" is theirs.",
@@ -22539,6 +22617,25 @@
           "scenarios"
         ],
         "title": "FieldLimit",
+        "type": "object"
+      },
+      "FieldValueCountOut": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "count"
+        ],
+        "title": "FieldValueCountOut",
         "type": "object"
       },
       "FirstRunOut": {
@@ -28812,6 +28909,18 @@
             ],
             "title": "Callback Open"
           },
+          "campaign_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Campaign Id"
+          },
           "captured": {
             "items": {
               "$ref": "#/components/schemas/CapturedFieldFilterIn"
@@ -29314,6 +29423,18 @@
               }
             ],
             "title": "Callback Open"
+          },
+          "campaign_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Campaign Id"
           },
           "captured": {
             "items": {

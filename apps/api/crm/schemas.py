@@ -617,6 +617,9 @@ class LeadLensIn(Strict):
     follow_up: FollowUpFilter | None = None
     #: Captured details: each one matches the field's text exactly or contains it.
     captured: list[CapturedFieldFilterIn] = Field(default_factory=list, max_length=5)
+    #: Leads one campaign spoke to: any of its calls reached them (D-905). The calls lens
+    #: takes the same field (`CallLensIn.campaign_id`).
+    campaign_id: UUID | None = None
 
 
 class LeadSearchIn(LeadLensIn):
