@@ -97,7 +97,8 @@ def test_the_style_layer_states_the_directives_the_guide_specifies() -> None:
     # The language's own register moved to the SPOKEN REGISTER section (D-714), which names
     # each language the agent speaks; this block says to mirror the caller's register.
     assert "caller's language and register" in block
-    assert "ask them to repeat" in block
+    # Not heard, or heard as none of the options: asked again, never picked (D-912).
+    assert "unclear? ask again; never pick for them" in block
     # D-714: the answer first. Turn length, one question a turn, titles in full and varied
     # openings are ThinnestAI's own speaking rules, which every call keeps (D-814).
     assert "lead with the answer" in block
@@ -131,7 +132,8 @@ def test_the_style_layer_answers_the_founders_calls_of_27_oct_2026() -> None:
     assert 'A bare "OK"? Ask one thing, reworded.' in one
 
     pace = bullet("- Talked over?")
-    assert "Told you are too fast? Sorry once" in pace
+    # "I'll speak slowly from now on" promised a speed the model cannot set (D-912).
+    assert "Too fast or hard to follow? Sorry once, no promise" in pace
     assert "go on where you were" in pace
 
     amounts = bullet("- Amounts the English way")

@@ -68,6 +68,7 @@ from apps.api.crm.schemas import (
     TranscriptTurnOut,
     TurnTimingOut,
 )
+from apps.api.crm.turn_times import TimedLine, agent_line_starts
 from apps.api.db.base import uuid7
 from apps.api.db.like import contains_pattern, suffix_pattern
 from apps.api.db.result import rowcount_of
@@ -428,15 +429,23 @@ NOT_PLACED_WORDS: Final[dict[str, str]] = {
 }
 
 
-def _timeline_out(value: object) -> list[TurnTimingOut] | None:
-    """A stored `calls.engine_timeline` for the operator's view; None when none was stored
-    or the record is not one this code reads."""
+def _stored_timeline(value: object) -> CallTimeline | None:
+    """A stored `calls.engine_timeline`; None when none was stored or the record is not one
+    this code reads."""
     if not isinstance(value, dict):
         return None
     try:
-        turns = CallTimeline.model_validate(value).turns
+        return CallTimeline.model_validate(value)
     except ValidationError:
         return None
+
+
+def _timeline_out(value: object) -> list[TurnTimingOut] | None:
+    """A stored `calls.engine_timeline` for the operator's view."""
+    timeline = _stored_timeline(value)
+    if timeline is None:
+        return None
+    turns = timeline.turns
     return [
         TurnTimingOut.model_validate(t.model_dump(exclude={"caller_stopped_at_ms"})) for t in turns
     ]
@@ -492,8 +501,14 @@ async def get_call(
             {"cid": call_id},
         )
     ).all()
+    # An agent line's stored time is when it was written down, with the caller line it
+    # answers; the timeline says when it was heard (D-912).
+    moved = agent_line_starts(
+        [TimedLine(t[0], t[1], t[4]) for t in turns], _stored_timeline(row[41])
+    )
+    starts = {t[0]: moved.get(t[0], t[4]) for t in turns}
     # From the raw text's length, so the raw and the redacted view flag the same turns.
-    unheard = likely_cut_off_rows((t[0], t[1], int(t[7] or 0), t[4]) for t in turns)
+    unheard = likely_cut_off_rows((t[0], t[1], int(t[7] or 0), starts[t[0]]) for t in turns)
     extraction = (
         await session.execute(
             text(
@@ -575,10 +590,10 @@ async def get_call(
                 speaker=t[1],
                 text=t[2],
                 lang=t[3],
-                start_ms=t[4],
+                start_ms=starts[t[0]],
                 # Translated from the redacted text, so it is the same on both views.
                 text_en=t[5],
-                start_approximate=bool(t[6]),
+                start_approximate=bool(t[6]) or t[0] in moved,
                 likely_cut_off=t[0] in unheard,
                 redacted=not raw,
             )

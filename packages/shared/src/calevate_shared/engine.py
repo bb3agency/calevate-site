@@ -2880,20 +2880,36 @@ _REGISTER_BULLET: Final = (
 #: - "Which area, and what budget?" is one sentence with one "?", so "one question a turn"
 #:   read as kept; "on one thing" closes that. After the caller's bare "సరే" it asked both
 #:   again word for word; a bare "OK" now gets one thing, reworded.
+#: D-912, from the founder's Sri Estates call of 28 Oct 2026:
+#: - "How many bedrooms, I mean two BHK or three BHK?": the open question was followed by
+#:   options "as examples", which "never for counts" did not name.
+#: - To "టీవీహెచ్కే" (fits neither option) it said "OK, three BHK" and moved on. "Could not
+#:   hear?" read as silence or noise only; "Unclear?" covers a word that matches no choice,
+#:   and "never pick for them" is the half-answer rule's "never finish it" for a choice.
+#: - "Speak slowly?" got "I'll speak slowly from now on", a promise it cannot keep: the
+#:   speed is the agent's setting (D-884) and ThinnestAI documents no way to change it
+#:   during a call (docs.thinnest.ai/channels/voice, read 28 Oct 2026: `voice.speakingSpeed`
+#:   on the agent, "what you save applies from the next call"). Its own guide advises
+#:   "shorter sentences and simpler words for the rest of the call" (guides/how-your-agent-
+#:   sounds.md, 19 Oct 2026 snapshot), which is what "go on shorter" asks.
+#: - The close read back four details, the team's promise and a question in one turn; the
+#:   close is now one line, no recap.
+#: Paid for by "then ask the next thing" (the one-question bullet already asks) and "each
+#: turn begun differently" (the reaction is how a turn begins, and the bullet before says
+#: never the same way twice).
 VOICE_STYLE_GUIDANCE: Final = (
     "--- HOW TO SPEAK ---\n"
     "- Open with a few words and a comma; one or two short sentences, then wait.\n"
     '- Asked something? Lead with the answer, never "do you want to know". Told something? '
-    "React only if it fits what they said, never the same way twice, often not at all; then "
-    "ask the next thing.\n"
-    "- One question a turn, on one thing, last; each turn begun differently; choices for "
-    'times ("morning or evening?"), never for counts or amounts. A bare "OK"? Ask one '
-    "thing, reworded. Never re-ask what they said or repeat a sentence.\n"
+    "React only if it fits what they said, never the same way twice, often not at all.\n"
+    '- One question a turn, on one thing, last; choices for times ("morning or evening?"), '
+    'never for counts or amounts, not even as examples. A bare "OK"? Ask one thing, '
+    "reworded. Never re-ask what they said or repeat a sentence.\n"
     "- Say only your own part, never the caller's. Half an answer? Offer your reading as a "
     'question with a way out ("one kg, or more?"); never finish it for them.\n'
     "- Unsure or not interested? Offer once, then close politely.\n"
-    "- Talked over? Stop, answer, go on shorter. Told you are too fast? Sorry once, then "
-    "go on where you were, shorter.\n"
+    "- Talked over? Stop, answer, go on shorter. Too fast or hard to follow? Sorry once, "
+    "no promise, go on where you were, shorter.\n"
     '- Write for a voice: a comma where you breathe, "?" on every question. No markdown, '
     "emoji, brackets, dashes, slashes, ellipses, lists, links, actions or notes; never say the "
     "time now.\n"
@@ -2906,10 +2922,10 @@ VOICE_STYLE_GUIDANCE: Final = (
     'amount that could be a range or a decimal ("one two crores") as which one ("one to two '
     'crores?").\n'
     f"{_REGISTER_BULLET}"
-    "- Could not hear? Ask them to repeat. Asked to repeat? Say it shorter.\n"
-    "- Never announce or narrate a search or a wait.\n"
-    "- Close with what happens next and anything else, then one goodbye and nothing more. "
-    "End only then or when asked, never while they talk or ask."
+    "- Unclear? Ask again; never pick for them. Asked to repeat? Say it shorter.\n"
+    "- Never narrate a search or a wait.\n"
+    "- Close: what happens next in one line, no recap, anything else, then one goodbye and "
+    "nothing more. End only then or when asked, never while they talk or ask."
 )
 #: With a language pack (D-830) the pack says how the language is spoken and LANGUAGES which
 #: language to answer in, so this bullet keeps only what neither says.
@@ -4378,19 +4394,6 @@ def compose_first_utterance(cfg: AgentConfig) -> str:
 #: The header of the section that tells the model its first words were already said.
 START_OF_CALL_HEADER: Final = "--- START OF THE CALL ---"
 
-#: For an agent that answers calls (D-856). It also rings out, on a free-trial test call or a
-#: call back, and on the test call of 22 Oct 2026 it answered "who is speaking?" with an AI
-#: notice and a product question, then "why didn't you say who is calling first?" with an
-#: apology and a pitch. The engine does not tell the model who placed a call (not in the
-#: composition ThinnestAI described, `docs/vendor/thinnest-replies-2026-10-12.md` §18.0), and a
-#: per-call value saying so would have to sit after the truthful-answer block or end the
-#: cached prefix early, so the rule keys on what the caller asks instead.
-#: It ends on "carry on" rather than asking whether now suits: the opening already asks that,
-#: and asking it twice is what the call of 23 Oct 2026 did (D-864).
-WHO_IS_CALLING_RULE: Final = (
-    " Asked who is calling or why? Say who you are and why in one line, then carry on."
-)
-
 #: What the model does with the caller's first words after the opening (D-864, founder,
 #: 23 Oct 2026). On that call the caller's "Hello" after a greeting that asked "can we talk
 #: now?" drew a second "నమస్కారం అండి", and "who is it?" drew the "can you talk now?" question
@@ -4400,10 +4403,17 @@ WHO_IS_CALLING_RULE: Final = (
 #: practice chat's history starts with the opening or with the caller's line is not
 #: documented (`api-reference/agents/test-chat.md` of the 19 Oct 2026 snapshot names no
 #: greeting), so the rule says what to do either way rather than relying on the history.
+#: "Asked who or why?" is said for every direction (D-912). It was an answering agent's rule
+#: only (D-856: it rings out on a trial test call or a call back, and the engine does not tell
+#: the model who placed a call, `docs/vendor/thinnest-replies-2026-10-12.md` §18.0), so an
+#: outbound agent had nothing saying what follows its answer to "who is this?"; on the call of
+#: 28 Oct 2026 it said who and why and asked "can we talk now?" again. Naming the next step
+#: ("your first question") rather than "carry on" leaves no gap for the opening's question.
 OPENING_CONTINUES_RULE: Final = (
     " Never greet, repeat it or ask if now suits again, even after answering a question "
-    'first. A word or two ("hello", "yes", in any language) means go on: why you are calling '
-    "or your first question."
+    "first. Asked who or why? Say both in one line, then your first question. A word or two "
+    '("hello", "yes", in any language) means go on: why you are calling or your first '
+    "question."
 )
 
 
@@ -4444,7 +4454,6 @@ def _start_of_call_section(cfg: AgentConfig) -> str:
     return (
         f'{START_OF_CALL_HEADER}\nAlready said for you as your first turn: "{first_words}".'
         f"{test_call}{OPENING_CONTINUES_RULE}"
-        f"{'' if cfg.direction == 'outbound' else WHO_IS_CALLING_RULE}"
     )
 
 
@@ -6492,7 +6501,6 @@ __all__ = [
     "TODAY_VARIABLE",
     "VOICE_STYLE_GUIDANCE",
     "WEBHOOK_AUTH_BY_ENGINE",
-    "WHO_IS_CALLING_RULE",
     "AccountKBListing",
     "AccountKBObject",
     "AccountKBState",
