@@ -14,14 +14,14 @@ import { NoticeBox } from "@/components/ui";
  */
 export function InvoicedAccount() {
   return (
-    <div className="space-y-2">
-      <NoticeBox tone="neutral" title="Moving to prepaid calling credit">
+    // One notice, not a notice and a stray line under its border: the reassurance belongs
+    // to the same message.
+    <NoticeBox tone="neutral" title="Moving to prepaid calling credit">
+      <p>
         Invoices we already sent stay valid and are honoured as issued. No new monthly invoices
         are raised.
-      </NoticeBox>
-      <p className="max-w-prose text-meta text-ink-muted">
-        We will finish the move with you. Nothing on your account is lost.
       </p>
-    </div>
+      <p className="mt-1 text-ink-muted">We will finish the move with you. Nothing on your account is lost.</p>
+    </NoticeBox>
   );
 }

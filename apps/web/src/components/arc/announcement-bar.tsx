@@ -132,8 +132,8 @@ export function AnnouncementBar({
           ) : null}
         </div>
         {action ? (
-          <Link href={action.href} className={clsx(TEXT_ACTION, "max-w-[45%] shrink-0")}>
-            {action.label}
+          <Link href={action.href} className={clsx(TEXT_ACTION, "max-w-[40%] shrink-0")}>
+            <span className="line-clamp-2 break-words">{action.label}</span>
           </Link>
         ) : null}
         {onDismiss ? (

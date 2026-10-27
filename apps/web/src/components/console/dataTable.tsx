@@ -273,9 +273,9 @@ function SelectAll({ checked, mixed, label, onChange }: { checked: boolean; mixe
     if (ref.current) ref.current.indeterminate = mixed;
   }, [mixed]);
   return (
-    <span className="inline-flex touch:min-h-11 items-center">
+    <label className="inline-flex cursor-pointer items-center touch:min-h-11 touch:min-w-11 touch:justify-center">
       <input ref={ref} type="checkbox" aria-label={label} checked={checked} onChange={onChange} className={CHECKBOX} />
-    </span>
+    </label>
   );
 }
 
@@ -463,7 +463,7 @@ export function DataTable<T>({
                 >
                   {selection ? (
                     <td className="relative z-raised w-10 px-3 py-3 align-middle max-sm:float-right max-sm:w-auto max-sm:p-0">
-                      <span className="inline-flex touch:min-h-11 items-center">
+                      <label className="inline-flex cursor-pointer items-center touch:min-h-11 touch:min-w-11 touch:justify-center">
                         <input
                           type="checkbox"
                           aria-label={selection.rowLabel(row)}
@@ -471,7 +471,7 @@ export function DataTable<T>({
                           onChange={() => toggleRow(id)}
                           className={CHECKBOX}
                         />
-                      </span>
+                      </label>
                     </td>
                   ) : null}
                   {columns.map((column, index) => (

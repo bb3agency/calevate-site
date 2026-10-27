@@ -398,26 +398,27 @@ export function ReplyTimesReport({ report }: { report: ReplyTimeReport }) {
           {formatCountOf(overall.calls_answer_measured, "call")} with an answer time
         </span>
         <span>over target</span>
-        <span className="text-ink-muted">
-          · targets: typical{" "}
+        {/* On a phone the targets start their own line, so it never opens on a "·". */}
+        <span className="text-ink-muted max-sm:basis-full">
+          <span aria-hidden className="max-sm:hidden">· </span>targets: typical{" "}
           <span className="font-medium text-ink">{formatMs(report.typical_target_ms)}</span>, slow{" "}
           <span className="font-medium text-ink">{formatMs(report.slow_target_ms)}</span>
+          {" · last "}
+          <span className="font-medium text-ink">{windowLabel(report.window_days)}</span>{" "}
+          <InfoTip label="How calls are judged">
+            <p>
+              The typical wait for an answer is judged against the typical target. A call is
+              over target when more than one of its answers in ten took longer than the slow
+              target. Calls from before answer times are not judged. Both targets are console
+              settings.
+            </p>
+            <p>
+              <Link href={CONFIG_HREF} className={TEXT_ACTION}>
+                Change the targets in Configuration
+              </Link>
+            </p>
+          </InfoTip>
         </span>
-        <span className="text-ink-muted">
-          · last <span className="font-medium text-ink">{windowLabel(report.window_days)}</span>
-        </span>
-        <InfoTip label="How calls are judged">
-          <p>
-            The typical wait for an answer is judged against the typical target. A call is over
-            target when more than one of its answers in ten took longer than the slow target.
-            Calls from before answer times are not judged. Both targets are console settings.
-          </p>
-          <p>
-            <Link href={CONFIG_HREF} className={TEXT_ACTION}>
-              Change the targets in Configuration
-            </Link>
-          </p>
-        </InfoTip>
       </p>
 
       {!report.complete && (

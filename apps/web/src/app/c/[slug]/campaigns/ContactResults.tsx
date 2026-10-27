@@ -9,6 +9,7 @@ import { FilterToolbar } from "@/components/arc/filter-toolbar";
 import { SearchField } from "@/components/arc/search-field";
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import { EmptyState } from "@/components/console/emptyState";
+import { TEXT_ACTION_SM } from "@/components/console/section";
 import { StatusPill } from "@/components/console/statusPill";
 import { Pagination } from "@/components/interior/pagination";
 import {
@@ -133,7 +134,7 @@ export function ContactResults({
       align: "right",
       cell: (row) =>
         row.call_id ? (
-          <Link href={href(`/c/${slug}/calls/${row.call_id}`)} className="whitespace-nowrap text-meta font-medium text-ink underline underline-offset-2">
+          <Link href={href(`/c/${slug}/calls/${row.call_id}`)} className={`${TEXT_ACTION_SM} -mr-2 whitespace-nowrap`}>
             Open call
           </Link>
         ) : editable && row.outcome === "not_called" ? (

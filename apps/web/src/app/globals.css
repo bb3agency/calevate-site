@@ -179,6 +179,30 @@
   }
 }
 
+/*
+ * `lg` and `xl` for a PAGE's own columns. With Pip beside the page at 1280px the page
+ * column is about 610px — narrower than a tablet — so a page that splits into two columns
+ * at the viewport's `lg` crushed its main column (a call's name broke one letter per
+ * line). These hold the split until the panel closes. A container query on `<main>` was
+ * the alternative; `container-type` on the shell's scroller would make it the containing
+ * block for size-dependent children, and this keys on the same selector the padding rule
+ * above already uses.
+ */
+@custom-variant page-lg {
+  @media (min-width: 64rem) {
+    body:not(:has(> [data-copilot-side])) & {
+      @slot;
+    }
+  }
+}
+@custom-variant page-xl {
+  @media (min-width: 80rem) {
+    body:not(:has(> [data-copilot-side])) & {
+      @slot;
+    }
+  }
+}
+
 .dark {
   --app: #020617;
   --surface: #0f172a;

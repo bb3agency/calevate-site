@@ -97,8 +97,8 @@ export function FacetPanel({
                   key={value.value}
                   className={
                     on
-                      ? "flex cursor-pointer items-center gap-1.5 rounded-full bg-brand-strong px-3 py-1 text-xs font-semibold text-white"
-                      : "flex cursor-pointer items-center gap-1.5 rounded-full border border-line bg-surface px-3 py-1 text-xs font-medium text-ink-muted hover:bg-ink/[0.04]"
+                      ? "flex cursor-pointer items-center gap-1.5 rounded-full bg-brand-strong px-3 py-1 text-xs font-semibold text-white has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand has-[:focus-visible]:ring-offset-2 touch:min-h-11"
+                      : "flex cursor-pointer items-center gap-1.5 rounded-full border border-line bg-surface px-3 py-1 text-xs font-medium text-ink-muted hover:bg-ink/[0.04] has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand touch:min-h-11"
                   }
                 >
                   <input

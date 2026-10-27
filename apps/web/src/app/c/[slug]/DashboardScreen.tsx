@@ -313,8 +313,8 @@ export function DashboardScreen({ slug }: { slug: string }) {
         href={(path) => href(`/c/${slug}${path}`)}
       />
 
-      <div className="grid grid-cols-1 items-start gap-10 lg:grid-cols-12 lg:gap-12">
-        <div className="space-y-10 lg:col-span-8">
+      <div className="grid grid-cols-1 items-start gap-10 page-lg:grid-cols-12 page-lg:gap-12">
+        <div className="space-y-10 page-lg:col-span-8">
           <AgentsAtAGlance
             agents={agents}
             stats={agentStats}
@@ -332,7 +332,7 @@ export function DashboardScreen({ slug }: { slug: string }) {
           />
         </div>
 
-        <div className="space-y-10 lg:col-span-4">
+        <div className="space-y-10 page-lg:col-span-4">
           <ReadinessPanel readiness={readiness} href={(path) => href(`/c/${slug}${path}`)} />
           {/* MONEY — what is left to spend, then what this month has cost. Each read has
               its own loading and failure arm (§52); a failed read is never a dash. */}

@@ -241,11 +241,11 @@ export function PerformanceScreen() {
 
       <CallGroupsTable range={window} />
 
-      <div className="grid grid-cols-1 items-start gap-10 lg:grid-cols-12 lg:gap-12">
-        <Section title="From calls to customers" info={FUNNEL_NOTE} className="lg:col-span-7">
+      <div className="grid grid-cols-1 items-start gap-10 page-lg:grid-cols-12 page-lg:gap-12">
+        <Section title="From calls to customers" info={FUNNEL_NOTE} className="page-lg:col-span-7">
           <PerformancePanel perf={perf} kind="funnel" />
         </Section>
-        <Section title="How calls ended" info={OUTCOMES_NOTE} className="lg:col-span-5">
+        <Section title="How calls ended" info={OUTCOMES_NOTE} className="page-lg:col-span-5">
           <PerformancePanel perf={perf} kind="outcomes" />
         </Section>
       </div>

@@ -27,8 +27,8 @@ export function CallHeader({ detail, actions }: { detail: CallDetail; actions?: 
     detail.agent_name ?? null,
   ].filter((fact): fact is string => Boolean(fact));
   return (
-    <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-      <div className="min-w-0">
+    <header className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
+      <div className="min-w-0 flex-1 basis-64">
       <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
         {isLive(detail) && <LiveDot />}
         <p className={`min-w-0 break-words text-title text-ink ${named ? "" : "tabular-nums"}`}>
@@ -83,7 +83,7 @@ export function CallHeader({ detail, actions }: { detail: CallDetail; actions?: 
       {/* D-842: a call that was waiting to be placed and never rang; the server's sentence. */}
       {detail.not_placed_reason && <p className="mt-1 text-meta text-ink-muted">{detail.not_placed_reason}</p>}
       </div>
-      {actions ? <div className="shrink-0">{actions}</div> : null}
+      {actions ? <div className="max-w-full">{actions}</div> : null}
     </header>
   );
 }

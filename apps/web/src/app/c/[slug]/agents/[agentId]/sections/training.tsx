@@ -108,7 +108,7 @@ function Training({ agent, slug }: { agent: Agent; slug: string }) {
       <QuestionsToAnswer agentId={agent.id} focus={focus} headingLevel={3} />
 
       <Section headingLevel={3} title="Try it" description="Nothing here reaches a real caller.">
-        <div className="mt-2 grid grid-cols-1 gap-8 rounded-md border border-line p-4 lg:grid-cols-2">
+        <div className="mt-2 grid grid-cols-1 gap-8 rounded-md border border-line p-4 page-lg:grid-cols-2">
           <TryChat agentId={agent.id} canWrite={tryAccess.allowed} bare />
           <TryIt
             agent={agent}

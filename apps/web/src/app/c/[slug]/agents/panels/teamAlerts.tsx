@@ -218,11 +218,11 @@ function AddContact({
       {accounts.length > 0 ? (
         <fieldset className="flex flex-wrap gap-4 text-sm text-ink">
           <legend className={FIELD_LABEL}>Send by</legend>
-          <label className="flex items-center gap-2">
+          <label className="flex items-center gap-2 touch:min-h-11">
             <input type="radio" name="team-channel" checked={!whatsapp} onChange={() => setChannel("email")} />
             Email
           </label>
-          <label className="flex items-center gap-2">
+          <label className="flex items-center gap-2 touch:min-h-11">
             <input type="radio" name="team-channel" checked={whatsapp} onChange={() => setChannel("whatsapp")} />
             WhatsApp, from your own account
           </label>
@@ -366,7 +366,7 @@ function When({
       <fieldset className="space-y-1.5">
         <legend className={FIELD_LABEL}>After a call that ends as</legend>
         {rule.outcomes.map((o) => (
-          <label key={o.key} className="flex items-start gap-2 text-sm text-ink">
+          <label key={o.key} className="flex items-start gap-2 text-sm text-ink touch:min-h-11 touch:py-2.5">
             <input type="checkbox" className="mt-0.5" disabled={!canWrite} checked={outcomes.includes(o.key)} onChange={() => setOutcomes(toggle(outcomes, o.key))} />
             <span>{o.label}</span>
           </label>
@@ -377,7 +377,7 @@ function When({
         <fieldset key={field.key} className="space-y-1.5">
           <legend className={FIELD_LABEL}>After a call where &ldquo;{field.label}&rdquo; is</legend>
           {field.values.map((value) => (
-            <label key={value} className="flex items-start gap-2 text-sm text-ink">
+            <label key={value} className="flex items-start gap-2 text-sm text-ink touch:min-h-11 touch:py-2.5">
               <input
                 type="checkbox"
                 className="mt-0.5"
@@ -391,7 +391,7 @@ function When({
         </fieldset>
       ))}
 
-      <label className="flex items-start gap-2 text-sm text-ink">
+      <label className="flex items-start gap-2 text-sm text-ink touch:min-h-11 touch:py-2.5">
         <input type="checkbox" className="mt-0.5" disabled={!canWrite} checked={inCall} onChange={(event) => setInCall(event.target.checked)} />
         <span>
           During a call, when the agent cannot help, it tells the team at once and says so to the caller.

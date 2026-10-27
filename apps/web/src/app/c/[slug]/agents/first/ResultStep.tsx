@@ -302,7 +302,9 @@ export function TeamStep({ agent, run, onBack }: { agent: Agent; run: FirstRun; 
           successLabel="Opening"
           onClick={() => finishThen(tourHref)}
         >
-          Show me around {agent.name}
+          <span className="truncate" title={`Show me around ${agent.name}`}>
+            Show me around {agent.name}
+          </span>
         </ActionButton>
         <ActionButton
           variant="secondary"

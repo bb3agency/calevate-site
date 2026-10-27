@@ -254,15 +254,19 @@ function Residual({ data }: { data: Spend }) {
  * rather than dropped, because dropping it would make the column stop adding up with
  * nothing on screen to say why.
  */
+/** One target per row (the DataTable rule): the row's link is stretched over the whole row. */
+const ROW_LINK =
+  "font-medium text-ink underline underline-offset-2 hover:text-brand-strong after:absolute after:inset-0 focus-visible:outline-none focus-visible:after:rounded-md focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-brand";
+
 function AgentRow({ agent, slug }: { agent: AgentCharge; slug: string }) {
   const { href } = useClientRealm();
   return (
-    <tr className={CARD.row}>
+    <tr className={`relative ${CARD.row}`}>
       <td className={`px-4 py-3 sm:px-6 ${CARD.title}`}>
         {agent.agent_id ? (
           <Link
             href={href(`/c/${slug}/agents/${agent.agent_id}`)}
-            className="font-medium text-ink underline underline-offset-2 hover:text-brand-strong"
+            className={ROW_LINK}
           >
             {agent.agent_name ?? "Unnamed agent"}
           </Link>
@@ -285,11 +289,11 @@ function AgentRow({ agent, slug }: { agent: AgentCharge; slug: string }) {
 function CallRow({ call, slug }: { call: CallCharge; slug: string }) {
   const { href } = useClientRealm();
   return (
-    <tr className={CARD.row}>
+    <tr className={`relative ${CARD.row}`}>
       <td className={`px-4 py-3 sm:px-6 ${CARD.title}`}>
         <Link
           href={href(`/c/${slug}/calls/${call.call_id}`)}
-          className="font-medium text-ink underline underline-offset-2 hover:text-brand-strong"
+          className={ROW_LINK}
         >
           {/* `formatIST` prints "—" for a call that never started, which is the honest
               rendering of a nullable timestamp and keeps the link usable either way. */}
