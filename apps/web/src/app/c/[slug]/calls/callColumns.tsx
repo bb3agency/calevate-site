@@ -71,10 +71,31 @@ export const OUTCOME_DOT: Record<OutcomeKind, string> = {
   not_connected: NOTICE_DOT.stop,
 };
 
+/**
+ * The whole row washed in its outcome's colour, faded (founder, 27 Oct 2026), so a scan down
+ * the log reads the endings before the words. Faint enough that muted text keeps its
+ * contrast; the hover deepens the same colour rather than replacing it with grey.
+ */
+export const OUTCOME_ROW: Record<OutcomeKind, string> = {
+  hot: "bg-brand/[0.07] hover:bg-brand/[0.11] dark:bg-brand/[0.12] dark:hover:bg-brand/[0.17]",
+  interested: "bg-series-2/[0.07] hover:bg-series-2/[0.11] dark:bg-series-2/[0.12] dark:hover:bg-series-2/[0.17]",
+  call_back: "bg-series-4/[0.07] hover:bg-series-4/[0.11] dark:bg-series-4/[0.12] dark:hover:bg-series-4/[0.17]",
+  transferred: "bg-series-5/[0.07] hover:bg-series-5/[0.11] dark:bg-series-5/[0.12] dark:hover:bg-series-5/[0.17]",
+  neutral: "bg-ink-faint/[0.06] hover:bg-ink-faint/[0.1] dark:bg-ink-faint/[0.1] dark:hover:bg-ink-faint/[0.15]",
+  hung_up_early: "bg-series-6/[0.07] hover:bg-series-6/[0.11] dark:bg-series-6/[0.12] dark:hover:bg-series-6/[0.17]",
+  said_no: "bg-series-3/[0.07] hover:bg-series-3/[0.11] dark:bg-series-3/[0.12] dark:hover:bg-series-3/[0.17]",
+  not_connected: "bg-chart-danger/[0.07] hover:bg-chart-danger/[0.11] dark:bg-chart-danger/[0.12] dark:hover:bg-chart-danger/[0.17]",
+};
+
 type OutcomeCall = Pick<
   CallSummary,
   "status" | "outcome_tag" | "summary_state" | "business_outcome" | "business_outcome_label" | "business_outcome_lead_status"
 >;
+
+/** The faded outcome wash for a call's whole row. */
+export function outcomeRowClass(call: OutcomeCall): string {
+  return OUTCOME_ROW[callOutcome(call).kind];
+}
 
 /** The kind-of-ending dot alone, for a line that already says the outcome in words. */
 export function OutcomeDot({ kind }: { kind: OutcomeKind }) {

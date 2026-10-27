@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { OUTCOME_DOT } from "@/app/c/[slug]/calls/callColumns";
+import { OUTCOME_DOT, OUTCOME_ROW } from "@/app/c/[slug]/calls/callColumns";
 import { OUTCOME_KIND_WORDS, type OutcomeKind, callOutcome } from "@/lib/callReview";
 
 /**
@@ -119,5 +119,14 @@ describe("every outcome colour is visible on the call log", () => {
   it.each(rows)("%s (%s) on the %s %s", (_kind, className, palette, ground) => {
     const groundHex = (palette === "dark" ? hexIn(DARK, ground) : null) ?? hexIn(ROOT, ground)!;
     expect(contrast(colourOf(className, palette), groundHex)).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe("each call row is washed in its outcome's colour, faded", () => {
+  it.each(Object.entries(OUTCOME_DOT) as [OutcomeKind, string][])("%s", (kind, dot) => {
+    const colour = dot.replace(/^bg-/, "");
+    const wash = OUTCOME_ROW[kind];
+    expect(wash.split(" ")).toContainEqual(expect.stringMatching(new RegExp(String.raw`^bg-${colour}/\[0\.0\d\]$`)));
+    expect(wash).toMatch(new RegExp(`dark:bg-${colour}/`));
   });
 });

@@ -60,7 +60,7 @@ import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
 import { lookup } from "@/lib/lookup";
 
-import { callColumns, liveOf } from "./callColumns";
+import { callColumns, liveOf, outcomeRowClass } from "./callColumns";
 import { CallsPhoneList } from "./CallsPhoneList";
 import { endedReads, liveIds, withLive } from "./liveRows";
 
@@ -475,7 +475,9 @@ export function CallsScreen({ slug }: { slug: string }) {
             getRowId={(call) => call.id}
             // `isolate` keeps the live sheen (`LiveSheen`, `z-below`) above the row's own
             // background and below its content.
-            rowClassName={(call) => (liveOf(call)?.state === "live" ? "isolate bg-brand-soft/40 dark:bg-brand-strong/10" : "")}
+            rowClassName={(call) =>
+              liveOf(call)?.state === "live" ? "isolate bg-brand-soft/40 dark:bg-brand-strong/10" : outcomeRowClass(call)
+            }
             label="Calls, newest first"
             partialNote={
               calls.hasNextPage

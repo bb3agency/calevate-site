@@ -9,7 +9,16 @@ import type { FollowUpActions, FollowUpTarget } from "@/components/calls/followU
 import { formatDuration, formatIST } from "@/components/ui";
 import { callRowLine, callTitle } from "@/lib/callReview";
 
-import { CallResult, FollowUpMark, NeedsYouMark, OutcomeDot, TestCallTag, callAt, isLive } from "./callColumns";
+import {
+  CallResult,
+  FollowUpMark,
+  NeedsYouMark,
+  OutcomeDot,
+  TestCallTag,
+  callAt,
+  isLive,
+  outcomeRowClass,
+} from "./callColumns";
 import { type LogCall, LiveLength, LiveMark, LiveSheen, liveLine, liveWords } from "./liveRows";
 
 const ROW = "relative isolate block min-w-0 px-4 py-3";
@@ -92,15 +101,17 @@ export function CallsPhoneList({
           </>
         );
         const opens = call.opens ?? true;
+        // A running call keeps the live sheen; every other row is washed in its outcome.
+        const wash = live ? "" : outcomeRowClass(call);
         const row: ReactNode = opens ? (
           <Link
             href={callHref(call.id)}
-            className={`${ROW} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand`}
+            className={`${ROW} ${wash} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand`}
           >
             {body}
           </Link>
         ) : (
-          <div className={ROW}>{body}</div>
+          <div className={`${ROW} ${wash}`}>{body}</div>
         );
         if (running) {
           return <li key={call.id} className="bg-brand-soft/40 dark:bg-brand-strong/10">{row}</li>;
