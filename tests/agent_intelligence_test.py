@@ -279,7 +279,8 @@ def test_a_full_v2_prompt_fits_the_engine_and_the_guide_budget() -> None:
     # back in their words, a longer exchange than the one they replaced (7,530 before).
     # Part of a number is never acted on, thanked for or ended on (27 Oct 2026, 7,550 before).
     # Fewer than ten digits: ask for the rest, wait, take it down only once all ten are confirmed
-    # (founder, 27 Oct 2026, 7,610 before).
+    # (founder, 27 Oct 2026, 7,610 before). D-910 kept it: the partial-number bullet, one
+    # question on one thing and no second opening after a first question, paid for by trims.
     assert len(prompt) <= 7_708
 
 

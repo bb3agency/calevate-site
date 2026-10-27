@@ -206,7 +206,7 @@ def test_a_claim_after_a_connected_action_ran_passes() -> None:
 def test_a_number_taken_in_small_groups_and_read_back_passes() -> None:
     groups = [
         Ex("Use my other number.", "Sure, what is it? Tell me a few digits at a time."),
-        Ex("98765", "Nine eight seven six five, and the rest?"),
+        Ex("98765", "Got it, and the other five digits?"),
         Ex("43210", "Nine eight seven six five, four three two one zero. Is that right?"),
         Ex("Yes.", "Thanks, I have it. Anything else?"),
     ]
@@ -230,9 +230,15 @@ def test_a_promise_to_act_on_four_digits_is_a_partial_number() -> None:
     assert _conversation_kinds(sri_estates) == ["partial_number"]
     asks_rest = [
         sri_estates[0],
-        Ex("నంబర్ 9876.", "తొమ్మిది ఎనిమిది ఏడు ఆరు. మిగతా ఆరు అంకెలు చెప్తారా?"),
+        Ex("నంబర్ 9876.", "మిగతా ఆరు అంకెలు చెప్తారా?"),
     ]
     assert _conversation_kinds(asks_rest) == []
+    # Reading the four back, even while asking for the rest, takes them as said (D-910).
+    read_back = [
+        sri_estates[0],
+        Ex("నంబర్ 9876.", "తొమ్మిది ఎనిమిది ఏడు ఆరు. మిగతా ఆరు అంకెలు చెప్తారా?"),
+    ]
+    assert _conversation_kinds(read_back) == ["partial_number"]
 
 
 def test_asking_for_a_number_is_right_when_the_caller_wants_another_or_it_was_hidden() -> None:

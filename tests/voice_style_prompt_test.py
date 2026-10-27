@@ -86,7 +86,7 @@ def test_the_style_layer_states_the_directives_the_guide_specifies() -> None:
     # PROMPT-GUIDE's HOW TO SPEAK list: "Take a number a few digits at a time; a mobile
     # number has ten digits" (D-849 moved the prompt to it).
     assert "a few digits at a time" in block
-    assert "a mobile has ten" in block
+    assert "under ten digits of a mobile" in block
     assert "read back" in block
     # D-883: "One two crores, sir" was echoed word for word on the call of 24 Oct 2026 and
     # saved as 120 rather than 200; an amount that could be a range or a decimal is read
@@ -125,20 +125,27 @@ def test_the_style_layer_answers_the_founders_calls_of_27_oct_2026() -> None:
     for stock in ("సంతోషం", "మంచిది", "సరే"):
         assert stock not in VOICE_STYLE_GUIDANCE
 
-    assert bullet("- One question a turn").startswith("- One question a turn, at its end;")
+    one = bullet("- One question a turn")
+    assert one.startswith("- One question a turn, on one thing, last;")
+    # After a bare "సరే" the agent asked both questions again word for word (D-910).
+    assert 'A bare "OK"? Ask one thing, reworded.' in one
 
     pace = bullet("- Talked over?")
     assert "Told you are too fast? Sorry once" in pace
     assert "go on where you were" in pace
 
     amounts = bullet("- Amounts the English way")
-    assert "A time or number they said goes back in their words" in amounts
+    # A time or amount, not a phone number: "a time or number" had four digits said back
+    # (D-910).
+    assert "A time or amount they said goes back in their words" in amounts
     assert '("six" stays "six")' in amounts
-    # Numbers taken from the caller are still read back a few digits at a time.
-    assert "numbers a few digits at a time. A mobile has ten digits" in bullet("- Read back")
-    # Given fewer than ten digits the agent asks for the rest and waits (founder, 27 Oct 2026).
-    assert "given fewer, ask for the rest and wait" in bullet("- Read back")
-    assert "take it down only once all ten are read back and confirmed" in bullet("- Read back")
+    assert "a mobile a few digits at a time" in bullet("- Read back")
+    # Given fewer than ten digits the agent asks for the rest, never reads them back or asks
+    # to confirm them, and the rule comes before the read-back (D-910).
+    partial = bullet("- Under ten digits of a mobile?")
+    assert 'Ask for the rest ("six more digits?")' in partial
+    assert "never read back, confirm, act or end on part of one" in partial
+    assert lines.index(partial) < lines.index(bullet("- Read back"))
     # "Never say the time" is about the clock, so it cannot read as "never say a time".
     assert "never say the time now." in VOICE_STYLE_GUIDANCE
 

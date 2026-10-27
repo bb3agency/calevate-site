@@ -68,7 +68,9 @@ def test_the_prompt_quotes_the_exact_opening_already_spoken_and_says_to_go_on() 
         assert NOTICE in prompt
         assert prompt.rindex(TRUTHFUL_ANSWER_MARKER) > prompt.index(START_OF_CALL_HEADER)
     rule = OPENING_CONTINUES_RULE
-    assert "Never greet again" in rule and "ask again if now is a good time" in rule
+    assert "Never greet, repeat it or ask if now suits again" in rule
+    # A caller's first question gets its answer, never the opening again (D-910).
+    assert "even after answering a question first" in rule
     assert '("hello", "yes", in any language)' in rule
     assert "why you are calling or your first question" in rule
 

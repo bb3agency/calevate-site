@@ -700,7 +700,7 @@
         },
         {
           "id": "digits",
-          "text": "Phone numbers, OTPs and codes one digit at a time, the English way in Telugu letters: \"నైన్ ఎయిట్ ఫోర్ నైన్\"."
+          "text": "Phone numbers, OTPs and codes one digit at a time, the English way in Telugu letters: \"నైన్ ఎయిట్ ఫోర్ నైన్\". A mobile has ten digits: given four, ask for the other six (\"ఇంకా సిక్స్ డిజిట్స్ చెప్తారా?\"), never read the four back."
         },
         {
           "id": "small-counts",
