@@ -1538,4 +1538,59 @@ async def update_lead_source(
     return LeadSourceAgentOut(id=webhook_id, agent_id=payload.agent_id)
 
 
+class LeadSourceMappingIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: Our field → the name the form sends it under; `{}` takes the payload as it comes.
+    #: Validated as at creation (`service.validate_mapping`).
+    mapping: dict[str, str]
+
+
+class LeadSourceMappingOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    mapping: dict[str, str]
+
+
+@sources_router.put(
+    "/{webhook_id}/mapping",
+    response_model=LeadSourceMappingOut,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Change which form fields a lead source reads",
+    description=(
+        "Replaces the field mapping: which field of the form carries the phone, the name, "
+        "consent and any other detail. The secret, the address and the agent are "
+        "unchanged, and leads already received keep what they were saved with. Refused "
+        "with `mapping_has_no_phone` when no rule says where the phone number is."
+    ),
+)
+async def put_lead_source_mapping(
+    webhook_id: UUID,
+    payload: LeadSourceMappingIn,
+    session: SessionDep,
+    request: Request,
+    principal: Principal = Depends(requires("org:manage")),
+) -> LeadSourceMappingOut:
+    """The audit row names which of OUR fields are mapped before and after, never the
+    form's field names: those are the client's own vocabulary and say nothing an incident
+    needs."""
+    assert principal.tenant_id is not None
+    previous, cleaned = await service.set_source_mapping(
+        session, webhook_id=webhook_id, mapping=payload.mapping
+    )
+    if previous != cleaned:
+        await write_audit(
+            session,
+            action="lead_source.mapping_changed",
+            actor=principal,
+            tenant_id=principal.tenant_id,
+            object_type="inbound_webhook",
+            object_id=str(webhook_id),
+            ip=client_request_ip(request),
+            summary={"fields": sorted(cleaned), "was": sorted(previous)},
+        )
+    return LeadSourceMappingOut(id=webhook_id, mapping=cleaned)
+
+
 __all__ = ["META_SOURCE", "SECRET_HEADER", "router", "sources_router"]

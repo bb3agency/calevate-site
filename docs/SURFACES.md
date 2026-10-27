@@ -60,7 +60,8 @@ with context note (M1), AI callback on needs-follow-up (M2), outbound sync (D-23
 staff/owner role split (SEC-COMP §5).
 
 Table UX (2026 CRM patterns worth adopting when we build)
-- Saved views: named filter+column combinations per user (e.g. "Hot this week").
+- Saved views: named filter+column combinations per user (e.g. "Hot this week"), holding
+  every filter on the screen; the Calls log keeps its own (D-893 L2).
 - Inline edit for status and assignment (exit via Enter/click-out; no modal for
   single-field edits); full record in a detail drawer, not a page navigation.
 - Bulk actions with the researched guardrails: progress indicator, result summary

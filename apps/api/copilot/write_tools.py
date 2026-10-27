@@ -131,6 +131,7 @@ from apps.api.copilot.campaign_actions import CAMPAIGN_ACTIONS
 from apps.api.copilot.console_actions import CONSOLE_ACTIONS
 from apps.api.copilot.fact_actions import FACT_ACTIONS
 from apps.api.copilot.knowledge_actions import KNOWLEDGE_ACTIONS
+from apps.api.copilot.lead_actions import LEAD_ACTIONS
 from apps.api.copilot.question_actions import TRAINING_ACTIONS
 from apps.api.copilot.routine_actions import ROUTINE_ACTIONS
 from apps.api.copilot.sanitize import strip_invisible
@@ -960,6 +961,8 @@ WRITE_TOOLS: Final[tuple[ActionTool, ...]] = (
     *CAMPAIGN_ACTIONS,
     # D-893 lane L7: the person's routines.
     *ROUTINE_ACTIONS,
+    # D-893 lane L2: opt-out restore, saved views and exports.
+    *LEAD_ACTIONS,
 )
 
 _BY_NAME: Final[dict[str, WriteTool]] = {tool.name: tool for tool in WRITE_TOOLS}
@@ -1458,7 +1461,7 @@ async def run_immediate(
         )
         await write_audit(
             session,
-            action=tool.audit_action,
+            action=executed.audit_action or tool.audit_action,
             actor=principal,
             tenant_id=actor.tenant_id,
             object_type=tool.object_type,
@@ -1816,7 +1819,7 @@ async def confirm(
         )
         await write_audit(
             session,
-            action=proposal.tool.audit_action,
+            action=executed.audit_action or proposal.tool.audit_action,
             actor=principal,
             tenant_id=actor.tenant_id,
             object_type=proposal.tool.object_type,
@@ -1879,6 +1882,7 @@ async def confirm(
         # last surface that renders an executor's prose to a person.
         detail=strip_invisible(executed.detail),
         plan_id=plans.plan_id_of(proposal.args),
+        download_ticket=executed.download_ticket,
     )
 
 
@@ -2062,7 +2066,7 @@ async def approve(
     result_state, until = await _record_undo(session, tool, actor, plan.args, executed, prior_state)
     await write_audit(
         session,
-        action=tool.audit_action,
+        action=executed.audit_action or tool.audit_action,
         actor=principal,
         tenant_id=actor.tenant_id,
         object_type=tool.object_type,
@@ -2092,6 +2096,7 @@ async def approve(
         applied=executed.applied,
         detail=strip_invisible(executed.detail),
         plan_id=plans.plan_id_of(plan.args),
+        download_ticket=executed.download_ticket,
     )
 
 

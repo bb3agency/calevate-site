@@ -69,6 +69,10 @@ STEP_LABELS: Final[dict[str, StepLabel]] = {
     "lead_rename": _l("Renaming the lead", "Renamed the lead"),
     "leads_bulk_update": _l("Updating leads", "Updated leads"),
     "dnc_remove": _l("Removing from do-not-call", "Removed from do-not-call"),
+    "dnc_restore": _l("Lifting the opt-out", "Lifted the opt-out"),
+    "lead_view_save": _l("Saving the view", "Saved the view"),
+    "leads_export": _l("Preparing the leads file", "Prepared the leads file"),
+    "calls_export": _l("Preparing the calls file", "Prepared the calls file"),
     "call_place": _l("Placing the call", "Placed the call"),
     "callback_book": _l("Booking a call-back", "Booked a call-back"),
     "callback_reschedule": _l("Moving the call-back", "Moved the call-back"),
@@ -139,6 +143,9 @@ STEP_LABELS: Final[dict[str, StepLabel]] = {
     "line_protection_phone": _l("Preparing the backup phone", "Prepared the backup phone"),
     "lead_source_create": _l("Preparing the lead source", "Prepared the lead source"),
     "lead_source_edit": _l("Changing the lead source's agent", "Changed the lead source's agent"),
+    "lead_source_mapping": _l(
+        "Changing the lead source's fields", "Changed the lead source's fields"
+    ),
     "lead_source_switch": _l("Switching the lead source", "Switched the lead source"),
     "lead_source_rotate": _l("Preparing a new secret", "Prepared a new secret"),
     "lead_calling_rules": _l("Preparing the calling rules", "Prepared the calling rules"),

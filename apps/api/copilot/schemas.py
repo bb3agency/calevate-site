@@ -563,6 +563,9 @@ class CopilotConfirmOut(BaseModel):
     #: Set when the confirmed action was a plan (D-893); its progress is
     #: `GET /v1/copilot/plans/{plan_id}`.
     plan_id: str | None = None
+    #: Set when the action prepared an export: spent by `POST /v1/exports/download`, once,
+    #: within ten minutes (`crm/export_tickets.py`).
+    download_ticket: str | None = None
 
 
 class CopilotDoneEvent(BaseModel):

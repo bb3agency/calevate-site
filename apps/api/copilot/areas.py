@@ -414,6 +414,12 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
     AreaEntry("routine_create", "routines", "set up a repeating job"),
     AreaEntry("routine_edit", "routines", "change, pause (on false) or resume one"),
     AreaEntry("routine_delete", "routines", "delete one"),
+    # D-893 L2: leads, do-not-call, saved views, exports and lead-source fields.
+    AreaEntry("lead_source_mapping", "integrations", "which form fields a lead source reads"),
+    AreaEntry("dnc_restore", "leads", "lift a lead's own opt-out on their word"),
+    AreaEntry("lead_view_save", "leads", "save `lens` as a named view"),
+    AreaEntry("leads_export", "leads", "spreadsheet of the `lens` leads"),
+    AreaEntry("calls_export", "calls", "spreadsheet of the `call_lens` calls"),
 )
 
 AREA_OF: Final[dict[str, Area]] = {entry.tool: entry.area for entry in ENTRIES}

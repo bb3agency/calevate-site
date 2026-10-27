@@ -1043,6 +1043,10 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
         by="`crm.schemas.MAX_SAVED_VIEWS_PER_USER` (50), enforced at create time, and the "
         "list is scoped to the caller's own views."
     ),
+    "GET /v1/calls/views": BoundedByConstruction(
+        by="`crm.schemas.MAX_SAVED_VIEWS_PER_USER` (50) per screen, enforced at create time, "
+        "and the list is scoped to the caller's own Calls views."
+    ),
     "GET /v1/leads/facets": BoundedByConstruction(
         by="`crm.service.MAX_FACET_FIELDS` (8) x `MAX_FACET_VALUES` (50)."
     ),

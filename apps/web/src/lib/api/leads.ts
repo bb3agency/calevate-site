@@ -292,13 +292,24 @@ export interface LeadLens {
   /** When the lead came in, as India days (`YYYY-MM-DD`), both ends included (D-893). */
   created_from?: string;
   created_to?: string;
+  /** When the lead's latest call happened, as India days, both ends included. */
+  last_call_from?: string;
+  last_call_to?: string;
   /** How the lead's latest call ended. */
   last_outcome?: string;
+  /** Which way the lead's latest call went. */
+  direction?: "inbound" | "outbound";
+  /** `false` leaves out leads whose latest call was a free-trial test call. */
+  test_calls?: false;
   /** The latest call marked handled (`done`) or not (`not_done`). */
   follow_up?: "done" | "not_done";
   /** A call-back is waiting for the lead (`true`) or none is (`false`). */
   callback_open?: boolean;
+  /** Captured details: each matches the field's text exactly or contains it. */
+  captured?: CapturedFilter[];
 }
+
+export type CapturedFilter = Schemas["CapturedFieldFilterIn"];
 
 /**
  * `LeadLens` → the request BODY the API's lens routes take.
@@ -337,7 +348,10 @@ export function lensBody(
     agent_id: lens.agent_id,
     created_from: lens.created_from,
     created_to: lens.created_to,
+    last_call_from: lens.last_call_from,
+    last_call_to: lens.last_call_to,
     last_outcome: lens.last_outcome,
+    direction: lens.direction,
     follow_up: lens.follow_up,
     ...paging,
   };
@@ -345,6 +359,8 @@ export function lensBody(
     if (value !== undefined && value !== "") body[key] = value;
   }
   if (lens.callback_open !== undefined) body.callback_open = lens.callback_open;
+  if (lens.test_calls === false) body.test_calls = false;
+  if (lens.captured?.length) body.captured = lens.captured;
   if (lens.columns?.length) body.columns = lens.columns.join(",");
   const f: string[] = [];
   for (const [key, values] of Object.entries(lens.fields ?? {})) {
@@ -434,14 +450,14 @@ export function useSavedViews(session: Session): UseQueryResult<SavedView[]> {
   });
 }
 
+/** What a Leads view stores: the whole lens (`crm.schemas.SavedViewFilters`). */
+export type SavedViewFilters = Schemas["SavedViewFilters"];
+/** A view's day range: fixed days, or `last_days` counted back from today. */
+export type ViewDays = Schemas["ViewDaysIn"];
+
 export interface SavedViewBody {
   name: string;
-  filters: {
-    status?: string | null;
-    agent_id?: string | null;
-    assigned_to_me?: boolean;
-    fields?: Record<string, string[]>;
-  };
+  filters: SavedViewFilters;
   columns?: string[] | null;
 }
 

@@ -682,6 +682,7 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("POST", "/v1/invitations/{invitation_id}/resend", {}, {}),
     ("DELETE", "/v1/lead-sources/{webhook_id}", {}, {}),
     ("PATCH", "/v1/lead-sources/{webhook_id}", {"agent_id": None}, {}),
+    ("PUT", "/v1/lead-sources/{webhook_id}/mapping", {"mapping": {}}, {}),
     ("POST", "/v1/lead-sources/{webhook_id}/enable", {}, {}),
     ("POST", "/v1/lead-sources/{webhook_id}/meta/redrive", {}, {}),
     ("POST", "/v1/lead-sources/{webhook_id}/meta/setup", {}, {}),
@@ -689,6 +690,10 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("POST", "/v1/lead-sources/{webhook_id}/test", {"payload": {"name": "x"}}, {}),
     ("PATCH", "/v1/leads/views/{view_id}", {}, {}),
     ("DELETE", "/v1/leads/views/{view_id}", {}, {}),
+    # The neighbour's view is a Leads one; the Calls routes are scoped by tenant, person
+    # and screen, so it must 404 here on all three counts.
+    ("PATCH", "/v1/calls/views/{view_id}", {}, {}),
+    ("DELETE", "/v1/calls/views/{view_id}", {}, {}),
     ("GET", "/v1/leads/{lead_id}", {}, {}),
     ("PATCH", "/v1/leads/{lead_id}", {}, {}),
     ("GET", "/v1/leads/{lead_id}/timeline", {}, {}),

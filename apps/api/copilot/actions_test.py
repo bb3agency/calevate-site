@@ -108,6 +108,11 @@ _REVIEWED_IMMEDIATE: dict[str, str] = {
     ),
     # D-893 L3: `controls.update_draft` refuses anything but a draft, and a draft dials nobody.
     "campaign_edit": "a draft's settings; Undo restores the prior ones under a CAS",
+    # D-893 L2: a private screen preset, seen by its author only.
+    "lead_view_save": (
+        "a saved view is one person's own filters and changes no lead; Undo deletes it or "
+        "puts its earlier filters back under a CAS"
+    ),
 }
 
 

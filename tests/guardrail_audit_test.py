@@ -1107,6 +1107,8 @@ class TestRedactionExposure:
             "/v1/calls/{call_id}/transcript/raw",
             "/v1/calls/export.csv",
             "/v1/leads/export.csv",
+            # D-893 L2: the same two files, for an export Pip prepared (one-time ticket).
+            "/v1/exports/download",
             # The retained delivery body (D-23): the CRM payload we POSTed, byte for
             # byte. `calls:read_raw` + an audit row, which `check_allowlist` verifies
             # against the live app rather than taking from this comment.

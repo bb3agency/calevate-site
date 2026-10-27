@@ -202,6 +202,11 @@ ALLOWED_ROUTES: dict[str, RawDisclosure] = {
         "the client's own contact data, role-gated and audit-logged; a CSV of masked "
         "numbers cannot serve the follow-up call it exists for"
     ),
+    "/v1/exports/download": RawDisclosure(
+        "the same leads or calls file as the two export routes above, for an export Pip "
+        "prepared: calls:read_raw, the emailed code typed at confirm, a one-time ticket, "
+        "and the same audit row written in the handler"
+    ),
     "/v1/compliance/subject-export": RawDisclosure(
         "the DPDP subject access document: one person's own record, disclosed to that "
         "person. Requires calls:read_raw AND writes audit_log in the same transaction. "

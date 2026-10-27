@@ -109,6 +109,13 @@ const INVALIDATES: Record<string, readonly (readonly string[])[]> = {
   call_translate: [["call"]],
   lead_whatsapp_send: [["lead-whatsapp"], ["lead-timeline"], ["lead"]],
   callbacks_change_bulk: [["callbacks"], ["calls-log"], ["leads"], ["lead"]],
+  // D-893 lane L2.
+  dnc_restore: DNC_DEPENDENT_KEYS,
+  lead_source_mapping: [["lead-sources"]],
+  lead_view_save: [["lead-views"]],
+  // An export changes nothing on screen; the file is the result.
+  leads_export: [],
+  calls_export: [],
 };
 
 export function refreshAfterConfirm(

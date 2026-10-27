@@ -194,6 +194,22 @@ export function useSetLeadSourceAgent(session: Session) {
   });
 }
 
+/**
+ * `PUT /v1/lead-sources/{id}/mapping` — which form fields the source reads, replaced whole.
+ * `{}` reads the form as it comes. The list carries the mapping, so it is refetched.
+ */
+export function useSetLeadSourceMapping(session: Session) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ webhookId, mapping }: { webhookId: string; mapping: Record<string, string> }) =>
+      apiRequest<Schemas["LeadSourceMappingOut"]>(session, `/v1/lead-sources/${webhookId}/mapping`, {
+        method: "PUT",
+        body: { mapping },
+      }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: listKey(session) }),
+  });
+}
+
 export function useSetLeadSourceActive(session: Session) {
   const client = useQueryClient();
   return useMutation({
