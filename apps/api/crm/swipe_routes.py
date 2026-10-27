@@ -23,6 +23,7 @@ from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
 from apps.api.crm import swipe
+from apps.api.crm.lead_message import WHATSAPP_ROUTE, send_lead_whatsapp
 from apps.api.db.session import tenant_session
 from apps.api.reliability.service import (
     IdempotencyClaim,
@@ -41,7 +42,6 @@ Dispatcher = Annotated[Principal, Depends(requires("leads:dispatch"))]
 Reader = Annotated[Principal, Depends(requires("leads:read"))]
 
 SCHEDULE_ROUTE = "/v1/leads/{lead_id}/callbacks"
-WHATSAPP_ROUTE = "/v1/leads/{lead_id}/whatsapp"
 
 
 def _require_key(request: Request, what: str) -> str:
@@ -209,46 +209,15 @@ async def send_whatsapp(
     principal: Dispatcher,
     request: Request,
 ) -> swipe.WhatsAppSendOut:
-    assert principal.tenant_id is not None
-    tenant_id = principal.tenant_id
-    key = _require_key(request, "Sending a WhatsApp message")
-    claim = await _claim(
-        principal,
-        route=WHATSAPP_ROUTE,
-        key=key,
-        request_hash=body_hash({"lead_id": str(lead_id), **payload.model_dump(mode="json")}),
-    )
-    if claim.state == "replay" and claim.response_payload:
-        return swipe.WhatsAppSendOut.model_validate(claim.response_payload)
-    try:
-        out, template = await swipe.send_whatsapp_follow_up(
-            session, tenant_id=tenant_id, lead_id=lead_id, payload=payload
-        )
-    except Exception:
-        await _release(tenant_id, claim)
-        raise
-    # From here a message may have been delivered: the claim is completed, never released,
-    # so a retry of this key is answered rather than sent again.
-    await swipe.record_whatsapp_on_timeline(
-        session, lead_id=lead_id, template=template, out=out, actor=str(principal.user_id)
-    )
-    await write_audit(
+    """`crm/lead_message.send_lead_whatsapp`, which Pip's `lead_whatsapp_send` calls too."""
+    return await send_lead_whatsapp(
         session,
-        action="lead.whatsapp_follow_up",
-        actor=principal,
-        tenant_id=tenant_id,
-        object_type="lead",
-        object_id=str(lead_id),
+        principal=principal,
+        lead_id=lead_id,
+        payload=payload,
+        idempotency_key=_require_key(request, "Sending a WhatsApp message"),
         ip=client_request_ip(request),
-        summary={"status": out.status, "rule": out.rule, "template": template},
     )
-    await complete_idempotency(
-        session,
-        claim=claim,
-        response_status=200,
-        response_payload=out.model_dump(mode="json"),
-    )
-    return out
 
 
 __all__ = ["SCHEDULE_ROUTE", "WHATSAPP_ROUTE", "router"]

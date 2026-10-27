@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -91,6 +91,16 @@ class CopilotPlanPageOut(BaseModel):
     plans: list[CopilotPlanOut]
 
 
+class CopilotPlanProposeIn(BaseModel):
+    """A plan a screen asks for: a set action's registry name and its arguments, exactly as
+    Pip would pass them (`copilot/set_actions.py`, `copilot/call_actions.py`)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    tool: str = Field(min_length=1, max_length=64)
+    args: dict[str, Any]
+
+
 class CopilotPlanApproveIn(BaseModel):
     """The hash of the plan the person was shown; a plan that is not that one is refused."""
 
@@ -155,6 +165,7 @@ __all__ = [
     "CopilotPlanExclusionOut",
     "CopilotPlanOut",
     "CopilotPlanPageOut",
+    "CopilotPlanProposeIn",
     "CopilotPlanTargetOut",
     "CopilotPlanTargetPageOut",
     "plan_out",

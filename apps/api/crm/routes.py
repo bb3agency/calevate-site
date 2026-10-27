@@ -25,11 +25,8 @@ from apps.api.agents.models import CALL_CAP_MAX_S
 from apps.api.agents.trial_panel import read_trial_panel
 from apps.api.analytics.service import MAX_RANGE_DAYS, resolve_window
 from apps.api.billing import service as billing
-from apps.api.billing.ai_quota import require_ai_assist
 from apps.api.billing.rates import PREPAID_TIERS
 from apps.api.compliance.audit import write_audit
-from apps.api.compliance.service import check_dispatch
-from apps.api.core.alerting import record_compliance_block
 from apps.api.core.auth import assert_view_as_may, client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
@@ -40,7 +37,7 @@ from apps.api.crm import columns as lead_column_registry
 from apps.api.crm import lead_search, lens, saved_views, service, translation
 from apps.api.crm.attention import attention_queue
 from apps.api.crm.captured import captured_fields, lead_unlisted
-from apps.api.crm.lead_dial import place_lead_call
+from apps.api.crm.lead_dial import call_back_check, place_call_back, place_lead_call
 from apps.api.crm.lens import LEAD_ROW_FILTER_FIELDS, LeadRowFilters
 from apps.api.crm.live_calls import MAX_LIVE_IDS, CallLiveOut, read_live_calls
 from apps.api.crm.performance import performance
@@ -79,16 +76,6 @@ from apps.api.crm.schemas import (
     SavedViewOut,
     SavedViewUpdateIn,
     UsagePanelOut,
-)
-from apps.api.db.session import tenant_session
-from apps.api.reliability.service import (
-    IdempotencyClaim,
-    body_hash,
-    claim_idempotency,
-    complete_idempotency,
-    fail_idempotency,
-    mark_idempotency_in_doubt,
-    scope_key,
 )
 
 router = APIRouter(prefix="/v1", tags=["crm"])
@@ -501,13 +488,11 @@ async def retranslate_call(
     `translation_state` is the idempotency, and nothing is paid inside the request."""
     assert principal.tenant_id is not None
     assert_view_as_may(principal, "billing.ai_assist")
-    current = await translation.translation_state(session, call_id)
-    if current not in translation.RETRYABLE_STATES:
-        return CallTranslationOut(translation_state=current)
-    await require_ai_assist(session, tenant_id=principal.tenant_id)
-    state = await translation.request_translation(
+    state, retried = await translation.retranslate(
         session, tenant_id=principal.tenant_id, call_id=call_id
     )
+    if not retried:
+        return CallTranslationOut(translation_state=state)
     await write_audit(
         session,
         action="call.translation_requested",
@@ -1448,17 +1433,6 @@ async def lead_timeline(
     return await service.lead_timeline(session, lead_id, limit=limit, offset=offset)
 
 
-async def _release_undialled_claim(tenant_id: UUID, claim: IdempotencyClaim) -> None:
-    """Release a lead-call claim on a path that dialled nobody.
-
-    A refused attempt that kept its claim would answer the client's own retry with the
-    same key "already in flight" for the whole lease, for a request that rang nothing.
-    Its own transaction, because the request's is about to roll back.
-    """
-    async with tenant_session(tenant_id) as fail_session:
-        await fail_idempotency(fail_session, claim=claim)
-
-
 @router.post(
     "/leads/{lead_id}/call",
     response_model=CallLeadOut,
@@ -1634,30 +1608,11 @@ async def callback_eligibility(
     # the authority to dial.
     principal: Principal = Depends(requires("leads:read")),
 ) -> CallbackEligibilityOut:
-    """A GET so the button renders disabled-with-a-reason on page load.
-
-    Both the eligibility rules AND the compliance gate are evaluated, because a call
-    that is eligible on our rules can still be un-dialable right now (outside calling
-    hours, DNC, spend cap) — and "the button is greyed out and I do not know why" is
-    the exact failure SURFACES §2b exists to prevent.
-    """
+    """A GET so the button renders disabled-with-a-reason on page load: our rules AND the
+    compliance gate, because "greyed out and I do not know why" is the failure SURFACES §2b
+    exists to prevent."""
     assert principal.tenant_id is not None
-    try:
-        plan = await service.plan_callback(session, call_id)
-    except ProblemError as problem:
-        if problem.kind != "business_rule":
-            raise
-        return CallbackEligibilityOut(eligible=False, reason=problem.detail, rule=problem.code)
-
-    decision = await check_dispatch(
-        session,
-        tenant_id=principal.tenant_id,
-        agent_id=plan.agent_id,
-        phone_e164=plan.phone_e164,
-    )
-    if not decision.allowed:
-        return CallbackEligibilityOut(eligible=False, reason=decision.reason, rule=decision.rule)
-    return CallbackEligibilityOut(eligible=True, follow_up_number=plan.depth + 1)
+    return await call_back_check(session, tenant_id=principal.tenant_id, call_id=call_id)
 
 
 @router.post(
@@ -1673,113 +1628,11 @@ async def call_back(
     principal: Principal = Depends(requires("leads:dispatch")),
 ) -> CallbackOut:
     """Re-dispatch the same agent to the same lead, carrying what happened last time.
-
-    Idempotency keys off the CALL, not a client-supplied header: the natural key for
-    "follow up this call" is the call itself, and a double-click must not ring a
-    customer twice even from two browser tabs.
-    """
-    assert principal.tenant_id is not None
-    plan = await service.plan_callback(session, call_id)
-
-    # Committed before anything dials, in its own transaction — `call_lead`'s argument,
-    # and this route has the sharper version of it: the key is derived from the call, so
-    # a claim lost to a rollback is re-taken by the very next press.
-    async with tenant_session(principal.tenant_id) as claim_session:
-        claim = await claim_idempotency(
-            claim_session,
-            scope=scope_key(tenant_id=principal.tenant_id, user_id=principal.user_id),
-            route="/v1/calls/{call_id}/callback",
-            method="POST",
-            key=str(call_id),
-            request_hash=body_hash({"call_id": str(call_id)}),
-        )
-    if claim.state == "replay" and claim.response_payload:
-        return CallbackOut.model_validate(claim.response_payload)
-
-    try:
-        decision = await check_dispatch(
-            session,
-            tenant_id=principal.tenant_id,
-            agent_id=plan.agent_id,
-            phone_e164=plan.phone_e164,
-        )
-    except Exception:
-        await _release_undialled_claim(principal.tenant_id, claim)
-        raise
-    if not decision.allowed:
-        # Counted for `call_lead`'s reason, which this route shares: a client pressing
-        # "ring them back" and being refused is a blocked dial, and the eligibility GET
-        # above deliberately is not.
-        record_compliance_block(rule=decision.rule or "unknown")
-        # RELEASED, NOT STORED — the opposite of `call_lead`, because the key is. There
-        # the client mints a key per attempt, so a stored refusal answers only that
-        # attempt's retry. Here the key is the parent call and every later press reuses
-        # it, so a stored refusal would answer every press for the key's lifetime — long
-        # after a calling-hours window opened or a wallet was topped up, while the
-        # eligibility read says the button works. Nothing was dialled, so nothing needs
-        # the claim.
-        await _release_undialled_claim(principal.tenant_id, claim)
-        return CallbackOut(
-            status="blocked", blocked_reason=decision.reason, blocked_rule=decision.rule
-        )
-
-    from apps.api.agents.service import DialUnconfirmedError, dial_was_not_placed, dispatch_call
-
-    # `place_lead_call`'s rule: from here the key is never re-run unless a failure proves
-    # no line was seized.
-    async with tenant_session(principal.tenant_id) as doubt_session:
-        await mark_idempotency_in_doubt(doubt_session, claim=claim)
-    try:
-        handle = await dispatch_call(
-            session,
-            tenant_id=principal.tenant_id,
-            agent_id=plan.agent_id,
-            lead_id=plan.lead_id,
-            phone_e164=plan.phone_e164,
-            lead_name=plan.lead_name,
-            context_note=plan.context_note,
-        )
-    except DialUnconfirmedError as unconfirmed:
-        # The claim stays `in_doubt` on purpose — `place_lead_call` carries the argument.
-        raise ProblemError(
-            kind="dependency",
-            code="dial_unconfirmed",
-            title="We could not confirm whether the callback was placed",
-            detail=(
-                "The voice platform did not answer us, and it may have started the call anyway."
-            ),
-            remediation=(
-                "Check this call's follow-ups in a minute before trying again — calling "
-                "again could ring them twice."
-            ),
-        ) from unconfirmed
-    except Exception as refused:
-        # `call_lead`'s rule: only a failure that proves no line was seized frees the key.
-        if dial_was_not_placed(refused):
-            await _release_undialled_claim(principal.tenant_id, claim)
-        raise
-    # The chain link stays on the REQUEST's session: it is a pointer between two of our
-    # own rows and its loss costs a follow-up count, not a record of a call.
-    await service.link_callback(session, handle=handle, parent_call_id=call_id)
-    result = CallbackOut(status="queued", call_handle=handle, follow_up_number=plan.depth + 1)
-    async with tenant_session(principal.tenant_id) as record_session:
-        await write_audit(
-            record_session,
-            action="call.callback_dispatched",
-            actor=principal,
-            tenant_id=principal.tenant_id,
-            object_type="call",
-            object_id=str(call_id),
-            ip=client_request_ip(request),
-            summary={"follow_up_number": plan.depth + 1},
-        )
-        await complete_idempotency(
-            record_session,
-            claim=claim,
-            response_status=200,
-            response_payload=result.model_dump(),
-        )
-    return result
+    `crm/lead_dial.place_call_back`, which Pip's `call_back` calls too; idempotent on the
+    call itself."""
+    return await place_call_back(
+        session, principal=principal, call_id=call_id, ip=client_request_ip(request)
+    )
 
 
 __all__ = ["router"]

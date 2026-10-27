@@ -14,6 +14,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.billing.ai_quota import require_ai_assist
 from apps.api.core.errors import ProblemError
 from apps.api.crm.schemas import TranslationState
 from apps.api.reliability.service import enqueue_outbox
@@ -73,9 +74,25 @@ async def request_translation(
     return "pending"
 
 
+async def retranslate(
+    session: AsyncSession, *, tenant_id: UUID, call_id: UUID
+) -> tuple[TranslationState, bool]:
+    """The call page's "Try again" and Pip's `call_translate`: the state after the request,
+    and whether it was a retry at all (what the caller audits).
+
+    A state with nothing to retry is answered as it stands, before the allowance is asked,
+    so a second press neither queues nor is refused for a ceiling it would not spend."""
+    current = await translation_state(session, call_id)
+    if current not in RETRYABLE_STATES:
+        return current, False
+    await require_ai_assist(session, tenant_id=tenant_id)
+    return await request_translation(session, tenant_id=tenant_id, call_id=call_id), True
+
+
 __all__ = [
     "RETRYABLE_STATES",
     "TRANSLATE_CALL_JOB",
     "request_translation",
+    "retranslate",
     "translation_state",
 ]

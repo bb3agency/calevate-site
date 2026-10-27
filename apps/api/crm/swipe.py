@@ -342,6 +342,79 @@ async def schedule_lead_callback(
     return ScheduleCallbackOut(status="scheduled", callback_id=booked[0], requested_at=booked[1])
 
 
+# --- move or call off a waiting call-back -----------------------------------------------
+
+CallbackChange = Literal["cancel", "move"]
+
+#: What the row records when a client called a promise off themselves. Their own words are
+#: not asked for: a free-text reason would be shown back to whoever reads the screen next.
+CANCELLED_BY_CLIENT: Final = "You called this off."
+
+_NOT_WAITING: Final = "It is no longer waiting: it is being placed now or has already ended."
+
+
+class CallbackChangeOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    callback_id: UUID
+    #: `blocked`: a calling rule that waiting cannot lift refuses the new time (`reason`).
+    #: `not_waiting`: it is being placed or has ended, so it was left as it is.
+    status: Literal["cancelled", "moved", "blocked", "not_waiting", "not_found"]
+    #: When it is booked for now; set on `moved`.
+    requested_at: datetime | None = None
+    reason: str | None = None
+
+
+_WAITING_ROW: Final = (
+    "SELECT status, agent_id, phone_e164 FROM scheduled_callbacks WHERE id = :id FOR UPDATE"
+)
+_MOVE_WAITING: Final = (
+    "UPDATE scheduled_callbacks SET requested_at = :at, booked_at = now(), "
+    "next_attempt_at = NULL, updated_at = now() "
+    "WHERE id = :id AND status = 'scheduled' RETURNING requested_at"
+)
+
+
+async def change_callback(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    callback_id: UUID,
+    change: CallbackChange,
+    at: datetime | None = None,
+) -> CallbackChangeOut:
+    """Move one waiting call-back to `at`, or call it off: the Call-backs screen's row
+    buttons, its bulk bar and Pip all come here.
+
+    The row is locked first, so a tick claiming it at the same moment either sees the new
+    time or wins and leaves this `not_waiting`. A move asks the dispatch gate's standing
+    refusals with the row's own agent and number, as booking does; hours, credit and the
+    halt stay the gate's to apply when it rings. `at` must already have passed
+    `check_schedule_time`: a bulk change checks it once for every row."""
+    row = (await session.execute(text(_WAITING_ROW), {"id": callback_id})).first()
+    if row is None:
+        return CallbackChangeOut(callback_id=callback_id, status="not_found")
+    if row.status != "scheduled":
+        return CallbackChangeOut(callback_id=callback_id, status="not_waiting", reason=_NOT_WAITING)
+    if change == "cancel":
+        await callbacks.cancel_one(session, callback_id, reason=CANCELLED_BY_CLIENT)
+        return CallbackChangeOut(callback_id=callback_id, status="cancelled")
+    if at is None:
+        raise _bad_time("Say when to move it to.")
+    refused = await standing_refusal(
+        session, tenant_id=tenant_id, agent_id=UUID(str(row.agent_id)), phone=str(row.phone_e164)
+    )
+    if refused is not None:
+        return CallbackChangeOut(
+            callback_id=callback_id,
+            status="blocked",
+            reason=refused.reason or "The calling rules do not allow this call-back.",
+        )
+    moved = (await session.execute(text(_MOVE_WAITING), {"id": callback_id, "at": at})).first()
+    assert moved is not None  # the row is locked and was waiting
+    return CallbackChangeOut(callback_id=callback_id, status="moved", requested_at=moved[0])
+
+
 # --- WhatsApp follow-up ---------------------------------------------------------------
 
 
@@ -584,15 +657,19 @@ async def record_whatsapp_on_timeline(
 
 
 __all__ = [
+    "CANCELLED_BY_CLIENT",
     "MAX_AHEAD",
     "CallFollowUpIn",
     "CallFollowUpOut",
+    "CallbackChange",
+    "CallbackChangeOut",
     "ScheduleCallbackIn",
     "ScheduleCallbackOut",
     "WhatsAppOptionsOut",
     "WhatsAppSendIn",
     "WhatsAppSendOut",
     "WhatsAppTemplateChoiceOut",
+    "change_callback",
     "check_schedule_time",
     "record_whatsapp_on_timeline",
     "schedule_lead_callback",

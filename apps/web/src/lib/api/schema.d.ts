@@ -6021,6 +6021,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/callbacks/bulk": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move or call off many waiting call-backs at once
+         * @description The Call-backs screen's selection. Each one is changed on its own: one that is already being placed, has ended or is refused by a calling rule is left as it is and says why, and the rest still change.
+         */
+        post: operations["change_callbacks_v1_callbacks_bulk_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/callbacks/{callback_id}": {
         parameters: {
             query?: never;
@@ -6039,7 +6059,11 @@ export interface paths {
         delete: operations["cancel_callback_v1_callbacks__callback_id__delete"];
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Move a waiting call-back to another time, 09:00-21:00 IST
+         * @description Moves a call-back that has not gone out yet. Refused when it is already being placed or has ended (409), or when a calling rule that waiting cannot lift refuses the number (422).
+         */
+        patch: operations["move_callback_v1_callbacks__callback_id__patch"];
         trace?: never;
     };
     "/v1/calls": {
@@ -6123,22 +6147,17 @@ export interface paths {
         };
         /**
          * Whether this call may be followed up, and why not (D-21)
-         * @description A GET so the button renders disabled-with-a-reason on page load.
-         *
-         *     Both the eligibility rules AND the compliance gate are evaluated, because a call
-         *     that is eligible on our rules can still be un-dialable right now (outside calling
-         *     hours, DNC, spend cap) — and "the button is greyed out and I do not know why" is
-         *     the exact failure SURFACES §2b exists to prevent.
+         * @description A GET so the button renders disabled-with-a-reason on page load: our rules AND the
+         *     compliance gate, because "greyed out and I do not know why" is the failure SURFACES §2b
+         *     exists to prevent.
          */
         get: operations["callback_eligibility_v1_calls__call_id__callback_get"];
         put?: never;
         /**
          * AI callback with prior-call context (D-21) — same gate, bounded chain
          * @description Re-dispatch the same agent to the same lead, carrying what happened last time.
-         *
-         *     Idempotency keys off the CALL, not a client-supplied header: the natural key for
-         *     "follow up this call" is the call itself, and a double-click must not ring a
-         *     customer twice even from two browser tabs.
+         *     `crm/lead_dial.place_call_back`, which Pip's `call_back` calls too; idempotent on the
+         *     call itself.
          */
         post: operations["call_back_v1_calls__call_id__callback_post"];
         delete?: never;
@@ -7598,7 +7617,11 @@ export interface paths {
         /** My recent plans, newest first */
         get: operations["list_copilot_plans_v1_copilot_plans_get"];
         put?: never;
-        post?: never;
+        /**
+         * Prepare a plan from a screen: the same card Pip makes, for one approval
+         * @description Resolves the set the arguments name, leaves out who the calling rules refuse with the reason, estimates the cost and freezes it as a proposed plan. Nothing runs until the plan is approved. Requires the plan action's own permission.
+         */
+        post: operations["propose_copilot_plan_v1_copilot_plans_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -9814,7 +9837,10 @@ export interface paths {
         /** Can this lead be sent a WhatsApp follow-up now, and with which approved messages */
         get: operations["whatsapp_options_v1_leads__lead_id__whatsapp_get"];
         put?: never;
-        /** Send an approved WhatsApp message to this lead — consent-gated, idempotent */
+        /**
+         * Send an approved WhatsApp message to this lead — consent-gated, idempotent
+         * @description `crm/lead_message.send_lead_whatsapp`, which Pip's `lead_whatsapp_send` calls too.
+         */
         post: operations["send_whatsapp_v1_leads__lead_id__whatsapp_post"];
         delete?: never;
         options?: never;
@@ -15306,6 +15332,23 @@ export interface components {
             /** Vendor Inr */
             vendor_inr: string;
         };
+        /** CallbackChangeOut */
+        CallbackChangeOut: {
+            /**
+             * Callback Id
+             * Format: uuid
+             */
+            callback_id: string;
+            /** Reason */
+            reason?: string | null;
+            /** Requested At */
+            requested_at?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "cancelled" | "moved" | "blocked" | "not_waiting" | "not_found";
+        };
         /** CallbackEligibilityOut */
         CallbackEligibilityOut: {
             /** Eligible */
@@ -15316,6 +15359,14 @@ export interface components {
             reason?: string | null;
             /** Rule */
             rule?: string | null;
+        };
+        /** CallbackMoveIn */
+        CallbackMoveIn: {
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
         };
         /**
          * CallbackOut
@@ -15337,6 +15388,25 @@ export interface components {
              * @enum {string}
              */
             status: "queued" | "blocked";
+        };
+        /** CallbacksBulkIn */
+        CallbacksBulkIn: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "cancel" | "move";
+            /** At */
+            at?: string | null;
+            /** Callback Ids */
+            callback_ids: string[];
+        };
+        /** CallbacksBulkOut */
+        CallbacksBulkOut: {
+            /** Changed */
+            changed: number;
+            /** Results */
+            results: components["schemas"]["CallbackChangeOut"][];
         };
         /**
          * CallerMemoryIn
@@ -17394,6 +17464,19 @@ export interface components {
         CopilotPlanPageOut: {
             /** Plans */
             plans: components["schemas"]["CopilotPlanOut"][];
+        };
+        /**
+         * CopilotPlanProposeIn
+         * @description A plan a screen asks for: a set action's registry name and its arguments, exactly as
+         *     Pip would pass them (`copilot/set_actions.py`, `copilot/call_actions.py`).
+         */
+        CopilotPlanProposeIn: {
+            /** Args */
+            args: {
+                [key: string]: unknown;
+            };
+            /** Tool */
+            tool: string;
         };
         /** CopilotPlanTargetOut */
         CopilotPlanTargetOut: {
@@ -42970,6 +43053,39 @@ export interface operations {
             };
         };
     };
+    change_callbacks_v1_callbacks_bulk_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CallbacksBulkIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallbacksBulkOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     get_callback_v1_callbacks__callback_id__get: {
         parameters: {
             query?: never;
@@ -43011,6 +43127,41 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduledCallbackOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    move_callback_v1_callbacks__callback_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                callback_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CallbackMoveIn"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -45587,6 +45738,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CopilotPlanPageOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    propose_copilot_plan_v1_copilot_plans_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CopilotPlanProposeIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotPlanOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
