@@ -11,11 +11,18 @@ import { describe, expect, it } from "vitest";
 import { WhatCallsCost } from "@/app/c/[slug]/billing/WhatCallsCost";
 import type { CreditPacks } from "@/lib/api/billing";
 
-const CARD = {
+const CARD: CreditPacks = {
   list_rate_inr_per_min: "4.50",
+  from_inr_per_min: "4.50",
+  from_clear_inr_per_min: "4.50",
+  from_studio_inr_per_min: "6.00",
+  clear_tier_label: "Clear",
+  studio_tier_label: "Studio",
+  voice_not_offered: null,
+  voice_not_offered_notice: null,
   packs: [],
   credit_expiry_months: 12,
-} as unknown as CreditPacks;
+};
 
 describe("what calls cost: the credit term", () => {
   it("says credit lasts 12 months and never that it never expires", () => {

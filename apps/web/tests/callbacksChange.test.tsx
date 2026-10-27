@@ -2,8 +2,7 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import CallbacksPage from "@/app/c/[slug]/callbacks/page";
-import { CallAgain } from "@/app/c/[slug]/calls/CallAgain";
-import type { Agent } from "@/lib/api/agents";
+import { CallAgain, type Dialer } from "@/app/c/[slug]/calls/CallAgain";
 import type { CallbacksBulkResult, ScheduledCallback } from "@/lib/api/callbacks";
 import type { Me } from "@/lib/api/client";
 import { useClientRealm } from "@/lib/api/session";
@@ -109,9 +108,9 @@ describe("changing the ticked call-backs", () => {
   });
 });
 
-const DIALER = { id: "0192f0aa-2222-7000-8000-000000000009", name: "Follow-ups" } as Agent;
+const DIALER: Dialer = { id: "0192f0aa-2222-7000-8000-000000000009", name: "Follow-ups" };
 
-function Again({ dialers }: { dialers: Agent[] | undefined }) {
+function Again({ dialers }: { dialers: Dialer[] | undefined }) {
   const { session } = useClientRealm();
   return (
     <CallAgain

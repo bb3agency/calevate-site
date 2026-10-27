@@ -12,7 +12,7 @@ import { OPEN_SETTINGS } from "@/lib/openAgentSettings";
  * choice.
  */
 export function useOpenOnlyAgentSettings(
-  agents: readonly Agent[] | undefined,
+  agents: readonly Pick<Agent, "id">[] | undefined,
   slug: string,
   href: (path: string) => string,
 ): void {

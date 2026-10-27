@@ -165,6 +165,7 @@ function routes(over: Record<string, unknown> = {}) {
     "POST /v1/leads/search": leadList([LEAD_A, LEAD_B], 2),
     "/v1/leads/facets": FACETS,
     "/v1/leads/views": { items: [] },
+    "/v1/campaigns": [],
     "/v1/lead-fields": LEAD_FIELDS_CORE_ONLY,
     ...over,
   };

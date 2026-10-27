@@ -99,7 +99,7 @@ function Chooser({
     setTyped("");
   }, [selection]);
 
-  const open = (campaigns.data ?? []).filter((c) => OPEN_STATUSES.has(c.status));
+  const open = campaigns.data ? campaigns.data.filter((c) => OPEN_STATUSES.has(c.status)) : [];
   const chosen = open.find((c) => c.id === campaignId) ?? open[0];
   const count = selection.wholeQuery ? filteredTotal : selection.ids.length;
 
@@ -134,7 +134,7 @@ function Chooser({
             <select id={selectId} disabled className={`${FIELD_INLINE} mt-1 w-full touch:min-h-11`}>
               <option>Loading your campaigns…</option>
             </select>
-          ) : campaigns.error ? null : open.length === 0 ? (
+          ) : campaigns.error || !campaigns.data ? null : open.length === 0 ? (
             <p className="mt-1 text-body text-ink-muted">
               No campaign is waiting to start.{" "}
               <Link href={href(`/c/${slug}/campaigns/new`)} className={TEXT_ACTION}>

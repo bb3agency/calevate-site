@@ -10,6 +10,9 @@ import { PlanCard } from "@/components/copilot/PlanCard";
 import { ModalDialog } from "@/components/modalDialog";
 import { FIELD, NoticeBox, ProblemNotice, SECONDARY_BUTTON, SECONDARY_BUTTON_SM } from "@/components/ui";
 import type { Agent } from "@/lib/api/agents";
+
+/** What the dialler picker reads from an agent. */
+export type Dialer = Pick<Agent, "id" | "name">;
 import type { Session } from "@/lib/api/client";
 import { useProposePlan } from "@/lib/copilot/plans";
 
@@ -57,7 +60,7 @@ export function CallAgain({
   session: Session;
   scope: CallAgainScope;
   /** The agents that can place calls now (`canDialOut`); undefined while they load. */
-  dialers: Agent[] | undefined;
+  dialers: Dialer[] | undefined;
 }) {
   const [open, setOpen] = useState(false);
   const [planId, setPlanId] = useState<string | null>(null);
@@ -111,7 +114,7 @@ function CallAgainDialog({
 }: {
   session: Session;
   scope: CallAgainScope;
-  dialers: Agent[];
+  dialers: Dialer[];
   onClose: () => void;
   onPlanned: (planId: string) => void;
 }) {

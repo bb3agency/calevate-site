@@ -31,7 +31,7 @@ async function landing(query: Record<string, string | string[] | undefined>): Pr
   return permanentRedirect.mock.calls[0][0];
 }
 
-const agent = (id: string) => ({ id }) as Agent;
+const agent = (id: string): Pick<Agent, "id"> => ({ id });
 const plain = (path: string) => path;
 
 describe("the retired call handling page", () => {
