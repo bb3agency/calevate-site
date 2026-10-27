@@ -195,7 +195,10 @@ class CallQuality(BaseModel):
 
     #: Caller turns the agent answered.
     turns: int | None = None
-    #: Caller stops speaking -> the agent's first audio, milliseconds.
+    #: Caller stops speaking -> the agent's first audio, milliseconds. First SOUND, not the
+    #: answer: a filler line or an acknowledgement that plays first ends the measurement, and
+    #: the time to the answer's first word is not reported (VENDOR-STATED, ThinnestAI's email
+    #: of 27 Oct 2026, `docs/vendor/thinnest-replies-2026-10-12.md` §37; D-901).
     reply_ms_median: int | None = None
     reply_ms_p90: int | None = None
     reply_ms_max: int | None = None
@@ -212,6 +215,13 @@ class CallQuality(BaseModel):
     model_errors: int | None = None
     #: Turns a backup model answered after the first choice failed.
     backup_answers: int | None = None
+    #: OURS, never an engine's: agent turns of the call's transcript that begin with one of
+    #: the filler lines the agent may say while a reply is slow, counted at ingest
+    #: (`apps/api/ops/filler_turns.py`). A turn that opened with a filler had its reply time
+    #: cut short by it (`reply_ms_*`). None when no transcript was in hand. Zero is not proof
+    #: that no filler played: whether the engine writes fillers into the transcript at all is
+    #: UNKNOWN.
+    filler_turns: int | None = None
 
 
 class CallLlmUsage(BaseModel):

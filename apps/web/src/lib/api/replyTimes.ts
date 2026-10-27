@@ -1,11 +1,12 @@
 "use client";
 
 /**
- * How long callers waited for replies, across every client — `GET /v1/ops/reply-times`
- * (D-770). The figures are the voice platform's own per-call reply times
- * (`apps/api/ops/reply_times.py`); every percentile, count and the target arrive as server
- * fields, so nothing here computes a statistic. Milliseconds are JSON numbers, not money,
- * so rounding them for display is fine (hard rule 7 is about rupees).
+ * How long callers waited for the agent's first sound, across every client —
+ * `GET /v1/ops/reply-times` (D-770). The figures are the voice platform's own per-call reply
+ * times, which end at the first sound, so a filler line ends them and they are not the time to
+ * the answer (D-901, `apps/api/ops/reply_times.py`); every percentile, count and the target
+ * arrive as server fields, so nothing here computes a statistic. Milliseconds are JSON
+ * numbers, not money, so rounding them for display is fine (hard rule 7 is about rupees).
  */
 
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
@@ -54,6 +55,11 @@ export function useReplyTimes(days: number, enabled = true): UseQueryResult<Repl
     enabled,
   });
 }
+
+/** What every wait on the screen measures, said once where a reader meets the figures. */
+export const FIRST_SOUND_NOTE =
+  "Each wait runs from the caller stopping to the agent's first sound. A filler line such as " +
+  "“one moment” is a first sound, so a slow answer covered by one counts only up to the filler.";
 
 /** Whole milliseconds, or `—` when the server withheld or the platform did not report it. */
 export function formatMs(value: number | null | undefined): string {

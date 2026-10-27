@@ -541,7 +541,8 @@ class Settings(BaseSettings):
     thinnest_interrupt_words: int = Field(default=2, ge=1, le=6)
     #: How long a caller should wait for a reply, in milliseconds, from the moment they stop
     #: speaking to the agent's first audio as the voice platform measures it per call
-    #: (`CallQuality.reply_ms_*`): the TYPICAL wait (the calls' median) and the SLOW one (the
+    #: (`CallQuality.reply_ms_*`; first SOUND, so a filler line ends it, D-901): the TYPICAL
+    #: wait (the calls' median) and the SLOW one (the
     #: calls' p90; a call is over target when its own p90 exceeds it). 1,600 / 2,200 are the
     #: founder's targets of 27 Oct 2026 (D-896), which replaced one 500 ms goal the model alone
     #: cannot meet (its first word takes ~1 s, `docs/evidence/latency-research-2026-10-27.md`).

@@ -366,17 +366,17 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
     "reply_time_typical_target_ms": _m(
         "voice-engine",
         "thinnest",
-        "Typical reply time target",
-        "How long a caller should usually wait for the agent to start answering: the "
-        "middle of the calls' typical waits is judged against it.",
+        "Typical wait for the agent's first sound",
+        "How long a caller should usually wait for the agent's first sound, judged on the "
+        "calls' typical waits. A filler line counts as that sound.",
         _THINNEST,
     ),
     "reply_time_slow_target_ms": _m(
         "voice-engine",
         "thinnest",
-        "Slow reply time target",
-        "The longest a slow reply should take. A call is over target when more than one "
-        "reply in ten took longer than this.",
+        "Slow wait for the agent's first sound",
+        "A call is over target when more than one wait in ten for the agent's first sound "
+        "was longer than this. A filler line counts as that sound.",
         _THINNEST,
     ),
     "hot_facts_enabled": _m(

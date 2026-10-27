@@ -15,6 +15,8 @@ export function figures(over: Partial<ReplyTimeFigures> = {}): ReplyTimeFigures 
     calls: 14,
     calls_measured: 12,
     reply_typical_ms: 812.4,
+    calls_with_filler: 4,
+    reply_typical_no_filler_ms: 1240,
     reply_slow_ms: 1460,
     reply_worst_ms: 6210,
     first_token_typical_ms: 305,
@@ -64,6 +66,7 @@ const slowCall = (over: Partial<SlowCall> = {}): SlowCall => ({
   first_token_p90_ms: 780,
   slow_reply: true,
   model_errors: 2,
+  filler_turns: 3,
   ...over,
 });
 

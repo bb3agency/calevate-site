@@ -228,7 +228,9 @@ class CapturedFieldsOut(Strict):
 
 class CallQualityOut(Strict):
     """How the call went, as the voice platform measured it once it ended. Any figure is
-    null when it could not be measured on that call."""
+    null when it could not be measured on that call. `reply_ms_*` run to the agent's first
+    sound, so a filler line that plays first ends them (D-901); `filler_turns` is ours, the
+    agent turns the transcript shows opening with one."""
 
     turns: int | None = None
     reply_ms_median: int | None = None
@@ -242,6 +244,7 @@ class CallQualityOut(Strict):
     interruptions: int | None = None
     model_errors: int | None = None
     backup_answers: int | None = None
+    filler_turns: int | None = None
 
 
 CallSignalKind = Literal[

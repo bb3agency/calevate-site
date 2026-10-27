@@ -324,3 +324,88 @@ def test_days_are_ist_calendar_days_and_worst_calls_are_capped() -> None:
     assert [row.day.isoformat() for row in report.by_day] == ["2026-10-15"]
     assert len(report.worst_calls) == MAX_WORST_CALLS
     assert report.worst_calls[0].reply_p90_ms == float(MAX_WORST_CALLS + 5)
+
+
+# ------------------------------------------------- first sound, and filler openings (D-901)
+
+
+def test_the_no_filler_figure_leaves_out_calls_whose_transcript_shows_a_filler() -> None:
+    """A filler ends the reply measurement, so calls with one found are kept out of the figure
+    the filler timer cannot flatter; a call never counted (None) is not a filler call."""
+    calls = [
+        replace(_fake(1, reply_p90=4000.0), filler_turns=2),  # median 2000, filler found
+        replace(_fake(2, reply_p90=4200.0), filler_turns=1),  # median 2100, filler found
+        replace(_fake(3, reply_p90=1200.0), filler_turns=0),  # median 600
+        replace(_fake(4, reply_p90=1600.0), filler_turns=None),  # median 800, not counted
+        replace(_fake(5, reply_p90=None), filler_turns=3),  # unmeasured: in neither figure
+    ]
+    report = build_report(calls, days=1, typical_target_ms=400, slow_target_ms=500, complete=True)
+
+    assert report.overall.calls_with_filler == 2
+    assert report.overall.reply_typical_no_filler_ms == 700.0
+    assert report.overall.reply_typical_ms == pytest.approx(1400.0)
+    assert {c.call_id: c.filler_turns for c in report.worst_calls}[uuid.UUID(int=1001)] == 2
+
+
+def test_with_every_measured_call_on_a_filler_there_is_no_clean_figure() -> None:
+    calls = [replace(_fake(i, reply_p90=4000.0), filler_turns=1) for i in range(3)]
+    report = build_report(calls, days=1, typical_target_ms=400, slow_target_ms=500, complete=True)
+    assert report.overall.calls_with_filler == 3
+    assert report.overall.reply_typical_no_filler_ms is None
+
+
+async def test_ingest_counts_agent_turns_opening_with_a_filler_and_keeps_the_count() -> None:
+    """The production upsert counts the turns from the transcript (the agent's own lines and
+    the platform's), the report reads the count, and a later event with no transcript keeps
+    it rather than wiping it."""
+    from apps.workers.pipeline import _upsert_call_row
+    from calevate_shared.events import TranscriptTurn
+
+    tenant = await _tenant()
+    async with tenant_session(tenant.tenant_id) as session:
+        await session.execute(
+            text("UPDATE agents SET filler_lines = ARRAY['One moment, please'] WHERE id = :aid"),
+            {"aid": tenant.agent_id},
+        )
+    ecid = f"rt-{uuid.uuid4().hex}"
+    said = [
+        ("caller", "One moment, please"),
+        ("agent", "One moment, please... We open at nine."),
+        ("caller", "Ok"),
+        ("agent", "ఒక్క సెకండ్ అండి. శనివారం కూడా తెరిచి ఉంటాం."),
+        ("agent", "One momentous day for us."),
+        ("agent", "Sure, we open at nine."),
+    ]
+    transcript = [
+        TranscriptTurn.model_validate({"call_id": ecid, "idx": i, "speaker": who, "text": words})
+        for i, (who, words) in enumerate(said)
+    ]
+
+    def snapshot(with_transcript: bool) -> ExecutionSnapshot:
+        return ExecutionSnapshot(
+            engine_call_id=ecid,
+            status="completed",
+            raw_status="completed",
+            terminal=True,
+            billable_ready=True,
+            engine="fake",
+            started_at=datetime.now(UTC) - timedelta(minutes=5),
+            ended_at=datetime.now(UTC),
+            quality=_quality(2100, 2900),
+            transcript=transcript if with_transcript else [],
+        )
+
+    call_id = await _upsert_call_row(tenant.tenant_id, tenant.agent_id, snapshot(True), None)
+    await _upsert_call_row(tenant.tenant_id, tenant.agent_id, snapshot(False), None)
+    async with tenant_session(tenant.tenant_id) as session:
+        stored = (
+            await session.execute(
+                text("SELECT engine_quality FROM calls WHERE id = :id"), {"id": call_id}
+            )
+        ).scalar_one()
+    assert stored["filler_turns"] == 2
+    assert stored["reply_ms_median"] == 2100
+
+    row = _client(await _report(), tenant)
+    assert row.calls_with_filler == 1
+    assert row.reply_typical_no_filler_ms is None

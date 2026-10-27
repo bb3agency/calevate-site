@@ -61,19 +61,43 @@ function figureColumns<T extends ReplyTimeFigures>(): DataColumn<T>[] {
     },
     {
       id: "typical",
-      header: "Typical reply",
-      renderHeader: glossed("Typical reply", "The middle of the calls' own typical (median) reply times."),
+      header: "Typical wait",
+      renderHeader: glossed(
+        "Typical wait",
+        "The middle of the calls' own typical (median) waits for the agent's first sound. A filler line counts.",
+      ),
       hideBelow: "sm",
       className: "tabular-nums",
       sort: { value: (row) => row.reply_typical_ms, kind: "number", first: "desc" },
       cell: (row) => formatMs(row.reply_typical_ms),
     },
     {
-      id: "slow",
-      header: "Slow reply",
+      id: "no-filler",
+      header: "No filler found",
       renderHeader: glossed(
-        "Slow reply",
-        "Nine calls in ten had their slowest tenth of replies faster than this. Blank below ten measured calls.",
+        "No filler found",
+        "The typical wait over calls whose transcript shows no reply opening with a filler line, and how many calls had one.",
+      ),
+      hideBelow: "md",
+      className: "tabular-nums",
+      sort: { value: (row) => row.reply_typical_no_filler_ms, kind: "number", first: "desc" },
+      cell: (row) => (
+        <>
+          {formatMs(row.reply_typical_no_filler_ms)}
+          {row.calls_with_filler > 0 && (
+            <span className="block text-meta text-ink-muted">
+              {formatCountOf(row.calls_with_filler, "call")} with one
+            </span>
+          )}
+        </>
+      ),
+    },
+    {
+      id: "slow",
+      header: "Slow wait",
+      renderHeader: glossed(
+        "Slow wait",
+        "Nine calls in ten had their slowest tenth of waits for the agent's first sound shorter than this. Blank below ten measured calls.",
       ),
       hideBelow: "sm",
       className: "tabular-nums",
@@ -95,7 +119,7 @@ function figureColumns<T extends ReplyTimeFigures>(): DataColumn<T>[] {
     {
       id: "over",
       header: "Over target",
-      renderHeader: glossed("Over target", "Calls where more than one reply in ten took longer than the target."),
+      renderHeader: glossed("Over target", "Calls where more than one wait in ten was longer than the slow target."),
       className: "tabular-nums",
       sort: { value: (row) => row.calls_over_target, kind: "number", first: "desc" },
       cell: (row) => (
@@ -219,21 +243,36 @@ const CALL_COLUMNS: DataColumn<SlowCall>[] = [
   },
   {
     id: "typical",
-    header: "Typical reply",
+    header: "Typical wait",
     hideBelow: "sm",
     className: "tabular-nums",
     cell: (row) => formatMs(row.reply_median_ms),
   },
   {
     id: "p90",
-    header: "Slow reply",
-    renderHeader: glossed("Slow reply", "Nine replies in ten on this call were faster than this."),
+    header: "Slow wait",
+    renderHeader: glossed(
+      "Slow wait",
+      "Nine waits in ten on this call for the agent's first sound were shorter than this.",
+    ),
     className: "tabular-nums",
     cell: (row) => formatMs(row.reply_p90_ms),
   },
   {
+    id: "fillers",
+    header: "Filler openings",
+    renderHeader: glossed(
+      "Filler openings",
+      "Replies the transcript shows opening with a filler line, whose wait ended at the filler. Blank when the transcript was not counted.",
+    ),
+    hideBelow: "lg",
+    className: "tabular-nums",
+    cell: (row) =>
+      row.filler_turns === null || row.filler_turns === undefined ? "—" : formatCount(row.filler_turns),
+  },
+  {
     id: "worst",
-    header: "Slowest reply",
+    header: "Longest wait",
     hideBelow: "sm",
     className: "tabular-nums",
     cell: (row) => formatMs(row.reply_max_ms),
@@ -285,9 +324,10 @@ export function ReplyTimesReport({ report }: { report: ReplyTimeReport }) {
         </span>
         <InfoTip label="How calls are judged">
           <p>
-            The typical reply is judged against the typical target. A call is over target when
-            more than one of its replies in ten kept the caller waiting longer than the slow
-            target. Both are console settings.
+            The typical wait for the agent&rsquo;s first sound is judged against the typical
+            target. A call is over target when more than one of its waits in ten was longer
+            than the slow target. A filler line ends a wait, so a call can be under target and
+            still slow to answer. Both are console settings.
           </p>
           <p>
             <Link href={CONFIG_HREF} className={TEXT_ACTION}>
@@ -313,13 +353,21 @@ export function ReplyTimesReport({ report }: { report: ReplyTimeReport }) {
         <>
           <MetricRow label="Across every client">
             <Metric
-              label="Typical reply"
+              label="Typical wait for first sound"
               value={formatMs(overall.reply_typical_ms)}
               tone={overTarget(overall.reply_typical_ms, report.typical_target_ms) ? "warn" : "default"}
               hint={`Target ${formatMs(report.typical_target_ms)} · ${formatCountOf(overall.calls_measured, "measured call")} of ${formatCount(overall.calls)}`}
             />
             <Metric
-              label="Slow reply"
+              label="Typical wait, no filler found"
+              value={formatMs(overall.reply_typical_no_filler_ms)}
+              tone={
+                overTarget(overall.reply_typical_no_filler_ms, report.typical_target_ms) ? "warn" : "default"
+              }
+              hint={`${formatCountOf(overall.calls_with_filler, "measured call")} had a reply open with a filler line`}
+            />
+            <Metric
+              label="Slow wait for first sound"
               value={formatMs(overall.reply_slow_ms)}
               tone={overTarget(overall.reply_slow_ms, report.slow_target_ms) ? "warn" : "default"}
               hint={
@@ -334,7 +382,7 @@ export function ReplyTimesReport({ report }: { report: ReplyTimeReport }) {
               hint={`Slow: ${formatMs(overall.first_token_slow_ms)}`}
             />
             <Metric
-              label="Slowest reply"
+              label="Longest wait"
               value={formatMs(overall.reply_worst_ms)}
               hint="One reply, on one call"
             />

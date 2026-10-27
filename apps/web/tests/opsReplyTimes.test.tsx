@@ -54,6 +54,18 @@ describe("the voice response time report", () => {
     expect(table.textContent).toContain("Not recorded");
   });
 
+  it("says every wait ends at the agent's first sound, and sets filler calls apart", async () => {
+    const { container } = renderAdminPage(<ReplyTimesPage />, routes());
+
+    await screen.findByRole("table", { name: "Reply times by client" });
+    expect(container.textContent).toContain("A filler line counts, so this is not the time to the");
+    expect(container.textContent).toContain("Typical wait, no filler found");
+    // The server's figure over calls with no filler found, and how many had one.
+    expect(container.textContent).toContain("1,240 ms");
+    expect(container.textContent).toContain("4 measured calls had a reply open with a filler line");
+    expect(container.textContent).not.toMatch(/Typical reply|Slow reply/);
+  });
+
   it("times the model's first word from the turn reaching the platform", async () => {
     renderAdminPage(<ReplyTimesPage />, routes());
 

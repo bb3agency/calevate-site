@@ -49,6 +49,25 @@ describe("CallQualityCard", () => {
     expect(document.body.textContent).not.toMatch(/thinnest|cartesia|sarvam/i);
   });
 
+  it("names the wait as the agent's first sound and counts filler openings (D-901)", () => {
+    render(
+      <CallQualityCard
+        detail={detail({
+          quality: { reply_ms_median: 2100, reply_ms_p90: 2900, reply_ms_max: 3100, filler_turns: 2 },
+        })}
+      />,
+    );
+    expect(screen.getByText("Wait for the agent's first sound (typical / slow / longest)")).toBeTruthy();
+    expect(screen.getByText("Replies that opened with a filler line")).toBeTruthy();
+    expect(screen.getByText("2")).toBeTruthy();
+    expect(screen.getByText(/the answer itself can come later/)).toBeTruthy();
+  });
+
+  it("leaves the filler count out when the transcript was not counted", () => {
+    render(<CallQualityCard detail={detail({ quality: { reply_ms_median: 900, filler_turns: null } })} />);
+    expect(screen.queryByText("Replies that opened with a filler line")).toBeNull();
+  });
+
   it("renders nothing for a call the platform reported nothing about", () => {
     const { container } = render(<CallQualityCard detail={detail({})} />);
     expect(container.textContent).toBe("");

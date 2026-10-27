@@ -11,6 +11,18 @@ calls/get-call.md:327-335,984-1080`; both start points VENDOR-STATED in
 `slow_reply` problem (a reply that took more than 5 s to start, :300-307) from
 `call_engine_signals`.
 
+FIRST SOUND, NOT THE ANSWER (D-901). A filler line (`voice.thinkingLines`, said once a reply
+is slower than the filler delay) or an Ear acknowledgement that plays first ENDS the reply
+measurement, and the time to the first word of the answer itself is not reported
+(VENDOR-STATED, ThinnestAI's email of 27 Oct 2026, `docs/vendor/thinnest-replies-2026-10-12.md`
+§37). So every reply figure here is the time to the agent's first sound, and on a call whose
+slow replies were covered by fillers it sits near the filler delay however long the answer
+took. Nothing here claims a time to the answer. What the transcript does let us see, the agent
+turns that opened with a filler (`CallQuality.filler_turns`, `ops/filler_turns.py`), gives
+`calls_with_filler` and a typical figure over the calls with none found
+(`reply_typical_no_filler_ms`), which the filler timer cannot flatter. Whether fillers are
+written into the transcript at all is UNKNOWN, so "none found" is not "none played".
+
 AGGREGATION. The unit is the CALL, not the turn: the platform publishes per-call summaries,
 not turns, and a percentile of percentiles is not a percentile of the underlying turns. So
 "typical" is the median of the calls' own medians, and "slow" is the 90th percentile of
@@ -88,7 +100,8 @@ _SCAN_SQL = text(
     "(s.quality ->> 'long_silences')::float8 AS long_silences, "
     "(s.quality ->> 'interruptions')::float8 AS interruptions, "
     "(s.quality ->> 'model_errors')::float8 AS model_errors, "
-    "(s.quality ->> 'backup_answers')::float8 AS rescues, s.voice_settings "
+    "(s.quality ->> 'backup_answers')::float8 AS rescues, "
+    "(s.quality ->> 'filler_turns')::float8 AS filler_turns, s.voice_settings "
     "FROM call_reply_scan(:since) AS s "
     "JOIN organizations o ON o.id = s.scanned_tenant_id "
     "ORDER BY s.started_at DESC LIMIT :cap"
@@ -118,10 +131,16 @@ class _Call:
     rescues: int | None
     #: `agents/voice_stamp.stamp_of`'s record, or None for a call from before it.
     voice_settings: dict[str, Any] | None = None
+    #: Agent turns the transcript shows opening with a filler line; None when not counted.
+    filler_turns: int | None = None
 
     @property
     def measured(self) -> bool:
         return self.reply_median is not None
+
+    @property
+    def filler_found(self) -> bool:
+        return bool(self.filler_turns)
 
 
 class ReplyTimeFigures(BaseModel):
@@ -131,8 +150,14 @@ class ReplyTimeFigures(BaseModel):
     calls: int
     #: Calls the voice platform sent reply times for.
     calls_measured: int
-    #: Median of the measured calls' own median reply time.
+    #: Median of the measured calls' own median reply time: to the agent's first SOUND, which
+    #: a filler line can be (module docstring).
     reply_typical_ms: float | None = None
+    #: Measured calls whose transcript shows at least one agent turn opening with a filler.
+    calls_with_filler: int
+    #: The typical figure over measured calls with no filler found, whose replies the filler
+    #: timer did not cut short; null when every measured call had one.
+    reply_typical_no_filler_ms: float | None = None
     #: 90th percentile of the measured calls' own p90 reply time; null below `P90_MIN_CALLS`.
     reply_slow_ms: float | None = None
     #: The single slowest reply on any call in the group.
@@ -222,6 +247,8 @@ class SlowCall(BaseModel):
     first_token_p90_ms: float | None
     slow_reply: bool
     model_errors: int | None
+    #: Agent turns the transcript shows opening with a filler line; null when not counted.
+    filler_turns: int | None = None
 
 
 class ReplyTimeReport(BaseModel):
@@ -280,6 +307,10 @@ def figures(calls: list[_Call], *, target_ms: int) -> ReplyTimeFigures:
         calls=len(calls),
         calls_measured=len(measured),
         reply_typical_ms=_median(_values(measured, lambda c: c.reply_median)),
+        calls_with_filler=sum(1 for c in measured if c.filler_found),
+        reply_typical_no_filler_ms=_median(
+            _values((c for c in measured if not c.filler_found), lambda c: c.reply_median)
+        ),
         reply_slow_ms=_p90(_values(measured, lambda c: c.reply_p90)),
         reply_worst_ms=worst[-1] if worst else None,
         first_token_typical_ms=_median(_values(measured, lambda c: c.first_median)),
@@ -335,6 +366,7 @@ def _call(row: Row[Any]) -> _Call:
         interruptions=_whole(m["interruptions"]),
         model_errors=_whole(m["model_errors"]),
         rescues=_whole(m["rescues"]),
+        filler_turns=_whole(m["filler_turns"]),
         voice_settings=m["voice_settings"] if isinstance(m["voice_settings"], dict) else None,
     )
 
@@ -391,6 +423,7 @@ def _slow_call(call: _Call) -> SlowCall:
         first_token_p90_ms=call.first_p90,
         slow_reply=call.slow_reply,
         model_errors=call.model_errors,
+        filler_turns=call.filler_turns,
     )
 
 

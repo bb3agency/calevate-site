@@ -47,7 +47,8 @@ DEVIATION_CEILING: Final = Decimal("80")
 SHORT_CALL_S: Final = 10
 #: A call counts as slow when its p90 reply (caller falls silent -> agent's first audio, as
 #: the voice platform measures it) is longer than this: more than one reply in ten left
-#: the caller in dead air.
+#: the caller in dead air. Dead air, not a slow answer: a filler line that plays first ends
+#: the measurement (D-901), so a slow answer covered by one does not count here.
 SLOW_REPLY_MS: Final = 2500
 #: Broken line: at least this many calls across the last two windows...
 BROKEN_MIN_CALLS: Final = 5
