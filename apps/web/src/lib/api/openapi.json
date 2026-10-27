@@ -3814,8 +3814,45 @@
             ],
             "title": "Agent Name"
           },
+          "answer_slow_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Slow Ms"
+          },
+          "answer_typical_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Typical Ms"
+          },
+          "answer_worst_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Worst Ms"
+          },
           "calls": {
             "title": "Calls",
+            "type": "integer"
+          },
+          "calls_answer_measured": {
+            "title": "Calls Answer Measured",
             "type": "integer"
           },
           "calls_measured": {
@@ -3826,10 +3863,6 @@
             "title": "Calls Over Target",
             "type": "integer"
           },
-          "calls_with_filler": {
-            "title": "Calls With Filler",
-            "type": "integer"
-          },
           "client_name": {
             "title": "Client Name",
             "type": "string"
@@ -3837,6 +3870,39 @@
           "client_slug": {
             "title": "Client Slug",
             "type": "string"
+          },
+          "first_sound_slow_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Sound Slow Ms"
+          },
+          "first_sound_typical_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Sound Typical Ms"
+          },
+          "first_sound_worst_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Sound Worst Ms"
           },
           "first_token_slow_ms": {
             "anyOf": [
@@ -3864,6 +3930,10 @@
             "title": "Interruptions",
             "type": "integer"
           },
+          "knowledge_turns": {
+            "title": "Knowledge Turns",
+            "type": "integer"
+          },
           "long_silences": {
             "title": "Long Silences",
             "type": "integer"
@@ -3871,50 +3941,6 @@
           "model_errors": {
             "title": "Model Errors",
             "type": "integer"
-          },
-          "reply_slow_ms": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reply Slow Ms"
-          },
-          "reply_typical_ms": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reply Typical Ms"
-          },
-          "reply_typical_no_filler_ms": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reply Typical No Filler Ms"
-          },
-          "reply_worst_ms": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reply Worst Ms"
           },
           "rescues": {
             "title": "Rescues",
@@ -3937,7 +3963,7 @@
         "required": [
           "calls",
           "calls_measured",
-          "calls_with_filler",
+          "calls_answer_measured",
           "calls_over_target",
           "slow_reply_problems",
           "turns",
@@ -3945,6 +3971,7 @@
           "rescues",
           "interruptions",
           "long_silences",
+          "knowledge_turns",
           "tenant_id",
           "client_name",
           "client_slug",
@@ -4173,6 +4200,179 @@
           "console_turn_detection"
         ],
         "title": "AgentTurnDetectionOut",
+        "type": "object"
+      },
+      "AgentTurnSplit": {
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "agent_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Name"
+          },
+          "answer_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Ms"
+          },
+          "answer_slow_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Slow Ms"
+          },
+          "calls_timed": {
+            "title": "Calls Timed",
+            "type": "integer"
+          },
+          "client_name": {
+            "title": "Client Name",
+            "type": "string"
+          },
+          "client_slug": {
+            "title": "Client Slug",
+            "type": "string"
+          },
+          "ear_check_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ear Check Ms"
+          },
+          "first_sound_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Sound Ms"
+          },
+          "model_asked_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Asked Ms"
+          },
+          "model_first_sentence_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model First Sentence Ms"
+          },
+          "recogniser_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recogniser Ms"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "turn_detection": {
+            "title": "Turn Detection",
+            "type": "string"
+          },
+          "turns_estimated": {
+            "title": "Turns Estimated",
+            "type": "integer"
+          },
+          "turns_filler_first": {
+            "title": "Turns Filler First",
+            "type": "integer"
+          },
+          "turns_timed": {
+            "title": "Turns Timed",
+            "type": "integer"
+          },
+          "voice_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Voice Ms"
+          },
+          "wait_before_decision_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wait Before Decision Ms"
+          }
+        },
+        "required": [
+          "turn_detection",
+          "calls_timed",
+          "turns_timed",
+          "turns_filler_first",
+          "turns_estimated",
+          "tenant_id",
+          "client_name",
+          "client_slug",
+          "agent_id",
+          "agent_name"
+        ],
+        "title": "AgentTurnSplit",
         "type": "object"
       },
       "AgentUpdateIn": {
@@ -8181,6 +8381,20 @@
             "title": "Test Call",
             "type": "boolean"
           },
+          "timeline": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/TurnTimingOut"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timeline"
+          },
           "transcript": {
             "items": {
               "$ref": "#/components/schemas/TranscriptTurnOut"
@@ -8216,7 +8430,8 @@
           "translation_state",
           "language",
           "quality",
-          "signals"
+          "signals",
+          "timeline"
         ],
         "title": "CallDetailOut",
         "type": "object"
@@ -9134,9 +9349,41 @@
         "type": "object"
       },
       "CallQualityOut": {
-        "additionalProperties": false,
-        "description": "How the call went, as the voice platform measured it once it ended. Any figure is\nnull when it could not be measured on that call. `reply_ms_*` run to the agent's first\nsound, so a filler line that plays first ends them (D-901); `filler_turns` is ours, the\nagent turns the transcript shows opening with one.",
+        "description": "How the call went, as the voice platform measured it once it ended. Any figure is\nnull when it could not be measured on that call. `answer_ms_*` run to the first word of\nthe actual answer and are the reply time (null on calls before 27 Oct 2026); `reply_ms_*`\nrun to the first sound of any kind, a filler line included (D-902).",
         "properties": {
+          "answer_ms_max": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Ms Max"
+          },
+          "answer_ms_median": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Ms Median"
+          },
+          "answer_ms_p90": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Ms P90"
+          },
           "backup_answers": {
             "anyOf": [
               {
@@ -9147,17 +9394,6 @@
               }
             ],
             "title": "Backup Answers"
-          },
-          "filler_turns": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Filler Turns"
           },
           "first_token_ms_max": {
             "anyOf": [
@@ -9202,6 +9438,17 @@
               }
             ],
             "title": "Interruptions"
+          },
+          "knowledge_turns": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Knowledge Turns"
           },
           "long_silences": {
             "anyOf": [
@@ -12464,8 +12711,45 @@
       },
       "ClientReplyTimes": {
         "properties": {
+          "answer_slow_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Slow Ms"
+          },
+          "answer_typical_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Typical Ms"
+          },
+          "answer_worst_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Worst Ms"
+          },
           "calls": {
             "title": "Calls",
+            "type": "integer"
+          },
+          "calls_answer_measured": {
+            "title": "Calls Answer Measured",
             "type": "integer"
           },
           "calls_measured": {
@@ -12476,10 +12760,6 @@
             "title": "Calls Over Target",
             "type": "integer"
           },
-          "calls_with_filler": {
-            "title": "Calls With Filler",
-            "type": "integer"
-          },
           "client_name": {
             "title": "Client Name",
             "type": "string"
@@ -12487,6 +12767,39 @@
           "client_slug": {
             "title": "Client Slug",
             "type": "string"
+          },
+          "first_sound_slow_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Sound Slow Ms"
+          },
+          "first_sound_typical_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Sound Typical Ms"
+          },
+          "first_sound_worst_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Sound Worst Ms"
           },
           "first_token_slow_ms": {
             "anyOf": [
@@ -12514,6 +12827,10 @@
             "title": "Interruptions",
             "type": "integer"
           },
+          "knowledge_turns": {
+            "title": "Knowledge Turns",
+            "type": "integer"
+          },
           "long_silences": {
             "title": "Long Silences",
             "type": "integer"
@@ -12521,50 +12838,6 @@
           "model_errors": {
             "title": "Model Errors",
             "type": "integer"
-          },
-          "reply_slow_ms": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reply Slow Ms"
-          },
-          "reply_typical_ms": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reply Typical Ms"
-          },
-          "reply_typical_no_filler_ms": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reply Typical No Filler Ms"
-          },
-          "reply_worst_ms": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reply Worst Ms"
           },
           "rescues": {
             "title": "Rescues",
@@ -12587,7 +12860,7 @@
         "required": [
           "calls",
           "calls_measured",
-          "calls_with_filler",
+          "calls_answer_measured",
           "calls_over_target",
           "slow_reply_problems",
           "turns",
@@ -12595,6 +12868,7 @@
           "rescues",
           "interruptions",
           "long_silences",
+          "knowledge_turns",
           "tenant_id",
           "client_name",
           "client_slug"
@@ -17935,8 +18209,45 @@
       },
       "DayReplyTimes": {
         "properties": {
+          "answer_slow_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Slow Ms"
+          },
+          "answer_typical_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Typical Ms"
+          },
+          "answer_worst_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Worst Ms"
+          },
           "calls": {
             "title": "Calls",
+            "type": "integer"
+          },
+          "calls_answer_measured": {
+            "title": "Calls Answer Measured",
             "type": "integer"
           },
           "calls_measured": {
@@ -17947,14 +18258,43 @@
             "title": "Calls Over Target",
             "type": "integer"
           },
-          "calls_with_filler": {
-            "title": "Calls With Filler",
-            "type": "integer"
-          },
           "day": {
             "format": "date",
             "title": "Day",
             "type": "string"
+          },
+          "first_sound_slow_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Sound Slow Ms"
+          },
+          "first_sound_typical_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Sound Typical Ms"
+          },
+          "first_sound_worst_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Sound Worst Ms"
           },
           "first_token_slow_ms": {
             "anyOf": [
@@ -17982,6 +18322,10 @@
             "title": "Interruptions",
             "type": "integer"
           },
+          "knowledge_turns": {
+            "title": "Knowledge Turns",
+            "type": "integer"
+          },
           "long_silences": {
             "title": "Long Silences",
             "type": "integer"
@@ -17989,50 +18333,6 @@
           "model_errors": {
             "title": "Model Errors",
             "type": "integer"
-          },
-          "reply_slow_ms": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reply Slow Ms"
-          },
-          "reply_typical_ms": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reply Typical Ms"
-          },
-          "reply_typical_no_filler_ms": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reply Typical No Filler Ms"
-          },
-          "reply_worst_ms": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reply Worst Ms"
           },
           "rescues": {
             "title": "Rescues",
@@ -18050,7 +18350,7 @@
         "required": [
           "calls",
           "calls_measured",
-          "calls_with_filler",
+          "calls_answer_measured",
           "calls_over_target",
           "slow_reply_problems",
           "turns",
@@ -18058,6 +18358,7 @@
           "rescues",
           "interruptions",
           "long_silences",
+          "knowledge_turns",
           "day"
         ],
         "title": "DayReplyTimes",
@@ -40196,8 +40497,45 @@
       "ReplyTimeFigures": {
         "description": "One group's figures. A withheld or unreported figure is null, never zero.",
         "properties": {
+          "answer_slow_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Slow Ms"
+          },
+          "answer_typical_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Typical Ms"
+          },
+          "answer_worst_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Worst Ms"
+          },
           "calls": {
             "title": "Calls",
+            "type": "integer"
+          },
+          "calls_answer_measured": {
+            "title": "Calls Answer Measured",
             "type": "integer"
           },
           "calls_measured": {
@@ -40208,9 +40546,38 @@
             "title": "Calls Over Target",
             "type": "integer"
           },
-          "calls_with_filler": {
-            "title": "Calls With Filler",
-            "type": "integer"
+          "first_sound_slow_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Sound Slow Ms"
+          },
+          "first_sound_typical_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Sound Typical Ms"
+          },
+          "first_sound_worst_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Sound Worst Ms"
           },
           "first_token_slow_ms": {
             "anyOf": [
@@ -40238,6 +40605,10 @@
             "title": "Interruptions",
             "type": "integer"
           },
+          "knowledge_turns": {
+            "title": "Knowledge Turns",
+            "type": "integer"
+          },
           "long_silences": {
             "title": "Long Silences",
             "type": "integer"
@@ -40245,50 +40616,6 @@
           "model_errors": {
             "title": "Model Errors",
             "type": "integer"
-          },
-          "reply_slow_ms": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reply Slow Ms"
-          },
-          "reply_typical_ms": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reply Typical Ms"
-          },
-          "reply_typical_no_filler_ms": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reply Typical No Filler Ms"
-          },
-          "reply_worst_ms": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reply Worst Ms"
           },
           "rescues": {
             "title": "Rescues",
@@ -40306,14 +40633,15 @@
         "required": [
           "calls",
           "calls_measured",
-          "calls_with_filler",
+          "calls_answer_measured",
           "calls_over_target",
           "slow_reply_problems",
           "turns",
           "model_errors",
           "rescues",
           "interruptions",
-          "long_silences"
+          "long_silences",
+          "knowledge_turns"
         ],
         "title": "ReplyTimeFigures",
         "type": "object"
@@ -40385,6 +40713,20 @@
             "title": "Slow Target Ms",
             "type": "integer"
           },
+          "split_by_agent": {
+            "items": {
+              "$ref": "#/components/schemas/AgentTurnSplit"
+            },
+            "title": "Split By Agent",
+            "type": "array"
+          },
+          "split_by_turn_detection": {
+            "items": {
+              "$ref": "#/components/schemas/TurnSplit"
+            },
+            "title": "Split By Turn Detection",
+            "type": "array"
+          },
           "typical_target_ms": {
             "title": "Typical Target Ms",
             "type": "integer"
@@ -40414,6 +40756,8 @@
           "by_tier",
           "by_day",
           "by_setting",
+          "split_by_turn_detection",
+          "split_by_agent",
           "worst_calls"
         ],
         "title": "ReplyTimeReport",
@@ -42868,8 +43212,45 @@
       },
       "SettingReplyTimes": {
         "properties": {
+          "answer_slow_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Slow Ms"
+          },
+          "answer_typical_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Typical Ms"
+          },
+          "answer_worst_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Worst Ms"
+          },
           "calls": {
             "title": "Calls",
+            "type": "integer"
+          },
+          "calls_answer_measured": {
+            "title": "Calls Answer Measured",
             "type": "integer"
           },
           "calls_measured": {
@@ -42880,9 +43261,38 @@
             "title": "Calls Over Target",
             "type": "integer"
           },
-          "calls_with_filler": {
-            "title": "Calls With Filler",
-            "type": "integer"
+          "first_sound_slow_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Sound Slow Ms"
+          },
+          "first_sound_typical_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Sound Typical Ms"
+          },
+          "first_sound_worst_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Sound Worst Ms"
           },
           "first_token_slow_ms": {
             "anyOf": [
@@ -42910,6 +43320,10 @@
             "title": "Interruptions",
             "type": "integer"
           },
+          "knowledge_turns": {
+            "title": "Knowledge Turns",
+            "type": "integer"
+          },
           "long_silences": {
             "title": "Long Silences",
             "type": "integer"
@@ -42917,50 +43331,6 @@
           "model_errors": {
             "title": "Model Errors",
             "type": "integer"
-          },
-          "reply_slow_ms": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reply Slow Ms"
-          },
-          "reply_typical_ms": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reply Typical Ms"
-          },
-          "reply_typical_no_filler_ms": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reply Typical No Filler Ms"
-          },
-          "reply_worst_ms": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reply Worst Ms"
           },
           "rescues": {
             "title": "Rescues",
@@ -42994,7 +43364,7 @@
         "required": [
           "calls",
           "calls_measured",
-          "calls_with_filler",
+          "calls_answer_measured",
           "calls_over_target",
           "slow_reply_problems",
           "turns",
@@ -43002,6 +43372,7 @@
           "rescues",
           "interruptions",
           "long_silences",
+          "knowledge_turns",
           "setting",
           "value"
         ],
@@ -43320,7 +43691,7 @@
         "type": "object"
       },
       "SlowCall": {
-        "description": "One of the window's slowest calls, by its p90 reply time.",
+        "description": "One of the window's slowest calls, by its p90 answer time (its first sound's when the\nanswer was not measured).",
         "properties": {
           "agent_id": {
             "anyOf": [
@@ -43345,6 +43716,39 @@
             ],
             "title": "Agent Name"
           },
+          "answer_max_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Max Ms"
+          },
+          "answer_median_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Median Ms"
+          },
+          "answer_p90_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer P90 Ms"
+          },
           "call_id": {
             "format": "uuid",
             "title": "Call Id",
@@ -43358,16 +43762,27 @@
             "title": "Client Slug",
             "type": "string"
           },
-          "filler_turns": {
+          "first_sound_median_ms": {
             "anyOf": [
               {
-                "type": "integer"
+                "type": "number"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Filler Turns"
+            "title": "First Sound Median Ms"
+          },
+          "first_sound_p90_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Sound P90 Ms"
           },
           "first_token_p90_ms": {
             "anyOf": [
@@ -43380,6 +43795,17 @@
             ],
             "title": "First Token P90 Ms"
           },
+          "knowledge_turns": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Knowledge Turns"
+          },
           "model_errors": {
             "anyOf": [
               {
@@ -43390,39 +43816,6 @@
               }
             ],
             "title": "Model Errors"
-          },
-          "reply_max_ms": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reply Max Ms"
-          },
-          "reply_median_ms": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reply Median Ms"
-          },
-          "reply_p90_ms": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reply P90 Ms"
           },
           "slow_reply": {
             "title": "Slow Reply",
@@ -43469,12 +43862,15 @@
           "started_at",
           "voice_tier",
           "turns",
-          "reply_median_ms",
-          "reply_p90_ms",
-          "reply_max_ms",
+          "answer_median_ms",
+          "answer_p90_ms",
+          "answer_max_ms",
+          "first_sound_median_ms",
+          "first_sound_p90_ms",
           "first_token_p90_ms",
           "slow_reply",
-          "model_errors"
+          "model_errors",
+          "knowledge_turns"
         ],
         "title": "SlowCall",
         "type": "object"
@@ -49058,8 +49454,45 @@
       },
       "TierReplyTimes": {
         "properties": {
+          "answer_slow_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Slow Ms"
+          },
+          "answer_typical_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Typical Ms"
+          },
+          "answer_worst_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Worst Ms"
+          },
           "calls": {
             "title": "Calls",
+            "type": "integer"
+          },
+          "calls_answer_measured": {
+            "title": "Calls Answer Measured",
             "type": "integer"
           },
           "calls_measured": {
@@ -49070,9 +49503,38 @@
             "title": "Calls Over Target",
             "type": "integer"
           },
-          "calls_with_filler": {
-            "title": "Calls With Filler",
-            "type": "integer"
+          "first_sound_slow_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Sound Slow Ms"
+          },
+          "first_sound_typical_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Sound Typical Ms"
+          },
+          "first_sound_worst_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Sound Worst Ms"
           },
           "first_token_slow_ms": {
             "anyOf": [
@@ -49100,6 +49562,10 @@
             "title": "Interruptions",
             "type": "integer"
           },
+          "knowledge_turns": {
+            "title": "Knowledge Turns",
+            "type": "integer"
+          },
           "long_silences": {
             "title": "Long Silences",
             "type": "integer"
@@ -49107,50 +49573,6 @@
           "model_errors": {
             "title": "Model Errors",
             "type": "integer"
-          },
-          "reply_slow_ms": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reply Slow Ms"
-          },
-          "reply_typical_ms": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reply Typical Ms"
-          },
-          "reply_typical_no_filler_ms": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reply Typical No Filler Ms"
-          },
-          "reply_worst_ms": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reply Worst Ms"
           },
           "rescues": {
             "title": "Rescues",
@@ -49177,7 +49599,7 @@
         "required": [
           "calls",
           "calls_measured",
-          "calls_with_filler",
+          "calls_answer_measured",
           "calls_over_target",
           "slow_reply_problems",
           "turns",
@@ -49185,6 +49607,7 @@
           "rescues",
           "interruptions",
           "long_silences",
+          "knowledge_turns",
           "tier"
         ],
         "title": "TierReplyTimes",
@@ -51444,6 +51867,272 @@
           "text"
         ],
         "title": "TurnBody",
+        "type": "object"
+      },
+      "TurnSplit": {
+        "description": "Medians over the timed turns of a group: where the wait for an answer went. A step\nno turn recorded is null.",
+        "properties": {
+          "answer_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Ms"
+          },
+          "answer_slow_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Slow Ms"
+          },
+          "calls_timed": {
+            "title": "Calls Timed",
+            "type": "integer"
+          },
+          "ear_check_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ear Check Ms"
+          },
+          "first_sound_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Sound Ms"
+          },
+          "model_asked_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Asked Ms"
+          },
+          "model_first_sentence_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model First Sentence Ms"
+          },
+          "recogniser_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recogniser Ms"
+          },
+          "turn_detection": {
+            "title": "Turn Detection",
+            "type": "string"
+          },
+          "turns_estimated": {
+            "title": "Turns Estimated",
+            "type": "integer"
+          },
+          "turns_filler_first": {
+            "title": "Turns Filler First",
+            "type": "integer"
+          },
+          "turns_timed": {
+            "title": "Turns Timed",
+            "type": "integer"
+          },
+          "voice_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Voice Ms"
+          },
+          "wait_before_decision_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wait Before Decision Ms"
+          }
+        },
+        "required": [
+          "turn_detection",
+          "calls_timed",
+          "turns_timed",
+          "turns_filler_first",
+          "turns_estimated"
+        ],
+        "title": "TurnSplit",
+        "type": "object"
+      },
+      "TurnTimingOut": {
+        "additionalProperties": false,
+        "description": "One turn's timings, in milliseconds from the moment the caller stopped speaking; a\nstep that did not happen is null, never zero (`calevate_shared.events.TurnTiming`).",
+        "properties": {
+          "answer_estimated": {
+            "title": "Answer Estimated",
+            "type": "boolean"
+          },
+          "answer_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Ms"
+          },
+          "ear_check_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ear Check Ms"
+          },
+          "first_sound_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "answer",
+                  "filler",
+                  "other"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Sound Kind"
+          },
+          "first_sound_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Sound Ms"
+          },
+          "model_asked_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Asked Ms"
+          },
+          "model_first_sentence_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model First Sentence Ms"
+          },
+          "recogniser_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recogniser Ms"
+          },
+          "turn": {
+            "title": "Turn",
+            "type": "integer"
+          },
+          "voice_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Voice Ms"
+          },
+          "wait_before_decision_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wait Before Decision Ms"
+          }
+        },
+        "required": [
+          "turn",
+          "first_sound_ms",
+          "first_sound_kind",
+          "answer_ms",
+          "answer_estimated",
+          "wait_before_decision_ms",
+          "recogniser_ms",
+          "ear_check_ms",
+          "model_first_sentence_ms",
+          "voice_ms",
+          "model_asked_ms"
+        ],
+        "title": "TurnTimingOut",
         "type": "object"
       },
       "UnattributedSpendOut": {

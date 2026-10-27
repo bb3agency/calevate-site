@@ -19,7 +19,7 @@ from typing import Any, Final, Literal, NamedTuple, get_args
 from uuid import UUID
 
 from calevate_shared.cut_off import likely_cut_off_rows
-from calevate_shared.events import CallStatus
+from calevate_shared.events import CallStatus, CallTimeline
 from calevate_shared.extraction import (
     MOMENT_KINDS,
     ExtractionField,
@@ -66,6 +66,7 @@ from apps.api.crm.schemas import (
     LeadTimelineOut,
     SummaryState,
     TranscriptTurnOut,
+    TurnTimingOut,
 )
 from apps.api.db.base import uuid7
 from apps.api.db.like import contains_pattern, suffix_pattern
@@ -427,7 +428,23 @@ NOT_PLACED_WORDS: Final[dict[str, str]] = {
 }
 
 
-async def get_call(session: AsyncSession, call_id: UUID, *, raw: bool = False) -> CallDetailOut:
+def _timeline_out(value: object) -> list[TurnTimingOut] | None:
+    """A stored `calls.engine_timeline` for the operator's view; None when none was stored
+    or the record is not one this code reads."""
+    if not isinstance(value, dict):
+        return None
+    try:
+        turns = CallTimeline.model_validate(value).turns
+    except ValidationError:
+        return None
+    return [
+        TurnTimingOut.model_validate(t.model_dump(exclude={"caller_stopped_at_ms"})) for t in turns
+    ]
+
+
+async def get_call(
+    session: AsyncSession, call_id: UUID, *, raw: bool = False, operator: bool = False
+) -> CallDetailOut:
     """`raw=True` returns unredacted transcript text AND the unredacted summary. The
     CALLER is responsible for the role check and the audit_log write — this function
     does not decide policy, it just stops the default path from ever reaching the raw
@@ -437,6 +454,9 @@ async def get_call(session: AsyncSession, call_id: UUID, *, raw: bool = False) -
     derived from the transcript (`redacted_summary` states the reasoning), so a reader
     entitled to one is entitled to the other, and a reader entitled to neither must not
     be handed one of them through the back door.
+
+    `operator=True` (an operator in a view-as session) adds the per-turn timeline (D-902),
+    which is an operator's tuning view and is never sent to a client.
     """
     row = (
         await session.execute(
@@ -451,7 +471,7 @@ async def get_call(session: AsyncSession, call_id: UUID, *, raw: bool = False) -
                 f"{_LEAD_NAME_COLUMN}, a.language_primary, c.engine_quality, c.engine_call_id, "
                 "c.caller_id_hidden, c.forwarding_test_id IS NOT NULL, c.forwarded_to_phone, "
                 "c.business_outcome, c.business_outcome_label, c.not_placed_reason, "
-                "c.follow_up_state, a.business_outcomes "
+                "c.follow_up_state, a.business_outcomes, c.engine_timeline "
                 f"FROM calls c JOIN agents a ON a.id = c.agent_id {_CALLBACK_JOIN} "
                 "WHERE c.id = :cid"
             ),
@@ -547,6 +567,7 @@ async def get_call(session: AsyncSession, call_id: UUID, *, raw: bool = False) -
         language=_call_language(turns, agent_language=row[30]),
         extraction_model=extraction[5] if extraction else None,
         quality=CallQualityOut.model_validate(row[31]) if isinstance(row[31], dict) else None,
+        timeline=_timeline_out(row[41]) if operator else None,
         signals=[CallSignalOut(kind=s[0], occurred_at=s[1]) for s in signals],
         transcript=[
             TranscriptTurnOut(

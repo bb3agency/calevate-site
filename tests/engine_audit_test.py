@@ -1641,6 +1641,22 @@ _VENDOR_ONLY_KEYS = frozenset(
         "contentDeleted",
         "erasedAt",
         "sharedFromDeveloper",
+        # D-902: the answer time and knowledge turns on `quality`, and Get Call Timeline's
+        # per-turn moments and split. Ours are `CallQuality.answer_ms_*`/`knowledge_turns`
+        # and `TurnTiming`.
+        "answerAudioEstimated",
+        "answerAudioMs",
+        "answerMs",
+        "callerStoppedAtMs",
+        "earCheckMs",
+        "firstAudioKind",
+        "firstAudioMs",
+        "knowledgeTurns",
+        "modelAskedMs",
+        "modelFirstSentenceMs",
+        "recogniserMs",
+        "voiceMs",
+        "waitBeforeDecisionMs",
     }
 )
 
@@ -1942,6 +1958,9 @@ _SHARED_PAYLOAD_KEYS = frozenset(
         "p90",
         "quality",
         "rescues",
+        # D-902: a lead's and a call's `timeline` and a tier `split` are ours too.
+        "split",
+        "timeline",
     }
 )
 

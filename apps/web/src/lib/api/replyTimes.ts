@@ -1,12 +1,12 @@
 "use client";
 
 /**
- * How long callers waited for the agent's first sound, across every client —
- * `GET /v1/ops/reply-times` (D-770). The figures are the voice platform's own per-call reply
- * times, which end at the first sound, so a filler line ends them and they are not the time to
- * the answer (D-901, `apps/api/ops/reply_times.py`); every percentile, count and the target
- * arrive as server fields, so nothing here computes a statistic. Milliseconds are JSON
- * numbers, not money, so rounding them for display is fine (hard rule 7 is about rupees).
+ * How long callers waited for an answer, across every client — `GET /v1/ops/reply-times`
+ * (D-770). The figures are the voice platform's own per-call times to the first word of the
+ * actual answer, with the first sound of any kind beside them, and the per-turn split of the
+ * wait by turn detection (D-902, `apps/api/ops/reply_times.py`); every percentile, count and
+ * the target arrive as server fields, so nothing here computes a statistic. Milliseconds are
+ * JSON numbers, not money, so rounding them for display is fine (hard rule 7 is about rupees).
  */
 
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
@@ -27,6 +27,8 @@ export type TierReplyTimes = Schemas["TierReplyTimes"];
 export type DayReplyTimes = Schemas["DayReplyTimes"];
 export type SlowCall = Schemas["SlowCall"];
 export type SettingReplyTimes = Schemas["SettingReplyTimes"];
+export type TurnSplit = Schemas["TurnSplit"];
+export type AgentTurnSplit = Schemas["AgentTurnSplit"];
 export type SettingKey = SettingReplyTimes["setting"];
 export type EmptyReason = NonNullable<ReplyTimeReport["empty_reason"]>;
 export type VoiceTierKey = TierReplyTimes["tier"];
@@ -56,10 +58,53 @@ export function useReplyTimes(days: number, enabled = true): UseQueryResult<Repl
   });
 }
 
-/** What every wait on the screen measures, said once where a reader meets the figures. */
-export const FIRST_SOUND_NOTE =
-  "Each wait runs from the caller stopping to the agent's first sound. A filler line such as " +
-  "“one moment” is a first sound, so a slow answer covered by one counts only up to the filler.";
+/** What the waits on the screen measure, said once where a reader meets the figures. */
+export const ANSWER_NOTE =
+  "A wait for an answer runs from the caller stopping to the first word of the actual answer. " +
+  "A filler line such as “one moment” does not end it; the first sound, which it does end, is " +
+  "shown beside it. Calls from before 27 Oct 2026 have no answer time.";
+
+/** The steps of a turn's wait (`TurnSplit`), in the order they happen, with their gloss. */
+export const SPLIT_STEPS: readonly {
+  key: keyof Pick<
+    TurnSplit,
+    | "wait_before_decision_ms"
+    | "recogniser_ms"
+    | "ear_check_ms"
+    | "model_asked_ms"
+    | "model_first_sentence_ms"
+    | "voice_ms"
+  >;
+  label: string;
+  gloss: string;
+}[] = [
+  {
+    key: "wait_before_decision_ms",
+    label: "Wait before decision",
+    gloss: "Caller stopped to the turn being decided: the recogniser, the final words and the Ear check together.",
+  },
+  { key: "recogniser_ms", label: "Recogniser", gloss: "Caller stopped to their final words arriving." },
+  {
+    key: "ear_check_ms",
+    label: "Ear check",
+    gloss: "Final words arriving to Ear's verdict that the turn was over. Blank off Ear.",
+  },
+  {
+    key: "model_asked_ms",
+    label: "Model asked",
+    gloss: "When the model was asked, from the caller stopping. Below zero with early answers: asked before the turn was decided.",
+  },
+  {
+    key: "model_first_sentence_ms",
+    label: "Model's first sentence",
+    gloss: "The model being asked to the first words of the answer leaving it. A filler does not count.",
+  },
+  {
+    key: "voice_ms",
+    label: "Voice",
+    gloss: "The answer's first words leaving the model to being heard, including any wait behind a filler still speaking.",
+  },
+];
 
 /** Whole milliseconds, or `—` when the server withheld or the platform did not report it. */
 export function formatMs(value: number | null | undefined): string {
@@ -112,8 +157,7 @@ export const EMPTY_COPY: Record<EmptyReason, { message: string; hint: string }> 
     hint: "Widen the window, or check the alerts screen if calls were expected.",
   },
   not_reported: {
-    message: "Calls finished in this window, but the voice platform sent no reply times for any of them",
-    hint: "It measures only connected calls and can send its figures a little after a call ends. If this persists, the platform is not reporting call quality.",
+    message: "Calls finished in this window, but the voice platform sent no reply times for any of them",    hint: "It measures only connected calls and can send its figures a little after a call ends. If this persists, the platform is not reporting call quality.",
   },
 };
 

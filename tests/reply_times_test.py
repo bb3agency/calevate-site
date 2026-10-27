@@ -27,17 +27,27 @@ from apps.api.ops.reply_times import (
     reply_time_report,
 )
 from calevate_shared.engine import ExecutionSnapshot
-from calevate_shared.events import CallQuality
+from calevate_shared.events import CallQuality, CallTimeline, TurnTiming
 from sqlalchemy import text
 from tests.lead_columns_test import Tenant, _tenant
 
+#: How much sooner than the answer the first sound comes in these fixtures (a filler).
+SOUND_GAP = 200
 
-def _quality(median: int, p90: int, *, first: int = 300, errors: int = 0) -> CallQuality:
+
+def _quality(
+    median: int, p90: int, *, first: int = 300, errors: int = 0, answered: bool = True
+) -> CallQuality:
+    """`median`/`p90` are the ANSWER times; the first sound comes `SOUND_GAP` sooner.
+    `answered=False` is a call from before the engine reported answer times."""
     return CallQuality(
         turns=4,
-        reply_ms_median=median,
-        reply_ms_p90=p90,
-        reply_ms_max=p90 + 100,
+        answer_ms_median=median if answered else None,
+        answer_ms_p90=p90 if answered else None,
+        answer_ms_max=p90 + 100 if answered else None,
+        reply_ms_median=median - SOUND_GAP,
+        reply_ms_p90=p90 - SOUND_GAP,
+        reply_ms_max=p90 + 100 - SOUND_GAP,
         first_token_ms_median=first,
         first_token_ms_p90=first + 80,
         first_token_ms_max=first + 120,
@@ -46,6 +56,7 @@ def _quality(median: int, p90: int, *, first: int = 300, errors: int = 0) -> Cal
         interruptions=2,
         model_errors=errors,
         backup_answers=1,
+        knowledge_turns=2,
     )
 
 
@@ -125,14 +136,18 @@ async def test_every_client_is_read_under_its_own_policy_and_figures_are_per_cal
     report = await _report()
     ra, rb = _client(report, a), _client(report, b)
 
-    assert (ra.calls, ra.calls_measured, rb.calls) == (5, 5, 1)
+    assert (ra.calls, ra.calls_measured, ra.calls_answer_measured, rb.calls) == (5, 5, 5, 1)
     # Median of per-call medians; the p90 of per-call p90s is withheld below ten calls.
-    assert ra.reply_typical_ms == 800.0
-    assert ra.reply_slow_ms is None
-    assert ra.reply_worst_ms == 1500.0
+    assert ra.answer_typical_ms == 800.0
+    assert ra.answer_slow_ms is None
+    assert ra.answer_worst_ms == 1500.0
+    # The first sound is its own figure, never the answer's.
+    assert ra.first_sound_typical_ms == 800.0 - SOUND_GAP
+    assert ra.first_sound_worst_ms == 1500.0 - SOUND_GAP
     assert ra.first_token_typical_ms == 400.0
     assert ra.turns == 20 and ra.model_errors == 0 and ra.rescues == 5
     assert ra.interruptions == 10 and ra.long_silences == 5
+    assert ra.knowledge_turns == 10
     assert rb.slow_reply_problems == 1 and ra.slow_reply_problems == 0
     assert ra.client_slug == a.slug
 
@@ -150,6 +165,21 @@ async def test_a_call_is_over_target_when_its_p90_reply_exceeds_the_slow_target(
 
     assert (report.typical_target_ms, report.slow_target_ms) == (300, 500)
     assert _client(report, tenant).calls_over_target == 1
+
+
+async def test_a_call_from_before_answer_times_is_not_measured_for_the_answer() -> None:
+    """A call with first-sound figures and no answer time (before 27 Oct 2026) counts as
+    measured, not as an answer of zero, and is never over target on a figure it lacks."""
+    tenant = await _tenant()
+    await _call(tenant, _quality(5000, 9000, answered=False))
+    await _call(tenant, _quality(700, 900))
+
+    row = _client(await _report(), tenant)
+
+    assert (row.calls_measured, row.calls_answer_measured) == (2, 1)
+    assert row.answer_typical_ms == 700.0
+    assert row.calls_over_target == 0
+    assert row.first_sound_worst_ms == 9100.0 - SOUND_GAP
 
 
 def test_the_targets_default_to_the_founders_typical_and_slow_figures() -> None:
@@ -196,7 +226,7 @@ async def test_each_call_is_split_by_the_settings_its_agent_was_published_with()
     report = await _report()
     rows = {(r.setting, r.value): r for r in report.by_setting}
     assert rows[("turn_detection", "ear")].calls >= 1
-    assert rows[("known_facts", "on")].reply_typical_ms is not None
+    assert rows[("known_facts", "on")].answer_typical_ms is not None
     assert ("known_facts_size", "2000_to_4000") in rows
     assert ("filler_delay_ms", "2000") in rows
     assert rows[("turn_detection", "not_recorded")].calls >= 1
@@ -205,7 +235,7 @@ async def test_each_call_is_split_by_the_settings_its_agent_was_published_with()
 def test_setting_values_are_closed_set_strings() -> None:
     from apps.api.ops.reply_times import setting_value
 
-    call = _fake(1, reply_p90=900.0)
+    call = _fake(1, answer_p90=900.0)
     assert setting_value(call, "turn_detection") == "not_recorded"
     stamped = replace(call, voice_settings={"known_facts": False, "known_facts_chars": 0})
     assert setting_value(stamped, "known_facts") == "off"
@@ -229,7 +259,7 @@ async def test_tier_agent_and_worst_calls_carry_the_client_and_the_call() -> Non
     worst = next(row for row in report.worst_calls if row.call_id == slow)
     assert worst.tenant_id == tenant.tenant_id and worst.client_slug == tenant.slug
     assert worst.voice_tier == "studio" and worst.model_errors == 2
-    assert worst.reply_p90_ms == 9000.0
+    assert worst.answer_p90_ms == 9000.0 and worst.knowledge_turns == 2
 
 
 async def test_calls_outside_the_window_are_not_read() -> None:
@@ -263,8 +293,10 @@ async def test_the_scan_is_bounded_by_rls_outside_an_admin_session() -> None:
 # ------------------------------------------------------------- pure aggregation rules
 
 
-def _fake(n: int, *, reply_p90: float | None, day_offset: int = 0) -> _Call:
+def _fake(n: int, *, answer_p90: float | None, day_offset: int = 0) -> _Call:
+    """A call whose answer p90 is `answer_p90`; its first sound comes 100 ms sooner."""
     tenant = uuid.UUID(int=1)
+    sound = None if answer_p90 is None else answer_p90 - 100
     return _Call(
         tenant_id=tenant,
         client_name="Client",
@@ -276,31 +308,35 @@ def _fake(n: int, *, reply_p90: float | None, day_offset: int = 0) -> _Call:
         slow_reply=False,
         voice_tier="clear",
         turns=3,
-        reply_median=None if reply_p90 is None else reply_p90 / 2,
-        reply_p90=reply_p90,
-        reply_max=None if reply_p90 is None else reply_p90 + 1,
+        reply_median=None if sound is None else sound / 2,
+        reply_p90=sound,
+        reply_max=None if sound is None else sound + 1,
         first_median=None,
         first_p90=None,
         long_silences=None,
         interruptions=None,
         model_errors=None,
         rescues=None,
+        answer_median=None if answer_p90 is None else answer_p90 / 2,
+        answer_p90=answer_p90,
+        answer_max=None if answer_p90 is None else answer_p90 + 1,
     )
 
 
 def test_the_slow_figure_appears_at_ten_measured_calls_and_interpolates() -> None:
-    nine = [_fake(i, reply_p90=float(100 * (i + 1))) for i in range(P90_MIN_CALLS - 1)]
+    nine = [_fake(i, answer_p90=float(100 * (i + 1))) for i in range(P90_MIN_CALLS - 1)]
     assert (
         build_report(
             nine, days=1, typical_target_ms=400, slow_target_ms=500, complete=True
-        ).overall.reply_slow_ms
+        ).overall.answer_slow_ms
         is None
     )
 
-    ten = [*nine, _fake(99, reply_p90=1000.0)]
+    ten = [*nine, _fake(99, answer_p90=1000.0)]
     report = build_report(ten, days=1, typical_target_ms=400, slow_target_ms=500, complete=True)
     # p90 over 100..1000 by percentile_cont: position 8.1 -> 900 + 0.1 * 100.
-    assert report.overall.reply_slow_ms == pytest.approx(910.0)
+    assert report.overall.answer_slow_ms == pytest.approx(910.0)
+    assert report.overall.first_sound_slow_ms == pytest.approx(810.0)
     assert report.overall.calls_over_target == 5
 
 
@@ -309,7 +345,11 @@ def test_an_empty_window_says_whether_there_were_calls() -> None:
     assert none.empty_reason == "no_calls"
 
     unmeasured = build_report(
-        [_fake(1, reply_p90=None)], days=7, typical_target_ms=400, slow_target_ms=500, complete=True
+        [_fake(1, answer_p90=None)],
+        days=7,
+        typical_target_ms=400,
+        slow_target_ms=500,
+        complete=True,
     )
     assert unmeasured.empty_reason == "not_reported"
     assert unmeasured.overall.calls == 1 and unmeasured.overall.calls_measured == 0
@@ -318,94 +358,118 @@ def test_an_empty_window_says_whether_there_were_calls() -> None:
 
 def test_days_are_ist_calendar_days_and_worst_calls_are_capped() -> None:
     # 20:00 UTC on 14 Oct is 01:30 IST on 15 Oct (D-709).
-    calls = [_fake(i, reply_p90=float(i + 1)) for i in range(MAX_WORST_CALLS + 5)]
+    calls = [_fake(i, answer_p90=float(i + 1)) for i in range(MAX_WORST_CALLS + 5)]
     report = build_report(calls, days=1, typical_target_ms=400, slow_target_ms=500, complete=True)
 
     assert [row.day.isoformat() for row in report.by_day] == ["2026-10-15"]
     assert len(report.worst_calls) == MAX_WORST_CALLS
-    assert report.worst_calls[0].reply_p90_ms == float(MAX_WORST_CALLS + 5)
+    assert report.worst_calls[0].answer_p90_ms == float(MAX_WORST_CALLS + 5)
 
 
-# ------------------------------------------------- first sound, and filler openings (D-901)
+def test_a_call_without_an_answer_time_ranks_by_its_first_sound() -> None:
+    """The first sound is never later than the answer, so ranking an unmeasured answer by it
+    understates the call rather than dropping it from the slow list."""
+    old = replace(_fake(1, answer_p90=None), reply_median=3000.0, reply_p90=6000.0)
+    new = _fake(2, answer_p90=2000.0)
+    report = build_report([new, old], days=1, typical_target_ms=1, slow_target_ms=1, complete=True)
+
+    assert [c.call_id for c in report.worst_calls] == [old.call_id, new.call_id]
+    assert report.worst_calls[0].answer_p90_ms is None
+    assert report.overall.calls_over_target == 1
 
 
-def test_the_no_filler_figure_leaves_out_calls_whose_transcript_shows_a_filler() -> None:
-    """A filler ends the reply measurement, so calls with one found are kept out of the figure
-    the filler timer cannot flatter; a call never counted (None) is not a filler call."""
-    calls = [
-        replace(_fake(1, reply_p90=4000.0), filler_turns=2),  # median 2000, filler found
-        replace(_fake(2, reply_p90=4200.0), filler_turns=1),  # median 2100, filler found
-        replace(_fake(3, reply_p90=1200.0), filler_turns=0),  # median 600
-        replace(_fake(4, reply_p90=1600.0), filler_turns=None),  # median 800, not counted
-        replace(_fake(5, reply_p90=None), filler_turns=3),  # unmeasured: in neither figure
-    ]
-    report = build_report(calls, days=1, typical_target_ms=400, slow_target_ms=500, complete=True)
-
-    assert report.overall.calls_with_filler == 2
-    assert report.overall.reply_typical_no_filler_ms == 700.0
-    assert report.overall.reply_typical_ms == pytest.approx(1400.0)
-    assert {c.call_id: c.filler_turns for c in report.worst_calls}[uuid.UUID(int=1001)] == 2
+# ------------------------------------------------- the per-turn split (D-902)
 
 
-def test_with_every_measured_call_on_a_filler_there_is_no_clean_figure() -> None:
-    calls = [replace(_fake(i, reply_p90=4000.0), filler_turns=1) for i in range(3)]
-    report = build_report(calls, days=1, typical_target_ms=400, slow_target_ms=500, complete=True)
-    assert report.overall.calls_with_filler == 3
-    assert report.overall.reply_typical_no_filler_ms is None
+def _turn(n: int, *, answer: int, ear: int | None, filler: bool = False) -> TurnTiming:
+    return TurnTiming(
+        turn=n,
+        first_sound_ms=answer - 400 if filler else answer,
+        first_sound_kind="filler" if filler else "answer",
+        answer_ms=answer,
+        answer_estimated=filler,
+        wait_before_decision_ms=200 + (ear or 0),
+        recogniser_ms=200,
+        ear_check_ms=ear,
+        model_first_sentence_ms=answer - 500,
+        voice_ms=300,
+        model_asked_ms=-100 if n == 1 else 250,
+    )
 
 
-async def test_ingest_counts_agent_turns_opening_with_a_filler_and_keeps_the_count() -> None:
-    """The production upsert counts the turns from the transcript (the agent's own lines and
-    the platform's), the report reads the count, and a later event with no transcript keeps
-    it rather than wiping it."""
-    from apps.workers.pipeline import _upsert_call_row
-    from calevate_shared.events import TranscriptTurn
+def test_steps_are_medians_over_turns_by_turn_detection_and_per_agent() -> None:
+    """Turns are real samples, so the split's medians run over turns; calls with no timeline
+    are left out, and a step no turn recorded stays null rather than zero."""
+    ear_call = replace(
+        _fake(1, answer_p90=2000.0),
+        voice_settings={"turn_detection": "ear"},
+        timeline=(
+            _turn(1, answer=1000, ear=100),
+            _turn(2, answer=1400, ear=300, filler=True),
+            _turn(3, answer=1200, ear=200),
+        ),
+    )
+    timer_call = replace(
+        _fake(2, answer_p90=2000.0),
+        voice_settings={"turn_detection": "timer"},
+        timeline=(_turn(1, answer=1800, ear=None), _turn(2, answer=2000, ear=None)),
+    )
+    untimed = replace(_fake(3, answer_p90=2000.0), voice_settings={"turn_detection": "ear"})
+    report = build_report(
+        [ear_call, timer_call, untimed],
+        days=1,
+        typical_target_ms=1600,
+        slow_target_ms=2200,
+        complete=True,
+    )
 
+    modes = {row.turn_detection: row for row in report.split_by_turn_detection}
+    assert set(modes) == {"ear", "timer"}
+    ear, timer = modes["ear"], modes["timer"]
+    assert (ear.calls_timed, ear.turns_timed) == (1, 3)
+    assert ear.answer_ms == 1200.0 and ear.ear_check_ms == 200.0
+    assert ear.wait_before_decision_ms == 400.0 and ear.model_first_sentence_ms == 700.0
+    assert ear.model_asked_ms == 250.0
+    assert (ear.turns_filler_first, ear.turns_estimated) == (1, 1)
+    assert ear.answer_slow_ms is None  # fewer than ten turns
+    assert timer.answer_ms == 1900.0 and timer.ear_check_ms is None
+    assert timer.wait_before_decision_ms == 200.0
+
+    agent_rows = [(row.agent_name, row.turn_detection) for row in report.split_by_agent]
+    assert agent_rows == [("Agent", "ear"), ("Agent", "timer")]
+
+
+def test_a_stored_timeline_this_code_cannot_read_is_no_turns() -> None:
+    from apps.api.ops.reply_times import timeline_turns
+
+    assert timeline_turns(None) == ()
+    assert timeline_turns({"turns": [{"turn": "first"}]}) == ()
+    good = CallTimeline(turns=[_turn(1, answer=900, ear=None)]).model_dump(mode="json")
+    assert [t.answer_ms for t in timeline_turns(good)] == [900]
+
+
+async def test_the_scan_carries_each_calls_timeline_into_the_split() -> None:
+    """End to end through `call_reply_scan`: a timeline stored on the call row reaches the
+    split under the turn detection the call ran on."""
     tenant = await _tenant()
     async with tenant_session(tenant.tenant_id) as session:
         await session.execute(
-            text("UPDATE agents SET filler_lines = ARRAY['One moment, please'] WHERE id = :aid"),
-            {"aid": tenant.agent_id},
+            text("UPDATE agents SET voice_settings = CAST(:s AS jsonb) WHERE id = :aid"),
+            {"s": json.dumps({"turn_detection": "ear"}), "aid": tenant.agent_id},
         )
-    ecid = f"rt-{uuid.uuid4().hex}"
-    said = [
-        ("caller", "One moment, please"),
-        ("agent", "One moment, please... We open at nine."),
-        ("caller", "Ok"),
-        ("agent", "ఒక్క సెకండ్ అండి. శనివారం కూడా తెరిచి ఉంటాం."),
-        ("agent", "One momentous day for us."),
-        ("agent", "Sure, we open at nine."),
-    ]
-    transcript = [
-        TranscriptTurn.model_validate({"call_id": ecid, "idx": i, "speaker": who, "text": words})
-        for i, (who, words) in enumerate(said)
-    ]
-
-    def snapshot(with_transcript: bool) -> ExecutionSnapshot:
-        return ExecutionSnapshot(
-            engine_call_id=ecid,
-            status="completed",
-            raw_status="completed",
-            terminal=True,
-            billable_ready=True,
-            engine="fake",
-            started_at=datetime.now(UTC) - timedelta(minutes=5),
-            ended_at=datetime.now(UTC),
-            quality=_quality(2100, 2900),
-            transcript=transcript if with_transcript else [],
-        )
-
-    call_id = await _upsert_call_row(tenant.tenant_id, tenant.agent_id, snapshot(True), None)
-    await _upsert_call_row(tenant.tenant_id, tenant.agent_id, snapshot(False), None)
+    call_id = await _call(tenant, _quality(1100, 1500))
+    timeline = CallTimeline(turns=[_turn(1, answer=1100, ear=150), _turn(2, answer=1300, ear=50)])
     async with tenant_session(tenant.tenant_id) as session:
-        stored = (
-            await session.execute(
-                text("SELECT engine_quality FROM calls WHERE id = :id"), {"id": call_id}
-            )
-        ).scalar_one()
-    assert stored["filler_turns"] == 2
-    assert stored["reply_ms_median"] == 2100
+        await session.execute(
+            text("UPDATE calls SET engine_timeline = CAST(:t AS jsonb) WHERE id = :cid"),
+            {"t": timeline.model_dump_json(), "cid": call_id},
+        )
 
-    row = _client(await _report(), tenant)
-    assert row.calls_with_filler == 1
-    assert row.reply_typical_no_filler_ms is None
+    report = await _report()
+
+    row = next(
+        r
+        for r in report.split_by_agent
+        if r.tenant_id == tenant.tenant_id and r.turn_detection == "ear"
+    )
+    assert (row.turns_timed, row.answer_ms, row.ear_check_ms) == (2, 1200.0, 100.0)

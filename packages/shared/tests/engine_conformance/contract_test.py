@@ -48,7 +48,7 @@ from calevate_shared.engine import (
     compose_engine_prompt,
     openai_base_url,
 )
-from calevate_shared.events import TERMINAL_STATUSES, CallStatus
+from calevate_shared.events import TERMINAL_STATUSES, CallQuality, CallStatus, CallTimeline
 from calevate_shared.model_lifecycle import TTS_MODEL_LIFECYCLE
 
 pytestmark = [pytest.mark.conformance]
@@ -980,6 +980,67 @@ async def test_transcript_turns_are_ordered_and_speaker_tagged(engine: VoiceEngi
     assert all(t.call_id == snapshot.engine_call_id for t in turns), (
         "a transcript turn is attributed to a call other than the one it came from"
     )
+
+
+async def test_a_measured_answer_time_is_never_earlier_than_the_first_sound(
+    engine: VoiceEngine,
+) -> None:
+    """D-902: the answer time runs to the first word of the actual answer, the reply time to
+    the first sound of any kind, so where an adapter reports both the answer cannot come
+    first. An adapter that swapped the two would pass every type check and turn the primary
+    reply-time figure into the filler's."""
+    handle = await _place_call(engine)
+    if handle is None:
+        return  # this adapter refuses to dial at all — see `_place_call`
+    quality = (await engine.get_execution(handle)).quality
+    if quality is None:
+        return
+    assert isinstance(quality, CallQuality)
+    pairs = (
+        (quality.answer_ms_median, quality.reply_ms_median),
+        (quality.answer_ms_max, quality.reply_ms_max),
+    )
+    for answer, first_sound in pairs:
+        if answer is not None and first_sound is not None:
+            assert answer >= first_sound, "the answer was reported before the first sound"
+    if quality.knowledge_turns is not None and quality.turns is not None:
+        assert 0 <= quality.knowledge_turns <= quality.turns
+
+
+async def test_a_call_timeline_is_ours_numbered_and_never_zero_for_a_missing_step(
+    engine: VoiceEngine,
+) -> None:
+    """The per-turn timeline (D-902) reaches a caller as OUR model: turns numbered from one in
+    order, an estimated answer only behind a filler, and the answer never before the first
+    sound. A missing step is None; nothing here may be filled with zero."""
+    handle = await _place_call(engine)
+    if handle is None:
+        return  # this adapter refuses to dial at all — see `_place_call`
+    timeline = await engine.get_call_timeline(handle)
+    if timeline is None:
+        return
+    assert isinstance(timeline, CallTimeline)
+    numbers = [t.turn for t in timeline.turns]
+    assert numbers == sorted(numbers) and all(n >= 1 for n in numbers)
+    assert len(set(numbers)) == len(numbers), "one turn reported twice"
+    for t in timeline.turns:
+        if t.answer_estimated:
+            assert t.first_sound_kind == "filler", "an answer is estimated only behind a filler"
+        if t.answer_ms is not None and t.first_sound_ms is not None:
+            assert t.answer_ms >= t.first_sound_ms
+
+
+async def test_reading_the_timeline_of_a_call_the_engine_never_placed_is_reported(
+    engine: VoiceEngine,
+) -> None:
+    """`get_execution`'s clause for the timeline: None means "no timeline for this call",
+    so answering None for an id the engine never issued would be a well-formed lie."""
+    reported: Exception | None = None
+    try:
+        await engine.get_call_timeline("exec_this_engine_never_placed")
+    except Exception as exc:  # adapters raise our ProblemError; the type is theirs
+        reported = exc
+    assert reported is not None
 
 
 async def test_list_executions_backs_the_reconciliation_poller(engine: VoiceEngine) -> None:

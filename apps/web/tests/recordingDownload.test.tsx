@@ -59,6 +59,7 @@ function detail(): CallDetail {
     moments: [],
     quality: null,
     signals: [],
+    timeline: null,
     transcript: [{ idx: 0, speaker: "agent", text: "Hello.", redacted: true, start_ms: 0, start_approximate: false, likely_cut_off: false }],
   };
 }

@@ -406,8 +406,9 @@ export function CallDetailScreen({
         />
 
         <aside aria-label="More about this call" className="space-y-8 lg:col-start-2 lg:row-start-2">
-          {/* The admin view of a call: how it went, from the voice platform's own figures. */}
-          {viewAsRequested && <CallQualityCard detail={detail} />}
+          {/* How it went, from the voice platform's own figures: all of it, turn by turn, for
+              an operator viewing as the client; the wait for an answer for the client. */}
+          <CallQualityCard detail={detail} operator={viewAsRequested} />
           {detail.moments.length > 0 && (
             <KeyMomentsCard
               moments={detail.moments}

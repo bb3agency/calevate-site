@@ -167,6 +167,11 @@ class Call(PKMixin, TimestampMixin, Base):
             "engine_quality IS NULL OR call_quality_is_numeric(engine_quality)",
             name="engine_quality_is_numbers",
         ),
+        CheckConstraint(
+            "engine_timeline IS NULL OR (jsonb_typeof(engine_timeline) = 'object' "
+            "AND jsonb_typeof(engine_timeline -> 'turns') = 'array')",
+            name="engine_timeline_shape",
+        ),
         # Recordings the carrier reported and we have not copied yet: the copy sweep's
         # worklist (`workers/carrier_recordings`), a handful of rows at any moment.
         Index(
@@ -413,6 +418,10 @@ class Call(PKMixin, TimestampMixin, Base):
     #: model errors and backup answers, each NULL when not measured. Numbers only, which the
     #: CHECK of migration a5d1c7e93f28 enforces. NULL until the platform reports it.
     engine_quality: Mapped[dict[str, object] | None] = mapped_column(JSONB)
+    #: Where the time went in each turn, as the voice platform timed it
+    #: (`calevate_shared.events.CallTimeline`, dumped; D-902): times only, no words. NULL until
+    #: `workers/call_timeline` fetches it, and on calls the platform timed nothing for.
+    engine_timeline: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     #: The agent's published call-handling settings when this row was first written
     #: (`agents.voice_settings`, D-896), never overwritten: what the reply times above ran on.
     voice_settings: Mapped[dict[str, object] | None] = mapped_column(JSONB)

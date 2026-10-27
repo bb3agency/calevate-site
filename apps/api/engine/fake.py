@@ -61,8 +61,10 @@ from calevate_shared.events import (
     CallEvent,
     CallQuality,
     CallStatus,
+    CallTimeline,
     Speaker,
     TranscriptTurn,
+    TurnTiming,
 )
 
 from apps.api.agents.models import series_for_e164
@@ -145,6 +147,9 @@ SAMPLE_TURNS: tuple[tuple[Speaker, str], ...] = (
 #: rather than flat, so a statistic that reads them moves when its arithmetic breaks.
 _SAMPLE_QUALITY: Final[CallQuality] = CallQuality(
     turns=3,
+    answer_ms_median=1180,
+    answer_ms_p90=2240,
+    answer_ms_max=2400,
     reply_ms_median=820,
     reply_ms_p90=1140,
     reply_ms_max=1310,
@@ -156,6 +161,55 @@ _SAMPLE_QUALITY: Final[CallQuality] = CallQuality(
     interruptions=1,
     model_errors=0,
     backup_answers=0,
+    knowledge_turns=1,
+)
+
+#: The same call's turns (`get_call_timeline`): one answered first, one where a filler spoke
+#: first so the answer's start is estimated, and one where the model was asked before the
+#: turn was decided (early answers), so every branch a reader takes has a row.
+_SAMPLE_TIMELINE: Final[CallTimeline] = CallTimeline(
+    turns=[
+        TurnTiming(
+            turn=1,
+            caller_stopped_at_ms=6200,
+            first_sound_ms=820,
+            first_sound_kind="answer",
+            answer_ms=820,
+            wait_before_decision_ms=240,
+            recogniser_ms=180,
+            ear_check_ms=60,
+            model_first_sentence_ms=410,
+            voice_ms=170,
+            model_asked_ms=240,
+        ),
+        TurnTiming(
+            turn=2,
+            caller_stopped_at_ms=14_900,
+            first_sound_ms=1310,
+            first_sound_kind="filler",
+            answer_ms=2400,
+            answer_estimated=True,
+            wait_before_decision_ms=300,
+            recogniser_ms=210,
+            ear_check_ms=90,
+            model_first_sentence_ms=1650,
+            voice_ms=450,
+            model_asked_ms=300,
+        ),
+        TurnTiming(
+            turn=3,
+            caller_stopped_at_ms=23_400,
+            first_sound_ms=1180,
+            first_sound_kind="answer",
+            answer_ms=1180,
+            wait_before_decision_ms=520,
+            recogniser_ms=200,
+            ear_check_ms=320,
+            model_first_sentence_ms=760,
+            voice_ms=200,
+            model_asked_ms=-180,
+        ),
+    ]
 )
 
 # Per-minute INR from the verified rate card (TRD §10.1, D-35/D-36): all-Sarvam BYOK.
@@ -1240,6 +1294,16 @@ class FakeEngine:
                 "raw_document": engine_document({"execution_id": call_id, **call}, engine=self.name)
             }
         )
+
+    async def get_call_timeline(self, call_id: str) -> CallTimeline | None:
+        """`_SAMPLE_TIMELINE` for a completed call, None for any other (nothing timed yet);
+        an id this engine never placed is refused as `get_execution` refuses it."""
+        call = self._calls.get(call_id)
+        if call is None:
+            await self.get_execution(call_id)
+        if call is None or call["status"] != "completed":
+            return None
+        return _SAMPLE_TIMELINE
 
     async def list_executions(self, *, since: datetime) -> ExecutionListing:
         """TRUNCATES for real, because a fake that never truncates cannot keep the

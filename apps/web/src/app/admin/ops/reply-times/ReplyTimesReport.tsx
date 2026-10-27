@@ -13,19 +13,22 @@ import { viewAsHref } from "@/lib/api/session";
 import {
   EMPTY_COPY,
   SETTING_LABELS,
+  SPLIT_STEPS,
   TIER_LABELS,
   formatDay,
   formatMs,
   settingValueLabel,
   windowLabel,
-  type SettingReplyTimes,
   type AgentReplyTimes,
+  type AgentTurnSplit,
   type ClientReplyTimes,
   type DayReplyTimes,
   type ReplyTimeFigures,
   type ReplyTimeReport,
+  type SettingReplyTimes,
   type SlowCall,
   type TierReplyTimes,
+  type TurnSplit,
 } from "@/lib/api/replyTimes";
 import { lookup } from "@/lib/lookup";
 
@@ -48,61 +51,55 @@ function figureColumns<T extends ReplyTimeFigures>(): DataColumn<T>[] {
   return [
     {
       id: "calls",
-      header: "Calls measured",
-      renderHeader: glossed("Calls measured", "Calls with reply times, of the calls that connected and finished."),
+      header: "Calls with an answer time",
+      renderHeader: glossed(
+        "Calls with an answer time",
+        "Calls the platform timed to the answer, of the calls that connected and finished. Calls before 27 Oct 2026 have none.",
+      ),
       className: "tabular-nums",
-      sort: { value: (row) => row.calls_measured, kind: "number", first: "desc" },
+      sort: { value: (row) => row.calls_answer_measured, kind: "number", first: "desc" },
       cell: (row) => (
         <>
-          {formatCount(row.calls_measured)}
+          {formatCount(row.calls_answer_measured)}
           <span className="text-ink-muted"> of {formatCount(row.calls)}</span>
         </>
       ),
     },
     {
       id: "typical",
-      header: "Typical wait",
+      header: "Typical answer",
       renderHeader: glossed(
-        "Typical wait",
-        "The middle of the calls' own typical (median) waits for the agent's first sound. A filler line counts.",
+        "Typical answer",
+        "The middle of the calls' own typical waits for the first word of the answer. A filler line does not count.",
       ),
       hideBelow: "sm",
       className: "tabular-nums",
-      sort: { value: (row) => row.reply_typical_ms, kind: "number", first: "desc" },
-      cell: (row) => formatMs(row.reply_typical_ms),
-    },
-    {
-      id: "no-filler",
-      header: "No filler found",
-      renderHeader: glossed(
-        "No filler found",
-        "The typical wait over calls whose transcript shows no reply opening with a filler line, and how many calls had one.",
-      ),
-      hideBelow: "md",
-      className: "tabular-nums",
-      sort: { value: (row) => row.reply_typical_no_filler_ms, kind: "number", first: "desc" },
-      cell: (row) => (
-        <>
-          {formatMs(row.reply_typical_no_filler_ms)}
-          {row.calls_with_filler > 0 && (
-            <span className="block text-meta text-ink-muted">
-              {formatCountOf(row.calls_with_filler, "call")} with one
-            </span>
-          )}
-        </>
-      ),
+      sort: { value: (row) => row.answer_typical_ms, kind: "number", first: "desc" },
+      cell: (row) => formatMs(row.answer_typical_ms),
     },
     {
       id: "slow",
-      header: "Slow wait",
+      header: "Slow answer",
       renderHeader: glossed(
-        "Slow wait",
-        "Nine calls in ten had their slowest tenth of waits for the agent's first sound shorter than this. Blank below ten measured calls.",
+        "Slow answer",
+        "Nine calls in ten had their slowest tenth of answers faster than this. Blank below ten calls with an answer time.",
       ),
       hideBelow: "sm",
       className: "tabular-nums",
-      sort: { value: (row) => row.reply_slow_ms, kind: "number", first: "desc" },
-      cell: (row) => formatMs(row.reply_slow_ms),
+      sort: { value: (row) => row.answer_slow_ms, kind: "number", first: "desc" },
+      cell: (row) => formatMs(row.answer_slow_ms),
+    },
+    {
+      id: "first-sound",
+      header: "First sound",
+      renderHeader: glossed(
+        "First sound",
+        "The typical wait for the agent's first sound of any kind, a filler line included. The gap to the answer is how long fillers held the line.",
+      ),
+      hideBelow: "md",
+      className: "tabular-nums",
+      sort: { value: (row) => row.first_sound_typical_ms, kind: "number", first: "desc" },
+      cell: (row) => formatMs(row.first_sound_typical_ms),
     },
     {
       id: "first-token",
@@ -111,7 +108,7 @@ function figureColumns<T extends ReplyTimeFigures>(): DataColumn<T>[] {
         "Model's first word",
         "From the turn reaching the voice platform to the first speakable word, not from when the caller stopped.",
       ),
-      hideBelow: "md",
+      hideBelow: "lg",
       className: "tabular-nums",
       sort: { value: (row) => row.first_token_typical_ms, kind: "number", first: "desc" },
       cell: (row) => formatMs(row.first_token_typical_ms),
@@ -119,7 +116,10 @@ function figureColumns<T extends ReplyTimeFigures>(): DataColumn<T>[] {
     {
       id: "over",
       header: "Over target",
-      renderHeader: glossed("Over target", "Calls where more than one wait in ten was longer than the slow target."),
+      renderHeader: glossed(
+        "Over target",
+        "Calls where more than one answer in ten took longer than the slow target.",
+      ),
       className: "tabular-nums",
       sort: { value: (row) => row.calls_over_target, kind: "number", first: "desc" },
       cell: (row) => (
@@ -136,6 +136,15 @@ function figureColumns<T extends ReplyTimeFigures>(): DataColumn<T>[] {
       className: "tabular-nums",
       sort: { value: (row) => row.slow_reply_problems, kind: "number", first: "desc" },
       cell: (row) => formatCount(row.slow_reply_problems),
+    },
+    {
+      id: "lookups",
+      header: "Knowledge lookups",
+      renderHeader: glossed("Knowledge lookups", "Turns on which the agent looked something up in the client's knowledge."),
+      hideBelow: "lg",
+      className: "tabular-nums",
+      sort: { value: (row) => row.knowledge_turns, kind: "number", first: "desc" },
+      cell: (row) => formatCount(row.knowledge_turns),
     },
     {
       id: "errors",
@@ -163,19 +172,23 @@ const CLIENT_COLUMNS: DataColumn<ClientReplyTimes>[] = [
   ...figureColumns<ClientReplyTimes>(),
 ];
 
+function agentCell(row: { tenant_id: string; agent_name?: string | null; client_name: string }) {
+  return (
+    <div className="sm:min-w-[8rem]">
+      <Link href={`/admin/tenants/${row.tenant_id}/agents`} className={TEXT_ACTION}>
+        {row.agent_name ?? "Removed agent"}
+      </Link>
+      <span className="block text-meta text-ink-muted">{row.client_name}</span>
+    </div>
+  );
+}
+
 const AGENT_COLUMNS: DataColumn<AgentReplyTimes>[] = [
   {
     id: "agent",
     header: "Agent",
     sort: { value: (row) => row.agent_name },
-    cell: (row) => (
-      <div className="sm:min-w-[8rem]">
-        <Link href={`/admin/tenants/${row.tenant_id}/agents`} className={TEXT_ACTION}>
-          {row.agent_name ?? "Removed agent"}
-        </Link>
-        <span className="block text-meta text-ink-muted">{row.client_name}</span>
-      </div>
-    ),
+    cell: agentCell,
   },
   ...figureColumns<AgentReplyTimes>(),
 ];
@@ -203,6 +216,81 @@ const SETTING_COLUMNS: DataColumn<SettingReplyTimes>[] = [
     cell: (row) => <span className="whitespace-nowrap">{settingValueLabel(row.value)}</span>,
   },
   ...figureColumns<SettingReplyTimes>(),
+];
+
+/** The step columns of a split table, after its own label columns. */
+function splitColumns<T extends TurnSplit>(): DataColumn<T>[] {
+  return [
+    {
+      id: "turns",
+      header: "Turns timed",
+      renderHeader: glossed("Turns timed", "Turns the platform timed step by step, and on how many calls."),
+      className: "tabular-nums",
+      sort: { value: (row) => row.turns_timed, kind: "number", first: "desc" },
+      cell: (row) => (
+        <>
+          {formatCount(row.turns_timed)}
+          <span className="block text-meta text-ink-muted">{formatCountOf(row.calls_timed, "call")}</span>
+        </>
+      ),
+    },
+    {
+      id: "answer",
+      header: "Answer",
+      renderHeader: glossed(
+        "Answer",
+        "The middle turn's wait for the first word of the answer, and the point nine turns in ten were faster than (blank below ten turns).",
+      ),
+      className: "tabular-nums",
+      sort: { value: (row) => row.answer_ms, kind: "number", first: "desc" },
+      cell: (row) => (
+        <>
+          {formatMs(row.answer_ms)}
+          {row.answer_slow_ms != null && (
+            <span className="block text-meta text-ink-muted">slow {formatMs(row.answer_slow_ms)}</span>
+          )}
+        </>
+      ),
+    },
+    ...SPLIT_STEPS.map(
+      (step): DataColumn<T> => ({
+        id: step.key,
+        header: step.label,
+        renderHeader: glossed(step.label, step.gloss),
+        hideBelow: step.key === "wait_before_decision_ms" || step.key === "model_first_sentence_ms" ? "sm" : "md",
+        className: "tabular-nums",
+        sort: { value: (row) => row[step.key], kind: "number", first: "desc" },
+        cell: (row) => formatMs(row[step.key]),
+      }),
+    ),
+    {
+      id: "filler-first",
+      header: "Filler first",
+      renderHeader: glossed(
+        "Filler first",
+        "Turns whose first sound was a filler line or an acknowledgement; their answer start is estimated from the audio queued behind it.",
+      ),
+      hideBelow: "lg",
+      className: "tabular-nums",
+      sort: { value: (row) => row.turns_filler_first, kind: "number", first: "desc" },
+      cell: (row) => formatCount(row.turns_filler_first),
+    },
+  ];
+}
+
+const modeCell = (row: TurnSplit) => (
+  <span className="whitespace-nowrap font-medium text-ink">{settingValueLabel(row.turn_detection)}</span>
+);
+
+const MODE_SPLIT_COLUMNS: DataColumn<TurnSplit>[] = [
+  { id: "mode", header: "Turn detection", cell: modeCell },
+  ...splitColumns<TurnSplit>(),
+];
+
+const AGENT_SPLIT_COLUMNS: DataColumn<AgentTurnSplit>[] = [
+  { id: "agent", header: "Agent", sort: { value: (row) => row.agent_name }, cell: agentCell },
+  { id: "mode", header: "Turn detection", cell: modeCell },
+  ...splitColumns<AgentTurnSplit>(),
 ];
 
 /** Over the target, when there is a figure to judge. */
@@ -243,46 +331,41 @@ const CALL_COLUMNS: DataColumn<SlowCall>[] = [
   },
   {
     id: "typical",
-    header: "Typical wait",
+    header: "Typical answer",
     hideBelow: "sm",
     className: "tabular-nums",
-    cell: (row) => formatMs(row.reply_median_ms),
+    cell: (row) => formatMs(row.answer_median_ms),
   },
   {
     id: "p90",
-    header: "Slow wait",
+    header: "Slow answer",
     renderHeader: glossed(
-      "Slow wait",
-      "Nine waits in ten on this call for the agent's first sound were shorter than this.",
+      "Slow answer",
+      "Nine answers in ten on this call came faster than this. Blank on a call from before answer times; it is then ranked by its first sound.",
     ),
     className: "tabular-nums",
-    cell: (row) => formatMs(row.reply_p90_ms),
+    cell: (row) => formatMs(row.answer_p90_ms),
   },
   {
-    id: "fillers",
-    header: "Filler openings",
-    renderHeader: glossed(
-      "Filler openings",
-      "Replies the transcript shows opening with a filler line, whose wait ended at the filler. Blank when the transcript was not counted.",
-    ),
-    hideBelow: "lg",
+    id: "first-sound",
+    header: "First sound, slow",
+    hideBelow: "md",
     className: "tabular-nums",
-    cell: (row) =>
-      row.filler_turns === null || row.filler_turns === undefined ? "—" : formatCount(row.filler_turns),
+    cell: (row) => formatMs(row.first_sound_p90_ms),
   },
   {
     id: "worst",
-    header: "Longest wait",
+    header: "Longest answer",
     hideBelow: "sm",
     className: "tabular-nums",
-    cell: (row) => formatMs(row.reply_max_ms),
+    cell: (row) => formatMs(row.answer_max_ms),
   },
   {
-    id: "model",
-    header: "Model's first word, slow",
+    id: "lookups",
+    header: "Knowledge lookups",
     hideBelow: "lg",
     className: "tabular-nums",
-    cell: (row) => formatMs(row.first_token_p90_ms),
+    cell: (row) => (row.knowledge_turns == null ? "—" : formatCount(row.knowledge_turns)),
   },
   {
     id: "flags",
@@ -311,7 +394,8 @@ export function ReplyTimesReport({ report }: { report: ReplyTimeReport }) {
     <div className="space-y-10">
       <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-body text-ink">
         <span className={overall.calls_over_target > 0 ? "font-semibold text-danger" : "font-semibold"}>
-          {formatCount(overall.calls_over_target)} of {formatCountOf(overall.calls_measured, "measured call")}
+          {formatCount(overall.calls_over_target)} of{" "}
+          {formatCountOf(overall.calls_answer_measured, "call")} with an answer time
         </span>
         <span>over target</span>
         <span className="text-ink-muted">
@@ -324,10 +408,9 @@ export function ReplyTimesReport({ report }: { report: ReplyTimeReport }) {
         </span>
         <InfoTip label="How calls are judged">
           <p>
-            The typical wait for the agent&rsquo;s first sound is judged against the typical
-            target. A call is over target when more than one of its waits in ten was longer
-            than the slow target. A filler line ends a wait, so a call can be under target and
-            still slow to answer. Both are console settings.
+            The typical wait for an answer is judged against the typical target. A call is over
+            target when more than one of its answers in ten took longer than the slow target.
+            Calls from before answer times are not judged. Both targets are console settings.
           </p>
           <p>
             <Link href={CONFIG_HREF} className={TEXT_ACTION}>
@@ -353,28 +436,25 @@ export function ReplyTimesReport({ report }: { report: ReplyTimeReport }) {
         <>
           <MetricRow label="Across every client">
             <Metric
-              label="Typical wait for first sound"
-              value={formatMs(overall.reply_typical_ms)}
-              tone={overTarget(overall.reply_typical_ms, report.typical_target_ms) ? "warn" : "default"}
-              hint={`Target ${formatMs(report.typical_target_ms)} · ${formatCountOf(overall.calls_measured, "measured call")} of ${formatCount(overall.calls)}`}
+              label="Typical wait for an answer"
+              value={formatMs(overall.answer_typical_ms)}
+              tone={overTarget(overall.answer_typical_ms, report.typical_target_ms) ? "warn" : "default"}
+              hint={`Target ${formatMs(report.typical_target_ms)} · ${formatCountOf(overall.calls_answer_measured, "call")} of ${formatCount(overall.calls)}`}
             />
             <Metric
-              label="Typical wait, no filler found"
-              value={formatMs(overall.reply_typical_no_filler_ms)}
-              tone={
-                overTarget(overall.reply_typical_no_filler_ms, report.typical_target_ms) ? "warn" : "default"
-              }
-              hint={`${formatCountOf(overall.calls_with_filler, "measured call")} had a reply open with a filler line`}
-            />
-            <Metric
-              label="Slow wait for first sound"
-              value={formatMs(overall.reply_slow_ms)}
-              tone={overTarget(overall.reply_slow_ms, report.slow_target_ms) ? "warn" : "default"}
+              label="Slow wait for an answer"
+              value={formatMs(overall.answer_slow_ms)}
+              tone={overTarget(overall.answer_slow_ms, report.slow_target_ms) ? "warn" : "default"}
               hint={
-                overall.reply_slow_ms == null
-                  ? "Needs ten measured calls"
+                overall.answer_slow_ms == null
+                  ? "Needs ten calls with an answer time"
                   : `Target ${formatMs(report.slow_target_ms)} · nine calls in ten were faster`
               }
+            />
+            <Metric
+              label="Typical first sound"
+              value={formatMs(overall.first_sound_typical_ms)}
+              hint={`A filler line counts · slow ${formatMs(overall.first_sound_slow_ms)}`}
             />
             <Metric
               label="Model's first word"
@@ -382,8 +462,8 @@ export function ReplyTimesReport({ report }: { report: ReplyTimeReport }) {
               hint={`Slow: ${formatMs(overall.first_token_slow_ms)}`}
             />
             <Metric
-              label="Longest wait"
-              value={formatMs(overall.reply_worst_ms)}
+              label="Longest answer"
+              value={formatMs(overall.answer_worst_ms)}
               hint="One reply, on one call"
             />
             <Metric
@@ -398,6 +478,11 @@ export function ReplyTimesReport({ report }: { report: ReplyTimeReport }) {
               tone={overall.model_errors > 0 ? "warn" : "default"}
               hint={`${formatCountOf(overall.rescues, "turn")} answered by a backup model`}
             />
+            <Metric
+              label="Knowledge lookups"
+              value={formatCount(overall.knowledge_turns)}
+              hint={`Over ${formatCountOf(overall.turns, "answered turn")}`}
+            />
             <Metric label="Interruptions" value={formatCount(overall.interruptions)} hint="Caller spoke over the agent" />
             <Metric
               label="Long silences"
@@ -405,6 +490,34 @@ export function ReplyTimesReport({ report }: { report: ReplyTimeReport }) {
               hint={`Over ${formatCountOf(overall.turns, "answered turn")}`}
             />
           </MetricRow>
+
+          <Section
+            title="Where the wait goes"
+            description="Medians over every timed turn, by the turn detection each call ran on. Steps overlap, so they do not add up to the answer."
+          >
+            {report.split_by_turn_detection.length === 0 ? (
+              <EmptyState
+                align="start"
+                message="No turns timed step by step in this window"
+                hint="The platform times turns on its standard voice pipeline from 27 Oct 2026, a few minutes after each call."
+              />
+            ) : (
+              <div className="space-y-6">
+                <DataTable
+                  rows={report.split_by_turn_detection}
+                  columns={MODE_SPLIT_COLUMNS}
+                  getRowId={(row) => row.turn_detection}
+                  label="Where the wait goes, by turn detection"
+                />
+                <DataTable
+                  rows={report.split_by_agent}
+                  columns={AGENT_SPLIT_COLUMNS}
+                  getRowId={(row) => `${row.tenant_id}:${row.agent_id ?? "none"}:${row.turn_detection}`}
+                  label="Where the wait goes, by agent and turn detection"
+                />
+              </div>
+            )}
+          </Section>
 
           <Section title="By day" description="Calls by the IST day they started.">
             <DataTable
@@ -468,7 +581,7 @@ export function ReplyTimesReport({ report }: { report: ReplyTimeReport }) {
 
           <Section
             title="Slowest calls"
-            description="By each call's slow reply. Opening one views it as the client."
+            description="By each call's slow answer. Opening one views it as the client, with its turns step by step."
           >
             {report.worst_calls.length === 0 ? (
               <EmptyState align="start" message="No measured calls in this window" />

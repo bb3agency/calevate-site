@@ -63,6 +63,7 @@ function detail(over: Partial<CallDetail> = {}): CallDetail {
     moments: [],
     quality: null,
     signals: [],
+    timeline: null,
     transcript: [
       { idx: 0, speaker: "agent", text: "Namaskaram.", redacted: true, start_ms: 0, start_approximate: false, likely_cut_off: false },
       { idx: 1, speaker: "caller", text: "Chilli undha?", redacted: true, start_ms: 4000, start_approximate: false, likely_cut_off: false },

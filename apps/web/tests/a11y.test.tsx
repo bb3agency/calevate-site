@@ -2437,6 +2437,7 @@ const CLIENT_SCREENS: Screen[] = [
         language: "te-IN",
         quality: null,
         signals: [],
+        timeline: null,
       } satisfies CallDetail,
       "/v1/calls/c1/callback": { eligible: false, reason: "consent_missing" },
     },

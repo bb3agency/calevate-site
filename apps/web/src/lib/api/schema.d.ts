@@ -13663,36 +13663,42 @@ export interface components {
             agent_id: string | null;
             /** Agent Name */
             agent_name: string | null;
+            /** Answer Slow Ms */
+            answer_slow_ms?: number | null;
+            /** Answer Typical Ms */
+            answer_typical_ms?: number | null;
+            /** Answer Worst Ms */
+            answer_worst_ms?: number | null;
             /** Calls */
             calls: number;
+            /** Calls Answer Measured */
+            calls_answer_measured: number;
             /** Calls Measured */
             calls_measured: number;
             /** Calls Over Target */
             calls_over_target: number;
-            /** Calls With Filler */
-            calls_with_filler: number;
             /** Client Name */
             client_name: string;
             /** Client Slug */
             client_slug: string;
+            /** First Sound Slow Ms */
+            first_sound_slow_ms?: number | null;
+            /** First Sound Typical Ms */
+            first_sound_typical_ms?: number | null;
+            /** First Sound Worst Ms */
+            first_sound_worst_ms?: number | null;
             /** First Token Slow Ms */
             first_token_slow_ms?: number | null;
             /** First Token Typical Ms */
             first_token_typical_ms?: number | null;
             /** Interruptions */
             interruptions: number;
+            /** Knowledge Turns */
+            knowledge_turns: number;
             /** Long Silences */
             long_silences: number;
             /** Model Errors */
             model_errors: number;
-            /** Reply Slow Ms */
-            reply_slow_ms?: number | null;
-            /** Reply Typical Ms */
-            reply_typical_ms?: number | null;
-            /** Reply Typical No Filler Ms */
-            reply_typical_no_filler_ms?: number | null;
-            /** Reply Worst Ms */
-            reply_worst_ms?: number | null;
             /** Rescues */
             rescues: number;
             /** Slow Reply Problems */
@@ -13800,6 +13806,50 @@ export interface components {
              * @enum {string}
              */
             turn_detection_effective: "timer" | "ear" | "smart";
+        };
+        /** AgentTurnSplit */
+        AgentTurnSplit: {
+            /** Agent Id */
+            agent_id: string | null;
+            /** Agent Name */
+            agent_name: string | null;
+            /** Answer Ms */
+            answer_ms?: number | null;
+            /** Answer Slow Ms */
+            answer_slow_ms?: number | null;
+            /** Calls Timed */
+            calls_timed: number;
+            /** Client Name */
+            client_name: string;
+            /** Client Slug */
+            client_slug: string;
+            /** Ear Check Ms */
+            ear_check_ms?: number | null;
+            /** First Sound Ms */
+            first_sound_ms?: number | null;
+            /** Model Asked Ms */
+            model_asked_ms?: number | null;
+            /** Model First Sentence Ms */
+            model_first_sentence_ms?: number | null;
+            /** Recogniser Ms */
+            recogniser_ms?: number | null;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+            /** Turn Detection */
+            turn_detection: string;
+            /** Turns Estimated */
+            turns_estimated: number;
+            /** Turns Filler First */
+            turns_filler_first: number;
+            /** Turns Timed */
+            turns_timed: number;
+            /** Voice Ms */
+            voice_ms?: number | null;
+            /** Wait Before Decision Ms */
+            wait_before_decision_ms?: number | null;
         };
         /**
          * AgentUpdateIn
@@ -15100,6 +15150,8 @@ export interface components {
             summary_state: "pending" | "ready" | "failed" | "empty";
             /** Test Call */
             test_call: boolean;
+            /** Timeline */
+            timeline: components["schemas"]["TurnTimingOut"][] | null;
             /** Transcript */
             transcript?: components["schemas"]["TranscriptTurnOut"][];
             /**
@@ -15437,15 +15489,19 @@ export interface components {
         /**
          * CallQualityOut
          * @description How the call went, as the voice platform measured it once it ended. Any figure is
-         *     null when it could not be measured on that call. `reply_ms_*` run to the agent's first
-         *     sound, so a filler line that plays first ends them (D-901); `filler_turns` is ours, the
-         *     agent turns the transcript shows opening with one.
+         *     null when it could not be measured on that call. `answer_ms_*` run to the first word of
+         *     the actual answer and are the reply time (null on calls before 27 Oct 2026); `reply_ms_*`
+         *     run to the first sound of any kind, a filler line included (D-902).
          */
         CallQualityOut: {
+            /** Answer Ms Max */
+            answer_ms_max?: number | null;
+            /** Answer Ms Median */
+            answer_ms_median?: number | null;
+            /** Answer Ms P90 */
+            answer_ms_p90?: number | null;
             /** Backup Answers */
             backup_answers?: number | null;
-            /** Filler Turns */
-            filler_turns?: number | null;
             /** First Token Ms Max */
             first_token_ms_max?: number | null;
             /** First Token Ms Median */
@@ -15454,6 +15510,8 @@ export interface components {
             first_token_ms_p90?: number | null;
             /** Interruptions */
             interruptions?: number | null;
+            /** Knowledge Turns */
+            knowledge_turns?: number | null;
             /** Long Silences */
             long_silences?: number | null;
             /** Longest Silence S */
@@ -16722,36 +16780,42 @@ export interface components {
         };
         /** ClientReplyTimes */
         ClientReplyTimes: {
+            /** Answer Slow Ms */
+            answer_slow_ms?: number | null;
+            /** Answer Typical Ms */
+            answer_typical_ms?: number | null;
+            /** Answer Worst Ms */
+            answer_worst_ms?: number | null;
             /** Calls */
             calls: number;
+            /** Calls Answer Measured */
+            calls_answer_measured: number;
             /** Calls Measured */
             calls_measured: number;
             /** Calls Over Target */
             calls_over_target: number;
-            /** Calls With Filler */
-            calls_with_filler: number;
             /** Client Name */
             client_name: string;
             /** Client Slug */
             client_slug: string;
+            /** First Sound Slow Ms */
+            first_sound_slow_ms?: number | null;
+            /** First Sound Typical Ms */
+            first_sound_typical_ms?: number | null;
+            /** First Sound Worst Ms */
+            first_sound_worst_ms?: number | null;
             /** First Token Slow Ms */
             first_token_slow_ms?: number | null;
             /** First Token Typical Ms */
             first_token_typical_ms?: number | null;
             /** Interruptions */
             interruptions: number;
+            /** Knowledge Turns */
+            knowledge_turns: number;
             /** Long Silences */
             long_silences: number;
             /** Model Errors */
             model_errors: number;
-            /** Reply Slow Ms */
-            reply_slow_ms?: number | null;
-            /** Reply Typical Ms */
-            reply_typical_ms?: number | null;
-            /** Reply Typical No Filler Ms */
-            reply_typical_no_filler_ms?: number | null;
-            /** Reply Worst Ms */
-            reply_worst_ms?: number | null;
             /** Rescues */
             rescues: number;
             /** Slow Reply Problems */
@@ -18818,37 +18882,43 @@ export interface components {
         };
         /** DayReplyTimes */
         DayReplyTimes: {
+            /** Answer Slow Ms */
+            answer_slow_ms?: number | null;
+            /** Answer Typical Ms */
+            answer_typical_ms?: number | null;
+            /** Answer Worst Ms */
+            answer_worst_ms?: number | null;
             /** Calls */
             calls: number;
+            /** Calls Answer Measured */
+            calls_answer_measured: number;
             /** Calls Measured */
             calls_measured: number;
             /** Calls Over Target */
             calls_over_target: number;
-            /** Calls With Filler */
-            calls_with_filler: number;
             /**
              * Day
              * Format: date
              */
             day: string;
+            /** First Sound Slow Ms */
+            first_sound_slow_ms?: number | null;
+            /** First Sound Typical Ms */
+            first_sound_typical_ms?: number | null;
+            /** First Sound Worst Ms */
+            first_sound_worst_ms?: number | null;
             /** First Token Slow Ms */
             first_token_slow_ms?: number | null;
             /** First Token Typical Ms */
             first_token_typical_ms?: number | null;
             /** Interruptions */
             interruptions: number;
+            /** Knowledge Turns */
+            knowledge_turns: number;
             /** Long Silences */
             long_silences: number;
             /** Model Errors */
             model_errors: number;
-            /** Reply Slow Ms */
-            reply_slow_ms?: number | null;
-            /** Reply Typical Ms */
-            reply_typical_ms?: number | null;
-            /** Reply Typical No Filler Ms */
-            reply_typical_no_filler_ms?: number | null;
-            /** Reply Worst Ms */
-            reply_worst_ms?: number | null;
             /** Rescues */
             rescues: number;
             /** Slow Reply Problems */
@@ -27192,32 +27262,38 @@ export interface components {
          * @description One group's figures. A withheld or unreported figure is null, never zero.
          */
         ReplyTimeFigures: {
+            /** Answer Slow Ms */
+            answer_slow_ms?: number | null;
+            /** Answer Typical Ms */
+            answer_typical_ms?: number | null;
+            /** Answer Worst Ms */
+            answer_worst_ms?: number | null;
             /** Calls */
             calls: number;
+            /** Calls Answer Measured */
+            calls_answer_measured: number;
             /** Calls Measured */
             calls_measured: number;
             /** Calls Over Target */
             calls_over_target: number;
-            /** Calls With Filler */
-            calls_with_filler: number;
+            /** First Sound Slow Ms */
+            first_sound_slow_ms?: number | null;
+            /** First Sound Typical Ms */
+            first_sound_typical_ms?: number | null;
+            /** First Sound Worst Ms */
+            first_sound_worst_ms?: number | null;
             /** First Token Slow Ms */
             first_token_slow_ms?: number | null;
             /** First Token Typical Ms */
             first_token_typical_ms?: number | null;
             /** Interruptions */
             interruptions: number;
+            /** Knowledge Turns */
+            knowledge_turns: number;
             /** Long Silences */
             long_silences: number;
             /** Model Errors */
             model_errors: number;
-            /** Reply Slow Ms */
-            reply_slow_ms?: number | null;
-            /** Reply Typical Ms */
-            reply_typical_ms?: number | null;
-            /** Reply Typical No Filler Ms */
-            reply_typical_no_filler_ms?: number | null;
-            /** Reply Worst Ms */
-            reply_worst_ms?: number | null;
             /** Rescues */
             rescues: number;
             /** Slow Reply Problems */
@@ -27246,6 +27322,10 @@ export interface components {
             overall: components["schemas"]["ReplyTimeFigures"];
             /** Slow Target Ms */
             slow_target_ms: number;
+            /** Split By Agent */
+            split_by_agent: components["schemas"]["AgentTurnSplit"][];
+            /** Split By Turn Detection */
+            split_by_turn_detection: components["schemas"]["TurnSplit"][];
             /** Typical Target Ms */
             typical_target_ms: number;
             /** Window Days */
@@ -28271,32 +28351,38 @@ export interface components {
         };
         /** SettingReplyTimes */
         SettingReplyTimes: {
+            /** Answer Slow Ms */
+            answer_slow_ms?: number | null;
+            /** Answer Typical Ms */
+            answer_typical_ms?: number | null;
+            /** Answer Worst Ms */
+            answer_worst_ms?: number | null;
             /** Calls */
             calls: number;
+            /** Calls Answer Measured */
+            calls_answer_measured: number;
             /** Calls Measured */
             calls_measured: number;
             /** Calls Over Target */
             calls_over_target: number;
-            /** Calls With Filler */
-            calls_with_filler: number;
+            /** First Sound Slow Ms */
+            first_sound_slow_ms?: number | null;
+            /** First Sound Typical Ms */
+            first_sound_typical_ms?: number | null;
+            /** First Sound Worst Ms */
+            first_sound_worst_ms?: number | null;
             /** First Token Slow Ms */
             first_token_slow_ms?: number | null;
             /** First Token Typical Ms */
             first_token_typical_ms?: number | null;
             /** Interruptions */
             interruptions: number;
+            /** Knowledge Turns */
+            knowledge_turns: number;
             /** Long Silences */
             long_silences: number;
             /** Model Errors */
             model_errors: number;
-            /** Reply Slow Ms */
-            reply_slow_ms?: number | null;
-            /** Reply Typical Ms */
-            reply_typical_ms?: number | null;
-            /** Reply Typical No Filler Ms */
-            reply_typical_no_filler_ms?: number | null;
-            /** Reply Worst Ms */
-            reply_worst_ms?: number | null;
             /** Rescues */
             rescues: number;
             /**
@@ -28439,13 +28525,20 @@ export interface components {
         };
         /**
          * SlowCall
-         * @description One of the window's slowest calls, by its p90 reply time.
+         * @description One of the window's slowest calls, by its p90 answer time (its first sound's when the
+         *     answer was not measured).
          */
         SlowCall: {
             /** Agent Id */
             agent_id: string | null;
             /** Agent Name */
             agent_name: string | null;
+            /** Answer Max Ms */
+            answer_max_ms: number | null;
+            /** Answer Median Ms */
+            answer_median_ms: number | null;
+            /** Answer P90 Ms */
+            answer_p90_ms: number | null;
             /**
              * Call Id
              * Format: uuid
@@ -28455,18 +28548,16 @@ export interface components {
             client_name: string;
             /** Client Slug */
             client_slug: string;
-            /** Filler Turns */
-            filler_turns?: number | null;
+            /** First Sound Median Ms */
+            first_sound_median_ms: number | null;
+            /** First Sound P90 Ms */
+            first_sound_p90_ms: number | null;
             /** First Token P90 Ms */
             first_token_p90_ms: number | null;
+            /** Knowledge Turns */
+            knowledge_turns: number | null;
             /** Model Errors */
             model_errors: number | null;
-            /** Reply Max Ms */
-            reply_max_ms: number | null;
-            /** Reply Median Ms */
-            reply_median_ms: number | null;
-            /** Reply P90 Ms */
-            reply_p90_ms: number | null;
             /** Slow Reply */
             slow_reply: boolean;
             /**
@@ -30634,32 +30725,38 @@ export interface components {
         };
         /** TierReplyTimes */
         TierReplyTimes: {
+            /** Answer Slow Ms */
+            answer_slow_ms?: number | null;
+            /** Answer Typical Ms */
+            answer_typical_ms?: number | null;
+            /** Answer Worst Ms */
+            answer_worst_ms?: number | null;
             /** Calls */
             calls: number;
+            /** Calls Answer Measured */
+            calls_answer_measured: number;
             /** Calls Measured */
             calls_measured: number;
             /** Calls Over Target */
             calls_over_target: number;
-            /** Calls With Filler */
-            calls_with_filler: number;
+            /** First Sound Slow Ms */
+            first_sound_slow_ms?: number | null;
+            /** First Sound Typical Ms */
+            first_sound_typical_ms?: number | null;
+            /** First Sound Worst Ms */
+            first_sound_worst_ms?: number | null;
             /** First Token Slow Ms */
             first_token_slow_ms?: number | null;
             /** First Token Typical Ms */
             first_token_typical_ms?: number | null;
             /** Interruptions */
             interruptions: number;
+            /** Knowledge Turns */
+            knowledge_turns: number;
             /** Long Silences */
             long_silences: number;
             /** Model Errors */
             model_errors: number;
-            /** Reply Slow Ms */
-            reply_slow_ms?: number | null;
-            /** Reply Typical Ms */
-            reply_typical_ms?: number | null;
-            /** Reply Typical No Filler Ms */
-            reply_typical_no_filler_ms?: number | null;
-            /** Reply Worst Ms */
-            reply_worst_ms?: number | null;
             /** Rescues */
             rescues: number;
             /** Slow Reply Problems */
@@ -31572,6 +31669,70 @@ export interface components {
             speaker: "caller" | "agent";
             /** Text */
             text: string;
+        };
+        /**
+         * TurnSplit
+         * @description Medians over the timed turns of a group: where the wait for an answer went. A step
+         *     no turn recorded is null.
+         */
+        TurnSplit: {
+            /** Answer Ms */
+            answer_ms?: number | null;
+            /** Answer Slow Ms */
+            answer_slow_ms?: number | null;
+            /** Calls Timed */
+            calls_timed: number;
+            /** Ear Check Ms */
+            ear_check_ms?: number | null;
+            /** First Sound Ms */
+            first_sound_ms?: number | null;
+            /** Model Asked Ms */
+            model_asked_ms?: number | null;
+            /** Model First Sentence Ms */
+            model_first_sentence_ms?: number | null;
+            /** Recogniser Ms */
+            recogniser_ms?: number | null;
+            /** Turn Detection */
+            turn_detection: string;
+            /** Turns Estimated */
+            turns_estimated: number;
+            /** Turns Filler First */
+            turns_filler_first: number;
+            /** Turns Timed */
+            turns_timed: number;
+            /** Voice Ms */
+            voice_ms?: number | null;
+            /** Wait Before Decision Ms */
+            wait_before_decision_ms?: number | null;
+        };
+        /**
+         * TurnTimingOut
+         * @description One turn's timings, in milliseconds from the moment the caller stopped speaking; a
+         *     step that did not happen is null, never zero (`calevate_shared.events.TurnTiming`).
+         */
+        TurnTimingOut: {
+            /** Answer Estimated */
+            answer_estimated: boolean;
+            /** Answer Ms */
+            answer_ms: number | null;
+            /** Ear Check Ms */
+            ear_check_ms: number | null;
+            /** First Sound Kind */
+            first_sound_kind: ("answer" | "filler" | "other") | null;
+            /** First Sound Ms */
+            first_sound_ms: number | null;
+            /** Model Asked Ms */
+            model_asked_ms: number | null;
+            /** Model First Sentence Ms */
+            model_first_sentence_ms: number | null;
+            /** Recogniser Ms */
+            recogniser_ms: number | null;
+            /** Turn */
+            turn: number;
+            /** Voice Ms */
+            voice_ms: number | null;
+            /** Wait Before Decision Ms */
+            wait_before_decision_ms: number | null;
         };
         /**
          * UnattributedSpendOut

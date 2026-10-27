@@ -169,7 +169,6 @@ from apps.api.insights import detection as gap_detection
 from apps.api.insights import service as gap_service
 from apps.api.integrations import service as integrations
 from apps.api.integrations.service import subscribed_endpoint_sql
-from apps.api.ops.filler_turns import filler_lines_for, filler_turns
 from apps.api.ops.model_pricing import attested_tts_prices
 from apps.api.reliability.service import (
     enqueue_outbox_once,
@@ -177,7 +176,7 @@ from apps.api.reliability.service import (
     mark_inbox_processed,
 )
 from apps.api.tenancy.engine_workspace import engine_has_workspaces
-from apps.workers import call_language, call_translation, storage
+from apps.workers import call_language, call_timeline, call_translation, storage
 from apps.workers import extraction as extraction_module
 from apps.workers.chat import TokenUsage
 from apps.workers.engine_charges import reconcile_call_charge
@@ -677,48 +676,13 @@ _INBOUND_NUMBER_SQL: Final = (
 )
 
 
-#: The filler lines the agent could have been given: its own and its account's, beside the
-#: platform's (`ops/filler_turns.filler_lines_for`).
-_FILLER_LINES_SQL: Final = (
-    "SELECT a.filler_lines, o.default_filler_lines FROM agents a "
-    "LEFT JOIN organizations o ON o.id = a.tenant_id WHERE a.id = :aid"
-)
-
-#: `engine_quality` from a later event, keeping the filler count an earlier one recorded
-#: when this one carried no transcript to count from (D-901).
-_QUALITY_UPDATE_SQL: Final = (
-    "CASE WHEN EXCLUDED.engine_quality IS NULL THEN calls.engine_quality "
-    "WHEN EXCLUDED.engine_quality -> 'filler_turns' IS NULL "
-    "AND calls.engine_quality -> 'filler_turns' IS NOT NULL "
-    "THEN EXCLUDED.engine_quality "
-    "|| jsonb_build_object('filler_turns', calls.engine_quality -> 'filler_turns') "
-    "ELSE EXCLUDED.engine_quality END"
-)
-
-
-async def _quality_json(
-    session: AsyncSession, agent_id: UUID, snapshot: ExecutionSnapshot
-) -> str | None:
-    """The call's quality figures as stored, with the filler-led turns its transcript shows
-    (`CallQuality.filler_turns`). Without a transcript the count is left out, not zero."""
-    quality = snapshot.quality
-    if quality is None:
-        return None
-    if not snapshot.transcript:
-        return quality.model_dump_json(exclude={"filler_turns"})
-    row = (await session.execute(text(_FILLER_LINES_SQL), {"aid": agent_id})).first()
-    lines = filler_lines_for(*(row or ()))
-    counted = quality.model_copy(update={"filler_turns": filler_turns(snapshot.transcript, lines)})
-    return counted.model_dump_json()
-
-
 async def _upsert_call_row(
     tenant_id: UUID, agent_id: UUID, snapshot: ExecutionSnapshot, engine_agent_ref: str | None
 ) -> UUID:
     direction = snapshot.direction
     call_id = uuid7()
+    quality_json = snapshot.quality.model_dump_json() if snapshot.quality else None
     async with tenant_session(tenant_id) as session:
-        quality_json = await _quality_json(session, agent_id, snapshot)
         row = (
             await session.execute(
                 text(
@@ -746,7 +710,7 @@ async def _upsert_call_row(
                     "  ended_at = COALESCE(EXCLUDED.ended_at, calls.ended_at), "
                     "  duration_s = COALESCE(EXCLUDED.duration_s, calls.duration_s), "
                     # `call.completed` can carry no figures where `call.analysed` does.
-                    f"  engine_quality = {_QUALITY_UPDATE_SQL}, "
+                    "  engine_quality = COALESCE(EXCLUDED.engine_quality, calls.engine_quality), "
                     # An event that does not name the forward does not unmark it.
                     "  forwarded_to_phone = "
                     "    calls.forwarded_to_phone OR EXCLUDED.forwarded_to_phone, "
@@ -1366,6 +1330,13 @@ async def _post_call_stages(
                 forwarding_test=claim.test_id is not None,
                 caller_hidden=claim.caller_hidden,
             )
+
+    # STEP 1f — the per-turn timings (D-902), by their own job: the engine writes them some
+    # time after the call, and waiting on them must not hold back anything below.
+    if call_timeline.timeline_expected(snapshot):
+        await call_timeline.request_call_timeline(
+            tenant_id=tenant_id, call_id=call_id, execution_id=snapshot.engine_call_id
+        )
 
     # STEP 2 — transcript + redaction. `text_redacted` is the default view (hard rule 5).
     with span("pipeline.transcript_persist", call_id=str(call_id)) as stage:

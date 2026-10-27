@@ -195,10 +195,16 @@ class CallQuality(BaseModel):
 
     #: Caller turns the agent answered.
     turns: int | None = None
-    #: Caller stops speaking -> the agent's first audio, milliseconds. First SOUND, not the
-    #: answer: a filler line or an acknowledgement that plays first ends the measurement, and
-    #: the time to the answer's first word is not reported (VENDOR-STATED, ThinnestAI's email
-    #: of 27 Oct 2026, `docs/vendor/thinnest-replies-2026-10-12.md` §37; D-901).
+    #: Caller stops speaking -> the first word of the ACTUAL answer heard, milliseconds: a
+    #: filler line or an acknowledgement that plays first does not end it. The reply time
+    #: targets are judged on. None on calls from before 27 Oct 2026 (VERIFIED-VENDOR-DOCS,
+    #: `quality.answerMs`, https://app.thinnest.ai/openapi.json read 27 Oct 2026; D-902).
+    answer_ms_median: int | None = None
+    answer_ms_p90: int | None = None
+    answer_ms_max: int | None = None
+    #: Caller stops speaking -> the agent's first SOUND of any kind, a filler line included
+    #: (`quality.responseMs`, same source). Kept beside the answer: the gap between the two
+    #: is how long a filler held the line.
     reply_ms_median: int | None = None
     reply_ms_p90: int | None = None
     reply_ms_max: int | None = None
@@ -215,13 +221,53 @@ class CallQuality(BaseModel):
     model_errors: int | None = None
     #: Turns a backup model answered after the first choice failed.
     backup_answers: int | None = None
-    #: OURS, never an engine's: agent turns of the call's transcript that begin with one of
-    #: the filler lines the agent may say while a reply is slow, counted at ingest
-    #: (`apps/api/ops/filler_turns.py`). A turn that opened with a filler had its reply time
-    #: cut short by it (`reply_ms_*`). None when no transcript was in hand. Zero is not proof
-    #: that no filler played: whether the engine writes fillers into the transcript at all is
-    #: UNKNOWN.
-    filler_turns: int | None = None
+    #: Turns on which the agent looked something up in its knowledge, by its own search or
+    #: from passages handed to it up front (`quality.knowledgeTurns`, same source).
+    knowledge_turns: int | None = None
+
+
+#: What a turn's first sound was: the answer itself, a `filler` (a thinking line or an
+#: acknowledgement before the answer), or `other` (the turn had no answer words of its own).
+TurnFirstSound = Literal["answer", "filler", "other"]
+
+
+class TurnTiming(BaseModel):
+    """Where the time went in one turn, in milliseconds from the moment the caller stopped
+    speaking. A step that did not happen is None, never zero. Times only, no words."""
+
+    #: The turn's number, from 1.
+    turn: int
+    #: When the caller stopped speaking, from the start of the call.
+    caller_stopped_at_ms: int | None = None
+    #: The first sound of any kind (what `CallQuality.reply_ms_*` measures) and what it was.
+    first_sound_ms: int | None = None
+    first_sound_kind: TurnFirstSound | None = None
+    #: The first word of the actual answer heard (what `CallQuality.answer_ms_*` measures).
+    answer_ms: int | None = None
+    #: True when a filler spoke first, so `answer_ms` was worked out from the audio queued
+    #: behind it rather than heard directly.
+    answer_estimated: bool = False
+    #: Caller stopped -> the turn decided: the recogniser's wait, the final words and the
+    #: end-of-turn check together.
+    wait_before_decision_ms: int | None = None
+    #: Caller stopped -> their final words arrived.
+    recogniser_ms: int | None = None
+    #: Final words -> the end-of-turn check's verdict. None when that check is not used.
+    ear_check_ms: int | None = None
+    #: The model asked -> the first words of the answer leaving it (a filler does not count).
+    model_first_sentence_ms: int | None = None
+    #: The answer's first words leaving the model -> heard: the voice starting, plus any wait
+    #: behind a filler still speaking.
+    voice_ms: int | None = None
+    #: When the model was asked. Negative when it was asked before the turn was decided
+    #: (early answers).
+    model_asked_ms: int | None = None
+
+
+class CallTimeline(BaseModel):
+    """A call's per-turn timings, in turn order."""
+
+    turns: list[TurnTiming] = Field(default_factory=list)
 
 
 class CallLlmUsage(BaseModel):
@@ -308,6 +354,7 @@ __all__ = [
     "CallLlmUsage",
     "CallQuality",
     "CallStatus",
+    "CallTimeline",
     "CallVoicePlan",
     "EngineByokChange",
     "EngineByokChanged",
@@ -319,4 +366,6 @@ __all__ = [
     "EngineProblemKind",
     "Speaker",
     "TranscriptTurn",
+    "TurnFirstSound",
+    "TurnTiming",
 ]

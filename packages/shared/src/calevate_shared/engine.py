@@ -41,6 +41,7 @@ from calevate_shared.events import (
     CallLlmUsage,
     CallQuality,
     CallStatus,
+    CallTimeline,
     NotPlacedReason,
     TranscriptTurn,
 )
@@ -6163,6 +6164,14 @@ class VoiceEngine(Protocol):
         lose the one thing the archive is for — reading what the vendor actually said when
         our mapping turns out to be wrong.
         """
+        ...
+
+    async def get_call_timeline(self, call_id: str) -> CallTimeline | None:
+        """Where the time went in each turn of one call (D-902), or None when the engine
+        holds no timeline for it: not written yet, never recorded for that kind of call, or
+        a call from before the engine kept one. The engine does not tell those apart, so a
+        caller that expects one retries rather than reading None as final. An id the engine
+        never placed is refused, as `get_execution` refuses it."""
         ...
 
     async def list_executions(self, *, since: datetime) -> ExecutionListing:

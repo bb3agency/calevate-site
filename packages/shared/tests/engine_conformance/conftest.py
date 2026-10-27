@@ -94,8 +94,83 @@ def _thinnest_call(call_id: str, *, agent: str, to: str, frm: str | None) -> dic
             "ready": True,
         },
         "analysedAt": (started + timedelta(seconds=190)).isoformat().replace("+00:00", "Z"),
+        # `CallQuality` of https://app.thinnest.ai/openapi.json, read 27 Oct 2026.
+        "quality": {
+            "turns": 2,
+            "responseMs": {"median": 1140, "p90": 1400, "max": 1400},
+            "answerMs": {"median": 1590, "p90": 2300, "max": 2300},
+            "firstTokenMs": {"median": 400, "p90": 520, "max": 520},
+            "longSilences": 0,
+            "longSilenceSeconds": 10,
+            "longestSilenceSeconds": 3.5,
+            "interruptions": 0,
+            "knowledgeTurns": 1,
+            "modelErrors": 0,
+            "rescues": 0,
+        },
         "retryScheduledFor": None,
         "error": None,
+    }
+
+
+def _thinnest_timeline(call: dict[str, Any]) -> dict[str, Any]:
+    """Get Call Timeline for one call, in the `CallTimeline` shape of https://app.thinnest.ai/
+    openapi.json (read 27 Oct 2026): a turn answered first on Ear, and one where a filler
+    spoke first and the answer's start is estimated, off Ear (Ear steps null)."""
+    split_keys = ("waitBeforeDecisionMs", "recogniserMs", "earCheckMs")
+    return {
+        "id": call["id"],
+        "callRef": call["callRef"],
+        "status": call["status"],
+        "agent": call["agent"],
+        "startedAt": call["startedAt"],
+        "endedAt": call["endedAt"],
+        "timeline": {
+            "v": 1,
+            "turns": [
+                {
+                    "turn": 2,
+                    "callerStoppedAtMs": 15200,
+                    "earPausedMs": None,
+                    "transcriptMs": None,
+                    "judgeDecidedMs": None,
+                    "turnDecidedMs": 600,
+                    "modelAskedMs": -120,
+                    "answerTextMs": 1900,
+                    "firstAudioMs": 1400,
+                    "firstAudioKind": "filler",
+                    "answerAudioMs": 2300,
+                    "answerAudioEstimated": True,
+                    "split": {
+                        **dict.fromkeys(split_keys),
+                        "waitBeforeDecisionMs": 600,
+                        "modelFirstSentenceMs": 2020,
+                        "voiceMs": 400,
+                    },
+                },
+                {
+                    "turn": 1,
+                    "callerStoppedAtMs": 6100,
+                    "earPausedMs": 150,
+                    "transcriptMs": 190,
+                    "judgeDecidedMs": 250,
+                    "turnDecidedMs": 250,
+                    "modelAskedMs": 250,
+                    "answerTextMs": 700,
+                    "firstAudioMs": 880,
+                    "firstAudioKind": "answer",
+                    "answerAudioMs": 880,
+                    "answerAudioEstimated": False,
+                    "split": {
+                        "waitBeforeDecisionMs": 250,
+                        "recogniserMs": 190,
+                        "earCheckMs": 60,
+                        "modelFirstSentenceMs": 450,
+                        "voiceMs": 180,
+                    },
+                },
+            ],
+        },
     }
 
 
@@ -224,6 +299,11 @@ def _thinnest_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], htt
             ]
             cursor = str(page + 1) if listing_rows >= THINNEST_FULL_PAGE else None
             return httpx.Response(200, json={"items": rows, "nextCursor": cursor})
+        if len(parts) == 3 and parts[0] == "calls" and parts[2] == "timeline" and method == "GET":
+            call = calls.get(parts[1])
+            if call is None:
+                return httpx.Response(404, json={"error": "No such call.", "code": "not_found"})
+            return httpx.Response(200, json=_thinnest_timeline(call))
         if len(parts) == 2 and parts[0] == "calls":
             call = calls.get(parts[1])
             if call is None:

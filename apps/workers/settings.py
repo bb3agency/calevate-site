@@ -114,6 +114,7 @@ from apps.workers.billing import FEE_SWEEP_MINUTE, issue_platform_fees
 from apps.workers.business_copy import generate_business_copy, sweep_business_copies
 from apps.workers.business_outcomes_draft import draft_business_outcomes
 from apps.workers.business_type import apply_business_type
+from apps.workers.call_timeline import fetch_call_timeline
 from apps.workers.call_translation import (
     BACKFILL_MINUTE as TRANSLATION_BACKFILL_MINUTE,
 )
@@ -439,6 +440,9 @@ FUNCTIONS: list[Any] = [
         # (`crm/translation.request_translation`) or the backfill below.
         translate_call_job,
         run_post_call_pipeline,
+        # D-902. A call's per-turn timings, queued by the post-call pipeline. Unregistered,
+        # every call would show its split as not timed while the engine held it.
+        fetch_call_timeline,
         # D-808. One call's recording copied again, queued by the missing-recording sweep
         # and by the operator's per-call action. Unregistered, both would report a re-copy
         # requested while nothing ran, until the platform deleted the only copy.

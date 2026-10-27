@@ -548,8 +548,8 @@ class Settings(BaseSettings):
     #: snapshot). Saving it republishes every live agent.
     thinnest_interrupt_words: int = Field(default=2, ge=1, le=6)
     #: How long a caller should wait for a reply, in milliseconds, from the moment they stop
-    #: speaking to the agent's first audio as the voice platform measures it per call
-    #: (`CallQuality.reply_ms_*`; first SOUND, so a filler line ends it, D-901): the TYPICAL
+    #: speaking to the first word of the actual answer as the voice platform measures it per
+    #: call (`CallQuality.answer_ms_*`; a filler line does not end it, D-902): the TYPICAL
     #: wait (the calls' median) and the SLOW one (the
     #: calls' p90; a call is over target when its own p90 exceeds it). 1,600 / 2,200 are the
     #: founder's targets of 27 Oct 2026 (D-896), which replaced one 500 ms goal the model alone

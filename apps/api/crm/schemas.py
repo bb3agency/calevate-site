@@ -228,11 +228,17 @@ class CapturedFieldsOut(Strict):
 
 class CallQualityOut(Strict):
     """How the call went, as the voice platform measured it once it ended. Any figure is
-    null when it could not be measured on that call. `reply_ms_*` run to the agent's first
-    sound, so a filler line that plays first ends them (D-901); `filler_turns` is ours, the
-    agent turns the transcript shows opening with one."""
+    null when it could not be measured on that call. `answer_ms_*` run to the first word of
+    the actual answer and are the reply time (null on calls before 27 Oct 2026); `reply_ms_*`
+    run to the first sound of any kind, a filler line included (D-902)."""
+
+    # A stored record may carry keys an earlier ingest wrote (D-901's `filler_turns`).
+    model_config = ConfigDict(extra="ignore")
 
     turns: int | None = None
+    answer_ms_median: int | None = None
+    answer_ms_p90: int | None = None
+    answer_ms_max: int | None = None
     reply_ms_median: int | None = None
     reply_ms_p90: int | None = None
     reply_ms_max: int | None = None
@@ -244,7 +250,27 @@ class CallQualityOut(Strict):
     interruptions: int | None = None
     model_errors: int | None = None
     backup_answers: int | None = None
-    filler_turns: int | None = None
+    #: Turns on which the agent looked something up in the client's knowledge.
+    knowledge_turns: int | None = None
+
+
+class TurnTimingOut(Strict):
+    """One turn's timings, in milliseconds from the moment the caller stopped speaking; a
+    step that did not happen is null, never zero (`calevate_shared.events.TurnTiming`)."""
+
+    turn: int
+    first_sound_ms: int | None
+    first_sound_kind: Literal["answer", "filler", "other"] | None
+    answer_ms: int | None
+    #: A filler spoke first, so the answer's start was worked out rather than heard.
+    answer_estimated: bool
+    wait_before_decision_ms: int | None
+    recogniser_ms: int | None
+    ear_check_ms: int | None
+    model_first_sentence_ms: int | None
+    voice_ms: int | None
+    #: Negative when the model was asked before the turn was decided (early answers).
+    model_asked_ms: int | None
 
 
 CallSignalKind = Literal[
@@ -332,6 +358,10 @@ class CallDetailOut(CallSummaryOut):
     #: What the voice platform reported about the call, oldest first. Required for
     #: `moments`' reason.
     signals: list[CallSignalOut]
+    #: Where the time went in each turn (D-902), for an operator in a view-as session only:
+    #: null for a client, and null when the platform timed nothing for the call. Required for
+    #: `moments`' reason.
+    timeline: list[TurnTimingOut] | None
 
 
 class CallTranslationOut(Strict):

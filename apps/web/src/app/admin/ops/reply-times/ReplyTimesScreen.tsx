@@ -9,7 +9,7 @@ import { SegmentedControl } from "@/components/interior/segmented-control";
 import { ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
 import {
   DEFAULT_WINDOW_DAYS,
-  FIRST_SOUND_NOTE,
+  ANSWER_NOTE,
   WINDOW_CHOICES,
   formatMs,
   useReplyTimes,
@@ -22,8 +22,8 @@ import { ReplyTimesReport } from "./ReplyTimesReport";
 
 /**
  * The console half of `GET /v1/ops/reply-times` (D-770): how long callers waited for the
- * agent's first sound, as the voice platform measured it on each call, across every client.
- * A filler line is a first sound, so these are not times to the answer (D-901). `ops:manage` gates the read; the gate is `!refused` so an operator is not locked
+ * first word of an answer, as the voice platform measured it on each call, across every
+ * client, with each turn's split by turn detection (D-902). `ops:manage` gates the read; the gate is `!refused` so an operator is not locked
  * out while `/v1/admin/me` is still in flight (`access.ts`: the API is the enforcement).
  */
 export function ReplyTimesScreen() {
@@ -56,33 +56,45 @@ export function ReplyTimesScreen() {
             { key: "window_days", label: "Window shown (days)", value: String(data.window_days) },
             {
               key: "measures",
-              label: "What every wait measures",
-              value: FIRST_SOUND_NOTE,
+              label: "What the waits measure",
+              value: ANSWER_NOTE,
             },
             {
               key: "targets",
-              label: "Targets for the wait to the agent's first sound (typical / slow)",
+              label: "Targets for the wait for an answer (typical / slow)",
               value: `${formatMs(data.typical_target_ms)} / ${formatMs(data.slow_target_ms)}`,
             },
             {
               key: "calls",
-              label: "Calls measured / finished",
-              value: `${data.overall.calls_measured} / ${data.overall.calls}`,
+              label: "Calls with an answer time / with any reply time / finished",
+              value: `${data.overall.calls_answer_measured} / ${data.overall.calls_measured} / ${data.overall.calls}`,
             },
             {
               key: "typical",
-              label: "Typical wait to first sound (median of each call's median)",
-              value: formatMs(data.overall.reply_typical_ms),
-            },
-            {
-              key: "typical_no_filler",
-              label: "Typical wait to first sound, calls with no filler line found",
-              value: `${formatMs(data.overall.reply_typical_no_filler_ms)} (${data.overall.calls_with_filler} of ${data.overall.calls_measured} measured calls had one)`,
+              label: "Typical wait for an answer (median of each call's median)",
+              value: formatMs(data.overall.answer_typical_ms),
             },
             {
               key: "slow",
-              label: "Slow wait to first sound (90th percentile of each call's p90)",
-              value: formatMs(data.overall.reply_slow_ms),
+              label: "Slow wait for an answer (90th percentile of each call's p90)",
+              value: formatMs(data.overall.answer_slow_ms),
+            },
+            {
+              key: "first_sound",
+              label: "Typical wait for the first sound, a filler line included",
+              value: formatMs(data.overall.first_sound_typical_ms),
+            },
+            {
+              key: "split",
+              label:
+                "Median answer by turn detection, with wait before decision / Ear check / model's first sentence / voice",
+              value:
+                data.split_by_turn_detection
+                  .map(
+                    (row) =>
+                      `${row.turn_detection}: ${formatMs(row.answer_ms)} (${formatMs(row.wait_before_decision_ms)} / ${formatMs(row.ear_check_ms)} / ${formatMs(row.model_first_sentence_ms)} / ${formatMs(row.voice_ms)}) over ${row.turns_timed} turns`,
+                  )
+                  .join("; ") || "no turns timed",
             },
             {
               key: "over",
@@ -130,17 +142,15 @@ export function ReplyTimesScreen() {
       <PageHeader
         description={
           <>
-            How long callers waited for the agent&rsquo;s first sound, as the voice platform
-            measured it on each call. A filler line counts, so this is not the time to the
-            answer.{" "}
+            How long callers waited for the first word of an answer, as the voice platform
+            measured it on each call, and where each turn&rsquo;s wait went.{" "}
             <InfoTip label="What these figures are">
-              <p>{FIRST_SOUND_NOTE}</p>
+              <p>{ANSWER_NOTE}</p>
               <p>
                 The platform sends each call&rsquo;s typical (median), slow (90th percentile)
-                and longest wait once the call ends. It does not report the time to the
-                answer&rsquo;s first word. &ldquo;No filler found&rdquo; leaves out calls whose
-                transcript shows a reply opening with a filler line; a filler the transcript
-                does not show cannot be left out.
+                and longest wait once the call ends, and times each turn step by step a few
+                minutes later. When a filler spoke first, the answer&rsquo;s start is
+                estimated from the audio queued behind it.
               </p>
               <p>
                 The model&rsquo;s first word is part of that wait, timed from the turn reaching

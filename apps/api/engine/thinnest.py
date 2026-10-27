@@ -94,6 +94,7 @@ from calevate_shared.events import (
     CallLlmUsage,
     CallQuality,
     CallStatus,
+    CallTimeline,
     CallVoicePlan,
     EngineByokChange,
     EngineByokChanged,
@@ -106,6 +107,7 @@ from calevate_shared.events import (
     NotPlacedReason,
     Speaker,
     TranscriptTurn,
+    TurnTiming,
 )
 from calevate_shared.webhook_signature import (
     signed_time_is_fresh,
@@ -665,11 +667,14 @@ def _spread(value: Any) -> tuple[int | None, int | None, int | None]:
 
 
 def parse_quality(value: Any) -> CallQuality | None:
-    """The call's `quality` block (docs.thinnest.ai api-reference/webhooks "Call quality",
-    read 11 Oct 2026) in our names, or None when the engine measured nothing. Numbers only:
-    a field that is not a non-negative number is read as not measured."""
+    """The call's `quality` block in our names, or None when the engine measured nothing.
+    Numbers only: a field that is not a non-negative number is read as not measured.
+    `answerMs` (to the first word of the actual answer) and `knowledgeTurns` are
+    VERIFIED-VENDOR-DOCS, `CallQuality` in https://app.thinnest.ai/openapi.json, read 27 Oct
+    2026 (sha256 a79445b6…080a); `answerMs` is null on calls from before that day."""
     if not isinstance(value, dict):
         return None
+    answer = _spread(value.get("answerMs"))
     reply = _spread(value.get("responseMs"))
     first = _spread(value.get("firstTokenMs"))
     silence = value.get("longestSilenceSeconds")
@@ -680,6 +685,9 @@ def parse_quality(value: Any) -> CallQuality | None:
     )
     return CallQuality(
         turns=_whole(value.get("turns")),
+        answer_ms_median=answer[0],
+        answer_ms_p90=answer[1],
+        answer_ms_max=answer[2],
         reply_ms_median=reply[0],
         reply_ms_p90=reply[1],
         reply_ms_max=reply[2],
@@ -691,7 +699,56 @@ def parse_quality(value: Any) -> CallQuality | None:
         interruptions=_whole(value.get("interruptions")),
         model_errors=_whole(value.get("modelErrors")),
         backup_answers=_whole(value.get("rescues")),
+        knowledge_turns=_whole(value.get("knowledgeTurns")),
     )
+
+
+def _step_ms(value: Any) -> int | None:
+    """One timeline moment or step: an integer of milliseconds, which may be negative
+    (`modelAskedMs` with early answers); anything else is a step that did not happen."""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    return int(value)
+
+
+_FIRST_SOUND_KINDS: Final = frozenset({"answer", "filler", "other"})
+
+
+def parse_timeline(value: Any) -> CallTimeline | None:
+    """Get Call Timeline's `timeline` block in our names, or None when the call has none.
+    `CallTimeline`/`CallTimelineTurn`/`CallTimelineSplit` in https://app.thinnest.ai/
+    openapi.json (read 27 Oct 2026, sha256 a79445b6…080a): every time in ms from the moment
+    the caller stopped speaking, null where a step did not happen. A turn without its number
+    is dropped rather than numbered by us."""
+    if not isinstance(value, dict) or not isinstance(value.get("turns"), list):
+        return None
+    turns: list[TurnTiming] = []
+    for row in value["turns"]:
+        number = _whole(row.get("turn")) if isinstance(row, dict) else None
+        if not isinstance(row, dict) or not number:
+            continue
+        raw_split = row.get("split")
+        split: dict[str, Any] = raw_split if isinstance(raw_split, dict) else {}
+        kind = row.get("firstAudioKind")
+        estimated = row.get("answerAudioEstimated")
+        turns.append(
+            TurnTiming(
+                turn=number,
+                caller_stopped_at_ms=_whole(row.get("callerStoppedAtMs")),
+                first_sound_ms=_step_ms(row.get("firstAudioMs")),
+                first_sound_kind=kind if kind in _FIRST_SOUND_KINDS else None,
+                answer_ms=_step_ms(row.get("answerAudioMs")),
+                answer_estimated=estimated is True,
+                wait_before_decision_ms=_step_ms(split.get("waitBeforeDecisionMs")),
+                recogniser_ms=_step_ms(split.get("recogniserMs")),
+                ear_check_ms=_step_ms(split.get("earCheckMs")),
+                model_first_sentence_ms=_step_ms(split.get("modelFirstSentenceMs")),
+                voice_ms=_step_ms(split.get("voiceMs")),
+                model_asked_ms=_step_ms(row.get("modelAskedMs")),
+            )
+        )
+    turns.sort(key=lambda t: t.turn)
+    return CallTimeline(turns=turns)
 
 
 def parse_llm_usage(value: Any) -> CallLlmUsage | None:
@@ -4036,6 +4093,20 @@ class ThinnestEngine:
                 "content_deleted": _content_deleted(payload),
             }
         )
+
+    async def get_call_timeline(self, call_id: str) -> CallTimeline | None:
+        """`GET /calls/{id}/timeline` (Get Call Timeline), in the call's own workspace like
+        every call read (D-693). Recorded on the standard voice pipeline only and not before
+        27 Oct 2026; it holds times and no words, so it outlives the call's content
+        (https://app.thinnest.ai/openapi.json, read 27 Oct 2026)."""
+        raw_call, workspace = self._at(call_id)
+        payload = await self._request(
+            "GET",
+            f"/calls/{quote(raw_call, safe='')}/timeline",
+            route="/calls/{id}/timeline",
+            workspace=workspace,
+        )
+        return parse_timeline(payload.get("timeline"))
 
     def recording_source(self, snapshot: ExecutionSnapshot) -> EngineRecordingSource | None:
         """The authenticated `GET /calls/{id}/recording` for a finished call, or None.

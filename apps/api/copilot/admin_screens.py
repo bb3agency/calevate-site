@@ -131,7 +131,7 @@ ADMIN_SCREENS: Final[tuple[AdminScreen, ...]] = (
         "/admin/ops/reply-times",
         "Voice response time",
         "Platform",
-        "Waits for the agent's first sound, by client, agent, voice and day.",
+        "Waits for an answer, by client, agent, voice, day and turn detection.",
         "ops:manage",
     ),
     AdminScreen(

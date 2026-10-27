@@ -410,9 +410,9 @@ async def delete_call_view(
     summary="Call detail — transcript is REDACTED by default (hard rule 5)",
 )
 async def get_call(
-    call_id: UUID, session: Session, _: Principal = Depends(requires("calls:read"))
+    call_id: UUID, session: Session, principal: Principal = Depends(requires("calls:read"))
 ) -> CallDetailOut:
-    return await service.get_call(session, call_id, raw=False)
+    return await service.get_call(session, call_id, raw=False, operator=principal.impersonating)
 
 
 @router.get(
@@ -438,7 +438,7 @@ async def get_raw_transcript(
         object_id=str(call_id),
         ip=client_request_ip(request),
     )
-    return await service.get_call(session, call_id, raw=True)
+    return await service.get_call(session, call_id, raw=True, operator=principal.impersonating)
 
 
 @router.get(

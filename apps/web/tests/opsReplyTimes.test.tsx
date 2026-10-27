@@ -24,6 +24,7 @@ function routes(over: Routes = {}): Routes {
 function rowOf(table: HTMLElement, text: string): string[] {
   const row = within(table)
     .getAllByRole("row")
+    .filter((candidate) => within(candidate).queryAllByRole("cell").length > 0)
     .find((candidate) => (candidate.textContent ?? "").includes(text));
   expect(row).toBeDefined();
   return within(row as HTMLElement)
@@ -36,12 +37,12 @@ describe("the voice response time report", () => {
     const { container } = renderAdminPage(<ReplyTimesPage />, routes());
 
     await screen.findByRole("table", { name: "Reply times by client" });
-    expect(container.textContent).toContain("3 of 12 measured calls");
+    expect(container.textContent).toContain("3 of 10 calls with an answer time");
     expect(container.textContent).toContain("typical 1,600 ms");
     expect(container.textContent).toContain("slow 2,200 ms");
     // Rounded to whole milliseconds, never recomputed.
-    expect(container.textContent).toContain("812 ms");
-    expect(container.textContent).toContain("1,460 ms");
+    expect(container.textContent).toContain("1,312 ms");
+    expect(container.textContent).toContain("2,460 ms");
   });
 
   it("splits the figures by the settings each call ran on", async () => {
@@ -54,16 +55,41 @@ describe("the voice response time report", () => {
     expect(table.textContent).toContain("Not recorded");
   });
 
-  it("says every wait ends at the agent's first sound, and sets filler calls apart", async () => {
+  it("leads with the wait for an answer and keeps the first sound beside it (D-902)", async () => {
     const { container } = renderAdminPage(<ReplyTimesPage />, routes());
 
     await screen.findByRole("table", { name: "Reply times by client" });
-    expect(container.textContent).toContain("A filler line counts, so this is not the time to the");
-    expect(container.textContent).toContain("Typical wait, no filler found");
-    // The server's figure over calls with no filler found, and how many had one.
-    expect(container.textContent).toContain("1,240 ms");
-    expect(container.textContent).toContain("4 measured calls had a reply open with a filler line");
-    expect(container.textContent).not.toMatch(/Typical reply|Slow reply/);
+    expect(container.textContent).toContain("Typical wait for an answer");
+    expect(container.textContent).toContain("Typical first sound");
+    expect(container.textContent).toContain("812 ms");
+    expect(container.textContent).not.toMatch(/no filler found/i);
+  });
+
+  it("splits each turn's wait by turn detection, overall and per agent", async () => {
+    renderAdminPage(<ReplyTimesPage />, routes());
+
+    const modes = await screen.findByRole("table", { name: "Where the wait goes, by turn detection" });
+    const ear = rowOf(modes, "Ear");
+    expect(ear).toContain("310 ms");
+    expect(ear).toContain("-140 ms");
+    expect(ear.join(" ")).toContain("slow 2,240 ms");
+    // Off Ear there is no Ear check: a dash, never zero.
+    const timer = rowOf(modes, "Silence");
+    expect(timer).toContain("—");
+    expect(timer).not.toContain("0 ms");
+
+    const agents = screen.getByRole("table", { name: "Where the wait goes, by agent and turn detection" });
+    expect(agents.textContent).toContain("Anjali");
+  });
+
+  it("says why no turn was timed rather than showing an empty split", async () => {
+    const { container } = renderAdminPage(
+      <ReplyTimesPage />,
+      routes({ [WINDOW_PATH(7)]: replyTimeReport({ split_by_turn_detection: [], split_by_agent: [] }) }),
+    );
+
+    await screen.findByRole("table", { name: "Reply times by client" });
+    expect(container.textContent).toContain("No turns timed step by step in this window");
   });
 
   it("times the model's first word from the turn reaching the platform", async () => {
@@ -95,12 +121,14 @@ describe("the voice response time report", () => {
   it("says why a window is empty, and which of the two reasons it is", async () => {
     const empty = replyTimeReport({
       empty_reason: "not_reported",
-      overall: figures({ calls: 4, calls_measured: 0, reply_typical_ms: null }),
+      overall: figures({ calls: 4, calls_measured: 0, answer_typical_ms: null }),
       by_client: [],
       by_agent: [],
       by_tier: [],
       by_day: [],
       by_setting: [],
+      split_by_turn_detection: [],
+      split_by_agent: [],
       worst_calls: [],
     });
     const { container } = renderAdminPage(<ReplyTimesPage />, routes({ [WINDOW_PATH(7)]: empty }));
