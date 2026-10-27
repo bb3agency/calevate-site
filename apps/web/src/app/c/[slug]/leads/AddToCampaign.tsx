@@ -11,7 +11,7 @@ import { FIELD_INLINE, FIELD_LABEL, NoticeBox, ProblemNotice, formatCount } from
 import {
   useAddLeadsToCampaign,
   useCampaigns,
-  type AddContactsResult,
+  type AddLeadsResult,
   type CampaignSummary,
 } from "@/lib/api/campaigns";
 import type { Session } from "@/lib/api/client";
@@ -50,7 +50,7 @@ interface AddToCampaignProps {
   onAdded: () => void;
 }
 
-type Added = { campaign: CampaignSummary; added: AddContactsResult };
+type Added = { campaign: CampaignSummary; added: AddLeadsResult };
 
 export function AddToCampaign(props: AddToCampaignProps) {
   // The answer outlives the selection, which the screen clears once leads are added.
@@ -210,7 +210,7 @@ function AddedNotice({
   renderPlan,
 }: {
   campaign: CampaignSummary;
-  added: AddContactsResult;
+  added: AddLeadsResult;
   slug: string;
   href: (path: string) => string;
   onDismiss: () => void;

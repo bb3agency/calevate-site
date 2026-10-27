@@ -123,6 +123,8 @@ TABLE_TOPICS: Final[dict[str, Topic]] = {
     "agent_config_attestations": "agents",
     "agent_handoff_members": "agents",
     "agent_health_windows": "agents",
+    # The agent page's "Knows by heart", re-chosen by a worker the owner did not trigger.
+    "agent_hot_facts": "agents",
     "agent_rule_proposals": "agents",
     "agent_test_cases": "agents",
     "call_test_case_drafts": "agents",
@@ -248,6 +250,10 @@ QUIET_TABLES: Final[dict[str, str]] = {
     "agent_test_copies": (
         "the developer-workspace copy a paid account's test call rides (D-859), republished "
         "before each call; no screen reads it"
+    ),
+    "script_line_changes": (
+        "the undo record of example lines migration d7c2e9a4f6b1 changed; written once by "
+        "that migration and no screen reads it"
     ),
     "announcement_dismissals": "one person's own dismissals; their screen updates on the write",
     "notification_reads": "one person's own read marks; their screen updates on the write",

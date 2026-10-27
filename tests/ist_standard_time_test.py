@@ -143,6 +143,7 @@ def test_the_worker_reads_every_cron_field_as_ist() -> None:
 BORN_IST_SLOTS: dict[str, tuple[int, int, str]] = {
     "cron:sweep_business_copies": (10, 44, "D-827"),
     "cron:expire_credit_lots": (8, 11, "D-840"),
+    "cron:sweep_hot_facts": (4, 31, "D-896"),
 }
 
 

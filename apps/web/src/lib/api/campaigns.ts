@@ -29,6 +29,7 @@ export type LaunchCheck = Schemas["LaunchCheckOut"];
 export type LaunchResult = Schemas["LaunchOut"];
 export type CampaignProgress = Schemas["ProgressOut"];
 export type AddContactsResult = Schemas["AddContactsOut"];
+export type AddLeadsResult = Schemas["AddLeadsOut"];
 
 /**
  * The create-campaign body — the SERVER's model, not a hand-written copy of it.
@@ -588,8 +589,8 @@ export function useAddLeadsToCampaign(session: Session) {
 }
 
 /** The request itself, for a caller that sequences it after creating the draft. */
-export function addLeadsToCampaign(session: Session, chosen: LeadsToCampaign): Promise<AddContactsResult> {
-  return apiRequest<AddContactsResult>(session, `/v1/campaigns/${chosen.campaignId}/contacts/from-leads`, {
+export function addLeadsToCampaign(session: Session, chosen: LeadsToCampaign): Promise<AddLeadsResult> {
+  return apiRequest<AddLeadsResult>(session, `/v1/campaigns/${chosen.campaignId}/contacts/from-leads`, {
     method: "POST",
     body:
       "lens" in chosen
