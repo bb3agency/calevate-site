@@ -120,7 +120,17 @@ _D783_REASON = (
     "its rows under hard rule 8's two-step; closes with the migration that drops the table"
 )
 
+_D894_OPENER_REASON = (
+    "D-894: script_line_changes is the record migration d7c2e9a4f6b1 writes so its downgrade can "
+    "restore the stock Telugu opener on exactly the recorded steps; only that migration reads "
+    "these columns, in alembic/ which this guard does not scan. Closes when the table is dropped "
+    "once that migration can no longer be downgraded"
+)
+
 UNWIRED_BASELINE: dict[str, str] = {
+    "ScriptLineChange.after_text": _D894_OPENER_REASON,
+    "ScriptLineChange.before_text": _D894_OPENER_REASON,
+    "ScriptLineChange.stage_index": _D894_OPENER_REASON,
     # D-783: one reason, one entry per table-specific column.
     "FirstCampaignReview.decided_by_admin_id": _D783_REASON,
     "FirstCampaignReview.decision_note": _D783_REASON,

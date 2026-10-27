@@ -308,6 +308,16 @@ ADMIN_CONSOLE_GETS: dict[str, str] = {
     "/v1/copilot/routines/{routine_id}/runs": (
         "one PERSON'S routine run history (D-694), scoped the same way as the entry above"
     ),
+    "/v1/copilot/plans": (
+        "one PERSON'S assistant plans (D-893), read by `plans.recent_plans` on the "
+        "client user id an impersonating operator does not have — the approvals entry's argument"
+    ),
+    "/v1/copilot/plans/{plan_id}": (
+        "one PERSON'S plan (D-893): `plans.plan_of` refuses a plan whose user is not the caller"
+    ),
+    "/v1/copilot/plans/{plan_id}/targets": (
+        "the targets of one PERSON'S plan (D-893), scoped the same way as the entry above"
+    ),
     "/v1/admin/copilot/actions": (
         "the OPERATOR'S own admin-assistant activity log (D-694) — keyed on the operator "
         "asking, an admin-console surface with no client-realm counterpart"
