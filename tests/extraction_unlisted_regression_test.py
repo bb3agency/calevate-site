@@ -29,6 +29,7 @@ from apps.workers.chat import ChatOutcome, TokenUsage
 from apps.workers.extraction import (
     MODEL_FAILURE,
     ExtractionUnusableError,
+    OfflineExtractor,
     SarvamExtractor,
     _first_json_object,
     build_response_schema,
@@ -334,7 +335,45 @@ async def test_the_reread_script_also_takes_a_provider_failure_and_skips_a_claim
         "UPDATE call_extractions SET reread_at = now() WHERE call_id = :c RETURNING call_id",
         c=call_id,
     )
+    monkeypatch.setattr(extraction_module, "get_extractor", lambda: SarvamExtractor("key"))
 
     claimed = await reread_extractions.run(window=window, cap=10, apply=True, only_tenant=tenant_id)
 
     assert claimed == {"claimed_elsewhere": 1}, "a call another run is reading is not paid twice"
+
+
+async def test_the_reread_script_refuses_without_a_model_and_retakes_an_offline_reading(
+    monkeypatch: pytest.MonkeyPatch, attested: None, _stub_storage: None
+) -> None:
+    from scripts import reread_extractions
+
+    # What a run without the console key left on 27 Oct: an offline "answered" with nothing.
+    offline = ExtractionOutput(valid=False, outcome_tag="answered")
+    tenant_id, call_id = await _filed_empty(monkeypatch, "filed_offline", offline)
+    await _scalar(
+        tenant_id,
+        "UPDATE call_extractions SET model = :m WHERE call_id = :c RETURNING call_id",
+        m=OfflineExtractor.model_name,
+        c=call_id,
+    )
+    window = timedelta(hours=2)
+
+    monkeypatch.setattr(extraction_module, "get_extractor", OfflineExtractor)
+    with pytest.raises(SystemExit, match="REFUSED"):
+        await reread_extractions.run(window=window, cap=10, apply=True, only_tenant=tenant_id)
+
+    found = await reread_extractions.candidates(window=window, cap=10, only_tenant=tenant_id)
+    assert [c.call_id for c in found] == [call_id]
+    _wire(monkeypatch, _Model().complete)
+    monkeypatch.setattr(extraction_module, "get_extractor", lambda: SarvamExtractor("key"))
+    applied = await reread_extractions.run(window=window, cap=10, apply=True, only_tenant=tenant_id)
+
+    assert applied == {"reread": 1}
+    assert (
+        await _scalar(
+            tenant_id,
+            "SELECT data ->> 'preferred_location' FROM call_extractions WHERE call_id = :c",
+            c=call_id,
+        )
+        == "Guntur"
+    )

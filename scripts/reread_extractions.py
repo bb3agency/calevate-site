@@ -36,9 +36,11 @@ from datetime import timedelta
 from typing import Final
 from uuid import UUID
 
+from apps.api.core.platform_config import refresh as refresh_platform_config
 from apps.api.core.queue import close_queue
 from apps.api.db.session import tenant_session
-from apps.workers.extraction import MODEL_FAILURE
+from apps.workers import extraction as extraction_module
+from apps.workers.extraction import MODEL_FAILURE, OfflineExtractor
 from apps.workers.extraction_reread import reread_extraction
 from apps.workers.pipeline import PIPELINE_STALL_AFTER, callable_tenants
 from sqlalchemy import text
@@ -58,6 +60,7 @@ _CANDIDATES_SQL: Final = (
     "AND EXISTS (SELECT 1 FROM transcript_turns t WHERE t.call_id = c.id "
     "  AND t.tenant_id = c.tenant_id AND t.speaker = 'caller' AND btrim(t.text) <> '') "
     "AND ((ce.errors ->> :model_failure) IS NOT NULL "
+    "  OR ce.model = :offline_model "
     "  OR (ce.outcome_hint IS NULL AND (ce.data IS NULL OR ce.data = '{}'::jsonb))) "
     "ORDER BY COALESCE(c.ended_at, c.created_at), ce.call_id LIMIT :cap"
 )
@@ -89,6 +92,7 @@ async def candidates(*, window: timedelta, cap: int, only_tenant: UUID | None) -
                         "window": window,
                         "grace": PIPELINE_STALL_AFTER,
                         "model_failure": MODEL_FAILURE,
+                        "offline_model": OfflineExtractor.model_name,
                         "cap": cap - len(found),
                     },
                 )
@@ -116,6 +120,10 @@ async def run(
     *, window: timedelta, cap: int, apply: bool, only_tenant: UUID | None
 ) -> Counter[str]:
     """Returns the count of each verdict (`candidate` when read only)."""
+    if apply and isinstance(extraction_module.get_extractor(), OfflineExtractor):
+        # The offline runner files an empty "answered" over a real reading, and the call then
+        # looks repaired. The provider key may live only in the console, which `_main` loads.
+        raise SystemExit("REFUSED: no extraction model key is configured in this process.")
     found = await candidates(window=window, cap=cap, only_tenant=only_tenant)
     verdicts: Counter[str] = Counter()
     for candidate in found:
@@ -150,6 +158,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 async def _main(args: argparse.Namespace) -> None:
+    # The console's settings and sealed keys, as the worker's startup adopts them: without
+    # this the extraction key saved only in the console is invisible here.
+    await refresh_platform_config(force=True)
     try:
         await run(
             window=timedelta(hours=args.hours),
