@@ -371,6 +371,55 @@ async def test_waiting_for_hello_is_never_set_for_all_agents() -> None:
     assert "set per agent" in refused.value.reason
 
 
+async def test_the_screen_guide_is_a_confirmed_per_agent_switch() -> None:
+    """D-906: it changes what a live agent says to every caller, so it waits for the click."""
+    assert write_tools.tier_of("agent_settings_set") == "confirm"
+    tenant_id, _slug, token = await _make_tenant()
+    agent_id = await _agent(tenant_id)
+    proposal = await _propose(
+        tenant_id, token, "agent_settings_set", _settings(agent_id, caller_has_screen="on")
+    )
+    assert "guides callers through their screen: on" in proposal.proposed
+    assert "guides callers through their screen: off" in proposal.current
+    unchanged = await _one(
+        tenant_id, "SELECT caller_has_screen FROM agents WHERE id = :a", a=agent_id
+    )
+    assert unchanged[0] is False
+    done = await _confirm(tenant_id, _user_of(token), proposal.token)
+    assert done.applied is True
+    row = await _one(tenant_id, "SELECT caller_has_screen FROM agents WHERE id = :a", a=agent_id)
+    assert row[0] is True
+    args = {**_settings(agent_id, caller_has_screen="off"), "scope": "all_agents"}
+    with pytest.raises(write_tools.WriteRefusedError) as refused:
+        await _propose(tenant_id, token, "agent_settings_set", args)
+    assert "set per agent" in refused.value.reason
+
+
+async def test_a_screen_guided_campaign_has_pip_ask_about_the_switch() -> None:
+    """D-906: a campaign whose calls walk people through an app tells Pip to ask the owner;
+    one that plainly does not, on an agent switched on, tells it to ask about switching off."""
+    tenant_id, _slug, token = await _make_tenant()
+    agent_id = await _agent(tenant_id)
+    guided = await _run(
+        tenant_id,
+        token,
+        "campaign_create",
+        {"name": "Install the app", "agent_id": str(agent_id), "classification": "service"},
+    )
+    assert "switch on the agent's caller_has_screen" in guided.detail
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE agents SET caller_has_screen = true WHERE id = :a"), {"a": agent_id}
+        )
+    plain = await _run(
+        tenant_id,
+        token,
+        "campaign_create",
+        {"name": "Winter recall", "agent_id": str(agent_id), "classification": "service"},
+    )
+    assert "switch caller_has_screen off" in plain.detail
+
+
 # --- agent_handover_set ------------------------------------------------------------------------
 
 
