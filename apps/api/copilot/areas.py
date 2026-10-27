@@ -117,7 +117,11 @@ INTROS: Final[dict[Area, tuple[str, str]]] = {
 #: Every registered tool, by area. APPEND ONLY: the order inside an area is wire order.
 ENTRIES: Final[tuple[AreaEntry, ...]] = (
     # --- reads --------------------------------------------------------------------------
-    AreaEntry("business_snapshot", "reports", "headline numbers over N days; before any figure"),
+    AreaEntry(
+        "business_snapshot",
+        "reports",
+        "counts over every call, by day/week/month or per caller (repeats)/outcome/agent",
+    ),
     AreaEntry(
         "leads_search",
         "leads",
@@ -405,6 +409,11 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
         "people from a pasted or attached list; leads: campaign_add_leads",
     ),
     AreaEntry("campaign_contacts_remove", "campaigns", "take people off before they are called"),
+    # D-893 L7: the person's routines.
+    AreaEntry("routines_list", "routines", "their routines with ids"),
+    AreaEntry("routine_create", "routines", "set up a repeating job"),
+    AreaEntry("routine_edit", "routines", "change, pause (on false) or resume one"),
+    AreaEntry("routine_delete", "routines", "delete one"),
 )
 
 AREA_OF: Final[dict[str, Area]] = {entry.tool: entry.area for entry in ENTRIES}

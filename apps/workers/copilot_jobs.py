@@ -122,6 +122,7 @@ async def run_copilot_job(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
                 tenant_id=tenant_id,
                 role=str(role),
                 unmasked=Unmasked(actor=principal, ip=None),
+                user_id=principal.client_user_id,
             ),
             live=live,
             principal=principal,

@@ -52,14 +52,16 @@ import json
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Any, Final, Literal, get_args
+from datetime import date, datetime
+from typing import Any, Final, Literal, cast, get_args
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import roster
 from apps.api.agents.schemas import AgentOut
+from apps.api.analytics import service as analytics
+from apps.api.analytics.schemas import CallGroupBy, SummaryBucket
 from apps.api.billing.plans import IST
 from apps.api.campaigns import service as campaigns_service
 from apps.api.copilot import lens_args
@@ -138,6 +140,9 @@ class ToolContext:
     #: redacted. It carries who is reading because an unmasked transcript read writes an
     #: audit row naming them.
     unmasked: Unmasked | None = None
+    #: The client-realm person asking (`Principal.client_user_id`), for the reads that are
+    #: one person's own, like routines. None on the admin realm and in tests.
+    user_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -466,6 +471,105 @@ async def _no_calls_in_window(session: AsyncSession, *, days: int) -> str:
     )
 
 
+#: Buckets a summary prints; older ones still count in its totals. A year by day would be
+#: 366 lines re-read on every later turn, and the Performance screen holds the full table.
+MAX_SUMMARY_ROWS: Final = 14
+
+
+def _span(first: date, last: date) -> str:
+    return f"{first:%d %b}" if first == last else f"{first:%d %b} to {last:%d %b}"
+
+
+async def _summary_text(
+    session: AsyncSession, context: ToolContext, *, days: int, bucket: SummaryBucket
+) -> str:
+    """`analytics.service.summary` — the Performance screen's table — as a few lines."""
+    assert context.tenant_id is not None  # `run_read_tool` refuses a tenant tool without one
+    window = analytics.resolve_window(days=max(1, min(days, analytics.MAX_RANGE_DAYS)), to=None)
+    result = await analytics.summary(
+        session,
+        tenant_id=context.tenant_id,
+        window=window,
+        bucket=bucket,
+        agent_id=None,
+        test_calls=False,
+        may_see_spend=context.role is not None and role_has(context.role, "billing:read"),
+    )
+
+    def figures(calls: int, answered: int, leads: int, spent: str | None) -> str:
+        money = "" if spent is None else f", ₹{spent} spent"
+        return f"{calls} calls, {answered} answered, {leads} new leads{money}"
+
+    head = (
+        f"{_span(window.start, window.end)} (IST) by {bucket}, test calls left out: "
+        + figures(result.calls, result.answered, result.leads, result.spent_inr)
+        + "."
+    )
+    if result.spend_withheld == "no_billing_access":
+        head += " Spend is not shown: this person may not see billing."
+    shown = result.rows[-MAX_SUMMARY_ROWS:]
+    lines = [head]
+    if len(result.rows) > len(shown):
+        lines.append(f"Latest {len(shown)} of {len(result.rows)} (the rest: Performance screen).")
+    lines += [
+        f"- {_span(row.from_date, row.to_date)}: "
+        + figures(row.calls, row.answered, row.leads, row.spent_inr)
+        for row in shown
+    ]
+    return _clean("\n".join(lines))
+
+
+#: Groups a grouped answer lists; its counts still cover every call.
+MAX_GROUP_ROWS: Final = 15
+
+
+async def _groups_text(session: AsyncSession, *, days: int, by: CallGroupBy) -> str:
+    """`analytics.service.call_groups` — counts over EVERY call in the window, so "who
+    called more than once" is never answered from a sample of rows. Test calls are left
+    out: they are the owner ringing their own agent."""
+    window = analytics.resolve_window(days=max(1, min(days, analytics.MAX_RANGE_DAYS)), to=None)
+    repeat = by == "caller"
+    result = await analytics.call_groups(
+        session,
+        window=window,
+        by=by,
+        agent_id=None,
+        test_calls=False,
+        min_calls=2 if repeat else 1,
+        limit=MAX_GROUP_ROWS,
+    )
+    head = f"{_span(window.start, window.end)} (IST), test calls left out: {result.calls} calls"
+    if repeat:
+        head += f"; {result.repeat_groups} caller(s) called 2 or more times" + (
+            ", listed below." if result.repeat_groups else ". Nobody called twice."
+        )
+    else:
+        head += f" across {result.groups_total} {by}(s)."
+    lines = [head]
+    for group in result.groups:
+        if by == "caller":
+            who = group.label or "No lead filed"
+            if group.number_tail:
+                who += f" (number ending {group.number_tail})"
+        elif by == "outcome":
+            who = group.key or "no outcome recorded"
+        else:
+            who = group.label or "an agent since removed"
+        latest = (
+            f", latest {group.latest_at.astimezone(IST):%d %b %H:%M}" if group.latest_at else ""
+        )
+        ended = (
+            f", last ended: {group.latest_outcome}"
+            if by != "outcome" and group.latest_outcome
+            else ""
+        )
+        lines.append(f"- {who}: {group.calls} calls, {group.answered} answered{latest}{ended}")
+    shown_total = result.repeat_groups if repeat else result.groups_total
+    if shown_total > len(result.groups):
+        lines.append(f"{shown_total - len(result.groups)} more on the Performance screen.")
+    return _clean("\n".join(lines))
+
+
 async def _business_snapshot(
     session: AsyncSession, context: ToolContext, args: Mapping[str, Any]
 ) -> str:
@@ -477,8 +581,6 @@ async def _business_snapshot(
     what a question about "when are we busy" or "how are calls going" is actually answered
     from; the screen is where the whole histogram lives.
     """
-    # Tenancy is the RLS session this was handed, not an argument — see `_Executor`.
-    del context
     # NOT `_cap`: that bounds a ROW count at `MAX_ROWS`, and 25 is the wrong ceiling for a
     # window in days. `performance` already clamps its own argument to 1..365 — the schema
     # cannot, since `minimum`/`maximum` are outside the strict subset — so all this has to
@@ -489,6 +591,11 @@ async def _business_snapshot(
         if isinstance(raw_days, int | float) and not isinstance(raw_days, bool)
         else 30
     )
+    by = args.get("by")
+    if by in get_args(CallGroupBy):
+        return await _groups_text(session, days=days, by=cast(CallGroupBy, by))
+    if by in get_args(SummaryBucket):
+        return await _summary_text(session, context, days=days, bucket=cast(SummaryBucket, by))
     result = await performance(session, days=days)
     funnel = result["funnel"]
     if funnel["calls"] == 0:
@@ -1306,20 +1413,26 @@ READ_TOOLS: Final[tuple[ReadTool, ...]] = (
     ReadTool(
         name="business_snapshot",
         description=(
-            "Headline numbers for this account over the last N days: how many calls, how "
-            "many connected, how many leads qualified, inbound vs outbound, average call "
-            "length, the commonest call outcomes and the busiest hours in IST. Call this "
-            "before quoting any number about how the business is doing."
+            "Counts over every call in the last N days (null 30). No `by`: calls, connected, "
+            "qualified, direction, length, outcomes, busy IST hours. `by` day/week/month: "
+            "calls, leads, spend each; caller (repeats), outcome, agent: calls each. Use "
+            "before any figure."
         ),
         parameters={
             "type": "object",
             "properties": {
-                "days": {
-                    "anyOf": [{"type": "integer"}, {"type": "null"}],
-                    "description": "How many days back to look. Null means 30.",
-                }
+                "days": {"anyOf": [{"type": "integer"}, {"type": "null"}]},
+                "by": {
+                    "anyOf": [
+                        {
+                            "type": "string",
+                            "enum": [*get_args(SummaryBucket), *get_args(CallGroupBy)],
+                        },
+                        {"type": "null"},
+                    ],
+                },
             },
-            "required": ["days"],
+            "required": ["days", "by"],
             "additionalProperties": False,
         },
         permission="calls:read",

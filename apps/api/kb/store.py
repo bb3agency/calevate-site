@@ -22,7 +22,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Final, Literal
+from typing import Final, Literal, cast
 from uuid import UUID
 
 from sqlalchemy import text
@@ -181,19 +181,43 @@ async def _uploads(session: AsyncSession) -> list[StoreItem]:
 
 #: The newest version of every typed note that is not history. A typed note is a `text`
 #: source with no upload behind it; the taught facts' own source is listed fact by fact.
+#: The newest version of each typed note, one row per name. A note whose newest version is
+#: archived and not live was removed (`remove_note`); it stays listed so it can be put back.
 _NOTES_SQL = """
-SELECT DISTINCT ON (s.name) s.id, s.name, s.status, s.is_active, s.updated_at, s.version
+SELECT DISTINCT ON (s.name) s.id, s.name, s.status, s.is_active, s.updated_at, s.version,
+       (SELECT count(*) FROM kb_documents d WHERE d.source_id = s.id) AS chunks,
+       EXISTS (SELECT 1 FROM kb_sources a WHERE a.tenant_id = s.tenant_id AND a.name = s.name
+               AND a.approved_at IS NOT NULL) AS restorable
 FROM kb_sources s
 WHERE s.kind = 'text' AND s.name <> :facts
   AND NOT EXISTS (SELECT 1 FROM kb_uploads u WHERE u.source_id = s.id)
+  AND (CAST(:only AS uuid) IS NULL OR s.name = (SELECT n.name FROM kb_sources n WHERE n.id = :only))
 ORDER BY s.name, s.version DESC
 LIMIT 200
 """
 
+NoteState = Literal["in_use", "in_review", "needs_attention", "getting_ready", "removed"]
 
-def _note_state(status: str, is_active: bool) -> ItemState:
+
+@dataclass(frozen=True, slots=True)
+class Note:
+    """One typed note as the page lists it: its newest version."""
+
+    id: UUID
+    name: str
+    state: NoteState
+    version: int
+    chunks: int
+    changed_at: datetime
+    #: A removed note with an approved version can be put back (`restore_note`).
+    restorable: bool
+
+
+def _note_state(status: str, is_active: bool) -> NoteState:
     if is_active:
         return "in_use"
+    if status == "archived":
+        return "removed"
     if status == "rejected":
         return "needs_attention"
     if status == "pending_approval":
@@ -201,21 +225,48 @@ def _note_state(status: str, is_active: bool) -> ItemState:
     return "getting_ready"
 
 
+async def list_notes(session: AsyncSession, *, only: UUID | None = None) -> list[Note]:
+    """Every typed note, newest change first, removed ones included; `only` narrows to the
+    note any version id belongs to. The taught facts' own source is not a note."""
+    rows = (
+        await session.execute(text(_NOTES_SQL), {"facts": FACTS_SOURCE_NAME, "only": only})
+    ).all()
+    notes = [
+        Note(
+            id=UUID(str(r.id)),
+            name=str(r.name),
+            state=_note_state(str(r.status), bool(r.is_active)),
+            version=int(r.version),
+            chunks=int(r.chunks),
+            changed_at=r.updated_at,
+            restorable=bool(r.restorable),
+        )
+        for r in rows
+    ]
+    notes.sort(key=lambda note: note.changed_at, reverse=True)
+    return notes
+
+
+async def read_note(session: AsyncSession, source_id: UUID) -> Note:
+    found = await list_notes(session, only=source_id)
+    if not found:
+        raise ProblemError.not_found("Knowledge note")
+    return found[0]
+
+
 async def _notes(session: AsyncSession) -> list[StoreItem]:
-    rows = (await session.execute(text(_NOTES_SQL), {"facts": FACTS_SOURCE_NAME})).all()
     items: list[StoreItem] = []
-    for source_id, name, status, is_active, updated_at, _version in rows:
-        if status == "archived" and not is_active:
-            continue  # removed: its versions are kept for a restore, but it is not listed
-        state = _note_state(str(status), bool(is_active))
+    for note in await list_notes(session):
+        if note.state == "removed":
+            continue  # its versions are kept for a restore, but it is not knowledge
         items.append(
             StoreItem(
-                ref=item_ref("note", source_id),
+                ref=item_ref("note", note.id),
                 kind="note",
-                name=str(name),
-                state=state,
-                agents_use=state == "in_use",
-                changed_at=updated_at,
+                name=note.name,
+                state=cast(ItemState, note.state),
+                agents_use=note.state == "in_use",
+                changed_at=note.changed_at,
             )
         )
     return items
@@ -421,7 +472,9 @@ async def _note_text(session: AsyncSession, source_id: UUID, page: int) -> ItemT
     ).first()
     if row is None:
         raise ProblemError.not_found("Knowledge note")
-    state = _note_state(str(row[2]), bool(row[3]))
+    found = _note_state(str(row[2]), bool(row[3]))
+    # `ItemState` has no "removed": a removed version opened by its ref reads as not live.
+    state: ItemState = "getting_ready" if found == "removed" else found
     shown_page, pages, sections = _paged(await _chunks(session, source_id), page)
     return ItemText(
         ref=item_ref("note", source_id),
@@ -826,13 +879,17 @@ __all__ = [
     "ItemKind",
     "ItemState",
     "ItemText",
+    "Note",
+    "NoteState",
     "StoreHit",
     "StoreItem",
     "all_items",
     "find_items",
     "item_ref",
+    "list_notes",
     "parse_ref",
     "read_item",
+    "read_note",
     "read_upload_text",
     "remove_note",
     "rename_source",

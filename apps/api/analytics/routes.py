@@ -17,19 +17,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.analytics import service
 from apps.api.analytics.schemas import (
+    CallGroupBy,
+    CallGroupsOut,
     CampaignTimelinesOut,
     DurationGroupBy,
     DurationsOut,
     HeatmapMetric,
     HeatmapOut,
     StatsOut,
+    SummaryBucket,
+    SummaryOut,
     TimelineOut,
 )
 from apps.api.core.auth import requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
-from apps.api.core.rbac import permission_meta
+from apps.api.core.rbac import permission_meta, role_has
 
 router = APIRouter(prefix="/v1/analytics", tags=["analytics"])
 
@@ -167,6 +171,73 @@ async def get_stats(
 ) -> StatsOut:
     window = service.resolve_window(days=days, to=to)
     return await service.stats(session, window=window, agent_id=agent_id, test_calls=test_calls)
+
+
+@router.get(
+    "/call-groups",
+    response_model=CallGroupsOut,
+    openapi_extra=permission_meta("calls:read"),
+    summary="Every call in a range counted per caller, outcome or agent, most calls first",
+    description=(
+        "`min_calls=2` with `by=caller` lists repeat callers. The totals count every call; "
+        "only `groups` is cut to `limit`. A caller is shown by lead and the number's last "
+        "two digits, never the number."
+    ),
+)
+async def get_call_groups(
+    session: Session,
+    _: Reader,
+    by: Annotated[CallGroupBy, Query(description="caller, outcome or agent")] = "caller",
+    days: Days = 7,
+    to: To = None,
+    agent_id: AgentFilter = None,
+    test_calls: TestCalls = False,
+    min_calls: Annotated[int, Query(ge=1, le=100)] = 1,
+    limit: Annotated[int, Query(ge=1, le=service.MAX_CALL_GROUPS)] = 25,
+) -> CallGroupsOut:
+    window = service.resolve_window(days=days, to=to)
+    return await service.call_groups(
+        session,
+        window=window,
+        by=by,
+        agent_id=agent_id,
+        test_calls=test_calls,
+        min_calls=min_calls,
+        limit=limit,
+    )
+
+
+@router.get(
+    "/summary",
+    response_model=SummaryOut,
+    openapi_extra=permission_meta("calls:read"),
+    summary="Calls, answered calls, new leads and spend per IST day, week or month",
+    description=(
+        "Weeks start on Monday; the first and last bucket are cut to the range. Spend is "
+        "what left the wallet and is null with `spend_withheld` when the reader does not "
+        "hold `billing:read` or one agent is picked."
+    ),
+)
+async def get_summary(
+    session: Session,
+    principal: Reader,
+    days: Days = 30,
+    to: To = None,
+    bucket: Annotated[SummaryBucket, Query(description="day, week or month")] = "week",
+    agent_id: AgentFilter = None,
+    test_calls: TestCalls = True,
+) -> SummaryOut:
+    assert principal.tenant_id is not None
+    window = service.resolve_window(days=days, to=to)
+    return await service.summary(
+        session,
+        tenant_id=principal.tenant_id,
+        window=window,
+        bucket=bucket,
+        agent_id=agent_id,
+        test_calls=test_calls,
+        may_see_spend=principal.role is not None and role_has(principal.role, "billing:read"),
+    )
 
 
 __all__ = ["router"]

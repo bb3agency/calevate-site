@@ -41,6 +41,7 @@ import { asText } from "@/lib/copilot/types";
 
 import { istDayLabel, statItems } from "../analyticsFigures";
 import { chartError } from "../ChartRetry";
+import { CallGroupsTable, PeriodTable } from "./Breakdowns";
 import {
   DURATIONS_NOTE,
   FUNNEL_NOTE,
@@ -235,6 +236,10 @@ export function PerformanceScreen() {
           empty="No calls in this stretch yet."
         />
       </Section>
+
+      <PeriodTable range={window} />
+
+      <CallGroupsTable range={window} />
 
       <div className="grid grid-cols-1 items-start gap-10 lg:grid-cols-12 lg:gap-12">
         <Section title="From calls to customers" info={FUNNEL_NOTE} className="lg:col-span-7">

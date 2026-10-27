@@ -132,6 +132,7 @@ from apps.api.copilot.console_actions import CONSOLE_ACTIONS
 from apps.api.copilot.fact_actions import FACT_ACTIONS
 from apps.api.copilot.knowledge_actions import KNOWLEDGE_ACTIONS
 from apps.api.copilot.question_actions import TRAINING_ACTIONS
+from apps.api.copilot.routine_actions import ROUTINE_ACTIONS
 from apps.api.copilot.sanitize import strip_invisible
 from apps.api.copilot.schemas import (
     CopilotActionEvent,
@@ -957,6 +958,8 @@ WRITE_TOOLS: Final[tuple[ActionTool, ...]] = (
     *CALL_ACTIONS,
     # D-893 lane L3: the campaign screen's remaining buttons.
     *CAMPAIGN_ACTIONS,
+    # D-893 lane L7: the person's routines.
+    *ROUTINE_ACTIONS,
 )
 
 _BY_NAME: Final[dict[str, WriteTool]] = {tool.name: tool for tool in WRITE_TOOLS}

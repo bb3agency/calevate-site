@@ -1,10 +1,11 @@
 """Wire models for `/v1/analytics/*` (D-869). Every model is `extra="forbid"`: the response
-model is the output whitelist, and nothing here carries a phone number, a name a caller
-gave or a word of a transcript — only counts, seconds and our own ids."""
+model is the output whitelist, and nothing here carries a phone number or a word of a
+transcript — only counts, seconds, money, our own ids, and the names on the account's own
+lead and agent records (the Leads and Agents screens show the same names)."""
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
 from uuid import UUID
@@ -146,7 +147,77 @@ class StatsOut(Strict):
     metrics: list[StatsMetricOut]
 
 
+SummaryBucket = Literal["day", "week", "month"]
+#: Why a summary carries no spend: the reader may not see billing, or one agent was picked
+#: and the wallet is debited per account, not per agent and day (`billing/history.py`).
+SpendWithheld = Literal["no_billing_access", "one_agent"]
+
+
+class SummaryRowOut(Strict):
+    """One IST day, Monday-first IST week or IST calendar month, cut to the range."""
+
+    from_date: date
+    to_date: date
+    calls: int
+    answered: int
+    leads: int
+    #: What left the wallet on these days, a rupee string (hard rule 7); None when withheld.
+    spent_inr: str | None
+
+
+class SummaryOut(Strict):
+    """Calls, answered calls, new leads and spend per bucket, oldest first, zero-filled.
+    Each column of `rows` sums exactly to the total of the same name."""
+
+    window: RangeOut
+    bucket: SummaryBucket
+    rows: list[SummaryRowOut]
+    calls: int
+    answered: int
+    leads: int
+    spent_inr: str | None
+    spend_withheld: SpendWithheld | None
+
+
+CallGroupBy = Literal["caller", "outcome", "agent"]
+
+
+class CallGroupOut(Strict):
+    """One caller, outcome or agent and its calls in the range. A caller is its lead, or
+    the number when no lead was filed; the number itself is never sent, only its last two
+    digits (`number_tail`)."""
+
+    #: The lead id, `number` (a caller with no lead), the outcome tag or the agent id.
+    key: str
+    #: The lead's name, the agent's name, or None.
+    label: str | None
+    lead_id: UUID | None
+    number_tail: str | None
+    calls: int
+    answered: int
+    latest_at: datetime | None
+    latest_outcome: str | None
+
+
+class CallGroupsOut(Strict):
+    """Every call in the range grouped, most calls first. `groups` holds at most `limit`
+    rows; `groups_total` and `repeat_groups` count all of them, so a question about how
+    many is never answered from the page."""
+
+    window: RangeOut
+    by: CallGroupBy
+    calls: int
+    groups_total: int
+    #: Groups with two or more calls: repeat callers when `by` is `caller`.
+    repeat_groups: int
+    min_calls: int
+    groups: list[CallGroupOut]
+
+
 __all__ = [
+    "CallGroupBy",
+    "CallGroupOut",
+    "CallGroupsOut",
     "CampaignDayOut",
     "CampaignSeriesOut",
     "CampaignTimelinesOut",
@@ -158,8 +229,12 @@ __all__ = [
     "HeatmapOut",
     "MetricKey",
     "RangeOut",
+    "SpendWithheld",
     "StatsMetricOut",
     "StatsOut",
+    "SummaryBucket",
+    "SummaryOut",
+    "SummaryRowOut",
     "TimelineDayOut",
     "TimelineOut",
 ]

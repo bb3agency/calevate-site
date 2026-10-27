@@ -1728,7 +1728,7 @@ async def test_an_area_lookup_runs_the_read_tool_it_names_and_replays_the_area_c
     events = await _drain_with_tools()
 
     assert [(call["name"], json.loads(call["arguments"])) for call in seen] == [
-        ("business_snapshot", {"days": 7})
+        ("business_snapshot", {"days": 7, "by": None})
     ], "the repeat of the same area call is not run twice"
     replayed = sent[1][-2]["tool_calls"][0]["function"]
     assert replayed == {"name": "reports_find", "arguments": wire}

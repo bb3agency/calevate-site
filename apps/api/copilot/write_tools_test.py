@@ -301,6 +301,10 @@ def test_the_tool_schemas_are_the_same_bytes_for_every_caller() -> None:
         "campaign_delete",
         "campaign_contacts_add",
         "campaign_contacts_remove",
+        # D-893 lane L7: routines APPEND.
+        "routine_create",
+        "routine_edit",
+        "routine_delete",
     ]
     for schema in write_tools.write_tool_schemas():
         function = schema["function"]

@@ -231,6 +231,9 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
             "`kb.uploads.MAX_UPLOADS_PAGE` in theirs."
         )
     ),
+    "GET /v1/kb/notes": BoundedByConstruction(
+        by="one row per note name, `LIMIT 200` in `kb.store._NOTES_SQL`."
+    ),
     "GET /v1/kb/uploads/{upload_id}/text": BoundedByConstruction(
         by=(
             "one reading page: one PDF page or `kb.store.CHUNKS_PER_PART` chunks "

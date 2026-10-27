@@ -8127,6 +8127,145 @@
         "title": "CallFollowUpOut",
         "type": "object"
       },
+      "CallGroupOut": {
+        "additionalProperties": false,
+        "description": "One caller, outcome or agent and its calls in the range. A caller is its lead, or\nthe number when no lead was filed; the number itself is never sent, only its last two\ndigits (`number_tail`).",
+        "properties": {
+          "answered": {
+            "title": "Answered",
+            "type": "integer"
+          },
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "latest_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest At"
+          },
+          "latest_outcome": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Outcome"
+          },
+          "lead_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lead Id"
+          },
+          "number_tail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Number Tail"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "lead_id",
+          "number_tail",
+          "calls",
+          "answered",
+          "latest_at",
+          "latest_outcome"
+        ],
+        "title": "CallGroupOut",
+        "type": "object"
+      },
+      "CallGroupsOut": {
+        "additionalProperties": false,
+        "description": "Every call in the range grouped, most calls first. `groups` holds at most `limit`\nrows; `groups_total` and `repeat_groups` count all of them, so a question about how\nmany is never answered from the page.",
+        "properties": {
+          "by": {
+            "enum": [
+              "caller",
+              "outcome",
+              "agent"
+            ],
+            "title": "By",
+            "type": "string"
+          },
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/CallGroupOut"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "groups_total": {
+            "title": "Groups Total",
+            "type": "integer"
+          },
+          "min_calls": {
+            "title": "Min Calls",
+            "type": "integer"
+          },
+          "repeat_groups": {
+            "title": "Repeat Groups",
+            "type": "integer"
+          },
+          "window": {
+            "$ref": "#/components/schemas/RangeOut"
+          }
+        },
+        "required": [
+          "window",
+          "by",
+          "calls",
+          "groups_total",
+          "repeat_groups",
+          "min_calls",
+          "groups"
+        ],
+        "title": "CallGroupsOut",
+        "type": "object"
+      },
       "CallHandlingBoundsOut": {
         "additionalProperties": false,
         "description": "What may be chosen and what Calevate's own defaults are.",
@@ -31851,6 +31990,76 @@
         "title": "NewStatusPostIn",
         "type": "object"
       },
+      "NoteOut": {
+        "additionalProperties": false,
+        "properties": {
+          "changed_at": {
+            "format": "date-time",
+            "title": "Changed At",
+            "type": "string"
+          },
+          "chunks": {
+            "title": "Chunks",
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "restorable": {
+            "title": "Restorable",
+            "type": "boolean"
+          },
+          "state": {
+            "enum": [
+              "in_use",
+              "in_review",
+              "needs_attention",
+              "getting_ready",
+              "removed"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "state",
+          "version",
+          "chunks",
+          "changed_at",
+          "restorable"
+        ],
+        "title": "NoteOut",
+        "type": "object"
+      },
+      "NotesOut": {
+        "additionalProperties": false,
+        "properties": {
+          "notes": {
+            "items": {
+              "$ref": "#/components/schemas/NoteOut"
+            },
+            "title": "Notes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "notes"
+        ],
+        "title": "NotesOut",
+        "type": "object"
+      },
       "NotificationFeedOut": {
         "additionalProperties": false,
         "properties": {
@@ -44949,6 +45158,130 @@
           "status"
         ],
         "title": "SubmitOut",
+        "type": "object"
+      },
+      "SummaryOut": {
+        "additionalProperties": false,
+        "description": "Calls, answered calls, new leads and spend per bucket, oldest first, zero-filled.\nEach column of `rows` sums exactly to the total of the same name.",
+        "properties": {
+          "answered": {
+            "title": "Answered",
+            "type": "integer"
+          },
+          "bucket": {
+            "enum": [
+              "day",
+              "week",
+              "month"
+            ],
+            "title": "Bucket",
+            "type": "string"
+          },
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "leads": {
+            "title": "Leads",
+            "type": "integer"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/SummaryRowOut"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "spend_withheld": {
+            "anyOf": [
+              {
+                "enum": [
+                  "no_billing_access",
+                  "one_agent"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spend Withheld"
+          },
+          "spent_inr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spent Inr"
+          },
+          "window": {
+            "$ref": "#/components/schemas/RangeOut"
+          }
+        },
+        "required": [
+          "window",
+          "bucket",
+          "rows",
+          "calls",
+          "answered",
+          "leads",
+          "spent_inr",
+          "spend_withheld"
+        ],
+        "title": "SummaryOut",
+        "type": "object"
+      },
+      "SummaryRowOut": {
+        "additionalProperties": false,
+        "description": "One IST day, Monday-first IST week or IST calendar month, cut to the range.",
+        "properties": {
+          "answered": {
+            "title": "Answered",
+            "type": "integer"
+          },
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "from_date": {
+            "format": "date",
+            "title": "From Date",
+            "type": "string"
+          },
+          "leads": {
+            "title": "Leads",
+            "type": "integer"
+          },
+          "spent_inr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spent Inr"
+          },
+          "to_date": {
+            "format": "date",
+            "title": "To Date",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from_date",
+          "to_date",
+          "calls",
+          "answered",
+          "leads",
+          "spent_inr"
+        ],
+        "title": "SummaryRowOut",
         "type": "object"
       },
       "TeachItemIO": {
@@ -67231,6 +67564,142 @@
         "x-calevate-permission": "org:manage"
       }
     },
+    "/v1/analytics/call-groups": {
+      "get": {
+        "description": "`min_calls=2` with `by=caller` lists repeat callers. The totals count every call; only `groups` is cut to `limit`. A caller is shown by lead and the number's last two digits, never the number.",
+        "operationId": "get_call_groups_v1_analytics_call_groups_get",
+        "parameters": [
+          {
+            "description": "caller, outcome or agent",
+            "in": "query",
+            "name": "by",
+            "required": false,
+            "schema": {
+              "default": "caller",
+              "description": "caller, outcome or agent",
+              "enum": [
+                "caller",
+                "outcome",
+                "agent"
+              ],
+              "title": "By",
+              "type": "string"
+            }
+          },
+          {
+            "description": "How many IST calendar days, 1-366, ending on `to`.",
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 7,
+              "description": "How many IST calendar days, 1-366, ending on `to`.",
+              "maximum": 366,
+              "minimum": 1,
+              "title": "Days",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The last IST day of the range (YYYY-MM-DD). Today when left out.",
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The last IST day of the range (YYYY-MM-DD). Today when left out.",
+              "title": "To"
+            }
+          },
+          {
+            "description": "Only this agent's calls and leads.",
+            "in": "query",
+            "name": "agent_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only this agent's calls and leads.",
+              "title": "Agent Id"
+            }
+          },
+          {
+            "description": "False leaves out the owner's own test calls (D-697, D-859).",
+            "in": "query",
+            "name": "test_calls",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "False leaves out the owner's own test calls (D-697, D-859).",
+              "title": "Test Calls",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "min_calls",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Min Calls",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallGroupsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Every call in a range counted per caller, outcome or agent, most calls first",
+        "tags": [
+          "analytics"
+        ],
+        "x-calevate-permission": "calls:read"
+      }
+    },
     "/v1/analytics/campaigns": {
       "get": {
         "operationId": "get_campaign_timelines_v1_analytics_campaigns_get",
@@ -67653,6 +68122,118 @@
           }
         },
         "summary": "The stats band for a range, each figure beside the same length of time before",
+        "tags": [
+          "analytics"
+        ],
+        "x-calevate-permission": "calls:read"
+      }
+    },
+    "/v1/analytics/summary": {
+      "get": {
+        "description": "Weeks start on Monday; the first and last bucket are cut to the range. Spend is what left the wallet and is null with `spend_withheld` when the reader does not hold `billing:read` or one agent is picked.",
+        "operationId": "get_summary_v1_analytics_summary_get",
+        "parameters": [
+          {
+            "description": "How many IST calendar days, 1-366, ending on `to`.",
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "description": "How many IST calendar days, 1-366, ending on `to`.",
+              "maximum": 366,
+              "minimum": 1,
+              "title": "Days",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The last IST day of the range (YYYY-MM-DD). Today when left out.",
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The last IST day of the range (YYYY-MM-DD). Today when left out.",
+              "title": "To"
+            }
+          },
+          {
+            "description": "day, week or month",
+            "in": "query",
+            "name": "bucket",
+            "required": false,
+            "schema": {
+              "default": "week",
+              "description": "day, week or month",
+              "enum": [
+                "day",
+                "week",
+                "month"
+              ],
+              "title": "Bucket",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only this agent's calls and leads.",
+            "in": "query",
+            "name": "agent_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only this agent's calls and leads.",
+              "title": "Agent Id"
+            }
+          },
+          {
+            "description": "False leaves out the owner's own test calls (D-697, D-859).",
+            "in": "query",
+            "name": "test_calls",
+            "required": false,
+            "schema": {
+              "default": true,
+              "description": "False leaves out the owner's own test calls (D-697, D-859).",
+              "title": "Test Calls",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SummaryOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Calls, answered calls, new leads and spend per IST day, week or month",
         "tags": [
           "analytics"
         ],
@@ -77745,6 +78326,165 @@
           }
         },
         "summary": "Add a web page as knowledge",
+        "tags": [
+          "knowledge-base"
+        ],
+        "x-calevate-permission": "kb:write"
+      }
+    },
+    "/v1/kb/notes": {
+      "get": {
+        "operationId": "list_notes_v1_kb_notes_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Typed notes, newest change first, removed ones included so they can be put back",
+        "tags": [
+          "knowledge-base"
+        ],
+        "x-calevate-permission": "agents:read"
+      }
+    },
+    "/v1/kb/notes/{note_id}": {
+      "patch": {
+        "description": "Every version is renamed, so its history stays one item.",
+        "operationId": "rename_note_v1_kb_notes__note_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "note_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Note Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenameIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoteOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Rename a typed note",
+        "tags": [
+          "knowledge-base"
+        ],
+        "x-calevate-permission": "kb:write"
+      }
+    },
+    "/v1/kb/notes/{note_id}/remove": {
+      "post": {
+        "operationId": "remove_note_v1_kb_notes__note_id__remove_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "note_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Note Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoteOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Take a typed note off every agent, keeping its versions so it can be put back",
+        "tags": [
+          "knowledge-base"
+        ],
+        "x-calevate-permission": "kb:write"
+      }
+    },
+    "/v1/kb/notes/{note_id}/restore": {
+      "post": {
+        "operationId": "restore_note_v1_kb_notes__note_id__restore_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "note_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Note Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoteOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Put a removed note back on every agent, as it last was",
         "tags": [
           "knowledge-base"
         ],

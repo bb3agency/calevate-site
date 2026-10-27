@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import KnowledgePage from "@/app/c/[slug]/knowledge/page";
 import type { Me } from "@/lib/api/client";
-import type { KbSource } from "@/lib/api/kb";
+import type { KbNote } from "@/lib/api/kb";
 import { useAssistantRequests, type AssistantRequest } from "@/lib/copilot/launcher";
 
 import {
@@ -93,19 +93,21 @@ const AGENTS = [
   { id: "0192f0aa-5555-7000-8000-000000000002", name: "Outbound reminders", status: "live" },
 ];
 
-/** A source as the API sends it since D-689: knowledge is the business's, so no agent. */
-type SourceWire = KbSource;
+/**
+ * A typed note as `GET /v1/kb/notes` sends it (D-893 L7): one row per note, its newest
+ * version, with the state the server derived from that version's status and publish.
+ */
+type SourceWire = KbNote;
 
 function source(over: Partial<SourceWire> = {}): SourceWire {
   return {
     id: SOURCE_ID,
     name: "Opening hours",
-    kind: "text",
-    status: "pending_approval",
+    state: "in_review",
     version: 3,
     chunks: 4,
-    is_active: false,
-    published_at: null,
+    changed_at: "2026-07-20T06:00:00Z",
+    restorable: false,
     ...over,
   };
 }
@@ -139,7 +141,7 @@ async function renderKnowledge(
     // Two agents, so a picker or a per-row agent name — both gone with D-689 — would
     // have something to render if either came back.
     "/v1/agents": AGENTS,
-    "/v1/kb/sources": sources,
+    "/v1/kb/notes": Array.isArray(sources) ? { notes: sources } : sources,
     "/v1/kb/staff-curation": STAFF_CURATION,
     "/v1/kb/knows": { facts: [], facts_state: "none", items: [], pinned_not_yet_on: [] },
     "/v1/teach/questions": { items: [], open_count: 0 },
@@ -162,9 +164,7 @@ describe("the approval gate as the client sees it", () => {
     // THE case this file exists for. The reviewer has said yes; the publish has not
     // run. The agent is still answering with the previous version, and the client must
     // not be told otherwise.
-    const { container } = await renderKnowledge([
-      source({ status: "approved", is_active: false, published_at: null }),
-    ]);
+    const { container } = await renderKnowledge([source({ state: "getting_ready" })]);
 
     await screen.findByText("Opening hours");
     expect(container.textContent).toContain("Approved, not in use yet");
@@ -176,9 +176,7 @@ describe("the approval gate as the client sees it", () => {
     // Approval is an admin action (D-22) and `lib/api/kb.ts` deliberately has no
     // mutation for it. A button here would 403, and — worse — would suggest a client
     // can wave their own text through the gate.
-    const { container } = await renderKnowledge([
-      source({ status: "pending_approval" }),
-    ]);
+    const { container } = await renderKnowledge([source({ state: "in_review" })]);
 
     await screen.findByText("Opening hours");
     expect(container.textContent).toContain("In review");
@@ -187,16 +185,10 @@ describe("the approval gate as the client sees it", () => {
     expect(container.textContent).not.toContain("In use");
   });
 
-  it("calls a live source live, and lets its stale status go", async () => {
-    // `is_active` wins. A published source carrying an older status string must not be
-    // shown as anything but live, or the client resubmits what the agent already says.
-    const { container } = await renderKnowledge([
-      source({
-        status: "approved",
-        is_active: true,
-        published_at: "2026-07-20T06:00:00Z",
-      }),
-    ]);
+  it("calls a live source live", async () => {
+    // The server decides `in_use` from the publish (`kb/store._note_state`, `is_active`
+    // first), so a published note carrying an older status string reads as live.
+    const { container } = await renderKnowledge([source({ state: "in_use" })]);
 
     await screen.findByText("Opening hours");
     expectTextCount(container, "In use", 1);
@@ -205,48 +197,31 @@ describe("the approval gate as the client sees it", () => {
   });
 
   it("tells a client their submission was refused, in words and not in silence", async () => {
-    const { container } = await renderKnowledge([
-      source({ status: "rejected" }),
-    ]);
+    const { container } = await renderKnowledge([source({ state: "needs_attention" })]);
 
     await screen.findByText("Opening hours");
     expect(container.textContent).toContain("Not accepted");
     expect(container.textContent).not.toContain("In use");
   });
 
-  it("does not let a superseded version read as the one in force", async () => {
-    // Two rows, one topic, and the difference between them is the whole gate. A client
-    // reading "Live" beside v3 would think their new text is what callers hear.
+  it("lists a removed note apart, to be put back, and never as in use", async () => {
     const { container } = await renderKnowledge([
-      source({
-        id: "old",
-        name: "Opening hours",
-        version: 2,
-        status: "archived",
-        is_active: true,
-      }),
-      source({
-        id: "new",
-        name: "Opening hours",
-        version: 3,
-        status: "pending_approval",
-      }),
+      source({ state: "removed", restorable: true }),
     ]);
 
-    await screen.findByText("v3");
-    // Exactly one row is live, and exactly one is queued behind the gate.
-    expectTextCount(container, "In use", 1);
-    expectTextCount(container, "In review", 1);
-    expect(container.textContent).not.toContain("Replaced by a newer version");
+    await screen.findByText("Removed notes");
+    expect(container.textContent).not.toContain("In use");
+    expect(screen.getByRole("button", { name: /put back/i })).toBeTruthy();
   });
 
-  it("fails VISIBLE on a status this build cannot name", async () => {
-    // `SourceOut.status` is plain `string` on the wire. A state we have no copy for is
-    // shown as itself — a client whose submission is stuck in an unfamiliar state still
-    // has to be able to see that it is stuck, and quote the word to support.
-    const { container } = await renderKnowledge([
-      source({ status: "withdrawn_by_reviewer" }),
-    ]);
+  it("fails VISIBLE on a state this build cannot name", async () => {
+    // A state we have no copy for is shown as itself — a client whose submission is
+    // stuck in an unfamiliar state still has to be able to see that it is stuck, and
+    // quote the word to support.
+    // Off-contract on purpose (a server newer than this build), so the plain literal.
+    const { container } = await renderKnowledge([], {
+      "/v1/kb/notes": { notes: [{ ...source(), state: "withdrawn_by_reviewer" }] },
+    });
 
     await screen.findByText("Opening hours");
     expect(container.textContent).toContain("withdrawn_by_reviewer");

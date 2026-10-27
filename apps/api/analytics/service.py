@@ -30,6 +30,9 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.analytics.schemas import (
+    CallGroupBy,
+    CallGroupOut,
+    CallGroupsOut,
     CampaignDayOut,
     CampaignSeriesOut,
     CampaignTimelinesOut,
@@ -41,11 +44,16 @@ from apps.api.analytics.schemas import (
     HeatmapOut,
     MetricKey,
     RangeOut,
+    SpendWithheld,
     StatsMetricOut,
     StatsOut,
+    SummaryBucket,
+    SummaryOut,
+    SummaryRowOut,
     TimelineDayOut,
     TimelineOut,
 )
+from apps.api.billing.history import spend_series
 from apps.api.billing.plans import IST
 from apps.api.core.errors import ProblemError
 from apps.api.crm.performance import CONNECTED_SQL, IST_ZONE
@@ -501,19 +509,209 @@ async def stats(
     )
 
 
+# --- calls grouped by caller, outcome or agent ----------------------------------------
+
+MAX_CALL_GROUPS: Final = 50
+
+#: The other party's number: who called in, or who was rung.
+_PARTY = "CASE WHEN direction = 'inbound' THEN from_e164 ELSE to_e164 END"
+_GROUP_KEY: Final[dict[CallGroupBy, str]] = {
+    # A caller is their lead; a call no lead was filed for is grouped by its number, and
+    # one with no number stands alone rather than merging every unknown caller into one.
+    "caller": f"COALESCE(lead_id::text, 'n:' || {_PARTY}, 'c:' || id::text)",
+    "outcome": "COALESCE(outcome_tag, '')",
+    "agent": "agent_id::text",
+}
+
+
+def _groups_sql(by: CallGroupBy) -> str:
+    return (
+        f"WITH g AS (SELECT {_GROUP_KEY[by]} AS k, count(*) AS calls, "
+        f"count(*) FILTER (WHERE {CONNECTED_SQL}) AS answered, max(started_at) AS latest_at, "
+        "(array_agg(outcome_tag ORDER BY started_at DESC))[1] AS latest_outcome, "
+        "(array_agg(lead_id ORDER BY started_at DESC))[1] AS lead_id, "
+        f"right((array_agg({_PARTY} ORDER BY started_at DESC))[1], 2) AS tail "
+        f"FROM calls WHERE {_CALLS_IN_RANGE} GROUP BY 1) "
+        "SELECT k, calls, answered, latest_at, latest_outcome, lead_id, tail "
+        "FROM g WHERE calls >= :min ORDER BY calls DESC, latest_at DESC NULLS LAST, k "
+        "LIMIT :limit"
+    )
+
+
+_TOTALS_SQL: Final = (
+    "SELECT COALESCE(sum(n), 0) AS calls, count(*) FILTER (WHERE n >= 2) AS repeats, "
+    "count(*) FILTER (WHERE n >= :min) AS total "
+    "FROM (SELECT {key} AS k, count(*) AS n FROM calls WHERE " + _CALLS_IN_RANGE + " GROUP BY 1) g"
+)
+
+
+async def _lead_names(session: AsyncSession, ids: Sequence[str]) -> dict[str, str]:
+    if not ids:
+        return {}
+    rows = (
+        await session.execute(
+            text(
+                "SELECT id::text, name FROM leads WHERE id = ANY(CAST(:ids AS uuid[])) "
+                "AND deleted_at IS NULL AND name IS NOT NULL"
+            ),
+            {"ids": list(ids)},
+        )
+    ).all()
+    return {str(r[0]): str(r[1]) for r in rows}
+
+
+async def call_groups(
+    session: AsyncSession,
+    *,
+    window: Window,
+    by: CallGroupBy,
+    agent_id: UUID | None,
+    test_calls: bool,
+    min_calls: int = 1,
+    limit: int = 25,
+) -> CallGroupsOut:
+    """Every call in the window, counted per caller, outcome or agent, in one aggregate.
+
+    This is the answer to "who called more than once" and "how many ended in a booking":
+    the counts cover every call in the range, and only the rows are paged. A caller is
+    the lead the call was filed under, else the other party's number; the number never
+    leaves the query except as its last two digits."""
+    params = {
+        **_params(window, agent_id=agent_id, test_calls=test_calls),
+        "min": max(1, min_calls),
+        "limit": max(1, min(limit, MAX_CALL_GROUPS)),
+    }
+    rows = (await session.execute(text(_groups_sql(by)), params)).all()
+    counted = (await session.execute(text(_TOTALS_SQL.format(key=_GROUP_KEY[by])), params)).one()
+    keys = [str(r.k) for r in rows]
+    if by == "agent":
+        labels = await _agent_names(session, keys)
+    elif by == "caller":
+        labels = await _lead_names(session, [str(r.lead_id) for r in rows if r.lead_id])
+    else:
+        labels = {}
+    groups = [
+        CallGroupOut(
+            key=str(r.k) if not str(r.k).startswith(("n:", "c:")) else "number",
+            label=labels.get(str(r.lead_id) if by == "caller" else str(r.k)),
+            lead_id=r.lead_id if by == "caller" else None,
+            number_tail=(str(r.tail) if r.tail else None) if by == "caller" else None,
+            calls=int(r.calls),
+            answered=int(r.answered),
+            latest_at=r.latest_at,
+            latest_outcome=r.latest_outcome,
+        )
+        for r in rows
+    ]
+    return CallGroupsOut(
+        window=window.out(),
+        by=by,
+        calls=int(counted.calls),
+        groups_total=int(counted.total),
+        repeat_groups=int(counted.repeats),
+        min_calls=max(1, min_calls),
+        groups=groups,
+    )
+
+
+# --- summary by day, week or month ---------------------------------------------------
+
+
+def summary_buckets(window: Window, bucket: SummaryBucket) -> list[tuple[date, date]]:
+    """The window cut into IST days, Monday-first IST weeks or IST calendar months, oldest
+    first; the first and last bucket are clipped to the window rather than reaching past
+    it, so every total covers exactly the days asked for."""
+    found: list[tuple[date, date]] = []
+    day = window.start
+    while day <= window.end:
+        if bucket == "day":
+            last = day
+        elif bucket == "week":
+            last = day + timedelta(days=6 - day.weekday())
+        else:
+            last = (day.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+        last = min(last, window.end)
+        found.append((day, last))
+        day = last + timedelta(days=1)
+    return found
+
+
+async def summary(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    window: Window,
+    bucket: SummaryBucket,
+    agent_id: UUID | None,
+    test_calls: bool,
+    may_see_spend: bool,
+) -> SummaryOut:
+    """`timeline`'s days and `billing/history.spend_series`' days, summed into buckets.
+
+    Built from the two daily series rather than a third query so a week here is exactly
+    the seven days the chart and the wallet's spend list show. Spend is the wallet's,
+    which is debited per account: with one agent picked it is withheld rather than shown
+    as the account's, and a reader without `billing:read` never receives it."""
+
+    line = await timeline(session, window=window, agent_id=agent_id, test_calls=test_calls)
+    withheld: SpendWithheld | None = (
+        "no_billing_access" if not may_see_spend else "one_agent" if agent_id else None
+    )
+    spent_by_day: dict[date, Decimal] = {}
+    total_spent: Decimal | None = None
+    if withheld is None:
+        series = await spend_series(
+            session, tenant_id=tenant_id, start=window.start, end=window.end
+        )
+        spent_by_day = {day.day: day.spent_inr for day in series.days}
+        total_spent = series.spent_inr
+    rows: list[SummaryRowOut] = []
+    for first, last in summary_buckets(window, bucket):
+        days = [d for d in line.days if first <= d.ist_date <= last]
+        spent = (
+            None
+            if withheld is not None
+            else sum((spent_by_day.get(d.ist_date, Decimal(0)) for d in days), Decimal(0))
+        )
+        rows.append(
+            SummaryRowOut(
+                from_date=first,
+                to_date=last,
+                calls=sum(d.calls for d in days),
+                answered=sum(d.answered for d in days),
+                leads=sum(d.leads for d in days),
+                spent_inr=None if spent is None else str(spent),
+            )
+        )
+    return SummaryOut(
+        window=window.out(),
+        bucket=bucket,
+        rows=rows,
+        calls=line.calls,
+        answered=line.answered,
+        leads=line.leads,
+        spent_inr=None if total_spent is None else str(total_spent),
+        spend_withheld=withheld,
+    )
+
+
 __all__ = [
     "DEFAULT_RANGE_DAYS",
     "DURATION_BINS",
     "DURATION_BIN_WIDTHS",
+    "MAX_CALL_GROUPS",
     "MAX_CAMPAIGN_SERIES",
     "MAX_DURATION_GROUPS",
     "MAX_RANGE_DAYS",
     "Window",
+    "call_groups",
     "campaign_timelines",
     "change_pct",
     "durations",
     "heatmap",
     "resolve_window",
     "stats",
+    "summary",
+    "summary_buckets",
     "timeline",
 ]

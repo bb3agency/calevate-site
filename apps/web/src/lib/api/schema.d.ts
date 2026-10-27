@@ -4480,6 +4480,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/analytics/call-groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every call in a range counted per caller, outcome or agent, most calls first
+         * @description `min_calls=2` with `by=caller` lists repeat callers. The totals count every call; only `groups` is cut to `limit`. A caller is shown by lead and the number's last two digits, never the number.
+         */
+        get: operations["get_call_groups_v1_analytics_call_groups_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/analytics/campaigns": {
         parameters: {
             query?: never;
@@ -4540,6 +4560,26 @@ export interface paths {
         };
         /** The stats band for a range, each figure beside the same length of time before */
         get: operations["get_stats_v1_analytics_stats_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/analytics/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Calls, answered calls, new leads and spend per IST day, week or month
+         * @description Weeks start on Monday; the first and last bucket are cut to the range. Spend is what left the wallet and is null with `spend_withheld` when the reader does not hold `billing:read` or one agent is picked.
+         */
+        get: operations["get_summary_v1_analytics_summary_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -8889,6 +8929,77 @@ export interface paths {
          * @description An account member's link is published once it is registered, with no review. We re-read the page on a schedule; when it changes materially the new version is published the same way, because the account linked the page and its updates are the account's. A page an operator linked is re-submitted for review instead.
          */
         post: operations["add_link_v1_kb_links_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/kb/notes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Typed notes, newest change first, removed ones included so they can be put back */
+        get: operations["list_notes_v1_kb_notes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/kb/notes/{note_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Rename a typed note
+         * @description Every version is renamed, so its history stays one item.
+         */
+        patch: operations["rename_note_v1_kb_notes__note_id__patch"];
+        trace?: never;
+    };
+    "/v1/kb/notes/{note_id}/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Take a typed note off every agent, keeping its versions so it can be put back */
+        post: operations["remove_note_v1_kb_notes__note_id__remove_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/kb/notes/{note_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Put a removed note back on every agent, as it last was */
+        post: operations["restore_note_v1_kb_notes__note_id__restore_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -14869,6 +14980,54 @@ export interface components {
             set_by: string | null;
             /** State */
             state: ("resolved" | "needs_you") | null;
+        };
+        /**
+         * CallGroupOut
+         * @description One caller, outcome or agent and its calls in the range. A caller is its lead, or
+         *     the number when no lead was filed; the number itself is never sent, only its last two
+         *     digits (`number_tail`).
+         */
+        CallGroupOut: {
+            /** Answered */
+            answered: number;
+            /** Calls */
+            calls: number;
+            /** Key */
+            key: string;
+            /** Label */
+            label: string | null;
+            /** Latest At */
+            latest_at: string | null;
+            /** Latest Outcome */
+            latest_outcome: string | null;
+            /** Lead Id */
+            lead_id: string | null;
+            /** Number Tail */
+            number_tail: string | null;
+        };
+        /**
+         * CallGroupsOut
+         * @description Every call in the range grouped, most calls first. `groups` holds at most `limit`
+         *     rows; `groups_total` and `repeat_groups` count all of them, so a question about how
+         *     many is never answered from the page.
+         */
+        CallGroupsOut: {
+            /**
+             * By
+             * @enum {string}
+             */
+            by: "caller" | "outcome" | "agent";
+            /** Calls */
+            calls: number;
+            /** Groups */
+            groups: components["schemas"]["CallGroupOut"][];
+            /** Groups Total */
+            groups_total: number;
+            /** Min Calls */
+            min_calls: number;
+            /** Repeat Groups */
+            repeat_groups: number;
+            window: components["schemas"]["RangeOut"];
         };
         /**
          * CallHandlingBoundsOut
@@ -23986,6 +24145,37 @@ export interface components {
             /** Title */
             title: string;
         };
+        /** NoteOut */
+        NoteOut: {
+            /**
+             * Changed At
+             * Format: date-time
+             */
+            changed_at: string;
+            /** Chunks */
+            chunks: number;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Restorable */
+            restorable: boolean;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "in_use" | "in_review" | "needs_attention" | "getting_ready" | "removed";
+            /** Version */
+            version: number;
+        };
+        /** NotesOut */
+        NotesOut: {
+            /** Notes */
+            notes: components["schemas"]["NoteOut"][];
+        };
         /** NotificationFeedOut */
         NotificationFeedOut: {
             /** Attention Total */
@@ -28923,6 +29113,55 @@ export interface components {
             status: string;
             /** Version */
             version: number;
+        };
+        /**
+         * SummaryOut
+         * @description Calls, answered calls, new leads and spend per bucket, oldest first, zero-filled.
+         *     Each column of `rows` sums exactly to the total of the same name.
+         */
+        SummaryOut: {
+            /** Answered */
+            answered: number;
+            /**
+             * Bucket
+             * @enum {string}
+             */
+            bucket: "day" | "week" | "month";
+            /** Calls */
+            calls: number;
+            /** Leads */
+            leads: number;
+            /** Rows */
+            rows: components["schemas"]["SummaryRowOut"][];
+            /** Spend Withheld */
+            spend_withheld: ("no_billing_access" | "one_agent") | null;
+            /** Spent Inr */
+            spent_inr: string | null;
+            window: components["schemas"]["RangeOut"];
+        };
+        /**
+         * SummaryRowOut
+         * @description One IST day, Monday-first IST week or IST calendar month, cut to the range.
+         */
+        SummaryRowOut: {
+            /** Answered */
+            answered: number;
+            /** Calls */
+            calls: number;
+            /**
+             * From Date
+             * Format: date
+             */
+            from_date: string;
+            /** Leads */
+            leads: number;
+            /** Spent Inr */
+            spent_inr: string | null;
+            /**
+             * To Date
+             * Format: date
+             */
+            to_date: string;
         };
         /** TeachItemIO */
         TeachItemIO: {
@@ -40617,6 +40856,48 @@ export interface operations {
             };
         };
     };
+    get_call_groups_v1_analytics_call_groups_get: {
+        parameters: {
+            query?: {
+                /** @description caller, outcome or agent */
+                by?: "caller" | "outcome" | "agent";
+                /** @description How many IST calendar days, 1-366, ending on `to`. */
+                days?: number;
+                /** @description The last IST day of the range (YYYY-MM-DD). Today when left out. */
+                to?: string | null;
+                /** @description Only this agent's calls and leads. */
+                agent_id?: string | null;
+                /** @description False leaves out the owner's own test calls (D-697, D-859). */
+                test_calls?: boolean;
+                min_calls?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallGroupsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     get_campaign_timelines_v1_analytics_campaigns_get: {
         parameters: {
             query?: {
@@ -40760,6 +41041,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StatsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_summary_v1_analytics_summary_get: {
+        parameters: {
+            query?: {
+                /** @description How many IST calendar days, 1-366, ending on `to`. */
+                days?: number;
+                /** @description The last IST day of the range (YYYY-MM-DD). Today when left out. */
+                to?: string | null;
+                /** @description day, week or month */
+                bucket?: "day" | "week" | "month";
+                /** @description Only this agent's calls and leads. */
+                agent_id?: string | null;
+                /** @description False leaves out the owner's own test calls (D-697, D-859). */
+                test_calls?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SummaryOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -48353,6 +48674,132 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UploadOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_notes_v1_kb_notes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotesOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    rename_note_v1_kb_notes__note_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                note_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenameIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoteOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    remove_note_v1_kb_notes__note_id__remove_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                note_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoteOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    restore_note_v1_kb_notes__note_id__restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                note_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoteOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

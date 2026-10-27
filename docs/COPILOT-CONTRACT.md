@@ -134,7 +134,7 @@ Registering a client tool is therefore one more step:
   (`set_fields`, `open_screen`, `run_in_background`) keep their names.
 * Budget: the client tool array is at most 12,000 estimated tokens
   (`prompt_budget_test.TOOL_ARRAY_BUDGET_TOKENS`); it was ~13,300 as 71 tools before the
-  D-893 lanes and is ~10,100 as 26 area tools carrying every lane's 116 tools.
+  D-893 lanes and is ~10,600 as 28 area tools carrying every lane's 120 tools.
 * The admin realm still offers its tools one by one.
 
 ## 3. The permission check, inside the tool
@@ -395,7 +395,7 @@ row — all in one transaction. Its tests are in `apps/api/copilot/undo_test.py`
 ## 9. Routines (`copilot/routines.py`)
 
 A routine is a standing instruction with a schedule in IST (`copilot_routines`, migration
-`d3a7f5c19e42`). It adds no gate and no tool of its own:
+`d3a7f5c19e42`). It adds no gate of its own (Pip sets routines up with the §20 tools):
 
 * **A due slot becomes an ordinary background job.** `workers/copilot_routines.fire_due_routines`
   runs every minute at :30s, reads the due routines in one untenanted query (the table's
@@ -811,3 +811,34 @@ every dial runs `check_dispatch` and the big red switch. Leads already in the ac
 through `campaign_add_leads` (a plan, §19). Tests: `apps/api/copilot/campaign_actions_test.py`;
 tool choice: the `c-campaign-retry`, `-repeat`, `-stop`, `-delete`, `-list-add` and `-remove`
 cases.
+## 22. Reports and routines (D-893 lane L7)
+
+| Tool | Area, tier | The page's function |
+|---|---|---|
+| `business_snapshot` (read) | reports, `calls:read` | no `by`: `crm/performance.performance`; `by` day/week/month: `analytics.service.summary` (`GET /v1/analytics/summary`); `by` caller/outcome/agent: `analytics.service.call_groups` (`GET /v1/analytics/call-groups`) |
+| `routines_list` (read) | routines, `copilot:use`, client realm only | `routines.list_routines` (`GET /v1/copilot/routines`) |
+| `routine_create` | routines, confirm, `copilot.routine_created` | `routines.create_routine` |
+| `routine_edit` (`on` false pauses, true resumes) | routines, confirm, `copilot.routine_updated` | `routines.update_routine` |
+| `routine_delete` | routines, confirm, `copilot.routine_deleted` | `routines.delete_routine` |
+
+* **Counts come from the aggregate, never from a list.** A list read shows examples; "who
+  called more than once" or "how many ended in a booking" is answered by `business_snapshot`
+  with `by`, whose counts cover every call in the IST window (test calls left out). A caller
+  is the lead, else the other party's number, shown only by its last two digits.
+* **Spend** is the wallet's debits (`billing/history.spend_series`), summed into the same
+  buckets, Decimal end to end, and withheld (`spend_withheld`) for a reader without
+  `billing:read` or when one agent is picked (the wallet is debited per account).
+* **Routines are one person's.** `ToolContext.user_id` carries the asking person for the
+  read, which the admin surfaces do not carry (`service.realm_read_tools`). The actions are
+  confirm because a routine later runs on its own; each run still stages every action in
+  the Approvals inbox (§9). Instructions and names are stored redacted (D-788).
+* Tests: `apps/api/copilot/routine_actions_test.py`, `tests/analytics_summary_test.py`;
+  tool choice: `c-repeat-callers`, `c-calls-per-outcome`, `c-calls-per-agent`,
+  `c-weekly-spend`, `c-routine-create`, `c-routine-pause`, `c-routine-delete`.
+
+The knowledge page's typed notes use the functions Pip's `knowledge_rename` and
+`knowledge_remove` use: `GET /v1/kb/notes` (`kb/store.list_notes`, removed notes included),
+`PATCH /v1/kb/notes/{id}` (`rename_source`), `POST /v1/kb/notes/{id}/remove`
+(`remove_note`) and `POST /v1/kb/notes/{id}/restore` (`restore_note`), each `kb:write`
+with curation and audited (`kb.renamed`, `kb.removed`, `kb.restored`). Tests:
+`tests/kb_notes_routes_test.py`, `apps/web/tests/knowledgeNotes.test.tsx`.

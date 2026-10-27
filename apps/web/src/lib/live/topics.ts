@@ -127,13 +127,13 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
   ],
   knowledge_gaps: [...SUMMARY, "knowledge-gaps", "readiness", "teach-questions"],
   knowledge: [
-    "kb",
     "kb-preview",
     "kb-staff-curation",
     "kb-upload",
     "kb-upload-text",
     "kb-uploads",
     "kb-knows",
+    "kb-notes",
     "kb-teaching",
     "kb-teaching-open",
     // A new fact or file can answer a question practice callers or setup were waiting on.
@@ -144,6 +144,8 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
   ],
   wallet: [
     ...SUMMARY,
+    // The Performance summary's spend column (`/v1/analytics/summary`).
+    "analytics",
     "wallet",
     "billing",
     "billing-caps",
