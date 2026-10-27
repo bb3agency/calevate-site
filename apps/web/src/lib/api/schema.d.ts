@@ -21911,6 +21911,11 @@ export interface components {
              * @default false
              */
             tested: boolean;
+            /**
+             * Withheld
+             * @default 0
+             */
+            withheld: number;
         };
         /** InCallDataUseListOut */
         InCallDataUseListOut: {
@@ -31038,6 +31043,7 @@ export interface components {
              * @enum {string}
              */
             status: "queued" | "running" | "done" | "failed";
+            suggestions?: components["schemas"]["TestSuggestionsOut"] | null;
             /**
              * Trials
              * @default 1
@@ -31115,6 +31121,36 @@ export interface components {
             reason: string;
             /** Tries */
             tries: number;
+        };
+        /**
+         * TestSuggestionsOut
+         * @description Where "Suggest a fix" stands for this run, as ONE state (D-909), so a screen never shows
+         *     an older suggestion beside a newer failure as if both were current.
+         *
+         *     `none`: never asked. `working`: being worked out; poll. `ready`: `improvement` holds the
+         *     suggestions. `none_offered`: the round finished with nothing to offer (nothing would fix
+         *     these tests, the same question was already answered, or every suggestion was withheld);
+         *     `note` says which. `failed`: the round could not be worked out (AI help unavailable or
+         *     used up, or our fault); `note` says why and what to do, and no older suggestion is
+         *     offered. `kept`: the owner kept the suggestions.
+         */
+        TestSuggestionsOut: {
+            /** Created At */
+            created_at?: string | null;
+            /** For Keys */
+            for_keys?: string[];
+            /**
+             * Generated For Run Id
+             * Format: uuid
+             */
+            generated_for_run_id: string;
+            /** Note */
+            note?: string | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "none" | "working" | "ready" | "none_offered" | "failed" | "kept";
         };
         /**
          * TestTryOut

@@ -25628,6 +25628,11 @@
             "default": false,
             "title": "Tested",
             "type": "boolean"
+          },
+          "withheld": {
+            "default": 0,
+            "title": "Withheld",
+            "type": "integer"
           }
         },
         "required": [
@@ -49945,6 +49950,16 @@
             "title": "Status",
             "type": "string"
           },
+          "suggestions": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TestSuggestionsOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "trials": {
             "default": 1,
             "title": "Trials",
@@ -50120,6 +50135,65 @@
           "tries"
         ],
         "title": "TestSoundOut",
+        "type": "object"
+      },
+      "TestSuggestionsOut": {
+        "additionalProperties": false,
+        "description": "Where \"Suggest a fix\" stands for this run, as ONE state (D-909), so a screen never shows\nan older suggestion beside a newer failure as if both were current.\n\n`none`: never asked. `working`: being worked out; poll. `ready`: `improvement` holds the\nsuggestions. `none_offered`: the round finished with nothing to offer (nothing would fix\nthese tests, the same question was already answered, or every suggestion was withheld);\n`note` says which. `failed`: the round could not be worked out (AI help unavailable or\nused up, or our fault); `note` says why and what to do, and no older suggestion is\noffered. `kept`: the owner kept the suggestions.",
+        "properties": {
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "for_keys": {
+            "items": {
+              "type": "string"
+            },
+            "title": "For Keys",
+            "type": "array"
+          },
+          "generated_for_run_id": {
+            "format": "uuid",
+            "title": "Generated For Run Id",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "state": {
+            "enum": [
+              "none",
+              "working",
+              "ready",
+              "none_offered",
+              "failed",
+              "kept"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "generated_for_run_id"
+        ],
+        "title": "TestSuggestionsOut",
         "type": "object"
       },
       "TestTryOut": {

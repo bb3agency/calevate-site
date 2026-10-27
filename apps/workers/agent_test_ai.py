@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import hashlib
 import random
-import re
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from typing import Any, Final
@@ -36,19 +35,17 @@ from calevate_shared.spoken_guard import generation_guidance, textbook_problem
 
 from apps.api.agents.assist_leg import google_assist_leg
 from apps.api.agents.call_rules import OPENING_LINE_RULE, expect_rules, judge_rules, writer_rules
+from apps.api.agents.fix_guard import grounding_problem, stored_problem
 from apps.api.agents.script_edits import (
     EDIT_OPS,
     EDIT_PARTS,
     MAX_EDITS,
     EditRejectedError,
     ScriptEdit,
-    added_text,
     apply_edit,
     clip,
     describe,
-    kept_problem,
     language_problem,
-    sentences,
 )
 from apps.api.agents.test_conversations import (
     CATEGORIES,
@@ -603,8 +600,10 @@ IMPROVE_INSTRUCTION: Final = (
     "business_line or outbound_purpose) becomes `text`.\n"
     "Give every field; a field the edit does not use is an empty string. because: the key "
     "of the test it fixes. why: one plain-English sentence for the owner on what the change "
-    "asks the agent to do; it is a suggestion nobody has tested, so never say it fixed, "
-    "restricted or stopped anything. New instructions (a "
+    'asks the agent to do, about the script in the third person ("Asks the agent to ..."), '
+    'never "I" or "we"; it is a suggestion nobody has tested, so never say it fixed, '
+    'restricted or stopped anything. Never narrow what the agent handles ("only handle '
+    '..."). New instructions (a '
     "step's, an objection's answer, every part but opening_line) are in plain English "
     "letters, never the call language's script, except words added to a step already "
     "written in the call language, which keep its language; the opening_line is said, so it is "
@@ -760,138 +759,6 @@ def _facts(raw: Any, *, keys: set[str], fact_ids: set[str]) -> list[dict[str, An
     return facts[:MAX_FACTS]
 
 
-#: A sentence that refuses or forbids doing something: "never accept", "tell them you cannot
-#: do that", "do not send".
-_REFUSES: Final = re.compile(
-    r"\b(?:never|not|no longer|cannot|can't|can not|don't|do not|won't|must not|refuse|"
-    r"decline|unable to)\b\W+(?:\w+\W+){0,3}?(?:accept|take|taking|collect|note|confirm|"
-    r"send|share|use|offer|book|arrange|transfer|connect|hand|give|do that|do this|help|"
-    r"handle|record|save|call)",
-    re.IGNORECASE,
-)
-#: What the agent can always do: take a caller's number (the platform's read-back rule).
-_NUMBERS: Final = re.compile(r"number|digits|phone|mobile", re.IGNORECASE)
-#: Words naming each kind of in-call action, for the capability check.
-_ACTION_WORDS: Final[dict[str, re.Pattern[str]]] = {
-    "whatsapp": re.compile(r"whats\s?app|send|message|details|brochure", re.IGNORECASE),
-    "payment_link": re.compile(r"payment|link|send|pay", re.IGNORECASE),
-    "calendar": re.compile(r"book|appointment|slot|visit|schedule", re.IGNORECASE),
-}
-_CALL_BACK: Final = re.compile(r"call(?:ing)?\s?back|callback", re.IGNORECASE)
-_HAND_OVER_WORDS: Final = re.compile(
-    r"person|human|transfer|hand(?:ing)?\s?over|connect|manager|team member", re.IGNORECASE
-)
-#: A `why` that reports an effect nobody has tested, or a restriction (founder, 27 Oct 2026:
-#: "I have restricted the agent to only handling property enquiries").
-_CLAIMED_EFFECT: Final = re.compile(
-    r"\b(?:restrict\w*|forbid\w*|forbade|block(?:ed|s)?|disabl\w*|no longer)\b", re.IGNORECASE
-)
-_CONTENT_WORD: Final = re.compile(r"[a-z]{4,}")
-_NOT_CONTENT: Final = frozenset(
-    {
-        "agent",
-        "caller",
-        "callers",
-        "call",
-        "calls",
-        "that",
-        "this",
-        "with",
-        "they",
-        "them",
-        "their",
-        "what",
-        "when",
-        "then",
-        "than",
-        "have",
-        "from",
-        "your",
-        "will",
-        "only",
-        "just",
-        "each",
-        "more",
-        "about",
-        "before",
-        "after",
-        "never",
-        "always",
-        "into",
-    }
-)
-
-
-#: A refusal that only limits HOW ("not until all ten are read back", "never on part of a
-#: number") rather than WHETHER, unless it also reaches every case ("partial or full").
-_ONLY_HOW: Final = re.compile(
-    r"\b(?:until|before|unless|part of|fewer|less than|only after)\b", re.IGNORECASE
-)
-_EVERY_CASE: Final = re.compile(r"\b(?:full|any|every|at all|anything)\b", re.IGNORECASE)
-
-
-def _refuses(sentence: str) -> bool:
-    """Does `sentence` refuse or forbid an act outright?"""
-    if not _REFUSES.search(sentence):
-        return False
-    return not _ONLY_HOW.search(sentence) or bool(_EVERY_CASE.search(sentence))
-
-
-def _content(text: str) -> set[str]:
-    return {
-        word.rstrip("s") for word in _CONTENT_WORD.findall(text.lower()) if word not in _NOT_CONTENT
-    }
-
-
-def _capabilities(brief: AgentBrief) -> list[tuple[str, re.Pattern[str]]]:
-    """What the agent can do that a suggested fix may never take away, each with the words
-    that name it."""
-    out: list[tuple[str, re.Pattern[str]]] = [("taking a caller's number", _NUMBERS)]
-    for kind, what in brief.actions:
-        words = _ACTION_WORDS.get(kind)
-        if words is not None:
-            out.append((f"its {kind} action ({what[:60]})", words))
-    if brief.call_backs:
-        out.append(("call backs", _CALL_BACK))
-    if brief.hand_over != "off":
-        out.append(("hand-over to a person", _HAND_OVER_WORDS))
-    return out
-
-
-def grounding_problem(
-    edit: ScriptEdit,
-    script: CallScript,
-    *,
-    brief: AgentBrief,
-    good_answer: str,
-    where: str,
-) -> str | None:
-    """Why a suggested edit is not a fix the owner may be offered, or None: it drops the
-    step's own sentences, refuses something the agent can do, contradicts the test's good
-    answer, or claims an effect. The founder's 27 Oct 2026 suggestion did all four: "tell
-    them you cannot do that ... Never accept or confirm partial or full phone numbers" for a
-    test whose good answer takes the number, on an agent that sends WhatsApp follow-ups."""
-    kept = kept_problem(edit, script, where=where)
-    if kept is not None:
-        return kept
-    if _CLAIMED_EFFECT.search(edit.why):
-        return (
-            f"{where}: `why` says what the change asks the agent to do; it is untested, so it "
-            "never says it restricted, blocked or stopped anything"
-        )
-    added = sentences(added_text(edit, script))
-    refusals = [s for s in added if _refuses(s)]
-    for sentence in refusals:
-        for name, words in _capabilities(brief):
-            if words.search(sentence):
-                return f"{where}: refuses {name}, which this agent does; never take it away"
-    affirmed = _content(" ".join(s for s in sentences(good_answer) if not _refuses(s)))
-    for sentence in refusals:
-        if _content(sentence) & affirmed:
-            return f"{where}: forbids what the test's good answer has the agent do"
-    return None
-
-
 def proposal_from_model(
     raw: dict[str, Any],
     *,
@@ -915,7 +782,13 @@ def proposal_from_model(
     edited, is dropped and logged by field and rule, and the rest stand. Only an answer whose
     edits ALL failed is sent back to the model, once, with what was wrong
     (`UnusableAnswerError`, `script_assist.ask_json`'s repair); an answer with no edits and
-    no facts is an honest "nothing here" and is kept as one."""
+    no facts is an honest "nothing here" and is kept as one.
+
+    An edit refused for what it SAYS (`fix_guard`, the language rules) is `withheld`. When
+    the repaired answer still has nothing else, that is an answer too: the model insisted on
+    a fix the owner may not be offered, and the honest result is "none offered", not "the AI
+    answered in a form we could not use" (founder, 28 Oct 2026: the partial-number test drew
+    the same refusal of numbers twice, and the screen blamed the format)."""
     rows = raw.get("edits")
     if not isinstance(rows, list):
         return None
@@ -948,22 +821,37 @@ def proposal_from_model(
             if worded is not None:
                 wording.append(worded)
                 raise EditRejectedError("text", "language")
-            if brief is not None:
-                ungrounded = grounding_problem(
+            ungrounded = (
+                grounding_problem(
                     edit,
                     script,
                     brief=brief,
                     good_answer=(good_answers or {}).get(edit.because or "", ""),
                     where=f"edits.{index}",
                 )
-                if ungrounded is not None:
-                    wording.append(ungrounded)
-                    raise EditRejectedError("text", "ungrounded")
+                if brief is not None
+                else stored_problem(edit, script, where=f"edits.{index}")
+            )
+            if ungrounded is not None:
+                wording.append(ungrounded)
+                raise EditRejectedError("text", "ungrounded")
             script = apply_edit(script, edit)
         except EditRejectedError as refused:
             log.info(
                 "agent_tests_edit_dropped",
-                extra={"op": edit.op[:20], "field": refused.field, "rule": refused.rule},
+                extra={
+                    "op": edit.op[:20],
+                    "field": refused.field,
+                    "rule": refused.rule,
+                    # `fix_guard`'s answer names our rule and never quotes the edit; a
+                    # language problem may quote the model's words, so only its rule is kept.
+                    "detail": (
+                        wording[-1].split(": ", 1)[-1][:160]
+                        if refused.rule == "ungrounded"
+                        else None
+                    ),
+                    "send_back": send_back_language,
+                },
             )
             problems.append(
                 wording[-1]
@@ -975,11 +863,12 @@ def proposal_from_model(
         edits.append({**edit.as_dict(), **describe(edit, current)})
     if wording and send_back_language:
         raise UnusableAnswerError("; ".join(wording[:8]))
-    if problems and not edits:
+    if problems and not edits and len(wording) < len(problems):
         raise UnusableAnswerError("; ".join(problems[:8]))
     return {
         "edits": edits,
         "dropped": len(problems),
+        "withheld": len(wording),
         "facts": _facts(raw.get("facts"), keys=keys, fact_ids=fact_ids),
     }
 

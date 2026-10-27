@@ -54,7 +54,7 @@ ALLOWED: tuple[tuple[str, frozenset[str], str], ...] = (
         "words that DETECT a booking topic in any trade's calls; the label shown is 'Bookings'",
     ),
     (
-        "apps/workers/agent_test_ai.py",
+        "apps/api/agents/fix_guard.py",
         frozenset({"appointment"}),
         "words that DETECT a calendar action in any trade's test notes (a salon or a "
         "garage takes appointments too); matched, never spoken or shown",

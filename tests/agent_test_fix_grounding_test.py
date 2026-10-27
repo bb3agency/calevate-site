@@ -15,7 +15,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from apps.api.agents import test_conversations, trial_results
+from apps.api.agents import fix_guard, test_conversations, trial_results
 from apps.api.agents.script_edits import ScriptEdit, added_text, kept_problem, language_problem
 from apps.api.agents.specimen_scenarios import CLASSES
 from apps.api.agents.test_conversations import Judged, Scenario, Turn, decide
@@ -74,28 +74,39 @@ FOUNDERS_BAD_EDIT: dict[str, Any] = {
 }
 
 
+#: A test the script owns, for the checks that read the edit's words: the founder's own key
+#: is a platform-rule test, which `fix_guard.stored_problem` refuses before anything else.
+SCRIPT_TEST = "g1"
+
+
 def _propose(edit: dict[str, Any], *, send_back: bool = False) -> dict[str, Any] | None:
     return agent_test_ai.proposal_from_model(
         {"edits": [edit], "facts": []},
         current=SCRIPT,
-        keys={"specimen_partial_number"},
+        keys={"specimen_partial_number", SCRIPT_TEST},
         fact_ids=set(),
         language="en-IN",
         send_back_language=send_back,
         brief=BRIEF,
-        good_answers={"specimen_partial_number": GOOD_ANSWER},
+        good_answers={"specimen_partial_number": GOOD_ANSWER, SCRIPT_TEST: GOOD_ANSWER},
     )
 
 
-def test_the_founders_suggestion_is_sent_back_then_refused() -> None:
+def test_the_founders_suggestion_is_sent_back_then_withheld_not_unusable() -> None:
     """FAILS IF the improver can again offer a step that refuses numbers on an agent that
-    sends WhatsApp follow-ups, drops the step's own rules or claims a restriction."""
+    sends WhatsApp follow-ups, drops the step's own rules or claims a restriction; or if a
+    model that insists on it reads as "answered in a form we could not use" (D-909)."""
     with pytest.raises(UnusableAnswerError) as sent_back:
         _propose(FOUNDERS_BAD_EDIT, send_back=True)
-    assert "keeps only part of the step" in sent_back.value.problems
-    # On the repaired answer the same edit is dropped and never offered.
-    with pytest.raises(UnusableAnswerError):
-        _propose(FOUNDERS_BAD_EDIT)
+    assert "our platform rules decide" in sent_back.value.problems
+    # The repaired answer brings the same edit: withheld, and an honest empty proposal.
+    proposal = _propose(FOUNDERS_BAD_EDIT)
+    assert proposal is not None
+    assert (proposal["edits"], proposal["dropped"], proposal["withheld"]) == ([], 1, 1)
+    # For a test the script owns, the same words are still refused for what they say.
+    with pytest.raises(UnusableAnswerError) as for_the_script:
+        _propose({**FOUNDERS_BAD_EDIT, "because": SCRIPT_TEST}, send_back=True)
+    assert "never says it restricted" in for_the_script.value.problems
 
 
 @pytest.mark.parametrize(
@@ -122,7 +133,7 @@ def test_the_founders_suggestion_is_sent_back_then_refused() -> None:
     ],
 )
 def test_each_check_names_what_is_wrong(text: str, why: str, problem: str) -> None:
-    edit = {**FOUNDERS_BAD_EDIT, "text": text, "why": why}
+    edit = {**FOUNDERS_BAD_EDIT, "text": text, "why": why, "because": SCRIPT_TEST}
     with pytest.raises(UnusableAnswerError) as sent_back:
         _propose(edit, send_back=True)
     assert problem in sent_back.value.problems
@@ -139,7 +150,7 @@ def test_a_refusal_of_the_good_answer_is_caught_without_a_capability() -> None:
         because="k",
         why="Asks less.",
     )
-    problem = agent_test_ai.grounding_problem(
+    problem = fix_guard.grounding_problem(
         edit,
         SCRIPT,
         brief=replace(BRIEF, actions=()),
@@ -156,7 +167,12 @@ def test_the_minimal_edit_for_the_number_test_is_offered() -> None:
         "back, and never send or say thanks on part of it."
     )
     proposal = _propose(
-        {**FOUNDERS_BAD_EDIT, "text": text, "why": "Asks for all ten digits and reads them back."}
+        {
+            **FOUNDERS_BAD_EDIT,
+            "text": text,
+            "why": "Asks for all ten digits and reads them back.",
+            "because": SCRIPT_TEST,
+        }
     )
     assert proposal is not None
     assert [e["after"] for e in proposal["edits"]] == [text]
