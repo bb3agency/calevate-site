@@ -795,8 +795,8 @@ def _unlisted_section(spec: ExtractionSchemaSpec) -> str:
         '- "unlisted": an object with every choice field above as a key ('
         + ", ".join(keys)
         + ").\n  A key holds the caller's own words, at most "
-        f'{UNLISTED_MAX} characters ("6 BHK", "bridal\n'
-        '  package"), only when the caller answered that field with something NONE of its\n'
+        f'{UNLISTED_MAX} characters ("a bigger one", "both of them"),\n'
+        "  only when the caller answered that field with something NONE of its\n"
         "  choices fits and said it themselves. Otherwise the key is null: when one of the\n"
         "  choices fits, when only the agent said it, and when nobody said it.\n"
     )

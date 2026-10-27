@@ -5,7 +5,7 @@
       "review": "needs_native_review",
       "reviewed_by": null,
       "register_name": "Neutral spoken Telugu",
-      "spelled_address": "ఆర్, వై, టీ, డాట్ కామ్",
+      "spelled_address": "బీ, సీ, డీ, డాట్ కామ్",
       "register": "Everyday spoken Telugu (vyavaharika, never grandhika), neutral for Telangana and Andhra, every word in Telugu letters, English words too (ఆర్డర్, కాల్). అండి and గారు by situation, not in every sentence.",
       "examples": {
         "_default": [
@@ -838,7 +838,7 @@
       "review": "needs_native_review",
       "reviewed_by": null,
       "register_name": "Everyday spoken Hindi (Hindustani)",
-      "spelled_address": "आर, वाई, टी, डॉट कॉम",
+      "spelled_address": "बी, सी, डी, डॉट कॉम",
       "register": "Everyday spoken Hindi, never shuddh or bookish, every word in Devanagari, English words too (ऑर्डर, डिलीवरी, कॉल). Polite with जी and आप; prefer 'we' forms (बताते हैं) so no gender is assumed.",
       "examples": {
         "_default": [
@@ -1296,7 +1296,7 @@
       "review": "needs_native_review",
       "reviewed_by": null,
       "register_name": "Indian English, spoken",
-      "spelled_address": "R, Y, T, dot com",
+      "spelled_address": "B, C, D, dot com",
       "register": "Simple, warm Indian English as people speak on the phone. Sir or madam once, not every line. Mix in Hindi or Telugu words if the caller does.",
       "examples": {
         "_default": [

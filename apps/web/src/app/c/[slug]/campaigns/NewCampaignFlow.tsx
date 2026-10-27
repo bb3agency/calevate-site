@@ -192,7 +192,11 @@ export function NewCampaignFlow({
           description="Paste, import or add your contacts, then tell us where the list came from."
         >
           <div className="space-y-6">
-            <ContactEditor entries={form.contacts} onChange={form.setContacts} />
+            <ContactEditor
+              entries={form.contacts}
+              onChange={form.setContacts}
+              agentLanguage={selectedAgent?.language_primary}
+            />
             <LeadsChoice form={form} />
             <ConsentProvenanceFields
               idPrefix="new"

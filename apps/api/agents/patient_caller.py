@@ -20,8 +20,11 @@ are counted from the caller's last words: that is 40 s past 20 s x (3 + 1), the 
 platform holds the hang-up to so the last question gets an answer window (same page,
 :666-669). If it does restart, the call only runs longer.
 
-The phrase is the one setting with words. It is written for each language an agent can be
-stored in and the agent's main language picks it; the owner may change it like any other.
+The phrase is the one setting with words. "Can you see it?" is written for each language an
+agent can be stored in, the agent's main language picks it, and it is set only on an agent
+whose callers follow along on a screen (D-906); any other agent keeps the platform's own
+"are you still there?" in the caller's language (D-915). The owner may change it like any
+other setting.
 """
 
 from __future__ import annotations
@@ -66,19 +69,21 @@ NUDGE_PHRASES: Final[dict[str, str]] = {
 }
 
 
-def nudge_phrase_for(language: str) -> str:
-    """The preset's question in `language`; '' (the platform's own "are you still there?" in
-    the caller's language) for a language with none."""
-    return NUDGE_PHRASES.get(language, "")
+def nudge_phrase_for(language: str, *, caller_has_screen: bool) -> str:
+    """The preset's question in `language` for an agent whose callers follow along on a
+    screen (D-906); '' otherwise, and for a language with none, which leaves the platform's
+    own "are you still there?" in the caller's language (D-915). "Can you see it?" asked of
+    a caller fetching a document or thinking it over is the wrong question."""
+    return NUDGE_PHRASES.get(language, "") if caller_has_screen else ""
 
 
-def preset_changes(language: str) -> dict[str, object]:
+def preset_changes(language: str, *, caller_has_screen: bool) -> dict[str, object]:
     """The call settings the preset writes on the agent, as `set_agent_call_handling` takes
     them."""
     return {
         "nudge_after_seconds": NUDGE_AFTER_S,
         "nudge_count": NUDGE_COUNT,
-        "nudge_phrase": nudge_phrase_for(language),
+        "nudge_phrase": nudge_phrase_for(language, caller_has_screen=caller_has_screen),
         "end_after_silence_seconds": END_AFTER_SILENCE_S,
         "reask_after_ms": REASK_AFTER_MS,
     }
@@ -112,8 +117,8 @@ class PatientCaller:
 
 
 _AGENT: Final = (
-    "SELECT language_primary, max_call_duration_s, status, engine_agent_ref FROM agents "
-    "WHERE id = :aid AND deleted_at IS NULL"
+    "SELECT language_primary, max_call_duration_s, status, engine_agent_ref, caller_has_screen "
+    "FROM agents WHERE id = :aid AND deleted_at IS NULL"
 )
 
 
@@ -125,7 +130,7 @@ async def read_patient_caller(session: AsyncSession, state: AgentCallHandling) -
     cap = effective_call_cap(row[1])
     return PatientCaller(
         applied=is_applied(state.resolved, cap),
-        nudge_phrase=nudge_phrase_for(str(row[0])),
+        nudge_phrase=nudge_phrase_for(str(row[0]), caller_has_screen=bool(row[4])),
         call_cap_s=preset_call_cap_s(),
     )
 
@@ -155,7 +160,10 @@ async def apply_patient_caller(
         raise ProblemError.not_found("Agent")
     language, own_cap, status, ref = str(row[0]), row[1], row[2], row[3]
     state, moved = await call_handling.set_agent_call_handling(
-        session, tenant_id=tenant_id, agent_id=agent_id, changes=preset_changes(language)
+        session,
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        changes=preset_changes(language, caller_has_screen=bool(row[4])),
     )
     before = effective_call_cap(own_cap)
     after = max(before, preset_call_cap_s())

@@ -92,9 +92,9 @@ def test_on_lets_a_failed_step_be_said_again_shorter() -> None:
 @pytest.mark.parametrize(
     ("language", "spelled"),
     [
-        ("te-IN", '("ఆర్, వై, టీ, డాట్ కామ్")'),
-        ("hi-IN", '("आर, वाई, टी, डॉट कॉम")'),
-        ("en-IN", '("R, Y, T, dot com")'),
+        ("te-IN", '("బీ, సీ, డీ, డాట్ కామ్")'),
+        ("hi-IN", '("बी, सी, डी, डॉट कॉम")'),
+        ("en-IN", '("B, C, D, dot com")'),
     ],
 )
 def test_a_web_address_is_spelled_by_english_letter_names_in_the_calls_letters(
