@@ -346,7 +346,7 @@ def test_an_unusable_answer_is_not_reported_to_the_owner_as_no_ai() -> None:
     AI help was not available."""
     note = agent_test_conversations.not_written_note(script_assist.ANSWER_UNUSABLE_CODE)
     assert "not available" not in note
-    assert "answered" in note
+    assert "came back incomplete" in note
 
 
 # --- the shared client, the alarm and the cached count -----------------------------------
