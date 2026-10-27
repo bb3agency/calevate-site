@@ -12,7 +12,8 @@ import {
   Skeleton,
   formatINR,
 } from "@/components/ui";
-import { useCreditPacks } from "@/lib/api/billing";
+import { useCreditPacks, useTopUpCapability } from "@/lib/api/billing";
+import type { Session } from "@/lib/api/client";
 import { useMe } from "@/lib/api/hooks";
 import { currentISTMonth } from "@/lib/api/invoice";
 import { useClientRealm } from "@/lib/api/session";
@@ -366,13 +367,20 @@ export function BillingScreen({ slug }: { slug: string }) {
    * the statements and the month's figures down with it.
    */
   const header = () => {
-    if (wallet.isLoading) return <Skeleton rows={4} label="Loading your balance" />;
+    if (wallet.isLoading) {
+      // The summary card's own frame, so nothing moves when the figures arrive.
+      return (
+        <div className="rounded-card border border-line p-5 sm:p-6">
+          <Skeleton rows={3} label="Loading your balance" />
+        </div>
+      );
+    }
     if (wallet.error || !wallet.data) {
       return <ProblemNotice error={wallet.error ?? new Error("Your balance did not load.")} onRetry={() => void wallet.refetch()} />;
     }
     if (walletState(wallet.data) === "not-prepaid") return <InvoicedAccount />;
     return (
-      <div className="space-y-10">
+      <div className="space-y-4">
         <WalletHero
           wallet={wallet.data}
           funded={funded}
@@ -389,8 +397,12 @@ export function BillingScreen({ slug }: { slug: string }) {
           }
         />
         <UnfinishedPayments session={session} />
-        {!billingRefused && <AutoRechargePanel session={session} />}
-        {!billingRefused && <LowBalanceAlertPanel session={session} wallet={wallet.data} />}
+        {!billingRefused && (
+          <div className="space-y-3">
+            <AutoTopUp session={session} />
+            <LowBalanceAlertPanel session={session} wallet={wallet.data} />
+          </div>
+        )}
         {/* D-707: the monthly platform fee, a separate payment from calling credit. */}
         {!billingRefused && <PlatformFeeCard session={session} />}
       </div>
@@ -430,15 +442,18 @@ export function BillingScreen({ slug }: { slug: string }) {
   return (
     <div className="max-w-4xl space-y-10 pb-12">
       {header()}
-      {/* D-525 + D-655: three peer views of the account's money under one header. */}
-      <SegmentedControl
-        label="Billing view"
-        value={view}
-        onValueChange={selectView}
-        options={BILLING_VIEWS.map((item) => ({ value: item.value, label: item.label }))}
-      />
-      <div key={view} className="settings-enter">
-        {view_()}
+      {/* D-525 + D-655: three peer views of the account's money under one header. The
+          switch sits close to what it switches, and away from the summary above. */}
+      <div className="space-y-6">
+        <SegmentedControl
+          label="Billing view"
+          value={view}
+          onValueChange={selectView}
+          options={BILLING_VIEWS.map((item) => ({ value: item.value, label: item.label }))}
+        />
+        <div key={view} className="settings-enter">
+          {view_()}
+        </div>
       </div>
       <AddCreditDrawer
         session={session}
@@ -448,4 +463,21 @@ export function BillingScreen({ slug }: { slug: string }) {
       />
     </div>
   );
+}
+
+/**
+ * Auto top-up, offered only where its payment route exists. It reads the capability the
+ * Add credit drawer reads (same query key, one request): a mandate is a provider order, so
+ * an account that can pay only by bank transfer is not asked to approve UPI Autopay beside
+ * a drawer saying UPI is not on. A capability that failed to load counts as unavailable
+ * rather than guessed; an approval already on the account still shows either way.
+ */
+function AutoTopUp({ session }: { session: Session }) {
+  const capability = useTopUpCapability(session);
+  if (capability.isLoading) return null;
+  const available =
+    capability.data !== undefined &&
+    capability.data.online_payments_available &&
+    capability.data.provider_orders_available;
+  return <AutoRechargePanel session={session} available={available} />;
 }

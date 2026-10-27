@@ -4,6 +4,7 @@ import {
   formatDecimal,
   formatINR,
   formatINRExact,
+  formatPayableINR,
   formatPercent,
   formatRupeeRateExact,
   roundDecimalString,
@@ -75,5 +76,14 @@ describe("the tax-document and admin exception keeps the paisa", () => {
 
   it("formatRupeeRateExact keeps the server's full rate precision", () => {
     expect(formatRupeeRateExact("7.1250")).toBe("₹7.1250");
+  });
+});
+
+describe("an amount someone is about to pay", () => {
+  it("is plain when whole and exact when it carries paise, never rounded", () => {
+    expect(formatPayableINR("50000.00")).toBe("₹50,000");
+    expect(formatPayableINR("2500.10")).toBe("₹2,500.10");
+    expect(formatPayableINR("2500.15")).toBe("₹2,500.15");
+    expect(formatPayableINR(null)).toBe("—");
   });
 });

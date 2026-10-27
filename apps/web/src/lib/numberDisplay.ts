@@ -122,6 +122,17 @@ export function formatINRExact(value: string | null | undefined): string {
 }
 
 /**
+ * An amount someone is about to PAY: whole rupees plain ("₹50,000"), any paise exact
+ * ("₹2,500.15"). Rounding a payable figure to one decimal would print a different sum from
+ * the one charged or the one a bank transfer must match.
+ */
+export function formatPayableINR(value: string | null | undefined): string {
+  if (value === null || value === undefined || value === "") return "—";
+  const fraction = value.split(".")[1] ?? "";
+  return /^0*$/.test(fraction) ? formatINR(value) : formatINRExact(value);
+}
+
+/**
  * A per-minute rate at the precision the server sent it, for TAX DOCUMENTS AND THE ADMIN
  * CONSOLE ONLY: `overage_rate_inr` is NUMERIC(12,4) and ₹7.1250/min printed as ₹7.1 beside
  * "× 20 min = ₹142.50" would make an invoice line fail the check a client performs on it.

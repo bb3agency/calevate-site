@@ -42,10 +42,55 @@ const SETTINGS = {
   suggested_threshold_inr: "700.00",
 };
 
-function Panel() {
+function Panel({ available = true }: { available?: boolean }) {
   const { session } = useClientRealm();
-  return <AutoRechargePanel session={session} />;
+  return <AutoRechargePanel session={session} available={available} />;
 }
+
+describe("auto top-up and the payment route it needs", () => {
+  it("offers no payment method and no switch where online payment is off, and says why", async () => {
+    const { container } = await renderClientPage(<Panel available={false} />, {
+      "/v1/me": ME,
+      "/v1/billing/auto-recharge": SETTINGS,
+      "/v1/billing/auto-recharge/charges?limit=20": [],
+    });
+    expect(await screen.findByText(/needs online payment, which isn't on for your account yet/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Approve a payment method/ })).toBeNull();
+    expect(screen.queryByRole("switch")).toBeNull();
+    expect(container.textContent).not.toContain("UPI Autopay");
+  });
+
+  it("keeps an existing approval withdrawable but offers no switch while online payment is off", async () => {
+    await renderClientPage(<Panel available={false} />, {
+      "/v1/me": ME,
+      "/v1/billing/auto-recharge": {
+        ...SETTINGS,
+        mandate_status: "confirmed",
+        mandate_method: "upi",
+        mandate_max_inr: "15000.00",
+      },
+      "/v1/billing/auto-recharge/charges?limit=20": [],
+    });
+    expect(await screen.findByRole("button", { name: "Withdraw approval" })).toBeTruthy();
+    expect(screen.getByText(/needs online payment/)).toBeTruthy();
+    expect(screen.queryByRole("switch")).toBeNull();
+  });
+
+  it("offers the method and the switch where online payment is on, and states the setting while closed", async () => {
+    await renderClientPage(<Panel />, {
+      "/v1/me": ME,
+      "/v1/billing/auto-recharge": SETTINGS,
+      "/v1/billing/auto-recharge/charges?limit=20": [],
+    });
+    expect(await screen.findByRole("button", { name: /Approve a payment method/ })).toBeTruthy();
+    expect(screen.getByRole("switch", { name: /Top up automatically/ })).toBeTruthy();
+    expect(screen.queryByText(/needs online payment/)).toBeNull();
+    // The closed row says what it is set to, and offers to set it up.
+    const summary = screen.getByText("Auto top-up").closest("summary");
+    expect(summary?.textContent).toContain("Off");
+    expect(summary?.textContent).toContain("Set up");
+  });
+});
 
 describe("auto-recharge card", () => {
   it("says how long a top-up takes, the per-payment limit and the suggested threshold", async () => {
@@ -82,7 +127,7 @@ describe("auto-recharge card", () => {
       ],
     });
     expect(await screen.findByText(/Resume it there/)).toBeTruthy();
-    expect(screen.getByText(/Auto-recharge is off/)).toBeTruthy();
+    expect(screen.getByText(/Auto top-up is off/)).toBeTruthy();
     expect(screen.getByText(/Did not go through/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Withdraw approval" })).toBeTruthy();
   });

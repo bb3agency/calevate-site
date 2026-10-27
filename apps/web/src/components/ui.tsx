@@ -280,6 +280,7 @@ const SWITCH_TRACK =
 export function Disclosure({
   title,
   subtitle,
+  status,
   icon,
   defaultOpen = false,
   variant = "card",
@@ -293,6 +294,12 @@ export function Disclosure({
 }: {
   title: string;
   subtitle?: ReactNode;
+  /**
+   * A short state beside the affordance ("Off", "Below ₹500"), shown open or closed and at
+   * every width — unlike `subtitle`, which a phone hides while the panel is closed. For a
+   * setting whose closed row must still say what it is set to.
+   */
+  status?: ReactNode;
   icon?: ReactNode;
   defaultOpen?: boolean;
   variant?: "card" | "inline";
@@ -364,7 +371,16 @@ export function Disclosure({
           {subtitle && (
             <span className="block text-xs text-ink-muted max-sm:hidden max-sm:group-open:block">{subtitle}</span>
           )}
+          {/* The status goes UNDER the title on a phone and beside it from `sm`: at 375px a
+              title, a status and the affordance on one line squeezed the title to a word a
+              line. Only one of the two is displayed, so a screen reader hears it once. */}
+          {status !== undefined && status !== null && (
+            <span className="block text-meta tabular-nums text-ink-muted sm:hidden">{status}</span>
+          )}
         </span>
+        {status !== undefined && status !== null && (
+          <span className="shrink-0 text-meta tabular-nums text-ink-muted max-sm:hidden">{status}</span>
+        )}
         {/* The affordance, in words as well as a chevron: an icon alone is what GOV.UK's
             research says people fail to notice. `group-open:` swaps the pair. */}
         <span className="shrink-0 text-meta font-medium text-brand-strong">

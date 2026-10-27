@@ -10,7 +10,6 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 
-import { Section } from "@/components/console/section";
 import { Disclosure } from "@/components/ui";
 import { GST_STATUS_SENTENCE } from "@/lib/gstStatus";
 import type { CreditPacks } from "@/lib/api/billing";
@@ -111,7 +110,13 @@ export function WhatCallsCost({
   labels: TierLabels | undefined;
 }) {
   return (
-    <Section title="What calls cost">
+    <Disclosure
+      title="What calls cost"
+      icon={<ReceiptText className="h-4 w-4" />}
+      subtitle="1 credit is ₹1, calls are billed in 30-second steps, unanswered calls are free"
+      showLabel="Show"
+      hideLabel="Hide"
+    >
       {/* The per-minute rates themselves are on "Clear or Studio" above, from the server's
           comparison; this panel explains how they are charged. */}
       <p className="text-body text-ink-muted">
@@ -201,7 +206,7 @@ export function WhatCallsCost({
           able to.
         </Fact>
       </div>
-    </Section>
+    </Disclosure>
   );
 }
 

@@ -73,9 +73,8 @@ export function UnfinishedPayments({ session }: { session: Session }) {
         ))}
       </ul>
       <p className="mt-3 max-w-prose text-meta text-ink-muted">
-        To try again, choose an amount below and pay as usual — starting a new payment here
-        is always safe, because credit is only ever added once per payment that actually
-        goes through.
+        To try again, use Add credit. A new payment is always safe: credit is only ever
+        added once for each payment that goes through.
       </p>
     </Section>
   );
