@@ -613,3 +613,89 @@ async def test_a_failed_lead_link_leaves_the_callers_transaction_usable() -> Non
         await _link_dial_to_lead(session, call_id=call_id, lead_id=uuid.uuid4())
         await callbacks.settle(session, callback_id, status="failed", reason="test")
     assert (await _row(tenant_id, callback_id))["status"] == "failed"
+
+
+async def test_a_call_back_from_a_campaign_call_keeps_the_person_and_counts_for_the_campaign(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D-905: a call-back promised on a campaign call rings with the person's name, their row
+    of the list and the reason, and its call is the campaign's, so its results count it."""
+    from apps.api.campaigns import service as campaigns
+
+    tenant_id, agent_id = await _dialable_tenant()
+    async with tenant_session(tenant_id) as session:
+        campaign_id = await campaigns.create_campaign(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            name="Onboarding",
+            classification="service",
+            number_id=None,
+            dlt_template_id=None,
+            concurrency=1,
+            consent_source="existing_customer",
+            consent_collected_at=datetime.now(UTC) - timedelta(days=7),
+        )
+        await campaigns.add_contacts(
+            session,
+            tenant_id=tenant_id,
+            campaign_id=campaign_id,
+            contacts=[{"phone": CALLER, "name": "రాము", "Village": "Kondapur"}],
+        )
+        source_call = uuid7()
+        await session.execute(
+            text(
+                "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, status, "
+                "campaign_id, to_e164, created_at, updated_at) VALUES (:id, :t, :a, :e, "
+                "'outbound', 'completed', :c, :to, now(), now())"
+            ),
+            {
+                "id": source_call,
+                "t": tenant_id,
+                "a": agent_id,
+                "e": f"local:{source_call}",
+                "c": campaign_id,
+                "to": CALLER,
+            },
+        )
+        booked = await callbacks.book(
+            session,
+            callback_id=uuid7(),
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            source_call_id=source_call,
+            source_execution_id=f"exec_{uuid.uuid4().hex[:10]}",
+            lead_id=None,
+            phone_e164=CALLER,
+            requested_at=datetime.now(UTC) - timedelta(minutes=1),
+            booked_at=datetime.now(UTC),
+            note="call me on 9876543210 about the loan",
+            language="te",
+        )
+        await session.commit()
+    assert booked is not None
+
+    seen: list[CallContext] = []
+    engine = get_engine()
+    original = engine.start_outbound_call
+
+    async def _spy(ref: str, to: str, ctx: CallContext):  # type: ignore[no-untyped-def]
+        seen.append(ctx)
+        return await original(ref, to, ctx)
+
+    monkeypatch.setattr(engine, "start_outbound_call", _spy)
+    assert (await dispatch_due_callbacks(tenant_id, slots=5))["dialled"] == 1
+    ctx = seen[0]
+    assert ctx.lead_name == "రాము"
+    assert ctx.contact_details == {"Village": "Kondapur"}
+    # The note is the agent's summary of what the caller said: redacted before it is sent.
+    assert ctx.context_note and "9876543210" not in ctx.context_note
+    assert "loan" in ctx.context_note
+    row = await _row(tenant_id, booked[0])
+    async with tenant_session(tenant_id) as session:
+        stamped = (
+            await session.execute(
+                text("SELECT campaign_id FROM calls WHERE id = :id"), {"id": row["last_call_id"]}
+            )
+        ).scalar()
+    assert stamped == campaign_id

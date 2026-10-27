@@ -54,6 +54,12 @@ describe("reading a CSV", () => {
     expect(row.vars).toEqual({ appointment_time: "Tue 4pm" });
   });
 
+  it("takes the column headed name over one that only contains the word, and keeps any script", () => {
+    const [row] = entries("phone,Village name,Name\n9876543210,Kondapur,రామారావు");
+    expect(row.name).toBe("రామారావు");
+    expect(row.vars).toEqual({ "Village name": "Kondapur" });
+  });
+
   it("reads a file with no header as phone, then name", () => {
     const [row] = entries("9876543210,Priya,ignored");
     expect([row.phone, row.name, row.vars]).toEqual(["9876543210", "Priya", {}]);

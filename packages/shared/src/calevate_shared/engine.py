@@ -3176,9 +3176,134 @@ def without_this_call(prompt: str) -> str:
     return head if found else prompt
 
 
+#: The number being dialled (D-905), so the agent can confirm "the number we have" instead of
+#: asking for it. The national ten digits for an Indian number, which is how its owner says
+#: it. `phone` is also the key ThinnestAI fills from a contact of the workspace, "a value you
+#: send here wins" (docs.thinnest.ai api-reference/calls/place-call `variables`, read 27 Oct
+#: 2026), so an inbound caller who is a contact gets the line filled too. It is in the prompt
+#: for that call only: never logged (hard rule 6).
+PHONE_VARIABLE: Final = "phone"
+PHONE_LINE: Final = f"Number: {{{{{PHONE_VARIABLE}}}}}"
+
+#: The person's row of the client's list (`campaign_contacts.custom`), as one per-call value
+#: (D-905): `Village: Kondapur; Crop: cotton`. One line rather than one per column because the
+#: instructions are agent state published once, and a campaign's columns are not known until
+#: its list is uploaded; each column also travels as its own variable, so `{{village}}` works
+#: in the opening line and the script (`contact_call_variables`).
+DETAILS_VARIABLE: Final = "call_details"
+DETAILS_LINE: Final = f"Details: {{{{{DETAILS_VARIABLE}}}}}"
+
+#: Why we are ringing, when a dial has a reason the person may not remember (D-905): the
+#: call-back they asked for, or a follow-up to an earlier call (`CallContext.context_note`,
+#: redacted by its producers).
+REASON_VARIABLE: Final = "call_reason"
+REASON_LINE: Final = f"Why this call: {{{{{REASON_VARIABLE}}}}}"
+
+#: "Values cut to 150 characters" (place-call `variables`, read 27 Oct 2026). We cut first, on
+#: a whole item or word, so the vendor never cuts a word in half.
+CALL_VARIABLE_VALUE_MAX: Final = 150
+
+#: Variable names the platform fills; a list column of the same name never replaces them.
+PLATFORM_CALL_VARIABLES: Final = frozenset(
+    {
+        TODAY_VARIABLE,
+        NAME_VARIABLE,
+        PHONE_VARIABLE,
+        DETAILS_VARIABLE,
+        REASON_VARIABLE,
+        CALLER_HIDDEN_VARIABLE,
+        "caller_memory",
+    }
+)
+
+_CALL_VARIABLE_KEY: Final = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+_LABEL_MAX: Final = 40
+
+
+def places_calls(cfg: AgentConfig) -> bool:
+    """Whether this agent is set up to dial (outbound or both). An answering agent's prompt
+    stays as it was: it reads every turn of every inbound call, inside the per-call budget
+    (`tests/agent_prompt_budget_test.py`), for the rare call-back it dials itself."""
+    return cfg.direction != "inbound"
+
+
+def _one_line(value: object) -> str:
+    """A value as one spoken line: whitespace collapsed, our markers neutralised."""
+    return neutralise_markers(" ".join(str(value).split()))
+
+
+def _clip(value: str, limit: int) -> str:
+    """`value` cut to `limit` characters on a word boundary where there is one."""
+    if len(value) <= limit:
+        return value
+    cut = value[:limit]
+    space = cut.rfind(" ")
+    return (cut[:space] if space > limit // 2 else cut).rstrip(" ,;:")
+
+
+def call_variable_key(header: str) -> str | None:
+    """A list column's header as a variable name: `Village Name` -> `village_name`.
+
+    ThinnestAI lower-cases names and turns spaces into `_` (place-call `variables`); we also
+    fold every other non-letter into `_`, so a header names the same variable whichever way
+    it is spelt. A header with no Latin letter (a Telugu `ఊరు`) has no such name: its value
+    still reaches the agent through `DETAILS_LINE`."""
+    key = re.sub(r"[^a-z0-9]+", "_", header.strip().lower()).strip("_")
+    return key if _CALL_VARIABLE_KEY.match(key) else None
+
+
+def contact_call_variables(custom: dict[str, object] | None) -> dict[str, str]:
+    """A contact's list columns as call variables: names folded, values one line of at most
+    `CALL_VARIABLE_VALUE_MAX`, blank cells and the platform's own names left out. The first
+    column wins where two headers fold to one name."""
+    out: dict[str, str] = {}
+    for header, raw in (custom or {}).items():
+        key = call_variable_key(str(header))
+        value = _one_line(raw) if raw is not None else ""
+        if key is None or key in PLATFORM_CALL_VARIABLES or key in out or not value:
+            continue
+        out[key] = _clip(value, CALL_VARIABLE_VALUE_MAX)
+    return out
+
+
+def call_details_value(custom: dict[str, object] | None) -> str:
+    """`DETAILS_LINE`'s value: `Header: value` for each filled column, in the list's order,
+    whole items only up to `CALL_VARIABLE_VALUE_MAX`. Empty when the row has none."""
+    items: list[str] = []
+    used = 0
+    for header, raw in (custom or {}).items():
+        label = _clip(_one_line(header), _LABEL_MAX)
+        value = _one_line(raw) if raw is not None else ""
+        if not label or not value:
+            continue
+        item = _clip(f"{label}: {value}", CALL_VARIABLE_VALUE_MAX)
+        cost = len(item) + (2 if items else 0)
+        if used + cost > CALL_VARIABLE_VALUE_MAX:
+            break
+        items.append(item)
+        used += cost
+    return "; ".join(items)
+
+
+def call_reason_value(note: str | None) -> str:
+    """`REASON_LINE`'s value: the dial's context note as one line, cut on a word."""
+    return _clip(_one_line(note), CALL_VARIABLE_VALUE_MAX) if note else ""
+
+
+def phone_value(e164: str) -> str:
+    """The dialled number as its owner says it: ten digits for +91, else the digits."""
+    digits = re.sub(r"\D", "", e164)
+    return digits[2:] if e164.startswith("+91") and len(digits) == 12 else digits
+
+
 def _this_call_section(cfg: AgentConfig) -> str:
     """The per-call values this agent's rules read."""
-    lines = [TODAY_LINE, NAME_LINE, *([CALLER_HIDDEN_LINE] if cfg.forwarded_line else [])]
+    lines = [
+        TODAY_LINE,
+        NAME_LINE,
+        *([PHONE_LINE, DETAILS_LINE, REASON_LINE] if places_calls(cfg) else []),
+        *([CALLER_HIDDEN_LINE] if cfg.forwarded_line else []),
+    ]
     return "\n".join([THIS_CALL_HEADER, *lines])
 
 
@@ -4721,6 +4846,11 @@ class CallContext(BaseModel):
     # inherit it from, so the first caller to fill it would have shipped raw summary text
     # to the engine and out of the agent's mouth (SEC-COMP §4).
     fields: dict[str, str] = Field(default_factory=dict)
+    #: The person's row of the client's list, headers as written (`campaign_contacts.custom`,
+    #: D-905); a call-back carries the row of the campaign contact it follows. An adapter
+    #: renders it with `contact_call_variables` and `call_details_value`. Client data about
+    #: a person: dumped into vendor request bodies, never into a log line (hard rule 6).
+    contact_details: dict[str, str] = Field(default_factory=dict)
     #: WHAT THIS AGENT ALREADY KNOWS ABOUT THE PERSON BEING DIALLED — the recalled facts,
     #: newest first, at most `compliance.caller_memory.RECALL_LIMIT` of them (D-513).
     #:
@@ -6224,12 +6354,15 @@ __all__ = [
     "CALLER_MEMORY_VARIABLE",
     "CALL_INSTRUCTIONS",
     "CALL_NUMBER_RULE",
+    "CALL_VARIABLE_VALUE_MAX",
     "CANNOT_HELP_HEADER",
     "CLIENT_SCRIPT_CLOSE",
     "CLIENT_SCRIPT_OPEN",
     "CONFIDENTIALITY_MARKER",
     "CONFIDENTIALITY_RULE",
     "DAYS_RULE",
+    "DETAILS_LINE",
+    "DETAILS_VARIABLE",
     "E164",
     "EMBEDDING_MODELS",
     "FACTS_INLINE_GUIDANCE",
@@ -6242,10 +6375,15 @@ __all__ = [
     "NAME_VARIABLE",
     "OPENING_CONTINUES_RULE",
     "OWN_RULES_HANDOVER_RULE",
+    "PHONE_LINE",
+    "PHONE_VARIABLE",
     "PIPECAT_REF_PREFIX",
+    "PLATFORM_CALL_VARIABLES",
     "PLATFORM_RULES_HEADER",
     "PLATFORM_RULES_PREAMBLE",
     "PLATFORM_RULES_TAIL_HEADER",
+    "REASON_LINE",
+    "REASON_VARIABLE",
     "REPLY_TOKENS_DEFAULT",
     "REPLY_TOKENS_MAX",
     "REPLY_TOKENS_MIN",
@@ -6312,9 +6450,15 @@ __all__ = [
     "VoiceEngine",
     "WebhookAuthMethod",
     "WebhookVerdict",
+    "call_details_value",
+    "call_reason_value",
+    "call_variable_key",
+    "contact_call_variables",
     "engine_prompt_layers",
     "fill_caller_memory_slot",
     "neutralise_markers",
+    "phone_value",
+    "places_calls",
     "platform_rules_preamble",
     "render_caller_memory",
     "role_sentence",

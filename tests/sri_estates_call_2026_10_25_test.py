@@ -39,6 +39,7 @@ from calevate_shared.engine import (
     DAYS_RULE,
     NAME_LINE,
     NAME_RULE,
+    THIS_CALL_HEADER,
     TODAY_LINE,
     VOICE_STYLE_GUIDANCE,
     AgentConfig,
@@ -126,7 +127,7 @@ def test_today_is_the_ist_day_with_its_weekday() -> None:
 def test_every_agent_reads_today_and_the_name_and_the_rules_that_use_them() -> None:
     for direction in ("outbound", "inbound", "both"):
         prompt = compose_engine_prompt(_anjali(direction=direction))
-        assert prompt.endswith(f"{TODAY_LINE}\n{NAME_LINE}")
+        assert f"{THIS_CALL_HEADER}\n{TODAY_LINE}\n{NAME_LINE}" in prompt
         # The rules sit with the others after the client script, before the floor.
         for rule in (NAME_RULE, DAYS_RULE):
             assert prompt.index(rule) > prompt.index(OPENING)

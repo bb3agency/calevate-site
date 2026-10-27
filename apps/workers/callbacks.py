@@ -19,6 +19,7 @@ from calevate_shared.calling_window import ist_wall_clock
 
 from apps.api.agents.service import DialUnconfirmedError, dispatch_call
 from apps.api.callbacks import service as callbacks
+from apps.api.campaigns.contact_details import call_origin
 from apps.api.compliance.platform_dnc import ENGINE_PERSON_REFUSALS
 from apps.api.compliance.service import (
     BIG_RED_SWITCH_REASON,
@@ -205,6 +206,14 @@ async def dispatch_due_callbacks(tenant_id: UUID, slots: int) -> dict[str, int]:
                 )
                 continue
 
+            # Who it is for and what they asked, from the call it was promised on: their name,
+            # their row of a campaign's list, and the campaign, which counts this call too.
+            origin = await call_origin(
+                session,
+                source_call_id=callback.source_call_id,
+                lead_id=callback.lead_id,
+                phone_e164=callback.phone_e164,
+            )
             try:
                 # THE ONE OUTBOUND ENTRY POINT. Not a parallel dial path: everything a dial
                 # is supposed to inherit — the A/B arm, the resolved DLT header, the intent
@@ -218,11 +227,14 @@ async def dispatch_due_callbacks(tenant_id: UUID, slots: int) -> dict[str, int]:
                     agent_id=callback.agent_id,
                     lead_id=callback.lead_id,
                     phone_e164=callback.phone_e164,
-                    lead_name=None,
+                    lead_name=origin.name,
                     context_note=callbacks.context_note(
                         callback.requested_at, callback.note, source=callback.source_execution_id
                     ),
-                    on_reserved=callbacks.link_callback_to_call(callback.id),
+                    on_reserved=callbacks.link_callback_to_call(
+                        callback.id, campaign_id=origin.campaign_id
+                    ),
+                    contact_details=origin.details,
                 )
             except DialUnconfirmedError as unconfirmed:
                 await callbacks.settle(

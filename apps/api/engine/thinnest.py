@@ -54,8 +54,11 @@ from calevate_shared.call_script import business_line_of, substitute_variables
 from calevate_shared.calling_window import CALLING_HOURS_RULE, DEFAULT_WINDOW
 from calevate_shared.engine import (
     CALL_INSTRUCTIONS,
+    DETAILS_VARIABLE,
     E164,
     NAME_VARIABLE,
+    PHONE_VARIABLE,
+    REASON_VARIABLE,
     TODAY_VARIABLE,
     AccountKBListing,
     AccountKBObject,
@@ -80,9 +83,13 @@ from calevate_shared.engine import (
     ProvisionedNumber,
     RecallOutcome,
     WebhookVerdict,
+    call_details_value,
+    call_reason_value,
     compose_engine_prompt,
     compose_first_utterance,
+    contact_call_variables,
     neutralise_markers,
+    phone_value,
     today_value,
 )
 from calevate_shared.engine_scope import raw_of, scoped_handle
@@ -558,6 +565,37 @@ def _tidy_spoken(text: str) -> str:
     """
     collapsed = re.sub(r"[ \t]{2,}", " ", text)
     return re.sub(r"[ \t]+([,.!?])", r"\1", collapsed).strip()
+
+
+def _dial_variables(to: str, ctx: CallContext) -> dict[str, str]:
+    """Place Call's `variables` for one dial: at most `CALL_VARIABLES_MAX`, values within
+    `CALL_VARIABLE_VALUE_MAX` (place-call `variables`, read 27 Oct 2026).
+
+    Who wins a name: the platform's own values, then the client's caller lookup, then the
+    person's list columns (D-905). When they do not all fit, list columns are left out last
+    column first: their values still reach the agent on `DETAILS_LINE`. Only a dial whose
+    platform and lookup values alone are over the limit is refused.
+    """
+    columns = contact_call_variables(dict(ctx.contact_details))
+    platform: dict[str, str] = {
+        PHONE_VARIABLE: phone_value(to),
+        DETAILS_VARIABLE: call_details_value(dict(ctx.contact_details)),
+        REASON_VARIABLE: call_reason_value(ctx.context_note),
+    }
+    if ctx.lead_name:
+        platform[NAME_VARIABLE] = ctx.lead_name
+    named = {**ctx.fields, **{key: value for key, value in platform.items() if value}}
+    # The engine fills these into the instructions: each passes the prompt's one marker
+    # gate, so an uploaded lead's name or field cannot write a platform section.
+    named = {key: neutralise_markers(value) for key, value in named.items()}
+    # The instructions' `TODAY_LINE` (D-888). Taken at the dial: `ifOutsideHours: refuse`
+    # means the call rings now or never, so the day cannot move under it.
+    named[TODAY_VARIABLE] = today_value(datetime.now(UTC))
+    if len(named) > CALL_VARIABLES_MAX:
+        raise _dial_precondition_failed(missing=f"room for {len(named)} call variables")
+    room = CALL_VARIABLES_MAX - len(named)
+    extra = [(key, value) for key, value in columns.items() if key not in named][:room]
+    return {**dict(extra), **named}
 
 
 def _parse_dt(value: Any) -> datetime | None:
@@ -3127,17 +3165,7 @@ class ThinnestEngine:
         """
         # The truthful-answer rule is agent-record state on this engine, verified at publish.
         require_call_compliance_floor(engine=self, prompt_on_the_wire=None)
-        variables: dict[str, str] = dict(ctx.fields)
-        if ctx.lead_name:
-            variables[NAME_VARIABLE] = ctx.lead_name
-        # The engine fills these into the instructions: each passes the prompt's one marker
-        # gate, so an uploaded lead's name or field cannot write a platform section.
-        variables = {key: neutralise_markers(value) for key, value in variables.items()}
-        # The instructions' `TODAY_LINE` (D-888). Taken at the dial: `ifOutsideHours: refuse`
-        # means the call rings now or never, so the day cannot move under it.
-        variables[TODAY_VARIABLE] = today_value(datetime.now(UTC))
-        if len(variables) > CALL_VARIABLES_MAX:
-            raise _dial_precondition_failed(missing=f"room for {len(variables)} call variables")
+        variables = _dial_variables(to, ctx)
         raw_agent, workspace = self._at(ref)
         # `purpose` is per call ("Why you are calling, as you would say it — the first thing
         # the customer hears", place-call.md:783-789, 19 Oct 2026 snapshot), so a dial that

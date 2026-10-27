@@ -3849,6 +3849,7 @@ async def dispatch_call(
     number_id: UUID | None = None,
     owner_test: OwnerTestDial | None = None,
     rings_at_any_hour: bool = False,
+    contact_details: dict[str, str] | None = None,
 ) -> str:
     """Place ONE outbound call. The caller has already passed the compliance gate.
 
@@ -3925,6 +3926,9 @@ async def dispatch_call(
 
     `rings_at_any_hour` is the owner's own-number test call (D-866), the one dial the gate
     lets ring outside the window; every other dial carries the window to the engine (D-872).
+
+    `contact_details` is the person's row of the client's list (`campaign_contacts.custom`,
+    D-905), which the engine hands the agent as call variables.
     """
     if rings_at_any_hour and trial is None and owner_test is None:
         # Only a test call can be exempt from the window; a campaign, callback or lead dial
@@ -4052,6 +4056,7 @@ async def dispatch_call(
                 lead_id=str(lead_id) if lead_id else None,
                 lead_name=lead_name or prefill.name,
                 fields=prefill.variables,
+                contact_details=dict(contact_details or {}),
                 context_note=context_note,
                 # WHAT THIS AGENT ALREADY KNOWS ABOUT THE PERSON BEING DIALLED (D-513).
                 # Resolved HERE because this function is the platform's single outbound

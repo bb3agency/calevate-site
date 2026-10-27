@@ -1709,3 +1709,28 @@ async def test_a_dial_the_vendor_accepted_is_not_dialled_again_when_its_bookkeep
     monkeypatch.setattr(agents_service, "tenant_session", real_session)
     again = await _tick_one_campaign(tenant_id, campaign_id, slots=1)
     assert again["dialled"] == 0 and len(rung) == 1, "the person was rung twice"
+
+
+async def test_a_contacts_list_columns_ride_its_dial(monkeypatch: pytest.MonkeyPatch) -> None:
+    """D-905: the row's own columns reach the engine on the campaign's dial; a blank cell is
+    no value. They were stored and then dropped at the claim."""
+    tenant_id, _, campaign_id, _, _ = await _launched(phones=("9876600001",))
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE campaign_contacts SET name = 'సీత', "
+                "custom = CAST(:c AS jsonb) WHERE campaign_id = :id"
+            ),
+            {"c": '{"Village": "Kondapur", "Crop": ""}', "id": campaign_id},
+        )
+    seen: list[CallContext] = []
+    original = FakeEngine.start_outbound_call
+
+    async def _spy(self: FakeEngine, ref: str, to: str, ctx: CallContext) -> str:
+        seen.append(ctx)
+        return await original(self, ref, to, ctx)
+
+    monkeypatch.setattr(FakeEngine, "start_outbound_call", _spy)
+    assert (await _tick_one_campaign(tenant_id, campaign_id, slots=1))["dialled"] == 1
+    assert seen[0].lead_name == "సీత"
+    assert seen[0].contact_details == {"Village": "Kondapur"}
