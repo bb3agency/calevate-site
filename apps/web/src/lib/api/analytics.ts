@@ -65,7 +65,48 @@ export const analyticsKeys = {
   timeline: (org: string, args: object) => ["analytics", org, "timeline", args] as const,
   campaigns: (org: string, args: object) => ["analytics", org, "campaigns", args] as const,
   stats: (org: string, args: object) => ["analytics", org, "stats", args] as const,
+  summary: (org: string, args: object) => ["analytics", org, "summary", args] as const,
+  callGroups: (org: string, args: object) => ["analytics", org, "call-groups", args] as const,
 };
+
+export type Summary = Schemas["SummaryOut"];
+export type SummaryRow = Schemas["SummaryRowOut"];
+export type SummaryBucket = Summary["bucket"];
+export type CallGroups = Schemas["CallGroupsOut"];
+export type CallGroup = Schemas["CallGroupOut"];
+export type CallGroupBy = CallGroups["by"];
+
+/** Calls, answered, new leads and wallet spend per IST day, Monday-first week or month.
+ *  Spend is null with `spend_withheld` for a reader without billing, or one agent picked. */
+export function useActivitySummary(
+  session: Session,
+  range: AnalyticsRange & { bucket: SummaryBucket },
+): UseQueryResult<Summary> {
+  const params = { ...rangeParams(range), bucket: range.bucket };
+  return useQuery({
+    queryKey: analyticsKeys.summary(session.orgSlug, params),
+    queryFn: () => apiRequest<Summary>(session, `/v1/analytics/summary${search(params)}`),
+  });
+}
+
+/** Every call in the range counted per caller, outcome or agent; the counts cover every
+ *  call even when `groups` is cut to `limit`. `minCalls: 2` with `by: "caller"` lists
+ *  repeat callers. */
+export function useCallGroups(
+  session: Session,
+  range: AnalyticsRange & { by: CallGroupBy; minCalls?: number; limit?: number },
+): UseQueryResult<CallGroups> {
+  const params = {
+    ...rangeParams(range),
+    by: range.by,
+    min_calls: range.minCalls,
+    limit: range.limit,
+  };
+  return useQuery({
+    queryKey: analyticsKeys.callGroups(session.orgSlug, params),
+    queryFn: () => apiRequest<CallGroups>(session, `/v1/analytics/call-groups${search(params)}`),
+  });
+}
 
 /** Calls (or new leads) per IST weekday × hour; always 168 cells, Monday 00:00 first. */
 export function useActivityHeatmap(

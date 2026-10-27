@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import PerformancePage from "@/app/c/[slug]/performance/page";
 import { clampRange } from "@/app/c/[slug]/performance/PerformanceScreen";
 import { todayIST } from "@/components/arc/ist-dates";
-import type { Durations, Heatmap, Stats, Timeline } from "@/lib/api/analytics";
+import type { CallGroups, Durations, Heatmap, Stats, Summary, Timeline } from "@/lib/api/analytics";
 import type { Me } from "@/lib/api/client";
 import type { Performance } from "@/lib/api/performance";
 
@@ -49,7 +49,42 @@ const PATHS = {
   durations: `/v1/analytics/durations?${Q}&group_by=agent&bin_s=30`,
   timeline: `/v1/analytics/timeline?days=90&to=${TODAY}&test_calls=true`,
   performance: `/v1/performance?days=30&to=${TODAY}`,
+  summary: `/v1/analytics/summary?${Q}&bucket=week`,
+  groups: `/v1/analytics/call-groups?days=30&to=${TODAY}&test_calls=false&by=caller&min_calls=2&limit=25`,
 };
+
+function summary(over: Partial<Summary> = {}): Summary {
+  return {
+    window: WINDOW,
+    bucket: "week",
+    rows: [
+      { from_date: "2026-10-19", to_date: "2026-10-25", calls: 12, answered: 9, leads: 3, spent_inr: "1240.50" },
+      { from_date: "2026-10-26", to_date: TODAY, calls: 4, answered: 4, leads: 1, spent_inr: "310.00" },
+    ],
+    calls: 16,
+    answered: 13,
+    leads: 4,
+    spent_inr: "1550.50",
+    spend_withheld: null,
+    ...over,
+  };
+}
+
+function groups(over: Partial<CallGroups> = {}): CallGroups {
+  return {
+    window: WINDOW,
+    by: "caller",
+    calls: 16,
+    groups_total: 2,
+    repeat_groups: 2,
+    min_calls: 2,
+    groups: [
+      { key: "l1", label: "Ravi Kumar", lead_id: "0192f0aa-0000-7000-8000-00000000000a", number_tail: "42", calls: 3, answered: 2, latest_at: "2026-10-26T09:30:00Z", latest_outcome: "call_back_booked" },
+      { key: "number", label: null, lead_id: null, number_tail: "07", calls: 2, answered: 0, latest_at: "2026-10-25T05:00:00Z", latest_outcome: "missed" },
+    ],
+    ...over,
+  };
+}
 
 type MetricKey = Stats["metrics"][number]["key"];
 
@@ -117,6 +152,8 @@ function routes(over: Record<string, unknown> = {}) {
     [PATHS.durations]: durations(),
     [PATHS.timeline]: timeline(),
     [PATHS.performance]: performance(),
+    [PATHS.summary]: summary(),
+    [PATHS.groups]: groups(),
     ...over,
   };
 }
@@ -201,6 +238,7 @@ describe("the performance report", () => {
         [`/v1/analytics/durations?${without}&group_by=agent&bin_s=30`]: durations(),
         [`/v1/analytics/timeline?days=90&to=${TODAY}&test_calls=false`]: timeline(),
         [`/v1/performance?days=30&to=${TODAY}&test_calls=false`]: performance(),
+        [`/v1/analytics/summary?${without}&bucket=week`]: summary(),
       }),
     );
     const toggle = await screen.findByRole("switch", { name: "Include my test calls" });
@@ -220,9 +258,60 @@ describe("the performance report", () => {
       [PATHS.durations]: problem(403, { title: "Forbidden" }),
       [PATHS.timeline]: problem(403, { title: "Forbidden" }),
       [PATHS.performance]: problem(403, { title: "Forbidden" }),
+      [PATHS.summary]: problem(403, { title: "Forbidden" }),
+      [PATHS.groups]: problem(403, { title: "Forbidden" }),
     });
     await screen.findByText(/permission to read call records/);
     expect(screen.queryByRole("alert"), "a permission is not a fault").toBeNull();
     expect(container.textContent).not.toContain("Answer rate");
+  });
+});
+
+describe("the period table and who called (D-893 L7)", () => {
+  it("shows the server's weeks with spend, newest first, and asks again by month", async () => {
+    const monthPath = `/v1/analytics/summary?${Q}&bucket=month`;
+    const { calls } = await renderClientPage(
+      page,
+      routes({ [monthPath]: summary({ bucket: "month", rows: [] }) }),
+    );
+    const table = await screen.findByRole("table", { name: /by week, newest first/ });
+    const rows = within(table).getAllByRole("row");
+    // The header, then the newest week first.
+    expect(rows[1].textContent).toContain("310.00");
+    expect(table.textContent).toContain("1,240.50");
+    expect(screen.getByText(/16 calls, 13 answered, 4 new leads, ₹1,550\.50 spent/)).toBeTruthy();
+    await act(async () => fireEvent.click(screen.getByRole("radio", { name: "Month" })));
+    await waitFor(() => expect(calls.some((call) => call.path === monthPath)).toBe(true));
+  });
+
+  it("says spend is for people who can see billing when the server withholds it", async () => {
+    const { container } = await renderClientPage(
+      page,
+      routes({
+        [PATHS.summary]: summary({
+          spent_inr: null,
+          spend_withheld: "no_billing_access",
+          rows: summary().rows.map((row) => ({ ...row, spent_inr: null })),
+        }),
+      }),
+    );
+    await screen.findByText("Spend is shown to people who can see billing.");
+    expect(container.textContent).not.toContain("1,240.50");
+  });
+
+  it("counts repeat callers over every call and links each to its lead", async () => {
+    await renderClientPage(page, routes());
+    await screen.findByText("16 calls. 2 callers called more than once.");
+    const link = screen.getByRole("link", { name: /Ravi Kumar · ends 42/ });
+    expect(link.getAttribute("href")).toBe("/c/acme/leads/0192f0aa-0000-7000-8000-00000000000a");
+    expect(screen.getByText("No lead yet · ends 07")).toBeTruthy();
+  });
+
+  it("says nobody called twice rather than showing an empty table", async () => {
+    await renderClientPage(
+      page,
+      routes({ [PATHS.groups]: groups({ repeat_groups: 0, groups_total: 0, groups: [] }) }),
+    );
+    await screen.findByText("Nobody called more than once in this period.");
   });
 });
