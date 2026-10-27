@@ -105,10 +105,6 @@ class AgentOut(BaseModel):
     caller_memory_statement: str | None = None
     #: The caller follows the agent's steps on a screen of their own (D-906).
     caller_has_screen: bool = False
-    #: On live calls a general rule against mentioning buttons still reaches this agent, which
-    #: the switch above cannot remove: true while the voice platform's own call rules are used
-    #: instead of ours (D-850, `thinnest_call_instructions`).
-    caller_has_screen_limited: bool = False
     #: The NOTICES this agent says after its opening line, composed by the server from the
     #: two switches. Empty string = both off: the agent volunteers neither and opens on its
     #: opening line. Composed here rather than left to the screen because a UI that

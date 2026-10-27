@@ -3137,10 +3137,10 @@ CALL_INSTRUCTIONS: Final = (
 #: The call frame of an agent whose caller follows along on a screen (D-906): what the caller
 #: sees is their own screen, never what the agent writes, so naming the buttons on it is
 #: allowed and the agent's own lists, links and images still are not. The steps themselves
-#: are HOW TO SPEAK's (`screen_steps_bullet`), which the practice chat reads too. While the
-#: engine's default call rules are in force instead of ours, their "never refer to lists,
-#: links, buttons or images" still reaches the model on calls and nothing of ours removes it
-#: (`docs/vendor/thinnest-speaking-rules-2026-10-18.md`); the client's switch says so.
+#: are HOW TO SPEAK's (`screen_steps_bullet`), which the practice chat reads too. A screen
+#: agent always sends this (`sends_our_call_rules`): the engine's default call rules say
+#: "never refer to lists, links, buttons or images" (`docs/vendor/thinnest-speaking-rules-
+#: 2026-10-18.md`), and only replacing them removes that sentence.
 SCREEN_CALL_INSTRUCTIONS: Final = (
     "You are on a phone call, speaking out loud: the caller hears every word and sees only "
     "their own screen, never what you write, so never mention lists, links or images of yours."
@@ -3148,8 +3148,16 @@ SCREEN_CALL_INSTRUCTIONS: Final = (
 
 
 def call_instructions(cfg: AgentConfig) -> str:
-    """Our call frame for this agent, sent while `engine_call_instructions` is on."""
+    """Our call frame for this agent, sent while `sends_our_call_rules` holds."""
     return SCREEN_CALL_INSTRUCTIONS if cfg.caller_has_screen else CALL_INSTRUCTIONS
+
+
+def sends_our_call_rules(cfg: AgentConfig) -> bool:
+    """Whether this agent's call rules are ours rather than the engine's defaults: the
+    console's switch (`engine_call_instructions`, D-850, gate T-33), or a screen agent
+    whatever that switch says (founder, 27 Oct 2026, D-906), because the defaults forbid
+    naming buttons. The publish body, the drift sweep and the size report all read this."""
+    return cfg.engine_call_instructions or cfg.caller_has_screen
 
 
 #: The number a call is on is already the lead's (`leads.phone_e164` comes from the call), so
@@ -6387,6 +6395,7 @@ __all__ = [
     "render_caller_memory",
     "role_sentence",
     "screen_steps_bullet",
+    "sends_our_call_rules",
     "tenant_of_pipecat_ref",
     "today_value",
     "without_this_call",

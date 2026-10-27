@@ -12,12 +12,13 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 
 import pytest
-from apps.api.agents import publishing, roster
+from apps.api.agents import prompt_size, publishing, roster
 from apps.api.agents.service import _load_agent, _to_config
 from apps.api.agents.turn_checks import caller_says_done, claims_done, conversation_problems
 from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session
-from apps.api.engine import get_engine
+from apps.api.engine import get_engine, thinnest
+from apps.api.engine.thinnest import CALL_INSTRUCTIONS_FIELD, ThinnestEngine
 from apps.api.main import app
 from apps.workers.agent_test_ai import SCREEN_BRIEF_LINE, brief_text
 from calevate_shared.engine import (
@@ -29,12 +30,15 @@ from calevate_shared.engine import (
     compose_engine_prompt,
     engine_prompt_layers,
     screen_steps_bullet,
+    sends_our_call_rules,
 )
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from tests.agent_test_loop_test import BRIEF
 from tests.api_security_test import _make_tenant
 from tests.conftest import create_org_with_receptionist
+from tests.thinnest_engine_test import _cfg as engine_cfg
+from tests.thinnest_publish_limits_test import _thinnest
 
 
 def _cfg(language: str = "te-IN", **kw: object) -> AgentConfig:
@@ -208,6 +212,40 @@ async def test_the_owner_switches_it_over_http_and_the_flip_is_audited() -> None
             )
         ).scalars()
         assert "agent.caller_has_screen_enabled" in set(actions)
+
+
+def _drift_when_held_as_sent(engine: ThinnestEngine, cfg: AgentConfig) -> list[str]:
+    body = engine._agent_body(cfg)
+    return thinnest._settings_drift(body, body)
+
+
+def test_a_screen_agent_sends_our_rules_with_the_console_switch_off() -> None:
+    """Founder, 27 Oct 2026: whatever `thinnest_call_instructions` says."""
+    engine = ThinnestEngine(api_key="ta_live_test")
+    screen = engine_cfg(caller_has_screen=True)
+    assert screen.engine_call_instructions is False and sends_our_call_rules(screen)
+    body = engine._agent_body(screen)
+    assert body["voice"][CALL_INSTRUCTIONS_FIELD] == SCREEN_CALL_INSTRUCTIONS
+    assert _drift_when_held_as_sent(engine, screen) == []
+    held_defaults = {**body, "voice": {**body["voice"], CALL_INSTRUCTIONS_FIELD: None}}
+    assert thinnest._settings_drift(body, held_defaults) == ["call_instructions"]
+
+
+def test_any_other_agent_keeps_the_defaults_while_the_switch_is_off() -> None:
+    engine = ThinnestEngine(api_key="ta_live_test")
+    plain = engine_cfg()
+    assert not sends_our_call_rules(plain)
+    assert engine._agent_body(plain)["voice"][CALL_INSTRUCTIONS_FIELD] is None
+    assert _drift_when_held_as_sent(engine, plain) == []
+    on = engine_cfg(engine_call_instructions=True)
+    assert engine._agent_body(on)["voice"][CALL_INSTRUCTIONS_FIELD] == CALL_INSTRUCTIONS
+
+
+def test_the_size_report_counts_our_frame_for_a_screen_agent() -> None:
+    screen = prompt_size.measure_config(engine_cfg(caller_has_screen=True), _thinnest())
+    plain = prompt_size.measure_config(engine_cfg(), _thinnest())
+    assert (screen.call_rules, screen.call_rules_ours) == (len(SCREEN_CALL_INSTRUCTIONS), True)
+    assert plain.call_rules_ours is False
 
 
 async def test_an_unknown_agent_is_not_found() -> None:

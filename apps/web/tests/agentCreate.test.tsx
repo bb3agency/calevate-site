@@ -100,7 +100,6 @@ function created(over: Partial<Agent> = {}): Agent {
     caller_memory_enabled: false,
     caller_memory_paused: false,
     caller_has_screen: false,
-    caller_has_screen_limited: false,
     recording_notice_enabled: false,
     opening_line: "",
     script_opening_line: "",

@@ -190,6 +190,7 @@ def platform_prompt_revision() -> str:
         AgentConfig,
         compose_engine_prompt,
         join_first_words,
+        sends_our_call_rules,
     )
     from calevate_shared.languages import offered_language_tags
 
@@ -237,8 +238,14 @@ def platform_prompt_revision() -> str:
             caller_has_screen=callbacks,
         )
         parts.append(compose_engine_prompt(cfg))
-    # Our call rules (D-850), sent beside the prompt while their switch is on.
+    # Our call rules (D-850), and which agents send them with the console's switch off: a
+    # screen agent does (D-906), so a change to that rule republishes every live agent.
     parts += [CALL_INSTRUCTIONS, SCREEN_CALL_INSTRUCTIONS]
+    for screen in (False, True):
+        off = cfg.model_copy(
+            update={"engine_call_instructions": False, "caller_has_screen": screen}
+        )
+        parts.append(f"ours with the switch off, screen {screen}: {sends_our_call_rules(off)}")
     # How the greeting field orders the opening line and the notices (D-861), and the
     # introduction with its salutation in each language that has one (D-865), which the
     # reference agents above cannot show: their script has no opening line.

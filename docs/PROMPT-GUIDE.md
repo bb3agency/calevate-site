@@ -47,8 +47,8 @@ script text: on, the platform tells it to give one step a turn, name each on-scr
 word for word in the call's letters, wait for "done", say a failed step again shorter, and
 spell a web address by English letter names (`spoken_style.json` `spelled_address`). A
 script for such an agent lists the steps and the exact labels; it does not need to restate
-how to speak them. Until the platform's own call rules are replaced by ours, a general rule
-against mentioning buttons still reaches the model on live calls, so check a real test call.
+how to speak them. Such an agent always carries our call rules instead of the voice
+platform's defaults, which forbid mentioning buttons.
 
 ## 2. Prompt structure (template order matters for TTFT and adherence)
 

@@ -83,6 +83,7 @@ from calevate_shared.engine import (
     compose_engine_prompt,
     compose_first_utterance,
     neutralise_markers,
+    sends_our_call_rules,
     today_value,
 )
 from calevate_shared.engine_scope import raw_of, scoped_handle
@@ -2167,15 +2168,16 @@ class ThinnestEngine:
             # decimals, 0.05-1 (same page); we hold whole percent.
             "ambience": cfg.ambience,
             "ambienceVolume": round(cfg.ambience_volume_pct / 100, 2),
-            # Our call rules in place of the engine's defaults (D-850), or `null` for the
-            # defaults; always stated, so switching off puts every agent back on them.
+            # Our call rules in place of the engine's defaults (D-850; always for a screen
+            # agent, D-906), or `null` for the defaults; always stated, so switching off puts
+            # every other agent back on them.
             CALL_INSTRUCTIONS_FIELD: self._within(
                 call_instructions(cfg),
                 CALL_INSTRUCTIONS_MAX_CHARS,
                 code="engine_call_instructions_too_long",
                 what="call rules",
             )
-            if cfg.engine_call_instructions
+            if sends_our_call_rules(cfg)
             else None,
             **PLATFORM_VOICE_VALUES,
         }

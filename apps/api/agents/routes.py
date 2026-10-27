@@ -1344,9 +1344,6 @@ class CallerScreenOut(BaseModel):
         "phone: on, it may name what is on their screen, gives one step at a time and waits "
         "until they say it is done, says a step again more shortly when they could not do it, "
         "and spells a web address letter by letter. Off for every agent unless switched on.\n\n"
-        "`caller_has_screen_limited` on the agent says when a general rule against "
-        "mentioning buttons still reaches the agent on live calls; this switch cannot "
-        "remove it there.\n\n"
         "Applies immediately: a live agent is re-published to the voice platform in the "
         "same transaction, and if that push fails nothing is saved."
     ),

@@ -57,7 +57,6 @@ from apps.api.agents.schemas import AgentOut, GreetingBudgetOut
 from apps.api.billing.rates import llm_surcharge_applies
 from apps.api.compliance.caller_memory import CALLER_MEMORY_ATTESTATION, statement_is_current
 from apps.api.compliance.disclosure import truthful_answer_promise
-from apps.api.core.settings import get_settings
 from apps.api.engine import engine_capabilities, get_engine
 
 #: The roster query, spelled once and reached from every reader (D-302).
@@ -120,12 +119,6 @@ AGENT_ROSTER_SQL = (
 AGENT_ROSTER_LIMIT = 200
 
 
-def _engine_call_rules_in_force() -> bool:
-    """The engine's own call rules, which forbid mentioning buttons, are read on calls in
-    place of ours (D-850): the same test `agents/service._to_config` publishes with."""
-    return get_settings().engine == "thinnest" and not get_settings().thinnest_call_instructions
-
-
 def agent_out(r: Any) -> AgentOut:
     """One roster row as the wire model. THE ONLY mapper for that query."""
     # Through the ONE resolver (`agents/llm_models.py`), so the roster, the detail route
@@ -184,7 +177,6 @@ def agent_out(r: Any) -> AgentOut:
         caller_memory_paused=paused,
         caller_memory_statement=CALLER_MEMORY_ATTESTATION if paused else None,
         caller_has_screen=bool(r[25]),
-        caller_has_screen_limited=bool(r[25]) and _engine_call_rules_in_force(),
         archived_at=r[13],
         inbound_number_count=int(r[14]),
         llm_tier=tier_of_model(r[15]),

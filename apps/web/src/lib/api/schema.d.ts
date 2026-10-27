@@ -3760,8 +3760,6 @@ export interface paths {
          * Say whether callers follow this agent's steps on a screen of their own (D-906)
          * @description For an agent that walks callers through an app or a website while they hold the phone: on, it may name what is on their screen, gives one step at a time and waits until they say it is done, says a step again more shortly when they could not do it, and spells a web address letter by letter. Off for every agent unless switched on.
          *
-         *     `caller_has_screen_limited` on the agent says when a general rule against mentioning buttons still reaches the agent on live calls; this switch cannot remove it there.
-         *
          *     Applies immediately: a live agent is re-published to the voice platform in the same transaction, and if that push fails nothing is saved.
          */
         patch: operations["set_caller_screen_route_v1_agents__agent_id__caller_screen_patch"];
@@ -13501,11 +13499,6 @@ export interface components {
              * @default false
              */
             caller_has_screen: boolean;
-            /**
-             * Caller Has Screen Limited
-             * @default false
-             */
-            caller_has_screen_limited: boolean;
             /** Caller Memory Enabled */
             caller_memory_enabled: boolean;
             /** Caller Memory Notice Line */
