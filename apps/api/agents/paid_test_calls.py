@@ -20,8 +20,12 @@ Either way the call is marked `calls.paid_test_call`, billed at the normal rates
 ordinary post-call metering (the meter debits any call a trial does not cover,
 `trials.trial_covers`), and passes the same dial gate as every test call (halt, account, agent
 and its truthful answers, pledge, agreements, spend cap, credits, calling hours, India only,
-the do-not-call list and consent). Its limits are the trial's console settings: today's cap
-(`trial_daily_call_cap`) and one call's length (`trial_call_max_seconds`).
+the do-not-call list and consent). Today's cap is the trial's console setting
+(`trial_daily_call_cap`). One call's length depends on the line (D-904): from the client's own
+number it is the agent's own longest-call setting, at most `OWN_NUMBER_TEST_MAX_SECONDS`, so a
+guided 5 to 10 minute call can be rehearsed as callers will hear it; on the shared trial line
+it stays `trial_call_max_seconds`, because that one number serves every account's test calls
+one at a time and a long rehearsal would hold it for everybody.
 """
 
 from __future__ import annotations
@@ -41,6 +45,9 @@ from apps.api.core.settings import get_settings
 from apps.api.tenancy.engine_workspace import resolve_workspace
 
 DAILY_CAP_RULE: Final = "paid_test_daily_cap"
+#: The longest a paying account's test call from its own number may run, whatever the agent's
+#: own longest-call setting (D-904).
+OWN_NUMBER_TEST_MAX_SECONDS: Final = 15 * 60
 
 #: Which line a paid test call rings from: the client's own number, or the shared trial line
 #: through the agent's developer-workspace engine agent (`copy` when that is its test copy,
@@ -51,13 +58,23 @@ PLACED_TODAY_SQL: Final = (
     "SELECT count(*) FROM calls WHERE tenant_id = :tid AND paid_test_call "
     "AND created_at >= :since AND not_placed_reason IS NULL"
 )
-#: The agent's status, direction, vendor agent and the vendor handles of its numbers.
+#: The agent's status, direction, vendor agent, the vendor handles of its numbers, and its own
+#: longest-call setting.
 _AGENT_LINE_SQL: Final = (
     "SELECT a.status, a.direction, a.engine_agent_ref, ARRAY(SELECT p.engine_number_ref "
     "FROM phone_numbers p WHERE p.agent_id = a.id AND p.released_at IS NULL "
-    "AND p.engine_number_ref IS NOT NULL) FROM agents a "
+    "AND p.engine_number_ref IS NOT NULL), a.max_call_duration_s FROM agents a "
     "WHERE a.tenant_id = :tid AND a.id = :aid AND a.deleted_at IS NULL"
 )
+
+
+def own_number_call_seconds(max_call_duration_s: int | None) -> int:
+    """How long a test call from the client's own number may run: the agent's own cap, at
+    most `OWN_NUMBER_TEST_MAX_SECONDS`, never below the shared line's."""
+    from apps.api.agents.service import effective_call_cap
+
+    shared = get_settings().trial_call_max_seconds
+    return max(shared, min(effective_call_cap(max_call_duration_s), OWN_NUMBER_TEST_MAX_SECONDS))
 
 
 def paid_daily_cap_reason(cap: int) -> str:
@@ -82,7 +99,7 @@ def line_of(row: Any, workspace: str | None) -> PaidLine:
     """Which line this agent's paid test call rings from."""
     from apps.api.agents.service import holds_a_number
 
-    status, direction, ref, numbers = row
+    status, direction, ref, numbers = row[:4]
     if not ref or scope_of(str(ref)) is None:
         return "trial_line_own"
     if (
@@ -120,6 +137,7 @@ async def read_paid_test_access(
     cap = settings.trial_daily_call_cap
     blocker: tuple[str, str] | None = None
     line: PaidLine | None = None
+    call_seconds = settings.trial_call_max_seconds
     if agent_id is not None:
         row = (
             await session.execute(text(_AGENT_LINE_SQL), {"tid": tenant_id, "aid": agent_id})
@@ -127,6 +145,8 @@ async def read_paid_test_access(
         # A missing agent is worded by the dial gate; nothing to add here.
         if row is not None:
             line = line_of(row, await resolve_workspace(session, tenant_id))
+            if line == "own_number":
+                call_seconds = own_number_call_seconds(row[4])
     if line in ("trial_line_own", "trial_line_copy") and not settings.trial_caller_number:
         from apps.api.agents.trial_calls import NOT_READY_REASON, NOT_READY_RULE
 
@@ -136,7 +156,7 @@ async def read_paid_test_access(
     return PaidTestAccess(
         calls_today=placed,
         daily_cap=cap,
-        max_call_seconds=settings.trial_call_max_seconds,
+        max_call_seconds=call_seconds,
         day_start=since,
         blocker=blocker,
         line=line,

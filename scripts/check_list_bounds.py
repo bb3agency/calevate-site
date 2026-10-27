@@ -95,8 +95,30 @@ _LEAD_SUGGESTIONS = BoundedByConstruction(
     )
 )
 
+#: Tell my team (D-904): the contact list and one agent's rule.
+_TEAM_CONTACTS = BoundedByConstruction(
+    by=(
+        "the account's team addresses, at most `team_alerts/service.MAX_CONTACTS` (ten, refused "
+        "past it and read with that LIMIT), and its own WhatsApp connections, read with LIMIT 20."
+    )
+)
+_TEAM_RULE = BoundedByConstruction(
+    by=(
+        "ONE agent's rule: its business outcomes and choice fields (the agent's own lists, "
+        "bounded where they are written), the watched fields at most "
+        "`team_alerts/service.MAX_FIELD_TRIGGERS`, each field's values by the request model."
+    )
+)
+
 #: Every list-shaped route that legitimately has no `limit`, keyed `"METHOD /path"`.
 BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
+    "GET /v1/team-alerts/contacts": _TEAM_CONTACTS,
+    "POST /v1/team-alerts/contacts": _TEAM_CONTACTS,
+    "POST /v1/team-alerts/contacts/{contact_id}/code": _TEAM_CONTACTS,
+    "POST /v1/team-alerts/contacts/{contact_id}/verify": _TEAM_CONTACTS,
+    "POST /v1/team-alerts/contacts/{contact_id}/default": _TEAM_CONTACTS,
+    "GET /v1/agents/{agent_id}/team-alert": _TEAM_RULE,
+    "PUT /v1/agents/{agent_id}/team-alert": _TEAM_RULE,
     "GET /v1/calls/live": BoundedByConstruction(
         by=(
             "the calls among the ids asked for, read with `ids[:crm/live_calls.MAX_LIVE_IDS]` "

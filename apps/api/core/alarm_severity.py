@@ -548,6 +548,10 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # Loud in the console, not in the inbox.
     "hot_lead_notification_exhausted": "attention",
     "hot_lead_no_channel": "attention",
+    # Tell my team (D-904): a caller the agent promised a person to, whose team was never
+    # told, and a team address that never got its code.
+    "team_alert_exhausted": "attention",
+    "team_contact_code_exhausted": "attention",
     "account_notice_exhausted": "attention",
     "account_notice_no_channel": "attention",
     "account_notice_tenant_missing": "attention",

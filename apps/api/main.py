@@ -261,6 +261,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.quality.sampling_routes import router as qa_sampling_router
     from apps.api.security.routes import router as csp_report_router
     from apps.api.teach.routes import router as teach_router
+    from apps.api.team_alerts.routes import router as team_alerts_router
     from apps.api.tenancy.business_copy_routes import router as business_copy_router
     from apps.api.tenancy.call_lines_routes import router as call_lines_router
     from apps.api.tenancy.profile_routes import admin_router as business_profile_admin_router
@@ -368,6 +369,8 @@ def _mount_routers(application: FastAPI) -> None:
     # `/v1/organization/...`, so mount order is not load-bearing.
     application.include_router(call_handling_router)
     application.include_router(call_handling_admin_router)
+    # Tell my team (D-904): `/v1/team-alerts/...` and a four-segment agent path.
+    application.include_router(team_alerts_router)
     # How a Studio voice sounds (D-843): four- and five-segment agent paths, so mount order
     # is not load-bearing.
     application.include_router(voice_tuning_router)

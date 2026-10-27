@@ -170,7 +170,10 @@ export function TrialCallCard({
           {paid
             ? "Ring your own phone from one of your agents. It calls from your own number once the agent has one, and from a shared Calevate number until then. Test calls are billed like any call. "
             : "Try your agent on a real phone: pick an agent, type an Indian number, and it calls that number from a shared Calevate number, opening with its usual greeting. "}
-          Each test call ends after {minutesText(trial.max_call_seconds)}. The do-not-call list
+          {paid && trial.own_number_max_call_seconds
+            ? `From your own number a test call runs as long as the agent's longest-call setting, up to ${minutesText(trial.own_number_max_call_seconds)}, so you can rehearse a whole guided call; from the shared number it ends after ${minutesText(trial.max_call_seconds)}.`
+            : `Each test call ends after ${minutesText(trial.max_call_seconds)}.`}{" "}
+          The do-not-call list
           still applies, calls go out between 9am and 9pm unless the number is your own, and the
           agent always says it is an AI when asked.
         </p>

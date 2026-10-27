@@ -70,6 +70,8 @@ RESERVED_ACTION_NAMES: frozenset[str] = frozenset(
         "schedule_call_back",
         "cancel_call_back",
         "request_human_handoff",
+        # Tell my team (D-904, `team_alerts/service.TEAM_ACTION_NAME`).
+        "tell_the_team",
     }
 )
 #: Compared with underscores removed: the platform's clash rule is looser than equality and

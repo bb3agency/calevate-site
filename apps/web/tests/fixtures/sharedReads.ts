@@ -20,6 +20,7 @@ import type { Spend } from "@/lib/api/spend";
 import type { Wallet } from "@/lib/api/wallet";
 import type { AlertOptIn } from "@/lib/api/whatsappAlerts";
 import type { ClientVoiceTuning } from "@/lib/api/voiceTuning";
+import type { TeamAlertRule, TeamContacts } from "@/lib/api/teamAlerts";
 import type { AccountReadiness, AgentReadiness } from "@/lib/api/readiness";
 
 /**
@@ -231,6 +232,28 @@ export function organizationCallHandling() {
     agents_with_own: [],
     agents_with_own_total: 0,
     bounds: CALL_HANDLING_BOUNDS,
+  };
+}
+
+/** The reads an agent's Settings makes for Tell my team (D-904): no team address yet, and an
+ * agent that tells nobody. */
+export function teamAlertReads(agentId = "agent-1") {
+  return {
+    "/v1/team-alerts/contacts": {
+      contacts: [],
+      max_contacts: 10,
+      whatsapp_accounts: [],
+    } satisfies TeamContacts,
+    [`/v1/agents/${agentId}/team-alert`]: {
+      contact_id: null,
+      on_outcomes: [],
+      on_fields: [],
+      in_call: false,
+      sends_to: null,
+      in_call_live: false,
+      outcomes: [{ key: "booked", label: "Booked", values: [] }],
+      fields: [],
+    } satisfies TeamAlertRule,
   };
 }
 

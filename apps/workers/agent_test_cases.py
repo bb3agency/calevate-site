@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from typing import Any, Final
 from uuid import UUID
 
@@ -67,11 +68,16 @@ async def run_case_lines(
     agent_id: UUID,
     knowledge_tool: str | None,
     pause: Any,
+    stop_at: float | None = None,
 ) -> list[dict[str, Any]]:
-    """Send each line in one conversation; answer what the agent said to each."""
+    """Send each line in one conversation; answer what the agent said to each. With `stop_at`
+    (a `time.monotonic()` instant) no line is sent after it, so a long test stores what it
+    reached instead of being killed at the job limit with nothing stored."""
     session: str | None = None
     turns: list[dict[str, Any]] = []
     for index, line in enumerate(lines):
+        if stop_at is not None and time.monotonic() >= stop_at:
+            break
         if index:
             await pause()
         turn = await send_test_message(
@@ -89,10 +95,16 @@ async def run_case_lines(
     return turns
 
 
-#: ONE test per job. A test is up to six lines a `PAUSE_S` apart plus the replies; twenty
-#: of them in one job ran past the 300 s job limit, which arq does not retry, and every
-#: test not yet stored stayed `running`. Each job runs the oldest queued test and queues
-#: the next job while any remain.
+#: ONE test per job. A test is up to `MAX_CASE_LINES` lines a `PAUSE_S` apart plus the
+#: replies; twenty tests in one job ran past the 300 s job limit, which arq does not retry,
+#: and every test not yet stored stayed `running`. Each job runs the oldest queued test and
+#: queues the next job while any remain.
+#:
+#: A twenty-line test usually takes about three minutes; slow replies could take it past the
+#: job limit, so no line is sent after `RUN_BUDGET_S` and the test is stored with the replies it
+#: reached and `last_error = 'too_long'`.
+RUN_BUDGET_S: Final = 240.0
+TOO_LONG: Final = "too_long"
 _CLAIM_ONE: Final = (
     "UPDATE agent_test_cases SET status = 'running', updated_at = now() WHERE id = ("
     "SELECT id FROM agent_test_cases WHERE agent_id = :aid AND status = 'queued' "
@@ -151,6 +163,7 @@ async def run_agent_test_cases(ctx: dict[str, Any], payload: dict[str, Any]) -> 
     knowledge_tool = hosted_agent_limits(engine).knowledge_tool
     if payload.get("chained"):
         await _pause()
+    stop_at = time.monotonic() + RUN_BUDGET_S
     for case_id, lines in cases:
         try:
             turns = await run_case_lines(
@@ -160,6 +173,7 @@ async def run_agent_test_cases(ctx: dict[str, Any], payload: dict[str, Any]) -> 
                 agent_id=agent_id,
                 knowledge_tool=knowledge_tool,
                 pause=_pause,
+                stop_at=stop_at,
             )
         except ProblemError as exc:
             log.warning(
@@ -171,7 +185,10 @@ async def run_agent_test_cases(ctx: dict[str, Any], payload: dict[str, Any]) -> 
             log.exception("agent_test_case_crashed", extra={"case_id": str(case_id)})
             await _store(tenant_id, case_id, result=None, error="crashed", version=version)
             continue
-        await _store(tenant_id, case_id, result=turns, error=None, version=version)
+        short = len(turns) < len(lines)
+        await _store(
+            tenant_id, case_id, result=turns, error=TOO_LONG if short else None, version=version
+        )
     await _queue_next(tenant_id, agent_id)
     log.info("agent_test_cases_done", extra={"agent_id": str(agent_id), "cases": len(cases)})
     return "done"

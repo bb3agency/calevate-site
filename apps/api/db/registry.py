@@ -36,6 +36,7 @@ from apps.api.quality import models as quality_models
 from apps.api.reliability import models as reliability_models
 from apps.api.retrieval import models as retrieval_models
 from apps.api.teach import models as teach_models
+from apps.api.team_alerts import models as team_alerts_models
 from apps.api.tenancy import models as tenancy_models
 from apps.api.whatsapp import models as whatsapp_models
 
@@ -73,6 +74,7 @@ __all__ = [
     "reliability_models",
     "retrieval_models",
     "teach_models",
+    "team_alerts_models",
     "tenancy_models",
     "whatsapp_models",
 ]
@@ -122,6 +124,11 @@ TENANT_TABLES = [
     "agent_test_labels",
     # The facts each agent knows by heart (D-896).
     "agent_hot_facts",
+    # Tell my team (D-904): the business's verified team addresses, each agent's triggers,
+    # and one delivery row per call and address.
+    "team_alert_contacts",
+    "team_alert_rules",
+    "team_alerts",
     # Example-line steps the platform changed for an owner, so the change undoes exactly
     # (migration `d7c2e9a4f6b1`).
     "script_line_changes",

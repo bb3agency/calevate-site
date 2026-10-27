@@ -41,7 +41,8 @@ RULE_STATUSES = ("pending", "applied", "dismissed")
 MAX_RULE_CHARS = 500
 
 TEST_CASE_STATUSES = ("idle", "queued", "running")
-MAX_CASE_LINES = 6
+#: Twenty, so a guided procedure (5 to 10 minutes on the phone) can be rehearsed whole (D-904).
+MAX_CASE_LINES = 20
 MAX_CASE_LINE_CHARS = 500
 MAX_CASE_EXPECTED_CHARS = 600
 MAX_CASE_TITLE_CHARS = 120

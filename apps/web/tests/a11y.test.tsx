@@ -161,6 +161,7 @@ import {
   agentReplyLength,
   agentPromptLayers,
   organizationCallHandling,
+  teamAlertReads,
   VOICE_EFFECTIVE_DEFAULTS,
   VOICE_ORGANIZATION_NONE,
   VOICE_OWN_NONE,
@@ -2779,6 +2780,7 @@ const CLIENT_SCREENS: Screen[] = [
       },
       "/v1/agents/agent-1/call-handling": AGENT_CALL_HANDLING,
       "/v1/organization/call-handling": organizationCallHandling(),
+      ...teamAlertReads(),
       "/v1/agents/agent-1/pending": {
         agent_id: "agent-1",
         agent_status: "live",
