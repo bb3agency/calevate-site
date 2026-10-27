@@ -325,11 +325,10 @@ SURFACE_NAMES: Final[dict[str, str]] = {"web": "website call button", "whatsapp"
 #: the call stays interruptible (`neverInterrupt` false).
 #: The filler line waits 2,000 ms, not the vendor's 900: on the production call of 20 Oct 2026
 #: our model's first word came at about 937 ms, so 900 put a filler on almost every turn; at
-#: 2,000 it covers only a slow one. A question the caller leaves unanswered is asked again
-#: after 5 s rather than the platform's 2.5 s. Ranges: `thinkingDelayMs` 200-5000,
-#: `thinkingRepeatMs` 1000-10000, `interruptWords` 1-6, `endPhrases` up to 12,
-#: `reaskAfterSeconds` 0, 1.5-10 or null (snapshots/2026-10-19/pages/api-reference/agents/
-#: update-agent.md:1390-1399, :1452-1460).
+#: 2,000 it covers only a slow one. How soon an unanswered question is asked again is a call
+#: setting since D-907 (`reaskAfterSeconds`, `_agent_body`). Ranges: `thinkingDelayMs`
+#: 200-5000, `thinkingRepeatMs` 1000-10000, `interruptWords` 1-6, `endPhrases` up to 12
+#: (snapshots/2026-10-19/pages/api-reference/agents/update-agent.md:1390-1399).
 PLATFORM_VOICE_VALUES: Final[dict[str, Any]] = {
     "holdShortSpeech": True,
     "neverInterrupt": False,
@@ -337,7 +336,6 @@ PLATFORM_VOICE_VALUES: Final[dict[str, Any]] = {
     "thinkingAtTurnEnd": False,
     "thinkingDelayMs": 2000,
     "thinkingRepeatMs": 2500,
-    "reaskAfterSeconds": 5,
     "endPhrases": [],
 }
 CALL_VARIABLES_MAX: Final = 20
@@ -2251,6 +2249,11 @@ class ThinnestEngine:
             "nudges": cfg.nudge_count,
             "nudgePhrase": cfg.nudge_phrase or None,
             "endAfterSilenceSeconds": cfg.end_after_silence_seconds,
+            # After a question the agent asked has had no answer, how long before it asks
+            # once more: `0` never, otherwise 1.5-10 s to one decimal, `null` the platform's
+            # 2.5 s (update-agent.md:1452-1460, 19 Oct 2026 snapshot). The client's call
+            # setting (D-907), always stated so a console change reads as drift.
+            "reaskAfterSeconds": cfg.reask_after_ms / 1000,
             # The client's filler lines, else ours in the agent's languages (founder, 23 Oct
             # 2026); empty only for languages with none, which keeps the vendor's own. The
             # engine says the lines written in the caller's script (create-agent.md:1438-1454,

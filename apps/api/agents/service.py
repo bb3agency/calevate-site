@@ -873,6 +873,7 @@ def _call_settings_fields(agent: AgentRow, *, languages: Sequence[str]) -> dict[
         "ambience_volume_pct": v.ambience_volume_pct,
         # None while the console has no wait: the field is then never sent (D-901).
         "opening_wait_ms": v.opening_wait_ms if opening_wait_available() else None,
+        "reask_after_ms": v.reask_after_ms,
     }
 
 

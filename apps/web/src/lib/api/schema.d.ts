@@ -1690,7 +1690,9 @@ export interface paths {
          *
          *     `opening_waits_for_caller` holds the agent's first words until the person who picked up speaks, or `opening_wait_ms` of silence; it is the agent's own (true or false, never inherited), on by default for an agent that only places calls. `opening_wait_ms` (500-10000 in steps of 100) inherits like the settings below; it may be set only while `bounds.opening_wait_available`, and an effective null is four seconds (`opening_wait_unavailable` otherwise).
          *
-         *     Each other setting resolves agent, then the account default, then Calevate's (`bounds.platform_turn_silence_ms`, 250 ms on most agents, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound); `*_source` names the level in force.
+         *     `reask_after_ms` is how long the agent waits, after a question it asked has had no answer, before asking it again: 1500-10000 in steps of 100, or 0 for never.
+         *
+         *     Each other setting resolves agent, then the account default, then Calevate's (`bounds.platform_turn_silence_ms`, 250 ms on most agents, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound, ask again after 5 s); `*_source` names the level in force.
          *
          *     A change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range` or `call_setting_out_of_range`.
          */
@@ -1708,11 +1710,33 @@ export interface paths {
          *
          *     `opening_waits_for_caller` holds the agent's first words until the person who picked up speaks, or `opening_wait_ms` of silence; it is the agent's own (true or false, never inherited), on by default for an agent that only places calls. `opening_wait_ms` (500-10000 in steps of 100) inherits like the settings below; it may be set only while `bounds.opening_wait_available`, and an effective null is four seconds (`opening_wait_unavailable` otherwise).
          *
-         *     Each other setting resolves agent, then the account default, then Calevate's (`bounds.platform_turn_silence_ms`, 250 ms on most agents, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound); `*_source` names the level in force.
+         *     `reask_after_ms` is how long the agent waits, after a question it asked has had no answer, before asking it again: 1500-10000 in steps of 100, or 0 for never.
+         *
+         *     Each other setting resolves agent, then the account default, then Calevate's (`bounds.platform_turn_silence_ms`, 250 ms on most agents, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound, ask again after 5 s); `*_source` names the level in force.
          *
          *     A change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range` or `call_setting_out_of_range`.
          */
         patch: operations["admin_set_agent_call_handling_v1_admin_tenants__tenant_id__agents__agent_id__call_handling_patch"];
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/call-handling/patient-caller": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set one client agent up for a caller who follows along on their phone
+         * @description One tap for a caller who follows the agent along on their own phone and goes quiet for long stretches: on this agent alone, ask whether they are still there after 20 s, up to 3 times, in the agent's main language (`patient_caller.nudge_phrase` on the read), hang up after 120 s of silence, never repeat an unanswered question on a timer, and raise the longest call to `patient_caller.call_cap_s` (a longer one is kept). Each is an ordinary setting afterwards. Applies from the next call.
+         */
+        post: operations["admin_apply_patient_caller_v1_admin_tenants__tenant_id__agents__agent_id__call_handling_patient_caller_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/experiment": {
@@ -3650,7 +3674,9 @@ export interface paths {
          *
          *     `opening_waits_for_caller` holds the agent's first words until the person who picked up speaks, or `opening_wait_ms` of silence; it is the agent's own (true or false, never inherited), on by default for an agent that only places calls. `opening_wait_ms` (500-10000 in steps of 100) inherits like the settings below; it may be set only while `bounds.opening_wait_available`, and an effective null is four seconds (`opening_wait_unavailable` otherwise).
          *
-         *     Each other setting resolves agent, then the account default, then Calevate's (`bounds.platform_turn_silence_ms`, 250 ms on most agents, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound); `*_source` names the level in force.
+         *     `reask_after_ms` is how long the agent waits, after a question it asked has had no answer, before asking it again: 1500-10000 in steps of 100, or 0 for never.
+         *
+         *     Each other setting resolves agent, then the account default, then Calevate's (`bounds.platform_turn_silence_ms`, 250 ms on most agents, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound, ask again after 5 s); `*_source` names the level in force.
          *
          *     A change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range` or `call_setting_out_of_range`.
          */
@@ -3668,11 +3694,33 @@ export interface paths {
          *
          *     `opening_waits_for_caller` holds the agent's first words until the person who picked up speaks, or `opening_wait_ms` of silence; it is the agent's own (true or false, never inherited), on by default for an agent that only places calls. `opening_wait_ms` (500-10000 in steps of 100) inherits like the settings below; it may be set only while `bounds.opening_wait_available`, and an effective null is four seconds (`opening_wait_unavailable` otherwise).
          *
-         *     Each other setting resolves agent, then the account default, then Calevate's (`bounds.platform_turn_silence_ms`, 250 ms on most agents, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound); `*_source` names the level in force.
+         *     `reask_after_ms` is how long the agent waits, after a question it asked has had no answer, before asking it again: 1500-10000 in steps of 100, or 0 for never.
+         *
+         *     Each other setting resolves agent, then the account default, then Calevate's (`bounds.platform_turn_silence_ms`, 250 ms on most agents, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound, ask again after 5 s); `*_source` names the level in force.
          *
          *     A change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range` or `call_setting_out_of_range`.
          */
         patch: operations["set_agent_call_handling_v1_agents__agent_id__call_handling_patch"];
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/call-handling/patient-caller": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set an agent up for a caller who follows along on their phone
+         * @description One tap for a caller who follows the agent along on their own phone and goes quiet for long stretches: on this agent alone, ask whether they are still there after 20 s, up to 3 times, in the agent's main language (`patient_caller.nudge_phrase` on the read), hang up after 120 s of silence, never repeat an unanswered question on a timer, and raise the longest call to `patient_caller.call_cap_s` (a longer one is kept). Each is an ordinary setting afterwards. Applies from the next call.
+         */
+        post: operations["apply_patient_caller_v1_agents__agent_id__call_handling_patient_caller_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/v1/agents/{agent_id}/call-outcomes": {
@@ -13322,6 +13370,8 @@ export interface components {
             opening_wait_ms?: number | null;
             /** Opening Waits For Caller */
             opening_waits_for_caller?: boolean | null;
+            /** Reask After Ms */
+            reask_after_ms?: number | null;
             /** Turn Silence Ms */
             turn_silence_ms?: number | null;
         };
@@ -13441,8 +13491,20 @@ export interface components {
             organization_nudge_phrase: string | null;
             /** Organization Opening Wait Ms */
             organization_opening_wait_ms: number | null;
+            /** Organization Reask After Ms */
+            organization_reask_after_ms: number | null;
             /** Organization Turn Silence Ms */
             organization_turn_silence_ms: number | null;
+            patient_caller: components["schemas"]["PatientCallerOut"];
+            /** Reask After Ms */
+            reask_after_ms: number | null;
+            /** Reask After Ms Effective */
+            reask_after_ms_effective: number;
+            /**
+             * Reask After Ms Source
+             * @enum {string}
+             */
+            reask_after_ms_source: "agent" | "organization" | "platform";
             /** Turn Silence Applies */
             turn_silence_applies: boolean;
             /** Turn Silence Ms */
@@ -13728,6 +13790,8 @@ export interface components {
             nudge_phrase: string | null;
             /** Opening Wait Ms */
             opening_wait_ms: number | null;
+            /** Reask After Ms */
+            reask_after_ms: number | null;
             /** Turn Silence Ms */
             turn_silence_ms: number | null;
         };
@@ -14224,6 +14288,8 @@ export interface components {
             nudge_phrase?: string | null;
             /** Opening Wait Ms */
             opening_wait_ms?: number | null;
+            /** Reask After Ms */
+            reask_after_ms?: number | null;
             /** Turn Silence Ms */
             turn_silence_ms?: number | null;
         };
@@ -15438,8 +15504,16 @@ export interface components {
             platform_nudge_count: number;
             /** Platform Opening Wait Ms */
             platform_opening_wait_ms: number | null;
+            /** Platform Reask After Ms */
+            platform_reask_after_ms: number;
             /** Platform Turn Silence Ms */
             platform_turn_silence_ms: number;
+            /** Reask After Max Ms */
+            reask_after_max_ms: number;
+            /** Reask After Min Ms */
+            reask_after_min_ms: number;
+            /** Reask After Step Ms */
+            reask_after_step_ms: number;
             /** Turn Silence Max Ms */
             turn_silence_max_ms: number;
             /** Turn Silence Min Ms */
@@ -17628,6 +17702,8 @@ export interface components {
          *     on a condition, `otherwise` where to go when none holds (empty: the next section), and
          *     `collect` what must be in hand first. `position` is the canvas layout and is never
          *     compiled. Instruction and sounds-like share ThinnestAI's 600-character step detail.
+         *     `procedure` is an ordered list of small steps compiled into the instructions text under
+         *     the section's name (D-908); the step detail only points at it.
          */
         ConversationStage: {
             /** Branches */
@@ -17652,6 +17728,8 @@ export interface components {
              */
             otherwise: string;
             position?: components["schemas"]["CanvasPosition"] | null;
+            /** Procedure */
+            procedure?: components["schemas"]["ProcedureStep"][];
             /**
              * Sounds Like
              * @default
@@ -25121,6 +25199,8 @@ export interface components {
             nudge_phrase?: string | null;
             /** Opening Wait Ms */
             opening_wait_ms?: number | null;
+            /** Reask After Ms */
+            reask_after_ms?: number | null;
             /** Turn Silence Ms */
             turn_silence_ms: number | null;
         };
@@ -25170,6 +25250,10 @@ export interface components {
             opening_wait_ms: number | null;
             /** Opening Wait Ms Effective */
             opening_wait_ms_effective: number | null;
+            /** Reask After Ms */
+            reask_after_ms: number | null;
+            /** Reask After Ms Effective */
+            reask_after_ms_effective: number;
             /** Turn Silence Ms */
             turn_silence_ms: number | null;
             /** Turn Silence Ms Effective */
@@ -25507,6 +25591,27 @@ export interface components {
         PasswordChangeOut: {
             /** Revoked */
             revoked: number;
+        };
+        /**
+         * PatientCallerOut
+         * @description The "Patient caller" preset (D-907) for this agent: what it sets and whether the
+         *     settings in force match it.
+         */
+        PatientCallerOut: {
+            /** Applied */
+            applied: boolean;
+            /** Call Cap S */
+            call_cap_s: number;
+            /** End After Silence Seconds */
+            end_after_silence_seconds: number;
+            /** Nudge After Seconds */
+            nudge_after_seconds: number;
+            /** Nudge Count */
+            nudge_count: number;
+            /** Nudge Phrase */
+            nudge_phrase: string;
+            /** Reask After Ms */
+            reask_after_ms: number;
         };
         /** PaymentAlarmOut */
         PaymentAlarmOut: {
@@ -26108,6 +26213,20 @@ export interface components {
             script_parts?: components["schemas"]["SizePartOut"][];
             /** Too Long */
             too_long?: string | null;
+        };
+        /**
+         * ProcedureStep
+         * @description One small step of a section's step-by-step list: what the agent asks the caller to do,
+         *     and what tells it the caller has done it (empty: the caller says so).
+         */
+        ProcedureStep: {
+            /** Action */
+            action: string;
+            /**
+             * Wait For
+             * @default
+             */
+            wait_for: string;
         };
         /**
          * ProfileBlockerOut
@@ -28256,10 +28375,16 @@ export interface components {
             max_branches: number;
             /** Max Collect */
             max_collect: number;
+            /** Max Procedure Steps */
+            max_procedure_steps: number;
             /** Max Sections */
             max_sections: number;
             /** Native Steps */
             native_steps: boolean;
+            /** Procedure Step Max */
+            procedure_step_max: number;
+            /** Procedure Wait Max */
+            procedure_wait_max: number;
             /** Section Detail Max */
             section_detail_max: number;
             /** Section Title Max */
@@ -36389,6 +36514,38 @@ export interface operations {
             };
         };
     };
+    admin_apply_patient_caller_v1_admin_tenants__tenant_id__agents__agent_id__call_handling_patient_caller_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentCallHandlingOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     start_experiment_v1_admin_tenants__tenant_id__agents__agent_id__experiment_post: {
         parameters: {
             query?: never;
@@ -40121,6 +40278,37 @@ export interface operations {
                 "application/json": components["schemas"]["AgentCallHandlingIn"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentCallHandlingOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    apply_patient_caller_v1_agents__agent_id__call_handling_patient_caller_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {

@@ -19,9 +19,13 @@ from apps.api.agents.starters import starter_for
 from apps.api.engine.thinnest import INSTRUCTIONS_MAX_CHARS
 from apps.api.teach.pinned import MAX_PINNED_CHARS
 from calevate_shared.call_script import (
+    MAX_PROCEDURE_STEPS,
+    PROCEDURE_STEP_MAX,
+    PROCEDURE_WAIT_MAX,
     CallScript,
     CollectField,
     Objection,
+    ProcedureStep,
     Pronunciation,
     SpeakingStyle,
     compile_call_script,
@@ -141,6 +145,37 @@ def test_a_long_realistic_script_fits_with_margin() -> None:
         script = next(p.chars for p in size.layers if p.key == "client_script")
         print(f"{job} long: {size.total} chars (script {script}), {size.headroom} free")
         assert size.total <= INSTRUCTIONS_MAX_CHARS - LONG_MARGIN, (job, size.total)
+
+
+#: Characters a guided call (the long script plus step-by-step lists of the size a phone
+#: walk-through takes) must still leave: pinned facts at their ceiling and 2,500 more.
+GUIDED_MARGIN = MAX_PINNED_CHARS + 2_500
+
+
+def _guided(job: str) -> CallScript:
+    """The long script with step-by-step lists (D-908) in its first stages: 15 steps in all,
+    each written to its full length, as an app-install walk-through takes."""
+    script = _long(job)
+    step = ProcedureStep(
+        action="a" * (PROCEDURE_STEP_MAX - 50), wait_for="w" * (PROCEDURE_WAIT_MAX - 60)
+    )
+    stages = list(script.stages)
+    counts = (6, 5, 4)
+    for i, count in enumerate(counts):
+        stages[i] = stages[i].model_copy(update={"procedure": [step] * count})
+    assert sum(counts) == MAX_PROCEDURE_STEPS
+    return script.model_copy(update={"stages": stages})
+
+
+def test_a_guided_call_with_step_by_step_lists_fits_with_margin() -> None:
+    for job in ("answer_calls", "call_leads"):
+        cfg = _config(_guided(job), job, pinned=True)
+        size = measure(cfg, INSTRUCTIONS_MAX_CHARS)
+        lists = next(p.chars for p in size.script_parts if p.label == "Step-by-step lists")
+        print(f"{job} guided: {size.total} chars (lists {lists}), {size.headroom} free")
+        # The lists ride in the instructions, outside the engine's 600-character steps.
+        assert all(len(step.detail) <= 600 for step in cfg.script_steps)
+        assert size.total <= INSTRUCTIONS_MAX_CHARS - GUIDED_MARGIN, (job, size.total)
 
 
 #: What a call reads of OURS on every turn for the agents below: the platform layers of the

@@ -92,7 +92,8 @@ AGENT_SETTING_LABELS: Final[frozenset[str]] = frozenset(
         "filler_timing",
         "interruptions",
         "end_phrases",
-        # Asking an unanswered question again after 5 s (founder, 20 Oct 2026, D-835).
+        # Asking an unanswered question again: the client's call setting (D-907), 5 s unless
+        # changed (D-835).
         "reask_wait",
         # The longest reply, in tokens: the agent's own or the console's (D-769).
         "reply_length",

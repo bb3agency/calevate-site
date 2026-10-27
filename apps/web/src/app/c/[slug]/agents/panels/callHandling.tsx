@@ -11,7 +11,9 @@
  * it the value every agent shares and drops each agent's own. The account read tells the
  * second choice how many agents with their own value it changes. Waiting for hello has no
  * shared value, so it stays per agent; how long it waits (D-901) inherits like the pause, and
- * shows only while waiting is on and the platform offers it.
+ * shows only while waiting is on and the platform offers it. How soon an unanswered question
+ * is asked again (D-907) inherits the same way. "Patient caller" sets the silence rows and
+ * the longest call for a caller following along on their phone in one tap (D-907).
  *
  * The owner changes them (`org:manage`: switching the hang-up off is a decision about the
  * account's money); anyone else who can open the agent reads the value in force and where it
@@ -26,9 +28,11 @@ import {
   OpeningWaitRow,
   OpeningWaitsRow,
   PauseRow,
+  ReaskRow,
   type ScopeOffer,
 } from "@/components/callHandlingRows";
 import { AgentVoiceRows } from "@/components/callHandlingVoiceRows";
+import { PatientCallerRow } from "@/components/patientCallerRow";
 import { SettingRows } from "@/components/console/settingRow";
 import { ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
 import {
@@ -37,6 +41,7 @@ import {
   othersWithOwn,
   platformLabels,
   useAgentCallHandling,
+  useApplyPatientCaller,
   useOrganizationCallHandling,
   useSaveCallHandling,
   type AgentCallHandlingIn,
@@ -63,6 +68,11 @@ export function AgentCallHandlingRows({ agentId }: { agentId: string }) {
       variables.scope === "all" ? "Saved for all your agents" : "Saved for this agent",
   });
   const [row, setRow] = useState<Row | null>(null);
+  const patient = useApplyPatientCaller(session, agentId);
+  const patientFeedback = useActionFeedback(patient, {
+    errorDisplay: "inline",
+    successToast: "This agent now gives callers time",
+  });
 
   if (state.isLoading) return <Skeleton rows={2} />;
   if (state.error || !state.data) {
@@ -93,6 +103,13 @@ export function AgentCallHandlingRows({ agentId }: { agentId: string }) {
     <div className="space-y-2">
       <RestrictionNote reason={write.allowed ? null : write.reason} />
       <SettingRows className="border-y border-line">
+        <PatientCallerRow
+          preset={data.patient_caller}
+          canChange={write.allowed}
+          status={patientFeedback.status}
+          error={patient.error}
+          onApply={() => patient.mutate()}
+        />
         <PauseRow
           idPrefix={`agent-${agentId}`}
           effective={data.turn_silence_ms_effective}
@@ -159,6 +176,22 @@ export function AgentCallHandlingRows({ agentId }: { agentId: string }) {
             setRow(voiceRow(changes));
             save.mutate({ scope, changes }, { onSuccess: done });
           }}
+        />
+        <ReaskRow
+          idPrefix={`agent-${agentId}`}
+          effective={data.reask_after_ms_effective}
+          source={data.reask_after_ms_source}
+          own={data.reask_after_ms}
+          inheritLabel={labels.reask}
+          minMs={data.bounds.reask_after_min_ms}
+          maxMs={data.bounds.reask_after_max_ms}
+          stepMs={data.bounds.reask_after_step_ms}
+          seedMs={data.bounds.platform_reask_after_ms}
+          canChange={write.allowed}
+          status={rowStatus("reask")}
+          error={failed("reask")}
+          scope={offer("reask", calevate.reask)}
+          onSave={(next, done, scope) => send("reask", { reask_after_ms: next }, done, scope)}
         />
       </SettingRows>
     </div>

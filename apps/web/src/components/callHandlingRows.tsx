@@ -33,9 +33,11 @@ import { Slider } from "@/components/arc/slider";
 import { FIELD_HINT, ProblemNotice, ToggleSwitch } from "@/components/ui";
 import {
   PAUSE_PRESETS,
+  REASK_NEVER,
   STANDARD_OPENING_WAIT_MS,
   formatPause,
   pauseLabel,
+  reaskLabel,
   sourceLabel,
   type CallHandlingScope,
   type CallHandlingSource,
@@ -588,6 +590,159 @@ export function OpeningWaitsRow({
           </div>
           {(changed || saving) && (
             <SaveBar label="Save" status={status} onCancel={close} note={CALL_HANDLING_NEXT_CALL} />
+          )}
+          {!changed && !saving && (
+            <button type="button" onClick={close} className={TEXT_ACTION}>
+              Close
+            </button>
+          )}
+        </form>
+      )}
+    </div>
+  );
+}
+
+type ReaskPick = "after" | "never";
+
+const REASK_INFO =
+  "When the agent asks something and hears nothing back, it asks the same question once more " +
+  "after this wait. A short wait helps when an answer was too soft to hear. A caller busy " +
+  "on their phone needs longer, or never, so the question is not repeated over them.";
+
+/**
+ * How long before an unanswered question is asked again (D-907): never, or a wait on whole
+ * tenths of a second between the server's bounds. Inherits like the pause.
+ */
+export function ReaskRow({
+  idPrefix,
+  effective,
+  source,
+  sourceHint,
+  own,
+  inheritLabel,
+  canChange,
+  status,
+  error,
+  scope,
+  onSave,
+  minMs,
+  maxMs,
+  stepMs,
+  seedMs,
+}: RowProps<number> & {
+  minMs: number;
+  maxMs: number;
+  stepMs: number;
+  /** Where the slider starts when "never" is switched to a wait: Calevate's default. */
+  seedMs: number;
+}) {
+  const saving = status === "pending";
+  const initial = () => {
+    const ms = own ?? effective;
+    return {
+      useDefault: own === null,
+      pick: (ms === REASK_NEVER ? "never" : "after") as ReaskPick,
+      ms: clamp(ms === REASK_NEVER ? seedMs : ms, minMs, maxMs),
+      scope: "agent" as CallHandlingScope,
+    };
+  };
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState(initial);
+  const next: number | null = form.useDefault ? null : form.pick === "never" ? REASK_NEVER : form.ms;
+  const save = scopeSave(form.scope, next === own, "Save");
+  const changed = editing && save.changed;
+  useUnsavedGuard(changed);
+  const defaultLabel = form.scope === "all" && scope ? scope.inherit : inheritLabel;
+  const id = `${idPrefix}-reask`;
+
+  const close = () => {
+    setEditing(false);
+    setForm(initial());
+  };
+
+  return (
+    <div>
+      <SettingRow
+        label="Ask an unanswered question again"
+        hint={sourceHint ?? sourceLabel(source)}
+        info={<p>{REASK_INFO}</p>}
+        value={reaskLabel(effective)}
+        action={
+          editing || !canChange ? undefined : (
+            <button
+              type="button"
+              onClick={() => {
+                setForm(initial());
+                setEditing(true);
+              }}
+              className={TEXT_ACTION}
+            >
+              Change
+            </button>
+          )
+        }
+      />
+      {error && <ProblemNotice error={error} />}
+      {editing && (
+        <form
+          className="settings-enter space-y-3 pb-4"
+          noValidate
+          onSubmit={(event) => {
+            event.preventDefault();
+            onSave(next, () => setEditing(false), form.scope);
+          }}
+        >
+          <div className={CALL_HANDLING_EDITOR}>
+            <DefaultCheckbox
+              label={`Use the ${defaultLabel}`}
+              checked={form.useDefault}
+              onChange={(checked) => setForm((f) => ({ ...f, useDefault: checked }))}
+            />
+            {!form.useDefault && (
+              <div>
+                <SegmentedControl
+                  label="Ask again"
+                  options={[
+                    { value: "after", label: "After a wait" },
+                    { value: "never", label: "Never" },
+                  ]}
+                  value={form.pick}
+                  onValueChange={(value) => setForm((f) => ({ ...f, pick: value as ReaskPick }))}
+                />
+                {form.pick === "never" && (
+                  <p className={FIELD_HINT}>The agent waits for the answer without asking again.</p>
+                )}
+              </div>
+            )}
+            {!form.useDefault && form.pick === "after" && (
+              <SliderField
+                id={`${id}-ms`}
+                label="Wait before asking again"
+                value={form.ms}
+                valueText={formatPause(form.ms)}
+                min={minMs}
+                max={maxMs}
+                step={stepMs}
+                scale={[formatPause(minMs), formatPause(maxMs)]}
+                onChange={(ms) => setForm((f) => ({ ...f, ms }))}
+              />
+            )}
+            {scope && (
+              <ScopeChoice
+                id={id}
+                scope={form.scope}
+                others={scope.others}
+                onChange={(picked) => setForm((f) => ({ ...f, scope: picked }))}
+              />
+            )}
+          </div>
+          {(changed || saving) && (
+            <SaveBar
+              label={save.label}
+              status={status}
+              onCancel={close}
+              note={CALL_HANDLING_NEXT_CALL}
+            />
           )}
           {!changed && !saving && (
             <button type="button" onClick={close} className={TEXT_ACTION}>

@@ -281,6 +281,15 @@ STAGE_TITLE_MAX: Final = 80
 STAGE_DETAIL_MAX: Final = 600
 MAX_STAGE_BRANCHES: Final = 6
 MAX_STAGE_COLLECT: Final = 10
+#: A section's step-by-step list (D-908): the small actions a caller does one at a time, such as
+#: tapping through an app install. Ours, not a vendor limit: the list is compiled into the
+#: instructions text (`PROCEDURE_HEADER`), whose box is the engine's (20,000 characters on
+#: ThinnestAI), not into the 600-character step detail, so a guided call is not squeezed into
+#: twelve sections of 600. Fifteen steps of 200 is a ceiling against a runaway list; the
+#: prompt-size meter and the publish refusal (D-752) count what is actually there.
+MAX_PROCEDURE_STEPS: Final = 15
+PROCEDURE_STEP_MAX: Final = 200
+PROCEDURE_WAIT_MAX: Final = 120
 #: Branch targets that are not a section: end the call, hand the caller to a person, or
 #: offer a call back. The last two become what the account can actually do at publish
 #: (`native_steps`), so a trial agent's "call back" branch never promises one.
@@ -478,6 +487,21 @@ class StageBranch(BaseModel):
     target: str = Field(min_length=1, max_length=40)
 
 
+class ProcedureStep(BaseModel):
+    """One small step of a section's step-by-step list: what the agent asks the caller to do,
+    and what tells it the caller has done it (empty: the caller says so)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    action: str = Field(min_length=1, max_length=PROCEDURE_STEP_MAX)
+    wait_for: str = Field(default="", max_length=PROCEDURE_WAIT_MAX)
+
+    @field_validator("action", "wait_for")
+    @classmethod
+    def _one_line(cls, value: str) -> str:
+        return " ".join(value.split())
+
+
 class ConversationStage(BaseModel):
     """One section of the call, a node of the script's section graph.
 
@@ -487,6 +511,8 @@ class ConversationStage(BaseModel):
     on a condition, `otherwise` where to go when none holds (empty: the next section), and
     `collect` what must be in hand first. `position` is the canvas layout and is never
     compiled. Instruction and sounds-like share ThinnestAI's 600-character step detail.
+    `procedure` is an ordered list of small steps compiled into the instructions text under
+    the section's name (D-908); the step detail only points at it.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -499,6 +525,7 @@ class ConversationStage(BaseModel):
     branches: list[StageBranch] = Field(default_factory=list, max_length=MAX_STAGE_BRANCHES)
     otherwise: str = Field(default="", max_length=40)
     collect: list[str] = Field(default_factory=list, max_length=MAX_STAGE_COLLECT)
+    procedure: list[ProcedureStep] = Field(default_factory=list, max_length=MAX_PROCEDURE_STEPS)
     position: CanvasPosition | None = None
 
     @field_validator("collect")
@@ -690,6 +717,15 @@ class CollectField:
 
 
 CONVERSATION_HEADER: Final = "[CONVERSATION]"
+#: The sections' step-by-step lists (D-908). Not an `OUTLINE_HEADERS` entry: an engine that
+#: takes the sections as its own steps still reads the lists here, in the instructions.
+PROCEDURE_HEADER: Final = "[STEP BY STEP]"
+#: How the agent walks a list. The caller is doing something on their own phone, so the
+#: agent gives one step and waits for it to be done rather than reading the list out.
+PROCEDURE_LEAD: Final = (
+    "Give one step at a time. After each, wait until the caller has done it, then give the "
+    "next. If they are stuck, help with that step before moving on."
+)
 ADHERENCE_SENTENCES: Final[dict[str, str]] = {
     "flexible": "Sections in order as a guide. Follow the caller if they jump ahead; do not "
     "repeat a section that is done.",
@@ -697,12 +733,24 @@ ADHERENCE_SENTENCES: Final[dict[str, str]] = {
 }
 
 
+#: Where a section's step detail points at its step-by-step list (D-908). Counted inside the
+#: 600 characters, so the pointer is never the part an engine cuts.
+PROCEDURE_POINTER: Final = "Then go through its steps under {name} in {header}, one at a time."
+
+
 def _stage_detail(stage: ConversationStage) -> str:
     text = " ".join(stage.instruction.split())
     detail = f"Say: {_quote(text)}" if stage.mode == "say" else text
     if stage.sounds_like.strip():
         detail += f" It sounds like: {_quote(stage.sounds_like)}"
+    if stage.procedure:
+        detail += f" {procedure_pointer(stage.name)}"
     return detail
+
+
+def procedure_pointer(name: str) -> str:
+    """The sentence a section with a step-by-step list ends its step detail with."""
+    return PROCEDURE_POINTER.format(name=_quote(name), header=PROCEDURE_HEADER)
 
 
 #: Added to an engine step that collects more than one detail. A step's `collect` list reads
@@ -892,6 +940,10 @@ def _compile_v2(script: CallScript, collect: Sequence[CollectField]) -> str:
             ),
         )
 
+    with_steps = [s for s in stages if s.procedure]
+    if with_steps:
+        add(f"{PROCEDURE_HEADER} {PROCEDURE_LEAD}", _procedures(with_steps))
+
     asks = [f for f in collect if f.label.strip()]
     if asks:
         lines = []
@@ -945,6 +997,20 @@ def _compile_v2(script: CallScript, collect: Sequence[CollectField]) -> str:
             ),
         )
     return "\n\n".join(per_call_sections_last(sections))
+
+
+def _procedures(stages: Sequence[ConversationStage]) -> str:
+    """Each section's list under its name, numbered in call order."""
+    blocks: list[str] = []
+    for stage in stages:
+        lines = [f"{stage.name.strip()}:"]
+        for i, step in enumerate(stage.procedure, 1):
+            line = f"{i}. {step.action}"
+            if step.wait_for:
+                line += f" Wait for: {step.wait_for}"
+            lines.append(line)
+        blocks.append("\n".join(lines))
+    return "\n".join(blocks)
 
 
 def per_call_sections_last(sections: Sequence[str]) -> list[str]:
@@ -1007,6 +1073,7 @@ def script_text(script: CallScript) -> str:
         script.style.address_form,
         *script.style.sample_phrases,
         *(f"{st.name} {st.instruction} {st.sounds_like}" for st in script.stages),
+        *(f"{p.action} {p.wait_for}" for st in script.stages for p in st.procedure),
         *(f"{b.when}" for st in script.stages for b in st.branches),
         *(f"{o.objection} {o.response}" for o in script.objections),
         script.ending,
@@ -1122,9 +1189,15 @@ __all__ = [
     "HAND_OVER",
     "KNOWN_FACTS_HEADER",
     "KNOWN_FACTS_LEAD",
+    "MAX_PROCEDURE_STEPS",
     "MAX_SCRIPT_STAGES",
     "NO_CALL_BACKS_POLICY",
     "OPENING_HEADER",
+    "PROCEDURE_HEADER",
+    "PROCEDURE_LEAD",
+    "PROCEDURE_POINTER",
+    "PROCEDURE_STEP_MAX",
+    "PROCEDURE_WAIT_MAX",
     "QUICK_FACTS_HEADER",
     "QUICK_FACTS_LEAD",
     "SCRIPT_SCHEMA_VERSION",
@@ -1144,6 +1217,7 @@ __all__ = [
     "FaqEntry",
     "NativeStep",
     "Objection",
+    "ProcedureStep",
     "Pronunciation",
     "ScriptPolicies",
     "ScriptStep",
@@ -1157,6 +1231,7 @@ __all__ = [
     "native_steps",
     "opening_line_of",
     "per_call_sections_last",
+    "procedure_pointer",
     "quick_fact_lines",
     "render_steps",
     "script_text",

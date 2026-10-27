@@ -27,7 +27,15 @@ import type { CallScript } from "@/lib/api/script";
 
 import { PartEditor, SectionFields, partShows, sectionShows, unshownIssues } from "./ProposalEditors";
 import { applyTraced, diffScripts, partText, type Change, type PartKey } from "./scriptDiff";
-import { DEFAULT_LIMITS, sectionDetail, sectionsOf, validate, type Issue, type Limits, type Section } from "./scriptModel";
+import {
+  DEFAULT_LIMITS,
+  sectionReadable,
+  sectionsOf,
+  validate,
+  type Issue,
+  type Limits,
+  type Section,
+} from "./scriptModel";
 
 /** The row a script-wide problem from `validate` belongs to. */
 const PART_OF_FIELD: { test: RegExp; part: PartKey }[] = [
@@ -370,7 +378,7 @@ function SectionBody({
   if (change.kind === "section-removed") {
     return (
       <div className="mt-1.5">
-        <Quote tone="before" text={sectionDetail(change.before)} />
+        <Quote tone="before" text={sectionReadable(change.before)} />
       </div>
     );
   }
@@ -379,9 +387,9 @@ function SectionBody({
   const renamed = change.kind === "section-changed" && change.before.name !== after.name;
   const before =
     change.kind === "section-changed"
-      ? [renamed && `Name: ${change.before.name}`, sectionDetail(change.before)].filter(Boolean).join("\n")
+      ? [renamed && `Name: ${change.before.name}`, sectionReadable(change.before)].filter(Boolean).join("\n")
       : "";
-  const suggested = [renamed && `Name: ${after.name}`, sectionDetail(after)].filter(Boolean).join("\n");
+  const suggested = [renamed && `Name: ${after.name}`, sectionReadable(after)].filter(Boolean).join("\n");
   return (
     <div className="mt-1.5 space-y-1.5">
       {before && <Quote tone="before" text={before} />}

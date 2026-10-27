@@ -228,6 +228,7 @@ class Organization(PKMixin, TimestampMixin, Base):
     default_ambience: Mapped[str | None] = mapped_column(Text)
     default_ambience_volume_pct: Mapped[int | None] = mapped_column(Integer)
     default_opening_wait_ms: Mapped[int | None] = mapped_column(Integer)
+    default_reask_after_ms: Mapped[int | None] = mapped_column(Integer)
     #: How many calls this client may have at once (F7, `tenancy/call_lines`): NULL is
     #: Calevate's default, 2 for a paying client and 1 on a free trial.
     call_lines: Mapped[int | None] = mapped_column(Integer)

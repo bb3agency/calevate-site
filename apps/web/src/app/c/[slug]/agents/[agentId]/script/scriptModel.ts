@@ -27,6 +27,10 @@ export interface Limits {
   soundsLikeMax: number;
   maxBranches: number;
   maxCollect: number;
+  /** A step's small steps (D-908): how many, and each one's two texts. */
+  maxProcedureSteps: number;
+  procedureStepMax: number;
+  procedureWaitMax: number;
   instructionsLimit: number | null;
 }
 
@@ -38,6 +42,9 @@ export const DEFAULT_LIMITS: Limits = {
   soundsLikeMax: 200,
   maxBranches: 6,
   maxCollect: 10,
+  maxProcedureSteps: 15,
+  procedureStepMax: 200,
+  procedureWaitMax: 120,
   instructionsLimit: null,
 };
 
@@ -51,6 +58,9 @@ export function limitsFrom(context: ScriptContext | null): Limits {
     soundsLikeMax: l.sounds_like_max,
     maxBranches: l.max_branches,
     maxCollect: l.max_collect,
+    maxProcedureSteps: l.max_procedure_steps,
+    procedureStepMax: l.procedure_step_max,
+    procedureWaitMax: l.procedure_wait_max,
     instructionsLimit: l.instructions_limit,
   };
 }
@@ -70,9 +80,16 @@ export function asSection(stage: ConversationStage): Section {
     branches: stage.branches ?? [],
     otherwise: stage.otherwise ?? "",
     collect: stage.collect ?? [],
+    procedure: (stage.procedure ?? []).map((step) => ({
+      action: step.action,
+      wait_for: step.wait_for,
+    })),
     position: stage.position ?? null,
   };
 }
+
+/** One small step as the editor holds it, every field filled. */
+export type SmallStep = Section["procedure"][number];
 
 export function sectionsOf(script: CallScript): Section[] {
   return (script.stages ?? []).map(asSection);
@@ -92,12 +109,50 @@ export function chars(text: string): number {
 const collapse = (text: string) => text.split(/\s+/).filter(Boolean).join(" ");
 const quote = (text: string) => `"${collapse(text).replace(/"/g, "'")}"`;
 
-/** The section's text exactly as the server builds it (`_stage_detail`), for the 600 count. */
-export function sectionDetail(section: Pick<Section, "mode" | "instruction" | "sounds_like">): string {
+/** The section's text exactly as the server builds it (`_stage_detail`), for the 600 count.
+ * A step with small steps ends with the server's pointer to them (`procedure_pointer`), which
+ * counts against the 600 too. */
+export function sectionDetail(
+  section: Pick<Section, "mode" | "instruction" | "sounds_like"> & {
+    name?: string;
+    procedure?: readonly unknown[];
+  },
+): string {
   const text = collapse(section.instruction);
   let detail = section.mode === "say" ? `Say: ${quote(text)}` : text;
   if (section.sounds_like.trim()) detail += ` It sounds like: ${quote(section.sounds_like)}`;
+  if (section.procedure?.length) detail += ` ${procedurePointer(section.name ?? "")}`;
   return detail;
+}
+
+/** `call_script.PROCEDURE_POINTER` as the server fills it. */
+export function procedurePointer(name: string): string {
+  return `Then go through its steps under ${quote(name)} in [STEP BY STEP], one at a time.`;
+}
+
+/** A step as an owner reads it in a review: its text, then its small steps numbered. */
+export function sectionReadable(section: Section): string {
+  const lines = [sectionDetail({ ...section, procedure: [] })];
+  section.procedure.forEach((p, i) =>
+    lines.push(`${i + 1}. ${collapse(p.action)}${p.wait_for.trim() ? ` (wait for: ${collapse(p.wait_for)})` : ""}`),
+  );
+  return lines.join("\n");
+}
+
+// --- a step's small steps (D-908) ------------------------------------------------------------
+
+/** The small steps with one added at the end, or as they were when the list is full. */
+export function addSmallStep(steps: readonly SmallStep[], max: number): SmallStep[] {
+  return steps.length >= max ? [...steps] : [...steps, { action: "", wait_for: "" }];
+}
+
+/** The small steps with one moved, the rest in order; out of range changes nothing. */
+export function moveSmallStep(steps: readonly SmallStep[], from: number, to: number): SmallStep[] {
+  if (from === to || from < 0 || to < 0 || from >= steps.length || to >= steps.length) return [...steps];
+  const next = [...steps];
+  const [moved] = next.splice(from, 1);
+  next.splice(to, 0, moved);
+  return next;
 }
 
 export interface Edge {
@@ -172,6 +227,7 @@ export function addSection(
     branches: [],
     otherwise: "",
     collect: [],
+    procedure: [],
     position: null,
     ...init,
   };
@@ -347,6 +403,18 @@ export function validate(script: CallScript, limits: Limits = DEFAULT_LIMITS): I
     if (s.collect.length > limits.maxCollect) {
       add(s.id, "collect", `At most ${limits.maxCollect} details in one step.`);
     }
+    if (s.procedure.length > limits.maxProcedureSteps) {
+      add(s.id, "procedure", `At most ${limits.maxProcedureSteps} small steps in one step.`);
+    }
+    s.procedure.forEach((p, j) => {
+      if (!p.action.trim()) add(s.id, `procedure-${j}`, "Say what they do here, or remove this small step.");
+      else if (chars(collapse(p.action)) > limits.procedureStepMax) {
+        add(s.id, `procedure-${j}`, `Keep this under ${limits.procedureStepMax} letters.`);
+      }
+      if (chars(collapse(p.wait_for)) > limits.procedureWaitMax) {
+        add(s.id, `procedure-${j}`, `Keep what to wait for under ${limits.procedureWaitMax} letters.`);
+      }
+    });
   });
 
   const rows = <T,>(list: T[] | undefined, field: string, empty: (row: T) => boolean, message: string) =>
@@ -393,7 +461,10 @@ export function scriptAsText(script: CallScript): string {
   para("Why we are calling", script.outbound_purpose);
   if (sections.length) {
     const lines = sections.map((s, i) => {
-      const parts = [`${i + 1}. ${s.name.trim()}: ${sectionDetail(s)}`];
+      const parts = [`${i + 1}. ${s.name.trim()}: ${sectionDetail({ ...s, procedure: [] })}`];
+      s.procedure.forEach((p, j) =>
+        parts.push(`   ${i + 1}.${j + 1} ${p.action.trim()}${p.wait_for.trim() ? ` Wait for: ${p.wait_for.trim()}` : ""}`),
+      );
       if (s.collect.length) parts.push(`   Find out: ${s.collect.join(", ")}.`);
       s.branches.forEach((b) => parts.push(`   When ${b.when.trim()}: ${target(b.target)}.`));
       if (s.otherwise) parts.push(`   Otherwise: ${target(s.otherwise)}.`);

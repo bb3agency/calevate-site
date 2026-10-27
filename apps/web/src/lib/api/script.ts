@@ -81,6 +81,9 @@ export interface ConversationStage {
   /** Where to go when no branch holds; empty = the next section. */
   otherwise?: string;
   collect?: string[];
+  /** Small steps the caller does one at a time (D-908), compiled into the instructions
+   *  under the section's name. Mirrors `ProcedureStep`. */
+  procedure?: { action: string; wait_for: string }[];
   /** Canvas layout only; never compiled. */
   position?: { x: number; y: number } | null;
 }
@@ -178,6 +181,10 @@ export interface ScriptContext {
     sounds_like_max: number;
     max_branches: number;
     max_collect: number;
+    /** A section's small steps (D-908). */
+    max_procedure_steps: number;
+    procedure_step_max: number;
+    procedure_wait_max: number;
     instructions_limit: number | null;
     native_steps: boolean;
     special_targets: string[];

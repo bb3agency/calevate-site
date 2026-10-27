@@ -7,14 +7,22 @@
  */
 
 import { useActionFeedback } from "@/components/arc/feedback";
-import { HangUpRow, OpeningWaitRow, OpeningWaitsRow, PauseRow } from "@/components/callHandlingRows";
+import {
+  HangUpRow,
+  OpeningWaitRow,
+  OpeningWaitsRow,
+  PauseRow,
+  ReaskRow,
+} from "@/components/callHandlingRows";
 import { AgentVoiceRows } from "@/components/callHandlingVoiceRows";
+import { PatientCallerRow } from "@/components/patientCallerRow";
 import { SettingRows } from "@/components/console/settingRow";
 import { ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
 import type { useAdminAccess } from "@/app/admin/access";
 import {
   inheritLabels,
   openingWaitMs,
+  useAdminApplyPatientCaller,
   useAdminSetAgentCallHandling,
   useTenantAgentCallHandling,
 } from "@/lib/api/callHandling";
@@ -37,6 +45,11 @@ export function CallHandlingPanel({
   // The row that saved shows pending and the error face on its save bar, with the refusal
   // beside it; the bar closes on success, so the success is a toast.
   const feedback = useActionFeedback(save, { errorDisplay: "inline", successToast: "Call settings saved" });
+  const patient = useAdminApplyPatientCaller({ tenantId, agentId, slug });
+  const patientFeedback = useActionFeedback(patient, {
+    errorDisplay: "inline",
+    successToast: "Patient caller set on this agent",
+  });
 
   if (state.isLoading) return <Skeleton rows={2} />;
   if (state.error || !state.data) {
@@ -54,6 +67,13 @@ export function CallHandlingPanel({
       <h3 className="text-heading text-ink">Call handling</h3>
       <RestrictionNote reason={write.reason} />
       <SettingRows className="border-y border-line">
+        <PatientCallerRow
+          preset={data.patient_caller}
+          canChange={write.allowed}
+          status={patientFeedback.status}
+          error={patient.error}
+          onApply={() => patient.mutate()}
+        />
         <PauseRow
           idPrefix={`admin-${agentId}`}
           effective={data.turn_silence_ms_effective}
@@ -111,6 +131,21 @@ export function CallHandlingPanel({
           onSave={(payload, done) => save.mutate(payload, { onSuccess: done })}
           error={save.error}
           status={feedback.status}
+        />
+        <ReaskRow
+          idPrefix={`admin-${agentId}`}
+          effective={data.reask_after_ms_effective}
+          source={data.reask_after_ms_source}
+          own={data.reask_after_ms}
+          inheritLabel={labels.reask}
+          minMs={data.bounds.reask_after_min_ms}
+          maxMs={data.bounds.reask_after_max_ms}
+          stepMs={data.bounds.reask_after_step_ms}
+          seedMs={data.bounds.platform_reask_after_ms}
+          canChange={write.allowed}
+          status={save.variables?.reask_after_ms !== undefined ? feedback.status : "idle"}
+          error={save.variables?.reask_after_ms !== undefined ? save.error : null}
+          onSave={(next, done) => save.mutate({ reask_after_ms: next }, { onSuccess: done })}
         />
       </SettingRows>
     </div>

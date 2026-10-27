@@ -7,7 +7,9 @@
  *   PATCH /v1/agents/{agent_id}/call-handling                    `org:manage` (the owner)
  *   GET   /v1/organization/call-handling                         `org:read`
  *   POST  /v1/organization/call-handling/all-agents              `org:manage`
+ *   POST  /v1/agents/{agent_id}/call-handling/patient-caller     `org:manage`, the preset (D-907)
  *   PATCH /v1/admin/tenants/{tid}/agents/{aid}/call-handling     the operator's door
+ *   POST  /v1/admin/tenants/{tid}/agents/{aid}/call-handling/patient-caller   the same preset
  *   GET   /v1/admin/organizations/{org_id}/call-handling         `admin:tenants`
  *   PUT   /v1/admin/organizations/{org_id}/call-handling         `admin:tenants`
  *   GET/PUT /v1/admin/tenants/{tid}/agents/{aid}/turn-detection  an operator's per-agent mode
@@ -30,6 +32,7 @@ import {
 
 import { adminSession, viewAsSession } from "./admin";
 import { apiRequest, type Session } from "./client";
+import { publishingKeys } from "./publishing";
 import type { components } from "./schema";
 
 type Schemas = components["schemas"];
@@ -42,6 +45,7 @@ export type AgentOwnCallHandling = Schemas["AgentOwnCallHandlingOut"];
 export type CallHandlingSource = AgentCallHandling["turn_silence_source"];
 export type AllAgentsCallHandlingIn = Schemas["AllAgentsCallHandlingIn"];
 export type AllAgentsCallHandling = Schemas["AllAgentsCallHandlingOut"];
+export type PatientCaller = Schemas["PatientCallerOut"];
 
 export const ORGANIZATION_CALL_HANDLING_PATH = "/v1/organization/call-handling";
 export const ALL_AGENTS_CALL_HANDLING_PATH = "/v1/organization/call-handling/all-agents";
@@ -88,10 +92,12 @@ export function inheritLabels(state: AgentCallHandling): {
   pause: string;
   hangUp: string;
   openingWait: string;
+  reask: string;
 } {
   const pauseMs = state.organization_turn_silence_ms;
   const hangUp = state.organization_end_call_on_finish;
   const waitMs = state.organization_opening_wait_ms;
+  const reaskMs = state.organization_reask_after_ms;
   return {
     pause:
       pauseMs === null
@@ -105,6 +111,10 @@ export function inheritLabels(state: AgentCallHandling): {
       waitMs === null
         ? `Calevate default: ${formatPause(platformOpeningWaitMs(state.bounds))}`
         : `${SHARED}: ${formatPause(waitMs)}`,
+    reask:
+      reaskMs === null
+        ? `Calevate default: ${reaskLabel(state.bounds.platform_reask_after_ms)}`
+        : `${SHARED}: ${reaskLabel(reaskMs)}`,
   };
 }
 
@@ -113,12 +123,22 @@ export function platformLabels(bounds: CallHandlingBounds): {
   pause: string;
   hangUp: string;
   openingWait: string;
+  reask: string;
 } {
   return {
     pause: `Calevate default: ${pauseLabel(bounds.platform_turn_silence_ms)}`,
     hangUp: `Calevate default: ${bounds.platform_end_call_on_finish ? "On" : "Off"}`,
     openingWait: `Calevate default: ${formatPause(platformOpeningWaitMs(bounds))}`,
+    reask: `Calevate default: ${reaskLabel(bounds.platform_reask_after_ms)}`,
   };
+}
+
+/** `reask_after_ms` 0: an unanswered question is not asked again (D-907). */
+export const REASK_NEVER = 0;
+
+/** "After 5 s", "After 2.5 s", or "Never": when an unanswered question is asked again. */
+export function reaskLabel(ms: number): string {
+  return ms === REASK_NEVER ? "Never" : `After ${formatPause(ms)}`;
 }
 
 /** The voice platform waits four seconds when no wait is sent (D-871, D-901). */
@@ -303,6 +323,35 @@ function allAgentsChanges(changes: AgentCallHandlingIn): AllAgentsCallHandlingIn
   return shared;
 }
 
+/**
+ * The "Patient caller" preset on one agent (D-907): its silence settings for a caller who
+ * follows along on their phone, and a longer longest call. The answer is the agent's call
+ * settings; the account read (which agents have their own values) and the agent's call limit
+ * read both move.
+ */
+export function useApplyPatientCaller(
+  session: Session,
+  agentId: string,
+): UseMutationResult<AgentCallHandling, Error, void> {
+  const client = useQueryClient();
+  const org = session.orgSlug;
+  return useMutation({
+    mutationFn: () =>
+      apiRequest<AgentCallHandling>(session, `/v1/agents/${agentId}/call-handling/patient-caller`, {
+        method: "POST",
+      }),
+    onSuccess: (data) => {
+      client.setQueryData(callHandlingKeys.agent(org, agentId), data);
+      return Promise.all([
+        client.invalidateQueries({ queryKey: callHandlingKeys.organization(org) }),
+        // The agent's longest call, and the roster row.
+        client.invalidateQueries({ queryKey: publishingKeys.pending(org, agentId) }),
+        client.invalidateQueries({ queryKey: ["agents", org] }),
+      ]);
+    },
+  });
+}
+
 /** The account's defaults and the agents with their own; read on an agent's Settings to say
  * how many agents "All my agents" changes. */
 export function useOrganizationCallHandling(
@@ -353,6 +402,35 @@ export function useAdminSetAgentCallHandling({
       return Promise.all([
         client.invalidateQueries({ queryKey: adminOrganizationKey(tenantId) }),
         client.invalidateQueries({ queryKey: callHandlingKeys.organization(slug) }),
+      ]);
+    },
+  });
+}
+
+/** The operator's door onto the same preset, from the console's agent page. */
+export function useAdminApplyPatientCaller({
+  tenantId,
+  agentId,
+  slug,
+}: {
+  tenantId: string;
+  agentId: string;
+  slug: string;
+}): UseMutationResult<AgentCallHandling, Error, void> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiRequest<AgentCallHandling>(
+        adminSession(),
+        `/v1/admin/tenants/${tenantId}/agents/${agentId}/call-handling/patient-caller`,
+        { method: "POST" },
+      ),
+    onSuccess: (data) => {
+      client.setQueryData(callHandlingKeys.agent(slug, agentId), data);
+      return Promise.all([
+        client.invalidateQueries({ queryKey: adminOrganizationKey(tenantId) }),
+        client.invalidateQueries({ queryKey: callHandlingKeys.organization(slug) }),
+        client.invalidateQueries({ queryKey: publishingKeys.pending(slug, agentId) }),
       ]);
     },
   });
@@ -468,7 +546,14 @@ export function platformVoice(bounds: CallHandlingBounds): InheritedVoice {
 }
 
 /** One row of the account defaults, as `CallHandlingDefaultsRows` lays them out. */
-export type DefaultsRow = "pause" | "hang-up" | "silence" | "filler" | "sound" | "opening-wait";
+export type DefaultsRow =
+  | "pause"
+  | "hang-up"
+  | "silence"
+  | "reask"
+  | "filler"
+  | "sound"
+  | "opening-wait";
 
 /** An agent that does not follow one account default, and what it uses instead. */
 export interface AgentOverride {
@@ -488,6 +573,7 @@ export function agentOverrides(data: OrganizationCallHandling): Record<DefaultsR
     pause: [],
     "hang-up": [],
     silence: [],
+    reask: [],
     filler: [],
     sound: [],
     "opening-wait": [],
@@ -522,6 +608,7 @@ export function agentOverrides(data: OrganizationCallHandling): Record<DefaultsR
       );
     }
     if (agent.opening_wait_ms !== null) add("opening-wait", formatPause(agent.opening_wait_ms));
+    if (agent.reask_after_ms !== null) add("reask", reaskLabel(agent.reask_after_ms));
   }
   return rows;
 }
@@ -530,6 +617,7 @@ const DEFAULTS_ROW_NAMES: Record<DefaultsRow, string> = {
   pause: "pause before replying",
   "hang-up": "hang up when finished",
   silence: "if the caller goes quiet",
+  reask: "ask an unanswered question again",
   filler: "lines while looking something up",
   sound: "background sound",
   "opening-wait": "wait for hello",
@@ -575,6 +663,7 @@ export function othersWithOwn(
     pause: count("pause"),
     "hang-up": count("hang-up"),
     silence: count("silence"),
+    reask: count("reask"),
     filler: count("filler"),
     sound: count("sound"),
     "opening-wait": count("opening-wait"),
