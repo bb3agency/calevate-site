@@ -5,7 +5,13 @@ import AgentPromptPage from "@/app/admin/tenants/[tenantId]/agents/[agentId]/pro
 
 import { renderAdminRoute, routeParams } from "./adminRoute";
 import { problem, stillLoading, type Routes } from "./harness";
-import { agentCallHandling, organizationCallHandling, agentReplyLength, agentRow } from "./fixtures/sharedReads";
+import {
+  agentCallHandling,
+  organizationCallHandling,
+  agentReplyLength,
+  agentRow,
+  agentTurnDetection,
+} from "./fixtures/sharedReads";
 /*
  * The agent page is a settings layout (D-661): Live opens first and holds the publish
  * controls this file is about; the call-cap cases open Call length.
@@ -118,6 +124,7 @@ function render(over: Partial<Routes> = {}) {
       [`/v1/agents/${AGENT}/call-handling`]: agentCallHandling(AGENT),
       "/v1/organization/call-handling": organizationCallHandling(),
       [`/v1/admin/tenants/${TENANT}/agents/${AGENT}/reply-length`]: agentReplyLength(AGENT),
+      [`/v1/admin/tenants/${TENANT}/agents/${AGENT}/turn-detection`]: agentTurnDetection(AGENT),
       [ME_PATH]: {
         realm: "admin",
         user_id: "0192f0aa-7777-7000-8000-0000000000f2",

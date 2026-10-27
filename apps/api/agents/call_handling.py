@@ -12,6 +12,11 @@
 - **Lines the agent says while it looks something up** (F3): the client's own, or the
   platform's.
 - **Background sound** (F3): none, or an office, at a volume.
+- **How long a waiting opening waits** (D-901): for an agent whose opening waits for the
+  person's hello, the silence after which it speaks anyway. Calevate's level is the console's
+  `thinnest_opening_wait_ms`, not a constant: while it is unset the field is never sent (the
+  vendor's 4 s applies) and no client may set a wait of its own, because the vendor accepts the
+  field only from 28 Oct 2026 and a field it does not know could refuse the whole publish.
 
 Each resolves agent -> organisation -> Calevate, the order the language model already uses
 (`agents/llm_models.resolve_llm_model`): NULL on `agents` inherits the account's value, NULL
@@ -44,10 +49,11 @@ console and the API's.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Final, Literal
 from uuid import UUID
 
+from calevate_shared.engine import TurnDetection
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -66,12 +72,16 @@ from apps.api.agents.models import (
     NUDGE_COUNT_MIN,
     NUDGE_NEVER,
     NUDGE_PHRASE_MAX_CHARS,
+    OPENING_WAIT_MAX_MS,
+    OPENING_WAIT_MIN_MS,
+    OPENING_WAIT_STEP_MS,
     TURN_SILENCE_MAX_MS,
     TURN_SILENCE_MIN_MS,
     is_published,
 )
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
+from apps.api.core.settings import get_settings
 
 log = get_logger(__name__)
 
@@ -126,6 +136,9 @@ class CallSettings:
     #: 'off', 'office' or 'office-quiet'.
     ambience: str | None = None
     ambience_volume_pct: int | None = None
+    #: Milliseconds of silence before an opening that waits for hello plays anyway. Resolved,
+    #: None is "not sent" (the console has no wait).
+    opening_wait_ms: int | None = None
 
 
 #: The fields, in column order. Spelled out (not read off the dataclass) because they reach
@@ -140,6 +153,7 @@ SETTING_FIELDS: Final[tuple[str, ...]] = (
     "filler_lines",
     "ambience",
     "ambience_volume_pct",
+    "opening_wait_ms",
 )
 #: The same fields on `organizations`, the account defaults, in the same order. Spelled out for
 #: `SETTING_FIELDS`' reason.
@@ -153,6 +167,7 @@ ORG_SETTING_FIELDS: Final[tuple[str, ...]] = (
     "default_filler_lines",
     "default_ambience",
     "default_ambience_volume_pct",
+    "default_opening_wait_ms",
 )
 #: The fields a PATCH may name. A field left out is untouched; null inherits.
 AGENT_FIELDS: Final = SETTING_FIELDS
@@ -168,7 +183,22 @@ PLATFORM_SETTINGS: Final = CallSettings(
     filler_lines=(),
     ambience=AMBIENCE_DEFAULT,
     ambience_volume_pct=AMBIENCE_VOLUME_DEFAULT_PCT,
+    # The console's, filled in by `platform_settings`.
+    opening_wait_ms=None,
 )
+
+
+def platform_settings() -> CallSettings:
+    """Calevate's level as it stands now: the constants, and the console's opening wait."""
+    wait = get_settings().thinnest_opening_wait_ms
+    if wait is None:
+        return PLATFORM_SETTINGS
+    return replace(PLATFORM_SETTINGS, opening_wait_ms=wait)
+
+
+def opening_wait_available() -> bool:
+    """May a wait be set and sent? Only once an operator has set the console's."""
+    return get_settings().thinnest_opening_wait_ms is not None
 
 
 @dataclass(frozen=True, slots=True)
@@ -211,6 +241,7 @@ def resolve_settings(own: CallSettings, organization: CallSettings) -> ResolvedS
     """Each field from the first level that holds a value: the agent, the account, Calevate."""
     chosen: dict[str, object] = {}
     sources: dict[str, SettingSource] = {}
+    platform = platform_settings()
     for field in SETTING_FIELDS:
         mine, theirs = getattr(own, field), getattr(organization, field)
         if mine is not None:
@@ -218,7 +249,7 @@ def resolve_settings(own: CallSettings, organization: CallSettings) -> ResolvedS
         elif theirs is not None:
             chosen[field], sources[field] = theirs, "organization"
         else:
-            chosen[field], sources[field] = getattr(PLATFORM_SETTINGS, field), "platform"
+            chosen[field], sources[field] = getattr(platform, field), "platform"
     return ResolvedSettings(settings_of(chosen), sources)
 
 
@@ -345,6 +376,27 @@ def refuse_invalid_settings(values: CallSettings) -> None:
             f"The background volume can be {AMBIENCE_VOLUME_MIN_PCT}% to "
             f"{AMBIENCE_VOLUME_MAX_PCT}%.",
             f"Choose {AMBIENCE_VOLUME_MIN_PCT}-{AMBIENCE_VOLUME_MAX_PCT}%.",
+        )
+    refuse_opening_wait(values.opening_wait_ms)
+
+
+def refuse_opening_wait(ms: int | None) -> None:
+    """A wait is 0.5 to 10 seconds to a tenth, and only once the console offers one."""
+    if ms is None:
+        return
+    if not opening_wait_available():
+        raise ProblemError.business_rule(
+            "opening_wait_unavailable",
+            "How long the agent waits for a hello cannot be changed yet.",
+            remediation="Leave it on the default for now.",
+        )
+    low, high = OPENING_WAIT_MIN_MS / 1000, OPENING_WAIT_MAX_MS / 1000
+    if not _in(ms, OPENING_WAIT_MIN_MS, OPENING_WAIT_MAX_MS) or ms % OPENING_WAIT_STEP_MS:
+        raise _refuse(
+            "opening_wait_ms",
+            "Wait for hello is out of range",
+            f"The agent can wait {low:g} to {high:g} seconds, in tenths of a second.",
+            f"Choose {low:g}-{high:g} seconds.",
         )
 
 
@@ -500,6 +552,7 @@ def settings_from_row(row: Sequence[object]) -> CallSettings:
         filler_lines=_lines_or_none(row[6]),
         ambience=_str_or_none(row[7]),
         ambience_volume_pct=_int_or_none(row[8]),
+        opening_wait_ms=_int_or_none(row[9]),
     )
 
 
@@ -768,6 +821,80 @@ async def set_call_handling_for_all_agents(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class AgentTurnDetection:
+    """An operator's turn detection for one agent (D-901): its own (None follows the
+    console's `thinnest_turn_detection`), and the mode its calls use."""
+
+    agent_id: UUID
+    own: TurnDetection | None
+    effective: TurnDetection
+
+
+def turn_detection_of(value: object) -> TurnDetection | None:
+    """`agents.turn_detection` as the engine's word; its CHECK holds the column to these."""
+    if value == "timer":
+        return "timer"
+    if value == "ear":
+        return "ear"
+    if value == "smart":
+        return "smart"
+    return None
+
+
+_AGENT_TURN_DETECTION: Final = (
+    "SELECT turn_detection, status, engine_agent_ref FROM agents "
+    "WHERE id = :aid AND deleted_at IS NULL"
+)
+
+
+def _turn_state(agent_id: UUID, own: TurnDetection | None) -> AgentTurnDetection:
+    return AgentTurnDetection(
+        agent_id=agent_id, own=own, effective=own or get_settings().thinnest_turn_detection
+    )
+
+
+async def read_agent_turn_detection(session: AsyncSession, agent_id: UUID) -> AgentTurnDetection:
+    row = (await session.execute(text(_AGENT_TURN_DETECTION), {"aid": agent_id})).first()
+    if row is None:
+        raise ProblemError.not_found("Agent")
+    return _turn_state(agent_id, turn_detection_of(row[0]))
+
+
+async def set_agent_turn_detection(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    agent_id: UUID,
+    mode: TurnDetection | None,
+) -> tuple[AgentTurnDetection, bool]:
+    """Put one agent on its own turn detection, or back on the console's (None), so a mode
+    can be tried on one agent without moving every client's (D-901). An operator's setting,
+    never a client's: the console's mode is a platform decision. Answers the new state and
+    whether it moved; a move on a published agent queues its live apply."""
+    row = (
+        await session.execute(text(_AGENT_TURN_DETECTION + " FOR UPDATE"), {"aid": agent_id})
+    ).first()
+    if row is None:
+        raise ProblemError.not_found("Agent")
+    moved = turn_detection_of(row[0]) != mode
+    if moved:
+        await session.execute(
+            text("UPDATE agents SET turn_detection = :mode, updated_at = now() WHERE id = :aid"),
+            {"mode": mode, "aid": agent_id},
+        )
+        if is_published(row[1], row[2]):
+            await queue_live_apply(
+                session,
+                scope="agent",
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                reason="turn_detection",
+            )
+    log.info("agent_turn_detection_set", extra={"agent_id": str(agent_id), "moved": moved})
+    return _turn_state(agent_id, mode), moved
+
+
 __all__ = [
     "AGENTS_WITH_OWN_MAX",
     "AGENT_FIELDS",
@@ -788,6 +915,7 @@ __all__ = [
     "TURN_SILENCE_MIN_MS",
     "AgentCallHandling",
     "AgentOwnSettings",
+    "AgentTurnDetection",
     "AllAgentsCallHandling",
     "CallSettings",
     "EndCallOnFinish",
@@ -797,17 +925,23 @@ __all__ = [
     "TurnSilence",
     "as_mapping",
     "normalise_filler_lines",
+    "opening_wait_available",
     "opening_waits_default",
+    "platform_settings",
     "read_agent_call_handling",
+    "read_agent_turn_detection",
     "read_organization_call_handling",
     "refuse_invalid_settings",
+    "refuse_opening_wait",
     "refuse_turn_silence_out_of_range",
     "resolve_end_call_on_finish",
     "resolve_settings",
     "resolve_turn_silence",
     "set_agent_call_handling",
+    "set_agent_turn_detection",
     "set_call_handling_for_all_agents",
     "set_organization_call_handling",
     "settings_from_row",
     "settings_of",
+    "turn_detection_of",
 ]

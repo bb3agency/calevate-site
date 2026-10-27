@@ -5260,6 +5260,12 @@ const ADMIN_SCREENS: Screen[] = [
       ],
       "/v1/agents/agent-1/call-handling": AGENT_CALL_HANDLING,
       "/v1/admin/tenants/t1/agents/agent-1/reply-length": agentReplyLength(),
+      "/v1/admin/tenants/t1/agents/agent-1/turn-detection": {
+        agent_id: "agent-1",
+        turn_detection: "timer",
+        turn_detection_effective: "timer",
+        console_turn_detection: "ear",
+      },
       "/v1/agents/agent-1/pending": {
         agent_id: "agent-1",
         agent_status: "live",

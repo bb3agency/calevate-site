@@ -1306,7 +1306,7 @@ _SETTING_KEYS: Final[dict[str, tuple[str, ...]]] = {
     "caller_memory": ("voice.pastConversations",),
     "machine_detection": ("voice.detectMachines",),
     "end_call_on_finish": ("voice.endCallOnFinish",),
-    "opening_waits_for_caller": ("voice.openingWaitsForCaller",),
+    "opening_waits_for_caller": ("voice.openingWaitsForCaller", "voice.openingWaitSeconds"),
     "speaking_speed": ("voice.speakingSpeed",),
     "turn_silence": ("voice.turnSilenceSeconds", "voice.turnDetection", "voice.acknowledgements"),
     "early_answers": ("voice.earlyAnswers",),
@@ -1452,7 +1452,11 @@ def _settings_drift(wanted: dict[str, Any], held: dict[str, Any]) -> list[str]:
                 same = isinstance(have, list) and have == want
             elif key == "steps":
                 same = _steps_held(have) == want
-            elif key in ("voice.turnSilenceSeconds", "voice.reaskAfterSeconds"):
+            elif key in (
+                "voice.turnSilenceSeconds",
+                "voice.reaskAfterSeconds",
+                "voice.openingWaitSeconds",
+            ):
                 same = _same_seconds(want, have)
             elif key == "maxReplyTokens":
                 same = _same_whole_number(want, have)
@@ -2039,6 +2043,17 @@ class ThinnestEngine:
             # agents/update-agent, read 24 Oct 2026). Always stated, so a console change
             # reads as drift.
             "openingWaitsForCaller": cfg.opening_waits_for_caller,
+            # How long that opening waits through silence, 0.5-10 s to a tenth, sent "with
+            # `voice.openingWaitsForCaller: true`"; null is 4 s; read at call start (ThinnestAI
+            # email of 27 Oct 2026, VENDOR-STATED, live 28 Oct; D-901). Omitted, never null,
+            # while the switch is off or no wait is set: the field means nothing without the
+            # switch, and before 28 Oct a field the vendor does not know may refuse the
+            # write. Omitted, it is also not compared as drift (`_settings_drift`).
+            **(
+                {"openingWaitSeconds": cfg.opening_wait_ms / 1000}
+                if cfg.opening_waits_for_caller and cfg.opening_wait_ms is not None
+                else {}
+            ),
             # How fast the agent talks, 0.7-1.3 times the voice's pace, null its own (D-884;
             # docs.thinnest.ai/api-reference/agents/update-agent, read 25 Oct 2026: every
             # hosted voice follows it, clones included). Null on a Studio voice: a speed in

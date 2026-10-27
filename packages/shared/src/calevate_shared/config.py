@@ -520,6 +520,14 @@ class Settings(BaseSettings):
     #: real-time recognition, which waits through a pause mid-sentence. Saving it republishes
     #: every live agent.
     thinnest_turn_detection: TurnDetection = "timer"
+    #: How long an opening that waits for the person's hello waits through silence before it
+    #: plays, in milliseconds on whole tenths (`voice.openingWaitSeconds`, 0.5 to 10 s, live
+    #: from 28 Oct 2026; ThinnestAI email of 27 Oct 2026, VENDOR-STATED; D-901). Unset: the
+    #: field is never sent and the vendor's 4 s applies, and clients are not offered their own
+    #: wait, because a field sent before the vendor accepts it may refuse the whole publish.
+    #: Set, it is the default every agent without its own follows. Saving it republishes every
+    #: live agent.
+    thinnest_opening_wait_ms: int | None = Field(default=None, ge=500, le=10_000, multiple_of=100)
     #: Under `ear` only, whether the agent says a short "haan ji" while a caller explains (the
     #: vendor's default is on; founder, 21 Oct 2026: acceptable). They are spoken on our
     #: Cartesia key and counted in `usage.ttsCharacters` (VENDOR-STATED, ThinnestAI's email

@@ -2392,6 +2392,17 @@
             ],
             "title": "Nudge Phrase"
           },
+          "opening_wait_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opening Wait Ms"
+          },
           "opening_waits_for_caller": {
             "anyOf": [
               {
@@ -2638,6 +2649,37 @@
             "title": "Nudge Phrase Source",
             "type": "string"
           },
+          "opening_wait_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opening Wait Ms"
+          },
+          "opening_wait_ms_effective": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opening Wait Ms Effective"
+          },
+          "opening_wait_ms_source": {
+            "enum": [
+              "agent",
+              "organization",
+              "platform"
+            ],
+            "title": "Opening Wait Ms Source",
+            "type": "string"
+          },
           "opening_waits_for_caller": {
             "title": "Opening Waits For Caller",
             "type": "boolean"
@@ -2738,6 +2780,17 @@
             ],
             "title": "Organization Nudge Phrase"
           },
+          "organization_opening_wait_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Organization Opening Wait Ms"
+          },
           "organization_turn_silence_ms": {
             "anyOf": [
               {
@@ -2803,6 +2856,9 @@
           "ambience_volume_pct",
           "ambience_volume_pct_effective",
           "ambience_volume_pct_source",
+          "opening_wait_ms",
+          "opening_wait_ms_effective",
+          "opening_wait_ms_source",
           "opening_waits_for_caller",
           "organization_turn_silence_ms",
           "organization_end_call_on_finish",
@@ -2813,6 +2869,7 @@
           "organization_filler_lines",
           "organization_ambience",
           "organization_ambience_volume_pct",
+          "organization_opening_wait_ms",
           "bounds"
         ],
         "title": "AgentCallHandlingOut",
@@ -3533,6 +3590,17 @@
             ],
             "title": "Nudge Phrase"
           },
+          "opening_wait_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opening Wait Ms"
+          },
           "turn_silence_ms": {
             "anyOf": [
               {
@@ -3556,7 +3624,8 @@
           "end_after_silence_seconds",
           "filler_lines",
           "ambience",
-          "ambience_volume_pct"
+          "ambience_volume_pct",
+          "opening_wait_ms"
         ],
         "title": "AgentOwnCallHandlingOut",
         "type": "object"
@@ -3757,6 +3826,10 @@
             "title": "Calls Over Target",
             "type": "integer"
           },
+          "calls_with_filler": {
+            "title": "Calls With Filler",
+            "type": "integer"
+          },
           "client_name": {
             "title": "Client Name",
             "type": "string"
@@ -3821,6 +3894,17 @@
             ],
             "title": "Reply Typical Ms"
           },
+          "reply_typical_no_filler_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reply Typical No Filler Ms"
+          },
           "reply_worst_ms": {
             "anyOf": [
               {
@@ -3853,6 +3937,7 @@
         "required": [
           "calls",
           "calls_measured",
+          "calls_with_filler",
           "calls_over_target",
           "slow_reply_problems",
           "turns",
@@ -4009,6 +4094,85 @@
           "last_call_at"
         ],
         "title": "AgentStatsOut",
+        "type": "object"
+      },
+      "AgentTurnDetectionIn": {
+        "additionalProperties": false,
+        "properties": {
+          "turn_detection": {
+            "anyOf": [
+              {
+                "enum": [
+                  "timer",
+                  "ear",
+                  "smart"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turn Detection"
+          }
+        },
+        "required": [
+          "turn_detection"
+        ],
+        "title": "AgentTurnDetectionIn",
+        "type": "object"
+      },
+      "AgentTurnDetectionOut": {
+        "additionalProperties": false,
+        "description": "An agent's own turn detection (`null` follows the console's for every agent) and the\nmode its calls use.",
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "console_turn_detection": {
+            "enum": [
+              "timer",
+              "ear",
+              "smart"
+            ],
+            "title": "Console Turn Detection",
+            "type": "string"
+          },
+          "turn_detection": {
+            "anyOf": [
+              {
+                "enum": [
+                  "timer",
+                  "ear",
+                  "smart"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turn Detection"
+          },
+          "turn_detection_effective": {
+            "enum": [
+              "timer",
+              "ear",
+              "smart"
+            ],
+            "title": "Turn Detection Effective",
+            "type": "string"
+          }
+        },
+        "required": [
+          "agent_id",
+          "turn_detection",
+          "turn_detection_effective",
+          "console_turn_detection"
+        ],
+        "title": "AgentTurnDetectionOut",
         "type": "object"
       },
       "AgentUpdateIn": {
@@ -4651,6 +4815,17 @@
               }
             ],
             "title": "Nudge Phrase"
+          },
+          "opening_wait_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opening Wait Ms"
           },
           "turn_silence_ms": {
             "anyOf": [
@@ -8363,6 +8538,22 @@
             "title": "Nudge Phrase Max Chars",
             "type": "integer"
           },
+          "opening_wait_available": {
+            "title": "Opening Wait Available",
+            "type": "boolean"
+          },
+          "opening_wait_max_ms": {
+            "title": "Opening Wait Max Ms",
+            "type": "integer"
+          },
+          "opening_wait_min_ms": {
+            "title": "Opening Wait Min Ms",
+            "type": "integer"
+          },
+          "opening_wait_step_ms": {
+            "title": "Opening Wait Step Ms",
+            "type": "integer"
+          },
           "platform_ambience": {
             "enum": [
               "off",
@@ -8391,6 +8582,17 @@
           "platform_nudge_count": {
             "title": "Platform Nudge Count",
             "type": "integer"
+          },
+          "platform_opening_wait_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Platform Opening Wait Ms"
           },
           "platform_turn_silence_ms": {
             "title": "Platform Turn Silence Ms",
@@ -8426,7 +8628,12 @@
           "platform_ambience",
           "ambience_volume_min_pct",
           "ambience_volume_max_pct",
-          "platform_ambience_volume_pct"
+          "platform_ambience_volume_pct",
+          "opening_wait_available",
+          "opening_wait_min_ms",
+          "opening_wait_max_ms",
+          "opening_wait_step_ms",
+          "platform_opening_wait_ms"
         ],
         "title": "CallHandlingBoundsOut",
         "type": "object"
@@ -8928,7 +9135,7 @@
       },
       "CallQualityOut": {
         "additionalProperties": false,
-        "description": "How the call went, as the voice platform measured it once it ended. Any figure is\nnull when it could not be measured on that call.",
+        "description": "How the call went, as the voice platform measured it once it ended. Any figure is\nnull when it could not be measured on that call. `reply_ms_*` run to the agent's first\nsound, so a filler line that plays first ends them (D-901); `filler_turns` is ours, the\nagent turns the transcript shows opening with one.",
         "properties": {
           "backup_answers": {
             "anyOf": [
@@ -8940,6 +9147,17 @@
               }
             ],
             "title": "Backup Answers"
+          },
+          "filler_turns": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filler Turns"
           },
           "first_token_ms_max": {
             "anyOf": [
@@ -12258,6 +12476,10 @@
             "title": "Calls Over Target",
             "type": "integer"
           },
+          "calls_with_filler": {
+            "title": "Calls With Filler",
+            "type": "integer"
+          },
           "client_name": {
             "title": "Client Name",
             "type": "string"
@@ -12322,6 +12544,17 @@
             ],
             "title": "Reply Typical Ms"
           },
+          "reply_typical_no_filler_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reply Typical No Filler Ms"
+          },
           "reply_worst_ms": {
             "anyOf": [
               {
@@ -12354,6 +12587,7 @@
         "required": [
           "calls",
           "calls_measured",
+          "calls_with_filler",
           "calls_over_target",
           "slow_reply_problems",
           "turns",
@@ -17713,6 +17947,10 @@
             "title": "Calls Over Target",
             "type": "integer"
           },
+          "calls_with_filler": {
+            "title": "Calls With Filler",
+            "type": "integer"
+          },
           "day": {
             "format": "date",
             "title": "Day",
@@ -17774,6 +18012,17 @@
             ],
             "title": "Reply Typical Ms"
           },
+          "reply_typical_no_filler_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reply Typical No Filler Ms"
+          },
           "reply_worst_ms": {
             "anyOf": [
               {
@@ -17801,6 +18050,7 @@
         "required": [
           "calls",
           "calls_measured",
+          "calls_with_filler",
           "calls_over_target",
           "slow_reply_problems",
           "turns",
@@ -33319,6 +33569,17 @@
             ],
             "title": "Nudge Phrase"
           },
+          "opening_wait_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opening Wait Ms"
+          },
           "turn_silence_ms": {
             "anyOf": [
               {
@@ -33491,6 +33752,28 @@
             "title": "Nudge Phrase Effective",
             "type": "string"
           },
+          "opening_wait_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opening Wait Ms"
+          },
+          "opening_wait_ms_effective": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opening Wait Ms Effective"
+          },
           "turn_silence_ms": {
             "anyOf": [
               {
@@ -33526,6 +33809,8 @@
           "ambience_effective",
           "ambience_volume_pct",
           "ambience_volume_pct_effective",
+          "opening_wait_ms",
+          "opening_wait_ms_effective",
           "agents_with_own",
           "agents_with_own_total",
           "bounds"
@@ -39923,6 +40208,10 @@
             "title": "Calls Over Target",
             "type": "integer"
           },
+          "calls_with_filler": {
+            "title": "Calls With Filler",
+            "type": "integer"
+          },
           "first_token_slow_ms": {
             "anyOf": [
               {
@@ -39979,6 +40268,17 @@
             ],
             "title": "Reply Typical Ms"
           },
+          "reply_typical_no_filler_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reply Typical No Filler Ms"
+          },
           "reply_worst_ms": {
             "anyOf": [
               {
@@ -40006,6 +40306,7 @@
         "required": [
           "calls",
           "calls_measured",
+          "calls_with_filler",
           "calls_over_target",
           "slow_reply_problems",
           "turns",
@@ -42579,6 +42880,10 @@
             "title": "Calls Over Target",
             "type": "integer"
           },
+          "calls_with_filler": {
+            "title": "Calls With Filler",
+            "type": "integer"
+          },
           "first_token_slow_ms": {
             "anyOf": [
               {
@@ -42635,6 +42940,17 @@
             ],
             "title": "Reply Typical Ms"
           },
+          "reply_typical_no_filler_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reply Typical No Filler Ms"
+          },
           "reply_worst_ms": {
             "anyOf": [
               {
@@ -42678,6 +42994,7 @@
         "required": [
           "calls",
           "calls_measured",
+          "calls_with_filler",
           "calls_over_target",
           "slow_reply_problems",
           "turns",
@@ -43040,6 +43357,17 @@
           "client_slug": {
             "title": "Client Slug",
             "type": "string"
+          },
+          "filler_turns": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filler Turns"
           },
           "first_token_p90_ms": {
             "anyOf": [
@@ -48742,6 +49070,10 @@
             "title": "Calls Over Target",
             "type": "integer"
           },
+          "calls_with_filler": {
+            "title": "Calls With Filler",
+            "type": "integer"
+          },
           "first_token_slow_ms": {
             "anyOf": [
               {
@@ -48798,6 +49130,17 @@
             ],
             "title": "Reply Typical Ms"
           },
+          "reply_typical_no_filler_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reply Typical No Filler Ms"
+          },
           "reply_worst_ms": {
             "anyOf": [
               {
@@ -48834,6 +49177,7 @@
         "required": [
           "calls",
           "calls_measured",
+          "calls_with_filler",
           "calls_over_target",
           "slow_reply_problems",
           "turns",
@@ -59656,7 +60000,7 @@
     },
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/call-handling": {
       "get": {
-        "description": "`turn_silence_ms` is the quiet the agent waits for before it decides the caller has finished and replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.\n\nIf the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, \"\" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).\n\n`opening_waits_for_caller` holds the agent's first words until the person who picked up speaks, or four seconds of silence; it is the agent's own (true or false, never inherited), on by default for an agent that only places calls.\n\nEach other setting resolves agent, then the account default, then Calevate's (250 ms, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound); `*_source` names the level in force.\n\nA change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range` or `call_setting_out_of_range`.",
+        "description": "`turn_silence_ms` is the quiet the agent waits for before it decides the caller has finished and replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.\n\nIf the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, \"\" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).\n\n`opening_waits_for_caller` holds the agent's first words until the person who picked up speaks, or `opening_wait_ms` of silence; it is the agent's own (true or false, never inherited), on by default for an agent that only places calls. `opening_wait_ms` (500-10000 in steps of 100) inherits like the settings below; it may be set only while `bounds.opening_wait_available`, and an effective null is four seconds (`opening_wait_unavailable` otherwise).\n\nEach other setting resolves agent, then the account default, then Calevate's (250 ms, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound); `*_source` names the level in force.\n\nA change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range` or `call_setting_out_of_range`.",
         "operationId": "admin_get_agent_call_handling_v1_admin_tenants__tenant_id__agents__agent_id__call_handling_get",
         "parameters": [
           {
@@ -59705,7 +60049,7 @@
         "x-calevate-permission": "admin:tenants"
       },
       "patch": {
-        "description": "`turn_silence_ms` is the quiet the agent waits for before it decides the caller has finished and replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.\n\nIf the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, \"\" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).\n\n`opening_waits_for_caller` holds the agent's first words until the person who picked up speaks, or four seconds of silence; it is the agent's own (true or false, never inherited), on by default for an agent that only places calls.\n\nEach other setting resolves agent, then the account default, then Calevate's (250 ms, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound); `*_source` names the level in force.\n\nA change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range` or `call_setting_out_of_range`.",
+        "description": "`turn_silence_ms` is the quiet the agent waits for before it decides the caller has finished and replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.\n\nIf the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, \"\" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).\n\n`opening_waits_for_caller` holds the agent's first words until the person who picked up speaks, or `opening_wait_ms` of silence; it is the agent's own (true or false, never inherited), on by default for an agent that only places calls. `opening_wait_ms` (500-10000 in steps of 100) inherits like the settings below; it may be set only while `bounds.opening_wait_available`, and an effective null is four seconds (`opening_wait_unavailable` otherwise).\n\nEach other setting resolves agent, then the account default, then Calevate's (250 ms, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound); `*_source` names the level in force.\n\nA change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range` or `call_setting_out_of_range`.",
         "operationId": "admin_set_agent_call_handling_v1_admin_tenants__tenant_id__agents__agent_id__call_handling_patch",
         "parameters": [
           {
@@ -60562,6 +60906,116 @@
           }
         },
         "summary": "Set the longest reply one client agent may give (audited)",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "agents:write"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/turn-detection": {
+      "get": {
+        "description": "How this one agent decides the caller has finished: `timer`, `ear` or `smart`, or `null` to follow the console's mode for every agent. For trying a mode on one agent (D-901); operators only, never a client's setting. A change reaches a live agent straight after the save and applies from its next call.",
+        "operationId": "admin_get_agent_turn_detection_v1_admin_tenants__tenant_id__agents__agent_id__turn_detection_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentTurnDetectionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "One client agent's own turn detection",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      },
+      "put": {
+        "description": "How this one agent decides the caller has finished: `timer`, `ear` or `smart`, or `null` to follow the console's mode for every agent. For trying a mode on one agent (D-901); operators only, never a client's setting. A change reaches a live agent straight after the save and applies from its next call.",
+        "operationId": "admin_set_agent_turn_detection_v1_admin_tenants__tenant_id__agents__agent_id__turn_detection_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentTurnDetectionIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentTurnDetectionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Put one client agent on its own turn detection",
         "tags": [
           "admin"
         ],
@@ -65593,7 +66047,7 @@
     },
     "/v1/agents/{agent_id}/call-handling": {
       "get": {
-        "description": "`turn_silence_ms` is the quiet the agent waits for before it decides the caller has finished and replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.\n\nIf the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, \"\" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).\n\n`opening_waits_for_caller` holds the agent's first words until the person who picked up speaks, or four seconds of silence; it is the agent's own (true or false, never inherited), on by default for an agent that only places calls.\n\nEach other setting resolves agent, then the account default, then Calevate's (250 ms, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound); `*_source` names the level in force.\n\nA change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range` or `call_setting_out_of_range`.",
+        "description": "`turn_silence_ms` is the quiet the agent waits for before it decides the caller has finished and replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.\n\nIf the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, \"\" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).\n\n`opening_waits_for_caller` holds the agent's first words until the person who picked up speaks, or `opening_wait_ms` of silence; it is the agent's own (true or false, never inherited), on by default for an agent that only places calls. `opening_wait_ms` (500-10000 in steps of 100) inherits like the settings below; it may be set only while `bounds.opening_wait_available`, and an effective null is four seconds (`opening_wait_unavailable` otherwise).\n\nEach other setting resolves agent, then the account default, then Calevate's (250 ms, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound); `*_source` names the level in force.\n\nA change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range` or `call_setting_out_of_range`.",
         "operationId": "get_agent_call_handling_v1_agents__agent_id__call_handling_get",
         "parameters": [
           {
@@ -65632,7 +66086,7 @@
         "x-calevate-permission": "agents:read"
       },
       "patch": {
-        "description": "`turn_silence_ms` is the quiet the agent waits for before it decides the caller has finished and replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.\n\nIf the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, \"\" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).\n\n`opening_waits_for_caller` holds the agent's first words until the person who picked up speaks, or four seconds of silence; it is the agent's own (true or false, never inherited), on by default for an agent that only places calls.\n\nEach other setting resolves agent, then the account default, then Calevate's (250 ms, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound); `*_source` names the level in force.\n\nA change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range` or `call_setting_out_of_range`.",
+        "description": "`turn_silence_ms` is the quiet the agent waits for before it decides the caller has finished and replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.\n\nIf the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, \"\" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).\n\n`opening_waits_for_caller` holds the agent's first words until the person who picked up speaks, or `opening_wait_ms` of silence; it is the agent's own (true or false, never inherited), on by default for an agent that only places calls. `opening_wait_ms` (500-10000 in steps of 100) inherits like the settings below; it may be set only while `bounds.opening_wait_available`, and an effective null is four seconds (`opening_wait_unavailable` otherwise).\n\nEach other setting resolves agent, then the account default, then Calevate's (250 ms, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound); `*_source` names the level in force.\n\nA change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range` or `call_setting_out_of_range`.",
         "operationId": "set_agent_call_handling_v1_agents__agent_id__call_handling_patch",
         "parameters": [
           {

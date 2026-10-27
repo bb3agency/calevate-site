@@ -1688,7 +1688,7 @@ export interface paths {
          *
          *     If the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, "" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).
          *
-         *     `opening_waits_for_caller` holds the agent's first words until the person who picked up speaks, or four seconds of silence; it is the agent's own (true or false, never inherited), on by default for an agent that only places calls.
+         *     `opening_waits_for_caller` holds the agent's first words until the person who picked up speaks, or `opening_wait_ms` of silence; it is the agent's own (true or false, never inherited), on by default for an agent that only places calls. `opening_wait_ms` (500-10000 in steps of 100) inherits like the settings below; it may be set only while `bounds.opening_wait_available`, and an effective null is four seconds (`opening_wait_unavailable` otherwise).
          *
          *     Each other setting resolves agent, then the account default, then Calevate's (250 ms, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound); `*_source` names the level in force.
          *
@@ -1706,7 +1706,7 @@ export interface paths {
          *
          *     If the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, "" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).
          *
-         *     `opening_waits_for_caller` holds the agent's first words until the person who picked up speaks, or four seconds of silence; it is the agent's own (true or false, never inherited), on by default for an agent that only places calls.
+         *     `opening_waits_for_caller` holds the agent's first words until the person who picked up speaks, or `opening_wait_ms` of silence; it is the agent's own (true or false, never inherited), on by default for an agent that only places calls. `opening_wait_ms` (500-10000 in steps of 100) inherits like the settings below; it may be set only while `bounds.opening_wait_available`, and an effective null is four seconds (`opening_wait_unavailable` otherwise).
          *
          *     Each other setting resolves agent, then the account default, then Calevate's (250 ms, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound); `*_source` names the level in force.
          *
@@ -1950,6 +1950,30 @@ export interface paths {
          * @description The longest reply this agent may give, in tokens (100-800). A reply that reaches it is cut off where it stands. `max_reply_tokens` null inherits the console's `thinnest_reply_length`, which `default` reports.
          */
         patch: operations["admin_set_reply_length_v1_admin_tenants__tenant_id__agents__agent_id__reply_length_patch"];
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/turn-detection": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One client agent's own turn detection
+         * @description How this one agent decides the caller has finished: `timer`, `ear` or `smart`, or `null` to follow the console's mode for every agent. For trying a mode on one agent (D-901); operators only, never a client's setting. A change reaches a live agent straight after the save and applies from its next call.
+         */
+        get: operations["admin_get_agent_turn_detection_v1_admin_tenants__tenant_id__agents__agent_id__turn_detection_get"];
+        /**
+         * Put one client agent on its own turn detection
+         * @description How this one agent decides the caller has finished: `timer`, `ear` or `smart`, or `null` to follow the console's mode for every agent. For trying a mode on one agent (D-901); operators only, never a client's setting. A change reaches a live agent straight after the save and applies from its next call.
+         */
+        put: operations["admin_set_agent_turn_detection_v1_admin_tenants__tenant_id__agents__agent_id__turn_detection_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/undo": {
@@ -3624,7 +3648,7 @@ export interface paths {
          *
          *     If the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, "" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).
          *
-         *     `opening_waits_for_caller` holds the agent's first words until the person who picked up speaks, or four seconds of silence; it is the agent's own (true or false, never inherited), on by default for an agent that only places calls.
+         *     `opening_waits_for_caller` holds the agent's first words until the person who picked up speaks, or `opening_wait_ms` of silence; it is the agent's own (true or false, never inherited), on by default for an agent that only places calls. `opening_wait_ms` (500-10000 in steps of 100) inherits like the settings below; it may be set only while `bounds.opening_wait_available`, and an effective null is four seconds (`opening_wait_unavailable` otherwise).
          *
          *     Each other setting resolves agent, then the account default, then Calevate's (250 ms, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound); `*_source` names the level in force.
          *
@@ -3642,7 +3666,7 @@ export interface paths {
          *
          *     If the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, "" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).
          *
-         *     `opening_waits_for_caller` holds the agent's first words until the person who picked up speaks, or four seconds of silence; it is the agent's own (true or false, never inherited), on by default for an agent that only places calls.
+         *     `opening_waits_for_caller` holds the agent's first words until the person who picked up speaks, or `opening_wait_ms` of silence; it is the agent's own (true or false, never inherited), on by default for an agent that only places calls. `opening_wait_ms` (500-10000 in steps of 100) inherits like the settings below; it may be set only while `bounds.opening_wait_available`, and an effective null is four seconds (`opening_wait_unavailable` otherwise).
          *
          *     Each other setting resolves agent, then the account default, then Calevate's (250 ms, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound); `*_source` names the level in force.
          *
@@ -13168,6 +13192,8 @@ export interface components {
             nudge_count?: number | null;
             /** Nudge Phrase */
             nudge_phrase?: string | null;
+            /** Opening Wait Ms */
+            opening_wait_ms?: number | null;
             /** Opening Waits For Caller */
             opening_waits_for_caller?: boolean | null;
             /** Turn Silence Ms */
@@ -13260,6 +13286,15 @@ export interface components {
              * @enum {string}
              */
             nudge_phrase_source: "agent" | "organization" | "platform";
+            /** Opening Wait Ms */
+            opening_wait_ms: number | null;
+            /** Opening Wait Ms Effective */
+            opening_wait_ms_effective: number | null;
+            /**
+             * Opening Wait Ms Source
+             * @enum {string}
+             */
+            opening_wait_ms_source: "agent" | "organization" | "platform";
             /** Opening Waits For Caller */
             opening_waits_for_caller: boolean;
             /** Organization Ambience */
@@ -13278,6 +13313,8 @@ export interface components {
             organization_nudge_count: number | null;
             /** Organization Nudge Phrase */
             organization_nudge_phrase: string | null;
+            /** Organization Opening Wait Ms */
+            organization_opening_wait_ms: number | null;
             /** Organization Turn Silence Ms */
             organization_turn_silence_ms: number | null;
             /** Turn Silence Ms */
@@ -13556,6 +13593,8 @@ export interface components {
             nudge_count: number | null;
             /** Nudge Phrase */
             nudge_phrase: string | null;
+            /** Opening Wait Ms */
+            opening_wait_ms: number | null;
             /** Turn Silence Ms */
             turn_silence_ms: number | null;
         };
@@ -13630,6 +13669,8 @@ export interface components {
             calls_measured: number;
             /** Calls Over Target */
             calls_over_target: number;
+            /** Calls With Filler */
+            calls_with_filler: number;
             /** Client Name */
             client_name: string;
             /** Client Slug */
@@ -13648,6 +13689,8 @@ export interface components {
             reply_slow_ms?: number | null;
             /** Reply Typical Ms */
             reply_typical_ms?: number | null;
+            /** Reply Typical No Filler Ms */
+            reply_typical_no_filler_ms?: number | null;
             /** Reply Worst Ms */
             reply_worst_ms?: number | null;
             /** Rescues */
@@ -13728,6 +13771,35 @@ export interface components {
              * @enum {string}
              */
             status: "draft" | "live" | "paused" | "archived";
+        };
+        /** AgentTurnDetectionIn */
+        AgentTurnDetectionIn: {
+            /** Turn Detection */
+            turn_detection: ("timer" | "ear" | "smart") | null;
+        };
+        /**
+         * AgentTurnDetectionOut
+         * @description An agent's own turn detection (`null` follows the console's for every agent) and the
+         *     mode its calls use.
+         */
+        AgentTurnDetectionOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /**
+             * Console Turn Detection
+             * @enum {string}
+             */
+            console_turn_detection: "timer" | "ear" | "smart";
+            /** Turn Detection */
+            turn_detection: ("timer" | "ear" | "smart") | null;
+            /**
+             * Turn Detection Effective
+             * @enum {string}
+             */
+            turn_detection_effective: "timer" | "ear" | "smart";
         };
         /**
          * AgentUpdateIn
@@ -13958,6 +14030,8 @@ export interface components {
             nudge_count?: number | null;
             /** Nudge Phrase */
             nudge_phrase?: string | null;
+            /** Opening Wait Ms */
+            opening_wait_ms?: number | null;
             /** Turn Silence Ms */
             turn_silence_ms?: number | null;
         };
@@ -15136,6 +15210,14 @@ export interface components {
             nudge_count_min: number;
             /** Nudge Phrase Max Chars */
             nudge_phrase_max_chars: number;
+            /** Opening Wait Available */
+            opening_wait_available: boolean;
+            /** Opening Wait Max Ms */
+            opening_wait_max_ms: number;
+            /** Opening Wait Min Ms */
+            opening_wait_min_ms: number;
+            /** Opening Wait Step Ms */
+            opening_wait_step_ms: number;
             /**
              * Platform Ambience
              * @enum {string}
@@ -15151,6 +15233,8 @@ export interface components {
             platform_nudge_after_seconds: number;
             /** Platform Nudge Count */
             platform_nudge_count: number;
+            /** Platform Opening Wait Ms */
+            platform_opening_wait_ms: number | null;
             /** Platform Turn Silence Ms */
             platform_turn_silence_ms: number;
             /** Turn Silence Max Ms */
@@ -15353,11 +15437,15 @@ export interface components {
         /**
          * CallQualityOut
          * @description How the call went, as the voice platform measured it once it ended. Any figure is
-         *     null when it could not be measured on that call.
+         *     null when it could not be measured on that call. `reply_ms_*` run to the agent's first
+         *     sound, so a filler line that plays first ends them (D-901); `filler_turns` is ours, the
+         *     agent turns the transcript shows opening with one.
          */
         CallQualityOut: {
             /** Backup Answers */
             backup_answers?: number | null;
+            /** Filler Turns */
+            filler_turns?: number | null;
             /** First Token Ms Max */
             first_token_ms_max?: number | null;
             /** First Token Ms Median */
@@ -16640,6 +16728,8 @@ export interface components {
             calls_measured: number;
             /** Calls Over Target */
             calls_over_target: number;
+            /** Calls With Filler */
+            calls_with_filler: number;
             /** Client Name */
             client_name: string;
             /** Client Slug */
@@ -16658,6 +16748,8 @@ export interface components {
             reply_slow_ms?: number | null;
             /** Reply Typical Ms */
             reply_typical_ms?: number | null;
+            /** Reply Typical No Filler Ms */
+            reply_typical_no_filler_ms?: number | null;
             /** Reply Worst Ms */
             reply_worst_ms?: number | null;
             /** Rescues */
@@ -18732,6 +18824,8 @@ export interface components {
             calls_measured: number;
             /** Calls Over Target */
             calls_over_target: number;
+            /** Calls With Filler */
+            calls_with_filler: number;
             /**
              * Day
              * Format: date
@@ -18751,6 +18845,8 @@ export interface components {
             reply_slow_ms?: number | null;
             /** Reply Typical Ms */
             reply_typical_ms?: number | null;
+            /** Reply Typical No Filler Ms */
+            reply_typical_no_filler_ms?: number | null;
             /** Reply Worst Ms */
             reply_worst_ms?: number | null;
             /** Rescues */
@@ -24744,6 +24840,8 @@ export interface components {
             nudge_count?: number | null;
             /** Nudge Phrase */
             nudge_phrase?: string | null;
+            /** Opening Wait Ms */
+            opening_wait_ms?: number | null;
             /** Turn Silence Ms */
             turn_silence_ms: number | null;
         };
@@ -24789,6 +24887,10 @@ export interface components {
             nudge_phrase: string | null;
             /** Nudge Phrase Effective */
             nudge_phrase_effective: string;
+            /** Opening Wait Ms */
+            opening_wait_ms: number | null;
+            /** Opening Wait Ms Effective */
+            opening_wait_ms_effective: number | null;
             /** Turn Silence Ms */
             turn_silence_ms: number | null;
             /** Turn Silence Ms Effective */
@@ -27096,6 +27198,8 @@ export interface components {
             calls_measured: number;
             /** Calls Over Target */
             calls_over_target: number;
+            /** Calls With Filler */
+            calls_with_filler: number;
             /** First Token Slow Ms */
             first_token_slow_ms?: number | null;
             /** First Token Typical Ms */
@@ -27110,6 +27214,8 @@ export interface components {
             reply_slow_ms?: number | null;
             /** Reply Typical Ms */
             reply_typical_ms?: number | null;
+            /** Reply Typical No Filler Ms */
+            reply_typical_no_filler_ms?: number | null;
             /** Reply Worst Ms */
             reply_worst_ms?: number | null;
             /** Rescues */
@@ -28171,6 +28277,8 @@ export interface components {
             calls_measured: number;
             /** Calls Over Target */
             calls_over_target: number;
+            /** Calls With Filler */
+            calls_with_filler: number;
             /** First Token Slow Ms */
             first_token_slow_ms?: number | null;
             /** First Token Typical Ms */
@@ -28185,6 +28293,8 @@ export interface components {
             reply_slow_ms?: number | null;
             /** Reply Typical Ms */
             reply_typical_ms?: number | null;
+            /** Reply Typical No Filler Ms */
+            reply_typical_no_filler_ms?: number | null;
             /** Reply Worst Ms */
             reply_worst_ms?: number | null;
             /** Rescues */
@@ -28345,6 +28455,8 @@ export interface components {
             client_name: string;
             /** Client Slug */
             client_slug: string;
+            /** Filler Turns */
+            filler_turns?: number | null;
             /** First Token P90 Ms */
             first_token_p90_ms: number | null;
             /** Model Errors */
@@ -30528,6 +30640,8 @@ export interface components {
             calls_measured: number;
             /** Calls Over Target */
             calls_over_target: number;
+            /** Calls With Filler */
+            calls_with_filler: number;
             /** First Token Slow Ms */
             first_token_slow_ms?: number | null;
             /** First Token Typical Ms */
@@ -30542,6 +30656,8 @@ export interface components {
             reply_slow_ms?: number | null;
             /** Reply Typical Ms */
             reply_typical_ms?: number | null;
+            /** Reply Typical No Filler Ms */
+            reply_typical_no_filler_ms?: number | null;
             /** Reply Worst Ms */
             reply_worst_ms?: number | null;
             /** Rescues */
@@ -36249,6 +36365,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReplyLengthOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    admin_get_agent_turn_detection_v1_admin_tenants__tenant_id__agents__agent_id__turn_detection_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentTurnDetectionOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    admin_set_agent_turn_detection_v1_admin_tenants__tenant_id__agents__agent_id__turn_detection_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentTurnDetectionIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentTurnDetectionOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

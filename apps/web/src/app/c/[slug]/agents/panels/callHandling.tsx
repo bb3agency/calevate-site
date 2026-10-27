@@ -10,7 +10,8 @@
  * whom the change is for: "Just this agent" saves the agent's own value, "All my agents" makes
  * it the value every agent shares and drops each agent's own. The account read tells the
  * second choice how many agents with their own value it changes. Waiting for hello has no
- * shared value, so it stays per agent.
+ * shared value, so it stays per agent; how long it waits (D-901) inherits like the pause, and
+ * shows only while waiting is on and the platform offers it.
  *
  * The owner changes them (`org:manage`: switching the hang-up off is a decision about the
  * account's money); anyone else who can open the agent reads the value in force and where it
@@ -22,6 +23,7 @@ import { useState } from "react";
 import { useActionFeedback } from "@/components/arc/feedback";
 import {
   HangUpRow,
+  OpeningWaitRow,
   OpeningWaitsRow,
   PauseRow,
   type ScopeOffer,
@@ -31,6 +33,7 @@ import { SettingRows } from "@/components/console/settingRow";
 import { ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
 import {
   inheritLabels,
+  openingWaitMs,
   othersWithOwn,
   platformLabels,
   useAgentCallHandling,
@@ -118,11 +121,29 @@ export function AgentCallHandlingRows({ agentId }: { agentId: string }) {
         />
         <OpeningWaitsRow
           on={data.opening_waits_for_caller}
+          waitMs={openingWaitMs(data)}
           canChange={write.allowed}
           status={rowStatus("opening")}
           error={failed("opening")}
           onSave={(next, done) => send("opening", { opening_waits_for_caller: next }, done, "agent")}
         />
+        {data.opening_waits_for_caller && data.bounds.opening_wait_available && (
+          <OpeningWaitRow
+            idPrefix={`agent-${agentId}`}
+            effective={openingWaitMs(data)}
+            source={data.opening_wait_ms_source}
+            own={data.opening_wait_ms}
+            inheritLabel={labels.openingWait}
+            minMs={data.bounds.opening_wait_min_ms}
+            maxMs={data.bounds.opening_wait_max_ms}
+            stepMs={data.bounds.opening_wait_step_ms}
+            canChange={write.allowed}
+            status={rowStatus("opening-wait")}
+            error={failed("opening-wait")}
+            scope={offer("opening-wait", calevate.openingWait)}
+            onSave={(next, done, scope) => send("opening-wait", { opening_wait_ms: next }, done, scope)}
+          />
+        )}
         <AgentVoiceRows
           idPrefix={`agent-${agentId}`}
           data={data}

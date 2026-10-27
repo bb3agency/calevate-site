@@ -141,6 +141,11 @@ export const CALL_HANDLING_BOUNDS = {
   ambience_volume_min_pct: 5,
   ambience_volume_max_pct: 100,
   platform_ambience_volume_pct: 15,
+  opening_wait_available: false,
+  opening_wait_min_ms: 500,
+  opening_wait_max_ms: 10000,
+  opening_wait_step_ms: 100,
+  platform_opening_wait_ms: null as number | null,
 };
 
 /** The voice settings of one level, none chosen. */
@@ -152,6 +157,7 @@ export const VOICE_OWN_NONE = {
   filler_lines: null,
   ambience: null,
   ambience_volume_pct: null,
+  opening_wait_ms: null as number | null,
 };
 
 /** Calevate's voice settings in force. */
@@ -163,6 +169,7 @@ export const VOICE_EFFECTIVE_DEFAULTS = {
   filler_lines_effective: [] as string[],
   ambience_effective: "off" as const,
   ambience_volume_pct_effective: 15,
+  opening_wait_ms_effective: null as number | null,
 };
 
 /** Every voice setting coming from Calevate. */
@@ -174,6 +181,7 @@ export const VOICE_SOURCES_PLATFORM = {
   filler_lines_source: "platform" as const,
   ambience_source: "platform" as const,
   ambience_volume_pct_source: "platform" as const,
+  opening_wait_ms_source: "platform" as const,
 };
 
 /** An account that has chosen no voice setting. */
@@ -185,6 +193,7 @@ export const VOICE_ORGANIZATION_NONE = {
   organization_filler_lines: null,
   organization_ambience: null,
   organization_ambience_volume_pct: null,
+  organization_opening_wait_ms: null as number | null,
 };
 
 /** One agent's pause before replying and hang-up (D-751), all on Calevate's defaults. */
@@ -221,6 +230,16 @@ export function organizationCallHandling() {
     agents_with_own: [],
     agents_with_own_total: 0,
     bounds: CALL_HANDLING_BOUNDS,
+  };
+}
+
+/** An operator's turn detection for one agent (D-901), following the console. */
+export function agentTurnDetection(agentId = "agent-1") {
+  return {
+    agent_id: agentId,
+    turn_detection: null,
+    turn_detection_effective: "ear" as const,
+    console_turn_detection: "ear" as const,
   };
 }
 

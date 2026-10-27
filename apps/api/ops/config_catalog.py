@@ -339,6 +339,14 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "mid-sentence pause; there the pause only starts its check that the caller is done.",
         _THINNEST,
     ),
+    "thinnest_opening_wait_ms": _m(
+        "voice-engine",
+        "thinnest",
+        "Silence before a waiting opening plays",
+        "For agents that wait for hello: how long silence lasts before they speak. Unset, "
+        "nothing is sent and ThinnestAI waits 4 s. Live there from 28 Oct 2026.",
+        _THINNEST,
+    ),
     "thinnest_acknowledgements": _m(
         "voice-engine",
         "thinnest",
@@ -1314,6 +1322,11 @@ CONTROL_HINTS: Final[dict[str, ControlHint]] = {
     "thinnest_max_concurrent_calls": ControlHint(unit="calls at once"),
     "thinnest_reply_length": ControlHint(unit="tokens"),
     "thinnest_interrupt_words": ControlHint(unit="words"),
+    "thinnest_opening_wait_ms": ControlHint(
+        kind="duration",
+        unit="milliseconds",
+        help="Whole tenths, 500 to 10,000. Leave unset until ThinnestAI accepts the field.",
+    ),
     "thinnest_turn_detection": ControlHint(
         options=(
             OptionLabel("timer", "Silence", "The pause set in Call handling ends the turn."),

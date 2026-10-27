@@ -24,6 +24,7 @@ from __future__ import annotations
 from typing import Annotated, Literal
 from uuid import UUID
 
+from calevate_shared.engine import TurnDetection
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -53,6 +54,9 @@ from apps.api.agents.models import (
     NUDGE_COUNT_MAX,
     NUDGE_COUNT_MIN,
     NUDGE_PHRASE_MAX_CHARS,
+    OPENING_WAIT_MAX_MS,
+    OPENING_WAIT_MIN_MS,
+    OPENING_WAIT_STEP_MS,
     TURN_SILENCE_MAX_MS,
     TURN_SILENCE_MIN_MS,
 )
@@ -61,6 +65,7 @@ from apps.api.core.auth import client_request_ip, record_admin_tenant_read, requ
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.rbac import permission_meta
+from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
 
 Session = Annotated[AsyncSession, Depends(db)]
@@ -108,6 +113,14 @@ class CallHandlingBoundsOut(BaseModel):
     ambience_volume_min_pct: int
     ambience_volume_max_pct: int
     platform_ambience_volume_pct: int
+    #: How long an opening that waits for hello waits through silence (D-901). Offered only
+    #: while `opening_wait_available`; `platform_opening_wait_ms` null is the voice platform's
+    #: own four seconds.
+    opening_wait_available: bool
+    opening_wait_min_ms: int
+    opening_wait_max_ms: int
+    opening_wait_step_ms: int
+    platform_opening_wait_ms: int | None
 
 
 def _bounds() -> CallHandlingBoundsOut:
@@ -133,6 +146,11 @@ def _bounds() -> CallHandlingBoundsOut:
         ambience_volume_min_pct=AMBIENCE_VOLUME_MIN_PCT,
         ambience_volume_max_pct=AMBIENCE_VOLUME_MAX_PCT,
         platform_ambience_volume_pct=AMBIENCE_VOLUME_DEFAULT_PCT,
+        opening_wait_available=call_handling.opening_wait_available(),
+        opening_wait_min_ms=OPENING_WAIT_MIN_MS,
+        opening_wait_max_ms=OPENING_WAIT_MAX_MS,
+        opening_wait_step_ms=OPENING_WAIT_STEP_MS,
+        platform_opening_wait_ms=call_handling.platform_settings().opening_wait_ms,
     )
 
 
@@ -173,6 +191,11 @@ class AgentCallHandlingOut(BaseModel):
     ambience_volume_pct: int | None
     ambience_volume_pct_effective: int
     ambience_volume_pct_source: SettingSource
+    #: Milliseconds of silence before an opening that waits for hello plays anyway (D-901);
+    #: `_effective` null is the voice platform's own four seconds.
+    opening_wait_ms: int | None
+    opening_wait_ms_effective: int | None
+    opening_wait_ms_source: SettingSource
     #: The opening waits for the person who picked up to speak (D-871). The agent's own,
     #: never inherited.
     opening_waits_for_caller: bool
@@ -186,6 +209,7 @@ class AgentCallHandlingOut(BaseModel):
     organization_filler_lines: list[str] | None
     organization_ambience: Ambience | None
     organization_ambience_volume_pct: int | None
+    organization_opening_wait_ms: int | None
     bounds: CallHandlingBoundsOut
 
 
@@ -208,6 +232,7 @@ class AgentCallHandlingIn(BaseModel):
     )
     ambience: Ambience | None = Field(default=None)
     ambience_volume_pct: int | None = Field(default=None)
+    opening_wait_ms: int | None = Field(default=None)
 
 
 class AgentOwnCallHandlingOut(BaseModel):
@@ -226,6 +251,7 @@ class AgentOwnCallHandlingOut(BaseModel):
     filler_lines: list[str] | None
     ambience: Ambience | None
     ambience_volume_pct: int | None
+    opening_wait_ms: int | None
 
 
 class OrganizationCallHandlingOut(BaseModel):
@@ -250,6 +276,8 @@ class OrganizationCallHandlingOut(BaseModel):
     ambience_effective: Ambience
     ambience_volume_pct: int | None
     ambience_volume_pct_effective: int
+    opening_wait_ms: int | None
+    opening_wait_ms_effective: int | None
     #: The agents that set any value of their own, which these defaults do not reach for
     #: that value; at most `call_handling.AGENTS_WITH_OWN_MAX`, by name.
     agents_with_own: list[AgentOwnCallHandlingOut]
@@ -276,6 +304,7 @@ class OrganizationCallHandlingIn(BaseModel):
     )
     ambience: Ambience | None = Field(default=None)
     ambience_volume_pct: int | None = Field(default=None)
+    opening_wait_ms: int | None = Field(default=None)
 
 
 class AllAgentsCallHandlingIn(BaseModel):
@@ -295,6 +324,7 @@ class AllAgentsCallHandlingIn(BaseModel):
     )
     ambience: Ambience | None = Field(default=None)
     ambience_volume_pct: int | None = Field(default=None)
+    opening_wait_ms: int | None = Field(default=None)
 
 
 class AllAgentsCallHandlingOut(BaseModel):
@@ -331,6 +361,7 @@ def _effective(values: CallSettings) -> dict[str, object]:
         "filler_lines_effective": list(values.filler_lines or ()),
         "ambience_effective": _ambience(values.ambience) or "off",
         "ambience_volume_pct_effective": values.ambience_volume_pct,
+        "opening_wait_ms_effective": values.opening_wait_ms,
     }
 
 
@@ -345,6 +376,7 @@ def _own(values: CallSettings, prefix: str = "") -> dict[str, object]:
         f"{prefix}filler_lines": _lines(values.filler_lines),
         f"{prefix}ambience": _ambience(values.ambience),
         f"{prefix}ambience_volume_pct": values.ambience_volume_pct,
+        f"{prefix}opening_wait_ms": values.opening_wait_ms,
     }
 
 
@@ -435,8 +467,12 @@ _AGENT_DESCRIPTION = (
     f"(`off`, `office`, `office-quiet`) at `ambience_volume_pct` "
     f"({AMBIENCE_VOLUME_MIN_PCT}-{AMBIENCE_VOLUME_MAX_PCT}).\n\n"
     "`opening_waits_for_caller` holds the agent's first words until the person who picked "
-    "up speaks, or four seconds of silence; it is the agent's own (true or false, never "
-    "inherited), on by default for an agent that only places calls.\n\n"
+    "up speaks, or `opening_wait_ms` of silence; it is the agent's own (true or false, never "
+    "inherited), on by default for an agent that only places calls. `opening_wait_ms` "
+    f"({OPENING_WAIT_MIN_MS}-{OPENING_WAIT_MAX_MS} in steps of {OPENING_WAIT_STEP_MS}) "
+    "inherits like the settings below; it may be set only while "
+    "`bounds.opening_wait_available`, and an effective null is four seconds "
+    "(`opening_wait_unavailable` otherwise).\n\n"
     "Each other setting resolves agent, then the account default, then Calevate's "
     f"({TURN_SILENCE_DEFAULT_MS} ms, hang-up on, ask once after {NUDGE_AFTER_DEFAULT_S} s, "
     f"hang up after {END_AFTER_SILENCE_DEFAULT_S} s, standard lines, no sound); `*_source` "
@@ -682,9 +718,96 @@ async def admin_set_organization_call_handling(
     return _org_out(state)
 
 
+class AgentTurnDetectionOut(BaseModel):
+    """An agent's own turn detection (`null` follows the console's for every agent) and the
+    mode its calls use."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    agent_id: UUID
+    turn_detection: TurnDetection | None
+    turn_detection_effective: TurnDetection
+    #: The console's `thinnest_turn_detection`, which `null` follows.
+    console_turn_detection: TurnDetection
+
+
+class AgentTurnDetectionIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    turn_detection: TurnDetection | None
+
+
+def _turn_out(state: call_handling.AgentTurnDetection) -> AgentTurnDetectionOut:
+    return AgentTurnDetectionOut(
+        agent_id=state.agent_id,
+        turn_detection=state.own,
+        turn_detection_effective=state.effective,
+        console_turn_detection=get_settings().thinnest_turn_detection,
+    )
+
+
+_TURN_DESCRIPTION = (
+    "How this one agent decides the caller has finished: `timer`, `ear` or `smart`, or "
+    "`null` to follow the console's mode for every agent. For trying a mode on one agent "
+    "(D-901); operators only, never a client's setting. A change reaches a live agent "
+    "straight after the save and applies from its next call."
+)
+
+
+@admin_router.get(
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/turn-detection",
+    response_model=AgentTurnDetectionOut,
+    openapi_extra=permission_meta("admin:tenants"),
+    summary="One client agent's own turn detection",
+    description=_TURN_DESCRIPTION,
+)
+async def admin_get_agent_turn_detection(
+    tenant_id: UUID, agent_id: UUID, request: Request, principal: Operator
+) -> AgentTurnDetectionOut:
+    async with tenant_session(tenant_id) as scoped:
+        state = await call_handling.read_agent_turn_detection(scoped, agent_id)
+        await record_admin_tenant_read(
+            scoped, request=request, principal=principal, tenant_id=tenant_id
+        )
+    return _turn_out(state)
+
+
+@admin_router.put(
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/turn-detection",
+    response_model=AgentTurnDetectionOut,
+    openapi_extra=permission_meta("agents:write"),
+    summary="Put one client agent on its own turn detection",
+    description=_TURN_DESCRIPTION,
+)
+async def admin_set_agent_turn_detection(
+    tenant_id: UUID,
+    agent_id: UUID,
+    payload: AgentTurnDetectionIn,
+    request: Request,
+    principal: AgentOperator,
+) -> AgentTurnDetectionOut:
+    async with tenant_session(tenant_id) as scoped:
+        state, moved = await call_handling.set_agent_turn_detection(
+            scoped, tenant_id=tenant_id, agent_id=agent_id, mode=payload.turn_detection
+        )
+        await write_audit(
+            scoped,
+            action="admin.agent_turn_detection_set",
+            actor=principal,
+            tenant_id=tenant_id,
+            object_type="agent",
+            object_id=str(agent_id),
+            ip=client_request_ip(request),
+            summary={"turn_detection": payload.turn_detection, "moved": moved},
+        )
+    return _turn_out(state)
+
+
 __all__ = [
     "AgentCallHandlingIn",
     "AgentCallHandlingOut",
+    "AgentTurnDetectionIn",
+    "AgentTurnDetectionOut",
     "AllAgentsCallHandlingIn",
     "AllAgentsCallHandlingOut",
     "OrganizationCallHandlingIn",

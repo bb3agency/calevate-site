@@ -7,16 +7,19 @@
  */
 
 import { useActionFeedback } from "@/components/arc/feedback";
-import { HangUpRow, OpeningWaitsRow, PauseRow } from "@/components/callHandlingRows";
+import { HangUpRow, OpeningWaitRow, OpeningWaitsRow, PauseRow } from "@/components/callHandlingRows";
 import { AgentVoiceRows } from "@/components/callHandlingVoiceRows";
 import { SettingRows } from "@/components/console/settingRow";
 import { ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
 import type { useAdminAccess } from "@/app/admin/access";
 import {
   inheritLabels,
+  openingWaitMs,
   useAdminSetAgentCallHandling,
   useTenantAgentCallHandling,
 } from "@/lib/api/callHandling";
+
+import { TurnDetectionRow } from "./turnDetection";
 
 export function CallHandlingPanel({
   tenantId,
@@ -81,7 +84,25 @@ export function CallHandlingPanel({
           status={save.variables?.opening_waits_for_caller !== undefined ? feedback.status : "idle"}
           error={save.variables?.opening_waits_for_caller !== undefined ? save.error : null}
           onSave={(next, done) => save.mutate({ opening_waits_for_caller: next }, { onSuccess: done })}
+          waitMs={openingWaitMs(data)}
         />
+        {data.opening_waits_for_caller && data.bounds.opening_wait_available && (
+          <OpeningWaitRow
+            idPrefix={`admin-${agentId}`}
+            effective={openingWaitMs(data)}
+            source={data.opening_wait_ms_source}
+            own={data.opening_wait_ms}
+            inheritLabel={labels.openingWait}
+            minMs={data.bounds.opening_wait_min_ms}
+            maxMs={data.bounds.opening_wait_max_ms}
+            stepMs={data.bounds.opening_wait_step_ms}
+            canChange={write.allowed}
+            status={save.variables?.opening_wait_ms !== undefined ? feedback.status : "idle"}
+            error={save.variables?.opening_wait_ms !== undefined ? save.error : null}
+            onSave={(next, done) => save.mutate({ opening_wait_ms: next }, { onSuccess: done })}
+          />
+        )}
+        <TurnDetectionRow tenantId={tenantId} agentId={agentId} write={write} />
         <AgentVoiceRows
           idPrefix={`admin-${agentId}`}
           data={data}

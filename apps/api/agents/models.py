@@ -194,6 +194,15 @@ FILLER_LINE_MAX_CHARS = 60
 AMBIENCES: tuple[str, ...] = ("off", "office", "office-quiet")
 AMBIENCE_VOLUME_MIN_PCT = 5
 AMBIENCE_VOLUME_MAX_PCT = 100
+#: How long an opening that waits for the person's hello waits through silence before it
+#: plays (D-901): ThinnestAI's `voice.openingWaitSeconds`, 0.5 to 10 s to a tenth (ThinnestAI
+#: email of 27 Oct 2026, VENDOR-STATED), in milliseconds on whole tenths.
+OPENING_WAIT_MIN_MS = 500
+OPENING_WAIT_MAX_MS = 10_000
+OPENING_WAIT_STEP_MS = 100
+#: `voice.turnDetection`'s values (`calevate_shared.engine.TurnDetection`), spelled here for
+#: the CHECK on `agents.turn_detection`.
+TURN_DETECTIONS: tuple[str, ...] = ("timer", "ear", "smart")
 
 
 # How a Studio voice sounds on one agent (`agents/voice_tuning`): the ranges and values
@@ -307,6 +316,12 @@ def call_setting_checks(prefix: str = "") -> tuple[CheckConstraint, ...]:
             f"{p}ambience_volume_pct IS NULL OR ({p}ambience_volume_pct >= "
             f"{AMBIENCE_VOLUME_MIN_PCT} AND {p}ambience_volume_pct <= {AMBIENCE_VOLUME_MAX_PCT})",
             name=f"{p}ambience_volume_range",
+        ),
+        CheckConstraint(
+            f"{p}opening_wait_ms IS NULL OR ({p}opening_wait_ms >= {OPENING_WAIT_MIN_MS} "
+            f"AND {p}opening_wait_ms <= {OPENING_WAIT_MAX_MS} "
+            f"AND {p}opening_wait_ms % {OPENING_WAIT_STEP_MS} = 0)",
+            name=f"{p}opening_wait_range",
         ),
     )
 
@@ -425,6 +440,11 @@ class Agent(PKMixin, TimestampMixin, Base):
             f"turn_silence_ms IS NULL OR (turn_silence_ms >= {TURN_SILENCE_MIN_MS} "
             f"AND turn_silence_ms <= {TURN_SILENCE_MAX_MS})",
             name="turn_silence_range",
+        ),
+        # An operator's per-agent turn detection (D-901); NULL follows the console.
+        CheckConstraint(
+            f"turn_detection IS NULL OR turn_detection IN {TURN_DETECTIONS!r}",
+            name="turn_detection_enum",
         ),
         # The agent's own reply ceiling (D-769, migration b9d4e2a7c6f1); NULL inherits.
         CheckConstraint(
@@ -575,6 +595,12 @@ class Agent(PKMixin, TimestampMixin, Base):
     filler_lines: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
     ambience: Mapped[str | None] = mapped_column(Text)
     ambience_volume_pct: Mapped[int | None] = mapped_column(Integer)
+    # How long an opening that waits for the person's hello waits through silence (D-901).
+    # NULL inherits the account's, then the console's `thinnest_opening_wait_ms`.
+    opening_wait_ms: Mapped[int | None] = mapped_column(Integer)
+    # An operator's turn detection for this agent alone (D-901), over the console's
+    # `thinnest_turn_detection`; NULL follows the console. Never offered to clients.
+    turn_detection: Mapped[str | None] = mapped_column(Text)
     # How a Studio voice sounds on this agent (`agents/voice_tuning`); NULL is the voice
     # provider's own default. Sent only while the agent's voice is a Studio one, except the
     # speed: it is the agent's speed on either rung (D-884), sent as the byok-voice speed on

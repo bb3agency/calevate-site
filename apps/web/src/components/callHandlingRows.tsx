@@ -33,6 +33,7 @@ import { Slider } from "@/components/arc/slider";
 import { FIELD_HINT, ProblemNotice, ToggleSwitch } from "@/components/ui";
 import {
   PAUSE_PRESETS,
+  STANDARD_OPENING_WAIT_MS,
   formatPause,
   pauseLabel,
   sourceLabel,
@@ -482,18 +483,21 @@ export function HangUpRow({
   );
 }
 
-/** The row's one plain line (D-871). */
-export const OPENING_WAITS_LINE =
-  "Your agent speaks right after the first words of the person who picks up, or after four " +
-  "seconds if they stay silent.";
+/** The row's one plain line (D-871), with the silence it waits through (D-901). */
+export function openingWaitsLine(waitMs: number = STANDARD_OPENING_WAIT_MS): string {
+  return (
+    "Your agent speaks right after the first words of the person who picks up, or after " +
+    `${formatPause(waitMs)} if they stay silent.`
+  );
+}
 const OPENING_SPEAKS_LINE = "Your agent speaks as soon as the call connects.";
 
 const OPENING_WAITS_INFO =
   "On, the agent lets the person who picks up speak first and opens right after their first " +
   "words, so it does not talk over their hello. A plain hello is not answered a second time. " +
-  "If they say nothing, it opens after four seconds. This suits an agent that calls people. " +
-  "Off, the agent speaks the moment the call connects, which suits people calling your " +
-  "business.";
+  "If they say nothing, it opens after the wait set below. This suits an agent that calls " +
+  "people. Off, the agent speaks the moment the call connects, which suits people calling " +
+  "your business.";
 
 /**
  * Whether the agent's first words wait for the person's hello (D-871). The agent's own
@@ -502,12 +506,15 @@ const OPENING_WAITS_INFO =
  */
 export function OpeningWaitsRow({
   on,
+  waitMs,
   canChange,
   status,
   error,
   onSave,
 }: {
   on: boolean;
+  /** The silence it waits through before opening anyway; the platform's four seconds if unset. */
+  waitMs?: number;
   canChange: boolean;
   /** This row's save, from the caller's `useActionFeedback`. */
   status: FeedbackStatus;
@@ -532,7 +539,7 @@ export function OpeningWaitsRow({
         label="Wait for them to say hello"
         // The line describes the value in force, so an agent switched off never reads as
         // one that waits.
-        hint={on ? OPENING_WAITS_LINE : OPENING_SPEAKS_LINE}
+        hint={on ? openingWaitsLine(waitMs) : OPENING_SPEAKS_LINE}
         info={<p>{OPENING_WAITS_INFO}</p>}
         value={on ? "On" : "Off"}
         action={
@@ -563,13 +570,138 @@ export function OpeningWaitsRow({
           <div className={CALL_HANDLING_EDITOR}>
             <ToggleSwitch
               label="Wait for them to say hello"
-              hint={next ? OPENING_WAITS_LINE : OPENING_SPEAKS_LINE}
+              hint={next ? openingWaitsLine(waitMs) : OPENING_SPEAKS_LINE}
               checked={next}
               onChange={setNext}
             />
           </div>
           {(changed || saving) && (
             <SaveBar label="Save" status={status} onCancel={close} note={CALL_HANDLING_NEXT_CALL} />
+          )}
+          {!changed && !saving && (
+            <button type="button" onClick={close} className={TEXT_ACTION}>
+              Close
+            </button>
+          )}
+        </form>
+      )}
+    </div>
+  );
+}
+
+const OPENING_WAIT_LINE = "If nobody speaks, your agent opens after this.";
+
+const OPENING_WAIT_INFO =
+  "A short wait opens sooner when the person stays quiet, but can talk over a slow hello. " +
+  "A long wait gives them time to answer, and leaves a silence before the agent speaks.";
+
+/**
+ * How long a waiting opening waits through silence (D-901), shown under "Wait for them to say
+ * hello" while that is on and the platform offers the setting. Inherits like the pause: the
+ * agent's own, the value the agents share, or Calevate's.
+ */
+export function OpeningWaitRow({
+  idPrefix,
+  effective,
+  source,
+  own,
+  inheritLabel,
+  canChange,
+  status,
+  error,
+  scope,
+  onSave,
+  minMs,
+  maxMs,
+  stepMs,
+}: RowProps<number> & { minMs: number; maxMs: number; stepMs: number }) {
+  const saving = status === "pending";
+  const initial = () => ({
+    useDefault: own === null,
+    ms: clamp(own ?? effective, minMs, maxMs),
+    scope: "agent" as CallHandlingScope,
+  });
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState(initial);
+  const next: number | null = form.useDefault ? null : form.ms;
+  const save = scopeSave(form.scope, next === own, "Save wait");
+  const changed = editing && save.changed;
+  useUnsavedGuard(changed);
+  const defaultLabel = form.scope === "all" && scope ? scope.inherit : inheritLabel;
+  const id = `${idPrefix}-opening-wait`;
+
+  const close = () => {
+    setEditing(false);
+    setForm(initial());
+  };
+
+  return (
+    <div>
+      <SettingRow
+        label="How long to wait for hello"
+        hint={`${OPENING_WAIT_LINE} ${sourceLabel(source)}.`}
+        info={<p>{OPENING_WAIT_INFO}</p>}
+        value={formatPause(effective)}
+        action={
+          editing || !canChange ? undefined : (
+            <button
+              type="button"
+              onClick={() => {
+                setForm(initial());
+                setEditing(true);
+              }}
+              className={TEXT_ACTION}
+            >
+              Change
+            </button>
+          )
+        }
+      />
+      {error && <ProblemNotice error={error} />}
+      {editing && (
+        <form
+          className="settings-enter space-y-3 pb-4"
+          noValidate
+          onSubmit={(event) => {
+            event.preventDefault();
+            onSave(next, () => setEditing(false), form.scope);
+          }}
+        >
+          <div className={CALL_HANDLING_EDITOR}>
+            <DefaultCheckbox
+              label={`Use the ${defaultLabel}`}
+              checked={form.useDefault}
+              onChange={(checked) => setForm((f) => ({ ...f, useDefault: checked }))}
+            />
+            {!form.useDefault && (
+              <SliderField
+                id={`${id}-ms`}
+                label="Wait"
+                value={form.ms}
+                valueText={formatPause(form.ms)}
+                min={minMs}
+                max={maxMs}
+                step={stepMs}
+                scale={[formatPause(minMs), formatPause(maxMs)]}
+                onChange={(ms) => setForm((f) => ({ ...f, ms }))}
+              />
+            )}
+            {scope && (
+              <ScopeChoice
+                id={id}
+                scope={form.scope}
+                others={scope.others}
+                onChange={(picked) => setForm((f) => ({ ...f, scope: picked }))}
+              />
+            )}
+          </div>
+          {(changed || saving) && (
+            <SaveBar
+              label={save.label}
+              status={status}
+              onCancel={close}
+              note={CALL_HANDLING_NEXT_CALL}
+            />
           )}
           {!changed && !saving && (
             <button type="button" onClick={close} className={TEXT_ACTION}>

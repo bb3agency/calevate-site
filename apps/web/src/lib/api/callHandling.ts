@@ -10,6 +10,7 @@
  *   PATCH /v1/admin/tenants/{tid}/agents/{aid}/call-handling     the operator's door
  *   GET   /v1/admin/organizations/{org_id}/call-handling         `admin:tenants`
  *   PUT   /v1/admin/organizations/{org_id}/call-handling         `admin:tenants`
+ *   GET/PUT /v1/admin/tenants/{tid}/agents/{aid}/turn-detection  an operator's per-agent mode
  *
  * Each value resolves agent, then the account default, then Calevate's, on the server; the
  * screens render `*_effective` and `*_source` as they arrive and never resolve it themselves.
@@ -83,9 +84,14 @@ export function sourceLabel(source: CallHandlingSource): string {
 
 /** The default "use the default" follows and what it resolves to, "Calevate default: On":
  * the setting the account's agents share when it set one, else ours. */
-export function inheritLabels(state: AgentCallHandling): { pause: string; hangUp: string } {
+export function inheritLabels(state: AgentCallHandling): {
+  pause: string;
+  hangUp: string;
+  openingWait: string;
+} {
   const pauseMs = state.organization_turn_silence_ms;
   const hangUp = state.organization_end_call_on_finish;
+  const waitMs = state.organization_opening_wait_ms;
   return {
     pause:
       pauseMs === null
@@ -95,15 +101,37 @@ export function inheritLabels(state: AgentCallHandling): { pause: string; hangUp
       hangUp === null
         ? `Calevate default: ${state.bounds.platform_end_call_on_finish ? "On" : "Off"}`
         : `${SHARED}: ${hangUp ? "On" : "Off"}`,
+    openingWait:
+      waitMs === null
+        ? `Calevate default: ${formatPause(platformOpeningWaitMs(state.bounds))}`
+        : `${SHARED}: ${formatPause(waitMs)}`,
   };
 }
 
-/** Calevate's own pause and hang-up, what "use the default" means for all agents at once. */
-export function platformLabels(bounds: CallHandlingBounds): { pause: string; hangUp: string } {
+/** Calevate's own values, what "use the default" means for all agents at once. */
+export function platformLabels(bounds: CallHandlingBounds): {
+  pause: string;
+  hangUp: string;
+  openingWait: string;
+} {
   return {
     pause: `Calevate default: ${pauseLabel(bounds.platform_turn_silence_ms)}`,
     hangUp: `Calevate default: ${bounds.platform_end_call_on_finish ? "On" : "Off"}`,
+    openingWait: `Calevate default: ${formatPause(platformOpeningWaitMs(bounds))}`,
   };
+}
+
+/** The voice platform waits four seconds when no wait is sent (D-871, D-901). */
+export const STANDARD_OPENING_WAIT_MS = 4000;
+
+/** Calevate's wait for hello: the console's, else the voice platform's own four seconds. */
+export function platformOpeningWaitMs(bounds: CallHandlingBounds): number {
+  return bounds.platform_opening_wait_ms ?? STANDARD_OPENING_WAIT_MS;
+}
+
+/** The wait for hello in force on an agent, in milliseconds. */
+export function openingWaitMs(state: AgentCallHandling): number {
+  return state.opening_wait_ms_effective ?? STANDARD_OPENING_WAIT_MS;
 }
 
 export type Ambience = AgentCallHandling["ambience_effective"];
@@ -330,6 +358,43 @@ export function useAdminSetAgentCallHandling({
   });
 }
 
+export type AgentTurnDetection = Schemas["AgentTurnDetectionOut"];
+export type TurnDetection = AgentTurnDetection["turn_detection_effective"];
+
+const adminTurnPath = (tenantId: string, agentId: string) =>
+  `/v1/admin/tenants/${tenantId}/agents/${agentId}/turn-detection`;
+const adminTurnKey = (tenantId: string, agentId: string) =>
+  ["turn-detection", "admin", tenantId, agentId] as const;
+
+/** An operator's turn detection for one agent (D-901): the console's mode unless set. */
+export function useAdminAgentTurnDetection(
+  tenantId: string,
+  agentId: string,
+): UseQueryResult<AgentTurnDetection> {
+  return useQuery({
+    queryKey: adminTurnKey(tenantId, agentId),
+    queryFn: () => apiRequest<AgentTurnDetection>(adminSession(), adminTurnPath(tenantId, agentId)),
+    enabled: Boolean(tenantId) && Boolean(agentId),
+  });
+}
+
+export function useAdminSetAgentTurnDetection(
+  tenantId: string,
+  agentId: string,
+): UseMutationResult<AgentTurnDetection, Error, TurnDetection | null> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (mode: TurnDetection | null) =>
+      apiRequest<AgentTurnDetection>(adminSession(), adminTurnPath(tenantId, agentId), {
+        method: "PUT",
+        body: { turn_detection: mode },
+      }),
+    onSuccess: (data) => {
+      client.setQueryData(adminTurnKey(tenantId, agentId), data);
+    },
+  });
+}
+
 const adminOrganizationPath = (tenantId: string) =>
   `/v1/admin/organizations/${tenantId}/call-handling`;
 const adminOrganizationKey = (tenantId: string) =>
@@ -395,7 +460,7 @@ export function platformVoice(bounds: CallHandlingBounds): InheritedVoice {
 }
 
 /** One row of the account defaults, as `CallHandlingDefaultsRows` lays them out. */
-export type DefaultsRow = "pause" | "hang-up" | "silence" | "filler" | "sound";
+export type DefaultsRow = "pause" | "hang-up" | "silence" | "filler" | "sound" | "opening-wait";
 
 /** An agent that does not follow one account default, and what it uses instead. */
 export interface AgentOverride {
@@ -417,6 +482,7 @@ export function agentOverrides(data: OrganizationCallHandling): Record<DefaultsR
     silence: [],
     filler: [],
     sound: [],
+    "opening-wait": [],
   };
   for (const agent of data.agents_with_own) {
     const add = (row: DefaultsRow, value: string) =>
@@ -447,6 +513,7 @@ export function agentOverrides(data: OrganizationCallHandling): Record<DefaultsR
         ),
       );
     }
+    if (agent.opening_wait_ms !== null) add("opening-wait", formatPause(agent.opening_wait_ms));
   }
   return rows;
 }
@@ -457,6 +524,7 @@ const DEFAULTS_ROW_NAMES: Record<DefaultsRow, string> = {
   silence: "if the caller goes quiet",
   filler: "lines while looking something up",
   sound: "background sound",
+  "opening-wait": "wait for hello",
 };
 
 /** For the assistant: "Anjali (background sound: Office at 15%)", or that every agent follows. */
@@ -501,5 +569,6 @@ export function othersWithOwn(
     silence: count("silence"),
     filler: count("filler"),
     sound: count("sound"),
+    "opening-wait": count("opening-wait"),
   };
 }

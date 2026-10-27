@@ -259,6 +259,60 @@ describe("one agent's call handling", () => {
     expect(container.textContent).not.toMatch(/thinnest|cartesia|sarvam/i);
   });
 
+  it("hides how long to wait for hello until the platform offers it", async () => {
+    await renderClientPage(<AgentCallHandlingRows agentId="agent-1" />, {
+      "/v1/me": OWNER,
+      [ORG_PATH]: organization(),
+      [AGENT_PATH]: agent({ opening_waits_for_caller: true }),
+    });
+    await screen.findByText("Wait for them to say hello");
+    expect(screen.getByText(/or after 4 s if they stay silent/)).toBeTruthy();
+    expect(screen.queryByText("How long to wait for hello")).toBeNull();
+  });
+
+  it("sets how long to wait for hello for this agent, under the switch, in tenths", async () => {
+    const offered = {
+      ...BOUNDS,
+      opening_wait_available: true,
+      platform_opening_wait_ms: 1500,
+    };
+    const { calls, container } = await renderClientPage(<AgentCallHandlingRows agentId="agent-1" />, {
+      "/v1/me": OWNER,
+      [ORG_PATH]: organization({ bounds: offered }),
+      [AGENT_PATH]: agent({
+        opening_waits_for_caller: true,
+        opening_wait_ms_effective: 1500,
+        bounds: offered,
+      }),
+      [`PATCH ${AGENT_PATH}`]: agent({
+        opening_waits_for_caller: true,
+        opening_wait_ms: 1000,
+        opening_wait_ms_effective: 1000,
+        opening_wait_ms_source: "agent",
+        bounds: offered,
+      }),
+    });
+    await screen.findByText("How long to wait for hello");
+    expect(screen.getByText(/or after 1.5 s if they stay silent/)).toBeTruthy();
+    expect(screen.getByText(/If nobody speaks, your agent opens after this\. Calevate default\./)).toBeTruthy();
+    const changes = screen.getAllByRole("button", { name: "Change" });
+    await act(async () => {
+      fireEvent.click(changes[3]);
+    });
+    await toggle(/^Use the Calevate default: 1.5 s/);
+    const slider = screen.getByLabelText("Wait") as HTMLInputElement;
+    expect([slider.min, slider.max, slider.step]).toEqual(["500", "10000", "100"]);
+    await act(async () => {
+      fireEvent.change(slider, { target: { value: "1400" } });
+    });
+    await press("Save wait");
+    await waitFor(() => expect(calls.some((c) => c.method === "PATCH")).toBe(true));
+    expect(JSON.parse(calls.find((c) => c.method === "PATCH")?.body ?? "{}")).toEqual({
+      opening_wait_ms: 1400,
+    });
+    expect(container.textContent).not.toMatch(/thinnest|cartesia|sarvam/i);
+  });
+
   it("saves a pause for all agents through the account's door, with Calevate's as the default", async () => {
     const { calls } = await renderClientPage(rows(), {
       "/v1/me": OWNER,

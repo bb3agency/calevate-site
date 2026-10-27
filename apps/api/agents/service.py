@@ -110,6 +110,7 @@ from calevate_shared.engine import (
     ModelConfig,
     NumberSeries,
     ProvisionedNumber,
+    TurnDetection,
     VoiceEngine,
     compose_engine_prompt,
     compose_opening_line,
@@ -131,9 +132,12 @@ from apps.api.agents import handoff as handoff_module
 from apps.api.agents.call_handling import (
     AGENT_SETTING_COLUMNS,
     ORG_SETTING_COLUMNS,
+    SETTING_FIELDS,
     CallSettings,
+    opening_wait_available,
     resolve_settings,
     settings_from_row,
+    turn_detection_of,
 )
 from apps.api.agents.engine_choice import (
     byok_in_force,
@@ -523,6 +527,14 @@ class AgentRow(TypedDict):
     opening_waits_for_caller: NotRequired[bool]
     # The facts the agent knows by heart, in rank order (D-896, `agents/hot_facts`).
     hot_facts: NotRequired[tuple[str, ...]]
+    #: An operator's turn detection for this agent alone (D-901); None follows the console.
+    turn_detection: NotRequired[TurnDetection | None]
+
+
+#: Where `_load_agent`'s call settings start, the account's follow, and the columns after them.
+_OWN: Final = 29
+_ORG: Final = _OWN + len(SETTING_FIELDS)
+_AFTER: Final = _ORG + len(SETTING_FIELDS)
 
 
 def _is_agent_direction(value: object) -> TypeGuard[AgentDirection]:
@@ -629,7 +641,9 @@ async def _load_agent(
                 # The business the prompt's role sentence names (`role_sentence`).
                 "o.name, "
                 # Whether the opening waits for the person's first words (D-871).
-                "a.opening_waits_for_caller "
+                "a.opening_waits_for_caller, "
+                # An operator's turn detection for this agent alone (D-901).
+                "a.turn_detection "
                 "FROM agents a LEFT JOIN prompt_versions pv "
                 # The APPLIED pointer, not the draft one — see the module docstring.
                 "ON pv.id = COALESCE(a.live_prompt_id, a.system_prompt_id) "
@@ -698,22 +712,23 @@ async def _load_agent(
         "engine_voice_id": row[26],
         "engine_model_id": row[27],
         "structured_script": row[28],
-        "turn_silence_ms": row[29],
-        "end_call_on_finish": row[30],
-        "organization_turn_silence_ms": row[38],
-        "organization_end_call_on_finish": row[39],
-        "call_settings": settings_from_row(tuple(row[29:38])),
-        "organization_call_settings": settings_from_row(tuple(row[38:47])),
+        "turn_silence_ms": row[_OWN],
+        "end_call_on_finish": row[_OWN + 1],
+        "organization_turn_silence_ms": row[_ORG],
+        "organization_end_call_on_finish": row[_ORG + 1],
+        "call_settings": settings_from_row(tuple(row[_OWN:_ORG])),
+        "organization_call_settings": settings_from_row(tuple(row[_ORG:_AFTER])),
         "has_phone_number": holds_a_number(
             status=str(row[12]),
             direction=str(direction),
             engine_agent_ref=row[11],
-            number_refs=list(row[47] or ()),
+            number_refs=list(row[_AFTER] or ()),
         ),
-        "voice_tuning": tuple(row[48:53]),
-        "max_reply_tokens": row[53],
-        "business_name": row[54],
-        "opening_waits_for_caller": bool(row[55]),
+        "voice_tuning": tuple(row[_AFTER + 1 : _AFTER + 6]),
+        "max_reply_tokens": row[_AFTER + 6],
+        "business_name": row[_AFTER + 7],
+        "opening_waits_for_caller": bool(row[_AFTER + 8]),
+        "turn_detection": turn_detection_of(row[_AFTER + 9]),
         # A restricted free trial never places a call back (D-697), so its agents must not
         # offer one (founder decision 1, 10 Oct 2026).
         "callbacks_offered": await restricting_trial(session, tenant_id=tenant_id) is None,
@@ -851,6 +866,8 @@ def _call_settings_fields(agent: AgentRow, *, languages: Sequence[str]) -> dict[
         "filler_lines": v.filler_lines or thinking_lines(languages)[:FILLER_LINES_MAX],
         "ambience": None if v.ambience == "off" else v.ambience,
         "ambience_volume_pct": v.ambience_volume_pct,
+        # None while the console has no wait: the field is then never sent (D-901).
+        "opening_wait_ms": v.opening_wait_ms if opening_wait_available() else None,
     }
 
 
@@ -905,7 +922,8 @@ def _to_config(
             ),
         ),
         max_reply_tokens=resolve_max_reply_tokens(agent.get("max_reply_tokens")),
-        turn_detection=settings.thinnest_turn_detection,
+        # An operator's per-agent trial (D-901) over the console's mode for every agent.
+        turn_detection=agent.get("turn_detection") or settings.thinnest_turn_detection,
         acknowledgements=settings.thinnest_acknowledgements,
         early_answers=settings.thinnest_early_answers,
         interrupt_words=settings.thinnest_interrupt_words,

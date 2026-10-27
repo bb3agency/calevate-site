@@ -3892,9 +3892,17 @@ class AgentConfig(BaseModel):
     #: (D-871): the agent's own switch, `agents.opening_waits_for_caller`. Only an engine with
     #: the setting reads it; excluded from every dump for `detect_machines`' reason.
     opening_waits_for_caller: bool = Field(default=False, exclude=True)
+    #: Milliseconds of silence before such an opening plays anyway (D-901), resolved agent ->
+    #: organisation -> the console's `thinnest_opening_wait_ms` by `apps/api/agents/
+    #: call_handling`; None leaves the engine's own (4 s). Whole tenths, 500 to 10,000.
+    #: Excluded from every dump for `detect_machines`' reason.
+    opening_wait_ms: int | None = Field(
+        default=None, ge=500, le=10_000, multiple_of=100, exclude=True
+    )
     #: How the engine decides the caller has finished, and whether it says a short "haan ji"
     #: while they explain (D-849): the console's `thinnest_turn_detection` and
-    #: `thinnest_acknowledgements`. Excluded from every dump for `detect_machines`' reason.
+    #: `thinnest_acknowledgements`, or an operator's per-agent `agents.turn_detection` (D-901).
+    #: Excluded from every dump for `detect_machines`' reason.
     turn_detection: TurnDetection = Field(default="timer", exclude=True)
     acknowledgements: bool = Field(default=True, exclude=True)
     #: Whether the engine starts a reply before the caller has finished (D-852): the
