@@ -17,6 +17,7 @@ import {
   clientLlmTiers,
   spendThisMonth,
   agentCallHandling,
+  organizationCallHandling,
   clientVoiceTuning,
   agentReadiness,
 } from "./fixtures/sharedReads";
@@ -473,6 +474,7 @@ function agentRoutes(over: Record<string, unknown> = {}) {
     "/v1/agents/agent-1": agent(),
     "/v1/agents/agent-1/pending": pending,
     "/v1/agents/agent-1/call-handling": agentCallHandling(),
+    "/v1/organization/call-handling": organizationCallHandling(),
     "/v1/agents/agent-1/script": agentScript(),
     "/v1/kb/sources": [],
     "/v1/organization/llm-defaults": defaults(),

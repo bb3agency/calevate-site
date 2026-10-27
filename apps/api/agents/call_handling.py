@@ -33,6 +33,12 @@ A change reaches the phone line through the live apply (D-720), queued in the sa
 transaction: one agent for an agent's own value, the client's agents for an account default
 that a live agent inherits. A call in progress finishes as it started (ThinnestAI email of
 12 Oct 2026: a connected call keeps the configuration it started with).
+
+Clients change these on an agent's Settings only (founder, 27 Oct 2026): each change is for
+"just this agent" (`set_agent_call_handling`) or "all my agents"
+(`set_call_handling_for_all_agents`, the account default plus dropping every agent's own
+value). The account default on its own (`set_organization_call_handling`) is the operator's
+console and the API's.
 """
 
 from __future__ import annotations
@@ -681,6 +687,87 @@ async def set_organization_call_handling(
     return await read_organization_call_handling(session), moved
 
 
+_LIVE_AGENTS_FOR_UPDATE: Final = (
+    "SELECT "
+    + ", ".join(SETTING_FIELDS)
+    + " FROM agents WHERE deleted_at IS NULL AND status IN ('live', 'paused') "
+    "AND engine_agent_ref IS NOT NULL FOR UPDATE"
+)
+#: Per field: drop every agent's own value so the agent follows the account again.
+_CLEAR_AGENT_FIELD: Final = {
+    f: f"UPDATE agents SET {f} = NULL, updated_at = now() "
+    f"WHERE deleted_at IS NULL AND {f} IS NOT NULL RETURNING id"
+    for f in SETTING_FIELDS
+}
+
+
+@dataclass(frozen=True, slots=True)
+class AllAgentsCallHandling:
+    organization: OrganizationCallHandling
+    #: The account defaults that moved.
+    moved: tuple[str, ...]
+    #: How many agents had a value of their own for a named setting, now dropped.
+    agents_reset: int
+
+
+async def set_call_handling_for_all_agents(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    changes: Mapping[str, object],
+) -> AllAgentsCallHandling:
+    """The "All my agents" save: the named settings become the account default (null follows
+    Calevate's) and every agent's own value for them is dropped, in this one transaction.
+
+    The alternative, writing the value onto each agent, would leave a new agent on the old
+    default and every agent reading "only this agent" for a value they all share. The live
+    apply is queued once for the client when any live agent's value in force moves, which is
+    worked out from the rows before and after rather than "a live agent inherits": an agent
+    whose own value is dropped moves even though it inherited nothing."""
+    unknown = set(changes) - set(SETTING_FIELDS)
+    if unknown:
+        raise ValueError(f"not an account call handling field: {sorted(unknown)}")
+    if not changes:
+        raise ProblemError(
+            kind="validation",
+            code="call_setting_missing",
+            title="Nothing to change",
+            detail="Name at least one call setting to use on every agent.",
+            remediation="Choose a setting and its value.",
+        )
+    cleaned = _clean(changes)
+    refuse_invalid_settings(settings_of(cleaned))
+    row = (await session.execute(text(_ORG_ROW_FOR_UPDATE))).first()
+    if row is None:
+        raise ProblemError.not_found("Organization")
+    current = settings_from_row(tuple(row))
+    wanted = settings_of({**as_mapping(current), **cleaned})
+    live_before = [
+        resolve_settings(settings_from_row(tuple(r)), current).values
+        for r in (await session.execute(text(_LIVE_AGENTS_FOR_UPDATE))).all()
+    ]
+    after = resolve_settings(CallSettings(), wanted).values
+    moved = tuple(f for f in SETTING_FIELDS if f in cleaned and cleaned[f] != getattr(current, f))
+    if moved:
+        await session.execute(text(_UPDATE_ORG), _binds(wanted))
+    reset: set[UUID] = set()
+    for field in SETTING_FIELDS:
+        if field in cleaned:
+            cleared = await session.execute(text(_CLEAR_AGENT_FIELD[field]))
+            reset.update(UUID(str(r[0])) for r in cleared.all())
+    if any(getattr(before, f) != getattr(after, f) for before in live_before for f in cleaned):
+        await queue_live_apply(session, scope="tenant", tenant_id=tenant_id, reason="call_handling")
+    log.info(
+        "call_handling_set_for_all_agents",
+        extra={"tenant_id": str(tenant_id), "changed": list(moved), "agents_reset": len(reset)},
+    )
+    return AllAgentsCallHandling(
+        organization=await read_organization_call_handling(session),
+        moved=moved,
+        agents_reset=len(reset),
+    )
+
+
 __all__ = [
     "AGENTS_WITH_OWN_MAX",
     "AGENT_FIELDS",
@@ -701,6 +788,7 @@ __all__ = [
     "TURN_SILENCE_MIN_MS",
     "AgentCallHandling",
     "AgentOwnSettings",
+    "AllAgentsCallHandling",
     "CallSettings",
     "EndCallOnFinish",
     "OrganizationCallHandling",
@@ -718,6 +806,7 @@ __all__ = [
     "resolve_settings",
     "resolve_turn_silence",
     "set_agent_call_handling",
+    "set_call_handling_for_all_agents",
     "set_organization_call_handling",
     "settings_from_row",
     "settings_of",

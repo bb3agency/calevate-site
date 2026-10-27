@@ -168,7 +168,8 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         name="Agents",
         group=None,
         summary="The AI voice agents themselves — what they say, what they capture, whether "
-        "they are live, and each agent's Training tab, where it is taught, tried and tested.",
+        "they are live, each agent's Training tab, where it is taught, tried and tested, and "
+        "its Settings tab, where call handling is set for that agent or for all of them.",
         aliases=(
             "bots",
             "ai agents",
@@ -176,6 +177,10 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
             "assistants",
             "receptionist",
             "test my agent",
+            "call handling",
+            "pause before replying",
+            "hang up",
+            "background sound",
         ),
     ),
     Screen(
@@ -418,21 +423,6 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         group=SETTINGS_GROUP,
         summary="Which AI model the agents think with, and what each costs a minute.",
         aliases=("model", "ai settings", "brain", "llm"),
-    ),
-    Screen(
-        route="/c/{slug}/settings/call-handling",
-        name="Call handling",
-        group=SETTINGS_GROUP,
-        summary="How long every agent waits after a caller stops before replying, and whether "
-        "it hangs up when the conversation ends, unless an agent has its own.",
-        aliases=(
-            "pause before replying",
-            "cut off",
-            "interrupts callers",
-            "hang up",
-            "end call",
-            "call stays connected",
-        ),
     ),
     Screen(
         route="/c/{slug}/integrations",

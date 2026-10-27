@@ -11806,6 +11806,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/organization/call-handling/all-agents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Use call settings on every agent of this account
+         * @description Each named setting becomes the account default (`null` follows Calevate's) and every agent's own value for it is dropped, so all agents, and any made later, use it. Settings left out are untouched. `agents_reset` counts the agents that had a value of their own. A change reaches every live agent it moves, from its next call.
+         */
+        post: operations["set_call_handling_for_all_agents_v1_organization_call_handling_all_agents_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/organization/llm-defaults": {
         parameters: {
             query?: never;
@@ -13691,6 +13711,37 @@ export interface components {
             open_unmailed_pages: number;
             /** Window Days */
             window_days: number;
+        };
+        /**
+         * AllAgentsCallHandlingIn
+         * @description The settings to use on every agent. A field left out is untouched; `null` follows
+         *     Calevate's default. At least one is named.
+         */
+        AllAgentsCallHandlingIn: {
+            /** Ambience */
+            ambience?: ("off" | "office" | "office-quiet") | null;
+            /** Ambience Volume Pct */
+            ambience_volume_pct?: number | null;
+            /** End After Silence Seconds */
+            end_after_silence_seconds?: number | null;
+            /** End Call On Finish */
+            end_call_on_finish?: boolean | null;
+            /** Filler Lines */
+            filler_lines?: string[] | null;
+            /** Nudge After Seconds */
+            nudge_after_seconds?: number | null;
+            /** Nudge Count */
+            nudge_count?: number | null;
+            /** Nudge Phrase */
+            nudge_phrase?: string | null;
+            /** Turn Silence Ms */
+            turn_silence_ms?: number | null;
+        };
+        /** AllAgentsCallHandlingOut */
+        AllAgentsCallHandlingOut: {
+            /** Agents Reset */
+            agents_reset: number;
+            organization: components["schemas"]["OrganizationCallHandlingOut"];
         };
         /** AnnouncementAdminListOut */
         AnnouncementAdminListOut: {
@@ -53424,6 +53475,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OrganizationCallHandlingOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_call_handling_for_all_agents_v1_organization_call_handling_all_agents_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AllAgentsCallHandlingIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AllAgentsCallHandlingOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

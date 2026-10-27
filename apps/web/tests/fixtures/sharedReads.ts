@@ -208,6 +208,22 @@ export function agentCallHandling(agentId = "agent-1") {
   };
 }
 
+/** The account read an owner's agent Settings makes to count the agents "All my agents"
+ * changes: nothing chosen, no agent with its own value. */
+export function organizationCallHandling() {
+  return {
+    turn_silence_ms: null,
+    turn_silence_ms_effective: 250,
+    end_call_on_finish: null,
+    end_call_on_finish_effective: true,
+    ...VOICE_OWN_NONE,
+    ...VOICE_EFFECTIVE_DEFAULTS,
+    agents_with_own: [],
+    agents_with_own_total: 0,
+    bounds: CALL_HANDLING_BOUNDS,
+  };
+}
+
 /** One agent's reply length (D-769), inheriting the platform's 300 tokens. */
 export function agentReplyLength(agentId = "agent-1") {
   return {

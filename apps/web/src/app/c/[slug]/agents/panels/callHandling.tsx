@@ -1,36 +1,65 @@
 "use client";
 
 /**
- * One agent's call settings in Call handling: the pause before replying and the hang-up
- * (D-751), whether its first words wait for the person's hello (D-871), and what it does when the caller goes quiet, its lines while it looks something up
- * and a background sound (F3, F9).
+ * One agent's call settings on its Settings: the pause before replying and the hang-up
+ * (D-751), whether its first words wait for the person's hello (D-871), and what it does when
+ * the caller goes quiet, its lines while it looks something up and a background sound (F3,
+ * F9).
+ *
+ * This is the only place a client changes them (founder, 27 Oct 2026). Each row's editor asks
+ * whom the change is for: "Just this agent" saves the agent's own value, "All my agents" makes
+ * it the value every agent shares and drops each agent's own. The account read tells the
+ * second choice how many agents with their own value it changes. Waiting for hello has no
+ * shared value, so it stays per agent.
  *
  * The owner changes them (`org:manage`: switching the hang-up off is a decision about the
  * account's money); anyone else who can open the agent reads the value in force and where it
  * comes from. A failed read is a refusal, never a default shown as if it were the agent's.
  */
 
+import { useState } from "react";
+
 import { useActionFeedback } from "@/components/arc/feedback";
-import { HangUpRow, OpeningWaitsRow, PauseRow } from "@/components/callHandlingRows";
+import {
+  HangUpRow,
+  OpeningWaitsRow,
+  PauseRow,
+  type ScopeOffer,
+} from "@/components/callHandlingRows";
 import { AgentVoiceRows } from "@/components/callHandlingVoiceRows";
 import { SettingRows } from "@/components/console/settingRow";
 import { ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
 import {
   inheritLabels,
+  othersWithOwn,
+  platformLabels,
   useAgentCallHandling,
-  useSetAgentCallHandling,
+  useOrganizationCallHandling,
+  useSaveCallHandling,
+  type AgentCallHandlingIn,
+  type CallHandlingScope,
+  type DefaultsRow,
 } from "@/lib/api/callHandling";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 
+/** Which row the last save came from, so its busy state and refusal show on that row. */
+type Row = DefaultsRow | "opening";
+
 export function AgentCallHandlingRows({ agentId }: { agentId: string }) {
   const session = useClientSession();
   const state = useAgentCallHandling(session, agentId);
-  const save = useSetAgentCallHandling(session, agentId);
-  // The row that saved shows pending and the error face on its save bar, with the refusal
-  // beside it; the bar closes on success, so the success is a toast.
-  const feedback = useActionFeedback(save, { errorDisplay: "inline", successToast: "Call settings saved" });
   const write = useWriteAccess(session, "org:manage", "change how this agent ends its turn and its calls");
+  // Read only for a reader who may save for every agent: it counts the agents that change.
+  const account = useOrganizationCallHandling(session, { enabled: write.allowed });
+  const save = useSaveCallHandling(session, agentId);
+  // The bar closes on success, so the success is a toast, worded for whom it changed.
+  const feedback = useActionFeedback(save, {
+    errorDisplay: "inline",
+    successToast: (_data, variables) =>
+      variables.scope === "all" ? "Saved for all your agents" : "Saved for this agent",
+  });
+  const [row, setRow] = useState<Row | null>(null);
 
   if (state.isLoading) return <Skeleton rows={2} />;
   if (state.error || !state.data) {
@@ -43,6 +72,20 @@ export function AgentCallHandlingRows({ agentId }: { agentId: string }) {
   }
   const data = state.data;
   const labels = inheritLabels(data);
+  const calevate = platformLabels(data.bounds);
+  // Without the account read there is no count to state, so "All my agents" waits for it
+  // rather than offering a change whose reach it cannot say.
+  const others = write.allowed && account.data ? othersWithOwn(account.data, agentId) : null;
+  const offer = (which: DefaultsRow, inherit: string): ScopeOffer<string> | undefined =>
+    others ? { others: others[which], inherit } : undefined;
+
+  const send = (which: Row, changes: AgentCallHandlingIn, done: () => void, scope: CallHandlingScope) => {
+    setRow(which);
+    save.mutate({ scope, changes }, { onSuccess: done });
+  };
+  const rowStatus = (which: Row) => (row === which ? feedback.status : "idle");
+  const failed = (which: Row) => (row === which ? save.error : null);
+
   return (
     <div className="space-y-2">
       <RestrictionNote reason={write.allowed ? null : write.reason} />
@@ -56,9 +99,10 @@ export function AgentCallHandlingRows({ agentId }: { agentId: string }) {
           minMs={data.bounds.turn_silence_min_ms}
           maxMs={data.bounds.turn_silence_max_ms}
           canChange={write.allowed}
-          status={save.variables?.turn_silence_ms !== undefined ? feedback.status : "idle"}
-          error={save.variables?.turn_silence_ms !== undefined ? save.error : null}
-          onSave={(next, done) => save.mutate({ turn_silence_ms: next }, { onSuccess: done })}
+          status={rowStatus("pause")}
+          error={failed("pause")}
+          scope={offer("pause", calevate.pause)}
+          onSave={(next, done, scope) => send("pause", { turn_silence_ms: next }, done, scope)}
         />
         <HangUpRow
           idPrefix={`agent-${agentId}`}
@@ -67,25 +111,41 @@ export function AgentCallHandlingRows({ agentId }: { agentId: string }) {
           own={data.end_call_on_finish}
           inheritLabel={labels.hangUp}
           canChange={write.allowed}
-          status={save.variables?.end_call_on_finish !== undefined ? feedback.status : "idle"}
-          error={save.variables?.end_call_on_finish !== undefined ? save.error : null}
-          onSave={(next, done) => save.mutate({ end_call_on_finish: next }, { onSuccess: done })}
+          status={rowStatus("hang-up")}
+          error={failed("hang-up")}
+          scope={offer("hang-up", calevate.hangUp)}
+          onSave={(next, done, scope) => send("hang-up", { end_call_on_finish: next }, done, scope)}
         />
         <OpeningWaitsRow
           on={data.opening_waits_for_caller}
           canChange={write.allowed}
-          status={save.variables?.opening_waits_for_caller !== undefined ? feedback.status : "idle"}
-          error={save.variables?.opening_waits_for_caller !== undefined ? save.error : null}
-          onSave={(next, done) => save.mutate({ opening_waits_for_caller: next }, { onSuccess: done })}
+          status={rowStatus("opening")}
+          error={failed("opening")}
+          onSave={(next, done) => send("opening", { opening_waits_for_caller: next }, done, "agent")}
         />
         <AgentVoiceRows
           idPrefix={`agent-${agentId}`}
           data={data}
           canChange={write.allowed}
-          save={save}
-          status={feedback.status}
+          status={
+            row === "silence" || row === "filler" || row === "sound" ? feedback.status : "idle"
+          }
+          error={row === "silence" || row === "filler" || row === "sound" ? save.error : null}
+          others={others ?? undefined}
+          onSave={(changes, done, scope) => {
+            // The voice rows track which of them saved; this records that one of them did.
+            setRow(voiceRow(changes));
+            save.mutate({ scope, changes }, { onSuccess: done });
+          }}
         />
       </SettingRows>
     </div>
   );
+}
+
+/** The voice row a save came from, by the fields it names. */
+function voiceRow(changes: AgentCallHandlingIn): Row {
+  if ("filler_lines" in changes) return "filler";
+  if ("ambience" in changes || "ambience_volume_pct" in changes) return "sound";
+  return "silence";
 }

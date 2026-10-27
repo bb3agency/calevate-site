@@ -12,7 +12,7 @@ import uuid
 
 import httpx
 import pytest
-from apps.api.agents import prompts
+from apps.api.agents import lifecycle, prompts
 from apps.api.agents.call_handling import (
     END_CALL_ON_FINISH_DEFAULT,
     TURN_SILENCE_DEFAULT_MS,
@@ -555,3 +555,134 @@ async def test_a_deleted_agent_is_not_named_as_overriding() -> None:
         got = (await client.get("/v1/organization/call-handling", headers=headers)).json()
     assert got["agents_with_own"] == []
     assert got["agents_with_own_total"] == 0
+
+
+# --- "All my agents" (founder, 27 Oct 2026) -------------------------------------------------
+
+ALL_AGENTS = "/v1/organization/call-handling/all-agents"
+
+
+async def _another_agent(tenant_id: uuid.UUID, name: str = "Overflow desk") -> uuid.UUID:
+    async with tenant_session(tenant_id) as session:
+        return await lifecycle.create_agent(
+            session,
+            tenant_id=tenant_id,
+            name=name,
+            direction="inbound",
+            language_primary="te-IN",
+            max_call_duration_s=None,
+        )
+
+
+async def _own_pause(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> object:
+    async with tenant_session(tenant_id) as session:
+        return (
+            await session.execute(
+                text("SELECT turn_silence_ms FROM agents WHERE id = :aid"), {"aid": agent_id}
+            )
+        ).scalar()
+
+
+async def test_all_agents_sets_the_shared_value_and_drops_every_agents_own() -> None:
+    tenant_id, agent_id, headers = await _tenant()
+    other = await _another_agent(tenant_id)
+    _neighbour, neighbour_agent, neighbour_headers = await _tenant()
+    async with _client() as client:
+        for aid, value in ((agent_id, 700), (other, 300)):
+            own = await client.patch(
+                f"/v1/agents/{aid}/call-handling", headers=headers, json={"turn_silence_ms": value}
+            )
+            assert own.status_code == 200, own.text
+        await client.patch(
+            f"/v1/agents/{neighbour_agent}/call-handling",
+            headers=neighbour_headers,
+            json={"turn_silence_ms": 900},
+        )
+
+        saved = await client.post(ALL_AGENTS, headers=headers, json={"turn_silence_ms": 500})
+        assert saved.status_code == 200, saved.text
+        body = saved.json()
+        assert body["agents_reset"] == 2
+        assert body["organization"]["turn_silence_ms"] == 500
+        assert body["organization"]["agents_with_own"] == []
+
+        for aid in (agent_id, other):
+            read = (await client.get(f"/v1/agents/{aid}/call-handling", headers=headers)).json()
+            assert read["turn_silence_ms"] is None
+            assert read["turn_silence_ms_effective"] == 500
+            assert read["turn_silence_source"] == "organization"
+            # A setting it did not name is untouched.
+            assert read["end_call_on_finish"] is None
+    assert await _own_pause(tenant_id, agent_id) is None
+    # Another client's agent keeps its own value: RLS scopes the clearing.
+    assert await _own_pause(_neighbour, neighbour_agent) == 900
+    async with untenanted_session() as session:
+        audited = (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM audit_log WHERE tenant_id = :tid "
+                    "AND action = 'organization.call_handling_set_for_all_agents'"
+                ),
+                {"tid": tenant_id},
+            )
+        ).scalar_one()
+    assert audited == 1
+
+
+async def test_all_agents_null_puts_every_agent_on_calevates_default() -> None:
+    _tenant_id, agent_id, headers = await _tenant()
+    async with _client() as client:
+        await client.put(
+            "/v1/organization/call-handling",
+            headers=headers,
+            json={"turn_silence_ms": None, "end_call_on_finish": False},
+        )
+        await client.patch(
+            f"/v1/agents/{agent_id}/call-handling",
+            headers=headers,
+            json={"end_call_on_finish": True},
+        )
+        saved = await client.post(ALL_AGENTS, headers=headers, json={"end_call_on_finish": None})
+        assert saved.status_code == 200, saved.text
+        read = (await client.get(f"/v1/agents/{agent_id}/call-handling", headers=headers)).json()
+    assert read["end_call_on_finish_source"] == "platform"
+    assert read["end_call_on_finish_effective"] is END_CALL_ON_FINISH_DEFAULT
+
+
+async def test_all_agents_queues_the_live_apply_only_when_a_live_line_moves() -> None:
+    tenant_id, agent_id, headers = await _tenant()
+    await _make_live(tenant_id, agent_id)
+    async with _client() as client:
+        # Its own value equals the new shared one, so dropping it moves no line.
+        await client.patch(
+            f"/v1/agents/{agent_id}/call-handling", headers=headers, json={"turn_silence_ms": 500}
+        )
+        async with untenanted_session() as session:
+            await session.execute(
+                text("UPDATE live_apply_runs SET status = 'superseded' WHERE tenant_id = :tid"),
+                {"tid": tenant_id},
+            )
+        same = await client.post(ALL_AGENTS, headers=headers, json={"turn_silence_ms": 500})
+        assert same.json()["agents_reset"] == 1
+        assert await _runs(tenant_id) == []
+        moved = await client.post(ALL_AGENTS, headers=headers, json={"turn_silence_ms": 700})
+        assert moved.status_code == 200, moved.text
+    assert await _runs(tenant_id) == [("tenant", None, ["call_handling"])]
+
+
+async def test_all_agents_is_the_owners_and_refuses_an_empty_or_out_of_range_change() -> None:
+    _tenant_id, _agent_id, staff = await _tenant(role="staff")
+    _owner_tenant, _owner_agent, owner = await _tenant()
+    async with _client() as client:
+        refused = await client.post(ALL_AGENTS, headers=staff, json={"turn_silence_ms": 500})
+        assert refused.status_code == 403, refused.text
+        empty = await client.post(ALL_AGENTS, headers=owner, json={})
+        assert empty.status_code == 422, empty.text
+        assert empty.json()["type"].endswith("/call_setting_missing")
+        wild = await client.post(ALL_AGENTS, headers=owner, json={"turn_silence_ms": 10})
+        assert wild.status_code == 422, wild.text
+        assert wild.json()["type"].endswith("/turn_silence_out_of_range")
+        own_only = await client.post(
+            ALL_AGENTS, headers=owner, json={"opening_waits_for_caller": True}
+        )
+        assert own_only.status_code == 422, own_only.text

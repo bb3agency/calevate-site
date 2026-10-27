@@ -6,7 +6,7 @@
  *   GET   /v1/agents/{agent_id}/call-handling                    `agents:read`
  *   PATCH /v1/agents/{agent_id}/call-handling                    `org:manage` (the owner)
  *   GET   /v1/organization/call-handling                         `org:read`
- *   PUT   /v1/organization/call-handling                         `org:manage`
+ *   POST  /v1/organization/call-handling/all-agents              `org:manage`
  *   PATCH /v1/admin/tenants/{tid}/agents/{aid}/call-handling     the operator's door
  *   GET   /v1/admin/organizations/{org_id}/call-handling         `admin:tenants`
  *   PUT   /v1/admin/organizations/{org_id}/call-handling         `admin:tenants`
@@ -14,6 +14,9 @@
  * Each value resolves agent, then the account default, then Calevate's, on the server; the
  * screens render `*_effective` and `*_source` as they arrive and never resolve it themselves.
  * The pause is whole milliseconds on the wire; seconds are only for people.
+ *
+ * A client changes these on an agent's Settings only, for that agent or for all of them
+ * (`useSaveCallHandling`); the account defaults' own PUT is the operator's console's.
  */
 
 import {
@@ -36,8 +39,14 @@ export type OrganizationCallHandling = Schemas["OrganizationCallHandlingOut"];
 export type OrganizationCallHandlingIn = Schemas["OrganizationCallHandlingIn"];
 export type AgentOwnCallHandling = Schemas["AgentOwnCallHandlingOut"];
 export type CallHandlingSource = AgentCallHandling["turn_silence_source"];
+export type AllAgentsCallHandlingIn = Schemas["AllAgentsCallHandlingIn"];
+export type AllAgentsCallHandling = Schemas["AllAgentsCallHandlingOut"];
 
 export const ORGANIZATION_CALL_HANDLING_PATH = "/v1/organization/call-handling";
+export const ALL_AGENTS_CALL_HANDLING_PATH = "/v1/organization/call-handling/all-agents";
+
+/** Whom a change on an agent's Settings is for. */
+export type CallHandlingScope = "agent" | "all";
 
 export const callHandlingKeys = {
   organization: (org: string) => ["call-handling", org, "organization"] as const,
@@ -66,13 +75,13 @@ export function pauseLabel(ms: number): string {
 
 /** Where a value in force comes from, in the owner's words. */
 export function sourceLabel(source: CallHandlingSource): string {
-  if (source === "agent") return "Set for this agent";
-  if (source === "organization") return "Your organisation default";
+  if (source === "agent") return "Only this agent";
+  if (source === "organization") return "Same for all your agents";
   return "Calevate default";
 }
 
 /** The default "use the default" follows and what it resolves to, "Calevate default: On":
- * the account's value when it set one, else ours. */
+ * the setting the account's agents share when it set one, else ours. */
 export function inheritLabels(state: AgentCallHandling): { pause: string; hangUp: string } {
   const pauseMs = state.organization_turn_silence_ms;
   const hangUp = state.organization_end_call_on_finish;
@@ -80,11 +89,19 @@ export function inheritLabels(state: AgentCallHandling): { pause: string; hangUp
     pause:
       pauseMs === null
         ? `Calevate default: ${pauseLabel(state.bounds.platform_turn_silence_ms)}`
-        : `Organisation default: ${pauseLabel(pauseMs)}`,
+        : `${SHARED}: ${pauseLabel(pauseMs)}`,
     hangUp:
       hangUp === null
         ? `Calevate default: ${state.bounds.platform_end_call_on_finish ? "On" : "Off"}`
-        : `Organisation default: ${hangUp ? "On" : "Off"}`,
+        : `${SHARED}: ${hangUp ? "On" : "Off"}`,
+  };
+}
+
+/** Calevate's own pause and hang-up, what "use the default" means for all agents at once. */
+export function platformLabels(bounds: CallHandlingBounds): { pause: string; hangUp: string } {
+  return {
+    pause: `Calevate default: ${pauseLabel(bounds.platform_turn_silence_ms)}`,
+    hangUp: `Calevate default: ${bounds.platform_end_call_on_finish ? "On" : "Off"}`,
   };
 }
 
@@ -148,11 +165,13 @@ export interface InheritedVoice {
   filler_lines: string[];
   ambience: Ambience;
   ambience_volume_pct: number;
-  /** Per setting, the level "use the default" follows: the organisation's or Calevate's. */
-  from: Record<keyof VoiceSettings, "Organisation default" | "Calevate default">;
+  /** Per setting, the level "use the default" follows: the one the agents share or Calevate's. */
+  from: Record<keyof VoiceSettings, typeof SHARED | typeof OURS>;
 }
 
-const ORG = "Organisation default" as const;
+/** Read after "Use the": "Use the setting your agents share: Quick (0.25 s)". */
+const SHARED = "setting your agents share" as const;
+const ORG = SHARED;
 const OURS = "Calevate default" as const;
 
 /** The voice settings an agent with no value of its own follows: the account's, where it set
@@ -196,48 +215,75 @@ export function useAgentCallHandling(
   });
 }
 
-export function useSetAgentCallHandling(
+/** One save from an agent's Settings: the agent's own value, or the value for every agent. */
+export interface CallHandlingSave {
+  scope: CallHandlingScope;
+  changes: AgentCallHandlingIn;
+}
+
+/**
+ * The save behind every call-handling row on an agent's Settings. "agent" writes the agent's
+ * own value (`PATCH /v1/agents/{id}/call-handling`); "all" makes it the account default and
+ * drops every agent's own (`POST /v1/organization/call-handling/all-agents`), so every
+ * agent's read is dropped too.
+ */
+export function useSaveCallHandling(
   session: Session,
   agentId: string,
-): UseMutationResult<AgentCallHandling, Error, AgentCallHandlingIn> {
+): UseMutationResult<CallHandlingSaved, Error, CallHandlingSave> {
   const client = useQueryClient();
+  const org = session.orgSlug;
   return useMutation({
-    mutationFn: (payload: AgentCallHandlingIn) =>
-      apiRequest<AgentCallHandling>(session, `/v1/agents/${agentId}/call-handling`, {
-        method: "PATCH",
-        body: payload,
-      }),
-    onSuccess: (data) => {
-      client.setQueryData(callHandlingKeys.agent(session.orgSlug, agentId), data);
+    mutationFn: async ({ scope, changes }: CallHandlingSave): Promise<CallHandlingSaved> =>
+      scope === "all"
+        ? {
+            scope,
+            all: await apiRequest<AllAgentsCallHandling>(session, ALL_AGENTS_CALL_HANDLING_PATH, {
+              method: "POST",
+              body: allAgentsChanges(changes),
+            }),
+          }
+        : {
+            scope,
+            agent: await apiRequest<AgentCallHandling>(session, `/v1/agents/${agentId}/call-handling`, {
+              method: "PATCH",
+              body: changes,
+            }),
+          },
+    onSuccess: (saved) => {
+      if (saved.scope === "all") {
+        client.setQueryData(callHandlingKeys.organization(org), saved.all.organization);
+        return client.invalidateQueries({ queryKey: callHandlingKeys.agents(org) });
+      }
+      client.setQueryData(callHandlingKeys.agent(org, agentId), saved.agent);
       // The account read lists the agents with values of their own.
-      return client.invalidateQueries({ queryKey: callHandlingKeys.organization(session.orgSlug) });
+      return client.invalidateQueries({ queryKey: callHandlingKeys.organization(org) });
     },
   });
 }
 
+/** What a save answered, by whom it was for. */
+export type CallHandlingSaved =
+  | { scope: "agent"; agent: AgentCallHandling }
+  | { scope: "all"; all: AllAgentsCallHandling };
+
+/** The fields "all agents" takes: every one but the agent's own `opening_waits_for_caller`. */
+function allAgentsChanges(changes: AgentCallHandlingIn): AllAgentsCallHandlingIn {
+  const shared: AgentCallHandlingIn = { ...changes };
+  delete shared.opening_waits_for_caller;
+  return shared;
+}
+
+/** The account's defaults and the agents with their own; read on an agent's Settings to say
+ * how many agents "All my agents" changes. */
 export function useOrganizationCallHandling(
   session: Session,
+  { enabled = true }: { enabled?: boolean } = {},
 ): UseQueryResult<OrganizationCallHandling> {
   return useQuery({
     queryKey: callHandlingKeys.organization(session.orgSlug),
     queryFn: () => apiRequest<OrganizationCallHandling>(session, ORGANIZATION_CALL_HANDLING_PATH),
-  });
-}
-
-export function useSetOrganizationCallHandling(
-  session: Session,
-): UseMutationResult<OrganizationCallHandling, Error, OrganizationCallHandlingIn> {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: (payload: OrganizationCallHandlingIn) =>
-      apiRequest<OrganizationCallHandling>(session, ORGANIZATION_CALL_HANDLING_PATH, {
-        method: "PUT",
-        body: payload,
-      }),
-    onSuccess: (data) => {
-      client.setQueryData(callHandlingKeys.organization(session.orgSlug), data);
-      return client.invalidateQueries({ queryKey: callHandlingKeys.agents(session.orgSlug) });
-    },
+    enabled,
   });
 }
 
@@ -436,5 +482,23 @@ export function agentOverridesSummary(data: OrganizationCallHandling): string {
 export function rowSource(sources: readonly CallHandlingSource[]): string {
   const first = sources[0];
   if (first !== undefined && sources.every((s) => s === first)) return sourceLabel(first);
-  return sources.includes("agent") ? "Partly set for this agent" : "Partly your organisation default";
+  return sources.includes("agent") ? "Partly only this agent" : "Partly the same for all your agents";
+}
+
+/** Per row, how many agents other than this one keep a value of their own, which "All my
+ * agents" replaces. From the account read's list, which holds every such agent up to the
+ * server's cap. */
+export function othersWithOwn(
+  data: OrganizationCallHandling,
+  agentId: string,
+): Record<DefaultsRow, number> {
+  const rows = agentOverrides(data);
+  const count = (row: DefaultsRow) => rows[row].filter((a) => a.agentId !== agentId).length;
+  return {
+    pause: count("pause"),
+    "hang-up": count("hang-up"),
+    silence: count("silence"),
+    filler: count("filler"),
+    sound: count("sound"),
+  };
 }

@@ -340,6 +340,37 @@ async def test_staff_may_change_the_longest_call_and_nothing_else() -> None:
     assert "only the account owner" in refused.value.reason
 
 
+async def test_settings_for_all_agents_go_through_the_all_agents_writer() -> None:
+    """The Settings tab's "All my agents": the shared value is set and every agent's own is
+    dropped, by the one writer the page's save calls."""
+    tenant_id, _slug, token = await _make_tenant()
+    agent_id = await _agent(tenant_id)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE agents SET ambience = 'office', ambience_volume_pct = 40 WHERE id = :a"),
+            {"a": agent_id},
+        )
+    args = {**_settings(agent_id, ambience="office-quiet"), "scope": "all_agents"}
+    proposal = await _propose(tenant_id, token, "agent_settings_set", args)
+    assert proposal.title == "Change how your agents handle calls"
+    assert "every agent's background sound: office-quiet" in proposal.proposed
+    done = await _confirm(tenant_id, _user_of(token), proposal.token)
+    assert done.applied is True
+    own = await _one(tenant_id, "SELECT ambience FROM agents WHERE id = :a", a=agent_id)
+    assert own[0] is None
+    shared = await _one(tenant_id, "SELECT default_ambience FROM organizations")
+    assert shared[0] == "office-quiet"
+
+
+async def test_waiting_for_hello_is_never_set_for_all_agents() -> None:
+    tenant_id, _slug, token = await _make_tenant()
+    agent_id = await _agent(tenant_id)
+    args = {**_settings(agent_id, opening_waits_for_caller="on"), "scope": "all_agents"}
+    with pytest.raises(write_tools.WriteRefusedError) as refused:
+        await _propose(tenant_id, token, "agent_settings_set", args)
+    assert "set per agent" in refused.value.reason
+
+
 # --- agent_handover_set ------------------------------------------------------------------------
 
 

@@ -53,7 +53,6 @@ import {
   Wallet,
 } from "lucide-react";
 
-import { CallHandlingIcon } from "@/components/illustration/callHandlingIcon";
 import { PipIcon } from "@/components/illustration/pip";
 
 export interface NavItem {
@@ -172,8 +171,6 @@ export function clientNavigation(slug: string): NavGroup[] {
         // lives under Usage rather than on each campaign. One agent can still be put on
         // its own model, and that control is on the agent.
         { href: `/c/${slug}/settings/models`, label: "AI model", icon: BrainCircuit },
-        // How every agent ends a caller's turn and its calls, unless one has its own (D-751).
-        { href: `/c/${slug}/settings/call-handling`, label: "Call handling", icon: CallHandlingIcon },
         { href: `/c/${slug}/integrations`, label: "Integrations", icon: Blocks },
         // CREDITS & BILLING — ONE hub, four tabs (D-525). It used to be four sidebar
         // entries: Calling credit, Usage, Spend and Invoice. Every one of them answered a

@@ -2,8 +2,8 @@ import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest";
 
 import { AgentCallHandlingRows } from "@/app/c/[slug]/agents/panels/callHandling";
-import ClientCallHandlingPage from "@/app/c/[slug]/settings/call-handling/page";
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
+import { ToastProvider } from "@/components/arc/toast";
 import TenantCallHandlingPage from "@/app/admin/tenants/[tenantId]/call-handling/page";
 import type { Me } from "@/lib/api/client";
 import type { AgentCallHandling, OrganizationCallHandling } from "@/lib/api/callHandling";
@@ -20,7 +20,7 @@ import { problem, renderClientPage } from "./harness";
 
 vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(""),
-  usePathname: () => "/c/acme/settings/call-handling",
+  usePathname: () => "/c/acme/agents/agent-1",
   useRouter: () => ({
     push: vi.fn(),
     replace: vi.fn(),
@@ -32,10 +32,11 @@ vi.mock("next/navigation", () => ({
 }));
 
 /**
- * THE PAUSE BEFORE AN AGENT REPLIES AND HANGING UP WHEN IT HAS FINISHED (D-751), on the
- * organisation's settings and on one agent's Call handling: the value in force with where it
- * comes from, the choices, the body each save sends (null to inherit, a field left out
- * untouched), the quiet notice when the hang-up is off, and no vendor named.
+ * THE PAUSE BEFORE AN AGENT REPLIES AND HANGING UP WHEN IT HAS FINISHED (D-751), on one
+ * agent's Settings and the operator's console: the value in force with where it comes from,
+ * the choices, "Just this agent" or "All my agents" and the door each save takes, the body it
+ * sends (null to inherit, a field left out untouched), the quiet notice when the hang-up is
+ * off, and no vendor named.
  */
 
 const OWNER: Me = {
@@ -102,7 +103,21 @@ function agent(over: Partial<AgentCallHandling> = {}): AgentCallHandling {
 }
 
 const ORG_PATH = "/v1/organization/call-handling";
+const ALL_PATH = "/v1/organization/call-handling/all-agents";
 const AGENT_PATH = "/v1/agents/agent-1/call-handling";
+
+function allAgents(organizationRead: OrganizationCallHandling, agentsReset: number) {
+  return { organization: organizationRead, agents_reset: agentsReset };
+}
+
+/** The agent's rows inside the toast host, so a save's confirmation can be read. */
+function rows() {
+  return (
+    <ToastProvider>
+      <AgentCallHandlingRows agentId="agent-1" />
+    </ToastProvider>
+  );
+}
 
 async function press(name: RegExp | string) {
   await act(async () => {
@@ -123,126 +138,11 @@ async function toggle(name: RegExp | string) {
   });
 }
 
-describe("organisation call handling", () => {
-  it("shows each value in force and where it comes from", async () => {
-    const { container } = await renderClientPage(<ClientCallHandlingPage />, {
-      "/v1/me": OWNER,
-      [ORG_PATH]: organization(),
-    });
-    await screen.findByText("Quick (0.25 s)");
-    expect(screen.getAllByText("Calevate default")).toHaveLength(5);
-    expect(screen.getByText("On")).toBeTruthy();
-    expect(container.textContent).not.toMatch(/thinnest/i);
-  });
-
-  it("names, under each default, the agents that use their own value and links to each", async () => {
-    const { container } = await renderClientPage(<ClientCallHandlingPage />, {
-      "/v1/me": OWNER,
-      [ORG_PATH]: organization({
-        agents_with_own: [
-          ownAgent({ ambience: "office", ambience_volume_pct: 15 }),
-          ownAgent({ agent_id: "agent-2", name: "Ravi", ambience_volume_pct: 40, turn_silence_ms: 700 }),
-        ],
-        agents_with_own_total: 2,
-      }),
-    });
-    await screen.findByText("Quick (0.25 s)");
-    // The default stays the default; the agents that do not follow it are named beside it.
-    expect(screen.getAllByText("Calevate default")).toHaveLength(5);
-    const anjali = screen.getByRole("link", { name: "Anjali" });
-    expect(anjali.getAttribute("href")).toBe("/c/acme/agents/agent-1?section=settings");
-    expect(anjali.parentElement?.textContent).toBe("Anjali uses its own: Office at 15%");
-    // Ravi set only the volume, so its sound is the account's ("Off").
-    const ravi = screen.getAllByRole("link", { name: "Ravi" });
-    expect(ravi.map((link) => link.parentElement?.textContent)).toEqual([
-      "Ravi uses its own: Unhurried (0.7 s)",
-      "Ravi uses its own: Off",
-    ]);
-    expect(container.textContent).not.toMatch(/more agents? ha(s|ve) settings/);
-  });
-
-  it("says how many agents with their own values it does not list", async () => {
-    await renderClientPage(<ClientCallHandlingPage />, {
-      "/v1/me": OWNER,
-      [ORG_PATH]: organization({
-        agents_with_own: [ownAgent({ turn_silence_ms: 700 })],
-        agents_with_own_total: 3,
-      }),
-    });
-    await screen.findByText("Anjali");
-    expect(screen.getByText(/2 more agents have settings of their own that are not listed here/)).toBeTruthy();
-  });
-
-  it("says the pause is the quiet before the agent decides the caller has finished", async () => {
-    await renderClientPage(<ClientCallHandlingPage />, {
-      "/v1/me": OWNER,
-      [ORG_PATH]: organization(),
-    });
-    await press(/About Pause before/);
-    await screen.findByText(/The quiet the agent waits for before it decides whether the caller/);
-  });
-
-  it("saves a preset with the other setting unchanged", async () => {
-    const { calls } = await renderClientPage(<ClientCallHandlingPage />, {
-      "/v1/me": OWNER,
-      [ORG_PATH]: organization(),
-      [`PUT ${ORG_PATH}`]: organization({ turn_silence_ms: 700, turn_silence_ms_effective: 700 }),
-    });
-    const [pauseChange] = await screen.findAllByRole("button", { name: "Change" });
-    await act(async () => {
-      fireEvent.click(pauseChange);
-    });
-    const followDefault = screen.getByRole("checkbox", { name: "Use the Calevate default: Quick (0.25 s)" });
-    expect((followDefault as HTMLInputElement).checked).toBe(true);
-    await toggle("Use the Calevate default: Quick (0.25 s)");
-    const presets = screen.getByRole("radiogroup", { name: "Pause before the agent replies" });
-    expect(within(presets).getAllByRole("radio").map((r) => r.textContent)).toEqual([
-      "Quick",
-      "Relaxed",
-      "Unhurried",
-    ]);
-    await pick("Unhurried");
-    expect(screen.getByText("Good for callers reading out numbers.")).toBeTruthy();
-    expect(screen.getByLabelText("Pause").getAttribute("aria-valuetext")).toBe("0.7 s");
-    await press("Save pause");
-    await waitFor(() => expect(calls.some((c) => c.method === "PUT")).toBe(true));
-    const put = calls.find((c) => c.method === "PUT");
-    expect(JSON.parse(put?.body ?? "{}")).toEqual({ turn_silence_ms: 700, end_call_on_finish: null });
-    await screen.findByText("Unhurried (0.7 s)");
-  });
-
-  it("says plainly, in one quiet line, that a finished call is charged while the hang-up is off", async () => {
-    await renderClientPage(<ClientCallHandlingPage />, {
-      "/v1/me": OWNER,
-      [ORG_PATH]: organization({ end_call_on_finish: false, end_call_on_finish_effective: false }),
-    });
-    await screen.findByText(/Finished calls stay connected, and charged, until the caller hangs up\./);
-    expect(screen.getByRole("button", { name: /About Calls left connected/ })).toBeTruthy();
-  });
-
-  it("offers no change to someone who cannot make it", async () => {
-    await renderClientPage(<ClientCallHandlingPage />, {
-      "/v1/me": STAFF,
-      [ORG_PATH]: organization(),
-    });
-    await screen.findByText("Quick (0.25 s)");
-    expect(screen.queryByRole("button", { name: "Change" })).toBeNull();
-  });
-
-  it("renders the server's refusal rather than a default when the read fails", async () => {
-    await renderClientPage(<ClientCallHandlingPage />, {
-      "/v1/me": OWNER,
-      [ORG_PATH]: problem(503, { title: "Unavailable", detail: "Try again shortly." }),
-    });
-    await screen.findByRole("alert");
-    expect(screen.queryByText(/0\.25 s/)).toBeNull();
-  });
-});
-
 describe("one agent's call handling", () => {
   it("names the agent's own value and offers the organisation default by its value", async () => {
     const { calls } = await renderClientPage(<AgentCallHandlingRows agentId="agent-1" />, {
       "/v1/me": OWNER,
+      [ORG_PATH]: organization(),
       [AGENT_PATH]: agent(),
       [`PATCH ${AGENT_PATH}`]: agent({
         turn_silence_ms: null,
@@ -251,24 +151,26 @@ describe("one agent's call handling", () => {
       }),
     });
     await screen.findByText("Unhurried (0.7 s)");
-    expect(screen.getByText("Set for this agent")).toBeTruthy();
+    expect(screen.getByText("Only this agent")).toBeTruthy();
     const [pauseChange] = screen.getAllByRole("button", { name: "Change" });
     await act(async () => {
       fireEvent.click(pauseChange);
     });
-    await toggle("Use the Organisation default: Relaxed (0.5 s)");
+    expect(((await screen.findByRole("radio", { name: /^Just this agent/ })) as HTMLInputElement).checked).toBe(true);
+    await toggle("Use the setting your agents share: Relaxed (0.5 s)");
     await press("Save pause");
     await waitFor(() => expect(calls.some((c) => c.method === "PATCH")).toBe(true));
     // Only the pause: the hang-up is left out, so it is untouched.
     expect(JSON.parse(calls.find((c) => c.method === "PATCH")?.body ?? "{}")).toEqual({
       turn_silence_ms: null,
     });
-    await screen.findByText("Your organisation default");
+    await screen.findByText("Same for all your agents");
   });
 
   it("holds a custom pause inside the server's range and saves it in milliseconds", async () => {
     const { calls } = await renderClientPage(<AgentCallHandlingRows agentId="agent-1" />, {
       "/v1/me": OWNER,
+      [ORG_PATH]: organization(),
       [AGENT_PATH]: agent({ turn_silence_ms: null, turn_silence_source: "organization" }),
       [`PATCH ${AGENT_PATH}`]: agent({ turn_silence_ms: 3000, turn_silence_ms_effective: 3000 }),
     });
@@ -276,7 +178,7 @@ describe("one agent's call handling", () => {
     await act(async () => {
       fireEvent.click(pauseChange);
     });
-    await toggle(/^Use the Organisation default/);
+    await toggle(/^Use the setting your agents share/);
     const slider = screen.getByLabelText("Pause") as HTMLInputElement;
     expect([slider.min, slider.max, slider.step]).toEqual(["200", "3000", "50"]);
     expect(screen.getByText("0.2 s")).toBeTruthy();
@@ -299,6 +201,7 @@ describe("one agent's call handling", () => {
   it("switches the hang-up off for this agent alone", async () => {
     const { calls } = await renderClientPage(<AgentCallHandlingRows agentId="agent-1" />, {
       "/v1/me": OWNER,
+      [ORG_PATH]: organization(),
       [AGENT_PATH]: agent(),
       [`PATCH ${AGENT_PATH}`]: agent({
         end_call_on_finish: false,
@@ -328,6 +231,7 @@ describe("one agent's call handling", () => {
   it("switches waiting for the person's hello on, with its one plain line", async () => {
     const { calls, container } = await renderClientPage(<AgentCallHandlingRows agentId="agent-1" />, {
       "/v1/me": OWNER,
+      [ORG_PATH]: organization(),
       [AGENT_PATH]: agent(),
       [`PATCH ${AGENT_PATH}`]: agent({ opening_waits_for_caller: true }),
     });
@@ -355,6 +259,76 @@ describe("one agent's call handling", () => {
     expect(container.textContent).not.toMatch(/thinnest|cartesia|sarvam/i);
   });
 
+  it("saves a pause for all agents through the account's door, with Calevate's as the default", async () => {
+    const { calls } = await renderClientPage(rows(), {
+      "/v1/me": OWNER,
+      [ORG_PATH]: organization({
+        agents_with_own: [
+          // This agent is not counted: it is the one being changed.
+          ownAgent({ turn_silence_ms: 700 }),
+          ownAgent({ agent_id: "agent-2", name: "Ravi", turn_silence_ms: 500 }),
+          ownAgent({ agent_id: "agent-3", name: "Sita", turn_silence_ms: 300 }),
+        ],
+        agents_with_own_total: 3,
+      }),
+      [AGENT_PATH]: agent(),
+      [`POST ${ALL_PATH}`]: allAgents(organization({ turn_silence_ms: 700, turn_silence_ms_effective: 700 }), 3),
+    });
+    const [pauseChange] = await screen.findAllByRole("button", { name: "Change" });
+    await act(async () => {
+      fireEvent.click(pauseChange);
+    });
+    // Just this agent, unchanged: nothing to save yet.
+    expect(screen.queryByRole("button", { name: "Save pause" })).toBeNull();
+    await pick(/^All my agents/);
+    expect(screen.getByText("Every agent uses this. 2 agents that have their own setting will change too.")).toBeTruthy();
+    // For every agent, the default to follow is Calevate's, not the shared one being set.
+    expect(screen.getByRole("checkbox", { name: "Use the Calevate default: Quick (0.25 s)" })).toBeTruthy();
+    // The same value as this agent's own is still a change: the other agents move to it.
+    await press("Save for all agents");
+    await waitFor(() => expect(calls.some((c) => c.method === "POST")).toBe(true));
+    const post = calls.find((c) => c.method === "POST");
+    expect(post?.path).toBe(ALL_PATH);
+    expect(JSON.parse(post?.body ?? "{}")).toEqual({ turn_silence_ms: 700 });
+    await screen.findByText("Saved for all your agents");
+  });
+
+  it("keeps the editor open with the server's refusal beside it when a save for all agents fails", async () => {
+    await renderClientPage(rows(), {
+      "/v1/me": OWNER,
+      [ORG_PATH]: organization(),
+      [AGENT_PATH]: agent(),
+      [`POST ${ALL_PATH}`]: problem(403, {
+        title: "Not allowed",
+        detail: "Only the account owner can change every agent.",
+      }),
+    });
+    const changes = await screen.findAllByRole("button", { name: "Change" });
+    await act(async () => {
+      fireEvent.click(changes[1]);
+    });
+    await pick(/^All my agents/);
+    expect(screen.getByText("Every agent uses this, and so will new ones.")).toBeTruthy();
+    await press("Save for all agents");
+    await screen.findAllByText("Only the account owner can change every agent.");
+    // The editor stays open on the choice made, so the owner can change it and try again.
+    expect((screen.getByRole("radio", { name: /^All my agents/ }) as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByRole("button", { name: /Save for all agents|Try again/ })).toBeTruthy();
+  });
+
+  it("keeps waiting for hello to this agent alone", async () => {
+    await renderClientPage(rows(), {
+      "/v1/me": OWNER,
+      [ORG_PATH]: organization(),
+      [AGENT_PATH]: agent(),
+    });
+    const changes = await screen.findAllByRole("button", { name: "Change" });
+    await act(async () => {
+      fireEvent.click(changes[2]);
+    });
+    expect(screen.queryByRole("radio", { name: /^All my agents/ })).toBeNull();
+  });
+
   it("offers no change to the switch to someone who cannot make it", async () => {
     await renderClientPage(<AgentCallHandlingRows agentId="agent-1" />, {
       "/v1/me": STAFF,
@@ -368,41 +342,47 @@ describe("one agent's call handling", () => {
 
 /**
  * F3, F9: if the caller goes quiet, the lines said while the agent looks something up, and a
- * background sound. Each row sends only its own fields (the account PUT also states the pause
- * and hang-up it already holds), offers the default by what it resolves to, and checks the
- * server's limits before sending.
+ * background sound. Each row sends only its own fields, for this agent or for all of them,
+ * offers the default by what it resolves to, and checks the server's limits before sending.
  */
 describe("the voice settings", () => {
-  it("saves never asking for the account with the pause and hang-up it already holds", async () => {
-    const { calls, container } = await renderClientPage(<ClientCallHandlingPage />, {
+  it("saves never asking for all agents, naming the agent with its own that changes too", async () => {
+    const { calls, container } = await renderClientPage(rows(), {
       "/v1/me": OWNER,
-      [ORG_PATH]: organization(),
-      [`PUT ${ORG_PATH}`]: organization({ nudge_after_seconds: 0, nudge_after_seconds_effective: 0 }),
+      [ORG_PATH]: organization({
+        agents_with_own: [ownAgent({ agent_id: "agent-2", name: "Ravi", nudge_after_seconds: 30 })],
+        agents_with_own_total: 1,
+      }),
+      [AGENT_PATH]: agent(),
+      [`POST ${ALL_PATH}`]: allAgents(organization({ nudge_after_seconds: 0, nudge_after_seconds_effective: 0 }), 1),
     });
     await screen.findByText("Asks after 8 s, once · hangs up after 20 s of silence");
     const changes = screen.getAllByRole("button", { name: "Change" });
     await act(async () => {
-      fireEvent.click(changes[2]);
+      fireEvent.click(changes[3]);
     });
+    await pick(/^All my agents/);
+    expect(screen.getByText("Every agent uses this. 1 agent that has its own setting will change too.")).toBeTruthy();
     await toggle("Use the Calevate default: asks after 8 s");
     await pick("Never ask");
-    await press("Save");
-    await waitFor(() => expect(calls.some((c) => c.method === "PUT")).toBe(true));
-    expect(JSON.parse(calls.find((c) => c.method === "PUT")?.body ?? "{}")).toEqual({
-      turn_silence_ms: null,
-      end_call_on_finish: null,
+    await press("Save for all agents");
+    await waitFor(() => expect(calls.some((c) => c.method === "POST")).toBe(true));
+    expect(JSON.parse(calls.find((c) => c.method === "POST")?.body ?? "{}")).toEqual({
       nudge_after_seconds: 0,
       nudge_count: null,
       nudge_phrase: null,
       end_after_silence_seconds: null,
     });
-    await screen.findByText("Never asks · hangs up after 20 s of silence");
+    // Never the agent's own door: the change is for every agent.
+    expect(calls.some((c) => c.method === "PATCH")).toBe(false);
+    await screen.findByText("Saved for all your agents");
     expect(container.textContent).not.toMatch(/thinnest|cartesia|sarvam/i);
   });
 
   it("sets the wait, the count, the agent's own question and the hang-up, each inside the server's range", async () => {
     const { calls } = await renderClientPage(<AgentCallHandlingRows agentId="agent-1" />, {
       "/v1/me": OWNER,
+      [ORG_PATH]: organization(),
       [AGENT_PATH]: agent(),
       [`PATCH ${AGENT_PATH}`]: agent({
         nudge_after_seconds: 12,
@@ -463,6 +443,7 @@ describe("the voice settings", () => {
   it("sends an agent's own lines, trimmed, and refuses a line that is too long", async () => {
     const { calls } = await renderClientPage(<AgentCallHandlingRows agentId="agent-1" />, {
       "/v1/me": OWNER,
+      [ORG_PATH]: organization(),
       [AGENT_PATH]: agent(),
       [`PATCH ${AGENT_PATH}`]: agent({
         filler_lines: ["One moment please"],
@@ -497,6 +478,7 @@ describe("the voice settings", () => {
   it("switches an office sound on at a volume, and offers the default by its value", async () => {
     const { calls } = await renderClientPage(<AgentCallHandlingRows agentId="agent-1" />, {
       "/v1/me": OWNER,
+      [ORG_PATH]: organization(),
       [AGENT_PATH]: agent(),
       [`PATCH ${AGENT_PATH}`]: agent({
         ambience: "office",

@@ -2,8 +2,12 @@
 
 /**
  * THE PAUSE BEFORE AN AGENT REPLIES, AND HANGING UP WHEN IT HAS FINISHED (D-751) — two rows,
- * shared by an agent's Call handling and the organisation's default, so the two screens
- * offer the same choices in the same words.
+ * shared by an agent's Settings and the operator's console (an agent, and a client's
+ * defaults), so every screen offers the same choices in the same words.
+ *
+ * On an agent's Settings a reader who may change every agent gets `scope`: the editor then
+ * asks whether the change is for "Just this agent" or "All my agents" (founder, 27 Oct 2026:
+ * one place for these settings, on the agent, rather than an account page beside it).
  *
  * Each row is a `SettingRow` summary (the value in force and where it comes from) with
  * "Change", which opens a compact editor and the shared save bar. "Use the default" is a
@@ -32,6 +36,7 @@ import {
   formatPause,
   pauseLabel,
   sourceLabel,
+  type CallHandlingScope,
   type CallHandlingSource,
 } from "@/lib/api/callHandling";
 import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
@@ -59,7 +64,80 @@ interface RowProps<T> {
   /** This row's save, from the caller's `useActionFeedback`. */
   status: FeedbackStatus;
   error: Error | null;
-  onSave: (next: T | null, done: () => void) => void;
+  /** On an agent's Settings, for a reader who may change every agent: "All my agents". */
+  scope?: ScopeOffer<string>;
+  onSave: (next: T | null, done: () => void, scope: CallHandlingScope) => void;
+}
+
+/** The save bar's words and whether a save would do anything. "All my agents" always does:
+ * it can make other agents follow a value this one already holds. */
+function scopeSave(scope: CallHandlingScope, sameAsOwn: boolean, label: string) {
+  return {
+    changed: scope === "all" || !sameAsOwn,
+    label: scope === "all" ? "Save for all agents" : label,
+  };
+}
+
+/**
+ * "All my agents" on offer for a row of an agent's Settings: how many other agents keep a
+ * value of their own (which the save replaces), and what "use the default" means once the
+ * change is for every agent: Calevate's, since the agents then share whatever is chosen.
+ */
+export interface ScopeOffer<I> {
+  others: number;
+  inherit: I;
+}
+
+const SCOPE_RADIO =
+  "mt-0.5 h-4 w-4 shrink-0 border-line accent-brand-strong touch:h-5 touch:w-5";
+
+/** Whom this change is for. Two visible choices with what each does underneath, rather than
+ * a second button beside Save: which agents change is the decision, not a shortcut. */
+export function ScopeChoice({
+  id,
+  scope,
+  others,
+  onChange,
+}: {
+  id: string;
+  scope: CallHandlingScope;
+  others: number;
+  onChange: (scope: CallHandlingScope) => void;
+}) {
+  const allHint =
+    others === 0
+      ? "Every agent uses this, and so will new ones."
+      : `Every agent uses this. ${others === 1 ? "1 agent that has its" : `${others} agents that have their`} own setting will change too.`;
+  const choices: { value: CallHandlingScope; label: string; hint: string }[] = [
+    { value: "agent", label: "Just this agent", hint: "Your other agents keep their setting." },
+    { value: "all", label: "All my agents", hint: allHint },
+  ];
+  return (
+    <fieldset>
+      <legend className="mb-2 text-sm font-semibold text-ink">Use this for</legend>
+      <div className="space-y-2">
+        {choices.map((choice) => (
+          <label key={choice.value} className="flex items-start gap-2 text-sm text-ink">
+            <input
+              type="radio"
+              name={`${id}-scope`}
+              value={choice.value}
+              checked={scope === choice.value}
+              onChange={() => onChange(choice.value)}
+              aria-describedby={`${id}-scope-${choice.value}`}
+              className={SCOPE_RADIO}
+            />
+            <span>
+              {choice.label}
+              <span id={`${id}-scope-${choice.value}`} className="block text-meta text-ink-muted">
+                {choice.hint}
+              </span>
+            </span>
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  );
 }
 
 /** "Use the Calevate default: Off". Ticked, the row saves `null`. */
@@ -149,6 +227,7 @@ export function PauseRow({
   canChange,
   status,
   error,
+  scope,
   onSave,
   minMs,
   maxMs,
@@ -156,12 +235,18 @@ export function PauseRow({
   const saving = status === "pending";
   // Unticking the default starts from this level's own value, else from the one in force,
   // which is the default's when this level has none.
-  const initial = () => ({ useDefault: own === null, ms: clamp(own ?? effective, minMs, maxMs) });
+  const initial = () => ({
+    useDefault: own === null,
+    ms: clamp(own ?? effective, minMs, maxMs),
+    scope: "agent" as CallHandlingScope,
+  });
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState(initial);
   const next: number | null = form.useDefault ? null : form.ms;
-  const changed = editing && next !== own;
+  const save = scopeSave(form.scope, next === own, "Save pause");
+  const changed = editing && save.changed;
   useUnsavedGuard(changed);
+  const defaultLabel = form.scope === "all" && scope ? scope.inherit : inheritLabel;
   const id = `${idPrefix}-pause`;
   const preset = PAUSE_PRESETS.find((p) => p.ms === form.ms);
 
@@ -207,12 +292,12 @@ export function PauseRow({
           noValidate
           onSubmit={(event) => {
             event.preventDefault();
-            onSave(next, () => setEditing(false));
+            onSave(next, () => setEditing(false), form.scope);
           }}
         >
           <div className={CALL_HANDLING_EDITOR}>
             <DefaultCheckbox
-              label={`Use the ${inheritLabel}`}
+              label={`Use the ${defaultLabel}`}
               checked={form.useDefault}
               onChange={(checked) => setForm((f) => ({ ...f, useDefault: checked }))}
             />
@@ -245,10 +330,18 @@ export function PauseRow({
                 />
               </>
             )}
+            {scope && (
+              <ScopeChoice
+                id={id}
+                scope={form.scope}
+                others={scope.others}
+                onChange={(picked) => setForm((f) => ({ ...f, scope: picked }))}
+              />
+            )}
           </div>
           {(changed || saving) && (
             <SaveBar
-              label="Save pause"
+              label={save.label}
               status={status}
               onCancel={close}
               note={CALL_HANDLING_NEXT_CALL}
@@ -272,6 +365,7 @@ const HANG_UP_INFO =
   "every minute it stays connected is charged to your account.";
 
 export function HangUpRow({
+  idPrefix,
   effective,
   source,
   sourceHint,
@@ -280,15 +374,22 @@ export function HangUpRow({
   canChange,
   status,
   error,
+  scope,
   onSave,
 }: RowProps<boolean>) {
   const saving = status === "pending";
-  const initial = () => ({ useDefault: own === null, on: own ?? effective });
+  const initial = () => ({
+    useDefault: own === null,
+    on: own ?? effective,
+    scope: "agent" as CallHandlingScope,
+  });
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState(initial);
   const next: boolean | null = form.useDefault ? null : form.on;
-  const changed = editing && next !== own;
+  const save = scopeSave(form.scope, next === own, "Save");
+  const changed = editing && save.changed;
   useUnsavedGuard(changed);
+  const defaultLabel = form.scope === "all" && scope ? scope.inherit : inheritLabel;
 
   const close = () => {
     setEditing(false);
@@ -332,12 +433,12 @@ export function HangUpRow({
           noValidate
           onSubmit={(event) => {
             event.preventDefault();
-            onSave(next, () => setEditing(false));
+            onSave(next, () => setEditing(false), form.scope);
           }}
         >
           <div className={CALL_HANDLING_EDITOR}>
             <DefaultCheckbox
-              label={`Use the ${inheritLabel}`}
+              label={`Use the ${defaultLabel}`}
               checked={form.useDefault}
               onChange={(checked) => setForm((f) => ({ ...f, useDefault: checked }))}
             />
@@ -353,10 +454,18 @@ export function HangUpRow({
                 onChange={(on) => setForm((f) => ({ ...f, on }))}
               />
             )}
+            {scope && (
+              <ScopeChoice
+                id={`${idPrefix}-hang-up`}
+                scope={form.scope}
+                others={scope.others}
+                onChange={(picked) => setForm((f) => ({ ...f, scope: picked }))}
+              />
+            )}
           </div>
           {(changed || saving) && (
             <SaveBar
-              label="Save"
+              label={save.label}
               status={status}
               onCancel={close}
               note={CALL_HANDLING_NEXT_CALL}
