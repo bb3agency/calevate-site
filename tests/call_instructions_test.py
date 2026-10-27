@@ -91,7 +91,7 @@ COVERAGE: dict[str, tuple[tuple[str, str], ...]] = {
     DEFAULT_CALL_RULES[4]: ((OURS, "No markdown, emoji, brackets"),),
     # Turned round: "say so rather than going quiet" put a "one second" filler before answers;
     # the engine speaks its own filler after two seconds of silence.
-    DEFAULT_CALL_RULES[5]: ((OURS, "Never announce or narrate a search or a wait"),),
+    DEFAULT_CALL_RULES[5]: ((OURS, "Never narrate a search or a wait"),),
     DEFAULT_CALL_RULES[6]: ((OURS, "or still unclear after two tries: say so"),),
     DEFAULT_CALL_RULES[7]: (
         (OURS, "never a guess: a place or address, a project, stock or availability, a price"),
@@ -102,9 +102,9 @@ COVERAGE: dict[str, tuple[tuple[str, str], ...]] = {
     DEFAULT_CALL_RULES[11]: ((OURS, "Never say anything is booked, fixed, confirmed or done"),),
     DEFAULT_CALL_RULES[12]: ((OURS, "a failed one plainly"),),
     DEFAULT_CALL_RULES[13]: ((OURS, "Say a tool's figure exactly"),),
-    DEFAULT_CALL_RULES[14]: ((OURS, "each turn begun differently"),),
+    DEFAULT_CALL_RULES[14]: ((OURS, "never the same way twice"),),
     DEFAULT_CALL_RULES[15]: (
-        (OURS, "each turn begun differently"),
+        (OURS, "never the same way twice"),
         (OURS, "Never re-ask what they said or repeat a sentence."),
     ),
     # Replaced, not carried: an acknowledgement before the answer became "two kg noted" with
@@ -117,8 +117,14 @@ COVERAGE: dict[str, tuple[tuple[str, str], ...]] = {
     # turn then became a stock one, so it must fit what was said and is often left out (D-894).
     DEFAULT_CALL_RULES[19]: ((OURS, "React only if it fits what they said"),),
     DEFAULT_CALL_RULES[20]: ((OURS, "Read back what you heard and wait for a yes"),),
-    DEFAULT_CALL_RULES[21]: ((OURS, "Never re-ask what they said or repeat a sentence."),),
-    DEFAULT_CALL_RULES[22]: ((OURS, "Never re-ask what they said or repeat a sentence."),),
+    DEFAULT_CALL_RULES[21]: (
+        (OURS, "Never re-ask what they said or repeat a sentence."),
+        (OURS, "in one line, no recap"),
+    ),
+    DEFAULT_CALL_RULES[22]: (
+        (OURS, "Never re-ask what they said or repeat a sentence."),
+        (OURS, "in one line, no recap"),
+    ),
 }
 
 
@@ -185,13 +191,16 @@ def test_only_the_call_frame_is_left_for_calls_alone() -> None:
     ]
 
 
-def test_an_agent_that_answers_calls_says_who_it_is_when_asked() -> None:
-    """An agent that answers calls also rings out (a trial test call, a call back); asked who
-    is calling, it says who and why and asks if now is a good time (call of 22 Oct 2026)."""
-    for direction in ("inbound", "both"):
-        assert shared_engine.WHO_IS_CALLING_RULE in compose_engine_prompt(_cfg(direction=direction))
-    assert shared_engine.WHO_IS_CALLING_RULE not in compose_engine_prompt(
-        _cfg(direction="outbound")
+def test_every_agent_says_who_it_is_when_asked_then_goes_on() -> None:
+    """Asked who is calling, an agent says who and why in one line and goes on to its first
+    question (call of 22 Oct 2026, D-856; every direction since the call of 28 Oct 2026,
+    D-912)."""
+    for direction in ("inbound", "outbound", "both"):
+        prompt = compose_engine_prompt(_cfg(direction=direction))
+        assert shared_engine.OPENING_CONTINUES_RULE in prompt
+    assert (
+        "Asked who or why? Say both in one line, then your first question."
+        in shared_engine.OPENING_CONTINUES_RULE
     )
 
 

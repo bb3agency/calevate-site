@@ -214,6 +214,11 @@ def test_a_guided_call_with_step_by_step_lists_fits_with_margin() -> None:
 #: number as its own bullet with "six more digits?", "on one thing", the bare-"OK" rule and
 #: "for call backs too" are paid for by dropping "take it down only once all ten are read back
 #: and confirmed" and "thank for", and by shorter pace and talked-over clauses.
+#: D-912 (28 Oct 2026) CUT both by 12 (7,277/6,402, each 17 under): "not even as examples"
+#: for counts, "Unclear? Ask again; never pick for them", "no promise" on a pace complaint and
+#: a one-line close with no recap, paid for by "then ask the next thing", "each turn begun
+#: differently" and shorter clauses. The who-is-calling rule for outbound agents is in START
+#: OF THE CALL, which these agents (no opening line) do not carry.
 PER_CALL_MAX = 7_294
 PER_CALL_ONE_LANGUAGE_MAX = 6_419
 

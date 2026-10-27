@@ -76,6 +76,11 @@ Kind = Literal[
     "same_opening",
     # D-910: an unanswered question asked again word for word after the caller's "సరే".
     "asked_again",
+    # The Sri Estates call of 28 Oct 2026 (D-912): "two BHK or three BHK?", an unclear
+    # answer taken as one of them, and "I'll speak slowly from now on".
+    "offered_numbers",
+    "picked_for_them",
+    "promised_pace",
 ]
 
 #: How a reply SOUNDS (D-828): the words, numbers, punctuation, length and language of a
@@ -109,6 +114,11 @@ SOUND_KINDS: Final = frozenset(
         # HOW TO SPEAK decides how a turn opens, not the owner's script (D-894).
         "same_opening",
         "asked_again",
+        # HOW TO SPEAK decides these (D-912). `picked_for_them` stays a note because "the
+        # bigger one" is a fair answer to "two or three?" that no word list reads.
+        "offered_numbers",
+        "picked_for_them",
+        "promised_pace",
     }
 )
 #: What breaks the caller's task whatever the words: the caller's part said for them, a
@@ -747,6 +757,31 @@ def turn_problems(reply: str, *, caller_said: str = "", language: str = "") -> l
                 f"It asked whether to tell them ({_quoted(meta)}) instead of telling them.",
             )
         )
+    # A choice of numbers checking what the caller just said ("one crore or two?") is a
+    # read-back; one offered before they said any is steering (D-888, D-912).
+    offered = (
+        None
+        if _number_values(caller_said)
+        else next((s for s in parts if _offered_numbers(s)), None)
+    )
+    if offered:
+        found.append(
+            TurnProblem(
+                "offered_numbers",
+                f"It offered numbers to choose from ({_quoted(offered)}) for a count or an "
+                "amount the caller decides. It should ask openly, with no examples.",
+            )
+        )
+    promise = next((s for s in parts if _PACE_PROMISE.search(s)), None)
+    if promise:
+        found.append(
+            TurnProblem(
+                "promised_pace",
+                f"It promised to talk slower ({_quoted(promise)}), which it cannot do: the "
+                "voice's speed is a setting. It should say sorry once and go on in shorter "
+                "sentences.",
+            )
+        )
     repeated = _repeated_sentence(parts)
     if repeated:
         found.append(
@@ -1045,6 +1080,82 @@ def greeted_midway(reply: str) -> str | None:
     return None
 
 
+def _reopened(reply: str, opening_questions: Sequence[str]) -> str | None:
+    """Why a reply asks its opening's question again, or None (D-912). The opening's own
+    question is the yardstick, so "can we talk now?" is caught in a language our phrase list
+    does not cover too; the phrase list catches a reworded one. A close ("anything else?") is
+    never the opening again."""
+    if not opening_questions or _WRAPS_UP.search(reply):
+        return None
+    suits = any(_ASKS_IF_NOW_SUITS.search(q) for q in opening_questions)
+    for question in (s for s in sentences(reply) if _is_question(s)):
+        if any(_same_question(question, q) for q in opening_questions) or (
+            suits and _ASKS_IF_NOW_SUITS.search(question)
+        ):
+            return (
+                f"It asked {_quoted(question)} again, which its opening already asked. After "
+                "answering the caller it should go on to its first question."
+            )
+    return None
+
+
+#: A number by its value, as callers and our agents say it: English, English in Telugu and
+#: Hindi letters (how our agents write it, D-861), Telugu and Hindi. "ఒక" and "एक" are left
+#: out because they are also "a": "ఒక రెండు రోజుల్లో" offers no choice of one or two.
+_NUMBER_VALUES: Final[dict[str, int]] = {
+    word: value
+    for words in (
+        ("zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"),
+        ("జీరో", "వన్", "టూ", "త్రీ", "ఫోర్", "ఫైవ్", "సిక్స్", "సెవెన్", "ఎయిట్", "నైన్", "టెన్"),
+        ("సున్నా", "ఒకటి", "రెండు", "మూడు", "నాలుగు", "ఐదు", "ఆరు", "ఏడు", "ఎనిమిది", "తొమ్మిది", "పది"),
+        ("ज़ीरो", "वन", "टू", "थ्री", "फोर", "फाइव", "सिक्स", "सेवन", "एट", "नाइन", "टेन"),
+        ("शून्य", "", "दो", "तीन", "चार", "पांच", "छह", "सात", "आठ", "नौ", "दस"),
+    )
+    for value, word in enumerate(words)
+    if word
+} | {"అయిదు": 5, "पाँच": 5}
+_DIGITS: Final = re.compile(r"\d+")
+#: Words that make a choice of numbers a choice of times, which HOW TO SPEAK allows.
+_TIME_WORDS: Final = re.compile(
+    r"o'?clock|\b[ap]\.?m\b|morning|evening|గంట|మార్నింగ్|ఈవెనింగ్|సాయంత్రం|పొద్దున|"
+    r"बजे|सुबह|शाम",
+    re.IGNORECASE,
+)
+#: What joins the options of a choice: "or" in a word, or one ending said twice
+#: ("టూ బీహెచ్కే కావాలా, త్రీ బీహెచ్కే కావాలా?", "టూ నా త్రీ నా?").
+_EITHER: Final = re.compile(r"(?:^|\s)(?:or|లేక|లేదా|या)(?:\s|$)", re.IGNORECASE)
+
+
+def _number_values(text: str) -> set[int]:
+    values = {int(d) for d in _DIGITS.findall(text)}
+    return values | {_NUMBER_VALUES[w] for w in _words(text) if w in _NUMBER_VALUES}
+
+
+def _offered_numbers(question: str) -> set[int]:
+    """The numbers a question offers to choose from ("two BHK or three BHK?"), or an empty
+    set: two or more values, joined as a choice, and not a choice of times."""
+    if not _is_question(question) or _TIME_WORDS.search(question):
+        return set()
+    values = _number_values(question)
+    if len(values) < 2:
+        return set()
+    endings = [w for w in _words(question) if w.endswith("ా")]
+    if _EITHER.search(question) or len(endings) != len(set(endings)):
+        return values
+    return set()
+
+
+#: Promising to talk slower, which the model cannot do: the voice's speed is the agent's
+#: setting (D-884, D-912).
+_PACE_PROMISE: Final = re.compile(
+    r"\bi(?:'ll| will| shall)\s+(?:speak|talk|go)\s+(?:a bit\s+|more\s+)?slow(?:ly|er)?\b"
+    r"|\bi(?:'ll| will) slow down\b"
+    r"|(?:నెమ్మదిగా|మెల్లగా|నిదానంగా|స్లోగా)\s+(?:\S+\s+)?మాట్లాడ(?:తా|ుతా)"
+    r"|धीरे\s+(?:से\s+)?बोल(?:ूँ|ूं)",
+    re.IGNORECASE,
+)
+
+
 def _asked_again(reply: str, previous_reply: str) -> str | None:
     """The question of `reply` that repeats one of `previous_reply` word for word, or None."""
     before = [s for s in sentences(previous_reply) if _is_question(s)]
@@ -1239,14 +1350,19 @@ def conversation_problems(
     number_known: bool = True,
     memory_notice: str = "",
     known: str = "",
+    opening: str = "",
 ) -> list[TurnProblem]:
     """The problems only a whole conversation shows, each kind once, in order.
 
     `number_known` is False only for a call whose number the network hid (D-746), where
     asking for a number is right. `memory_notice` is the sentence the closing goodbye must
     carry, empty where none is owed (D-865). `known` is what the agent was given (its
-    script and facts), which may say where its callers come from (D-888).
+    script and facts), which may say where its callers come from (D-888). `opening` is what
+    the engine said before the first exchange, when it is not one of `exchanges`: a real
+    call's greeting, against which every later reply is judged for asking it again (D-912).
     """
+    opening_questions = [s for s in sentences(opening) if _is_question(s)]
+    offered: set[int] = set()
     found: dict[str, TurnProblem] = {}
     acted = False
     caller_raised_number = False
@@ -1267,9 +1383,37 @@ def conversation_problems(
             awaiting = _digit_count(said)
         if not reply.strip():
             continue
-        restarted = (None if previous_reply else opened_again(reply)) or greeted_midway(reply)
+        restarted = (
+            (None if previous_reply else opened_again(reply))
+            or greeted_midway(reply)
+            or _reopened(reply, opening_questions)
+        )
         if restarted:
             found.setdefault("opened_again", TurnProblem("opened_again", restarted))
+        # An answer that names none of the numbers offered ("టీవీహెచ్కే" to "two or three
+        # BHK?") taken as one of them.
+        picked = (
+            None
+            if not offered or _number_values(said)
+            else next(
+                (
+                    s
+                    for s in sentences(reply)
+                    if not _is_question(s) and _number_values(s) & offered
+                ),
+                None,
+            )
+        )
+        if picked:
+            found.setdefault(
+                "picked_for_them",
+                TurnProblem(
+                    "picked_for_them",
+                    f"The caller's answer, {_quoted(said)}, named none of the options it offered, "
+                    f"and it took one ({_quoted(picked)}). An unclear answer is asked again.",
+                ),
+            )
+        offered = {value for s in sentences(reply) for value in _offered_numbers(s)}
         recalled = _false_recall(reply, said_before)
         if recalled:
             found.setdefault(

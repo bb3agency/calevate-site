@@ -111,11 +111,13 @@ CALL_RULES: Final[tuple[CallRule, ...]] = (
         key="own_part",
         # D-856: a half answer gets the agent's reading offered as a question, the way the
         # competitor call the founder judged natural handled "ఒక" (one...), not a bare "go on".
+        # D-912: an answer that fits no offered option ("టీవీహెచ్కే" to "two or three BHK?")
+        # is a guess too when taken as one.
         judge=(
             "It says only its own part, never the caller's. When the caller breaks off "
-            'mid-answer, offering its reading as a question with a way out ("one kg, or '
-            'more?") and waiting is right; finishing their sentence or acting on a guess is '
-            "not."
+            "mid-answer or says something that fits none of the options it offered, asking "
+            'again or offering its reading as a question with a way out ("one kg, or more?") '
+            "and waiting is right; finishing their sentence or acting on a guess is not."
         ),
         writer="No line answers for the caller or treats a guess as what they said.",
         expect="",

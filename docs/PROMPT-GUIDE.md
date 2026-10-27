@@ -226,6 +226,19 @@ digits said as words; `several_questions` counts "and"-joined questions in one s
 `opened_again` notes a salutation that opens any sentence but a reply's last. Paid for inside
 the per-call budget.
 
+**What the 28 Oct call showed (D-912).** The first call after D-910 shipped: asked "who is
+this?", the outbound agent said who and why and asked "can we talk now?" again (the
+who-is-calling rule was an answering agent's only; START OF THE CALL now says for every agent
+"Asked who or why? Say both in one line, then your first question."); "how many bedrooms, I
+mean two or three BHK?" (counts and amounts: "not even as examples"); "టీవీహెచ్కే", which names
+neither option, taken as three BHK ("Unclear? Ask again; never pick for them."); "I'll speak
+slowly from now on" (the speed is the agent's setting and ThinnestAI documents no way to change
+it mid-call, so "Sorry once, no promise, go on where you were, shorter"); and a close that read
+back four details ("Close: what happens next in one line, no recap"). Paid for by "then ask the
+next thing" and "each turn begun differently". New SOUND checks: `offered_numbers`,
+`picked_for_them`, `promised_pace`; `opened_again` also judges every reply against the
+opening's own question when a real call's greeting is given (`conversation_problems(opening=)`).
+
 **Per-trade step plans (D-856).** `apps/api/agents/trade_playbooks.py` holds, per trade and job,
 five steps with a done-when branch, what to ask (one thing a turn), the trade's objections and a
 spoken example line per step in Telugu, Hindi and English. Starters are built from it and the AI

@@ -18,7 +18,6 @@ from calevate_shared.engine import (
     OPENING_CONTINUES_RULE,
     START_OF_CALL_HEADER,
     TRUTHFUL_ANSWER_MARKER,
-    WHO_IS_CALLING_RULE,
     AgentConfig,
     compose_engine_prompt,
     compose_first_utterance,
@@ -75,10 +74,14 @@ def test_the_prompt_quotes_the_exact_opening_already_spoken_and_says_to_go_on() 
     assert "why you are calling or your first question" in rule
 
 
-def test_who_is_calling_no_longer_asks_whether_now_suits() -> None:
-    assert "good time" not in WHO_IS_CALLING_RULE
-    assert WHO_IS_CALLING_RULE in _start(_cfg("both"))
-    assert WHO_IS_CALLING_RULE not in _start(_cfg("outbound"))
+def test_who_is_calling_goes_on_to_the_first_question_in_every_direction() -> None:
+    # An outbound agent had no who-is-calling rule, and on the call of 28 Oct 2026 it said
+    # who and why and asked "can we talk now?" again (D-912).
+    who = "Asked who or why? Say both in one line, then your first question."
+    assert who in OPENING_CONTINUES_RULE
+    assert "good time" not in OPENING_CONTINUES_RULE
+    for direction in ("inbound", "outbound", "both"):
+        assert who in _start(_cfg(direction))
 
 
 def test_with_no_notice_the_opening_alone_is_quoted_and_with_neither_nothing() -> None:
