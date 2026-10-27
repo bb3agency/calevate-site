@@ -39,7 +39,7 @@
 # is older than CLOUDFLARE_IPS_MAX_AGE_DAYS (180): a stale allowlist does not degrade, it
 # either blocks real traffic or trusts an address Cloudflare has released.
 #
-# CLOUDFLARE_IPS_UPDATED: 2026-06-29
+# CLOUDFLARE_IPS_UPDATED: 2026-10-27
 # Source: cloudflare.com/ips. If a range here disagrees with that page, that page is right.
 # --------------------------------------------------------------------------------
 #
