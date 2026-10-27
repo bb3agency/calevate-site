@@ -142,7 +142,31 @@ function pickDelimiter(line: string): string {
 }
 
 const PHONE_HEADER = /phone|mobile|number|contact|whatsapp|msisdn/i;
+/** Words that name a phone column on their own; "number" and "contact" also head
+ *  "Registration number", "Number of acres" and "Contact name". */
+const STRONG_PHONE_HEADER = /phone|mobile|whatsapp|msisdn/i;
 const NAME_HEADER = /name/i;
+
+/**
+ * The phone column of a list with a header row: of the columns whose header could name
+ * one, the one whose cells read as phone numbers most often, a strong header word breaking
+ * a tie. The first matching header alone took "Registration number" over a later "Phone"
+ * and read every row as a bad number, or an ID as one.
+ */
+function phoneColumn(header: string[], body: string[][]): number {
+  let best = -1;
+  let bestScore = -1;
+  header.forEach((cell, index) => {
+    if (!PHONE_HEADER.test(cell)) return;
+    const readable = body.filter((cells) => normalizePhone(cells[index] ?? "") !== null).length;
+    const score = readable * 2 + (STRONG_PHONE_HEADER.test(cell) ? 1 : 0);
+    if (score > bestScore) {
+      best = index;
+      bestScore = score;
+    }
+  });
+  return best;
+}
 
 let nextId = 0;
 const newId = () => `c${(nextId += 1)}`;
@@ -164,7 +188,7 @@ export function rowsToEntries(table: string[][]): { entries: ContactEntry[]; dro
       dropped,
     };
   }
-  const phoneIdx = header.findIndex((cell) => PHONE_HEADER.test(cell));
+  const phoneIdx = phoneColumn(header, table.slice(1));
   // A column headed exactly "name" wins over one that merely contains the word, so a
   // "Village name" column before it is kept as a variable rather than taken as the name.
   const exactName = header.findIndex((cell, i) => i !== phoneIdx && cell.trim().toLowerCase() === "name");
