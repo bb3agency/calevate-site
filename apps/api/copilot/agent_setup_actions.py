@@ -314,7 +314,7 @@ async def _plan_put_live(session: AsyncSession, actor: ToolActor, args: Mapping[
         object_id=str(parsed.agent_id),
         title="Put the script changes live",
         summary=(
-            f"Save the draft of “{name}”'s script, as it is on the Script tab now, as a new "
+            f"Save the draft of {name}'s script, as it is on the Script tab now, as a new "
             f"version (“{summary}”)"
             + (
                 " and put it in front of callers from their next call."
@@ -404,7 +404,7 @@ async def _plan_discard(session: AsyncSession, actor: ToolActor, args: Mapping[s
         object_id=str(parsed.agent_id),
         title="Throw away the saved script change",
         summary=(
-            f"Drop version {saved} of “{name}”'s script, which callers never heard. The script "
+            f"Drop version {saved} of {name}'s script, which callers never heard. The script "
             f"goes back to version {heard}, the one callers hear now."
         ),
         current=f"version {saved} waiting",
@@ -488,7 +488,7 @@ async def _plan_version_restore(
         summary=(
             f"Copy version {parsed.version}"
             + (f" (“{note}”)" if note else "")
-            + f" of “{name}”'s script into the draft"
+            + f" of {name}'s script into the draft"
             + (", replacing the unpublished draft there now" if has_draft else "")
             + ". Callers keep hearing "
             + (f"version {heard}" if heard is not None else "nothing new")

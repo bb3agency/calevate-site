@@ -301,7 +301,7 @@ async def _plan_switch(session: AsyncSession, actor: ToolActor, args: Mapping[st
     word = "on" if parsed.enabled else "off"
     if parsed.action_id is None:
         held = await actions_service.actions_enabled(session, agent_id=parsed.agent_id)
-        what, current = f"all of “{name}”'s in-call actions", "on" if held else "off"
+        what, current = f"all of {name}'s in-call actions", "on" if held else "off"
     else:
         tool = await _one_tool(session, parsed.agent_id, parsed.action_id)
         what, current = f"“{tool.name}” on “{name}”", "on" if tool.enabled else "off"

@@ -141,8 +141,7 @@ _AI_REFUSAL: Final[dict[str, str]] = {
         "AI help is not switched on for your account yet. Ask your Calevate team to switch it on."
     ),
     "assist_answer_unusable": (
-        "the AI answered, but not in a form we could use. Test again; if it keeps happening, "
-        "contact us."
+        "the AI's answer came back incomplete. Test again; if it keeps happening, contact us."
     ),
 }
 _AI_REFUSAL_OTHER: Final = "AI help was not available. Test again in a few minutes."
@@ -343,9 +342,8 @@ async def new_test_set(
             brief, tenant_id=tenant_id, round_key=round_key, tenant_leg=tenant_leg
         )
     else:
+        # No note: nobody asked for practice callers, so saying none were written is noise.
         written = [s for s in (Scenario.of(raw) for raw in earlier) if s.source == "generated"]
-        if brief.real_calls >= ENOUGH_REAL_CALLS:
-            note = FROM_REAL_CALLS_NOTE
     few_calls = brief.real_calls < ENOUGH_REAL_CALLS
     scenarios = compose_set(
         probes=[probe_scenario(p, language) for p in PROBES],

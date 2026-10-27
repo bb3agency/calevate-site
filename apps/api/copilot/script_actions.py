@@ -202,7 +202,7 @@ async def _plan_script_suggest(
         object_id=str(parsed.agent_id),
         title=_TITLES[parsed.mode],
         summary=(
-            f"{ASSISTANT_NAME} writes a suggestion for “{name}”'s call script. It waits on "
+            f"{ASSISTANT_NAME} writes a suggestion for {name}'s call script. It waits on "
             "the agent's Script tab, where you keep the parts you want into your draft."
         ),
         current=(
@@ -241,8 +241,8 @@ async def _execute_script_suggest(
     return Executed(
         applied=True,
         detail=(
-            f"{ASSISTANT_NAME} is writing it now; it takes about half a minute. Review it on "
-            f"“{name}”'s Script tab: nothing reaches the script until you keep it."
+            f"Writing it now. In about half a minute it is on {name}'s Script tab. Nothing "
+            "reaches the script until you keep it."
         ),
         # Ids and closed-set words only: the request is the client's own business copy.
         audit_summary={
@@ -359,7 +359,7 @@ async def _plan_tests_fix(session: AsyncSession, actor: ToolActor, args: Mapping
         object_id=str(parsed.agent_id),
         title="Suggest fixes for failed tests",
         summary=(
-            f"{ASSISTANT_NAME} suggests changes to “{name}”'s script and facts for {count}. "
+            f"{ASSISTANT_NAME} suggests changes to {name}'s script and facts for {count}. "
             "They wait in the agent's Training tab, where you keep the ones you want. They "
             "are not tested until you put them live and test again."
         ),
@@ -398,8 +398,8 @@ async def _execute_tests_fix(
     return Executed(
         applied=True,
         detail=(
-            f"{ASSISTANT_NAME} is working out suggestions; it takes up to two minutes. Review "
-            f"them in “{name}”'s Training tab: nothing changes until you keep one."
+            f"Working out the fixes now. In about two minutes they are on {name}'s Training "
+            "tab, under Practice callers. Nothing changes until you keep one."
         ),
         audit_summary={
             "agent_id": str(parsed.agent_id),
