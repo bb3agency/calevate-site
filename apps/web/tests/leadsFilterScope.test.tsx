@@ -1,4 +1,4 @@
-import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, renderHook, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import LeadsPage from "@/app/c/[slug]/leads/page";
@@ -10,7 +10,8 @@ import {
 } from "@/app/c/[slug]/leads/leadFilters";
 import { exportRefusal, scopeLabel } from "@/app/c/[slug]/leads/leadsTable";
 import type { Me } from "@/lib/api/client";
-import type { Lead, LeadLens, LeadList, Member } from "@/lib/api/leads";
+import { useLeadsLens } from "@/app/c/[slug]/leads/useLeadsLens";
+import type { Lead, LeadLens, LeadList, Member, SavedView } from "@/lib/api/leads";
 
 import { readInfoTip } from "./infoTip";
 import { lensOf, problem, renderClientPage, type ApiCall } from "./harness";
@@ -453,5 +454,30 @@ describe("the derivation is exhaustive over the lens, not over the filters we re
     // Not yet answered, and available: neither is a refusal.
     expect(exportRefusal("", false, null)).toBeNull();
     expect(exportRefusal("", true, null)).toBeNull();
+  });
+});
+
+describe("a saved view replaces the call filters it cannot hold", () => {
+  it("clears came in, last call, follow-up and call-back when a view is applied", () => {
+    const { result } = renderHook(() => useLeadsLens());
+    act(() => {
+      result.current.setCreated({ start: "2026-10-20", end: "2026-10-26" });
+      result.current.setLastOutcome("no_answer");
+      result.current.setFollowUp("not_done");
+      result.current.setCallbackOpen(true);
+    });
+    const view: SavedView = {
+      id: "v1",
+      name: "Hot",
+      columns: null,
+      filters: { status: "hot", assigned_to_me: true, fields: {} },
+      stale_column_keys: [],
+      stale_filter_keys: [],
+      created_at: "2026-10-27T00:00:00Z",
+      updated_at: "2026-10-27T00:00:00Z",
+    };
+    act(() => result.current.applyView(view, "u1"));
+    expect(filtersInForce(result.current.lens)).toEqual(["status", "assigned_to"]);
+    expect(result.current.activeViewId).toBe("v1");
   });
 });

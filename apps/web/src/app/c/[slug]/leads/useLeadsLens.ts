@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import { lensKey, type LeadLens } from "@/lib/api/leads";
+import { lensKey, type LeadLens, type SavedView } from "@/lib/api/leads";
 import { DEFAULT_LEAD_COLUMNS } from "@/lib/leadLabels";
 
 import { anyFilterInForce, type LeadFilterKey } from "./leadFilters";
@@ -99,6 +99,24 @@ export function useLeadsLens(needKey: string = "need") {
   const clearFilters = () => {
     for (const clear of Object.values(clearFilter)) clear();
   };
+  /**
+   * A saved view stores the stage, the owner, the facet values and the columns. The call
+   * filters (came in, last call, follow-up, call-back) are not part of one, so they are
+   * cleared here: kept, they would narrow the table under a view that does not name them.
+   * The owner filter is a boolean on the view, resolved against whoever is signed in; a
+   * stored id would dangle the day that colleague leaves.
+   */
+  const applyView = (view: SavedView | undefined, myUserId: string | undefined) => {
+    setActiveViewId(view?.id);
+    setStatus(view?.filters.status ?? undefined);
+    setFacetValues(view?.filters.fields ?? {});
+    setChosenColumns(view?.columns ?? undefined);
+    setAssignedTo(view?.filters.assigned_to_me ? myUserId : undefined);
+    clearFilter.created_from();
+    clearFilter.last_outcome();
+    clearFilter.follow_up();
+    clearFilter.callback_open();
+  };
 
   // A changed FILTER returns to page one — page 4 of "hot" is not page 4 of "won". Keyed
   // without the offset, or this would undo every page turn.
@@ -113,6 +131,7 @@ export function useLeadsLens(needKey: string = "need") {
     /** The key a selection must be cleared on: the lens AND the page. */
     currentLens: lensKey(lens, { limit: PAGE_SIZE, offset: offset || undefined }),
     clearFilters,
+    applyView,
     status,
     setStatus,
     search,

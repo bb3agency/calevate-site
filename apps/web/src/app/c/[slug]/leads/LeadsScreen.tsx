@@ -324,15 +324,7 @@ export function LeadsScreen() {
         activeViewId={f.activeViewId}
         canSaveView={mayApplyView.allowed}
         saveViewReason={mayApplyView.reason}
-        onApplyView={(view) => {
-          f.setActiveViewId(view?.id);
-          f.setStatus(view?.filters.status ?? undefined);
-          f.setFacetValues(view?.filters.fields ?? {});
-          f.setChosenColumns(view?.columns ?? undefined);
-          // The owner filter is a BOOLEAN on the server, resolved fresh against whoever
-          // is signed in — a stored id would dangle the day that colleague leaves.
-          f.setAssignedTo(view?.filters.assigned_to_me ? myUserId : undefined);
-        }}
+        onApplyView={(view) => f.applyView(view, myUserId)}
         currentView={{
           filters: {
             status: f.status ?? null,
