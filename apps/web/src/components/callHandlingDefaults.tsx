@@ -5,9 +5,8 @@
  * when finished, what agents do when the caller goes quiet, the lines said while looking
  * something up, and a background sound. "Calevate default" saves `null`.
  *
- * Shared by the owner's screen (`/c/[slug]/settings/call-handling`) and the operator's
- * (`/admin/tenants/[tenantId]/call-handling`); each passes its own read and its own write,
- * because the two reach the server through different doors.
+ * The operator's screen (`/admin/tenants/[tenantId]/call-handling`). A client sets the same
+ * values from an agent's Settings ("All my agents"); there is no client page of defaults.
  *
  * Under each row's source go the agents that set their own value for it, with that value and
  * a link to the agent. A default reaches only the agents that follow it; without the list this

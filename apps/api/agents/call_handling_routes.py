@@ -4,6 +4,7 @@
     PATCH /v1/agents/{agent_id}/call-handling                       set or inherit (owner)
     GET   /v1/organization/call-handling                            the account's defaults
     PUT   /v1/organization/call-handling                            set them (owner)
+    POST  /v1/organization/call-handling/all-agents                 one value on every agent
     GET   /v1/admin/tenants/{tid}/agents/{aid}/call-handling        the operator's view
     PATCH /v1/admin/tenants/{tid}/agents/{aid}/call-handling        the operator's door
     GET   /v1/admin/organizations/{org_id}/call-handling            the operator's view
@@ -277,6 +278,33 @@ class OrganizationCallHandlingIn(BaseModel):
     ambience_volume_pct: int | None = Field(default=None)
 
 
+class AllAgentsCallHandlingIn(BaseModel):
+    """The settings to use on every agent. A field left out is untouched; `null` follows
+    Calevate's default. At least one is named."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    turn_silence_ms: int | None = Field(default=None)
+    end_call_on_finish: bool | None = Field(default=None)
+    nudge_after_seconds: int | None = Field(default=None)
+    nudge_count: int | None = Field(default=None)
+    nudge_phrase: str | None = Field(default=None, max_length=_TEXT_CAP)
+    end_after_silence_seconds: int | None = Field(default=None)
+    filler_lines: list[Annotated[str, Field(max_length=_TEXT_CAP)]] | None = Field(
+        default=None, max_length=_LINES_CAP
+    )
+    ambience: Ambience | None = Field(default=None)
+    ambience_volume_pct: int | None = Field(default=None)
+
+
+class AllAgentsCallHandlingOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    organization: OrganizationCallHandlingOut
+    #: How many agents had a value of their own for a named setting, now dropped.
+    agents_reset: int
+
+
 def _lines(value: tuple[str, ...] | None) -> list[str] | None:
     return None if value is None else list(value)
 
@@ -514,6 +542,47 @@ async def set_organization_call_handling(
     return _org_out(state)
 
 
+@router.post(
+    "/v1/organization/call-handling/all-agents",
+    response_model=AllAgentsCallHandlingOut,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Use call settings on every agent of this account",
+    description=(
+        "Each named setting becomes the account default (`null` follows Calevate's) and every "
+        "agent's own value for it is dropped, so all agents, and any made later, use it. "
+        "Settings left out are untouched. `agents_reset` counts the agents that had a value "
+        "of their own. A change reaches every live agent it moves, from its next call."
+    ),
+)
+async def set_call_handling_for_all_agents(
+    payload: AllAgentsCallHandlingIn,
+    session: Session,
+    request: Request,
+    principal: Owner,
+) -> AllAgentsCallHandlingOut:
+    assert principal.tenant_id is not None
+    changes = _changes(payload)
+    result = await call_handling.set_call_handling_for_all_agents(
+        session, tenant_id=principal.tenant_id, changes=changes
+    )
+    await write_audit(
+        session,
+        action="organization.call_handling_set_for_all_agents",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="organization",
+        object_id=str(principal.tenant_id),
+        ip=client_request_ip(request),
+        summary={
+            **_audit_summary(changes, result.moved),
+            "agents_reset": result.agents_reset,
+        },
+    )
+    return AllAgentsCallHandlingOut(
+        organization=_org_out(result.organization), agents_reset=result.agents_reset
+    )
+
+
 @admin_router.get(
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/call-handling",
     response_model=AgentCallHandlingOut,
@@ -616,6 +685,8 @@ async def admin_set_organization_call_handling(
 __all__ = [
     "AgentCallHandlingIn",
     "AgentCallHandlingOut",
+    "AllAgentsCallHandlingIn",
+    "AllAgentsCallHandlingOut",
     "OrganizationCallHandlingIn",
     "OrganizationCallHandlingOut",
     "admin_router",

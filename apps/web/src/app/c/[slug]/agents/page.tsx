@@ -14,6 +14,7 @@ import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 
 import { HowChangesTakeEffect } from "./LaneGuide";
+import { useOpenOnlyAgentSettings } from "./openSettings";
 import { Archive, Roster } from "./Roster";
 import { TrialLockNotice } from "../TrialLockNotice";
 import { StatusPill } from "@/components/console/statusPill";
@@ -36,6 +37,7 @@ export default function AgentsPage({
   const { href } = useClientRealm();
   const agents = useAgents(session);
   const roster = agents.data ?? [];
+  useOpenOnlyAgentSettings(agents.data, slug, href);
 
   /* The counts, not the rows, from the same `agentGroup` predicate the list orders by, so
      the assistant and the screen cannot disagree. The archive is a second request inside

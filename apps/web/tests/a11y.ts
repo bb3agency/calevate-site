@@ -331,6 +331,13 @@ export const UNSWEPT_SCREENS: Record<string, string> = {
     "under jsdom `redirect()` throws `NEXT_REDIRECT`. What it redirects TO is swept. " +
     "CLOSED BY: deleting the file, a decision about old links."
   ),
+  "c/[slug]/settings/call-handling/page.tsx": (
+    "a server redirect into c/[slug]/agents (founder, 27 Oct 2026: call handling is set on " +
+    "each agent's Settings, for that agent or all of them) — it renders no markup to scan, " +
+    "and under jsdom `permanentRedirect()` throws `NEXT_REDIRECT`. What it redirects TO is " +
+    "swept: the agents list and the agent page under `section=settings`. CLOSED BY: " +
+    "deleting the file, a decision about old links."
+  ),
   "admin/tenants/[tenantId]/invitations/page.tsx": (
     "a server redirect into admin/tenants/[tenantId]/members (D-661), where members and " +
     "invitations are one People page — it renders no markup to scan, and under jsdom " +

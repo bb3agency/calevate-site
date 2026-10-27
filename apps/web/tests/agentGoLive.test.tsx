@@ -5,7 +5,7 @@ import AgentPromptPage from "@/app/admin/tenants/[tenantId]/agents/[agentId]/pro
 
 import { renderAdminRoute, routeParams } from "./adminRoute";
 import { problem, stillLoading, type Routes } from "./harness";
-import { agentCallHandling, agentReplyLength, agentRow } from "./fixtures/sharedReads";
+import { agentCallHandling, organizationCallHandling, agentReplyLength, agentRow } from "./fixtures/sharedReads";
 /*
  * The agent page is a settings layout (D-661): Live opens first and holds the publish
  * controls this file is about; the call-cap cases open Call length.
@@ -116,6 +116,7 @@ function render(over: Partial<Routes> = {}) {
       [TENANT_PATH]: { id: TENANT, name: "Sunrise Clinic", slug: "sunrise" },
       "/v1/agents": [agentRow({ id: AGENT })],
       [`/v1/agents/${AGENT}/call-handling`]: agentCallHandling(AGENT),
+      "/v1/organization/call-handling": organizationCallHandling(),
       [`/v1/admin/tenants/${TENANT}/agents/${AGENT}/reply-length`]: agentReplyLength(AGENT),
       [ME_PATH]: {
         realm: "admin",

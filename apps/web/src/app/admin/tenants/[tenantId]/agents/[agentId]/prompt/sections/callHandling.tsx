@@ -86,7 +86,8 @@ export function CallHandlingPanel({
           idPrefix={`admin-${agentId}`}
           data={data}
           canChange={write.allowed}
-          save={save}
+          onSave={(payload, done) => save.mutate(payload, { onSuccess: done })}
+          error={save.error}
           status={feedback.status}
         />
       </SettingRows>

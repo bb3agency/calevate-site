@@ -188,6 +188,7 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
             "PATCH /v1/agents/{agent_id}/call-handling",
             "GET /v1/organization/call-handling",
             "PUT /v1/organization/call-handling",
+            "POST /v1/organization/call-handling/all-agents",
             "GET /v1/admin/tenants/{tenant_id}/agents/{agent_id}/call-handling",
             "PATCH /v1/admin/tenants/{tenant_id}/agents/{agent_id}/call-handling",
             "GET /v1/admin/organizations/{org_id}/call-handling",

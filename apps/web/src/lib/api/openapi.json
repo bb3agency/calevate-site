@@ -4513,6 +4513,142 @@
         "title": "AlertReport",
         "type": "object"
       },
+      "AllAgentsCallHandlingIn": {
+        "additionalProperties": false,
+        "description": "The settings to use on every agent. A field left out is untouched; `null` follows\nCalevate's default. At least one is named.",
+        "properties": {
+          "ambience": {
+            "anyOf": [
+              {
+                "enum": [
+                  "off",
+                  "office",
+                  "office-quiet"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ambience"
+          },
+          "ambience_volume_pct": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ambience Volume Pct"
+          },
+          "end_after_silence_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End After Silence Seconds"
+          },
+          "end_call_on_finish": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Call On Finish"
+          },
+          "filler_lines": {
+            "anyOf": [
+              {
+                "items": {
+                  "maxLength": 1000,
+                  "type": "string"
+                },
+                "maxItems": 50,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filler Lines"
+          },
+          "nudge_after_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nudge After Seconds"
+          },
+          "nudge_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nudge Count"
+          },
+          "nudge_phrase": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nudge Phrase"
+          },
+          "turn_silence_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turn Silence Ms"
+          }
+        },
+        "title": "AllAgentsCallHandlingIn",
+        "type": "object"
+      },
+      "AllAgentsCallHandlingOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agents_reset": {
+            "title": "Agents Reset",
+            "type": "integer"
+          },
+          "organization": {
+            "$ref": "#/components/schemas/OrganizationCallHandlingOut"
+          }
+        },
+        "required": [
+          "organization",
+          "agents_reset"
+        ],
+        "title": "AllAgentsCallHandlingOut",
+        "type": "object"
+      },
       "AnnouncementAdminListOut": {
         "additionalProperties": false,
         "properties": {
@@ -85485,6 +85621,45 @@
           }
         },
         "summary": "Set this account's default call settings",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/organization/call-handling/all-agents": {
+      "post": {
+        "description": "Each named setting becomes the account default (`null` follows Calevate's) and every agent's own value for it is dropped, so all agents, and any made later, use it. Settings left out are untouched. `agents_reset` counts the agents that had a value of their own. A change reaches every live agent it moves, from its next call.",
+        "operationId": "set_call_handling_for_all_agents_v1_organization_call_handling_all_agents_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AllAgentsCallHandlingIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AllAgentsCallHandlingOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Use call settings on every agent of this account",
         "tags": [
           "agents"
         ],

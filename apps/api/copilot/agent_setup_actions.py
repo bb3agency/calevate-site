@@ -13,7 +13,8 @@ Each executor calls the function the page's own button calls (`docs/COPILOT-CONT
 * `agent_script_discard` — `publishing.undo_staged` (Undo on a saved-but-not-live change).
 * `agent_script_version_restore` — `script_builder.restore_into_draft` (History → Restore).
 * `agent_settings_set` — the Settings tab's voice, call-handling, longest-call, model and
-  caller-memory controls, each through its own writer.
+  caller-memory controls, each through its own writer; `scope` `all_agents` is the
+  call-handling rows' "All my agents" (`call_handling.set_call_handling_for_all_agents`).
 * `agent_handover_set` — `handoff.replace_handoff` (Hand-over list → Save).
 
 Everything that can reach a caller of a live agent is `confirm`. A tool's tier is fixed per
@@ -37,6 +38,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import call_handling, lifecycle, publishing, script_builder, voice_tuning
 from apps.api.agents import handoff as handoff_service
+from apps.api.agents.call_handling import SETTING_FIELDS
 from apps.api.agents.llm_tiers import (
     LLM_TIER_LABELS,
     resolve_agent_tier,
@@ -600,11 +602,46 @@ class _Change(BaseModel):
     value: Annotated[str, Field(max_length=600)]
 
 
+#: Whom a call-handling change is for, as the Settings tab's "Just this agent" / "All my
+#: agents" choice. The other settings are always the named agent's.
+Scope = Literal["this_agent", "all_agents"]
+
+
 class _SettingsArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     agent_id: UUID
     changes: Annotated[list[_Change], Field(min_length=1, max_length=len(SETTINGS))]
+    scope: Scope = "this_agent"
+
+
+def _for_all(parsed: _SettingsArgs) -> bool:
+    """Refuses the one call-handling setting that has no account default."""
+    if parsed.scope != "all_agents":
+        return False
+    if any(c.setting == "opening_waits_for_caller" for c in parsed.changes):
+        raise WriteRefusedError(
+            "`opening_waits_for_caller` is set per agent; send it with `scope` `this_agent`"
+        )
+    return True
+
+
+_OTHER_AGENTS_OWN: Final = (
+    "SELECT " + ", ".join(SETTING_FIELDS) + " FROM agents WHERE deleted_at IS NULL AND id <> :aid"
+)
+
+
+async def _others_with_own(session: AsyncSession, agent_id: UUID, settings: list[str]) -> int:
+    """How many other agents keep a value of their own for any of these settings, which
+    "all agents" drops."""
+    rows = (await session.execute(text(_OTHER_AGENTS_OWN), {"aid": agent_id})).all()
+    return sum(
+        1
+        for row in rows
+        if any(
+            getattr(call_handling.settings_from_row(tuple(row)), s) is not None for s in settings
+        )
+    )
 
 
 def _switch(setting: str, raw: str) -> bool:
@@ -809,12 +846,38 @@ async def _plan_settings(session: AsyncSession, actor: ToolActor, args: Mapping[
             "switching caller memory on first needs the owner to confirm what these calls "
             "collect, on the agent's Settings tab; send them there, do not switch it on here"
         )
-    was = [f"{_LABELS[s]}: {_shown(s, _current_value(current, s))}" for s in values]
-    becomes = [f"{_LABELS[s]}: {_shown(s, v)}" for s, v in values.items()]
+    for_all = _for_all(parsed)
+    shared = [s for s in values if for_all and s in call_handling.SETTING_FIELDS]
+
+    def line(setting: str, value: Any) -> str:
+        if setting not in shared:
+            return f"{_LABELS[setting]}: {_shown(setting, value)}"
+        shown = "Calevate's default" if value is None else _shown(setting, value)
+        return f"every agent's {_LABELS[setting]}: {shown}"
+
+    was = [
+        line(s, getattr(current.handling.organization, s))
+        if s in shared
+        else line(s, _current_value(current, s))
+        for s in values
+    ]
+    becomes = [line(s, v) for s, v in values.items()]
+    summary = f"On “{name}”: " + "; ".join(becomes) + "."
+    if shared:
+        others = await _others_with_own(session, parsed.agent_id, shared)
+        if others:
+            summary += (
+                f" {others} other agent{'s' if others != 1 else ''} with a setting of "
+                f"{'their' if others != 1 else 'its'} own will use this too."
+            )
     return Plan(
         object_id=str(parsed.agent_id),
-        title="Change how this agent handles calls",
-        summary=f"On “{name}”: " + "; ".join(becomes) + ". It applies from the next call.",
+        title=(
+            "Change how your agents handle calls"
+            if shared
+            else "Change how this agent handles calls"
+        ),
+        summary=summary + " It applies from the next call.",
         current="; ".join(was),
         proposed="; ".join(becomes),
         cost=None,
@@ -825,6 +888,7 @@ async def _plan_settings(session: AsyncSession, actor: ToolActor, args: Mapping[
                 {"setting": change.setting, "value": strip_invisible(change.value.strip())}
                 for change in parsed.changes
             ],
+            "scope": parsed.scope,
         },
     )
 
@@ -875,7 +939,16 @@ async def _execute_settings(
         )
         moved.extend(voice_moved)
     handling = {s: v for s, v in values.items() if s in HANDLING_SETTINGS}
-    if handling:
+    agents_reset: int | None = None
+    if handling and _for_all(parsed):
+        # The Settings tab's "All my agents": the same writer its save calls.
+        result = await call_handling.set_call_handling_for_all_agents(
+            session, tenant_id=actor.tenant_id, changes=handling
+        )
+        agents_reset = result.agents_reset
+        moved.extend(f for f in result.moved if f not in moved)
+        moved.extend(f for f in handling if result.agents_reset and f not in moved)
+    elif handling:
         _handled, handling_moved = await call_handling.set_agent_call_handling(
             session, tenant_id=actor.tenant_id, agent_id=agent_id, changes=handling
         )
@@ -905,7 +978,12 @@ async def _execute_settings(
             else "The agent already had those settings, so nothing changed."
         ),
         # Setting names only: a phrase or a filler line is the business's own wording.
-        audit_summary={"agent_id": str(agent_id), "changed": sorted(moved)},
+        audit_summary={
+            "agent_id": str(agent_id),
+            "changed": sorted(moved),
+            "scope": parsed.scope,
+            **({} if agents_reset is None else {"agents_reset": agents_reset}),
+        },
     )
 
 
@@ -926,7 +1004,10 @@ AGENT_SETTINGS_SET: Final = ActionTool(
         "turn_silence_ms, end_call_on_finish (on/off), nudge_after_seconds (0 never), "
         "nudge_count, nudge_phrase, end_after_silence_seconds, filler_lines (separated by |), "
         "ambience (off, office, office-quiet), ambience_volume_pct, longest_call_minutes, "
-        "ai_model (standard, plus, pro), caller_memory (on/off). Current values: "
+        "ai_model (standard, plus, pro), caller_memory (on/off). `scope` `all_agents` puts "
+        "the call-handling settings (pause, hang-up, quiet caller, filler lines, background "
+        "sound) on every agent of the account, replacing any agent's own; `default` then "
+        "means Calevate's. Use it only when the person asks for all agents. Current values: "
         "`agent_settings`." + PROPOSES_ONLY,
         {
             "agent_id": _ID,
@@ -942,6 +1023,7 @@ AGENT_SETTINGS_SET: Final = ActionTool(
                     "additionalProperties": False,
                 },
             },
+            "scope": {"type": "string", "enum": ["this_agent", "all_agents"]},
         },
     ),
     plan=_plan_settings,

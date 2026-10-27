@@ -1,9 +1,10 @@
 "use client";
 
 /**
- * ONE CLIENT'S CALL HANDLING DEFAULTS, the operator's half of `/c/[slug]/settings/call-handling`.
+ * ONE CLIENT'S CALL HANDLING DEFAULTS: what the client's "All my agents" choice on an agent's
+ * Settings writes, seen and changed as one list.
  *
- * Same rows, same values, written through `PUT /v1/admin/organizations/{id}/call-handling`
+ * Written through `PUT /v1/admin/organizations/{id}/call-handling`
  * (`admin:tenants`) rather than through a view-as session, so the change is audited under the
  * operator's own name. An agent's own values stay on its page (Agents, then the agent's
  * Call handling section); this is what every agent without one follows.

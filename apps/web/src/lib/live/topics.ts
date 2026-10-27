@@ -243,6 +243,9 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "invitations",
     "kyc",
     "business-profile",
+    // The call settings every agent shares live on `organizations`, and each agent's read
+    // resolves through them, so a change for all agents moves every agent's call handling.
+    "call-handling",
     // The account's AI-written examples (D-827): a run writes `business_copies`.
     "business-copy",
     "admin/business-copy",

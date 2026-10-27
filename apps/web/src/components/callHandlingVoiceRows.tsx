@@ -3,10 +3,10 @@
 /**
  * THE CLIENT'S VOICE SETTINGS (F3, F9): what the agent does when the caller goes quiet, the
  * lines it says while it looks something up, and a background sound. Three rows shared by an
- * agent's Call handling, the organisation's default and the operator's console, beside the
+ * agent's Settings and the operator's console (an agent, and a client's defaults), beside the
  * pause and hang-up rows (`callHandlingRows`), in the same pattern: a `SettingRow` summary of
  * the value in force and where it comes from, "Change" opening a compact editor and the save
- * bar.
+ * bar, and on an agent's Settings the "Just this agent" / "All my agents" choice.
  *
  * "Use the default" is a checkbox and saves `null`, so the value follows the level above. The
  * standard question and the standard lines are a choice of their own (saved as "" and []),
@@ -15,14 +15,15 @@
  * number is a slider between them, so a value the server would refuse cannot be entered.
  */
 
-import type { UseMutationResult } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 
 import {
   CALL_HANDLING_EDITOR,
   CALL_HANDLING_NEXT_CALL,
   DefaultCheckbox,
+  ScopeChoice,
   SliderField,
+  type ScopeOffer,
 } from "@/components/callHandlingRows";
 import { type FeedbackStatus } from "@/components/arc/feedback";
 import { SaveBar } from "@/components/console/saveBar";
@@ -39,11 +40,13 @@ import {
   silenceSummary,
   timesLabel,
   inheritedVoice,
+  platformVoice,
   rowSource,
   type AgentCallHandling,
   type AgentCallHandlingIn,
   type Ambience,
   type CallHandlingBounds,
+  type CallHandlingScope,
   type InheritedVoice,
 } from "@/lib/api/callHandling";
 import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
@@ -60,7 +63,40 @@ interface Common {
   /** This row's save, from the caller's `useActionFeedback`. */
   status: FeedbackStatus;
   error: Error | null;
+  /** On an agent's Settings, for a reader who may change every agent: "All my agents". */
+  scope?: ScopeOffer<InheritedVoice>;
 }
+
+/** The scope choice at the foot of an editor, when "All my agents" is on offer. */
+function ScopeField({
+  id,
+  offer,
+  scope,
+  onChange,
+}: {
+  id: string;
+  offer: ScopeOffer<InheritedVoice> | undefined;
+  scope: CallHandlingScope;
+  onChange: (scope: CallHandlingScope) => void;
+}) {
+  if (!offer) return null;
+  return (
+    <div className={CALL_HANDLING_EDITOR}>
+      <ScopeChoice id={id} scope={scope} others={offer.others} onChange={onChange} />
+    </div>
+  );
+}
+
+/** What "use the default" means for the scope picked: for every agent, Calevate's. */
+function inheritedFor(
+  scope: CallHandlingScope,
+  offer: ScopeOffer<InheritedVoice> | undefined,
+  agent: InheritedVoice,
+): InheritedVoice {
+  return scope === "all" && offer ? offer.inherit : agent;
+}
+
+const ALL_AGENTS_SAVE = "Save for all agents";
 
 function ChangeButton({ onClick }: { onClick: () => void }) {
   return (
@@ -135,22 +171,23 @@ export function SilenceRow({
   idPrefix,
   hint,
   bounds,
-  inherited,
+  inherited: agentInherited,
   canChange,
   status,
   error,
+  scope,
   own,
   effective,
   onSave,
 }: Common & {
   own: SilenceValues;
   effective: { nudge_after_seconds: number; nudge_count: number; nudge_phrase: string; end_after_silence_seconds: number };
-  onSave: (next: SilenceValues, done: () => void) => void;
+  onSave: (next: SilenceValues, done: () => void, scope: CallHandlingScope) => void;
 }) {
   // Unticking a default starts from that default's value, so nothing moves until changed.
   const initial = () => {
-    const after = own.nudge_after_seconds ?? inherited.nudge_after_seconds;
-    const phrase = own.nudge_phrase ?? inherited.nudge_phrase;
+    const after = own.nudge_after_seconds ?? agentInherited.nudge_after_seconds;
+    const phrase = own.nudge_phrase ?? agentInherited.nudge_phrase;
     const afterSeed = after > 0 ? after : effective.nudge_after_seconds || bounds.platform_nudge_after_seconds;
     return {
       askDefault: own.nudge_after_seconds === null,
@@ -163,10 +200,11 @@ export function SilenceRow({
       words: phrase,
       hangUpDefault: own.end_after_silence_seconds === null,
       hangUp: clamp(
-        own.end_after_silence_seconds ?? inherited.end_after_silence_seconds,
+        own.end_after_silence_seconds ?? agentInherited.end_after_silence_seconds,
         bounds.end_after_silence_min_s,
         bounds.end_after_silence_max_s,
       ),
+      scope: "agent" as CallHandlingScope,
     };
   };
   const [editing, setEditing] = useState(false);
@@ -185,11 +223,13 @@ export function SilenceRow({
   };
   const changed =
     editing &&
-    (next.nudge_after_seconds !== own.nudge_after_seconds ||
+    (form.scope === "all" ||
+      next.nudge_after_seconds !== own.nudge_after_seconds ||
       next.nudge_count !== own.nudge_count ||
       next.nudge_phrase !== own.nudge_phrase ||
       next.end_after_silence_seconds !== own.end_after_silence_seconds);
   useUnsavedGuard(changed);
+  const inherited = inheritedFor(form.scope, scope, agentInherited);
   const id = `${idPrefix}-silence`;
   const close = () => {
     setEditing(false);
@@ -233,7 +273,7 @@ export function SilenceRow({
           onSubmit={(event) => {
             event.preventDefault();
             if (!valid) return;
-            onSave(next, () => setEditing(false));
+            onSave(next, () => setEditing(false), form.scope);
           }}
         >
           <fieldset className={CALL_HANDLING_EDITOR}>
@@ -298,7 +338,7 @@ export function SilenceRow({
             <fieldset className={CALL_HANDLING_EDITOR}>
               <legend className={LEGEND}>What the agent asks</legend>
               <DefaultCheckbox
-                label={`Use the ${inherited.from.nudge_phrase}: ${inherited.nudge_phrase === "" ? "the standard question" : "your organisation's words"}`}
+                label={`Use the ${inherited.from.nudge_phrase}: ${inherited.nudge_phrase === "" ? "the standard question" : "your own words"}`}
                 checked={form.phraseDefault}
                 onChange={(checked) => set({ phraseDefault: checked })}
               />
@@ -365,7 +405,14 @@ export function SilenceRow({
               />
             )}
           </fieldset>
-          <Footer changed={changed} status={status} label="Save" disabled={!valid} onClose={close} />
+          <ScopeField id={id} offer={scope} scope={form.scope} onChange={(picked) => set({ scope: picked })} />
+          <Footer
+            changed={changed}
+            status={status}
+            label={form.scope === "all" ? ALL_AGENTS_SAVE : "Save"}
+            disabled={!valid}
+            onClose={close}
+          />
         </form>
       )}
     </div>
@@ -380,24 +427,26 @@ export function FillerLinesRow({
   idPrefix,
   hint,
   bounds,
-  inherited,
+  inherited: agentInherited,
   canChange,
   status,
   error,
+  scope,
   own,
   effective,
   onSave,
 }: Common & {
   own: string[] | null;
   effective: string[];
-  onSave: (next: string[] | null, done: () => void) => void;
+  onSave: (next: string[] | null, done: () => void, scope: CallHandlingScope) => void;
 }) {
   const initial = () => {
-    const base = own ?? inherited.filler_lines;
+    const base = own ?? agentInherited.filler_lines;
     return {
       useDefault: own === null,
       pick: (base.length === 0 ? "standard" : "own") as LinesPick,
       text: base.join("\n"),
+      scope: "agent" as CallHandlingScope,
     };
   };
   const [editing, setEditing] = useState(false);
@@ -411,8 +460,10 @@ export function FillerLinesRow({
   const tooLong = lines.find((line) => line.length > bounds.filler_line_max_chars);
   const valid = !ownLines || (lines.length > 0 && !tooMany && tooLong === undefined);
   const next: string[] | null = form.useDefault ? null : form.pick === "standard" ? [] : lines;
-  const changed = editing && JSON.stringify(next) !== JSON.stringify(own);
+  const changed =
+    editing && (form.scope === "all" || JSON.stringify(next) !== JSON.stringify(own));
   useUnsavedGuard(changed);
+  const inherited = inheritedFor(form.scope, scope, agentInherited);
   const id = `${idPrefix}-filler`;
   const close = () => {
     setEditing(false);
@@ -452,7 +503,7 @@ export function FillerLinesRow({
           onSubmit={(event) => {
             event.preventDefault();
             if (!valid) return;
-            onSave(next, () => setEditing(false));
+            onSave(next, () => setEditing(false), form.scope);
           }}
         >
           <div className={CALL_HANDLING_EDITOR}>
@@ -508,7 +559,19 @@ export function FillerLinesRow({
               </div>
             )}
           </div>
-          <Footer changed={changed} status={status} label="Save lines" disabled={!valid} onClose={close} />
+          <ScopeField
+            id={id}
+            offer={scope}
+            scope={form.scope}
+            onChange={(picked) => setForm((f) => ({ ...f, scope: picked }))}
+          />
+          <Footer
+            changed={changed}
+            status={status}
+            label={form.scope === "all" ? ALL_AGENTS_SAVE : "Save lines"}
+            disabled={!valid}
+            onClose={close}
+          />
         </form>
       )}
     </div>
@@ -537,17 +600,18 @@ export function BackgroundSoundRow({
   idPrefix,
   hint,
   bounds,
-  inherited,
+  inherited: agentInherited,
   canChange,
   status,
   error,
+  scope,
   own,
   effective,
   onSave,
 }: Common & {
   own: SoundValues;
   effective: { ambience: Ambience; ambience_volume_pct: number };
-  onSave: (next: SoundValues, done: () => void) => void;
+  onSave: (next: SoundValues, done: () => void, scope: CallHandlingScope) => void;
 }) {
   const initial = () => ({
     choice: (own.ambience ?? "inherit") as SoundChoice,
@@ -556,6 +620,7 @@ export function BackgroundSoundRow({
       bounds.ambience_volume_min_pct,
       bounds.ambience_volume_max_pct,
     ),
+    scope: "agent" as CallHandlingScope,
   });
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState(initial);
@@ -565,8 +630,12 @@ export function BackgroundSoundRow({
       ? { ambience: null, ambience_volume_pct: null }
       : { ambience: form.choice, ambience_volume_pct: audible ? form.volume : own.ambience_volume_pct };
   const changed =
-    editing && (next.ambience !== own.ambience || next.ambience_volume_pct !== own.ambience_volume_pct);
+    editing &&
+    (form.scope === "all" ||
+      next.ambience !== own.ambience ||
+      next.ambience_volume_pct !== own.ambience_volume_pct);
   useUnsavedGuard(changed);
+  const inherited = inheritedFor(form.scope, scope, agentInherited);
   const id = `${idPrefix}-sound`;
   const close = () => {
     setEditing(false);
@@ -603,7 +672,7 @@ export function BackgroundSoundRow({
           noValidate
           onSubmit={(event) => {
             event.preventDefault();
-            onSave(next, () => setEditing(false));
+            onSave(next, () => setEditing(false), form.scope);
           }}
         >
           <div className={CALL_HANDLING_EDITOR}>
@@ -642,7 +711,18 @@ export function BackgroundSoundRow({
               />
             )}
           </div>
-          <Footer changed={changed} status={status} label="Save sound" onClose={close} />
+          <ScopeField
+            id={id}
+            offer={scope}
+            scope={form.scope}
+            onChange={(picked) => setForm((f) => ({ ...f, scope: picked }))}
+          />
+          <Footer
+            changed={changed}
+            status={status}
+            label={form.scope === "all" ? ALL_AGENTS_SAVE : "Save sound"}
+            onClose={close}
+          />
         </form>
       )}
     </div>
@@ -651,32 +731,47 @@ export function BackgroundSoundRow({
 
 // --- one agent's three rows ------------------------------------------------------------------
 
-type VoiceRow = "silence" | "filler" | "sound";
+export type VoiceRow = "silence" | "filler" | "sound";
 
-/** The three rows for one agent, from its call handling read; used by the client's Call
- * handling and the operator's console, each with its own save. */
+/** The three rows for one agent, from its call handling read; used by the client's agent
+ * Settings and the operator's console, each with its own save. */
 export function AgentVoiceRows({
   idPrefix,
   data,
   canChange,
-  save,
+  onSave,
+  error,
   status,
+  others,
 }: {
   idPrefix: string;
   data: AgentCallHandling;
   canChange: boolean;
-  save: UseMutationResult<AgentCallHandling, Error, AgentCallHandlingIn>;
-  /** The caller's `useActionFeedback(save).status`, shown on the row that saved. */
+  onSave: (payload: AgentCallHandlingIn, done: () => void, scope: CallHandlingScope) => void;
+  /** The last save's refusal, shown on the row that saved. */
+  error: Error | null;
+  /** The caller's `useActionFeedback` status, shown on the row that saved. */
   status: FeedbackStatus;
+  /** Per row, the other agents with their own value; given only when "All my agents" is on
+   * offer to this reader. */
+  others?: Record<VoiceRow, number>;
 }) {
   const [row, setRow] = useState<VoiceRow | null>(null);
   const inherited = inheritedVoice(data);
-  const send = (which: VoiceRow, payload: AgentCallHandlingIn, done: () => void) => {
+  const calevate = platformVoice(data.bounds);
+  const offer = (which: VoiceRow): ScopeOffer<InheritedVoice> | undefined =>
+    others ? { others: others[which], inherit: calevate } : undefined;
+  const send = (
+    which: VoiceRow,
+    payload: AgentCallHandlingIn,
+    done: () => void,
+    scope: CallHandlingScope,
+  ) => {
     setRow(which);
-    save.mutate(payload, { onSuccess: done });
+    onSave(payload, done, scope);
   };
   const rowStatus = (which: VoiceRow): FeedbackStatus => (row === which ? status : "idle");
-  const failed = (which: VoiceRow) => (row === which ? save.error : null);
+  const failed = (which: VoiceRow) => (row === which ? error : null);
   return (
     <>
       <SilenceRow
@@ -704,7 +799,8 @@ export function AgentVoiceRows({
           nudge_phrase: data.nudge_phrase_effective,
           end_after_silence_seconds: data.end_after_silence_seconds_effective,
         }}
-        onSave={(next, done) => send("silence", next, done)}
+        scope={offer("silence")}
+        onSave={(next, done, scope) => send("silence", next, done, scope)}
       />
       <FillerLinesRow
         idPrefix={idPrefix}
@@ -716,7 +812,8 @@ export function AgentVoiceRows({
         error={failed("filler")}
         own={data.filler_lines}
         effective={data.filler_lines_effective}
-        onSave={(next, done) => send("filler", { filler_lines: next }, done)}
+        scope={offer("filler")}
+        onSave={(next, done, scope) => send("filler", { filler_lines: next }, done, scope)}
       />
       <BackgroundSoundRow
         idPrefix={idPrefix}
@@ -731,7 +828,8 @@ export function AgentVoiceRows({
           ambience: data.ambience_effective,
           ambience_volume_pct: data.ambience_volume_pct_effective,
         }}
-        onSave={(next, done) => send("sound", next, done)}
+        scope={offer("sound")}
+        onSave={(next, done, scope) => send("sound", next, done, scope)}
       />
     </>
   );
