@@ -114,7 +114,7 @@ function NoteRow({
   return (
     <li className="py-3">
       <div className="flex items-start gap-3">
-        <Type aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
+        <Type aria-hidden className={`mt-0.5 h-4 w-4 shrink-0 text-ink-faint ${canWrite ? "touch:mt-3.5" : ""}`} />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             {/* The name is the Rename button: press it, type, Enter. */}

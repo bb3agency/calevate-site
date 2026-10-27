@@ -69,7 +69,7 @@ export function BusinessTypeBanner({ tenantId }: { tenantId: string }) {
         action={
           <form
             noValidate
-            className="flex w-full items-center gap-2 sm:w-auto"
+            className="flex w-full min-w-0 max-w-full items-center gap-2 sm:w-auto"
             onSubmit={(event) => {
               event.preventDefault();
               if (!choice) return;
@@ -81,7 +81,7 @@ export function BusinessTypeBanner({ tenantId }: { tenantId: string }) {
             </label>
             <select
               id={`business-type-${tenantId}`}
-              className={FIELD.replace("mt-1 w-full", "min-w-0 flex-1 sm:w-auto sm:min-w-48 sm:flex-none")}
+              className={FIELD.replace("mt-1 w-full", "min-w-0 max-w-full flex-1 sm:w-auto sm:min-w-48 sm:flex-none")}
               value={choice}
               onChange={(event) => setPicked(event.target.value)}
               disabled={!write.allowed || confirm.isPending}

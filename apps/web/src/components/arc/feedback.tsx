@@ -291,7 +291,7 @@ function Face({ shown, children, keepName = false }: { shown: boolean; children:
     <span
       aria-hidden={keepName ? undefined : true}
       className={clsx(
-        "inline-flex items-center justify-center gap-2 whitespace-nowrap [grid-area:1/1] motion-safe:transition-opacity motion-safe:duration-(--duration-fast)",
+        "inline-flex min-w-0 items-center justify-center gap-2 whitespace-nowrap [grid-area:1/1] motion-safe:transition-opacity motion-safe:duration-(--duration-fast)",
         shown ? "opacity-100" : "opacity-0",
       )}
     >
@@ -348,14 +348,16 @@ export const ActionButton = forwardRef<HTMLButtonElement, ActionButtonProps>(fun
       }}
       className={clsx(
         VARIANT[variant],
-        "relative justify-center",
+        "relative max-w-full justify-center",
         busy && "cursor-progress",
         status === "error" && variant !== "danger" && "ring-1 ring-danger/50",
         className,
       )}
       {...props}
     >
-      <span className="grid">
+      {/* `minmax(0, 1fr)` lets a label carrying a name (an agent's, up to 120 characters)
+          truncate inside a narrow column instead of pushing the button past it. */}
+      <span className="grid min-w-0 grid-cols-[minmax(0,1fr)]">
         <Face shown={status === "idle"} keepName>
           {children}
         </Face>
