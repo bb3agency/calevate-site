@@ -854,7 +854,7 @@ def _call_settings_fields(agent: AgentRow, *, languages: Sequence[str]) -> dict[
         turn_silence_ms=agent.get("organization_turn_silence_ms"),
         end_call_on_finish=agent.get("organization_end_call_on_finish"),
     )
-    v = resolve_settings(own, organization).values
+    v = resolve_settings(own, organization, own_turn_detection=agent.get("turn_detection")).values
     after = v.nudge_after_seconds
     return {
         "turn_silence_ms": v.turn_silence_ms,

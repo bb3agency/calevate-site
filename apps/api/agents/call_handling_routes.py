@@ -123,11 +123,11 @@ class CallHandlingBoundsOut(BaseModel):
     platform_opening_wait_ms: int | None
 
 
-def _bounds() -> CallHandlingBoundsOut:
+def _bounds(own_turn_detection: TurnDetection | None = None) -> CallHandlingBoundsOut:
     return CallHandlingBoundsOut(
         turn_silence_min_ms=TURN_SILENCE_MIN_MS,
         turn_silence_max_ms=TURN_SILENCE_MAX_MS,
-        platform_turn_silence_ms=TURN_SILENCE_DEFAULT_MS,
+        platform_turn_silence_ms=call_handling.platform_turn_silence_ms(own_turn_detection),
         platform_end_call_on_finish=END_CALL_ON_FINISH_DEFAULT,
         nudge_after_min_s=NUDGE_AFTER_MIN_S,
         nudge_after_max_s=NUDGE_AFTER_MAX_S,
@@ -164,6 +164,9 @@ class AgentCallHandlingOut(BaseModel):
     turn_silence_ms: int | None
     turn_silence_ms_effective: int
     turn_silence_source: SettingSource
+    #: Whether the pause decides anything on this agent's calls: false while its turns end by
+    #: real-time listening, where the pause is not used (D-903). Still stored and sent.
+    turn_silence_applies: bool
     end_call_on_finish: bool | None
     end_call_on_finish_effective: bool
     end_call_on_finish_source: SettingSource
@@ -388,6 +391,7 @@ def _agent_out(state: AgentCallHandling) -> AgentCallHandlingOut:
             **_own(state.own),
             **_effective(state.resolved.values),
             "turn_silence_source": sources["turn_silence_ms"],
+            "turn_silence_applies": state.turn_silence_applies,
             "end_call_on_finish_source": sources["end_call_on_finish"],
             **{
                 f"{field}_source": sources[field]
@@ -396,7 +400,7 @@ def _agent_out(state: AgentCallHandling) -> AgentCallHandlingOut:
             },
             "opening_waits_for_caller": state.opening_waits_for_caller,
             **_own(state.organization, "organization_"),
-            "bounds": _bounds(),
+            "bounds": _bounds(state.turn_detection),
         }
     )
 
@@ -450,10 +454,11 @@ def _audit_summary(changes: dict[str, object], moved: tuple[str, ...]) -> dict[s
 
 
 _AGENT_DESCRIPTION = (
-    "`turn_silence_ms` is the quiet the agent waits for before it decides the caller has "
-    "finished and replies, "
+    "`turn_silence_ms` is the quiet after the caller's last words that ends their turn, "
     f"{TURN_SILENCE_MIN_MS}-{TURN_SILENCE_MAX_MS} ms; longer suits callers reading out "
-    "numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent "
+    "numbers, shorter answers sooner. It is used only while the agent's turns end by "
+    "silence: `turn_silence_applies` is false when they end by real-time listening, where "
+    "the value is kept but not used. `end_call_on_finish` releases the line when the agent "
     "has finished; with it off a finished call stays connected, and charged, until the caller "
     "hangs up.\n\n"
     "If the caller goes quiet: `nudge_after_seconds` "
@@ -474,7 +479,8 @@ _AGENT_DESCRIPTION = (
     "`bounds.opening_wait_available`, and an effective null is four seconds "
     "(`opening_wait_unavailable` otherwise).\n\n"
     "Each other setting resolves agent, then the account default, then Calevate's "
-    f"({TURN_SILENCE_DEFAULT_MS} ms, hang-up on, ask once after {NUDGE_AFTER_DEFAULT_S} s, "
+    f"(`bounds.platform_turn_silence_ms`, {TURN_SILENCE_DEFAULT_MS} ms on most agents, hang-up "
+    f"on, ask once after {NUDGE_AFTER_DEFAULT_S} s, "
     f"hang up after {END_AFTER_SILENCE_DEFAULT_S} s, standard lines, no sound); `*_source` "
     "names the level in force.\n\n"
     "A change reaches a live agent straight after the save and applies from its next call; "
@@ -729,6 +735,13 @@ class AgentTurnDetectionOut(BaseModel):
     turn_detection_effective: TurnDetection
     #: The console's `thinnest_turn_detection`, which `null` follows.
     console_turn_detection: TurnDetection
+    #: The pause this agent's calls are sent, and the level that chose it. On an agent put
+    #: on `timer` here with no pause of its own or its account's it is the console's
+    #: `thinnest_timer_turn_silence_ms` (D-903).
+    turn_silence_ms_effective: int
+    turn_silence_source: SettingSource
+    #: False under `ear`, where the pause is sent but not used.
+    turn_silence_applies: bool
 
 
 class AgentTurnDetectionIn(BaseModel):
@@ -737,12 +750,16 @@ class AgentTurnDetectionIn(BaseModel):
     turn_detection: TurnDetection | None
 
 
-def _turn_out(state: call_handling.AgentTurnDetection) -> AgentTurnDetectionOut:
+def _turn_out(handling: AgentCallHandling) -> AgentTurnDetectionOut:
+    pause = handling.turn_silence
     return AgentTurnDetectionOut(
-        agent_id=state.agent_id,
-        turn_detection=state.own,
-        turn_detection_effective=state.effective,
+        agent_id=handling.agent_id,
+        turn_detection=handling.turn_detection,
+        turn_detection_effective=handling.turn_detection_effective,
         console_turn_detection=get_settings().thinnest_turn_detection,
+        turn_silence_ms_effective=pause.ms,
+        turn_silence_source=pause.source,
+        turn_silence_applies=handling.turn_silence_applies,
     )
 
 
@@ -765,7 +782,7 @@ async def admin_get_agent_turn_detection(
     tenant_id: UUID, agent_id: UUID, request: Request, principal: Operator
 ) -> AgentTurnDetectionOut:
     async with tenant_session(tenant_id) as scoped:
-        state = await call_handling.read_agent_turn_detection(scoped, agent_id)
+        state = await call_handling.read_agent_call_handling(scoped, agent_id)
         await record_admin_tenant_read(
             scoped, request=request, principal=principal, tenant_id=tenant_id
         )

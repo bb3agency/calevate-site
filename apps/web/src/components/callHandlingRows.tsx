@@ -218,6 +218,9 @@ function clamp(value: number, min: number, max: number): number {
  */
 const PAUSE_STEP_MS = 50;
 
+/** The pause row's line on an agent that does not wait for silence. */
+export const PAUSE_NOT_USED = "This agent hears when the caller has finished, so it waits for no pause.";
+
 export function PauseRow({
   idPrefix,
   effective,
@@ -232,7 +235,14 @@ export function PauseRow({
   onSave,
   minMs,
   maxMs,
-}: RowProps<number> & { minMs: number; maxMs: number }) {
+  notUsed = false,
+}: RowProps<number> & {
+  minMs: number;
+  maxMs: number;
+  /** The agent's turns end when it hears the caller finish, so no pause is waited for
+   * (`turn_silence_applies` false, D-903). The value is kept for a move back to silence. */
+  notUsed?: boolean;
+}) {
   const saving = status === "pending";
   // Unticking the default starts from this level's own value, else from the one in force,
   // which is the default's when this level has none.
@@ -261,16 +271,17 @@ export function PauseRow({
     <div>
       <SettingRow
         label="Pause before the agent replies"
-        hint={sourceHint ?? sourceLabel(source)}
+        hint={notUsed ? PAUSE_NOT_USED : (sourceHint ?? sourceLabel(source))}
         info={
           <p>
-            The quiet the agent waits for before it decides whether the caller has finished
-            and replies. A short pause answers
-            quickly but can cut in while someone is reading out a phone number. A longer one
-            waits for them, and every reply comes that much later.
+            The quiet after the caller&apos;s last words before the agent replies. A short pause
+            answers quickly but can cut in while someone is reading out a phone number. A longer
+            one waits for them, and every reply comes that much later. It applies only to an
+            agent that waits for silence; one that hears when the caller has finished does not
+            use it.
           </p>
         }
-        value={pauseLabel(effective)}
+        value={notUsed ? "Not used" : pauseLabel(effective)}
         action={
           editing || !canChange ? undefined : (
             <button

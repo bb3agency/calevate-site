@@ -203,6 +203,7 @@ export function agentCallHandling(agentId = "agent-1") {
     turn_silence_ms: null,
     turn_silence_ms_effective: 250,
     turn_silence_source: "platform",
+    turn_silence_applies: true,
     end_call_on_finish: null,
     end_call_on_finish_effective: true,
     end_call_on_finish_source: "platform",
@@ -240,6 +241,9 @@ export function agentTurnDetection(agentId = "agent-1") {
     turn_detection: null,
     turn_detection_effective: "ear" as const,
     console_turn_detection: "ear" as const,
+    turn_silence_ms_effective: 250,
+    turn_silence_source: "platform" as const,
+    turn_silence_applies: false,
   };
 }
 

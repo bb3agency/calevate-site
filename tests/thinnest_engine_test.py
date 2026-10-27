@@ -63,6 +63,10 @@ def _cfg(**update: Any) -> AgentConfig:
         # Publish always states it (`agents/service._engine_voice_fields`); the adapter
         # refuses a config that does not.
         engine_own_voice_key=False,
+        # As every publish to this engine sets them (`hosted_platform.THINNEST_LIMITS`), so
+        # the built-in tools state knowledge search on, as `tools_state` holds by default.
+        facts_in_knowledge=True,
+        knowledge_tool="search_knowledge",
     )
     return base.model_copy(update=update)
 
@@ -83,9 +87,12 @@ def tools_state(body: dict[str, Any] | None = None) -> dict[str, Any]:
         False,
     )
     hand_over: dict[str, Any] = {"mode": "chat", "phone": None, "line": None}
+    # On unless switched off (list-built-in-tools, read 27 Oct 2026).
+    knowledge_on_calls = True
     if body:
         switches.update(body.get("tools", {}))
         hand_over.update(body.get("handOver", {}))
+        knowledge_on_calls = body.get("knowledgeOnCalls", knowledge_on_calls)
     return {
         "agent": "ag_1",
         "tools": [{"id": "search_knowledge", "enabled": True}]
@@ -93,6 +100,7 @@ def tools_state(body: dict[str, Any] | None = None) -> dict[str, Any]:
         "webSearch": {"enabled": False, "switchable": False},
         "recall": "two_tier",
         "verifyByCode": False,
+        "knowledgeOnCalls": knowledge_on_calls,
         "handOver": hand_over,
         "messages": [],
     }

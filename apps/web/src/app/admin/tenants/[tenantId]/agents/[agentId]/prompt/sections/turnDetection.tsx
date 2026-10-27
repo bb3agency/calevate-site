@@ -17,8 +17,11 @@ import { SegmentedControl } from "@/components/interior/segmented-control";
 import { ProblemNotice, Skeleton } from "@/components/ui";
 import type { useAdminAccess } from "@/app/admin/access";
 import {
+  formatPause,
+  sourceLabel,
   useAdminAgentTurnDetection,
   useAdminSetAgentTurnDetection,
+  type AgentTurnDetection,
   type TurnDetection,
 } from "@/lib/api/callHandling";
 
@@ -29,13 +32,21 @@ export const TURN_DETECTION_LABELS: Record<TurnDetection, string> = {
   smart: "Smart",
 };
 
+/** The pause this agent's calls use beside the mode, and whose it is. */
+function pauseInForce(data: AgentTurnDetection): string {
+  if (!data.turn_silence_applies) return "pause not used";
+  return `pause ${formatPause(data.turn_silence_ms_effective)}, ${sourceLabel(data.turn_silence_source).toLowerCase()}`;
+}
+
 const FOLLOW = "console";
 type Choice = TurnDetection | typeof FOLLOW;
 
 const INFO =
-  "Silence ends the caller's turn after the pause above. Ear listens live and waits through " +
-  "a pause mid-sentence. Smart lets a model judge, and replies start later. Set one here to " +
-  "try it on this agent alone; every other agent keeps the console's mode.";
+  "Silence ends the caller's turn after the pause above, counted from their last words. Ear " +
+  "listens live and waits through a pause mid-sentence; it does not use the pause. Smart lets " +
+  "a model judge, and replies start later. Set one here to try it on this agent alone; every " +
+  "other agent keeps the console's mode. Put on Silence here with no pause of its own, the " +
+  "agent starts from the console's pause for that trial.";
 
 export function TurnDetectionRow({
   tenantId,
@@ -80,7 +91,7 @@ export function TurnDetectionRow({
             : `This agent only; the console is on ${consoleMode}`
         }
         info={<p>{INFO}</p>}
-        value={TURN_DETECTION_LABELS[data.turn_detection_effective]}
+        value={`${TURN_DETECTION_LABELS[data.turn_detection_effective]} · ${pauseInForce(data)}`}
         action={
           editing || !write.allowed ? undefined : (
             <button

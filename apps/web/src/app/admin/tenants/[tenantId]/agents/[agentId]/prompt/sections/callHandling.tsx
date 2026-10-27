@@ -62,6 +62,7 @@ export function CallHandlingPanel({
           inheritLabel={labels.pause}
           minMs={data.bounds.turn_silence_min_ms}
           maxMs={data.bounds.turn_silence_max_ms}
+          notUsed={!data.turn_silence_applies}
           canChange={write.allowed}
           status={save.variables?.turn_silence_ms !== undefined ? feedback.status : "idle"}
           error={save.variables?.turn_silence_ms !== undefined ? save.error : null}

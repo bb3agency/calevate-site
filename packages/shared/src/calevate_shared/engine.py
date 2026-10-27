@@ -3719,10 +3719,12 @@ REPLY_TOKENS_DEFAULT: Final = 300
 
 #: How the engine decides the caller has finished speaking (`voice.turnDetection`,
 #: `snapshots/2026-10-19/pages/api-reference/agents/update-agent.md:1418-1439`): `timer`, a
-#: stretch of silence (`turnSilenceSeconds`); `ear`, real-time recognition that "waits
-#: through a pause mid-thought" and costs nothing extra, falling back to `timer` where it is
-#: not available (`channels/voice.md:931-976`); `smart`, a model that makes the silence a
-#: ceiling. Held here because the setting and `AgentConfig` share it.
+#: stretch of silence (`turnSilenceSeconds`) after the recogniser's final words; `ear`,
+#: real-time recognition that "waits through a pause mid-thought" and costs nothing extra,
+#: falling back to `timer` where it is not available (`channels/voice.md:931-976`), and does
+#: not read `turnSilenceSeconds` (ThinnestAI email of 27 Oct 2026, VENDOR-STATED); `smart`, a
+#: model that makes the silence a ceiling. Held here because the setting and `AgentConfig`
+#: share it.
 TurnDetection = Literal["timer", "ear", "smart"]
 
 

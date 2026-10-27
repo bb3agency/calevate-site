@@ -520,6 +520,13 @@ class Settings(BaseSettings):
     #: real-time recognition, which waits through a pause mid-sentence. Saving it republishes
     #: every live agent.
     thinnest_turn_detection: TurnDetection = "timer"
+    #: The pause, in milliseconds, of an agent an operator put on the timer on its own (D-901)
+    #: while neither the agent nor its account set one (`agents/call_handling.
+    #: platform_turn_silence_ms`). Under the timer the pause starts after the recogniser's
+    #: final words, so 400 is the top of ThinnestAI's 0.35-0.4 s starting point (email of
+    #: 27 Oct 2026, VENDOR-STATED; no Telugu measurement exists). Saving it republishes every
+    #: live agent.
+    thinnest_timer_turn_silence_ms: int = Field(default=400, ge=200, le=3000)
     #: How long an opening that waits for the person's hello waits through silence before it
     #: plays, in milliseconds on whole tenths (`voice.openingWaitSeconds`, 0.5 to 10 s, live
     #: from 28 Oct 2026; ThinnestAI email of 27 Oct 2026, VENDOR-STATED; D-901). Unset: the

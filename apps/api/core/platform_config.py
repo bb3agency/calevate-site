@@ -598,6 +598,12 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "thinnest_turn_detection": AppliesRule(
         LIVE_AGENTS, f"saving it moves every live agent onto it{_NOW}"
     ),
+    # Stamped at publish on an agent an operator put on the timer (D-903).
+    "thinnest_timer_turn_silence_ms": AppliesRule(
+        LIVE_AGENTS,
+        "saving it moves every live agent an operator put on the silence timer that has no "
+        f"pause of its own or its account's onto it{_NOW}",
+    ),
     # Stamped on every agent at publish (D-901), like the turn detection.
     "thinnest_opening_wait_ms": AppliesRule(
         LIVE_AGENTS,
