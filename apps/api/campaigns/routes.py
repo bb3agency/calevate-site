@@ -33,7 +33,7 @@ from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta, role_has
-from apps.api.crm.schemas import LeadSource, LeadStatus
+from apps.api.crm.schemas import LeadLensIn, LeadSource, LeadStatus
 from apps.api.tenancy.engine_workspace import engine_has_workspaces, read_workspace_state
 
 router = APIRouter(prefix="/v1/campaigns", tags=["campaigns"])
@@ -174,10 +174,16 @@ class LeadFilterIn(Strict):
 
 
 class AddLeadsIn(Strict):
-    """Either named leads (a selection) or a filter. Exactly one."""
+    """Exactly one of: named leads (a selection), the campaign picker's `filter`, or the
+    Leads screen's `lens` (D-893 F2, the same definition the Leads table, its exports and
+    Pip read)."""
 
     lead_ids: list[UUID] | None = Field(default=None, min_length=1, max_length=5000)
     filter: LeadFilterIn | None = None
+    lens: LeadLensIn | None = None
+    #: With `lens`: the count the person confirmed. A set that moved since is refused
+    #: (`campaign_leads_set_moved`) rather than spending the confirmation on other leads.
+    expected_count: int | None = Field(default=None, ge=0)
 
 
 class LeadPoolOut(Strict):
@@ -309,6 +315,9 @@ class AddContactsOut(Strict):
     # Well-formed but non-Indian (+91) numbers, dropped at upload under the India-only
     # freeze (LEGAL-OPS-PLAYBOOK §14/§18) rather than stored as un-dialable contacts.
     foreign: int = 0
+    #: Set when a `lens` matched more than one request adds: the leads are added by an
+    #: approved plan in the background (D-893 F3) and the counts above are all zero.
+    plan_id: UUID | None = None
 
 
 class BlockerOut(Strict):
@@ -1398,6 +1407,52 @@ async def duplicate(
     return DuplicateCampaignOut(id=new_id, status="draft", contacts_added=added)
 
 
+async def _add_leads_as_plan(
+    session: AsyncSession,
+    request: Request,
+    principal: Principal,
+    campaign_id: UUID,
+    chosen: LeadLensIn,
+) -> AddContactsOut:
+    """The `campaign_add_leads` plan Pip makes, built and approved in this request, as
+    `crm/routes._bulk_as_plan` does for a large leads change."""
+    from apps.api.copilot import plans
+    from apps.api.copilot.actions import actor_for
+    from apps.api.copilot.set_actions import ADD_TO_CAMPAIGN
+
+    actor = actor_for(principal)
+    if actor is None:
+        raise ProblemError.forbidden("Adding leads belongs to a signed-in user of this account.")
+    built = await plans.build_plan(
+        session,
+        actor,
+        tool="campaign_add_leads",
+        action=ADD_TO_CAMPAIGN,
+        args={
+            "campaign_id": str(campaign_id),
+            "lens": chosen.model_dump(mode="json", exclude_defaults=True),
+        },
+        origin="console",
+    )
+    approved = await plans.approve(session, actor, plan_id=built.id, expected_hash=built.plan_hash)
+    await write_audit(
+        session,
+        action="copilot.plan_approved",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="copilot_plan",
+        object_id=str(approved.id),
+        ip=client_request_ip(request),
+        summary={
+            "tool": approved.tool,
+            "origin": approved.origin,
+            "targets": approved.target_count,
+            "excluded": approved.excluded_count,
+        },
+    )
+    return AddContactsOut(added=0, malformed=0, duplicate=0, plan_id=approved.id)
+
+
 @router.post(
     "/{campaign_id}/contacts/from-leads",
     response_model=AddContactsOut,
@@ -1413,16 +1468,35 @@ async def add_contacts_from_leads(
 ) -> AddContactsOut:
     """The numbers are read from the leads on the server (`controls.add_leads`). A filter
     matching more than `controls.MAX_LEADS_PER_ADD` is refused rather than cut short, so
-    "add these leads" never silently means "add some of them"."""
+    "add these leads" never silently means "add some of them". A `lens` that large runs
+    instead as the approved `campaign_add_leads` plan Pip makes (D-893 F3), because the
+    person confirmed that whole count on the Leads screen."""
     assert principal.tenant_id is not None
-    if (payload.lead_ids is None) == (payload.filter is None):
+    chosen_ways = [payload.lead_ids, payload.filter, payload.lens]
+    if sum(way is not None for way in chosen_ways) != 1:
         raise ProblemError(
             kind="validation",
             code="campaign_leads_selection_invalid",
             title="Choose leads one way",
-            detail="Send either the leads you picked or a filter, not both and not neither.",
+            detail="Send the leads you picked, a filter or the Leads screen's view: exactly one.",
         )
     lead_ids = payload.lead_ids
+    if payload.lens is not None:
+        from apps.api.crm import lens as crm_lens
+
+        scope = await crm_lens.resolve_lead_scope(session, payload.lens)
+        lead_ids = await crm_lens.lead_ids(session, scope)
+        if payload.expected_count is not None and payload.expected_count != len(lead_ids):
+            raise ProblemError.conflict(
+                "campaign_leads_set_moved",
+                f"This now matches {len(lead_ids)} leads rather than the "
+                f"{payload.expected_count} you confirmed, so nobody was added.",
+                remediation="Check the leads and add them again.",
+            )
+        if not lead_ids:
+            return AddContactsOut(added=0, malformed=0, duplicate=0)
+        if len(lead_ids) > controls.MAX_LEADS_PER_ADD:
+            return await _add_leads_as_plan(session, request, principal, campaign_id, payload.lens)
     if payload.filter is not None:
         chosen = payload.filter
         lead_ids, total = await controls.leads_matching(
@@ -1452,7 +1526,10 @@ async def add_contacts_from_leads(
         object_type="campaign",
         object_id=str(campaign_id),
         ip=client_request_ip(request),
-        summary={"from": "leads", **{key: int(value) for key, value in result.items()}},
+        summary={
+            "from": "lens" if payload.lens else "leads",
+            **{key: int(value) for key, value in result.items()},
+        },
     )
     return AddContactsOut.model_validate({k: v for k, v in result.items() if k != "leads"})
 

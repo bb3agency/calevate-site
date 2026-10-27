@@ -489,6 +489,62 @@ async def test_leads_are_added_by_filter_and_by_selection() -> None:
     assert both.json()["type"].endswith("/campaign_leads_selection_invalid")
 
 
+async def test_leads_are_added_by_the_leads_screens_lens_with_the_confirmed_count() -> None:
+    account = await _account()
+    await _lead(account, phone="+919811100011", status="hot")
+    await _lead(account, phone="+919811100012", status="hot")
+    await _lead(account, phone="+919811100013", status="lost")
+    campaign_id = await _campaign(account)
+    async with _client() as client:
+        moved = await client.post(
+            f"/v1/campaigns/{campaign_id}/contacts/from-leads",
+            headers=account.headers,
+            json={"lens": {"status": "hot"}, "expected_count": 3},
+        )
+        added = await client.post(
+            f"/v1/campaigns/{campaign_id}/contacts/from-leads",
+            headers=account.headers,
+            json={"lens": {"status": "hot"}, "expected_count": 2},
+        )
+        two_ways = await client.post(
+            f"/v1/campaigns/{campaign_id}/contacts/from-leads",
+            headers=account.headers,
+            json={"lens": {"status": "hot"}, "filter": {}},
+        )
+    assert moved.status_code == 409
+    assert moved.json()["type"].endswith("/campaign_leads_set_moved")
+    assert added.status_code == 200, added.text
+    assert (added.json()["added"], added.json()["plan_id"]) == (2, None)
+    assert two_ways.json()["type"].endswith("/campaign_leads_selection_invalid")
+    assert "campaign.contacts_added" in await _audits(account.tenant_id, campaign_id)
+
+
+async def test_a_lens_larger_than_one_add_runs_as_an_approved_plan(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    account = await _account()
+    await _lead(account, phone="+919811100021", status="hot")
+    await _lead(account, phone="+919811100022", status="hot")
+    campaign_id = await _campaign(account)
+    monkeypatch.setattr(controls, "MAX_LEADS_PER_ADD", 1)
+    async with _client() as client:
+        response = await client.post(
+            f"/v1/campaigns/{campaign_id}/contacts/from-leads",
+            headers=account.headers,
+            json={"lens": {"status": "hot"}, "expected_count": 2},
+        )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["added"] == 0 and body["plan_id"] is not None
+    plan = await _one(
+        account.tenant_id,
+        "SELECT tool, status, target_count + excluded_count FROM copilot_plans WHERE id = :p",
+        p=uuid.UUID(body["plan_id"]),
+    )
+    assert (plan[0], plan[2]) == ("campaign_add_leads", 2)
+    assert plan[1] in ("approved", "running", "done")
+
+
 async def test_another_accounts_leads_are_never_added() -> None:
     owner, stranger = await _account(), await _account()
     foreign = await _lead(stranger, phone="+919822200001", status="hot")

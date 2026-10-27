@@ -29,6 +29,7 @@ import { useLeadFields } from "@/lib/api/leadFields";
 import { lookup } from "@/lib/lookup";
 import { useVerticalExamples } from "@/lib/useVerticalExamples";
 
+import { AddToCampaign } from "./AddToCampaign";
 import { BulkActionBar, EMPTY_SELECTION, type BulkSelection } from "./BulkActionBar";
 import { DialerPicker } from "./DialerPicker";
 import { LeadTable } from "./LeadTable";
@@ -383,6 +384,21 @@ export function LeadsScreen() {
             },
           )
         }
+      />
+
+      <AddToCampaign
+        session={session}
+        slug={session.orgSlug}
+        href={href}
+        selection={selection}
+        lens={lens}
+        filteredTotal={leads.data?.total}
+        canAdd={mayDispatch.allowed}
+        addReason={mayDispatch.reason}
+        renderPlan={(planId, onDismiss) => (
+          <PlanCard session={session} planId={planId} onDismiss={onDismiss} />
+        )}
+        onAdded={() => setSelection(EMPTY_SELECTION)}
       />
 
       {leads.error && <ProblemNotice error={leads.error} onRetry={() => leads.refetch()} />}

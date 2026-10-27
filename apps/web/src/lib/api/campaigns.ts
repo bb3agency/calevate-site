@@ -20,6 +20,7 @@ import {
 
 import { attentionKey } from "./attention";
 import { apiRequest, type Session } from "./client";
+import { lensBody, type LeadLens } from "./leads";
 import type { components, paths } from "./schema";
 
 type Schemas = components["schemas"];
@@ -576,6 +577,39 @@ export function useAddLeads(session: Session, campaignId: string | null) {
         method: "POST",
         body,
       }),
+    onSuccess: () => refreshCampaigns(client, session.orgSlug),
+  });
+}
+
+/** What the Leads screen adds to a campaign: the rows ticked, or every lead under its lens. */
+export type LeadsToCampaign =
+  | { campaignId: string; leadIds: string[] }
+  | { campaignId: string; lens: LeadLens; expectedCount: number };
+
+/**
+ * The Leads screen's "Add to a campaign" (D-893 F2): the same `POST …/contacts/from-leads`
+ * the campaign's own picker uses, carrying the table's lens. The count the person confirmed
+ * travels with it, so a set that moved is refused rather than added; a set larger than one
+ * request adds comes back as a `plan_id` the screen shows as a plan card.
+ */
+export function useAddLeadsToCampaign(session: Session) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (chosen: LeadsToCampaign) =>
+      apiRequest<AddContactsResult>(
+        session,
+        `/v1/campaigns/${chosen.campaignId}/contacts/from-leads`,
+        {
+          method: "POST",
+          body:
+            "lens" in chosen
+              ? {
+                  lens: lensBody({ ...chosen.lens, columns: undefined }),
+                  expected_count: chosen.expectedCount,
+                }
+              : { lead_ids: chosen.leadIds },
+        },
+      ),
     onSuccess: () => refreshCampaigns(client, session.orgSlug),
   });
 }
