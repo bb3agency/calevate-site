@@ -33,7 +33,7 @@ from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta, role_has
-from apps.api.crm.schemas import LeadLensIn, LeadSource, LeadStatus
+from apps.api.crm.schemas import LeadLensIn
 from apps.api.tenancy.engine_workspace import engine_has_workspaces, read_workspace_state
 
 router = APIRouter(prefix="/v1/campaigns", tags=["campaigns"])
@@ -163,33 +163,15 @@ class DuplicateCampaignOut(Strict):
     contacts_added: int
 
 
-class LeadFilterIn(Strict):
-    """Which of the account's leads to add. Every field narrows; none means every lead."""
-
-    statuses: list[LeadStatus] = Field(default_factory=list, max_length=6)
-    sources: list[LeadSource] = Field(default_factory=list, max_length=6)
-    agent_id: UUID | None = None
-    created_since: AwareDatetime | None = None
-    created_until: AwareDatetime | None = None
-
-
 class AddLeadsIn(Strict):
-    """Exactly one of: named leads (a selection), the campaign picker's `filter`, or the
-    Leads screen's `lens` (D-893 F2, the same definition the Leads table, its exports and
-    Pip read)."""
+    """Exactly one of: named leads (a selection) or a `lens` (D-893 F2: the one lead
+    definition the Leads table, its exports, the campaign's own picker and Pip read)."""
 
     lead_ids: list[UUID] | None = Field(default=None, min_length=1, max_length=5000)
-    filter: LeadFilterIn | None = None
     lens: LeadLensIn | None = None
-    #: With `lens`: the count the person confirmed. A set that moved since is refused
+    #: Required with `lens`: the count the person confirmed. A set that moved since is refused
     #: (`campaign_leads_set_moved`) rather than spending the confirmation on other leads.
     expected_count: int | None = Field(default=None, ge=0)
-
-
-class LeadPoolOut(Strict):
-    matching: int
-    #: The most one request adds; a larger match is refused rather than cut short.
-    limit: int
 
 
 class RemoveContactsIn(Strict):
@@ -684,33 +666,6 @@ async def campaign_page(
         total=counts[status] if status else sum(counts.values()),
         status_counts=counts,
     )
-
-
-@router.get(
-    "/lead-pool",
-    response_model=LeadPoolOut,
-    openapi_extra=permission_meta("leads:read"),
-    summary="How many of your leads a filter selects, before adding them to a campaign",
-)
-async def lead_pool(
-    session: Session,
-    statuses: Annotated[list[LeadStatus], Query()] = [],  # noqa: B006 - FastAPI query list
-    sources: Annotated[list[LeadSource], Query()] = [],  # noqa: B006 - FastAPI query list
-    agent_id: UUID | None = None,
-    created_since: AwareDatetime | None = None,
-    created_until: AwareDatetime | None = None,
-    _: Principal = Depends(requires("leads:read")),
-) -> LeadPoolOut:
-    _ids, total = await controls.leads_matching(
-        session,
-        statuses=list(statuses),
-        sources=list(sources),
-        agent_id=agent_id,
-        created_since=created_since,
-        created_until=created_until,
-        with_ids=False,
-    )
-    return LeadPoolOut(matching=total, limit=controls.MAX_LEADS_PER_ADD)
 
 
 # NOTE: these two are declared BEFORE `/{campaign_id}` on purpose — FastAPI matches in
@@ -1457,7 +1412,7 @@ async def _add_leads_as_plan(
     "/{campaign_id}/contacts/from-leads",
     response_model=AddContactsOut,
     openapi_extra=permission_meta("leads:dispatch"),
-    summary="Add your CRM leads to a campaign, picked by id or by a filter",
+    summary="Add your CRM leads to a campaign, picked by id or by the leads lens",
 )
 async def add_contacts_from_leads(
     campaign_id: UUID,
@@ -1466,27 +1421,34 @@ async def add_contacts_from_leads(
     request: Request,
     principal: Principal = Depends(requires("leads:dispatch")),
 ) -> AddContactsOut:
-    """The numbers are read from the leads on the server (`controls.add_leads`). A filter
-    matching more than `controls.MAX_LEADS_PER_ADD` is refused rather than cut short, so
-    "add these leads" never silently means "add some of them". A `lens` that large runs
-    instead as the approved `campaign_add_leads` plan Pip makes (D-893 F3), because the
-    person confirmed that whole count on the Leads screen."""
+    """The numbers are read from the leads on the server (`controls.add_leads`). A lens
+    matching more than `controls.MAX_LEADS_PER_ADD` runs as the approved
+    `campaign_add_leads` plan Pip makes (D-893 F3) rather than being cut short, because the
+    person confirmed that whole count."""
     assert principal.tenant_id is not None
-    chosen_ways = [payload.lead_ids, payload.filter, payload.lens]
-    if sum(way is not None for way in chosen_ways) != 1:
+    if (payload.lead_ids is None) == (payload.lens is None):
         raise ProblemError(
             kind="validation",
             code="campaign_leads_selection_invalid",
             title="Choose leads one way",
-            detail="Send the leads you picked, a filter or the Leads screen's view: exactly one.",
+            detail="Send the leads you picked or the filters that choose them: exactly one.",
         )
     lead_ids = payload.lead_ids
     if payload.lens is not None:
         from apps.api.crm import lens as crm_lens
 
+        # Required, not optional: a large match becomes an approved plan below, so the
+        # count the person saw is the only consent to that size a request carries.
+        if payload.expected_count is None:
+            raise ProblemError(
+                kind="validation",
+                code="campaign_leads_count_required",
+                title="Confirm how many leads",
+                detail="Send the number of leads you saw match, so a changed set is not added.",
+            )
         scope = await crm_lens.resolve_lead_scope(session, payload.lens)
         lead_ids = await crm_lens.lead_ids(session, scope)
-        if payload.expected_count is not None and payload.expected_count != len(lead_ids):
+        if payload.expected_count != len(lead_ids):
             raise ProblemError.conflict(
                 "campaign_leads_set_moved",
                 f"This now matches {len(lead_ids)} leads rather than the "
@@ -1497,23 +1459,6 @@ async def add_contacts_from_leads(
             return AddContactsOut(added=0, malformed=0, duplicate=0)
         if len(lead_ids) > controls.MAX_LEADS_PER_ADD:
             return await _add_leads_as_plan(session, request, principal, campaign_id, payload.lens)
-    if payload.filter is not None:
-        chosen = payload.filter
-        lead_ids, total = await controls.leads_matching(
-            session,
-            statuses=list(chosen.statuses),
-            sources=list(chosen.sources),
-            agent_id=chosen.agent_id,
-            created_since=chosen.created_since,
-            created_until=chosen.created_until,
-        )
-        if total > controls.MAX_LEADS_PER_ADD:
-            raise ProblemError.business_rule(
-                "campaign_leads_too_many",
-                f"That filter matches {total} leads; one campaign takes up to "
-                f"{controls.MAX_LEADS_PER_ADD} at a time.",
-                remediation="Narrow it by status, source or date and add them in parts.",
-            )
     assert lead_ids is not None
     result = await controls.add_leads(
         session, tenant_id=principal.tenant_id, campaign_id=campaign_id, lead_ids=lead_ids

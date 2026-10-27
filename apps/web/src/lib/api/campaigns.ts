@@ -426,7 +426,6 @@ export type CampaignResults = Schemas["CampaignResultsOut"];
 export type OptOut = Schemas["OptOutOut"];
 export type CampaignEdit = Schemas["UpdateCampaignIn"];
 export type RetryPolicy = Schemas["RetryPolicyIn"];
-export type LeadFilter = Schemas["LeadFilterIn"];
 export type PauseReason = NonNullable<CampaignProgress["pause_reason"]>;
 
 /** The retry choices the server accepts (`campaigns.service.RETRY_GAP_CHOICES`). */
@@ -569,48 +568,33 @@ export function useDuplicateCampaign(session: Session, campaignId: string) {
   });
 }
 
-export function useAddLeads(session: Session, campaignId: string | null) {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: (body: Schemas["AddLeadsIn"]) =>
-      apiRequest<AddContactsResult>(session, `/v1/campaigns/${campaignId}/contacts/from-leads`, {
-        method: "POST",
-        body,
-      }),
-    onSuccess: () => refreshCampaigns(client, session.orgSlug),
-  });
-}
-
-/** What the Leads screen adds to a campaign: the rows ticked, or every lead under its lens. */
+/** Leads to add to a campaign: the rows ticked, or every lead under a lens. */
 export type LeadsToCampaign =
   | { campaignId: string; leadIds: string[] }
   | { campaignId: string; lens: LeadLens; expectedCount: number };
 
 /**
- * The Leads screen's "Add to a campaign" (D-893 F2): the same `POST …/contacts/from-leads`
- * the campaign's own picker uses, carrying the table's lens. The count the person confirmed
+ * Leads onto a campaign (D-893 F2), from the Leads screen's "Add to a campaign" and the
+ * campaign's own picker alike: ticked ids, or a lens. The count the person confirmed
  * travels with it, so a set that moved is refused rather than added; a set larger than one
  * request adds comes back as a `plan_id` the screen shows as a plan card.
  */
 export function useAddLeadsToCampaign(session: Session) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (chosen: LeadsToCampaign) =>
-      apiRequest<AddContactsResult>(
-        session,
-        `/v1/campaigns/${chosen.campaignId}/contacts/from-leads`,
-        {
-          method: "POST",
-          body:
-            "lens" in chosen
-              ? {
-                  lens: lensBody({ ...chosen.lens, columns: undefined }),
-                  expected_count: chosen.expectedCount,
-                }
-              : { lead_ids: chosen.leadIds },
-        },
-      ),
+    mutationFn: (chosen: LeadsToCampaign) => addLeadsToCampaign(session, chosen),
     onSuccess: () => refreshCampaigns(client, session.orgSlug),
+  });
+}
+
+/** The request itself, for a caller that sequences it after creating the draft. */
+export function addLeadsToCampaign(session: Session, chosen: LeadsToCampaign): Promise<AddContactsResult> {
+  return apiRequest<AddContactsResult>(session, `/v1/campaigns/${chosen.campaignId}/contacts/from-leads`, {
+    method: "POST",
+    body:
+      "lens" in chosen
+        ? { lens: lensBody({ ...chosen.lens, columns: undefined }), expected_count: chosen.expectedCount }
+        : { lead_ids: chosen.leadIds },
   });
 }
 
@@ -624,23 +608,6 @@ export function useRemoveContacts(session: Session, campaignId: string) {
         { method: "POST", body: { contact_ids: contactIds } },
       ),
     onSuccess: () => refreshCampaigns(client, session.orgSlug),
-  });
-}
-
-/** How many of the account's leads a filter selects, before anything is added. */
-export function useLeadPool(session: Session, filter: LeadFilter, enabled: boolean) {
-  const params = {
-    statuses: filter.statuses ?? [],
-    sources: filter.sources ?? [],
-    agent_id: filter.agent_id ?? undefined,
-    created_since: filter.created_since ?? undefined,
-    created_until: filter.created_until ?? undefined,
-  };
-  return useQuery({
-    queryKey: ["campaigns", session.orgSlug, "lead-pool", params],
-    queryFn: () =>
-      apiRequest<Schemas["LeadPoolOut"]>(session, `/v1/campaigns/lead-pool${searchOf(params)}`),
-    enabled,
   });
 }
 

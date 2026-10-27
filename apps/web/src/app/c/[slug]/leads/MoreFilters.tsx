@@ -12,6 +12,7 @@ import {
   useSaveView,
   type CapturedFilter,
   type LeadFacets,
+  type LeadListWithColumns,
   type SavedView,
   type SavedViewBody,
   type SavedViewFilters,
@@ -163,6 +164,13 @@ export function describeLeadView(filters: SavedViewFilters): string | null {
   if (filters.test_calls === false) parts.push("no test calls");
   for (const c of filters.captured ?? []) parts.push(`${c.key.replaceAll("_", " ")} ${c.op} “${c.value}”`);
   return parts.length ? parts.join(", ") : null;
+}
+
+/** The details this account captures, from a lens list response, for "Detail contains". */
+export function capturedFieldsOf(list: LeadListWithColumns | undefined): LeadCallFilters["capturedFields"] {
+  return (list?.available_columns ?? [])
+    .filter((c) => c.kind === "extraction")
+    .map((c) => ({ key: c.key, label: c.label }));
 }
 
 export interface LeadCallFilters {

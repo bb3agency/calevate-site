@@ -393,9 +393,11 @@ export function useLeadsUnderLens(
   session: Session,
   lens: LeadLens,
   paging: { limit?: number; offset?: number } = {},
+  enabled = true,
 ): UseQueryResult<LeadListWithColumns> {
   const body = lensBody(lens, paging);
   return useQuery({
+    enabled,
     // A POST that WRITES NOTHING, and therefore still a `useQuery` — the shape of the
     // request changed for hard rule 6, the semantics did not. Keeping it a query is what
     // preserves the polling, the keep-previous-data and the cache this table depends on;

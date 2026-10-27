@@ -637,9 +637,10 @@ Compliance API (client realm)
   start is not a dial. `POST …/recurrence` sets a weekly repeat the same way.
 - **Campaign controls and results (D-773)**: `PATCH /v1/campaigns/{id}` (a draft's
   settings), `DELETE /v1/campaigns/{id}` (a draft; kept as stopped when anything names it),
-  `POST …/stop`, `POST …/duplicate` (`with_unreached`), `POST …/contacts/from-leads`,
+  `POST …/stop`, `POST …/duplicate` (`with_unreached`), `POST …/contacts/from-leads` (ticked ids, or the
+  leads lens with the count the person confirmed, D-893 F2),
   `POST …/contacts/remove` and `POST …/complaint-review` are `leads:dispatch` and audited;
-  `GET /v1/campaigns/page`, `GET /v1/campaigns/lead-pool`, `GET …/{id}/contacts`,
+  `GET /v1/campaigns/page`, `GET …/{id}/contacts`,
   `GET …/{id}/results` (credit spent null without `billing:read`) and `GET …/{id}/opt-outs`
   are `leads:read`. `POST …/resume` is refused while an automatic pause's cause holds
   (`complaint_review_required`, `no_credits`, `spend_cap`). `GET /v1/calls?campaign_id=`

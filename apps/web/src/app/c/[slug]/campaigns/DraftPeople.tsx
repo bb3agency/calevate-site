@@ -6,12 +6,13 @@ import { ListPlus } from "lucide-react";
 import { Section, TEXT_ACTION } from "@/components/console/section";
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { ProblemNotice, formatCount } from "@/components/ui";
-import { useAddContacts, useAddLeads, useLeadPool, type LeadFilter } from "@/lib/api/campaigns";
+import { PlanCard } from "@/components/copilot/PlanCard";
+import { useAddContacts, useAddLeadsToCampaign } from "@/lib/api/campaigns";
 import { useClientRealm } from "@/lib/api/session";
 
 import { ContactEditor } from "./ContactEditor";
 import { ContactResults } from "./ContactResults";
-import { LeadPicker, leadPoolFits } from "./LeadPicker";
+import { LeadPicker, usePickedLeads } from "./LeadPicker";
 import { useCampaignForm } from "./campaignForm";
 
 /**
@@ -78,15 +79,16 @@ function AddPeoplePanel({
   const { session } = useClientRealm();
   const form = useCampaignForm();
   const addContacts = useAddContacts(session, campaignId);
-  const addLeads = useAddLeads(session, campaignId);
+  const addLeads = useAddLeadsToCampaign(session);
   // Inline: each refusal sits above the list it refused. The count sentence below says
   // what was added, so success needs no toast.
   const contactsFeedback = useActionFeedback(addContacts, { errorDisplay: "inline" });
   const leadsFeedback = useActionFeedback(addLeads, { errorDisplay: "inline" });
-  const [filter, setFilter] = useState<LeadFilter>({ statuses: [], sources: [] });
-  const pool = useLeadPool(session, filter, true);
+  const { matching } = usePickedLeads(session, form.leads);
+  const [planDismissed, setPlanDismissed] = useState(false);
   const { checked } = form;
-  const result = addContacts.data ?? addLeads.data;
+  // A set added as a plan reports on its own card, not as "Added 0".
+  const result = addContacts.data ?? (addLeads.data?.plan_id ? undefined : addLeads.data);
   return (
     <div className="settings-enter space-y-8 border-y border-line py-6">
       <div className="space-y-3">
@@ -108,20 +110,25 @@ function AddPeoplePanel({
       <div className="space-y-3 border-t border-line pt-6">
         <h3 className="text-body font-semibold text-ink">From your leads</h3>
         {addLeads.error && <ProblemNotice error={addLeads.error} />}
-        <LeadPicker value={filter} onChange={setFilter} />
+        <LeadPicker f={form.leads} />
         <ActionButton
           variant="secondary"
           title={refusal}
-          disabled={!canWrite || !leadPoolFits(pool.data?.matching, pool.data?.limit)}
+          disabled={!canWrite || !matching}
           status={leadsFeedback.status}
           pendingLabel="Adding"
           successLabel="Added"
-          onClick={() => leadsFeedback.run({ filter })}
+          onClick={() => {
+            if (!matching) return;
+            setPlanDismissed(false);
+            leadsFeedback.run({ campaignId, lens: form.leads.lens, expectedCount: matching });
+          }}
         >
-          {pool.data
-            ? `Add ${formatCount(pool.data.matching)} ${pool.data.matching === 1 ? "lead" : "leads"}`
-            : "Add leads"}
+          {matching !== undefined ? `Add ${formatCount(matching)} ${matching === 1 ? "lead" : "leads"}` : "Add leads"}
         </ActionButton>
+        {addLeads.data?.plan_id && !planDismissed && (
+          <PlanCard session={session} planId={addLeads.data.plan_id} onDismiss={() => setPlanDismissed(true)} />
+        )}
       </div>
       {result && (
         <p role="status" className="text-meta text-ink-muted">

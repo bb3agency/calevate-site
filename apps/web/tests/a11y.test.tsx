@@ -3030,7 +3030,6 @@ const CLIENT_SCREENS: Screen[] = [
     routes: {
       "/v1/me": ME,
       "/v1/agents": [AGENT],
-      "/v1/campaigns/lead-pool": { matching: 0, limit: 5000 },
       ...dltRegistrationRoute(true),
       "/v1/campaigns/numbers": [
         {
@@ -3100,7 +3099,6 @@ const CLIENT_SCREENS: Screen[] = [
         total: 1,
       }),
       [`/v1/campaigns/${CAMPAIGN.id}/launch-check`]: { ready: false, blockers: [] },
-      "/v1/campaigns/lead-pool": { matching: 0, limit: 5000 },
       [`/v1/campaigns/${CAMPAIGN.id}/results`]: resultsFixture({ contacts: 1, tried: 1, pickup_rate: 1 }),
       [`/v1/campaigns/${CAMPAIGN.id}/contacts?limit=50&offset=0`]: contactsFixture({
         total: 1,

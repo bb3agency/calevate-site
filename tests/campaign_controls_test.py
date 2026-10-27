@@ -458,44 +458,32 @@ async def _lead(
     return lead_id
 
 
-async def test_leads_are_added_by_filter_and_by_selection() -> None:
+async def test_leads_are_added_by_selection() -> None:
     account = await _account()
     await _lead(account, phone="+919811100001", status="hot")
-    await _lead(account, phone="+919811100002", status="hot")
     picked = await _lead(account, phone="+919811100003", status="lost")
     campaign_id = await _campaign(account)
     async with _client() as client:
-        pool = await client.get(
-            "/v1/campaigns/lead-pool", headers=account.headers, params={"statuses": "hot"}
-        )
-        by_filter = await client.post(
-            f"/v1/campaigns/{campaign_id}/contacts/from-leads",
-            headers=account.headers,
-            json={"filter": {"statuses": ["hot"]}},
-        )
         by_id = await client.post(
             f"/v1/campaigns/{campaign_id}/contacts/from-leads",
             headers=account.headers,
             json={"lead_ids": [str(picked)]},
         )
-        both = await client.post(
-            f"/v1/campaigns/{campaign_id}/contacts/from-leads",
-            headers=account.headers,
-            json={"lead_ids": [str(picked)], "filter": {}},
-        )
-    assert pool.json()["matching"] == 2
-    assert by_filter.json()["added"] == 2
     assert by_id.json()["added"] == 1
-    assert both.json()["type"].endswith("/campaign_leads_selection_invalid")
 
 
-async def test_leads_are_added_by_the_leads_screens_lens_with_the_confirmed_count() -> None:
+async def test_leads_are_added_by_the_lens_with_the_confirmed_count() -> None:
     account = await _account()
-    await _lead(account, phone="+919811100011", status="hot")
+    picked = await _lead(account, phone="+919811100011", status="hot")
     await _lead(account, phone="+919811100012", status="hot")
     await _lead(account, phone="+919811100013", status="lost")
     campaign_id = await _campaign(account)
     async with _client() as client:
+        uncounted = await client.post(
+            f"/v1/campaigns/{campaign_id}/contacts/from-leads",
+            headers=account.headers,
+            json={"lens": {"status": "hot"}},
+        )
         moved = await client.post(
             f"/v1/campaigns/{campaign_id}/contacts/from-leads",
             headers=account.headers,
@@ -509,8 +497,9 @@ async def test_leads_are_added_by_the_leads_screens_lens_with_the_confirmed_coun
         two_ways = await client.post(
             f"/v1/campaigns/{campaign_id}/contacts/from-leads",
             headers=account.headers,
-            json={"lens": {"status": "hot"}, "filter": {}},
+            json={"lens": {"status": "hot"}, "expected_count": 2, "lead_ids": [str(picked)]},
         )
+    assert uncounted.json()["type"].endswith("/campaign_leads_count_required")
     assert moved.status_code == 409
     assert moved.json()["type"].endswith("/campaign_leads_set_moved")
     assert added.status_code == 200, added.text
@@ -555,7 +544,15 @@ async def test_another_accounts_leads_are_never_added() -> None:
             headers=owner.headers,
             json={"lead_ids": [str(foreign)]},
         )
+        # The lens runs under the caller's RLS too: the stranger's lead is not counted.
+        by_lens = await client.post(
+            f"/v1/campaigns/{campaign_id}/contacts/from-leads",
+            headers=owner.headers,
+            json={"lens": {}, "expected_count": 0},
+        )
     assert response.json()["added"] == 0
+    assert by_lens.status_code == 200, by_lens.text
+    assert by_lens.json()["added"] == 0
 
 
 # --- complaint-spike review ---------------------------------------------------------------

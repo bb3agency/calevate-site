@@ -25,7 +25,6 @@ THE TWO MONEY PAUSES BEHAVE DIFFERENTLY, ON PURPOSE.
 from __future__ import annotations
 
 import json
-from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
@@ -321,59 +320,6 @@ async def duplicate_campaign(
     return campaign_id, result["added"]
 
 
-async def leads_matching(
-    session: AsyncSession,
-    *,
-    statuses: list[str],
-    sources: list[str],
-    agent_id: UUID | None,
-    created_since: datetime | None,
-    created_until: datetime | None,
-    with_ids: bool = True,
-) -> tuple[list[UUID], int]:
-    """The leads a "from my leads" filter selects: up to `MAX_LEADS_PER_ADD` ids, newest
-    first, and the full count. Runs under RLS, so it can only ever name this tenant's leads.
-    """
-    clauses = ["deleted_at IS NULL"]
-    params: dict[str, Any] = {"limit": MAX_LEADS_PER_ADD}
-    if statuses:
-        clauses.append("status = ANY(:statuses)")
-        params["statuses"] = statuses
-    if sources:
-        clauses.append("source = ANY(:sources)")
-        params["sources"] = sources
-    if agent_id is not None:
-        clauses.append("agent_id = :agent_id")
-        params["agent_id"] = agent_id
-    if created_since is not None:
-        clauses.append("created_at >= :since")
-        params["since"] = created_since
-    if created_until is not None:
-        clauses.append("created_at < :until")
-        params["until"] = created_until
-    where = " AND ".join(clauses)
-    total = int(
-        (await session.execute(text(f"SELECT count(*) FROM leads WHERE {where}"), params)).scalar()
-        or 0
-    )
-    if not with_ids:
-        return [], total
-    ids = (
-        (
-            await session.execute(
-                text(
-                    f"SELECT id FROM leads WHERE {where} "
-                    "ORDER BY created_at DESC, id DESC LIMIT :limit"
-                ),
-                params,
-            )
-        )
-        .scalars()
-        .all()
-    )
-    return [UUID(str(i)) for i in ids], total
-
-
 async def add_leads(
     session: AsyncSession, *, tenant_id: UUID, campaign_id: UUID, lead_ids: list[UUID]
 ) -> dict[str, int]:
@@ -578,7 +524,6 @@ __all__ = [
     "auto_pause",
     "delete_draft",
     "duplicate_campaign",
-    "leads_matching",
     "remove_contacts",
     "resume_campaigns_after_credit",
     "stop_campaign",
