@@ -23,6 +23,7 @@ import {
 import { accountAction, withAccountCode } from "./accountCode";
 import { agentKeys } from "./agents";
 import { apiRequest, type Session } from "./client";
+import { goLiveKey } from "./goLive";
 import type { components } from "./schema";
 
 type Schemas = components["schemas"];
@@ -181,6 +182,8 @@ export function usePurchaseOwnNumber(session: Session) {
       // A number bought for an agent changes that agent's number count.
       void client.invalidateQueries({ queryKey: agentKeys.all(session.orgSlug) });
       void client.invalidateQueries({ queryKey: agentKeys.allDetails(session.orgSlug) });
+      // The go-live guide's number step; it is on no live topic.
+      void client.invalidateQueries({ queryKey: goLiveKey(session.orgSlug) });
     },
   });
 }

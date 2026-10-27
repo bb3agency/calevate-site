@@ -33,8 +33,10 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { agreementsKey } from "./agreements";
 import { capsKey } from "./caps";
 import { apiRequest, type Session } from "./client";
+import { goLiveKey } from "./goLive";
 import { walletAttemptsKey, walletKey, walletLedgerKey } from "./wallet";
 import type { components } from "./schema";
 
@@ -156,6 +158,10 @@ export function useConfirmTopUp(session: Session) {
       void queryClient.invalidateQueries({ queryKey: walletKey(session.orgSlug) });
       void queryClient.invalidateQueries({ queryKey: walletLedgerKey(session.orgSlug) });
       void queryClient.invalidateQueries({ queryKey: walletAttemptsKey(session.orgSlug) });
+      // A first payment clears readiness's `no_credits` blocker and opens the go-live
+      // invitation, as `useCreditLanding` refreshes after the other checkout path.
+      void queryClient.invalidateQueries({ queryKey: agreementsKey(session.orgSlug) });
+      void queryClient.invalidateQueries({ queryKey: goLiveKey(session.orgSlug) });
     },
   });
 }
