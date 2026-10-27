@@ -46,7 +46,7 @@ import { EMPTY_WALLET_LOTS, tenantSummary } from "./fixtures/sharedReads";
 
 /** Grouped the way an Indian reader groups a rupee: 10,15,900.00 and not 1,015,900.00. */
 const LAKHS = "1015900.10";
-const LAKHS_RENDERED = "₹10,15,900.10";
+const LAKHS_RENDERED = "₹10,15,900.1";
 
 const ME: Me = {
   impersonating: false,
@@ -460,11 +460,9 @@ describe("the client's spend screen", () => {
     // path would put on screen.
     expect(text).not.toContain("10158");
     expect(text).not.toContain("1015900.10"); // ungrouped, symbol-less: not formatted at all
-    // Minutes are the server's own decimal string, at the precision the invoice bills.
-    // Asserted on the TILE by its own label: the agent row below carries the same string,
-    // so a bare `toContain` was answered by the table and would have passed over a parsed
-    // headline figure (`String(Number("42.5000"))` is "42.5").
-    expect(tileValue(container, `Minutes used · ${IST_MONTH}`)).toBe("42.5000");
+    // Minutes read under the one-decimal display rule; the statement keeps the exact figure.
+    // Asserted on the TILE by its own label: the agent row below carries the same figure.
+    expect(tileValue(container, `Minutes used · ${IST_MONTH}`)).toBe("42.5");
   });
 
   it("carries no cost or margin, even when the payload does", async () => {
@@ -501,9 +499,9 @@ describe("the client's spend screen", () => {
     await screen.findByText(LAKHS_RENDERED);
     const text = container.textContent ?? "";
     for (const leaked of [
-      "₹3,00,000.00",
-      "₹7,20,899.00",
-      "₹7,15,850.00",
+      "₹3,00,000",
+      "₹7,20,899",
+      "₹7,15,850",
       "70.61",
     ]) {
       expect(
@@ -566,13 +564,8 @@ describe("the client's spend screen", () => {
       "Usage",
     );
     await screen.findByText(LAKHS_RENDERED);
-    // The server's own subtraction, printed — not one this screen performed. The float
-    // answer to the same question is 50.09999999997672, which renders ₹50.09.
-    expect(container.textContent).toContain("₹50.10");
-    expect(
-      container.textContent,
-      "the residual was subtracted in the browser",
-    ).not.toContain("₹50.09");
+    // The server's own subtraction, printed — not one this screen performed.
+    expect(container.textContent).toContain("₹50.1");
     expect(container.textContent).toContain(
       "nothing to split this month's charge across",
     );
@@ -599,7 +592,7 @@ describe("the client's spend screen", () => {
 
   /* THE TWO §52 TESTS HOLD THE REST OF THE TAB IN FLIGHT. The breakdown shares the Usage
      tab with the month's own totals and the spending limit now (D-525), and both of those
-     legitimately print ₹0.00 on an account with no charges — so a document-wide "no ₹0.00"
+     legitimately print ₹0 on an account with no charges — so a document-wide "no ₹0"
      assertion would be answered by a panel this file is not about. Parking their two reads
      leaves the breakdown as the only thing on screen, which is what the claim is about. */
   it("shows a skeleton while the month is in flight, and no figures", async () => {
@@ -615,10 +608,10 @@ describe("the client's spend screen", () => {
     expect(
       await screen.findByText("Loading this month's breakdown"),
     ).toBeTruthy();
-    expect(container.textContent).not.toContain("₹0.00");
+    expect(container.textContent).not.toContain("₹0");
   });
 
-  it("refuses out loud when the month cannot be read, and prints no ₹0.00", async () => {
+  it("refuses out loud when the month cannot be read, and prints no ₹0", async () => {
     const { container } = await renderBillingHub(
       clientRoutes({
         "/v1/me": ME,
@@ -634,7 +627,7 @@ describe("the client's spend screen", () => {
       "Usage",
     );
     await screen.findByText("We could not read this month's usage.");
-    expect(container.textContent).not.toContain("₹0.00");
+    expect(container.textContent).not.toContain("₹0");
     expect(container.textContent).not.toContain("No calls this month");
   });
 
@@ -664,15 +657,15 @@ describe("the client's spend screen", () => {
       "Usage",
     );
 
-    await screen.findByText("Clear voice (120.50 min)");
-    expect(screen.getByText("Studio voice (20.00 min)")).toBeTruthy();
-    expect(screen.getByText("₹602.50")).toBeTruthy();
-    expect(screen.getByText("₹300.00")).toBeTruthy();
+    await screen.findByText("Clear voice (120.5 min)");
+    expect(screen.getByText("Studio voice (20 min)")).toBeTruthy();
+    expect(screen.getByText("₹602.5")).toBeTruthy();
+    expect(screen.getByText("₹300")).toBeTruthy();
     // NO TOTAL IS COMPUTED IN THE BROWSER (D-458): the month's figure is the server's
     // `month_charges_inr`, and ₹902.50 is deliberately NOT ₹602.50 + ₹300.00 dressed up —
     // a screen that added the two rupee strings would agree with itself and disagree with
     // the statement the client is sent.
-    expect(screen.getByText("₹902.50")).toBeTruthy();
+    expect(screen.getByText("₹902.5")).toBeTruthy();
     // The vendors are never named; the qualities are named by the server.
     for (const vendor of ["Sarvam", "sarvam", "Cartesia", "cartesia"]) {
       expect(container.textContent).not.toContain(vendor);

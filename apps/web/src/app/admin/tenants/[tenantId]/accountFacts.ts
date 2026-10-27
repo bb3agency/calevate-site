@@ -16,7 +16,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 
-import { formatINR } from "@/components/ui";
+import { formatINRExact } from "@/components/ui";
 import { lookup } from "@/lib/lookup";
 
 import { adminSession, viewAsSession, type TenantSummary } from "@/lib/api/admin";
@@ -103,7 +103,7 @@ export function creditFact(tenant: TenantSummary, wallet: Read<Wallet>): string 
   if (tenant.plan_tier === "managed") return "invoiced account, no wallet";
   const w = wallet.data;
   if (w === undefined) return unread(wallet);
-  const parts = [`balance ${formatINR(w.balance_inr)}`];
+  const parts = [`balance ${formatINRExact(w.balance_inr)}`];
   if (w.trial?.test_calls_only) parts.push("trial: test calls only until the first payment");
   if (w.outbound_stopped) parts.push("outbound stopped for lack of credit");
   else if (w.is_low) parts.push("running low");

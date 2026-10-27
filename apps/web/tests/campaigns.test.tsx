@@ -587,7 +587,7 @@ describe("one campaign's page", () => {
     expect(container.textContent).toContain("Next try");
     expect(container.textContent).toContain("1 of 3");
     expect(screen.getByRole("link", { name: "Open call" }).getAttribute("href")).toBe("/c/acme/calls/call-9");
-    expect(container.textContent).toContain("₹12.50");
+    expect(container.textContent).toContain("₹12.5");
   });
 
   it("offers Call the unreached again only once the campaign has finished", async () => {

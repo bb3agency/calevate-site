@@ -11,7 +11,6 @@ import {
   RestrictionNote,
   Skeleton,
   formatINR,
-  formatRupeeRate,
 } from "@/components/ui";
 import { useCreditPacks } from "@/lib/api/billing";
 import { useMe } from "@/lib/api/hooks";
@@ -262,7 +261,7 @@ export function BillingScreen({ slug }: { slug: string }) {
                           const priced = VOICE_TIERS.flatMap((tier) => {
                             const runway = tierRunway(lots, tier);
                             return runway
-                              ? [`${formatRupeeRate(lotRate(lot, tier))}/min on ${runway.label}`]
+                              ? [`${formatINR(lotRate(lot, tier))}/min on ${runway.label}`]
                               : [];
                           });
                           return `${formatINR(lot.credits_remaining)} of credit at ${priced.join(" or ")}`;

@@ -8,7 +8,7 @@ import {
   NoticeBox,
   ProblemNotice,
   RestrictionNote,
-  formatINR,
+  formatINRExact,
   formatIST,
 } from "@/components/ui";
 import { useAdminAccess } from "@/app/admin/access";
@@ -184,7 +184,7 @@ export function RefundPanel({
             <option value="">— choose a payment —</option>
             {wallet.payments.map((option: Payment) => (
               <option key={option.payment_ref} value={option.payment_ref}>
-                {option.payment_ref} · {formatINR(option.credited_inr)} ·{" "}
+                {option.payment_ref} · {formatINRExact(option.credited_inr)} ·{" "}
                 {formatIST(option.first_at)}
               </option>
             ))}
@@ -196,7 +196,7 @@ export function RefundPanel({
           id="refund-amount"
           hint={
             payment
-              ? `Leave empty to refund the whole ${formatINR(payment.credited_inr)}. Digits only for a partial refund — no commas, no ₹ sign.`
+              ? `Leave empty to refund the whole ${formatINRExact(payment.credited_inr)}. Digits only for a partial refund — no commas, no ₹ sign.`
               : "Leave empty to refund the whole payment; digits only for part of it."
           }
           error={null}
@@ -297,19 +297,19 @@ function Refunded({ result, clientName }: { result: RefundResult; clientName: st
       return (
         <NoticeBox
           tone="ok"
-          title={`${formatINR(result.amount_inr)} refunded to ${clientName}`}
+          title={`${formatINRExact(result.amount_inr)} refunded to ${clientName}`}
           className="mt-4"
         >
           <p className="mt-1 text-meta opacity-90">
             The provider has processed it and the matching entry is on this wallet.
             {result.balance_inr !== null
-              ? ` Balance is now ${formatINR(result.balance_inr)}.`
+              ? ` Balance is now ${formatINRExact(result.balance_inr)}.`
               : // A STATED ABSENCE, never ₹0.00: the route returns a balance only when
                 // the ledger entry was written in this request, and "we did not derive
                 // it" is a different fact from "the wallet is empty".
                 " The wallet balance was not reported with this answer. The ledger below is the figure to read."}
             {bonusBack !== null &&
-              ` ${formatINR(bonusBack)} of the pack's bonus credit was taken back with it, in proportion to the amount refunded.`}{" "}
+              ` ${formatINRExact(bonusBack)} of the pack's bonus credit was taken back with it, in proportion to the amount refunded.`}{" "}
             Their bank typically shows it within {result.processing_days} days. Nothing
             further to do; do not issue it again.
           </p>
@@ -322,7 +322,7 @@ function Refunded({ result, clientName }: { result: RefundResult; clientName: st
       return (
         <NoticeBox
           tone="ok"
-          title={`${formatINR(result.amount_inr)} accepted by the provider`}
+          title={`${formatINRExact(result.amount_inr)} accepted by the provider`}
           className="mt-4"
         >
           <p className="mt-1 text-meta opacity-90">

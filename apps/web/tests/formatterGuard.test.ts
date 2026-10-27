@@ -8,9 +8,11 @@ import { describe, expect, it } from "vitest";
 import { relPosix } from "./repoPaths";
 
 /**
- * MONEY AND TIME ARE SPELLED ONCE, IN `components/ui.tsx`, AND NOWHERE ELSE.
+ * MONEY AND TIME ARE SPELLED ONCE, IN `lib/numberDisplay.ts` AND `components/ui.tsx`.
  *
- * `ui.tsx` owns `formatINR`, `formatRupeeRate`, `formatIST`, `formatISTInput`,
+ * `lib/numberDisplay.ts` owns `formatINR` (the client display rule), `formatINRExact` and
+ * `formatRupeeRateExact` (tax documents and the admin console); `ui.tsx` re-exports them and
+ * owns `formatIST`, `formatISTInput`,
  * `istInputToInstant`, `istDateStamp` and `istDateToInstant`, and each of them carries a
  * long docstring explaining a defect that had already shipped. The defects kept coming
  * back anyway — not by anyone rejecting the argument, but by a screen writing `₹{value}`
@@ -30,8 +32,8 @@ import { relPosix } from "./repoPaths";
  *    wire's own decimal — `₹7.125` on one line beside `₹7,125.00` on the next, and
  *    `₹1015900.00` ungrouped where a client is checking an invoice against their books.
  *    The interpolation must be a CALL, which is the syntactic shape of "these digits went
- *    through a formatter" — `formatINR` for a total, `formatRupeeRate` for an unrounded
- *    rate (`ui.tsx:1241,1269`). It reads the JSX and the template literals, so both
+ *    through a formatter" — `formatINR` on client and public pages, `formatINRExact` or
+ *    `formatRupeeRateExact` on tax documents and in the admin console. It reads the JSX and the template literals, so both
  *    spellings of the same mistake are caught.
  *
  * 2. **`getTimezoneOffset` is banned outright.** Every appearance of it in this tree has
@@ -48,10 +50,8 @@ import { relPosix } from "./repoPaths";
  *
  * ═══ THE EXEMPTION LIST ═════════════════════════════════════════════════════════════
  *
- * Two files, for rule 1 only, and both are a DEFINITION of the spelling rather than a use
- * of it: `formatINR`/`formatRupeeRate` in `ui.tsx` and `formatPaiseINR` in `lib/roi.ts`
- * (kept separate on purpose — that module is the marketing calculator's money and has no
- * React dependency). Everything else in the tree goes through one of the three. The list
+ * One file, for rule 1 only, because it is the DEFINITION of the spelling rather than a
+ * use of it: `lib/numberDisplay.ts`. Everything else in the tree goes through it. The list
  * may shrink; it may not grow without the argument written beside it.
  */
 
@@ -59,7 +59,7 @@ const WEB_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = join(WEB_ROOT, "src");
 
 /** The functions that DEFINE how a rupee is spelled. See the header. */
-const RUPEE_DEFINITIONS = ["src/components/ui.tsx", "src/lib/roi.ts"];
+const RUPEE_DEFINITIONS = ["src/lib/numberDisplay.ts"];
 
 /** Option keys that only a DATE or TIME is formatted with. */
 const DATE_OPTIONS = new Set([

@@ -8,7 +8,7 @@ import {
   FIELD,
   NoticeBox,
   RestrictionNote,
-  formatINR,
+  formatINRExact,
   formatIST,
 } from "@/components/ui";
 import { WriteFailure } from "@/app/admin/writeFailure";
@@ -155,7 +155,7 @@ export function CorrectionForm({
                 <option key={option.id} value={option.id}>
                   {`${formatIST(option.occurred_at)} · ${creditReasonLabel(option.reason)} · ${
                     option.delta_inr.startsWith("-") ? "" : "+"
-                  }${formatINR(option.delta_inr)}${option.ref ? ` · ${option.ref}` : ""}`}
+                  }${formatINRExact(option.delta_inr)}${option.ref ? ` · ${option.ref}` : ""}`}
                 </option>
               ))}
             </select>
@@ -164,11 +164,11 @@ export function CorrectionForm({
           {entry && (
             <NoticeBox
               tone="neutral"
-              title={`${formatINR(entry.reversible_inr)} of this entry can still be taken back`}
+              title={`${formatINRExact(entry.reversible_inr)} of this entry can still be taken back`}
             >
               <p className="mt-1">
                 It moved {entry.delta_inr.startsWith("-") ? "" : "+"}
-                {formatINR(entry.delta_inr)} on {formatIST(entry.occurred_at)}
+                {formatINRExact(entry.delta_inr)} on {formatIST(entry.occurred_at)}
                 {entry.ref ? (
                   <>
                     {" "}
@@ -268,8 +268,8 @@ export function CorrectionForm({
                 {!entry
                   ? `This corrects one entry on ${clientName}'s wallet`
                   : debit
-                    ? `This takes ${amountReady ? formatINR(amount) : "credit"} back off ${clientName}'s wallet`
-                    : `This puts ${amountReady ? formatINR(amount) : "credit"} back on ${clientName}'s wallet`}
+                    ? `This takes ${amountReady ? formatINRExact(amount) : "credit"} back off ${clientName}'s wallet`
+                    : `This puts ${amountReady ? formatINRExact(amount) : "credit"} back on ${clientName}'s wallet`}
               </p>
               <p className="mt-1 text-ink-muted">
                 <span className="font-semibold">There is no undo, here either.</span> The
@@ -312,8 +312,8 @@ export function CorrectionForm({
           >
             {entry && amountReady
               ? debit
-                ? `Take ${formatINR(amount)} back off ${clientName}'s wallet`
-                : `Put ${formatINR(amount)} back on ${clientName}'s wallet`
+                ? `Take ${formatINRExact(amount)} back off ${clientName}'s wallet`
+                : `Put ${formatINRExact(amount)} back on ${clientName}'s wallet`
               : "Correct this entry"}
           </ActionButton>
 
@@ -358,7 +358,7 @@ function CorrectionOutcome({
         tone={result.recorded ? "ok" : "neutral"}
         title={
           result.recorded
-            ? `Corrected: ${formatINR(result.delta_inr)} ${tookCredit ? "taken back" : "credited back"}`
+            ? `Corrected: ${formatINRExact(result.delta_inr)} ${tookCredit ? "taken back" : "credited back"}`
             : "Already corrected. Nothing moved"
         }
       >
@@ -366,7 +366,7 @@ function CorrectionOutcome({
           <>
             <p className="mt-1">
               Against entry <span className="font-mono">{result.corrects_entry_id}</span>.
-              The wallet now holds {formatINR(result.balance_inr)}
+              The wallet now holds {formatINRExact(result.balance_inr)}
               {result.is_low ? ", which is under the low-balance line." : "."}
             </p>
             <p className="mt-2 text-meta">
@@ -383,7 +383,7 @@ function CorrectionOutcome({
             A correction of exactly this amount against this entry was already on the
             ledger (<span className="font-mono">{result.entry_id}</span>), so no second
             one was written and the balance did not move. It stands at{" "}
-            {formatINR(result.balance_inr)}.{" "}
+            {formatINRExact(result.balance_inr)}.{" "}
             <span className="font-semibold">
               This client has not been debited twice. This is the correction&apos;s own
               reference doing its job.

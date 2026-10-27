@@ -409,8 +409,8 @@ describe("the top-up panel", () => {
     // (D-547). A pack is no longer one price: what a minute costs depends on the voice the
     // agent that takes the call speaks with, and a card that showed one number would be
     // showing the cheaper one to somebody who may choose the dearer voice.
-    expect(container.textContent).toContain("₹4.5000/min · 11,111 min");
-    expect(container.textContent).toContain("₹6.0000/min · 8,333 min");
+    expect(container.textContent).toContain("₹4.5/min · 11,111 min");
+    expect(container.textContent).toContain("₹6/min · 8,333 min");
     expect(container.textContent).toContain("Clear");
     expect(container.textContent).toContain("Studio");
     // THE "EXTRA CREDIT" COLUMN IS GONE, not emptied. `bonus_pct` and `bonus_credits` are
@@ -421,7 +421,7 @@ describe("the top-up panel", () => {
     // And the button still names its amount even where it cannot pay — a grid of controls
     // all called "Select" is a list of identical names in a screen reader.
     expect(
-      screen.getByRole("button", { name: "Select ₹50,000.00" }),
+      screen.getByRole("button", { name: "Select ₹50,000" }),
     ).toBeTruthy();
   });
 
@@ -503,10 +503,9 @@ describe("the top-up panel", () => {
     // float anywhere on that path would drop the last paisa in one of the three, so the
     // count is asserted rather than mere presence — `toContain` is answered by any one of
     // them and a sabotage of the other two goes unnoticed.
-    expectTextCount(container, "₹2,500.10", 3);
-    // The two shapes a `Number()` leaves behind: the dropped trailing paisa, and the
-    // ungrouped digits.
-    expect(container.textContent).not.toMatch(/2,?500\.1(?!0)/);
+    expectTextCount(container, "₹2,500.1", 3);
+    // Shown under the one-decimal display rule, and never ungrouped.
+    expect(container.textContent).not.toMatch(/2,?500\.10/);
     expect(container.textContent).not.toContain("2500.1");
     expect(container.textContent).toContain("clv_abc123");
     // The amount left as a STRING on the way out, too (hard rule 7).
@@ -558,21 +557,21 @@ describe("the top-up panel", () => {
     // The rate card renders every pack with its server-priced figures — two rates, two
     // talk times, none of them computed in the browser.
     await screen.findByText("Best value");
-    expect(container.textContent).toContain("₹4.5000/min · 11,111 min"); // max, cheaper voice
-    expect(container.textContent).toContain("₹6.0000/min · 8,333 min"); // max, dearer voice
-    expect(container.textContent).toContain("₹5.0000/min · 400 min"); // the entry rung
-    expect(container.textContent).toContain("₹8.0000/min · 250 min");
-    expect(container.textContent).toContain("₹50,000.00");
+    expect(container.textContent).toContain("₹4.5/min · 11,111 min"); // max, cheaper voice
+    expect(container.textContent).toContain("₹6/min · 8,333 min"); // max, dearer voice
+    expect(container.textContent).toContain("₹5/min · 400 min"); // the entry rung
+    expect(container.textContent).toContain("₹8/min · 250 min");
+    expect(container.textContent).toContain("₹50,000");
     // WHATEVER THE SERVER SENDS, however many: six rungs arrive and six buy controls
     // render, each named by its own amount. Nothing here knows what a pack costs, and the
     // ₹15,000 rung D-547 added needed no change here to appear.
     expect(screen.getAllByRole("button", { name: /^Pay ₹/ })).toHaveLength(6);
-    expect(screen.getByRole("button", { name: "Pay ₹15,000.00" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Pay ₹15,000" })).toBeTruthy();
 
     // Selecting a pack posts its id — never an amount — so the catalogue is the price.
     // Named by AMOUNT, because six buttons reading "Pay" are six identical names to a
     // screen reader and the row's price is what tells them apart.
-    fireEvent.click(screen.getByRole("button", { name: "Pay ₹50,000.00" }));
+    fireEvent.click(screen.getByRole("button", { name: "Pay ₹50,000" }));
 
     await screen.findByText(/is ready/);
     const sent = calls.find((c) => c.path === "/v1/billing/topups/intent");
@@ -622,7 +621,7 @@ describe("the top-up panel", () => {
     // that covers it, not the biggest that exists, which is the difference between a
     // recommendation and an upsell.
     fireEvent.change(field, { target: { value: "200" } });
-    await waitFor(() => expect(suggestion()).toContain("₹2,000.00 covers it"));
+    await waitFor(() => expect(suggestion()).toContain("₹2,000 covers it"));
     // Both figures, because the reader has not chosen a voice yet and one number would be
     // a promise that holds for only one of the two choices in front of them.
     expect(suggestion()).toContain(
@@ -636,7 +635,7 @@ describe("the top-up panel", () => {
     // `talk_time_minutes` — which holds the cheaper figure — would have kept the ₹2,000
     // pack here and quietly under-bought for a Studio agent.
     fireEvent.change(field, { target: { value: "300" } });
-    await waitFor(() => expect(suggestion()).toContain("₹5,000.00 covers it"));
+    await waitFor(() => expect(suggestion()).toContain("₹5,000 covers it"));
     expect(suggestion()).toContain(
       "about 714 minutes on Studio and 1,000 on Clear",
     );
@@ -661,7 +660,7 @@ describe("the top-up panel", () => {
     // catalogue already on screen; a click on a pack is still the only thing that prices
     // anything.
     expect(
-      screen.queryByRole("button", { name: /^Pay ₹2,500.10 now$/ }),
+      screen.queryByRole("button", { name: /^Pay ₹2,500.1 now$/ }),
       "the matcher must not start an order",
     ).toBeNull();
   });
@@ -680,22 +679,22 @@ describe("the top-up panel", () => {
     fireEvent.change(field, { target: { value: "3400.00" } });
     // ₹3,400 does not reach the ₹5,000 rung, so it buys at the ₹2,000 pack's rates — and
     // it says the pack, because "why these rates" is the next question.
-    await waitFor(() => expect(preview()).toContain("₹5.0000/min on Clear"));
-    expect(preview()).toContain("₹8.0000/min on Studio");
-    expect(preview()).toContain("₹2,000.00 pack");
-    expect(preview()).toContain("₹3,400.00 buys calling");
+    await waitFor(() => expect(preview()).toContain("₹5/min on Clear"));
+    expect(preview()).toContain("₹8/min on Studio");
+    expect(preview()).toContain("₹2,000 pack");
+    expect(preview()).toContain("₹3,400 buys calling");
 
     // A rung crossed changes the answer, and the figures are the catalogue's own digits —
     // no rate is interpolated between the rungs.
     fireEvent.change(field, { target: { value: "16000" } });
-    await waitFor(() => expect(preview()).toContain("₹4.7000/min on Clear"));
-    expect(preview()).toContain("₹6.5000/min on Studio");
-    expect(preview()).toContain("₹15,000.00 pack");
+    await waitFor(() => expect(preview()).toContain("₹4.7/min on Clear"));
+    expect(preview()).toContain("₹6.5/min on Studio");
+    expect(preview()).toContain("₹15,000 pack");
 
     // BELOW THE FIRST RUNG IS NOT "NO RATES": the server floors it at the smallest pack,
     // and a client topping up ₹500 must not read that their credit is unpriced.
     fireEvent.change(field, { target: { value: "500" } });
-    await waitFor(() => expect(preview()).toContain("₹5.0000/min on Clear"));
+    await waitFor(() => expect(preview()).toContain("₹5/min on Clear"));
 
     // A half-typed amount states nothing rather than flickering a rate per keystroke.
     fireEvent.change(field, { target: { value: "16," } });
@@ -716,7 +715,7 @@ describe("the top-up panel", () => {
     await screen.findByText("Best value");
     // The packs still render — a client can still buy — and every amount is still there.
     expect(screen.getAllByRole("button", { name: /^Pay ₹/ })).toHaveLength(6);
-    expect(container.textContent).toContain("₹50,000.00");
+    expect(container.textContent).toContain("₹50,000");
     expect(container.textContent).toContain("50,000 credits of calling");
     // What is gone is every per-minute figure, on the cards and in the explainer. The lot
     // panel's rates are excluded: they are frozen on the client's own purchases and arrive
@@ -883,7 +882,7 @@ describe("the payment window", () => {
     expect(calls.filter((c) => c.path === ATTEMPTS).length).toBeGreaterThan(1);
     // ₹1,200.00 is the balance the fixture keeps returning. Nothing on screen may claim
     // ₹3,700.10 — the sum this browser could have worked out and has no right to.
-    expect(container.textContent).not.toContain("₹3,700.10");
+    expect(container.textContent).not.toContain("₹3,700.1");
   });
 
   it("treats a dismissal as a cancellation, not a failure, and keeps the same order", async () => {
@@ -908,7 +907,7 @@ describe("the payment window", () => {
     expect(screen.queryByRole("alert")).toBeNull();
     expect(container.textContent).not.toContain("did not go through");
     const retry = await screen.findByRole("button", {
-      name: "Pay ₹2,500.10 now",
+      name: "Pay ₹2,500.1 now",
     });
     expect((retry as HTMLButtonElement).disabled).toBe(false);
 
@@ -1062,7 +1061,7 @@ describe("the payment window", () => {
     await act(async () => {
       opened[0].options.modal.ondismiss();
     });
-    await screen.findByRole("button", { name: "Pay ₹2,500.10 now" });
+    await screen.findByRole("button", { name: "Pay ₹2,500.1 now" });
 
     // `key_id` is the PUBLISHABLE id and belongs in the browser. The key secret and the
     // webhook secret are the server's alone and must not be reachable from any surface

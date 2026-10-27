@@ -1466,49 +1466,16 @@ export function formatCountOf(
   return `${formatCount(value)} ${value === 1 ? singular : plural}`;
 }
 
-/**
- * Rupees, from the STRING the API sent.
- *
- * The money fields on `UsagePanelOut` are strings for a reason its docstring states:
- * they are `Decimal` all the way through billing (hard rule 7) and a JSON float cannot
- * hold a rupee amount exactly — `Number("10159.00")` is how ₹10,159.00 becomes
- * ₹10,158.999999999998 on a screen a client is checking against their own books.
- *
- * So this formats the DIGITS and never parses them: split on the decimal point, group
- * the integer part Indian-style (last three, then twos), keep exactly two decimals.
- * The value is never converted to a number at any point, which is the whole exercise.
- */
-export function formatINR(value: string | null | undefined): string {
-  if (value === null || value === undefined || value === "") return "—";
-  const negative = value.startsWith("-");
-  const [whole = "0", fraction = ""] = value.replace(/^[-+]/, "").split(".");
-  const head = whole.length > 3 ? whole.slice(0, -3) : "";
-  const tail = whole.slice(-3);
-  const grouped = head
-    ? `${head.replace(/\B(?=(\d{2})+(?!\d))/g, ",")},${tail}`
-    : tail;
-  const paise = `${fraction}00`.slice(0, 2);
-  return `${negative ? "-" : ""}₹${grouped}.${paise}`;
-}
-
-/**
- * A per-minute RATE, at the precision the SERVER sent it — not `formatINR`.
- *
- * `formatINR` above keeps exactly two decimals, which is right for a total and wrong for
- * a rate: `overage_rate_inr` is NUMERIC(12,4) and a plan may legitimately quote
- * ₹7.1250/min, so printing ₹7.12 beside "× 20 min = ₹142.50" makes the invoice line
- * fail the one check a client performs on it. The same is true of the per-minute price
- * beside a model in the AI-model picker, where two rates a paisa apart are the whole
- * decision.
- *
- * The digits are the server's and are never parsed (hard rule 7); this only prefixes the
- * symbol. It lives here rather than beside either caller because it had already been
- * written twice — `rupeeRate` on `/c/[slug]/usage` and again for the model picker — and
- * two spellings of one rule is where the drift starts.
- */
-export function formatRupeeRate(value: string): string {
-  return `₹${value}`;
-}
+// Rupees and other figures: the display rule, its exceptions and why live in
+// lib/numberDisplay.ts. Re-exported here because every screen already imports its
+// formatters from this module.
+export {
+  formatDecimal,
+  formatINR,
+  formatINRExact,
+  formatPercent,
+  formatRupeeRateExact,
+} from "@/lib/numberDisplay";
 
 /**
  * A WHOLE COUNT as the server sent it, grouped for reading — not `formatINR`.

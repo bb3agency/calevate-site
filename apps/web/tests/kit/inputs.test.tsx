@@ -100,7 +100,7 @@ describe("money is a decimal string end to end", () => {
     fireEvent.change(box, { target: { value: "100" } });
     expect(screen.queryByRole("alert")).toBeNull();
     fireEvent.blur(box);
-    expect(screen.getByRole("alert").textContent).toBe("Enter at least ₹500.00.");
+    expect(screen.getByRole("alert").textContent).toBe("Enter at least ₹500.");
     expect(box.getAttribute("aria-invalid")).toBe("true");
   });
 });

@@ -20,10 +20,10 @@ import {
   NoticeBox,
   SECONDARY_BUTTON_SM,
   ScrollRegion,
-  formatINR,
+  formatINRExact,
   formatIST,
   formatWholeCount,
-  formatRupeeRate,
+  formatRupeeRateExact,
 } from "@/components/ui";
 import { TypedConfirmation, confirmationMatches } from "@/components/typedConfirmation";
 import {
@@ -247,7 +247,7 @@ function RateCardTable({ card }: { card: RateCard }) {
                   <td className="py-2 pr-4">
                     {index === 0 ? (
                       <>
-                        <span className="font-medium text-ink">{formatINR(rung.amount_inr)}</span>{" "}
+                        <span className="font-medium text-ink">{formatINRExact(rung.amount_inr)}</span>{" "}
                         <MonoValue className="text-ink-muted">{rung.pack_id}</MonoValue>
                       </>
                     ) : null}
@@ -257,10 +257,10 @@ function RateCardTable({ card }: { card: RateCard }) {
                       the rung. */}
                   <td className="py-2 pr-4 text-ink-muted">{cell.tier_label}</td>
                   <td className="py-2 pr-4 text-right tabular-nums text-ink">
-                    {formatRupeeRate(cell.inr_per_min)}
+                    {formatRupeeRateExact(cell.inr_per_min)}
                   </td>
                   <td className="py-2 pr-4 text-right tabular-nums text-ink-muted">
-                    {formatRupeeRate(cell.cost_floor_inr_per_min)}
+                    {formatRupeeRateExact(cell.cost_floor_inr_per_min)}
                   </td>
                   {/* WHAT THE MINUTE ACTUALLY COST THIS MONTH, and the margin struck against
                       THAT. A stated absence when nothing was spoken — never a zero, which
@@ -273,7 +273,7 @@ function RateCardTable({ card }: { card: RateCard }) {
                   >
                     {cell.cost_inr_per_min_at_volume === null
                       ? "—"
-                      : formatRupeeRate(cell.cost_inr_per_min_at_volume)}
+                      : formatRupeeRateExact(cell.cost_inr_per_min_at_volume)}
                   </td>
                   <td className="py-2 pr-4 text-right tabular-nums text-ink">
                     {/* The SERVER's percentage, printed. Never a division done here — see
@@ -343,8 +343,8 @@ function RateCardTable({ card }: { card: RateCard }) {
               <li key={`${cell.pack_id}:${cell.voice_tier}`}>
                 {cell.pack_id} on {cell.tier_label}:{" "}
                 {cell.gross_margin_pct === null ? "no margin struck" : `${cell.gross_margin_pct}%`}{" "}
-                at {formatRupeeRate(cell.inr_per_min)}/min against{" "}
-                {formatRupeeRate(cell.cost_floor_inr_per_min)}/min of cost.
+                at {formatRupeeRateExact(cell.inr_per_min)}/min against{" "}
+                {formatRupeeRateExact(cell.cost_floor_inr_per_min)}/min of cost.
               </li>
             ))}
           </ul>
@@ -375,10 +375,10 @@ function RateCardTable({ card }: { card: RateCard }) {
             {underAtVolume.map((cell) => (
               <li key={`${cell.pack_id}:${cell.voice_tier}`}>
                 {cell.pack_id} on {cell.tier_label}:{" "}
-                {formatRupeeRate(cell.inr_per_min)}/min against{" "}
+                {formatRupeeRateExact(cell.inr_per_min)}/min against{" "}
                 {cell.cost_inr_per_min_at_volume === null
                   ? "an unstated cost"
-                  : `${formatRupeeRate(cell.cost_inr_per_min_at_volume)}/min of real cost`}
+                  : `${formatRupeeRateExact(cell.cost_inr_per_min_at_volume)}/min of real cost`}
                 {cell.breakeven_call_minutes === null
                   ? " — no volume makes this rung profitable"
                   : `, break-even ${formatWholeCount(cell.breakeven_call_minutes)} platform min/mo`}
@@ -402,8 +402,8 @@ function RateCardTable({ card }: { card: RateCard }) {
             {under.map((cell) => (
               <li key={`${cell.pack_id}:${cell.voice_tier}`}>
                 {cell.pack_id} on {rungLabel(cell.voice_tier)}:{" "}
-                {formatRupeeRate(cell.inr_per_min)}/min against{" "}
-                {formatRupeeRate(cell.cost_floor_inr_per_min)}/min of cost.
+                {formatRupeeRateExact(cell.inr_per_min)}/min against{" "}
+                {formatRupeeRateExact(cell.cost_floor_inr_per_min)}/min of cost.
               </li>
             ))}
           </ul>
@@ -448,7 +448,7 @@ function CartesiaVolumeNotice({ volume }: { volume: CartesiaVolume }) {
         ) : (
           <>
             That works out at{" "}
-            <span className="font-semibold tabular-nums">{formatRupeeRate(measured)}</span> a
+            <span className="font-semibold tabular-nums">{formatRupeeRateExact(measured)}</span> a
             minute, all in.
           </>
         )}
@@ -459,7 +459,7 @@ function CartesiaVolumeNotice({ volume }: { volume: CartesiaVolume }) {
           struck at an operator's typed fallback is the same "best case as fact" defect,
           so WHICH rate and how old it is are stated, never implied. */}
       <p className={fxIsFallback ? "font-medium text-warn" : "text-ink-faint"}>
-        Converted at <span className="tabular-nums">{formatRupeeRate(volume.fx_usd_inr)}</span>{" "}
+        Converted at <span className="tabular-nums">{formatRupeeRateExact(volume.fx_usd_inr)}</span>{" "}
         to the dollar
         {fxIsFallback ? (
           <>
@@ -477,10 +477,10 @@ function CartesiaVolumeNotice({ volume }: { volume: CartesiaVolume }) {
 
       <p className="text-ink-muted">
         The next Studio minute costs{" "}
-        <span className="tabular-nums">{formatRupeeRate(volume.floor_inr_per_min)}</span> at the
+        <span className="tabular-nums">{formatRupeeRateExact(volume.floor_inr_per_min)}</span> at the
         margin, falling to{" "}
         <span className="tabular-nums">
-          {formatRupeeRate(volume.best_marginal_cost_inr_per_min)}
+          {formatRupeeRateExact(volume.best_marginal_cost_inr_per_min)}
         </span>{" "}
         once volume passes {formatWholeCount(volume.plan_crossover_call_minutes)} min/mo and the{" "}
         {/* THE PLAN NAME IS READ, NOT TYPED. `plans` arrives in fee order, so the last is
@@ -489,7 +489,7 @@ function CartesiaVolumeNotice({ volume }: { volume: CartesiaVolume }) {
             added. */}
         <MonoValue>{volume.plans[volume.plans.length - 1]?.plan_id ?? "—"}</MonoValue> plan
         becomes the cheaper one. A card is refused below{" "}
-        <span className="tabular-nums">{formatRupeeRate(volume.refusal_floor_inr_per_min)}</span>
+        <span className="tabular-nums">{formatRupeeRateExact(volume.refusal_floor_inr_per_min)}</span>
         , which is deliberately frozen at ₹95 to the dollar so a currency tick can never make
         the card that is on sale un-recordable.
       </p>
@@ -513,7 +513,7 @@ function CartesiaVolumeNotice({ volume }: { volume: CartesiaVolume }) {
                   <MonoValue>{point.plan_id}</MonoValue>
                 </td>
                 <td className="py-1 text-right tabular-nums text-ink">
-                  {formatRupeeRate(point.cost_inr_per_min)}
+                  {formatRupeeRateExact(point.cost_inr_per_min)}
                 </td>
               </tr>
             ))}
@@ -559,7 +559,7 @@ function SpeakingRateNotice({ rate }: { rate: SpeakingRate }) {
             {rate.window}): <MonoValue>{rate.chars_per_call_minute}</MonoValue> characters a
             call-minute, which puts a Clear minute at{" "}
             <span className="font-semibold tabular-nums">
-              {formatRupeeRate(rate.cost_floor_inr_per_min)}
+              {formatRupeeRateExact(rate.cost_floor_inr_per_min)}
             </span>
             .
           </>
@@ -576,7 +576,7 @@ function SpeakingRateNotice({ rate }: { rate: SpeakingRate }) {
             with the measurement — a veto that did would refuse tomorrow the card it accepted
             today, because twenty more calls were answered. */}
         A card is refused below{" "}
-        <span className="tabular-nums">{formatRupeeRate(rate.refusal_floor_inr_per_min)}</span> a
+        <span className="tabular-nums">{formatRupeeRateExact(rate.refusal_floor_inr_per_min)}</span> a
         minute, which stays where it is whatever the measurement says.{" "}
         {rate.floor_above_refusal ? (
           <span className="font-semibold text-danger">
@@ -716,7 +716,7 @@ function ScheduledCard({
           return (
             <li key={`${cell.pack_id}:${cell.voice_tier}`}>
               {cell.pack_id} on {cell.tier_label}:{" "}
-              {formatRupeeRate(cell.inr_per_min)}/min{" "}
+              {formatRupeeRateExact(cell.inr_per_min)}/min{" "}
               {before !== null && <DeltaNote delta={rateDelta(before, cell.inr_per_min)} />}
             </li>
           );
@@ -1020,7 +1020,7 @@ function RecordCardForm({ card, onDone }: { card: RateCard; onDone: () => void }
             {rungs(card).map((rung) => (
               <tr key={rung.pack_id}>
                 <th scope="row" className="py-2 pr-4 text-left font-normal">
-                  <span className="font-medium text-ink">{formatINR(rung.amount_inr)}</span>{" "}
+                  <span className="font-medium text-ink">{formatINRExact(rung.amount_inr)}</span>{" "}
                   <MonoValue className="text-ink-muted">{rung.pack_id}</MonoValue>
                 </th>
                 {voices.map((voice) => {
@@ -1193,7 +1193,7 @@ function DeltaNote({ delta }: { delta: RateDelta | null }) {
   return (
     <span className={up ? "text-warn" : "text-ink-muted"}>
       <span aria-hidden>{up ? "↑" : "↓"}</span> {up ? "up" : "down"}{" "}
-      {formatRupeeRate(delta.amount)}
+      {formatRupeeRateExact(delta.amount)}
       {delta.percent === null ? "" : ` (${delta.percent}%)`}
     </span>
   );

@@ -13,7 +13,7 @@
  * A person cannot act on a word they have to be an engineer to read.
  *
  * So the translation from internal vocabulary to human language lives HERE, not inlined
- * per panel, for the same reason `NOTICE_BAR` and `formatINR` do: five panels each
+ * per panel, for the same reason `NOTICE_BAR` and `formatINRExact` do: five panels each
  * describing the same five load-shed modes, or the same five "when does it take effect"
  * timings, is where the wording drifts — one screen gets the friendlier phrasing and the
  * next keeps the enum. One table, one voice, and `tests/opsLanguage.test.tsx` pins it.

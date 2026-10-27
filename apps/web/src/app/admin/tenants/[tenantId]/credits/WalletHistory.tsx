@@ -4,7 +4,7 @@ import { EmptySketch } from "@/components/console/emptySketch";
 import { useState } from "react";
 
 import { Section } from "@/components/console/section";
-import { FilterChip, ScrollRegion, formatINR, formatIST } from "@/components/ui";
+import { FilterChip, ScrollRegion, formatINRExact, formatIST } from "@/components/ui";
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import { EmptyState } from "@/components/console/emptyState";
 import { InfoTip } from "@/components/console/infoTip";
@@ -97,8 +97,8 @@ function ViewCaption({ title, children }: { title: string; children?: React.Reac
 }
 
 function signed(delta: string): string {
-  // The sign is in the DIGITS (`formatINR` keeps a leading minus); a credit gets its "+".
-  return `${delta.startsWith("-") ? "" : "+"}${formatINR(delta)}`;
+  // The sign is in the DIGITS (`formatINRExact` keeps a leading minus); a credit gets its "+".
+  return `${delta.startsWith("-") ? "" : "+"}${formatINRExact(delta)}`;
 }
 
 function LedgerView({
@@ -162,7 +162,7 @@ function LedgerView({
       align: "right",
       hideBelow: "sm",
       cell: (entry) => (
-        <span className="whitespace-nowrap tabular-nums">{formatINR(entry.balance_after_inr)}</span>
+        <span className="whitespace-nowrap tabular-nums">{formatINRExact(entry.balance_after_inr)}</span>
       ),
     },
     {
@@ -174,7 +174,7 @@ function LedgerView({
       hideBelow: "sm",
       cell: (entry) => (
         <span className="whitespace-nowrap tabular-nums text-ink-muted">
-          {isFullyReversed(entry) ? "fully corrected" : formatINR(entry.reversible_inr)}
+          {isFullyReversed(entry) ? "fully corrected" : formatINRExact(entry.reversible_inr)}
         </span>
       ),
     },
@@ -236,7 +236,7 @@ function PaymentsView({ wallet, onAct }: { wallet: Credits; onAct: (act: Act) =>
       header: "Credited",
       align: "right",
       cell: (payment) => (
-        <span className="whitespace-nowrap tabular-nums">{formatINR(payment.credited_inr)}</span>
+        <span className="whitespace-nowrap tabular-nums">{formatINRExact(payment.credited_inr)}</span>
       ),
     },
     {
@@ -305,7 +305,7 @@ function LotsView({ wallet, onAct }: { wallet: Credits; onAct: (act: Act) => voi
       header: "Credit left",
       cell: (lot) => (
         <span className="whitespace-nowrap font-medium tabular-nums text-ink">
-          {formatINR(lot.credits_remaining)} left of {formatINR(lot.credits_total)}
+          {formatINRExact(lot.credits_remaining)} left of {formatINRExact(lot.credits_total)}
         </span>
       ),
     },

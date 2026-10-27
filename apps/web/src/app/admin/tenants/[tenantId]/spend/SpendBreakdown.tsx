@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 import { Section } from "@/components/console/section";
-import { formatCount, formatINR, formatIST } from "@/components/ui";
+import { formatCount, formatINRExact, formatIST } from "@/components/ui";
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import { EmptyState } from "@/components/console/emptyState";
 import { SegmentedControl } from "@/components/interior/segmented-control";
@@ -74,7 +74,7 @@ function MarginCell({ value }: { value: string }) {
   return (
     <span className={`whitespace-nowrap font-semibold tabular-nums ${negative ? "text-danger" : ""}`}>
       {negative && <span className="sr-only">Losing money: </span>}
-      {formatINR(value)}
+      {formatINRExact(value)}
     </span>
   );
 }
@@ -91,7 +91,7 @@ function AgentsTable({ rows }: { rows: AgentSpend[] }) {
     },
     { id: "calls", header: "Calls", align: "right", hideBelow: "sm", cell: (agent) => <span className={num}>{formatCount(agent.calls)}</span> },
     { id: "minutes", header: "Minutes", align: "right", hideBelow: "md", cell: (agent) => <span className={`${num} text-ink-muted`}>{agent.minutes}</span> },
-    { id: "charged", header: "Charged", align: "right", cell: (agent) => <span className={num}>{formatINR(agent.charged_inr)}</span> },
+    { id: "charged", header: "Charged", align: "right", cell: (agent) => <span className={num}>{formatINRExact(agent.charged_inr)}</span> },
     {
       id: "cost",
       header: "Our cost",
@@ -99,7 +99,7 @@ function AgentsTable({ rows }: { rows: AgentSpend[] }) {
       hideBelow: "sm",
       cell: (agent) => (
         <span className={`${num} text-ink-muted`}>
-          {formatINR(agent.cost_inr)}
+          {formatINRExact(agent.cost_inr)}
           <AssumedMark assumed={agent.cost_currency_assumed} />
         </span>
       ),
@@ -115,7 +115,7 @@ function AgentsTable({ rows }: { rows: AgentSpend[] }) {
           {!isZeroMoney(agent.trial_cost_inr) && (
             <span className="block whitespace-nowrap text-meta text-ink-muted">
               {" "}
-              {formatINR(agent.trial_cost_inr)} trial covered
+              {formatINRExact(agent.trial_cost_inr)} trial covered
             </span>
           )}
         </>
@@ -154,12 +154,12 @@ function CallsTable({ rows, tenantId }: { rows: CallSpend[]; tenantId: string })
       align: "right",
       cell: (call) => (
         <span className={num}>
-          {formatINR(call.cost_inr)}
+          {formatINRExact(call.cost_inr)}
           <AssumedMark assumed={call.cost_currency_assumed} />
         </span>
       ),
     },
-    { id: "charged", header: "Charged", align: "right", cell: (call) => <span className={`${num} text-ink-muted`}>{formatINR(call.charged_inr)}</span> },
+    { id: "charged", header: "Charged", align: "right", cell: (call) => <span className={`${num} text-ink-muted`}>{formatINRExact(call.charged_inr)}</span> },
     {
       id: "cache",
       header: "Model input",
@@ -201,7 +201,7 @@ function UnitsTable({ rows }: { rows: UnitSpend[] }) {
     { id: "unit", header: "Unit", cell: (unit) => <span className="font-mono text-meta">{unit.unit_type}</span> },
     // `qty` is not money and is not rounded like it: printed as the ledger holds it.
     { id: "qty", header: "Quantity", align: "right", cell: (unit) => <span className={`${num} text-ink-muted`}>{unit.qty}</span> },
-    { id: "cost", header: "Our cost", align: "right", cell: (unit) => <span className={`${num} font-semibold`}>{formatINR(unit.cost_inr)}</span> },
+    { id: "cost", header: "Our cost", align: "right", cell: (unit) => <span className={`${num} font-semibold`}>{formatINRExact(unit.cost_inr)}</span> },
   ];
   return <DataTable rows={rows} columns={columns} getRowId={(unit) => unit.unit_type} label="Our cost by metered unit" />;
 }

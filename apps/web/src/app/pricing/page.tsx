@@ -2,12 +2,11 @@ import type { Metadata } from "next";
 
 import { publicPageMetadata } from "@/lib/seo/metadata";
 import { GST_STATUS_SENTENCE } from "@/lib/gstStatus";
+import { formatINR } from "@/components/ui";
 
 import {
   cardFromRate,
   fetchPublicRateCard,
-  formatAmountINR,
-  formatRateINR,
   ladderFalls,
   packRate,
   rateToTenThousandths,
@@ -151,9 +150,9 @@ function bandSentence(card: PublicRateCard, voice: VoiceTier): string {
   const dearest = cardDearestRate(card, voice);
   const cheapest = cardFromRate(card, voice);
   if (rateToTenThousandths(dearest) === rateToTenThousandths(cheapest)) {
-    return `${formatRateINR(dearest)} a minute`;
+    return `${formatINR(dearest)} a minute`;
   }
-  return `${formatRateINR(dearest)} a minute, down to ${formatRateINR(cheapest)} on the largest pack`;
+  return `${formatINR(dearest)} a minute, down to ${formatINR(cheapest)} on the largest pack`;
 }
 
 /** Section heading, the interior pages' one size. */
@@ -184,7 +183,7 @@ export default async function PricingPage() {
   const feeLine =
     fee === null
       ? "No monthly fee, no setup fee, no per-seat charge"
-      : `Plus a monthly platform fee of ${formatAmountINR(fee)}, paid separately from your credit. No setup fee, no per-seat charge`;
+      : `Plus a monthly platform fee of ${formatINR(fee)}, paid separately from your credit. No setup fee, no per-seat charge`;
   return (
     <MarketingPage>
       {/* THE PRICE IS THE HEADLINE: a buyer's whole reason for arriving is the number, so
@@ -419,7 +418,7 @@ export default async function PricingPage() {
             <h2 className={H2}>
               {fee === null
                 ? "There is no monthly fee today"
-                : `${formatAmountINR(fee)} a month, the same for every client`}
+                : `${formatINR(fee)} a month, the same for every client`}
             </h2>
             <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
               {/* From `platform_fee_inr_per_month` on the live card, never typed; null means

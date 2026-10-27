@@ -18,7 +18,7 @@ import {
   SECONDARY_BUTTON,
   SECONDARY_BUTTON_SM,
   Skeleton,
-  formatINR,
+  formatINRExact,
   formatIST,
 } from "@/components/ui";
 import { useAttestNumberPrice, useNumberPrice } from "@/lib/api/numberPricing";
@@ -117,7 +117,7 @@ export function NumberPricePanel() {
             <div>
               <dt className="text-meta font-medium text-ink-muted">Per number, per month</dt>
               <dd className="mt-0.5 text-body font-semibold text-ink">
-                {formatINR(current.inr_per_month)}
+                {formatINRExact(current.inr_per_month)}
               </dd>
             </div>
             <div>

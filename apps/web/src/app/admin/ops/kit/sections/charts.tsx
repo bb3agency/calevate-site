@@ -14,7 +14,7 @@ import { StatsBand } from "@/components/arc/stats-band";
 import { Timeline, TimelineItem } from "@/components/arc/timeline";
 import { UsageMeter } from "@/components/arc/usage-meter";
 import { Metric, MetricRow } from "@/components/console/metric";
-import { formatCount, formatINR } from "@/components/ui";
+import { formatCount, formatINRExact } from "@/components/ui";
 import { CircleDot, PhoneCall, StickyNote } from "lucide-react";
 
 import { KitDemo, KitGrid, KitSection } from "../kitLayout";
@@ -61,7 +61,7 @@ export function ChartsSection() {
             { label: "Calls answered", value: formatCount(292), delta: { text: "+18%", direction: "up", good: true, context: "vs last week" }, trend: ANSWERED },
             { label: "Missed", value: formatCount(30), delta: { text: "−4", direction: "down", good: true, context: "vs last week" }, trend: MISSED },
             { label: "Leads captured", value: formatCount(1_20_450), hint: "All time" },
-            { label: "Credit used", value: formatINR("2882.00"), delta: { text: "+₹310.00", direction: "up", good: false }, trend: SPEND.map(Number) },
+            { label: "Credit used", value: formatINRExact("2882.00"), delta: { text: "+₹310.00", direction: "up", good: false }, trend: SPEND.map(Number) },
           ]}
         />
       </KitDemo>
@@ -69,7 +69,7 @@ export function ChartsSection() {
         <KitDemo label="Metric · unknown value" note="A figure we could not read is a dash with its reason, never a zero.">
           <MetricRow>
             <Metric label="Answer rate" value="—" hint="Could not load this week" />
-            <Metric label="Credit left" value={formatINR("84.50")} tone="warn" hint="Calls pause at ₹0.00" />
+            <Metric label="Credit left" value={formatINRExact("84.50")} tone="warn" hint="Calls pause at ₹0.00" />
           </MetricRow>
         </KitDemo>
         <KitDemo label="Sparkline · brand and neutral">
@@ -122,7 +122,7 @@ export function ChartsSection() {
             showValues
             labelColumn="Agent"
             categories={["Reception (Telugu)", "Follow-up calls", "అపాయింట్‌మెంట్ రిమైండర్"]}
-            series={[{ label: "Spent", values: [1840.5, 742, 299.5], display: [formatINR("1840.50"), formatINR("742.00"), formatINR("299.50")] }]}
+            series={[{ label: "Spent", values: [1840.5, 742, 299.5], display: [formatINRExact("1840.50"), formatINRExact("742.00"), formatINRExact("299.50")] }]}
           />
         </KitDemo>
         <KitDemo label="DonutChart · outcomes, folded past six">
@@ -178,7 +178,7 @@ export function ChartsSection() {
         <KitDemo label="UsageMeter · trial minutes, cap and over">
           <div className="space-y-5">
             <UsageMeter label="Free minutes" used={42} limit={60} usedText="42" limitText="60 minutes" hint="Test calls stop at 60 minutes." />
-            <UsageMeter label="Spending cap" used={4710} limit={5000} usedText={formatINR("4710.00")} limitText={formatINR("5000.00")} hint="Calls pause at the cap." />
+            <UsageMeter label="Spending cap" used={4710} limit={5000} usedText={formatINRExact("4710.00")} limitText={formatINRExact("5000.00")} hint="Calls pause at the cap." />
             <UsageMeter label="Included minutes" used={1150} limit={1000} usedText="1,150" limitText="1,000" overTone="warn" caption="150 extra minutes, billed at your rate" />
             <UsageMeter
               label="Minutes by agent"

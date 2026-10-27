@@ -7,7 +7,7 @@
  * so there is no period switch and no "save N%".
  *
  * Every figure and word comes from props. A rate is a decimal STRING from the server
- * (hard rule 7) printed through `formatRupeeRate`, never a constant here and never a
+ * (hard rule 7) printed through `formatINR`, never a constant here and never a
  * number, so the comparison cannot drift from what the wallet is debited. Client-facing
  * text names no provider (D-679): pass what each rung does for the caller, not whose
  * technology it uses.
@@ -20,7 +20,7 @@ import type { ReactNode } from "react";
 import { Check } from "lucide-react";
 import clsx from "clsx";
 
-import { formatRupeeRate } from "@/components/ui";
+import { formatINR } from "@/components/ui";
 
 import { ActionButton, type FeedbackStatus } from "./feedback";
 
@@ -118,9 +118,9 @@ export function TierComparison({
               <div>
                 <p className="flex flex-wrap items-baseline gap-x-1.5">
                   <span className="text-figure tabular-nums text-ink">
-                    {formatRupeeRate(tier.ratePerMinute)}
+                    {formatINR(tier.ratePerMinute)}
                     {tier.rateTo !== undefined && tier.rateTo !== tier.ratePerMinute
-                      ? ` – ${formatRupeeRate(tier.rateTo)}`
+                      ? ` – ${formatINR(tier.rateTo)}`
                       : null}
                   </span>
                   <span className="text-meta text-ink-muted">{strings.perMinute}</span>

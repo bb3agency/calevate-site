@@ -224,13 +224,13 @@ describe("the usage panel", () => {
     await screen.findByText("Extra charges");
     // Grouped the Indian way, paise intact, and identical on the tile and in the table —
     // one amount, one shape.
-    expect(container.textContent).toContain("₹10,159.00");
+    expect(container.textContent).toContain("₹10,159");
     // What a `Number()` on the way past would have produced, in either of its two
     // signature forms: the float artefact, or the silently dropped paise.
     expect(container.textContent).not.toContain("10158.99");
     expect(container.textContent).not.toContain("₹10159 ");
     // 4999.00 + 10159.00, added in paise.
-    expect(container.textContent).toContain("₹15,158.00");
+    expect(container.textContent).toContain("₹15,158");
     // The currency is INR. The design this came from was priced in dollars.
     expect(container.textContent).not.toContain("$");
   });
@@ -248,12 +248,12 @@ describe("the usage panel", () => {
 
     await screen.findByText("Extra charges");
     // The MODEL is named, because it is the decision that caused the number, and the
-    // line multiplies out: 40.00 × ₹1.5000 = ₹60.00.
+    // line reads 40 × ₹1.5 = ₹60.
     expect(container.textContent).toContain("AI model upgrade, Plus");
-    expect(container.textContent).toContain("40.00 min × ₹1.5000");
-    expect(container.textContent).toContain("₹60.00");
+    expect(container.textContent).toContain("40 min × ₹1.5");
+    expect(container.textContent).toContain("₹60");
     // 4999.00 + 10159.00 + 60.00, added in paise.
-    expect(container.textContent).toContain("₹15,218.00");
+    expect(container.textContent).toContain("₹15,218");
   });
 
   /**
@@ -304,7 +304,7 @@ describe("the usage panel", () => {
    * check. This asserts the ₹0.00 cannot come back, in both directions: no zero rate, and
    * the minutes and the amount still on the screen.
    */
-  it("states no rate rather than ₹0.00 when the server published none", async () => {
+  it("states no rate rather than ₹0 when the server published none", async () => {
     const { container } = await renderBillingHub(
       routes({
         "/v1/usage": usage({
@@ -321,9 +321,9 @@ describe("the usage panel", () => {
     await screen.findByText("Extra charges");
     const text = container.textContent ?? "";
     // The line is THERE — the charge is real and is in the total.
-    expect(text).toContain("AI model upgrade, Plus (40.00 min)");
-    expect(text).toContain("₹60.00");
-    expect(text).toContain("₹15,218.00");
+    expect(text).toContain("AI model upgrade, Plus (40 min)");
+    expect(text).toContain("₹60");
+    expect(text).toContain("₹15,218");
     // And it states no rate rather than inventing one. Asserted on the UPGRADE LABEL and
     // not on the whole panel: the overage line above it multiplies out legitimately
     // ("1563.00 min × ₹6.5000"), so a document-wide `not.toContain("×")` would fail on
@@ -331,7 +331,7 @@ describe("the usage panel", () => {
     // that cannot be written when one of its factors is absent.
     const upgrade = text.slice(text.indexOf("AI model upgrade")).slice(0, 80);
     expect(upgrade).not.toContain("×");
-    expect(upgrade).not.toContain("₹0.00");
+    expect(upgrade).not.toContain("₹0");
   });
 
   it("prints no upgrade line on a month nothing was surcharged", async () => {
@@ -341,14 +341,12 @@ describe("the usage panel", () => {
 
     await screen.findByText("Extra charges");
     expect(container.textContent).not.toContain("AI model upgrade");
-    expect(container.textContent).toContain("₹15,158.00");
+    expect(container.textContent).toContain("₹15,158");
   });
 
-  it("quotes the per-minute rate at the precision the server published it", async () => {
-    // NUMERIC(12,4). `formatINR` keeps exactly two decimals, so putting a rate through it
-    // prints ₹6.50 for a ₹6.5000 rate — harmless here — and ₹7.12 for ₹7.1250, which is
-    // 0.4% of every extra minute and makes the invoice line fail the client's own
-    // multiplication.
+  it("quotes the per-minute rate under the one-decimal display rule", async () => {
+    // NUMERIC(12,4) on the wire; the screen shows it to one decimal (founder, 27 Oct
+    // 2026) and the statement keeps the exact rate.
     const { container } = await renderBillingHub(
       routes({ "/v1/usage": usage({ overage_rate_inr: "7.1250" }) }),
       "Usage",
@@ -357,13 +355,8 @@ describe("the usage panel", () => {
     // Wait on the panel, then judge the rate — so a rounded rate fails on the assertion
     // that explains itself rather than on a "could not find the text" timeout.
     await screen.findByText("Extra charges");
-    // Not "does not contain ₹7.12" — that is a prefix of the correct answer. The rate
-    // must not appear TRUNCATED to two decimals anywhere on the screen.
-    expect(
-      container.textContent,
-      "a rate must not be rounded to paise",
-    ).not.toMatch(/₹7\.12(?!5)/);
-    expect(container.textContent).toContain("₹7.1250 per extra minute");
+    expect(container.textContent).not.toContain("7.1250");
+    expect(container.textContent).toContain("₹7.1 per extra minute");
   });
 
   it("prints the metered minutes exactly as sent, trailing zero and all", async () => {
@@ -416,9 +409,10 @@ describe("the usage panel", () => {
     );
 
     expect(await screen.findByRole("alert")).toBeTruthy();
-    // "₹0.00" is the comfortable lie here: a client who cannot be billed reads it as a
-    // free month. Nothing on the panel may render a figure the server did not send.
-    expect(container.textContent).not.toContain("₹0.00");
+    // "₹0" is the comfortable lie here: a client who cannot be billed reads it as a
+    // free month. Nothing on the panel may render a figure the server did not send. (The
+    // caps card beside it reads its own route and legitimately shows "₹0.3".)
+    expect(container.textContent).not.toMatch(/₹0(?![.\d])/);
     expect(container.textContent).not.toContain("Total so far");
     expect(container.textContent).not.toContain("Extra charges");
     expect(container.textContent).not.toContain("Billing month");

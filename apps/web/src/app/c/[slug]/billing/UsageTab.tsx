@@ -18,8 +18,8 @@ import {
   RestrictionNote,
   Skeleton,
   formatCount,
+  formatDecimal,
   formatINR,
-  formatRupeeRate,
   hasNonZeroDigit,
 } from "@/components/ui";
 import { isPrepaid } from "@/lib/api/billing";
@@ -52,9 +52,9 @@ import { voiceUsage } from "./lots";
  * Every money field is an exact decimal STRING and stays one all the way to the DOM.
  * `formatINR` formats the DIGITS — it never parses them — because `Number("10159.00")` is
  * how ₹10,159.00 becomes ₹10,158.999999999998 on the screen a client checks against their
- * own books. RATES are the exception and go through `formatRupeeRate`, which keeps the
- * server's full NUMERIC(12,4) precision: rounding ₹7.1250/min to ₹7.12 breaks the only
- * arithmetic a client ever does on an invoice line (qty × unit = amount).
+ * own books. Amounts and rates alike read under the client display rule (at most one
+ * decimal, `lib/numberDisplay.ts`); the paisa-exact figures are on the statement, which is
+ * the tax document.
  *
  * ## THE PERMISSION IS THE TAB'S, NOT THE SCREEN'S
  *
@@ -165,7 +165,7 @@ export function UsageTab({
               {
                 label: "Extra charges",
                 value: formatINR(data.overage_cost_inr),
-                hint: `${formatRupeeRate(data.overage_rate_inr)} per extra minute`,
+                hint: `${formatINR(data.overage_rate_inr)} per extra minute`,
               },
             ]}
           />
@@ -178,12 +178,12 @@ export function UsageTab({
                   label="Minutes in your plan"
                   used={Number(data.minutes_used)}
                   limit={data.included_minutes}
-                  usedText={`${data.minutes_used} min`}
+                  usedText={`${formatDecimal(data.minutes_used)} min`}
                   limitText={`${formatCount(data.included_minutes)} min`}
                   overTone="warn"
                   hint={
                     hasNonZeroDigit(data.overage_minutes)
-                      ? `Minutes past your plan are charged at ${formatRupeeRate(data.overage_rate_inr)} each.`
+                      ? `Minutes past your plan are charged at ${formatINR(data.overage_rate_inr)} each.`
                       : undefined
                   }
                 />
@@ -193,7 +193,7 @@ export function UsageTab({
                   label="Monthly cap"
                   used={Number(data.minutes_used)}
                   limit={data.cap_minutes}
-                  usedText={`${data.minutes_used} min`}
+                  usedText={`${formatDecimal(data.minutes_used)} min`}
                   limitText={`${formatCount(data.cap_minutes)} min`}
                   overTone="danger"
                   hint="Outgoing calls pause at the cap. People calling you still get through."
@@ -212,7 +212,7 @@ export function UsageTab({
             <dl className="divide-y divide-line text-body">
               <Row label="Plan fee" value={formatINR(data.monthly_fee_inr)} />
               <Row
-                label={`Extra usage (${data.overage_minutes} min × ${formatRupeeRate(data.overage_rate_inr)})`}
+                label={`Extra usage (${formatDecimal(data.overage_minutes)} min × ${formatINR(data.overage_rate_inr)})`}
                 value={formatINR(data.overage_cost_inr)}
               />
               {/* WHAT EACH VOICE QUALITY COST THIS MONTH (D-547), replacing the plan's
@@ -235,7 +235,7 @@ export function UsageTab({
                 hasNonZeroDigit(voice.minutes) ? (
                   <Row
                     key={voice.provider}
-                    label={`${voice.label} voice (${voice.minutes} min)`}
+                    label={`${voice.label} voice (${formatDecimal(voice.minutes)} min)`}
                     value={formatINR(voice.charges_inr)}
                   />
                 ) : null,
@@ -254,7 +254,7 @@ export function UsageTab({
                       ? `, ${data.llm_surcharge_tiers.join(", ")}`
                       : ""
                   }${
-                    /* ⚠ THIS WAS `formatRupeeRate(data.llm_surcharge_rate_inr ?? "0")`,
+                    /* ⚠ THIS WAS `formatINR(data.llm_surcharge_rate_inr ?? "0")`,
                        WHICH PRINTED A RATE OF ₹0.00 BESIDE A NON-ZERO CHARGE. `?? "0"` is
                        a manufactured money figure: `llm_surcharge_rate_inr` is `string |
                        null` on the wire and the null means the plan quotes NO surcharge
@@ -270,8 +270,8 @@ export function UsageTab({
                        checkable is withheld — what is dropped is the arithmetic we cannot
                        state. */
                     data.llm_surcharge_rate_inr === null
-                      ? ` (${data.llm_surcharge_minutes} min)`
-                      : ` (${data.llm_surcharge_minutes} min × ${formatRupeeRate(
+                      ? ` (${formatDecimal(data.llm_surcharge_minutes)} min)`
+                      : ` (${formatDecimal(data.llm_surcharge_minutes)} min × ${formatINR(
                           data.llm_surcharge_rate_inr,
                         )})`
                   }`}
@@ -411,8 +411,8 @@ function SpendLimit({ session }: { session: Session }) {
           label="Used so far"
           value={
             current.trial_active
-              ? `${current.minutes_used} min · ${formatINR(current.spend_used_inr)}, free during your trial`
-              : `${current.minutes_used} min · ${formatINR(current.spend_used_inr)}`
+              ? `${formatDecimal(current.minutes_used)} min · ${formatINR(current.spend_used_inr)}, free during your trial`
+              : `${formatDecimal(current.minutes_used)} min · ${formatINR(current.spend_used_inr)}`
           }
         />
       </dl>

@@ -10,7 +10,7 @@
  */
 
 
-import { formatINR, formatIST, formatRupeeRate, NOTICE_BAR, NOTICE_BASE } from "@/components/ui";
+import { formatINR, formatIST, NOTICE_BAR, NOTICE_BASE } from "@/components/ui";
 import { SettingRow } from "@/components/console/settingRow";
 import { voiceTierRate, type PendingChange, type PendingState } from "@/lib/api/publishing";
 
@@ -132,7 +132,7 @@ export function VoiceNow({ state, published }: { state: PendingState; published:
           value={
             <>
               {tier.label}
-              {tier.inr_per_min === null ? "" : ` — ${formatRupeeRate(tier.inr_per_min)} / min`}
+              {tier.inr_per_min === null ? "" : ` — ${formatINR(tier.inr_per_min)} / min`}
             </>
           }
         />
@@ -190,5 +190,5 @@ export function voiceTierLine(state: PendingState | undefined): string | null {
   if (!tier) return null;
   return tier.inr_per_min === null
     ? `${tier.label} voice`
-    : `${tier.label} voice · ${formatRupeeRate(tier.inr_per_min)} / min`;
+    : `${tier.label} voice · ${formatINR(tier.inr_per_min)} / min`;
 }

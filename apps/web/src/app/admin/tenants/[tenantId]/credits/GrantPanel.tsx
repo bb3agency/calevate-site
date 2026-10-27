@@ -8,8 +8,8 @@ import {
   NoticeBox,
   ProblemNotice,
   RestrictionNote,
-  formatINR,
-  formatRupeeRate,
+  formatINRExact,
+  formatRupeeRateExact,
 } from "@/components/ui";
 import { useAdminAccess } from "@/app/admin/access";
 import {
@@ -126,13 +126,13 @@ export function GrantPanel({
         <div className="text-meta">
           <dt className="text-ink-muted">Paid for, lifetime</dt>
           <dd className="mt-0.5 font-semibold tabular-nums text-ink">
-            {formatINR(wallet.paid_inr)}
+            {formatINRExact(wallet.paid_inr)}
           </dd>
         </div>
         <div className="text-meta">
           <dt className="text-ink-muted">Given, lifetime</dt>
           <dd className="mt-0.5 font-semibold tabular-nums text-ink">
-            {formatINR(wallet.granted_inr)}
+            {formatINRExact(wallet.granted_inr)}
           </dd>
         </div>
       </dl>
@@ -164,7 +164,7 @@ export function GrantPanel({
         <Field
           label="How much to give"
           id="grant-amount"
-          hint={`Digits only, in rupees, from ${formatRupeeRate(MIN_GRANT_INR)}.`}
+          hint={`Digits only, in rupees, from ${formatRupeeRateExact(MIN_GRANT_INR)}.`}
           error={amountProblem}
         >
           <input
@@ -218,7 +218,7 @@ export function GrantPanel({
           hint={
             amountReady
               ? large
-                ? `Type ${confirmWord}. Above ${formatRupeeRate(LARGE_GRANT_INR)} the server checks this too.`
+                ? `Type ${confirmWord}. Above ${formatRupeeRateExact(LARGE_GRANT_INR)} the server checks this too.`
                 : `Type ${confirmWord} — the same figure, to two decimal places.`
               : "Enter a valid amount above first; this field confirms that figure."
           }
@@ -276,12 +276,12 @@ function Granted({ result, clientName }: { result: GrantResult; clientName: stri
   return (
     <NoticeBox
       tone="ok"
-      title={`${formatINR(result.amount_inr)} given to ${clientName}`}
+      title={`${formatINRExact(result.amount_inr)} given to ${clientName}`}
       className="mt-4"
     >
       <p className="mt-1 text-meta opacity-90">
-        Balance is now {formatINR(result.balance_inr)}. Lifetime: paid{" "}
-        {formatINR(result.paid_inr)}, given {formatINR(result.granted_inr)}. The entry is
+        Balance is now {formatINRExact(result.balance_inr)}. Lifetime: paid{" "}
+        {formatINRExact(result.paid_inr)}, given {formatINRExact(result.granted_inr)}. The entry is
         on the ledger with your reason.
         {result.is_low && " The wallet is still below the low-balance threshold."}
       </p>

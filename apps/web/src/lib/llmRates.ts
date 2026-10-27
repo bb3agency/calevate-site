@@ -27,9 +27,10 @@
  * There was a second: a paise-based `addRupees` that summed the usage panel's three
  * charge components into a "Total so far". It is gone — `UsagePanelOut.month_charges_inr`
  * is now the server's own total — and this module is deliberately NOT the place that work
- * would return to. Whole paise is right for a TOTAL and wrong here by exactly the argument
- * `formatRupeeRate` makes against `formatINR`: a rate is NUMERIC(12,4)-shaped, and
- * truncating ₹0.2425 to ₹0.24 loses the digits two adjacent models actually differ by.
+ * would return to. Whole paise is right for a TOTAL and wrong here: a rate is
+ * NUMERIC(12,4)-shaped, and truncating ₹0.2425 to ₹0.24 loses the digits two adjacent
+ * models actually differ by — which is why the comparison below runs on the server's
+ * digits even where a screen displays them rounded.
  * What survives in the browser is COMPARING two rates the server sent, at whatever scale
  * they arrived with — never adding money, and never pricing anything.
  *

@@ -56,7 +56,7 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
-import { formatRupeeRate } from "@/components/ui";
+import { formatRupeeRateExact } from "@/components/ui";
 
 import { confirmedRequest } from "./admin";
 import type { Session } from "./client";
@@ -152,7 +152,7 @@ export function refundBlockReason(draft: RefundDraft): string | null {
     }
     if (exceedsPayment(typed, draft.payment.credited_inr)) {
       return (
-        `That is more than the ${formatRupeeRate(draft.payment.credited_inr)} this ` +
+        `That is more than the ${formatRupeeRateExact(draft.payment.credited_inr)} this ` +
         `payment credited. A ` +
         "refund cannot exceed the payment it is against — check the figure, and check " +
         "you are on the right payment."

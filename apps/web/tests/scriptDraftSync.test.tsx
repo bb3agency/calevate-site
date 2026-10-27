@@ -205,7 +205,7 @@ describe("Put it live", () => {
     const open = await screen.findByRole("button", { name: "Put it live" });
     await waitFor(() => expect(open.matches(":disabled")).toBe(false));
     fireEvent.click(open);
-    expect(await screen.findByText("Voice: Clear voice · ₹2.50 / min")).toBeTruthy();
+    expect(await screen.findByText("Voice: Clear voice · ₹2.5 / min")).toBeTruthy();
   });
 });
 

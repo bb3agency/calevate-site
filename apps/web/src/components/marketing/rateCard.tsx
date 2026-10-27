@@ -1,7 +1,5 @@
-import { ScrollRegion } from "@/components/ui";
+import { ScrollRegion, formatINR } from "@/components/ui";
 import {
-  formatAmountINR,
-  formatRateINR,
   ladderFalls,
   packMinutes,
   packRate,
@@ -265,7 +263,7 @@ function PackColumns({ card, voice }: { card: PublicRateCard; voice: VoiceTier }
               className={`rounded-t-2xl px-3 pt-4 pb-3 align-bottom font-semibold ${highlight(pack, marks)}`}
             >
               <span className="block text-lg text-ink">
-                {formatAmountINR(pack.amount_inr)}
+                {formatINR(pack.amount_inr)}
               </span>
               {pack.best_value && marks ? (
                 <span className="mt-1 block text-xs font-semibold text-brand-strong dark:text-brand-bright">
@@ -286,7 +284,7 @@ function PackColumns({ card, voice }: { card: PublicRateCard; voice: VoiceTier }
               key={pack.pack_id}
               className={`border-t border-line px-3 py-4 text-base font-semibold text-ink ${highlight(pack, marks)}`}
             >
-              {formatRateINR(packRate(pack, voice))}
+              {formatINR(packRate(pack, voice))}
             </td>
           ))}
         </tr>
@@ -347,7 +345,7 @@ function PackRows({ card, voice }: { card: PublicRateCard; voice: VoiceTier }) {
               scope="row"
               className={`py-3 pe-3 font-semibold text-ink ${highlight(pack, marks)}`}
             >
-              {formatAmountINR(pack.amount_inr)}
+              {formatINR(pack.amount_inr)}
               {pack.best_value && marks ? (
                 <span className="block text-xs font-semibold text-brand-strong dark:text-brand-bright">
                   {LOWEST_RATE}
@@ -357,7 +355,7 @@ function PackRows({ card, voice }: { card: PublicRateCard; voice: VoiceTier }) {
             <td
               className={`py-3 pe-3 font-semibold text-ink ${highlight(pack, marks)}`}
             >
-              {formatRateINR(packRate(pack, voice))}
+              {formatINR(packRate(pack, voice))}
             </td>
             <td className={`py-3 text-ink-muted ${highlight(pack, marks)}`}>
               {packMinutes(pack, voice).toLocaleString("en-IN")} min

@@ -109,9 +109,9 @@ describe("the allowance panel", () => {
     // The rupee figures as the SERVER's digits, grouped and never parsed — read off the
     // whole screen because the allowance legitimately appears twice (the tile and the
     // table), and `getByText` would fail on the duplication rather than on the digits.
-    expect(container.textContent).toContain("₹58.30");
-    expect(container.textContent).toContain("₹100.00");
-    expect(container.textContent).toContain("₹41.70");
+    expect(container.textContent).toContain("₹58.3");
+    expect(container.textContent).toContain("₹100");
+    expect(container.textContent).toContain("₹41.7");
     // What a `Number()` on the way past would have produced.
     expect(container.textContent).not.toContain("41.7 ");
     expect(container.textContent).not.toContain("58.299");
@@ -142,7 +142,7 @@ describe("the allowance panel", () => {
     // A failed read that rendered ₹0.00 would say "you have none left" — the lie in the
     // expensive direction.
     expect(screen.queryByText(/of about/)).toBeNull();
-    expect(screen.queryByText("₹0.00")).toBeNull();
+    expect(screen.queryByText("₹0")).toBeNull();
   });
 
   it("shows what preparing a client's own material cost, as a part of the month rather than a second charge", async () => {
@@ -156,11 +156,11 @@ describe("the allowance panel", () => {
     });
 
     await screen.findByText("How AI help is billed");
-    expect(container.textContent).toContain("₹12.40");
+    expect(container.textContent).toContain("₹12.4");
     expect(screen.getByText(/of which, preparing what you added/)).toBeTruthy();
     expect(screen.getByText(/part of the amount used/)).toBeTruthy();
     // The sum of the two would be ₹54.10, and nothing on the screen may print it.
-    expect(container.textContent).not.toContain("₹54.10");
+    expect(container.textContent).not.toContain("₹54.1");
   });
 
   it("says plainly when uploads have taken the month past its allowance, and that nothing stopped", async () => {
@@ -184,7 +184,7 @@ describe("the allowance panel", () => {
 
     await screen.findByText("How AI help is billed");
     expect(screen.getByText(/more than this month's allowance/)).toBeTruthy();
-    expect(container.textContent).toContain("₹60.00");
+    expect(container.textContent).toContain("₹60");
     expect(screen.getByText(/still being prepared/)).toBeTruthy();
   });
 
@@ -361,7 +361,7 @@ describe("the money dialog (G-5)", () => {
     });
 
     const dialog = screen.getByRole("dialog");
-    expect(dialog.textContent).toContain("₹500.00");
+    expect(dialog.textContent).toContain("₹500");
     expect(dialog.textContent).toContain("about 2,083 more uses");
     expect(dialog.textContent).toContain(
       "not refunded and does not carry into next month",
@@ -369,7 +369,7 @@ describe("the money dialog (G-5)", () => {
     expect(dialog.textContent).toContain("Nothing has been charged yet.");
     // The accept button quotes the amount too, so the last thing a person reads before
     // pressing it is the number.
-    expect(screen.getByRole("button", { name: "Add ₹500.00" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Add ₹500" })).toBeTruthy();
   });
 
   it("sends the server's own digits back, untouched, only on accept", async () => {
@@ -395,7 +395,7 @@ describe("the money dialog (G-5)", () => {
       fireEvent.click(offer);
     });
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Add ₹500.00" }));
+      fireEvent.click(screen.getByRole("button", { name: "Add ₹500" }));
     });
 
     const post = calls.find((call) => call.path.includes("/ai-quota/extra"));
@@ -426,7 +426,7 @@ describe("the money dialog (G-5)", () => {
       fireEvent.click(offer);
     });
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Add ₹500.00" }));
+      fireEvent.click(screen.getByRole("button", { name: "Add ₹500" }));
     });
 
     // Closing the dialog to show this elsewhere would leave a person unsure whether the
@@ -525,7 +525,7 @@ describe("the money dialog (G-5)", () => {
   it("cycles Tab inside the dialog instead of letting it reach the page behind", async () => {
     await openDialog();
     const notNow = screen.getByRole("button", { name: "Not now" });
-    const add = screen.getByRole("button", { name: "Add ₹500.00" });
+    const add = screen.getByRole("button", { name: "Add ₹500" });
 
     add.focus();
     fireEvent.keyDown(document, { key: "Tab" });

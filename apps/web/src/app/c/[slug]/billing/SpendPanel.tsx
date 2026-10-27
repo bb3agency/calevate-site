@@ -11,6 +11,7 @@ import {
   ScrollRegion,
   Skeleton,
   formatCount,
+  formatDecimal,
   formatINR,
   formatIST,
 } from "@/components/ui";
@@ -122,8 +123,8 @@ function SpendBreakdown({ data, slug }: { data: Spend; slug: string }) {
             and asks us to explain, so each says which month it means. */}
         <Metric
           label={`Minutes used · ${data.month}`}
-          value={data.minutes_used}
-          hint="Metered to the same precision your statement bills."
+          value={formatDecimal(data.minutes_used)}
+          hint="Your statement shows the exact figure."
         />
         <Metric
           label={`Calls · ${data.month}`}
@@ -270,7 +271,7 @@ function AgentRow({ agent, slug }: { agent: AgentCharge; slug: string }) {
       </td>
       <td className="px-4 py-3 text-right tabular-nums sm:px-6">{formatCount(agent.calls)}</td>
       <td className="px-4 py-3 text-right tabular-nums text-ink-muted sm:px-6">
-        {agent.minutes}
+        {formatDecimal(agent.minutes)}
       </td>
       <td className="px-4 py-3 text-right font-semibold tabular-nums sm:px-6">
         {formatINR(agent.charged_inr)}
@@ -296,7 +297,7 @@ function CallRow({ call, slug }: { call: CallCharge; slug: string }) {
       </td>
       <td className="px-4 py-3 text-ink-muted sm:px-6">{call.agent_name ?? "—"}</td>
       <td className="px-4 py-3 text-ink-muted sm:px-6">{call.direction ?? "—"}</td>
-      <td className="px-4 py-3 text-right tabular-nums text-ink-muted sm:px-6">{call.minutes}</td>
+      <td className="px-4 py-3 text-right tabular-nums text-ink-muted sm:px-6">{formatDecimal(call.minutes)}</td>
       <td className="px-4 py-3 text-right font-semibold tabular-nums sm:px-6">
         {formatINR(call.charged_inr)}
       </td>

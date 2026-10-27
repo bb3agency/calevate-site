@@ -6,7 +6,7 @@ import Link from "next/link";
 import { MetricRow } from "@/components/admin/kit";
 import { Metric } from "@/components/console/metric";
 import { Section, TEXT_ACTION } from "@/components/console/section";
-import { ProblemNotice, Skeleton, formatCount, formatCountOf, formatINR } from "@/components/ui";
+import { ProblemNotice, Skeleton, formatCount, formatCountOf, formatINRExact } from "@/components/ui";
 import { adminSession } from "@/lib/api/admin";
 import { currentISTMonth } from "@/lib/api/invoice";
 import { useTenantSpend, type TenantSpend } from "@/lib/api/spend";
@@ -50,12 +50,12 @@ export function UsagePanel({ tenantId }: { tenantId: string }) {
           <MetricRow className="border-b-0 pb-0">
             <Metric
               label="Cost to us this month"
-              value={all ? formatINR(all.total_inr) : "—"}
+              value={all ? formatINRExact(all.total_inr) : "—"}
               hint="Calls and the AI we absorb"
             />
             <Metric
               label={ASSISTANT_NAME}
-              value={all ? formatINR(all.assistant_inr) : "—"}
+              value={all ? formatINRExact(all.assistant_inr) : "—"}
               hint={all ? formatCountOf(all.assistant_requests, "action") : undefined}
             />
             <Metric
@@ -83,7 +83,7 @@ export function UsagePanel({ tenantId }: { tenantId: string }) {
           {t?.active && (
             <p className="text-meta text-ink-muted">
               On trial: {formatCountOf(t.days_remaining ?? 0, "day")} left. Cost to us since the
-              trial began: {formatINR(t.cost_to_us_inr)}.
+              trial began: {formatINRExact(t.cost_to_us_inr)}.
             </p>
           )}
         </div>

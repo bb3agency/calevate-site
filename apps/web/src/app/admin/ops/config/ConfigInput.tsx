@@ -16,7 +16,7 @@ import {
   SECONDARY_BUTTON_SM,
   Skeleton,
   formatCount,
-  formatINR,
+  formatINRExact,
   formatCallCap,
   formatPhone,
 } from "@/components/ui";
@@ -276,7 +276,7 @@ function rangeText(field: ConfigField): string | null {
   const kind = controlKind(field);
   if (kind === "percent") return "From 0 to 100%.";
   const shown = (bound: string) =>
-    kind === "money_inr" ? formatINR(bound) : formatCount(Number(bound));
+    kind === "money_inr" ? formatINRExact(bound) : formatCount(Number(bound));
   const tail = unit && kind !== "money_inr" ? ` ${unit}` : "";
   if (minimum !== null && maximum !== null) {
     const low = field.control.minimum_exclusive ? `more than ${shown(minimum)}` : shown(minimum);

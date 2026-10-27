@@ -8,7 +8,7 @@ import {
   FIELD,
   NoticeBox,
   RestrictionNote,
-  formatINR,
+  formatINRExact,
   formatIST,
 } from "@/components/ui";
 import { WriteFailure } from "@/app/admin/writeFailure";
@@ -134,7 +134,7 @@ export function RestatementForm({
             <option value="">Choose the payment that was under-recorded…</option>
             {wallet.payments.map((option) => (
               <option key={option.payment_ref} value={option.payment_ref}>
-                {`${option.payment_ref} · ${formatINR(option.credited_inr)} credited · ${formatIST(
+                {`${option.payment_ref} · ${formatINRExact(option.credited_inr)} credited · ${formatIST(
                   option.first_at,
                 )}`}
               </option>
@@ -145,7 +145,7 @@ export function RestatementForm({
         {payment && (
           <NoticeBox
             tone="neutral"
-            title={`${payment.payment_ref} credits ${formatINR(payment.credited_inr)} today`}
+            title={`${payment.payment_ref} credits ${formatINRExact(payment.credited_inr)} today`}
           >
             <p className="mt-1">
               Enter the <span className="font-semibold">total the bank moved</span>, not
@@ -241,7 +241,7 @@ export function RestatementForm({
           <div className="min-w-0">
             <p className="font-semibold text-ink">
               {payment && totalReady
-                ? `This makes ${payment.payment_ref} credit ${formatINR(total)} on ${clientName}'s wallet`
+                ? `This makes ${payment.payment_ref} credit ${formatINRExact(total)} on ${clientName}'s wallet`
                 : `This puts more real money on ${clientName}'s wallet`}
             </p>
             <p className="mt-1 text-ink-muted">
@@ -276,7 +276,7 @@ export function RestatementForm({
           disabled={!ready}
         >
           {payment && totalReady
-            ? `Restate ${payment.payment_ref} to ${formatINR(total)}`
+            ? `Restate ${payment.payment_ref} to ${formatINRExact(total)}`
             : "Restate this payment"}
         </ActionButton>
 
@@ -320,8 +320,8 @@ function RestatementOutcome({
       >
         <p className="mt-1">
           <span className="font-mono">{result.payment_ref}</span> was already restated to{" "}
-          {formatINR(result.credited_inr)}, so no second entry was written and the balance
-          did not move. It stands at {formatINR(result.balance_inr)}.{" "}
+          {formatINRExact(result.credited_inr)}, so no second entry was written and the balance
+          did not move. It stands at {formatINRExact(result.balance_inr)}.{" "}
           <span className="font-semibold">
             This client has not been credited twice. This is the restatement&apos;s own
             reference doing its job.
@@ -338,12 +338,12 @@ function RestatementOutcome({
   return (
     <NoticeBox
       tone="ok"
-      title={`Restated: ${formatINR(result.added_inr)} credited to ${clientName}`}
+      title={`Restated: ${formatINRExact(result.added_inr)} credited to ${clientName}`}
     >
       <p className="mt-1">
         <span className="font-mono">{result.payment_ref}</span> now credits{" "}
-        {formatINR(result.credited_inr)}. One bank transfer, whatever it took on the
-        ledger to record it. The wallet holds {formatINR(result.balance_inr)}
+        {formatINRExact(result.credited_inr)}. One bank transfer, whatever it took on the
+        ledger to record it. The wallet holds {formatINRExact(result.balance_inr)}
         {result.is_low ? ", which is still under the low-balance line." : "."}
       </p>
       <p className="mt-2 text-meta">

@@ -3,7 +3,7 @@ import {
   formatCount,
   formatCallCap,
   formatIST,
-  formatINR,
+  formatINRExact,
   formatPhone,
   type NoticeTone,
 } from "@/components/ui";
@@ -169,7 +169,7 @@ export function displayValue(field: ConfigField, value: ConfigValue): string {
   if (typeof value === "string" && (kind === "select" || kind === "segmented")) {
     return optionFor(field, value)?.label ?? value;
   }
-  if (kind === "money_inr") return withUnit(formatINR(String(value)), control.unit);
+  if (kind === "money_inr") return withUnit(formatINRExact(String(value)), control.unit);
   if (kind === "percent" && typeof value === "number") return `${trimNumber(value * 100)}%`;
   if (kind === "duration" && typeof value === "number") return durationText(control, value);
   if (kind === "number" && typeof value === "number") {
@@ -247,7 +247,7 @@ export function validateDraft(field: ConfigField, draft: string): string | null 
   }
   if (kind === "money_inr") {
     if (!/^\d+(\.\d{1,2})?$/.test(trimmed)) return "Use an amount in rupees, like 4.50.";
-    return boundsError(field, trimmed, (bound) => formatINR(bound));
+    return boundsError(field, trimmed, (bound) => formatINRExact(bound));
   }
   if (kind === "percent") {
     if (!/^\d+(\.\d{1,2})?$/.test(trimmed)) return "Use a percentage, like 30.";

@@ -9,9 +9,9 @@ import {
   FIELD_LABEL,
   NoticeBox,
   RestrictionNote,
-  formatINR,
+  formatINRExact,
   formatIST,
-  formatRupeeRate,
+  formatRupeeRateExact,
 } from "@/components/ui";
 import { TypedConfirmation } from "@/components/typedConfirmation";
 import { WriteFailure } from "@/app/admin/writeFailure";
@@ -127,9 +127,9 @@ export function OverrideForm({
           <option value="">Choose a lot…</option>
           {lots.map((lot) => (
             <option key={lot.lot_id} value={lot.lot_id}>
-              {formatINR(lot.credits_remaining)} left · opened {formatIST(lot.opened_at)} ·{" "}
-              {formatRupeeRate(lot.clear_inr_per_min)} /{" "}
-              {formatRupeeRate(lot.studio_inr_per_min)} per min
+              {formatINRExact(lot.credits_remaining)} left · opened {formatIST(lot.opened_at)} ·{" "}
+              {formatRupeeRateExact(lot.clear_inr_per_min)} /{" "}
+              {formatRupeeRateExact(lot.studio_inr_per_min)} per min
             </option>
           ))}
         </select>
@@ -149,17 +149,17 @@ export function OverrideForm({
           <option value="">Choose a pack…</option>
           {packs.map((row) => (
             <option key={row.pack_id} value={row.pack_id}>
-              {row.pack_id} ({formatINR(row.amount_inr)}) · Clear {formatRupeeRate(row.clear_inr_per_min)} ·
-              Studio {formatRupeeRate(row.studio_inr_per_min)}
+              {row.pack_id} ({formatINRExact(row.amount_inr)}) · Clear {formatRupeeRateExact(row.clear_inr_per_min)} ·
+              Studio {formatRupeeRateExact(row.studio_inr_per_min)}
             </option>
           ))}
         </select>
         {pack && chosen && (
           <span className={FIELD_HINT}>
-            This lot goes from Clear {formatRupeeRate(chosen.clear_inr_per_min)} / Studio{" "}
-            {formatRupeeRate(chosen.studio_inr_per_min)} to Clear{" "}
-            {formatRupeeRate(pack.clear_inr_per_min)} / Studio{" "}
-            {formatRupeeRate(pack.studio_inr_per_min)} per minute.
+            This lot goes from Clear {formatRupeeRateExact(chosen.clear_inr_per_min)} / Studio{" "}
+            {formatRupeeRateExact(chosen.studio_inr_per_min)} to Clear{" "}
+            {formatRupeeRateExact(pack.clear_inr_per_min)} / Studio{" "}
+            {formatRupeeRateExact(pack.studio_inr_per_min)} per minute.
           </span>
         )}
       </label>

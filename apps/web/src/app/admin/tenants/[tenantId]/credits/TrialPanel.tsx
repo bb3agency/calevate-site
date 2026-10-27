@@ -11,7 +11,7 @@ import {
   Skeleton,
   formatCount,
   formatCountOf,
-  formatINR,
+  formatINRExact,
   formatIST,
 } from "@/components/ui";
 import { Drawer } from "@/components/console/drawer";
@@ -174,7 +174,7 @@ function TrialFacts({ state }: { state: TrialStatus }) {
           client surface has ever shown `unit_cost_paid`. */}
       <p className="mt-2 text-meta">
         Cost to Calevate so far:{" "}
-        <span className="font-semibold tabular-nums">{formatINR(state.cost_to_us_inr)}</span>{" "}
+        <span className="font-semibold tabular-nums">{formatINRExact(state.cost_to_us_inr)}</span>{" "}
         at our supplier rates. This figure is never shown to the client.
       </p>
       {state.cost_breakdown && (

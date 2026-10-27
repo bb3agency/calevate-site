@@ -13,7 +13,7 @@ import {
   RestrictionNote,
   SECONDARY_BUTTON_SM,
   Skeleton,
-  formatINR,
+  formatINRExact,
   formatIST,
 } from "@/components/ui";
 import { WriteFailure } from "@/app/admin/writeFailure";
@@ -248,7 +248,7 @@ function MakePaidForm({
         successLabel="Paid"
         disabled={!ready}
       >
-        {giving ? `Make paid and give ${formatINR(confirmWord)}` : "Make paid"}
+        {giving ? `Make paid and give ${formatINRExact(confirmWord)}` : "Make paid"}
       </ActionButton>
     </form>
   );
@@ -260,7 +260,7 @@ function MadePaid({ result, clientName }: { result: MakePaidResult; clientName: 
       <p className="mt-1">
         {result.trial_converted ? "Their trial is converted. " : ""}
         {result.workspace_queued ? "Their workspace is being set up. " : ""}
-        {result.grant ? `${formatINR(result.grant.amount_inr)} given; balance ${formatINR(result.grant.balance_inr)}.` : ""}
+        {result.grant ? `${formatINRExact(result.grant.amount_inr)} given; balance ${formatINRExact(result.grant.balance_inr)}.` : ""}
       </p>
     </NoticeBox>
   );

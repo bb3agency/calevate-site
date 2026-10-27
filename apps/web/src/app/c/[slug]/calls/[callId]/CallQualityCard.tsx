@@ -1,6 +1,7 @@
 "use client";
 
 import { Section } from "@/components/console/section";
+import { formatDecimal } from "@/components/ui";
 import type { CallDetail } from "@/lib/api/client";
 
 /**
@@ -34,7 +35,7 @@ const PROBLEMS: ReadonlySet<Signal["kind"]> = new Set([
 
 function seconds(ms: number | null | undefined): string | null {
   if (ms === null || ms === undefined) return null;
-  return `${(ms / 1000).toFixed(1)} s`;
+  return `${formatDecimal(ms / 1000)} s`;
 }
 
 function figures(q: Quality): { label: string; value: string }[] {
@@ -60,7 +61,7 @@ function figures(q: Quality): { label: string; value: string }[] {
           ? null
           : `${q.long_silences}${
               q.longest_silence_s !== null && q.longest_silence_s !== undefined
-                ? ` (longest ${q.longest_silence_s.toFixed(1)} s)`
+                ? ` (longest ${formatDecimal(q.longest_silence_s)} s)`
                 : ""
             }`,
     },

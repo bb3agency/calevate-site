@@ -39,12 +39,12 @@ const BASE: RoiInputs = {
 };
 
 describe("computeRoi — Calevate cost", () => {
-  it("prices minutes at ₹5.00/min in exact paise", () => {
+  it("prices minutes at ₹5/min in exact paise", () => {
     // 200 calls × 26 days × 2 min = 10,400 min × ₹5.00 = ₹52,000.00 = 5,200,000 paise.
     const r = computeRoi(BASE);
     expect(r.callsPerMonth).toBe(5_200);
     expect(r.calevatePaise).toBe(5_200_000);
-    expect(formatPaiseINR(r.calevatePaise)).toBe("₹52,000.00");
+    expect(formatPaiseINR(r.calevatePaise)).toBe("₹52,000");
   });
 
   it("handles a fractional call length without float error", () => {
@@ -52,7 +52,7 @@ describe("computeRoi — Calevate cost", () => {
     // naive `minutes * price` in floating point would round wrong.
     const r = computeRoi({ ...BASE, callsPerDay: 100, workingDays: 20, avgMinutes: 1.5 });
     expect(r.calevatePaise).toBe(1_500_000);
-    expect(formatPaiseINR(r.calevatePaise)).toBe("₹15,000.00");
+    expect(formatPaiseINR(r.calevatePaise)).toBe("₹15,000");
   });
 
   it("honours an overridden per-minute rate", () => {
@@ -183,7 +183,7 @@ describe("computeRoi — loaded cost", () => {
     const r = computeRoi(BASE);
     expect(r.humanTotalPaise).toBe(r.humanBasePaise + r.humanUpliftPaise);
     // ₹42,480 + ₹21,520 = ₹64,000.00.
-    expect(formatPaiseINR(r.humanTotalPaise)).toBe("₹64,000.00");
+    expect(formatPaiseINR(r.humanTotalPaise)).toBe("₹64,000");
   });
 
   it("reports the delta, which can be negative when the team is cheaper", () => {
@@ -236,7 +236,7 @@ describe("computeRoi — edge cases", () => {
     });
     // 5,200 calls × 10% × ₹5,000 = ₹26,00,000.00.
     expect(r.pipelineValuePaise).toBe(26_00_000 * 100);
-    expect(formatPaiseINR(r.pipelineValuePaise as number)).toBe("₹26,00,000.00");
+    expect(formatPaiseINR(r.pipelineValuePaise as number)).toBe("₹26,00,000");
   });
 });
 
@@ -269,7 +269,7 @@ describe("computeTwoStage — the worked example the page shows", () => {
     // Total ₹1,28,000.
     expect(r.allHuman.headcount).toBe(4);
     expect(r.allHuman.humanTotalPaise).toBe(12_800_000);
-    expect(formatPaiseINR(r.allHuman.humanTotalPaise)).toBe("₹1,28,000.00");
+    expect(formatPaiseINR(r.allHuman.humanTotalPaise)).toBe("₹1,28,000");
 
     // B, stage 1 — Calevate's 2-minute call to every one of the 5,200: ₹52,000.
     expect(r.qualificationPaise).toBe(5_200_000);
@@ -286,9 +286,9 @@ describe("computeTwoStage — the worked example the page shows", () => {
     // that was removed sat on the people side of the comparison. That is the honest
     // direction and the reason the removal is safe to make.
     expect(r.blendedTotalPaise).toBe(11_600_000);
-    expect(formatPaiseINR(r.blendedTotalPaise)).toBe("₹1,16,000.00");
+    expect(formatPaiseINR(r.blendedTotalPaise)).toBe("₹1,16,000");
     expect(r.deltaPaise).toBe(1_200_000);
-    expect(formatPaiseINR(r.deltaPaise)).toBe("₹12,000.00");
+    expect(formatPaiseINR(r.deltaPaise)).toBe("₹12,000");
   });
 
   it("counts the calls that never reach a person, and the hours that buys back", () => {
@@ -405,15 +405,15 @@ describe("computeTwoStage — it has to be able to lose, and not to NaN", () => 
 
 describe("formatPaiseINR — Indian grouping, digit-only", () => {
   it("groups last-three-then-twos and keeps two paise digits", () => {
-    expect(formatPaiseINR(0)).toBe("₹0.00");
-    expect(formatPaiseINR(500)).toBe("₹5.00");
-    expect(formatPaiseINR(520_000)).toBe("₹5,200.00");
-    expect(formatPaiseINR(1_00_00_000)).toBe("₹1,00,000.00");
-    expect(formatPaiseINR(1_23_45_678)).toBe("₹1,23,456.78");
+    expect(formatPaiseINR(0)).toBe("₹0");
+    expect(formatPaiseINR(500)).toBe("₹5");
+    expect(formatPaiseINR(520_000)).toBe("₹5,200");
+    expect(formatPaiseINR(1_00_00_000)).toBe("₹1,00,000");
+    expect(formatPaiseINR(1_23_45_678)).toBe("₹1,23,456.8");
   });
 
   it("carries a leading minus for a negative delta", () => {
-    expect(formatPaiseINR(-2_200_000)).toBe("-₹22,000.00");
+    expect(formatPaiseINR(-2_200_000)).toBe("-₹22,000");
   });
 });
 
