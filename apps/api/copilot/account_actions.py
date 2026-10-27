@@ -1262,6 +1262,167 @@ LEAD_SOURCE_EDIT: Final = ActionTool(
 )
 
 
+class _FieldPair(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    field: str
+    form_field: str
+
+
+class _SourceMappingArgs(BaseModel):
+    """As the model writes it: a list, because a strict tool schema cannot take a free-form
+    object."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    lead_source_id: UUID
+    fields: list[_FieldPair] = Field(max_length=60)
+
+
+class _SourceMappingSigned(BaseModel):
+    """As the card signs it: the mapping the route takes."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    lead_source_id: UUID
+    mapping: dict[str, str]
+
+
+def _mapping_words(mapping: Mapping[str, str]) -> str:
+    """`phone ← Mobile, name ← Full name`, or what an empty mapping means."""
+    if not mapping:
+        return "the form's own field names"
+    return ", ".join(f"{ours} ← {theirs}" for ours, theirs in sorted(mapping.items()))
+
+
+async def _source_mapping(session: AsyncSession, source_id: UUID, *, lock: bool = False) -> Any:
+    from apps.api.ingest.service import readable_mapping
+
+    row = (
+        await session.execute(
+            text(
+                "SELECT source, mapping FROM inbound_webhooks WHERE id = :id"
+                + (" FOR UPDATE" if lock else "")
+            ),
+            {"id": source_id},
+        )
+    ).first()
+    if row is None:
+        raise ProblemError.not_found("Lead source")
+    return str(row[0]), readable_mapping(row[1])
+
+
+async def _plan_source_mapping(
+    session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
+) -> Plan:
+    """Validated here as the route validates it, so a mapping that names no phone field is
+    refused on the card rather than after the click."""
+    from apps.api.ingest.service import validate_mapping
+
+    del actor
+    parsed = parse_args(_SourceMappingArgs, args)
+    source, current = await _source_mapping(session, parsed.lead_source_id)
+    try:
+        proposed = validate_mapping({pair.field: pair.form_field for pair in parsed.fields})
+    except ProblemError as exc:
+        raise WriteRefusedError(exc.detail or exc.title) from exc
+    if proposed == current:
+        raise WriteRefusedError("that lead source already reads those fields")
+    return Plan(
+        object_id=str(parsed.lead_source_id),
+        title="Change the fields a lead source reads",
+        summary=(
+            f"Leads from {source.replace('_', ' ')} are read with these fields from now on. "
+            "Leads already received keep what they were saved with."
+        ),
+        current=_mapping_words(current),
+        proposed=_mapping_words(proposed),
+        cost=None,
+        reversal="Undo puts the previous fields back.",
+        args={"lead_source_id": str(parsed.lead_source_id), "mapping": proposed},
+    )
+
+
+async def _execute_source_mapping(
+    session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
+) -> Executed:
+    """`ingest.service.set_source_mapping` — `PUT /v1/lead-sources/{id}/mapping`'s call."""
+    from apps.api.ingest.service import set_source_mapping
+
+    del actor
+    parsed = parse_args(_SourceMappingSigned, args)
+    before, after = await set_source_mapping(
+        session, webhook_id=parsed.lead_source_id, mapping=parsed.mapping
+    )
+    return Executed(
+        applied=before != after,
+        detail="Saved. New leads from it are read with these fields.",
+        # Our field keys only, as the route records them.
+        audit_summary={"fields": sorted(after), "was": sorted(before)},
+    )
+
+
+async def _capture_source_mapping(
+    session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
+) -> dict[str, Any]:
+    del actor
+    _source, mapping = await _source_mapping(session, UUID(str(args["lead_source_id"])))
+    return {"mapping": mapping}
+
+
+async def _invert_source_mapping(
+    session: AsyncSession, actor: ToolActor, record: UndoRecord
+) -> str:
+    from apps.api.ingest.service import set_source_mapping
+
+    del actor
+    source_id = UUID(str(record.args["lead_source_id"]))
+    try:
+        _source, live = await _source_mapping(session, source_id, lock=True)
+    except ProblemError as exc:
+        raise UndoRefusedError("that lead source no longer exists") from exc
+    if live != record.result_state.get("mapping"):
+        raise UndoRefusedError("that lead source's fields were changed since, so they were kept")
+    await set_source_mapping(
+        session, webhook_id=source_id, mapping=dict(record.prior_state.get("mapping") or {})
+    )
+    return "The lead source reads its previous fields again."
+
+
+LEAD_SOURCE_MAPPING: Final = ActionTool(
+    name="lead_source_mapping",
+    tier="confirm",
+    undo=Undo(capture=_capture_source_mapping, invert=_invert_source_mapping),
+    permission="org:manage",
+    object_type="inbound_webhook",
+    audit_action="lead_source.mapping_changed",
+    where="on the Lead sources screen",
+    schema=action_schema(
+        "lead_source_mapping",
+        "Propose the WHOLE field list of one lead source: each `field` (phone, name, "
+        "consent_field or a detail key) with the `form_field` name the form sends. Must "
+        "include phone; [] reads the form as it comes." + PROPOSES_ONLY,
+        {
+            "lead_source_id": {"type": "string"},
+            "fields": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "field": {"type": "string"},
+                        "form_field": {"type": "string"},
+                    },
+                    "required": ["field", "form_field"],
+                    "additionalProperties": False,
+                },
+            },
+        },
+    ),
+    plan=_plan_source_mapping,
+    execute=_execute_source_mapping,
+)
+
+
 class _SourceSwitchArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -2540,4 +2701,5 @@ ACCOUNT_ACTIONS: Final[tuple[ActionTool, ...]] = (
 
 __all__ = [
     "ACCOUNT_ACTIONS",
+    "LEAD_SOURCE_MAPPING",
 ]

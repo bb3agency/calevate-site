@@ -8779,6 +8779,110 @@
         "title": "CallRetentionOut",
         "type": "object"
       },
+      "CallSavedViewIn": {
+        "additionalProperties": false,
+        "properties": {
+          "filters": {
+            "$ref": "#/components/schemas/CallViewFilters"
+          },
+          "name": {
+            "maxLength": 60,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "CallSavedViewIn",
+        "type": "object"
+      },
+      "CallSavedViewListOut": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CallSavedViewOut"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "CallSavedViewListOut",
+        "type": "object"
+      },
+      "CallSavedViewOut": {
+        "additionalProperties": false,
+        "description": "One saved view of the Calls screen, private to its author like a leads view. A\nrolling `when` comes back with the days it covers today.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "filters": {
+            "$ref": "#/components/schemas/CallViewFilters"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "filters",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "CallSavedViewOut",
+        "type": "object"
+      },
+      "CallSavedViewUpdateIn": {
+        "additionalProperties": false,
+        "description": "Rename or re-pin; an omitted field is left alone.",
+        "properties": {
+          "filters": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CallViewFilters"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 60,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "title": "CallSavedViewUpdateIn",
+        "type": "object"
+      },
       "CallScript": {
         "additionalProperties": false,
         "description": "A whole agent script, structured \u2014 or a raw escape hatch, never both at once.\n\nONE MODEL, TWO SHAPES. `raw_override` is the escape hatch AND the lossless\nrepresentation of a legacy freeform prompt: when it is set, the compiler returns it\nverbatim and the structured fields are ignored, so nothing an author wrote in raw mode\nis reinterpreted, and a pre-structured `prompt_versions.body` round-trips exactly (see\n`from_freeform`). When it is None, the structured fields compile. A model validator\nforbids the ambiguous middle \u2014 structured content AND a raw override \u2014 because a row\nthat is half one and half the other has no single answer to \"what does this compile\nto\".\n\nThe `opening_line` here is the agent's GREETING, the client's own words, and it is a\nseparate thing from the two notices (D-163, D-708). The notices are composed by\n`compose_opening_line` from the agent's two switches; a notice that is switched on is\nsaid before this line, and with both off this line is the first thing a caller hears.\nNo switch adds, removes or replaces it. `engine.compose_first_utterance` joins the two\nfor an engine that speaks one greeting field.",
@@ -9413,6 +9517,125 @@
           "variance_inr"
         ],
         "title": "CallVarianceOut",
+        "type": "object"
+      },
+      "CallViewFilters": {
+        "additionalProperties": false,
+        "description": "What a saved view of the Calls screen narrows the log to: the call lens\n(`CallLensIn`) with its days as a `ViewDaysIn`, so a rolling range stays rolling.",
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "callback_open": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Callback Open"
+          },
+          "campaign_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Campaign Id"
+          },
+          "direction": {
+            "anyOf": [
+              {
+                "enum": [
+                  "inbound",
+                  "outbound"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Direction"
+          },
+          "follow_up": {
+            "anyOf": [
+              {
+                "enum": [
+                  "done",
+                  "not_done"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Follow Up"
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "enum": [
+                  "call_back_booked",
+                  "needs_you",
+                  "answered",
+                  "transferred",
+                  "hung_up_early",
+                  "missed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcome"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "test_calls": {
+            "default": true,
+            "title": "Test Calls",
+            "type": "boolean"
+          },
+          "when": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ViewDaysIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "CallViewFilters",
         "type": "object"
       },
       "CallbackEligibilityOut": {
@@ -13975,6 +14198,17 @@
           "detail": {
             "title": "Detail",
             "type": "string"
+          },
+          "download_ticket": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Download Ticket"
           },
           "object_id": {
             "title": "Object Id",
@@ -20387,6 +20621,22 @@
           "experiment"
         ],
         "title": "ExperimentStateOut",
+        "type": "object"
+      },
+      "ExportDownloadIn": {
+        "additionalProperties": false,
+        "properties": {
+          "ticket": {
+            "maxLength": 64,
+            "minLength": 16,
+            "title": "Ticket",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket"
+        ],
+        "title": "ExportDownloadIn",
         "type": "object"
       },
       "ExtractionField": {
@@ -28380,6 +28630,46 @@
           "secret_header"
         ],
         "title": "LeadSourceListOut",
+        "type": "object"
+      },
+      "LeadSourceMappingIn": {
+        "additionalProperties": false,
+        "properties": {
+          "mapping": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Mapping",
+            "type": "object"
+          }
+        },
+        "required": [
+          "mapping"
+        ],
+        "title": "LeadSourceMappingIn",
+        "type": "object"
+      },
+      "LeadSourceMappingOut": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "mapping": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Mapping",
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "mapping"
+        ],
+        "title": "LeadSourceMappingOut",
         "type": "object"
       },
       "LeadSourceOut": {
@@ -40293,6 +40583,50 @@
             "title": "Assigned To Me",
             "type": "boolean"
           },
+          "callback_open": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Callback Open"
+          },
+          "captured": {
+            "items": {
+              "$ref": "#/components/schemas/CapturedFieldFilterIn"
+            },
+            "maxItems": 5,
+            "title": "Captured",
+            "type": "array"
+          },
+          "created": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ViewDaysIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "direction": {
+            "anyOf": [
+              {
+                "enum": [
+                  "inbound",
+                  "outbound"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Direction"
+          },
           "fields": {
             "additionalProperties": {
               "items": {
@@ -40302,6 +40636,50 @@
             },
             "title": "Fields",
             "type": "object"
+          },
+          "follow_up": {
+            "anyOf": [
+              {
+                "enum": [
+                  "done",
+                  "not_done"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Follow Up"
+          },
+          "last_call": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ViewDaysIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "last_outcome": {
+            "anyOf": [
+              {
+                "enum": [
+                  "call_back_booked",
+                  "needs_you",
+                  "answered",
+                  "transferred",
+                  "hung_up_early",
+                  "missed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Outcome"
           },
           "status": {
             "anyOf": [
@@ -40321,6 +40699,11 @@
               }
             ],
             "title": "Status"
+          },
+          "test_calls": {
+            "default": true,
+            "title": "Test Calls",
+            "type": "boolean"
           }
         },
         "title": "SavedViewFilters",
@@ -51245,6 +51628,51 @@
           "is_live"
         ],
         "title": "VersionOut",
+        "type": "object"
+      },
+      "ViewDaysIn": {
+        "additionalProperties": false,
+        "description": "A saved view's range of India days: fixed (`from_day`..`to_day`, both included), or\n`last_days` counted back from the day the view is read, so a view saved as \"the last 7\ndays\" still means the last 7 days next month.\n\n`last_days` wins: a rolling range is stored without `from_day`/`to_day`, and a read\nanswers it with the days it means today (`crm.saved_views`), so the screen can show and\napply concrete days and send the same object back unchanged.",
+        "properties": {
+          "from_day": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Day"
+          },
+          "last_days": {
+            "anyOf": [
+              {
+                "maximum": 366.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Days"
+          },
+          "to_day": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "To Day"
+          }
+        },
+        "title": "ViewDaysIn",
         "type": "object"
       },
       "Voice": {
@@ -70597,6 +71025,151 @@
         "x-calevate-permission": "calls:read"
       }
     },
+    "/v1/calls/views": {
+      "get": {
+        "operationId": "get_call_views_v1_calls_views_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallSavedViewListOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "My saved views of the call log",
+        "tags": [
+          "crm"
+        ],
+        "x-calevate-permission": "calls:read"
+      },
+      "post": {
+        "operationId": "create_call_view_v1_calls_views_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CallSavedViewIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallSavedViewOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Save the call log's current filters under a name",
+        "tags": [
+          "crm"
+        ],
+        "x-calevate-permission": "leads:write"
+      }
+    },
+    "/v1/calls/views/{view_id}": {
+      "delete": {
+        "operationId": "delete_call_view_v1_calls_views__view_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "view_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "View Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Delete one of my saved views of the call log",
+        "tags": [
+          "crm"
+        ],
+        "x-calevate-permission": "leads:write"
+      },
+      "patch": {
+        "operationId": "patch_call_view_v1_calls_views__view_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "view_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "View Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CallSavedViewUpdateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallSavedViewOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Rename a saved view of the call log, or re-pin its filters",
+        "tags": [
+          "crm"
+        ],
+        "x-calevate-permission": "leads:write"
+      }
+    },
     "/v1/calls/{call_id}": {
       "get": {
         "operationId": "get_call_v1_calls__call_id__get",
@@ -74854,6 +75427,37 @@
         "x-calevate-permission": "leads:dispatch"
       }
     },
+    "/v1/exports/download": {
+      "post": {
+        "operationId": "download_prepared_export_v1_exports_download_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportDownloadIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Download an export Pip prepared \u2014 once, within ten minutes, audit-logged",
+        "tags": [
+          "crm"
+        ],
+        "x-calevate-permission": "calls:read_raw"
+      }
+    },
     "/v1/first-run": {
       "get": {
         "operationId": "read_first_run_v1_first_run_get",
@@ -78671,6 +79275,57 @@
           }
         },
         "summary": "Re-enable a disabled lead source",
+        "tags": [
+          "lead-ingest"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/lead-sources/{webhook_id}/mapping": {
+      "put": {
+        "description": "Replaces the field mapping: which field of the form carries the phone, the name, consent and any other detail. The secret, the address and the agent are unchanged, and leads already received keep what they were saved with. Refused with `mapping_has_no_phone` when no rule says where the phone number is.",
+        "operationId": "put_lead_source_mapping_v1_lead_sources__webhook_id__mapping_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "webhook_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Webhook Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LeadSourceMappingIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeadSourceMappingOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Change which form fields a lead source reads",
         "tags": [
           "lead-ingest"
         ],

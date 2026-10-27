@@ -289,6 +289,12 @@ def test_the_tool_schemas_are_the_same_bytes_for_every_caller() -> None:
         # D-893's plan-backed set actions APPEND.
         "callbacks_book_bulk",
         "calls_place_bulk",
+        # D-893 lane L2: lead-source fields, opt-out restore, saved views, exports APPEND.
+        "lead_source_mapping",
+        "dnc_restore",
+        "lead_view_save",
+        "leads_export",
+        "calls_export",
     ]
     for schema in write_tools.write_tool_schemas():
         function = schema["function"]
@@ -836,6 +842,7 @@ async def test_the_confirm_route_carries_out_the_change_and_answers_what_it_did(
             "being pulled back."
         ),
         "plan_id": None,
+        "download_ticket": None,
     }
     assert await _dnc_count(tenant_id) == 1
 

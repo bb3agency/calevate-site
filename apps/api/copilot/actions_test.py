@@ -106,6 +106,11 @@ _REVIEWED_IMMEDIATE: dict[str, str] = {
         "a saved test reaches no caller and spends nothing until a run is asked for; Undo "
         "deletes it"
     ),
+    # D-893 L2: a private screen preset, seen by its author only.
+    "lead_view_save": (
+        "a saved view is one person's own filters and changes no lead; Undo deletes it or "
+        "puts its earlier filters back under a CAS"
+    ),
 }
 
 

@@ -280,6 +280,13 @@ class Executed:
     #: must not hold (D-821: a call's second summary is shown once and not stored). `None`
     #: keeps `detail`, which is every other action.
     recorded: str | None = None
+    #: The audit action this run is recorded under, when it depends on the arguments (the
+    #: do-not-call restore records its ground in the action, as the console's does). `None`
+    #: keeps `ActionTool.audit_action`, which is every other action.
+    audit_action: str | None = None
+    #: A one-time ticket for the file an export prepared (`crm/export_tickets.py`), handed to
+    #: the browser on the confirm's answer and never recorded.
+    download_ticket: str | None = None
 
 
 #: A tool's read half: session (tenant-scoped) → described plan. READS ONLY, on every tier.
