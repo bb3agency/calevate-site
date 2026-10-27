@@ -2070,7 +2070,8 @@ of it is in the docs mirror yet (latest snapshot 2026-10-19); the new field is t
 - Item 3: every reply-time figure and target now reads as the wait for the agent's **first
   sound**; turns that open with one of our filler lines are counted from the transcript
   (whether fillers are transcribed is UNKNOWN) and the typical figure is also given over calls
-  with none found. No time-to-answer is invented.
+  with none found. No time-to-answer is invented. (Superseded the same evening by D-902:
+  `quality.answerMs` is the reply time and the transcript count is retired, §38.)
 - Item 7: our spoken-style rule asks replies to open with a few words and a comma, at five
   characters fewer; the time saved is not measured.
 - Item 9: an operator can put one agent (Anjali) on Timer without moving every agent; each
@@ -2100,3 +2101,52 @@ of it is in the docs mirror yet (latest snapshot 2026-10-19); the new field is t
 >
 > Thanks,
 > Umesh
+
+## 38. Ashutosh's answer to §37.1, received 27 Oct 2026 (20:52 IST)
+
+Founder-relayed email (**VENDOR-STATED**, 27 Oct 2026), in substance. Both items below are
+also **VERIFIED-VENDOR-DOCS**: read the same evening in the live API reference
+(`https://docs.thinnest.ai/api-reference/calls/get-call`,
+`https://docs.thinnest.ai/api-reference/calls/get-call-timeline`) and in
+`https://app.thinnest.ai/openapi.json` (read 27 Oct 2026, sha256
+`a79445b6bb543c095ecbbac3bfd4a6a54274d424d1569973b0a023d74123080a`; schemas `CallQuality`,
+`CallTimeline`, `CallTimelineTurn`, `CallTimelineSplit`). Built as D-902.
+
+1. **The time to the actual answer (`quality.answerMs`).** Get Call's `quality` now carries
+   `answerMs` (`median`, `p90`, `max`): from the caller stopping to the first word of the
+   ACTUAL answer heard. A thinking line or acknowledgement that plays first does not end it.
+   `responseMs` is unchanged (the first sound of any kind). Calls before 27 Oct: `answerMs`
+   null.
+2. **Knowledge turns (`quality.knowledgeTurns`).** Turns on which the agent looked something up
+   in its knowledge, by its own search or from passages supplied up front; null when
+   unavailable.
+3. **Get Call Timeline (`GET /calls/{id}/timeline`).** One row per turn, every time in ms from
+   the moment the caller stopped speaking: `callerStoppedAtMs` (from the start of the call),
+   `earPausedMs`, `transcriptMs`, `judgeDecidedMs` (null off Ear), `turnDecidedMs`,
+   `modelAskedMs` (negative with `earlyAnswers`), `answerTextMs`, `firstAudioMs`,
+   `firstAudioKind` (`answer` | `filler` | `other` | null), `answerAudioMs`,
+   `answerAudioEstimated` (true when a filler spoke first and the answer's start is worked out
+   from the audio queued behind it), and `split` {`waitBeforeDecisionMs`, `recogniserMs`,
+   `earCheckMs`, `modelFirstSentenceMs`, `voiceMs`} (`voiceMs` includes waiting behind a
+   speaking filler). A step that did not happen is null, never zero. `timeline` is null for a
+   call from before 27 Oct and for a call type that does not record it (standard voice
+   pipeline only); it holds times and no words, so it stays when the call's content is
+   deleted. The `Thinnest-Workspace` header applies as for every call read.
+
+Our reading of the live reference differs from the email in one place: `modelAskedMs` is a
+field of the turn, not of `split`.
+
+**What we do (D-902):**
+- `answerMs` is the reply time everywhere: the Voice response time screen, the console's two
+  targets (a call is over target when its p90 answer exceeds the slow target) and the call
+  card. `responseMs` stays beside it as "first sound". A call with no answer time reads as not
+  measured, never as zero.
+- D-901's transcript count of filler-led turns (`filler_turns`, `calls_with_filler`,
+  `reply_typical_no_filler_ms`) is retired: the platform now measures what it guessed at.
+- The timeline is fetched by its own job a minute after each answered call, retried while the
+  platform has none yet, and kept on the call (`calls.engine_timeline`, times only). An
+  operator viewing a call as the client sees each turn's split; the Voice response time screen
+  gives the median of each step by turn detection, overall and per agent, so Ear and Timer can
+  be compared on Anjali.
+- Knowledge turns are on the operator's call view and the screen; a client's call card says
+  how many replies looked up their information, beside the typical wait for an answer.
