@@ -45,7 +45,6 @@ class GreetingBudgetOut(BaseModel):
     opening_room: int
     opening_room_with_ai_disclosure: int
     opening_room_with_recording_notice: int
-    opening_room_with_caller_memory: int
 
 
 class AgentOut(BaseModel):

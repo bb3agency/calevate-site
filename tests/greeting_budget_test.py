@@ -98,8 +98,6 @@ def test_each_switch_room_is_what_the_publish_would_let_through_with_it_on() -> 
         refuse_over_engine_limits(engine, _cfg(on, "a" * room))
         with pytest.raises(ProblemError):
             refuse_over_engine_limits(engine, _cfg(on, "a" * (room + 1)))
-    # The memory sentence is said with the goodbye (D-865): it takes no room here.
-    assert budget.opening_room_with_caller_memory == 200
 
 
 def test_an_engine_with_no_ceiling_has_no_budget() -> None:
@@ -184,7 +182,6 @@ async def test_the_agent_read_carries_the_budget_for_its_stored_lines() -> None:
     assert budget.limit == 200
     assert budget.opening_chars == len("Namaskaram, cheppandi.")
     assert budget.opening_room == 200
-    assert budget.opening_room_with_caller_memory == 200
 
 
 @pytest.mark.anyio
