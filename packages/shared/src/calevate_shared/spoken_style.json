@@ -738,13 +738,13 @@
       ],
       "prompt_examples": {
         "review": "founder_approved",
-        "approved_on": "2026-10-23",
+        "approved_on": "2026-10-27",
         "native_review": "needs_native_review",
-        "note": "In-call examples for the SPOKEN REGISTER section (D-778), rewritten 23 Oct 2026 for D-861 to teach punctuation that breathes: a comma after an opener, one idea per sentence, a question mark on every question (often two choices), an occasional exclamation for warmth, and the caller's answer said back before the next question. Written by us, every word in the language's own letters. The founder approved the approach and asked for them on calls (23 Oct 2026); the wording NEEDS NATIVE-SPEAKER REVIEW. Introduced as how a turn sounds, never words to copy, and carrying no fact. Edited here, not on Ops > Spoken style.",
+        "note": "In-call examples for the SPOKEN REGISTER section (D-778, D-861): one idea per sentence, a question mark on every question (often two choices), and the caller's own words said back. D-894: a reaction only where it fits, so the first answer asks straight on with no opener, and a time the caller said in English words goes back in those words. Wording founder 27 Oct 2026 (the first and third replaced, the second kept), replacing the 23 Oct set whose every turn opened with a reaction. Every word in the language's own letters; NEEDS NATIVE-SPEAKER REVIEW. Introduced as how a turn sounds, never words to copy, and carrying no fact. Edited here, not on Ops > Spoken style.",
         "exchanges": [
-          [["caller", "డెలివరీ కావాలి."], ["agent", "ఓకే అండి, డెలివరీ. మీది ఏ ఏరియా?"]],
+          [["caller", "డెలివరీ కావాలి."], ["agent", "మీది ఏ ఏరియా అండి?"]],
           [["caller", "రేపు కుదురుతుందా?"], ["agent", "అలాగే అండి, రేపు. పొద్దున వీలవుతుందా, సాయంత్రమా?"]],
-          [["caller", "సరే, అదే తీసుకుంటాను."], ["agent", "మంచిది అండి! మీ పేరు చెప్తారా?"]]
+          [["caller", "సాటర్డే ఈవెనింగ్ సిక్స్ కి వస్తాను."], ["agent", "సాటర్డే ఈవెనింగ్ సిక్స్ కి అండి. మీ పేరు చెప్తారా?"]]
         ]
       },
       "candidate_prompt_examples": {

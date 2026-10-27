@@ -122,6 +122,9 @@ TENANT_TABLES = [
     "agent_test_labels",
     # The facts each agent knows by heart (D-896).
     "agent_hot_facts",
+    # Example-line steps the platform changed for an owner, so the change undoes exactly
+    # (migration `d7c2e9a4f6b1`).
+    "script_line_changes",
     # The teach box and the improvement loop (founder decisions 9 and 11, migration
     # a8d3f6c1e924): taught facts, a teaching under review, rules waiting for an agent's
     # script, and test cases saved from real calls.

@@ -1228,6 +1228,34 @@ class AgentHotFacts(PKMixin, TimestampMixin, Base):
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class ScriptLineChange(PKMixin, Base):
+    """One step whose example line the platform changed on the owner's behalf, recorded so
+    the change can be undone on exactly that step (migration `d7c2e9a4f6b1`, the stock
+    Telugu opener of D-894). `target` is the autosaved draft or the current script; the
+    lines are the trade plans' own words, never anything a caller said."""
+
+    __tablename__ = "script_line_changes"
+    __table_args__ = (
+        UniqueConstraint("agent_id", "target", "stage_index", name="step"),
+        CheckConstraint("target IN ('draft', 'script')", name="target_enum"),
+        CheckConstraint("stage_index >= 0", name="stage_index_not_negative"),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    target: Mapped[str] = mapped_column(Text, nullable=False)
+    stage_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    before_text: Mapped[str] = mapped_column(Text, nullable=False)
+    after_text: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()"), nullable=False
+    )
+
+
 class PhoneNumber(PKMixin, TimestampMixin, Base):
     __tablename__ = "phone_numbers"
     __table_args__ = (

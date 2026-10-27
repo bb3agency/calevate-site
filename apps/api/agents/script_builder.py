@@ -489,11 +489,16 @@ async def refresh_example_lines(
     tenant_id: UUID,
     agent_id: UUID,
     replacements: dict[str, str],
+    only_stages: frozenset[int] | None = None,
+    notes: str = "Example lines updated: open questions for amounts, the next days for visits",
 ) -> int | None:
     """Put a better example line on each step still holding the one it replaces, word for
     word (D-888). A line anybody changed is not an old line and is left alone; the rest of
     the script is kept. Through `rewrite_script`, so a live agent is republished and a staged
-    edit carries the change with it. Returns the new version, or None when nothing matched."""
+    edit carries the change with it. Returns the new version, or None when nothing matched.
+
+    `only_stages` limits the change to those step positions: a migration that recorded the
+    exact steps it changed undoes those and no step that merely holds the same words."""
     row = (
         await session.execute(
             text(
@@ -510,8 +515,9 @@ async def refresh_example_lines(
     stages = [
         stage.model_copy(update={"sounds_like": replacements[stage.sounds_like.strip()]})
         if stage.sounds_like.strip() in replacements
+        and (only_stages is None or index in only_stages)
         else stage
-        for stage in script.stages
+        for index, stage in enumerate(script.stages)
     ]
     if stages == list(script.stages):
         return None
@@ -520,7 +526,7 @@ async def refresh_example_lines(
         tenant_id=tenant_id,
         agent_id=agent_id,
         script=script.model_copy(update={"stages": stages}),
-        notes="Example lines updated: open questions for amounts, the next days for visits",
+        notes=notes,
     )
 
 

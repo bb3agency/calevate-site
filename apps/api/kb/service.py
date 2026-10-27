@@ -1606,6 +1606,8 @@ async def delivered_source_count(session: AsyncSession) -> int:
             )
         ).scalar_one()
     )
+
+
 @dataclass(frozen=True, slots=True)
 class LiveChunk:
     """One chunk of a LIVE source, as the known-facts chooser reads it

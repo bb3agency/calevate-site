@@ -208,7 +208,7 @@ def test_the_founder_approved_examples_follow_the_primary_language_register() ->
     never as words to copy; an extra language's are left out for the size budget."""
     body = compile_call_script(V2)
     for tag, agent_says in (
-        ("te-IN", "ఓకే అండి, డెలివరీ. మీది ఏ ఏరియా?"),
+        ("te-IN", "మీది ఏ ఏరియా అండి?"),
         ("hi-IN", "ठीक है जी, डिलीवरी। आपका एरिया कौन सा है?"),
         ("en-IN", "Okay, delivery. Which area are you in?"),
     ):
@@ -275,8 +275,9 @@ def test_a_full_v2_prompt_fits_the_engine_and_the_guide_budget() -> None:
     # named places, projects and how the caller found the business among facts (6,894 before).
     # D-894 made a reaction fit or go, put the one question last, answered a pace complaint,
     # said a caller's time or number back in their words and asked for a short first
-    # sentence (7,276 before).
-    assert len(prompt) <= 7_530
+    # sentence (7,276 before). The founder's 27 Oct Telugu examples quote a caller's time
+    # back in their words, a longer exchange than the one they replaced (7,530 before).
+    assert len(prompt) <= 7_550
 
 
 # --- script v2 (item 4) ---------------------------------------------------------------------

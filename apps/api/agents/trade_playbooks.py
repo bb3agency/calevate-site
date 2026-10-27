@@ -117,7 +117,7 @@ _NOT_IN_FACTS: Final = _said(
 )
 #: The close: what happens next in one line, then one chance to ask more.
 _CLOSE: Final = _said(
-    "సరే అండి, మీరు చెప్పింది టీమ్ కి చెప్తాను, వాళ్ళు కన్ఫర్మ్ చేస్తారు. ఇంకేమైనా కావాలా?",
+    "మీరు చెప్పింది టీమ్ కి చెప్తాను, వాళ్ళు కన్ఫర్మ్ చేస్తారు. ఇంకేమైనా కావాలా?",
     "ठीक है जी, आपकी बात टीम तक पहुँचा देते हैं, वो कन्फर्म करेंगे। और कुछ चाहिए?",
     "Alright, I'll pass this to the team and they'll confirm it. Anything else?",
 )
@@ -293,7 +293,7 @@ TRADE_WORDS: Final[Mapping[str, TradeWords]] = {
     "clinic": TradeWords(
         reason="they asked about an appointment earlier",
         first_ask=_said(
-            "సరే అండి, డాక్టర్ ని ఎప్పుడు చూపించుకోవాలి, ఈ రోజా రేపా?",
+            "డాక్టర్ ని ఎప్పుడు చూపించుకోవాలి, ఈ రోజా రేపా?",
             "ठीक है जी, डॉक्टर को कब दिखाना है, आज या कल?",
             "Sure, when would you like to see the doctor, today or tomorrow?",
         ),
@@ -331,7 +331,7 @@ TRADE_WORDS: Final[Mapping[str, TradeWords]] = {
     "real_estate": TradeWords(
         reason="their enquiry about a property",
         first_ask=_said(
-            "సరే అండి, ఏ ఏరియా లో చూస్తున్నారు?",
+            "ఏ ఏరియా లో చూస్తున్నారు?",
             "ठीक है जी, किस एरिया में देख रहे हैं?",
             "Sure, which area are you looking in?",
         ),
@@ -371,7 +371,7 @@ TRADE_WORDS: Final[Mapping[str, TradeWords]] = {
     "insurance": TradeWords(
         reason="their question about a policy",
         first_ask=_said(
-            "సరే అండి, హెల్త్ పాలసీ కావాలా, లైఫ్ పాలసీ కావాలా?",
+            "హెల్త్ పాలసీ కావాలా, లైఫ్ పాలసీ కావాలా?",
             "ठीक है जी, हेल्थ पॉलिसी चाहिए या लाइफ पॉलिसी?",
             "Sure, is this about a health policy or a life policy?",
         ),
@@ -409,7 +409,7 @@ TRADE_WORDS: Final[Mapping[str, TradeWords]] = {
     "education": TradeWords(
         reason="their enquiry about admission",
         first_ask=_said(
-            "సరే అండి, ఏ కోర్స్ గురించి అడుగుతున్నారు?",
+            "ఏ కోర్స్ గురించి అడుగుతున్నారు?",
             "ठीक है जी, किस कोर्स के बारे में पूछ रहे हैं?",
             "Sure, which course are you asking about?",
         ),
@@ -447,7 +447,7 @@ TRADE_WORDS: Final[Mapping[str, TradeWords]] = {
     "retail": TradeWords(
         reason="their interest in the shop's products",
         first_ask=_said(
-            "సరే అండి, ఏ ఐటమ్ కావాలి?",
+            "ఏ ఐటమ్ కావాలి?",
             "ठीक है जी, कौन सा आइटम चाहिए?",
             "Sure, which item would you like?",
         ),
@@ -485,7 +485,7 @@ TRADE_WORDS: Final[Mapping[str, TradeWords]] = {
     "local_services": TradeWords(
         reason="their interest in the service",
         first_ask=_said(
-            "సరే అండి, ఏ సర్వీస్ కావాలి?",
+            "ఏ సర్వీస్ కావాలి?",
             "ठीक है जी, कौन सी सर्विस चाहिए?",
             "Sure, which service do you need?",
         ),
@@ -522,7 +522,7 @@ TRADE_WORDS: Final[Mapping[str, TradeWords]] = {
     "automobile": TradeWords(
         reason="their question about a service",
         first_ask=_said(
-            "సరే అండి, మీ వెహికల్ ఏ మోడల్?",
+            "మీ వెహికల్ ఏ మోడల్?",
             "ठीक है जी, आपकी गाड़ी कौन से मॉडल की है?",
             "Sure, which vehicle and model is it?",
         ),
@@ -559,7 +559,7 @@ TRADE_WORDS: Final[Mapping[str, TradeWords]] = {
     NEUTRAL_TRADE: TradeWords(
         reason="their enquiry with the business",
         first_ask=_said(
-            "సరే అండి, మీకు ఏం కావాలో చెప్తారా?",
+            "మీకు ఏం కావాలో చెప్తారా?",
             "ठीक है जी, बताइए क्या चाहिए?",
             "Sure, what can I help you with?",
         ),
@@ -641,11 +641,14 @@ ALL_LINES: Final[tuple[Said, ...]] = (
     _NOT_NOW,
     *(said for words in TRADE_WORDS.values() for said in _trade_lines(words)),
 )
+#: The Telugu opener the close and the first questions used to start with.
+_DROPPED_TE_OPENER: Final = "సరే అండి, "
+
 #: (the line a plan used to teach, the one that replaced it), per language: what the
 #: `refresh_example_lines` job puts on agents still holding the old line word for word
 #: (D-888, migration `c8e4a1f7b2d5`, which freezes its own copy). The old lines still count
 #: as plan lines, so a business's own example line may replace one an agent was made with.
-REPLACED_LINES: Final[tuple[tuple[Said, Said], ...]] = (
+BHK_AND_VISIT_LINES: Final[tuple[tuple[Said, Said], ...]] = (
     (
         _said(
             "టూ బీహెచ్కే కావాలా, త్రీ బీహెచ్కే కావాలా అండి?",
@@ -671,6 +674,15 @@ REPLACED_LINES: Final[tuple[tuple[Said, Said], ...]] = (
         TRADE_WORDS["real_estate"].lead_offer,
     ),
 )
+#: The Telugu close and every trade's first question opened with the stock "సరే అండి,"
+#: (founder, 27 Oct 2026, D-894: a reaction only where it fits); migration `d7c2e9a4f6b1`
+#: takes it off agents still holding the old line. Hindi and English keep theirs: the
+#: approval named the Telugu opener.
+TE_OPENER_LINES: Final[tuple[tuple[Said, Said], ...]] = tuple(
+    ({**said, "te-IN": _DROPPED_TE_OPENER + said["te-IN"]}, said)
+    for said in (_CLOSE, *(words.first_ask for words in TRADE_WORDS.values()))
+)
+REPLACED_LINES: Final[tuple[tuple[Said, Said], ...]] = (*BHK_AND_VISIT_LINES, *TE_OPENER_LINES)
 _ALL_LINES: Final = frozenset(
     line for said in (*ALL_LINES, *(old for old, _ in REPLACED_LINES)) for line in said.values()
 )
@@ -717,10 +729,12 @@ def playbook_guidance(trade: str | None, direction: str, language: str) -> str:
 
 __all__ = [
     "ALL_LINES",
+    "BHK_AND_VISIT_LINES",
     "JOB_SHAPES",
     "NEUTRAL_TRADE",
     "PLAYBOOK_LANGUAGES",
     "REPLACED_LINES",
+    "TE_OPENER_LINES",
     "TRADE_WORDS",
     "PlayStep",
     "Playbook",

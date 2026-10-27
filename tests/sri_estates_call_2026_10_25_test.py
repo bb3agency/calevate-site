@@ -23,6 +23,7 @@ from apps.api.agents.lifecycle import create_agent
 from apps.api.agents.script_builder import load_agent_script, rewrite_script
 from apps.api.agents.test_conversations import RuleContext, Turn, hard_check, probe_scenario
 from apps.api.agents.trade_playbooks import (
+    BHK_AND_VISIT_LINES,
     PLAYBOOK_LANGUAGES,
     REPLACED_LINES,
     TRADE_WORDS,
@@ -170,7 +171,7 @@ def test_the_migrations_lines_are_the_shipped_plans() -> None:
     assert revision.JOB == JOB_NAME
     shipped = [
         (old[language], new[language])
-        for old, new in REPLACED_LINES
+        for old, new in BHK_AND_VISIT_LINES
         for language in PLAYBOOK_LANGUAGES
     ]
     assert sorted(revision.REPLACEMENTS) == sorted(shipped)
@@ -222,14 +223,14 @@ async def _put_lines(tenant_id: uuid.UUID, agent_id: uuid.UUID, swap: dict[str, 
 
 
 def _back_to_old() -> dict[str, str]:
-    return {new["te-IN"]: old["te-IN"] for old, new in REPLACED_LINES}
+    return {new["te-IN"]: old["te-IN"] for old, new in BHK_AND_VISIT_LINES}
 
 
 async def test_an_agent_made_with_the_old_lines_gets_the_new_ones_an_edited_line_is_kept() -> None:
     tenant_id = await _real_estate_account()
     agent_id = await _caller_agent(tenant_id)
     shipped = await _lines(tenant_id, agent_id)
-    old_offer = REPLACED_LINES[2][0]["te-IN"]
+    old_offer = BHK_AND_VISIT_LINES[2][0]["te-IN"]
     assert TRADE_WORDS["real_estate"].lead_offer["te-IN"] in shipped
     await _put_lines(tenant_id, agent_id, _back_to_old())
     held = await _lines(tenant_id, agent_id)

@@ -313,12 +313,31 @@ def test_a_long_run_without_a_breath_is_noted_and_never_fails_the_test() -> None
 
 def test_the_prompt_examples_breathe() -> None:
     """The examples every Telugu, Hindi and English agent reads (D-861) carry no problem of
-    their own: a comma after the opener, short sentences and a question mark."""
+    their own: short sentences and a question to end the turn. An opener is not required
+    (D-894: a reaction only where it fits)."""
     for tag in ("te-IN", "hi-IN", "en-IN"):
         style = style_for(tag)
         assert style is not None and len(style.prompt_examples) == 3, tag
         for exchange in style.prompt_examples:
             agent = next(t.text for t in exchange if t.speaker == "agent")
-            # An opener with a comma or a "!" for warmth, and a question to end the turn.
-            assert ("," in agent or "!" in agent) and agent.endswith("?"), (tag, agent)
+            assert agent.endswith("?"), (tag, agent)
             assert _kinds(agent, language=tag) == [], (tag, agent)
+
+
+def test_the_telugu_examples_are_the_founders_27_october_wording() -> None:
+    """Founder, 27 Oct 2026 (D-894 follow-up): the first answer asks with no reaction, the
+    second is kept, and the third says the caller's English-word time back in their words."""
+    style = style_for("te-IN")
+    assert style is not None
+    exchanges = [{t.speaker: t.text for t in exchange} for exchange in style.prompt_examples]
+    assert [e["agent"] for e in exchanges] == [
+        "మీది ఏ ఏరియా అండి?",
+        "అలాగే అండి, రేపు. పొద్దున వీలవుతుందా, సాయంత్రమా?",
+        "సాటర్డే ఈవెనింగ్ సిక్స్ కి అండి. మీ పేరు చెప్తారా?",
+    ]
+    # The time goes back exactly as the caller said it.
+    assert "సాటర్డే ఈవెనింగ్ సిక్స్ కి" in exchanges[2]["caller"]
+    # No reaction opens two turns the same way, and none is the stock "సరే అండి".
+    openers = [e["agent"].split(",")[0] for e in exchanges if "," in e["agent"]]
+    assert len(openers) == len(set(openers))
+    assert not any(e["agent"].startswith("సరే అండి") for e in exchanges)

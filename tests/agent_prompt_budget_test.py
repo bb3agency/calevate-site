@@ -163,8 +163,10 @@ def test_a_long_realistic_script_fits_with_margin() -> None:
 #: the end of a turn (about 15), a pace complaint answered with shorter sentences and the call
 #: carried on (about 85), a caller's own words for a time or number said back (about 75), and
 #: a short first sentence, which the engine voices sooner (about 20).
-PER_CALL_MAX = 7_121
-PER_CALL_ONE_LANGUAGE_MAX = 6_246
+#: The founder's 27 Oct Telugu examples (spoken_style.json) RAISED both by 20: the caller's
+#: "Saturday evening six" and its answer said back in those words replaced a shorter pair.
+PER_CALL_MAX = 7_141
+PER_CALL_ONE_LANGUAGE_MAX = 6_266
 
 
 def _platform_only(languages_extra: list[str]) -> AgentConfig:

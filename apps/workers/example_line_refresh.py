@@ -1,4 +1,4 @@
-"""Give an account's agents a ready-made script's better example lines (D-888).
+"""Give an account's agents a ready-made script's better example lines (D-888, D-894).
 
 A starter's steps carry the trade plan's example line for each step (`agents/trade_playbooks`),
 stored in the agent's script, so a plan line that taught the wrong thing stays on every agent
@@ -7,11 +7,16 @@ offered "this weekend" for a visit, and on the calls of 25 Oct 2026 the agent st
 who wanted five bedrooms and offered a weekend that had ended.
 
 Queued through the outbox, one message per account, by the migration that ships the new lines
-(`c8e4a1f7b2d5`); the payload carries old and new lines as that migration froze them. Per
-agent, in one transaction, a step still holding an old line word for word gets the new one
-(`script_builder.refresh_example_lines`, which republishes a live agent). A line anybody edited
-is left alone; an agent the voice platform refuses rolls back alone, the run ends `partial`,
-and re-queueing the payload picks it up. A redelivery finds nothing left to change.
+(`c8e4a1f7b2d5`, `d7c2e9a4f6b1`); the payload carries old and new lines as that migration froze
+them. Per agent, in one transaction, a step still holding an old line word for word gets the new
+one (`script_builder.refresh_example_lines`, which republishes a live agent). A line anybody
+edited is left alone; an agent the voice platform refuses rolls back alone, the run ends
+`partial`, and re-queueing the payload picks it up. A redelivery finds nothing left to change.
+
+An optional `stages` map (agent id -> step positions) limits the run to those agents and those
+steps: a migration that recorded exactly what it changed sends it, so its downgrade restores
+those steps and no step that merely holds the same words. An optional `notes` names the change
+in the agent's version history.
 """
 
 from __future__ import annotations
@@ -41,16 +46,33 @@ async def _agent_ids(tenant_id: UUID) -> list[UUID]:
     return [UUID(str(r[0])) for r in rows]
 
 
+def _stages(payload: dict[str, Any]) -> dict[UUID, frozenset[int]] | None:
+    raw = payload.get("stages")
+    if raw is None:
+        return None
+    return {UUID(str(agent)): frozenset(int(i) for i in idx) for agent, idx in raw.items()}
+
+
 async def refresh_example_lines(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     del ctx
     tenant_id = UUID(str(payload["tenant_id"]))
     replacements = {str(old): str(new) for old, new in payload["replacements"]}
+    stages = _stages(payload)
+    notes = payload.get("notes")
+    named = {} if notes is None else {"notes": str(notes)}
     written = refused = crashed = 0
     for agent_id in await _agent_ids(tenant_id):
+        if stages is not None and agent_id not in stages:
+            continue
         try:
             async with tenant_session(tenant_id) as session:
                 if await refresh_agent_lines(
-                    session, tenant_id=tenant_id, agent_id=agent_id, replacements=replacements
+                    session,
+                    tenant_id=tenant_id,
+                    agent_id=agent_id,
+                    replacements=replacements,
+                    only_stages=None if stages is None else stages[agent_id],
+                    **named,
                 ):
                     written += 1
         except ProblemError as exc:

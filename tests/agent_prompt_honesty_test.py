@@ -88,7 +88,7 @@ def test_every_word_and_amount_is_written_in_the_languages_letters() -> None:
     register = _layer(_cfg(), "spoken_register")
     assert "every word in Telugu letters, English words too" in register
     assert "English letters" not in register
-    assert "ఓకే అండి, డెలివరీ. మీది ఏ ఏరియా?" in register
+    assert "మీది ఏ ఏరియా అండి?" in register
     assert '"వన్ ట్వంటీ రూపీస్", "టూ క్రోర్స్"' in VOICE_STYLE_GUIDANCE
 
 
