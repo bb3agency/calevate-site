@@ -360,13 +360,13 @@ export function CallDetailScreen({
           width; captured details, key moments and the second reading sit beside it. In
           the DOM the captured details come first, so a phone reads them before the
           transcript, and the rest after it. */}
-      <div className="grid grid-cols-1 items-start gap-10 lg:grid-cols-[minmax(0,1fr)_300px] lg:gap-12 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <div className="lg:col-start-2 lg:row-start-1">
+      <div className="grid grid-cols-1 items-start gap-10 page-lg:grid-cols-[minmax(0,1fr)_300px] page-lg:gap-12 page-xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="page-lg:col-start-2 page-lg:row-start-1">
           <CapturedDetails detail={detail} />
         </div>
 
         <TranscriptCard
-          className="lg:col-start-1 lg:row-span-2 lg:row-start-1"
+          className="page-lg:col-start-1 page-lg:row-span-2 page-lg:row-start-1"
           detail={detail}
           turns={turns}
           view={view}
@@ -405,7 +405,7 @@ export function CallDetailScreen({
           onSeek={seekToMs}
         />
 
-        <aside aria-label="More about this call" className="space-y-8 lg:col-start-2 lg:row-start-2">
+        <aside aria-label="More about this call" className="space-y-8 page-lg:col-start-2 page-lg:row-start-2">
           {/* How it went, from the voice platform's own figures: all of it, turn by turn, for
               an operator viewing as the client; the wait for an answer for the client. */}
           <CallQualityCard detail={detail} operator={viewAsRequested} />
