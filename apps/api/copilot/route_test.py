@@ -707,6 +707,30 @@ async def test_a_provider_dying_mid_answer_ends_with_a_problem_body(
     assert events[-1][1]["remediation"]
 
 
+async def test_a_provider_read_timeout_says_pip_took_too_long(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Production, 27 Oct 2026: a read timeout ended in "stopped part-way", which told the
+    person nothing they could act on. FAILS IF a timeout is reported as anything else."""
+    _, slug, token = await _make_tenant()
+
+    def _stream(*args: Any, **kwargs: Any) -> AsyncIterator[chat.StreamEvent]:
+        async def _iterate() -> AsyncIterator[chat.StreamEvent]:
+            yield chat.StreamEvent(text="Nine in the ")
+            raise httpx.ReadTimeout("slow")
+
+        return _iterate()
+
+    monkeypatch.setattr(chat, "stream", _stream)
+
+    async with _client() as http:
+        events = await _events(http, token, slug)
+
+    assert [name for name, _ in events] == ["text", "error"]
+    assert events[-1][1]["type"].endswith("/copilot_timed_out")
+    assert events[-1][1]["remediation"]
+
+
 async def test_a_body_the_contract_does_not_admit_is_a_422_and_not_a_stream(
     azure_only: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:

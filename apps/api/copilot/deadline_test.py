@@ -102,6 +102,12 @@ def test_the_whole_loop_cannot_outlast_the_total_budget() -> None:
     assert service.MAX_TURNS * service.STREAM_IDLE_S <= service.TOTAL_BUDGET_S
 
 
+def test_the_standby_request_fits_inside_the_total_budget() -> None:
+    """The standby is one blocking request, so its timeout is a whole answer's time; it must
+    still fit inside the question's wall clock."""
+    assert service.STREAM_IDLE_S < service.STANDBY_ANSWER_S <= service.TOTAL_BUDGET_S
+
+
 def test_the_turn_cap_is_in_the_three_to_six_range_the_design_argues_for() -> None:
     """Fewer than three and a refused fill can never be corrected; more than six and one
     click can buy seven paid round trips.

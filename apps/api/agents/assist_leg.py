@@ -32,11 +32,13 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.llm_models import (
+    NO_DATA_USE_ATTESTATION_REASON,
     off_call_offerable_models,
     resolve_llm_model,
     tenant_dashboard_leg,
     unofferable_reason,
 )
+from apps.api.core.alerting import alert
 from apps.api.core.settings import get_settings
 from apps.workers.extraction import GOOGLE_PROVIDER, TenantModelLeg
 
@@ -74,7 +76,15 @@ async def account_assist_leg(session: AsyncSession) -> TenantModelLeg:
     # sentence changes.
     if leg_for_model(resolved.model).provider == GOOGLE_PROVIDER:
         return google_assist_leg()
-    return tenant_dashboard_leg(model=resolved.model, source=resolved.source)
+    own = tenant_dashboard_leg(model=resolved.model, source=resolved.source)
+    if own.serves_dashboard:
+        return own
+    # Gemini is the platform's main model (founder, 27 Oct 2026): an account whose own leg
+    # cannot serve the assistant gets the platform's Gemini leg before the optional Azure rung
+    # and the disclosed Sarvam standby. When Gemini cannot serve either, the account's own leg
+    # is kept so the ladder's refusal names the account's ground.
+    platform = google_assist_leg()
+    return platform if platform.serves_dashboard else own
 
 
 def google_assist_leg() -> TenantModelLeg:
@@ -95,7 +105,7 @@ def google_leg_for(model: str) -> TenantModelLeg:
     answered would raise on the meter after Google was paid. The selector then
     substitutes and discloses."""
     if model not in off_call_offerable_models():
-        return TenantModelLeg(
+        leg = TenantModelLeg(
             model=model,
             provider=GOOGLE_PROVIDER,
             serves_dashboard=False,
@@ -103,7 +113,42 @@ def google_leg_for(model: str) -> TenantModelLeg:
             or "this model is not offerable here",
             account_chose_model=False,
         )
-    return tenant_dashboard_leg(model=model, source="platform")
+    else:
+        leg = tenant_dashboard_leg(model=model, source="platform")
+    # A deployment holding no Gemini key was not given Gemini at all (a dev box, a test run);
+    # one that holds it and still cannot use it is missing a record an operator can add.
+    if not leg.serves_dashboard and get_settings().gemini_api_key:
+        _alarm_gemini_unavailable(model, leg.blocked_reason or "")
+    return leg
 
 
-__all__ = ["account_assist_leg", "google_assist_leg", "google_leg_for"]
+#: Raised when the platform's Gemini assistant leg cannot serve, so the assistant answers on
+#: the Sarvam standby (or Azure, when configured) instead of its main model.
+GEMINI_UNAVAILABLE_ALARM = "assistant_gemini_unavailable"
+
+
+def _alarm_gemini_unavailable(model: str, reason: str) -> None:
+    """Tell an operator exactly what to record. The alert path suppresses repeats, so a
+    request that hits this every time raises one notice per window."""
+    where = (
+        "Record it in Admin → Ops → Dashboard data use."
+        if reason == NO_DATA_USE_ATTESTATION_REASON
+        else "Fix it in Admin → Ops (AI models and prices)."
+    )
+    alert(
+        "CORE_LOGIC",
+        GEMINI_UNAVAILABLE_ALARM,
+        detail=(
+            "The assistant's Gemini model cannot serve the dashboard, so Pip and the "
+            f"dashboard assists answer on a backup: {reason}. {where}"
+        ),
+        model=model,
+    )
+
+
+__all__ = [
+    "GEMINI_UNAVAILABLE_ALARM",
+    "account_assist_leg",
+    "google_assist_leg",
+    "google_leg_for",
+]

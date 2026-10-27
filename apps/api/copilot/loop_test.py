@@ -926,6 +926,57 @@ async def test_a_standby_answer_cut_at_the_ceiling_is_logged_for_an_operator(
     assert any(r.getMessage() == "copilot_answer_truncated" for r in caplog.records)
 
 
+@pytest.fixture
+def sarvam_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No usual model at all, only the standby: the production state of 27 Oct 2026, where
+    a client's Pip question went straight to Sarvam."""
+    settings = get_settings()
+    monkeypatch.setattr(settings, "azure_openai_resource", None, raising=False)
+    monkeypatch.setattr(settings, "azure_openai_api_key", None, raising=False)
+    monkeypatch.setattr(settings, "azure_openai_deployment", None, raising=False)
+    monkeypatch.setattr(settings, "sarvam_api_key", "sk-test", raising=False)
+
+
+async def test_a_standby_answering_first_gets_more_than_a_stream_gap_and_is_logged(
+    sarvam_only: None, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """FAILS IF: the standby's blocking request is bounded by `STREAM_IDLE_S` again (the
+    15 s that timed out in production), or its answering first leaves no reason in the
+    log for an operator."""
+    sent: list[dict[str, Any]] = []
+
+    async def _complete(*args: Any, **kwargs: Any) -> chat.ChatOutcome:
+        sent.append(kwargs)
+        return chat.ChatOutcome(content="Nine.", finish_reason="stop")
+
+    monkeypatch.setattr(chat, "complete", _complete)
+    with caplog.at_level("WARNING"):
+        await _drain()
+    assert sent[-1]["timeout_s"] == service.STANDBY_ANSWER_S > service.STREAM_IDLE_S
+    first = [r for r in caplog.records if r.getMessage() == "copilot_standby_first"]
+    assert first and first[0].reason == extraction_module.NO_CREDENTIAL_REASON  # type: ignore[attr-defined]
+
+
+def test_the_standby_timeout_never_outlasts_what_the_question_has_left() -> None:
+    assert service._standby_timeout(500.0) == service.STANDBY_ANSWER_S
+    assert service._standby_timeout(30.0) == 30.0
+    assert service._standby_timeout(1.0) == service.STREAM_IDLE_S
+
+
+@pytest.mark.parametrize(
+    "failure", [TimeoutError(), httpx.ReadTimeout("slow"), httpx.ConnectTimeout("slow")]
+)
+def test_a_timeout_tells_the_person_it_took_too_long(failure: BaseException) -> None:
+    problem = service.interrupted_problem(failure)
+    assert problem.code == "copilot_timed_out"
+    assert problem.title == service.TIMED_OUT_TITLE
+    assert problem.remediation == service.TIMED_OUT_REMEDIATION
+
+
+def test_any_other_failure_still_says_it_stopped_part_way() -> None:
+    assert service.interrupted_problem(httpx.ReadError("cut")).code == "copilot_interrupted"
+
+
 # --- the read tools: results feed back, and the loop CONTINUES (phase 1) -----------------
 #
 # The seam here is `tools.run_read_tool`, one layer below the loop — the same choice this

@@ -635,7 +635,7 @@ async def ask_admin_copilot(
         await _record()
         yield _error_event(refusal)
         return
-    except Exception:
+    except Exception as failure:
         # A PROVIDER THAT DIED MID-ANSWER IS SPEND. Ids only (hard rule 6). This arm used to
         # return before the meter, so tokens the platform had already paid for landed in no
         # `platform_ai_usage` row and moved no `platform_ai_spend` counter — which is the
@@ -645,15 +645,7 @@ async def ask_admin_copilot(
             extra={"admin_user_id": str(principal.user_id), "ref": ref},
         )
         await _record()
-        yield _error_event(
-            ProblemError(
-                kind="dependency",
-                code="copilot_interrupted",
-                title=f"{ASSISTANT_NAME} stopped part-way",
-                detail=f"{ASSISTANT_NAME} did not finish answering.",
-                remediation="Ask again — nothing on your screen was changed.",
-            )
-        )
+        yield _error_event(service.interrupted_problem(failure))
         return
     finally:
         # THE OPERATOR CLOSED THE TAB. `sse-starlette` `aclose()`s this generator and every
