@@ -64,30 +64,37 @@ async def send_lead_whatsapp(
         async with tenant_session(tenant_id) as fail_session:
             await fail_idempotency(fail_session, claim=claim)
         raise
-    await swipe.record_whatsapp_on_timeline(
-        session, lead_id=lead_id, template=template, out=out, actor=str(principal.user_id)
-    )
-    await write_audit(
-        session,
-        action="lead.whatsapp_follow_up",
-        actor=principal,
-        tenant_id=tenant_id,
-        object_type="lead",
-        object_id=str(lead_id),
-        ip=ip,
-        summary={
-            "status": out.status,
-            "rule": out.rule,
-            "template": template,
-            **(audit_extra or {}),
-        },
-    )
-    await complete_idempotency(
-        session,
-        claim=claim,
-        response_status=200,
-        response_payload=out.model_dump(mode="json"),
-    )
+    # The timeline row, the completed claim and the audit row commit together, and the
+    # audit is the block's last statement: a failing audit rolls back the other two.
+    async with tenant_session(tenant_id) as record_session:
+        await swipe.record_whatsapp_on_timeline(
+            record_session,
+            lead_id=lead_id,
+            template=template,
+            out=out,
+            actor=str(principal.user_id),
+        )
+        await complete_idempotency(
+            record_session,
+            claim=claim,
+            response_status=200,
+            response_payload=out.model_dump(mode="json"),
+        )
+        await write_audit(
+            record_session,
+            action="lead.whatsapp_follow_up",
+            actor=principal,
+            tenant_id=tenant_id,
+            object_type="lead",
+            object_id=str(lead_id),
+            ip=ip,
+            summary={
+                "status": out.status,
+                "rule": out.rule,
+                "template": template,
+                **(audit_extra or {}),
+            },
+        )
     return out
 
 
