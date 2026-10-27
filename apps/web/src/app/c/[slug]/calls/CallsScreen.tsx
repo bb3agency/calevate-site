@@ -29,10 +29,11 @@ import { DateRangePicker, type DateRange } from "@/components/arc/calendar";
 import { ChipGroup } from "@/components/arc/chip-group";
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { FilterToolbar, type ActiveFilter } from "@/components/arc/filter-toolbar";
-import { formatDateRange } from "@/components/arc/ist-dates";
+import { daysBetween, formatDateRange } from "@/components/arc/ist-dates";
 import { RowMenu } from "@/components/arc/menu";
 import { useFollowUpActions, type Dialer, type FollowUpTarget } from "@/components/calls/followUpActions";
 import { DataTable } from "@/components/console/dataTable";
+import { SavedViewBar } from "@/components/console/savedViewBar";
 import { EmptySketch } from "@/components/console/emptySketch";
 import { EmptyState } from "@/components/console/emptyState";
 import { AskAssistant } from "@/components/copilot/AskAssistant";
@@ -41,7 +42,22 @@ import { FIELD, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton, formatCount, istDa
 import { canDialOut } from "@/lib/agentState";
 import { useAgents } from "@/lib/api/agents";
 import type { CallSummary } from "@/lib/api/client";
-import { queryKeys, useCallsLog, useExportCalls, useWriteAccess, type CallsLogFilters } from "@/lib/api/hooks";
+import {
+  queryKeys,
+  useActAccess,
+  useCallsLog,
+  useExportCalls,
+  useWriteAccess,
+  type CallsLogFilters,
+} from "@/lib/api/hooks";
+import {
+  useCallViews,
+  useDeleteCallView,
+  useSaveCallView,
+  type CallView,
+  type CallViewBody,
+  type CallViewFilters,
+} from "@/lib/api/callViews";
 import { useLiveCalls, type CallLive } from "@/lib/api/liveCalls";
 import { useClientRealm } from "@/lib/api/session";
 import {
@@ -59,6 +75,7 @@ import { useMediaQuery } from "@/lib/useMediaQuery";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
 import { lookup } from "@/lib/lookup";
+import { describeViewDays, endsToday, fromViewDays, toViewDays } from "@/lib/viewDays";
 
 import { callColumns, liveOf } from "./callColumns";
 import { CallsPhoneList } from "./CallsPhoneList";
@@ -73,6 +90,25 @@ function rangeDays(value: string, today: string): DateRange | null {
   if (value === "7d") return { start: shiftDay(today, -6), end: today };
   if (value === "30d") return { start: shiftDay(today, -29), end: today };
   return null;
+}
+
+/** "calls from the last 7 days, missed, incoming, not handled yet" — a view's line. */
+function describeCallView(filters: CallViewFilters): string | null {
+  const parts: string[] = [];
+  const when = describeViewDays(filters.when);
+  if (when) parts.push(`calls from ${when}`);
+  const outcome = OUTCOMES.find((o) => o.value === filters.outcome);
+  if (outcome) parts.push(outcome.label.toLowerCase());
+  const way = DIRECTIONS.find((d) => d.value === filters.direction);
+  if (way) parts.push(way.label.toLowerCase());
+  const follow = FOLLOW_UP.find((f) => f.value === filters.follow_up);
+  if (follow) parts.push(follow.label.toLowerCase());
+  if (filters.callback_open === true) parts.push("a call-back waiting");
+  if (filters.callback_open === false) parts.push("no call-back waiting");
+  if (filters.test_calls === false) parts.push("no test calls");
+  if (filters.agent_id) parts.push("one agent's");
+  if (filters.campaign_id) parts.push("one campaign's");
+  return parts.length ? parts.join(", ") : null;
 }
 
 /**
@@ -141,6 +177,39 @@ export function CallsScreen({ slug }: { slug: string }) {
       callbackOpen !== undefined,
   );
   const phone = useMediaQuery(PHONE);
+
+  /* SAVED VIEWS (D-893 L2): every filter on this screen, under a name only this person
+     sees. Saving and applying are exact inverses, so a view puts back what it held and
+     clears the rest. */
+  const callViews = useCallViews(session);
+  const saveCallView = useSaveCallView(session);
+  const deleteCallView = useDeleteCallView(session);
+  const [activeViewId, setActiveViewId] = useState<string | undefined>();
+  const mayView = useActAccess(session, "leads:write", "leads.saved_view", "save a view");
+  const callViewFilters = (rolling: boolean): CallViewFilters => ({
+    status: status ?? null,
+    agent_id: agentId ?? null,
+    campaign_id: campaignId ?? null,
+    outcome: outcome ?? null,
+    direction: direction ?? null,
+    when: toViewDays(dates, today, rolling),
+    test_calls: testCalls,
+    follow_up: followUpFilter ?? null,
+    callback_open: callbackOpen ?? null,
+  });
+  const applyCallView = (view: CallView | undefined) => {
+    const saved = view?.filters;
+    setActiveViewId(view?.id);
+    setStatus(saved?.status ?? undefined);
+    setAgentId(saved?.agent_id ?? undefined);
+    setCampaignId(saved?.campaign_id ?? undefined);
+    setOutcome(saved?.outcome ?? undefined);
+    setDirection(saved?.direction ?? undefined);
+    setDates(fromViewDays(saved?.when, today));
+    setTestCalls(saved?.test_calls ?? true);
+    setFollowUpFilter(saved?.follow_up ?? undefined);
+    setCallbackOpen(saved?.callback_open ?? undefined);
+  };
 
   /* Who rings a caller back: the agent that took the call when it places calls, else the
      account's first agent that does (`canDialOut`, the one definition). */
@@ -427,6 +496,24 @@ export function CallsScreen({ slug }: { slug: string }) {
           active={active}
           onClearAll={clearAll}
           removeLabel={(filter) => `Remove the filter: ${filter.label}`}
+        />
+        <SavedViewBar<CallView, CallViewBody>
+          views={callViews.data}
+          error={callViews.error}
+          activeViewId={activeViewId}
+          canWrite={mayView.allowed}
+          writeReason={mayView.reason}
+          onApply={applyCallView}
+          bodyFor={(name, rolling) => ({ name, filters: callViewFilters(rolling) })}
+          save={saveCallView}
+          remove={deleteCallView}
+          allLabel="All calls (no view)"
+          describe={(view) => describeCallView(view.filters)}
+          rollingNote={
+            dates && endsToday(dates, today)
+              ? `saved as the last ${daysBetween(dates.start, dates.end)} days, so it stays up to date`
+              : null
+          }
         />
         {/* The denominator, only once the query has answered — a count rendered while
             loading says 0 and then jumps. With more pages behind it the loaded length is

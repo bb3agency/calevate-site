@@ -77,7 +77,7 @@ function read(over: Partial<CallLive> = {}): CallLive {
 const page = <CallsPage params={Promise.resolve({ slug: "acme" })} />;
 
 function routes(calls: unknown, over: Record<string, unknown> = {}) {
-  return { "/v1/me": ME, "/v1/agents": [], "/v1/calls?limit=100": calls, ...over };
+  return { "/v1/me": ME, "/v1/agents": [], "/v1/calls/views": { items: [] }, "/v1/calls?limit=100": calls, ...over };
 }
 
 describe("live rows, as data", () => {

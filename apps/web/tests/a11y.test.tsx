@@ -2334,7 +2334,12 @@ const CLIENT_SCREENS: Screen[] = [
     file: "c/[slug]/calls/page.tsx",
     realm: "client",
     element: () => <CallsPage params={slug} />,
-    routes: { "/v1/me": ME, "/v1/calls?limit=100": [CALL], "/v1/agents": [AGENT] },
+    routes: {
+      "/v1/me": ME,
+      "/v1/calls?limit=100": [CALL],
+      "/v1/agents": [AGENT],
+      "/v1/calls/views": { items: [] },
+    },
   },
   {
     file: "c/[slug]/calls/[callId]/page.tsx",

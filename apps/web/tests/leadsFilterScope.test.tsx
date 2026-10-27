@@ -12,6 +12,8 @@ import { exportRefusal, scopeLabel } from "@/app/c/[slug]/leads/leadsTable";
 import type { Me } from "@/lib/api/client";
 import { useLeadsLens } from "@/app/c/[slug]/leads/useLeadsLens";
 import type { Lead, LeadLens, LeadList, Member, SavedView } from "@/lib/api/leads";
+import { istDateStamp } from "@/components/ui";
+import { shiftDay } from "@/lib/callFilters";
 
 import { readInfoTip } from "./infoTip";
 import { lensOf, problem, renderClientPage, type ApiCall } from "./harness";
@@ -403,13 +405,18 @@ describe("the derivation is exhaustive over the lens, not over the filters we re
         "ask",
         "assigned_to",
         "callback_open",
+        "captured",
         "created_from",
         "created_to",
+        "direction",
         "fields",
         "follow_up",
+        "last_call_from",
+        "last_call_to",
         "last_outcome",
         "search",
         "status",
+        "test_calls",
       ].sort(),
     );
   });
@@ -457,27 +464,83 @@ describe("the derivation is exhaustive over the lens, not over the filters we re
   });
 });
 
-describe("a saved view replaces the call filters it cannot hold", () => {
-  it("clears came in, last call, follow-up and call-back when a view is applied", () => {
+describe("a saved view holds the whole lens", () => {
+  const base: SavedView = {
+    id: "v1",
+    name: "Hot",
+    columns: null,
+    filters: { status: "hot", assigned_to_me: true, fields: {}, test_calls: true },
+    stale_column_keys: [],
+    stale_filter_keys: [],
+    created_at: "2026-10-27T00:00:00Z",
+    updated_at: "2026-10-27T00:00:00Z",
+  };
+
+  it("clears the call filters a view does not name", () => {
     const { result } = renderHook(() => useLeadsLens());
     act(() => {
       result.current.setCreated({ start: "2026-10-20", end: "2026-10-26" });
-      result.current.setLastOutcome("no_answer");
+      result.current.setLastOutcome("missed");
       result.current.setFollowUp("not_done");
       result.current.setCallbackOpen(true);
+      result.current.setTestCalls(false);
     });
-    const view: SavedView = {
-      id: "v1",
-      name: "Hot",
-      columns: null,
-      filters: { status: "hot", assigned_to_me: true, fields: {} },
-      stale_column_keys: [],
-      stale_filter_keys: [],
-      created_at: "2026-10-27T00:00:00Z",
-      updated_at: "2026-10-27T00:00:00Z",
-    };
-    act(() => result.current.applyView(view, "u1"));
+    act(() => result.current.applyView(base, "u1"));
     expect(filtersInForce(result.current.lens)).toEqual(["status", "assigned_to"]);
     expect(result.current.activeViewId).toBe("v1");
   });
+
+  it("puts back every call filter it was saved with", () => {
+    const { result } = renderHook(() => useLeadsLens());
+    const view: SavedView = {
+      ...base,
+      filters: {
+        ...base.filters,
+        created: { from_day: "2026-10-21", to_day: "2026-10-27", last_days: 7 },
+        last_call: { from_day: "2026-10-01", to_day: "2026-10-10", last_days: null },
+        last_outcome: "missed",
+        direction: "inbound",
+        test_calls: false,
+        follow_up: "not_done",
+        callback_open: false,
+        captured: [{ key: "city", op: "contains", value: "Hyd" }],
+      },
+    };
+    act(() => result.current.applyView(view, "u1"));
+    expect(result.current.lens).toMatchObject({
+      status: "hot",
+      assigned_to: "u1",
+      created_from: "2026-10-21",
+      created_to: "2026-10-27",
+      last_call_from: "2026-10-01",
+      last_call_to: "2026-10-10",
+      last_outcome: "missed",
+      direction: "inbound",
+      test_calls: false,
+      follow_up: "not_done",
+      callback_open: false,
+      captured: [{ key: "city", op: "contains", value: "Hyd" }],
+    });
+  });
+
+  it("saves what it applies: a range ending today as the last N days, others as days", () => {
+    const { result } = renderHook(() => useLeadsLens());
+    const today = istDateStamp();
+    act(() => {
+      result.current.setCreated({ start: shiftDay(today, -6), end: today });
+      result.current.setLastCall({ start: "2026-10-01", end: "2026-10-10" });
+      result.current.setDirection("outbound");
+    });
+    expect(result.current.viewFilters(true)).toMatchObject({
+      created: { last_days: 7 },
+      last_call: { from_day: "2026-10-01", to_day: "2026-10-10" },
+      direction: "outbound",
+      test_calls: true,
+    });
+    expect(result.current.viewFilters(false).created).toEqual({
+      from_day: shiftDay(today, -6),
+      to_day: today,
+    });
+  });
 });
+

@@ -30,6 +30,7 @@ import { useClientSession } from "@/lib/api/session";
 
 import { AddSourceDrawer } from "./AddSourceDrawer";
 import { AgentDrawer } from "./AgentDrawer";
+import { FieldsDrawer } from "./FieldsDrawer";
 import { CallingPlan } from "./CallingPlan";
 import { DeliveryLog } from "./DeliveryLog";
 import { HeldLeads } from "./HeldLeads";
@@ -108,6 +109,7 @@ export function LeadSourcesScreen() {
   const [adding, setAdding] = useState(false);
   const [rotating, setRotating] = useState<LeadSource | null>(null);
   const [choosingAgent, setChoosingAgent] = useState<LeadSource | null>(null);
+  const [editingFields, setEditingFields] = useState<LeadSource | null>(null);
   const [testSourceId, setTestSourceId] = useState("");
   const [metaSourceId, setMetaSourceId] = useState("");
   const [payloadText, setPayloadText] = useState("");
@@ -230,6 +232,7 @@ export function LeadSourcesScreen() {
         onTest={openTest}
         onRotate={setRotating}
         onAgent={setChoosingAgent}
+        onFields={setEditingFields}
         onMeta={(item) => openMeta(item.id)}
       />
 
@@ -250,6 +253,9 @@ export function LeadSourcesScreen() {
           session={session}
           onClose={() => setChoosingAgent(null)}
         />
+      )}
+      {editingFields && (
+        <FieldsDrawer source={editingFields} session={session} onClose={() => setEditingFields(null)} />
       )}
       <RotateDrawer
         source={rotating}

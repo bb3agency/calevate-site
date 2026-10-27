@@ -1,5 +1,5 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import CallsPage from "@/app/c/[slug]/calls/page";
 import type { CallSummary, Me } from "@/lib/api/client";
@@ -65,7 +65,7 @@ function call(over: Partial<CallSummary> = {}): CallSummary {
 const page = <CallsPage params={Promise.resolve({ slug: "acme" })} />;
 
 function routes(calls: unknown, over: Record<string, unknown> = {}) {
-  return { "/v1/me": ME, "/v1/agents": [], "/v1/calls?limit=100": calls, ...over };
+  return { "/v1/me": ME, "/v1/agents": [], "/v1/calls/views": { items: [] }, "/v1/calls?limit=100": calls, ...over };
 }
 
 describe("the call log", () => {
@@ -250,6 +250,7 @@ describe("exporting the call log (REDESIGN-2)", () => {
     const { calls } = await renderClientPage(page, {
       "/v1/me": owner,
       "/v1/agents": [],
+      "/v1/calls/views": { items: [] },
       "/v1/calls?limit=100": [call()],
       "/v1/calls?direction=inbound&limit=100": [call()],
       "/v1/calls/export.csv?direction=inbound": csv("Started (India time),Direction\n"),
@@ -379,5 +380,72 @@ describe("the agent filter from a link", () => {
     } finally {
       window.history.replaceState(null, "", "/");
     }
+  });
+});
+
+describe("saved views of the call log (D-893)", () => {
+  const writer: Me = { ...ME, permissions: ["calls:read", "leads:write"] };
+  const VIEW = {
+    id: "cv1",
+    name: "Incoming, not handled",
+    filters: {
+      status: null,
+      agent_id: null,
+      campaign_id: null,
+      outcome: "needs_you",
+      direction: "inbound",
+      when: null,
+      test_calls: false,
+      follow_up: "not_done",
+      callback_open: null,
+    },
+    created_at: "2026-10-27T00:00:00Z",
+    updated_at: "2026-10-27T00:00:00Z",
+  };
+
+  it("puts back every filter a view holds and says what it shows", async () => {
+    const { calls } = await renderClientPage(
+      page,
+      routes([call()], {
+        "/v1/calls/views": { items: [VIEW] },
+        "/v1/calls?outcome=needs_you&direction=inbound&test_calls=false&follow_up=not_done&limit=100": [
+          call(),
+        ],
+      }),
+    );
+    fireEvent.change(await screen.findByLabelText("Saved view"), { target: { value: "cv1" } });
+
+    expect(await screen.findByText(/Shows needs you, incoming, not handled yet, no test calls\./)).toBeTruthy();
+    await waitFor(() =>
+      expect(calls.some((c) => c.path.startsWith("/v1/calls?") && c.path.includes("follow_up=not_done"))).toBe(
+        true,
+      ),
+    );
+  });
+
+  it("saves the log's filters under a name", async () => {
+    const { calls } = await renderClientPage(page, {
+      ...routes([call()], { "/v1/me": writer }),
+      "/v1/calls?direction=inbound&limit=100": [call()],
+      // The saved view becomes the chosen one, so its own filters are read next.
+      "/v1/calls?outcome=needs_you&direction=inbound&test_calls=false&follow_up=not_done&limit=100": [call()],
+      "POST /v1/calls/views": VIEW,
+    });
+    fireEvent.change(await screen.findByRole("combobox", { name: "Which way" }), {
+      target: { value: "inbound" },
+    });
+    fireEvent.click(await screen.findByRole("button", { name: /Save this view/ }));
+    fireEvent.change(await screen.findByLabelText("Name this view"), { target: { value: "Incoming" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    const posted = await vi.waitFor(() => {
+      const found = calls.find((c) => c.method === "POST" && c.path === "/v1/calls/views");
+      if (!found) throw new Error("the view was never saved");
+      return found;
+    });
+    expect(JSON.parse(posted.body ?? "{}")).toMatchObject({
+      name: "Incoming",
+      filters: { direction: "inbound", test_calls: true, when: null },
+    });
   });
 });

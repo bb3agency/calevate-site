@@ -2,11 +2,23 @@
 
 import { useEffect, useState } from "react";
 
-import { lensKey, type LeadLens, type SavedView } from "@/lib/api/leads";
+import type { DateRange } from "@/components/arc/calendar";
+import { istDateStamp } from "@/components/ui";
+import {
+  lensKey,
+  type CapturedFilter,
+  type LeadLens,
+  type SavedView,
+  type SavedViewFilters,
+} from "@/lib/api/leads";
 import { DEFAULT_LEAD_COLUMNS } from "@/lib/leadLabels";
+import { fromViewDays, toViewDays } from "@/lib/viewDays";
 
 import { anyFilterInForce, type LeadFilterKey } from "./leadFilters";
 import { PAGE_SIZE } from "./leadsTable";
+
+type LeadStatus = NonNullable<SavedViewFilters["status"]>;
+type Outcome = NonNullable<SavedViewFilters["last_outcome"]>;
 
 /**
  * WHICH ROWS AND WHICH COLUMNS — the leads screen's filter state, and the one `LeadLens`
@@ -16,6 +28,9 @@ import { PAGE_SIZE } from "./leadsTable";
  *
  * Every filter here is SERVER-side. A page holds 100 rows, so a filter applied in the
  * browser would be a filter over whatever happened to load.
+ *
+ * A saved view holds the whole lens except the search box and the question
+ * (`crm.schemas.SavedViewFilters`), so `viewFilters` and `applyView` are exact inverses.
  */
 export function useLeadsLens(needKey: string = "need") {
   const [status, setStatus] = useState<string | undefined>();
@@ -39,11 +54,18 @@ export function useLeadsLens(needKey: string = "need") {
    */
   const [chosenColumns, setChosenColumns] = useState<string[] | undefined>();
   /** When the lead came in, as India days, both ends included (D-893). */
-  const [created, setCreated] = useState<{ start: string; end: string } | null>(null);
+  const [created, setCreated] = useState<DateRange | null>(null);
+  /** When the lead's latest call happened. */
+  const [lastCall, setLastCall] = useState<DateRange | null>(null);
   /** How the lead's latest call ended (`lib/callFilters.OUTCOMES`). */
   const [lastOutcome, setLastOutcome] = useState<string | undefined>();
+  const [direction, setDirection] = useState<"inbound" | "outbound" | undefined>();
+  /** False leaves out leads whose latest call was a free-trial test call. */
+  const [testCalls, setTestCalls] = useState(true);
   const [followUp, setFollowUp] = useState<"done" | "not_done" | undefined>();
   const [callbackOpen, setCallbackOpen] = useState<boolean | undefined>();
+  /** Captured details the rows must match ("city contains Hyd"). */
+  const [captured, setCaptured] = useState<CapturedFilter[]>([]);
   const [activeViewId, setActiveViewId] = useState<string | undefined>();
   const [offset, setOffset] = useState(0);
 
@@ -62,9 +84,14 @@ export function useLeadsLens(needKey: string = "need") {
     fields: facetValues,
     created_from: created?.start,
     created_to: created?.end,
+    last_call_from: lastCall?.start,
+    last_call_to: lastCall?.end,
     last_outcome: lastOutcome,
+    direction,
+    test_calls: testCalls ? undefined : false,
     follow_up: followUp,
     callback_open: callbackOpen,
+    captured: captured.length ? captured : undefined,
     columns: chosenColumns ?? DEFAULT_LEAD_COLUMNS.map((key) => (key === "need" ? needKey : key)),
   };
 
@@ -92,30 +119,58 @@ export function useLeadsLens(needKey: string = "need") {
     // One picker sets both ends, so either end clears the range.
     created_from: () => setCreated(null),
     created_to: () => setCreated(null),
+    last_call_from: () => setLastCall(null),
+    last_call_to: () => setLastCall(null),
     last_outcome: () => setLastOutcome(undefined),
+    direction: () => setDirection(undefined),
+    test_calls: () => setTestCalls(true),
     follow_up: () => setFollowUp(undefined),
     callback_open: () => setCallbackOpen(undefined),
+    captured: () => setCaptured([]),
   };
   const clearFilters = () => {
     for (const clear of Object.values(clearFilter)) clear();
   };
+
   /**
-   * A saved view stores the stage, the owner, the facet values and the columns. The call
-   * filters (came in, last call, follow-up, call-back) are not part of one, so they are
-   * cleared here: kept, they would narrow the table under a view that does not name them.
-   * The owner filter is a boolean on the view, resolved against whoever is signed in; a
-   * stored id would dangle the day that colleague leaves.
+   * The lens as a saved view stores it. `rolling` keeps a range that ends today as "the
+   * last N days". The owner filter is a boolean on the view, resolved against whoever is
+   * signed in; a stored id would dangle the day that colleague leaves.
    */
+  const viewFilters = (rolling: boolean): SavedViewFilters => {
+    const today = istDateStamp();
+    return {
+      status: (status as LeadStatus | undefined) ?? null,
+      assigned_to_me: Boolean(assignedTo),
+      fields: facetValues,
+      created: toViewDays(created, today, rolling),
+      last_call: toViewDays(lastCall, today, rolling),
+      last_outcome: (lastOutcome as Outcome | undefined) ?? null,
+      direction: direction ?? null,
+      test_calls: testCalls,
+      follow_up: followUp ?? null,
+      callback_open: callbackOpen ?? null,
+      captured,
+    };
+  };
+
+  /** Puts back every filter the view holds, and clears the ones it does not. */
   const applyView = (view: SavedView | undefined, myUserId: string | undefined) => {
+    const filters = view?.filters;
+    const today = istDateStamp();
     setActiveViewId(view?.id);
-    setStatus(view?.filters.status ?? undefined);
-    setFacetValues(view?.filters.fields ?? {});
+    setStatus(filters?.status ?? undefined);
+    setFacetValues(filters?.fields ?? {});
     setChosenColumns(view?.columns ?? undefined);
-    setAssignedTo(view?.filters.assigned_to_me ? myUserId : undefined);
-    clearFilter.created_from();
-    clearFilter.last_outcome();
-    clearFilter.follow_up();
-    clearFilter.callback_open();
+    setAssignedTo(filters?.assigned_to_me ? myUserId : undefined);
+    setCreated(fromViewDays(filters?.created, today));
+    setLastCall(fromViewDays(filters?.last_call, today));
+    setLastOutcome(filters?.last_outcome ?? undefined);
+    setDirection(filters?.direction ?? undefined);
+    setTestCalls(filters?.test_calls ?? true);
+    setFollowUp(filters?.follow_up ?? undefined);
+    setCallbackOpen(filters?.callback_open ?? undefined);
+    setCaptured(filters?.captured ?? []);
   };
 
   // A changed FILTER returns to page one — page 4 of "hot" is not page 4 of "won". Keyed
@@ -132,6 +187,7 @@ export function useLeadsLens(needKey: string = "need") {
     currentLens: lensKey(lens, { limit: PAGE_SIZE, offset: offset || undefined }),
     clearFilters,
     applyView,
+    viewFilters,
     status,
     setStatus,
     search,
@@ -148,12 +204,20 @@ export function useLeadsLens(needKey: string = "need") {
     setChosenColumns,
     created,
     setCreated,
+    lastCall,
+    setLastCall,
     lastOutcome,
     setLastOutcome,
+    direction,
+    setDirection,
+    testCalls,
+    setTestCalls,
     followUp,
     setFollowUp,
     callbackOpen,
     setCallbackOpen,
+    captured,
+    setCaptured,
     activeViewId,
     setActiveViewId,
     offset,

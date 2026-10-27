@@ -1081,3 +1081,65 @@ describe("the agent that answers a new lead source", () => {
     );
   });
 });
+
+/** Changing a source's field names after it was made (D-893 L2). */
+describe("the fields a lead source reads", () => {
+  const MAPPING_PATH = `PUT /v1/lead-sources/${FORM_SOURCE_ID}/mapping`;
+
+  it("opens on what the source reads now and saves the whole mapping", async () => {
+    const { calls } = await renderPage({
+      [SOURCES_PATH]: sourceList(
+        leadSource({
+          id: FORM_SOURCE_ID,
+          source: "website_form",
+          mapping: { phone: "mobile", budget: "Budget (Rs)" },
+        }),
+      ),
+      [MAPPING_PATH]: { id: FORM_SOURCE_ID, mapping: {} },
+    });
+    await chooseRowAction(FORM_SOURCE_ID, "Change field names");
+
+    expect((screen.getByLabelText("Phone") as HTMLInputElement).value).toBe("mobile");
+    expect(
+      (screen.getByLabelText("Detail 1: your form's name") as HTMLInputElement).value,
+    ).toBe("Budget (Rs)");
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "full_name" } });
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Save" }));
+
+    const put = await vi.waitFor(() => {
+      const found = calls.find((c) => c.method === "PUT");
+      if (!found) throw new Error("nothing was saved");
+      return found;
+    });
+    expect(JSON.parse(put.body ?? "{}")).toEqual({
+      mapping: { phone: "mobile", name: "full_name", budget: "Budget (Rs)" },
+    });
+  });
+
+  it("says the phone is needed before the click, not after", async () => {
+    await renderPage({
+      [SOURCES_PATH]: sourceList(leadSource({ id: FORM_SOURCE_ID, source: "website_form" })),
+    });
+    await chooseRowAction(FORM_SOURCE_ID, "Change field names");
+    fireEvent.change(screen.getByLabelText("Phone"), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "full_name" } });
+
+    expect(await screen.findByText(/Name the phone field too/)).toBeTruthy();
+    expect((within(screen.getByRole("dialog")).getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("keeps the drawer open with the server's words when the save is refused", async () => {
+    await renderPage({
+      [SOURCES_PATH]: sourceList(leadSource({ id: FORM_SOURCE_ID, source: "website_form" })),
+      [MAPPING_PATH]: problem(422, {
+        title: "Too many field mappings",
+        detail: "A lead source maps at most 50 fields.",
+      }),
+    });
+    await chooseRowAction(FORM_SOURCE_ID, "Change field names");
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByText("A lead source maps at most 50 fields.")).toBeTruthy();
+    expect(screen.getByLabelText("Phone")).toBeTruthy();
+  });
+});

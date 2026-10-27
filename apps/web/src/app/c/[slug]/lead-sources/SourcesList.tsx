@@ -49,6 +49,7 @@ export function SourcesList({
   onTest,
   onRotate,
   onAgent,
+  onFields,
   onMeta,
 }: {
   sources: ReturnType<typeof useLeadSources>;
@@ -60,6 +61,7 @@ export function SourcesList({
   onTest: (source: LeadSource) => void;
   onRotate: (source: LeadSource) => void;
   onAgent: (source: LeadSource) => void;
+  onFields: (source: LeadSource) => void;
   onMeta: (source: LeadSource) => void;
 }) {
   if (sources.isLoading) return <Skeleton rows={2} />;
@@ -152,6 +154,12 @@ export function SourcesList({
             id: "agent",
             label: "Choose who answers",
             onSelect: () => onAgent(row),
+            disabled: !canWrite,
+          },
+          {
+            id: "fields",
+            label: "Change field names",
+            onSelect: () => onFields(row),
             disabled: !canWrite,
           },
           {

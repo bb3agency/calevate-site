@@ -215,9 +215,13 @@ export function LeadsScreen() {
     (f.assignedTo ? 1 : 0) +
     Object.values(f.facetValues).filter((values) => values.length > 0).length +
     (f.created ? 1 : 0) +
+    (f.lastCall ? 1 : 0) +
     (f.lastOutcome ? 1 : 0) +
+    (f.direction ? 1 : 0) +
+    (f.testCalls ? 0 : 1) +
     (f.followUp ? 1 : 0) +
-    (f.callbackOpen !== undefined ? 1 : 0);
+    (f.callbackOpen !== undefined ? 1 : 0) +
+    f.captured.length;
   const [filtersOpen, setFiltersOpen] = useState(false);
   const panelId = useId();
 
@@ -313,26 +317,31 @@ export function LeadsScreen() {
         calls={{
           created: f.created,
           onCreated: f.setCreated,
+          lastCall: f.lastCall,
+          onLastCall: f.setLastCall,
           lastOutcome: f.lastOutcome,
           onLastOutcome: f.setLastOutcome,
+          direction: f.direction,
+          onDirection: f.setDirection,
+          testCalls: f.testCalls,
+          onTestCalls: f.setTestCalls,
           followUp: f.followUp,
           onFollowUp: f.setFollowUp,
           callbackOpen: f.callbackOpen,
           onCallbackOpen: f.setCallbackOpen,
+          captured: f.captured,
+          onCaptured: f.setCaptured,
+          capturedFields: (leads.data?.available_columns ?? [])
+            .filter((c) => c.kind === "extraction")
+            .map((c) => ({ key: c.key, label: c.label })),
         }}
         views={savedViews}
         activeViewId={f.activeViewId}
         canSaveView={mayApplyView.allowed}
         saveViewReason={mayApplyView.reason}
         onApplyView={(view) => f.applyView(view, myUserId)}
-        currentView={{
-          filters: {
-            status: f.status ?? null,
-            assigned_to_me: Boolean(f.assignedTo),
-            fields: f.facetValues,
-          },
-          columns: f.chosenColumns ?? null,
-        }}
+        viewFilters={f.viewFilters}
+        columns={f.chosenColumns ?? null}
       />
       </div>
 

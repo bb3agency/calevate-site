@@ -2,12 +2,13 @@
 
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { useEffect, useRef, useState } from "react";
-import { ArrowRight, Check, ShieldAlert } from "lucide-react";
+import { ArrowRight, Check, Download, ShieldAlert } from "lucide-react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { NOTICE_BAR, ProblemNotice, SECONDARY_BUTTON } from "@/components/ui";
 import { ApiProblem, TransportProblem, type Session } from "@/lib/api/client";
 import { useConfirmProposal, type CopilotConfirmOut } from "@/lib/api/copilot";
+import { useDownloadPreparedExport } from "@/lib/api/exports";
 import { lookup } from "@/lib/lookup";
 import type { CopilotProposal } from "@/lib/copilot/types";
 
@@ -203,7 +204,7 @@ function SingleProposalCard({
       className={`border-l-2 ${NOTICE_BAR.neutral} py-1 pl-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand`}
     >
       {decided ? (
-        <Outcome outcome={outcome} onDismiss={onDismiss} />
+        <Outcome outcome={outcome} session={session} onDismiss={onDismiss} />
       ) : (
         <>
           <p className="flex items-center gap-1.5 text-meta font-semibold text-ink-muted">
@@ -341,9 +342,11 @@ function SingleProposalCard({
  */
 function Outcome({
   outcome,
+  session,
   onDismiss,
 }: {
   outcome: CopilotConfirmOut;
+  session: Session;
   onDismiss: () => void;
 }) {
   return (
@@ -353,10 +356,52 @@ function Outcome({
         {outcome.applied ? "Done" : "Nothing to change"}
       </p>
       <p className="mt-1 whitespace-pre-line text-xs text-ink">{outcome.detail}</p>
-      <button type="button" onClick={onDismiss} className={`${SECONDARY_BUTTON} mt-2`}>
-        Close
-      </button>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        {outcome.download_ticket && (
+          <PreparedDownload
+            session={session}
+            ticket={outcome.download_ticket}
+            basename={outcome.tool === "calls_export" ? "calls" : "leads"}
+          />
+        )}
+        <button type="button" onClick={onDismiss} className={SECONDARY_BUTTON}>
+          Close
+        </button>
+      </div>
     </>
+  );
+}
+
+/**
+ * THE FILE AN EXPORT PREPARED (D-893 L2). The ticket opens it once, so after a download
+ * the button stays "Downloaded"; a refusal (the ten minutes passed) is said in the
+ * server's words with the way back, and the button is not offered again.
+ */
+function PreparedDownload({
+  session,
+  ticket,
+  basename,
+}: {
+  session: Session;
+  ticket: string;
+  basename: "leads" | "calls";
+}) {
+  const download = useDownloadPreparedExport(session);
+  const feedback = useActionFeedback(download, { errorDisplay: "inline" });
+  if (download.error) return <ProblemNotice error={download.error} />;
+  return (
+    <ActionButton
+      type="button"
+      variant="secondary-sm"
+      status={download.isSuccess ? "success" : feedback.status}
+      disabled={download.isSuccess}
+      pendingLabel="Preparing…"
+      successLabel="Downloaded"
+      onClick={() => feedback.run({ ticket, basename })}
+    >
+      <Download aria-hidden className="h-3.5 w-3.5" />
+      Download the file
+    </ActionButton>
   );
 }
 

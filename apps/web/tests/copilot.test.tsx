@@ -27,6 +27,7 @@ import { forgetOpenOffers } from "@/lib/copilot/useCopilotConversation";
 
 import { expectNoA11yViolations } from "./a11y";
 import { PLAN_ID, planFixture } from "./planFixture";
+import { stubDownloads } from "./harness";
 
 /**
  * `next/navigation` is re-mocked for this file because the PATHNAME is an input here
@@ -187,9 +188,11 @@ function stubCopilot(options: {
   confirmThrows?: boolean;
   conversation?: { turns: unknown[]; has_more: boolean };
   plan?: Record<string, unknown>;
+  download?: string;
 }) {
   const bodies: string[] = [];
   const confirms: string[] = [];
+  const downloads: string[] = [];
   const conversations: string[] = [];
   // WHICH ASK ENDPOINT WAS CALLED, in order. The realm chooses between two real routes
   // (`/v1/copilot/ask` and `/v1/admin/copilot/ask`), and a stub that answered both under
@@ -280,10 +283,18 @@ function stubCopilot(options: {
           headers: { "content-type": "application/json" },
         });
       }
+      if (options.download !== undefined && path === "/v1/exports/download") {
+        // D-893 L2: the file an export Pip prepared, spent with its ticket.
+        downloads.push(typeof init?.body === "string" ? init.body : "");
+        return new Response(options.download, {
+          status: 200,
+          headers: { "content-type": "text/csv" },
+        });
+      }
       throw new Error(`unexpected request: ${path}`);
     }),
   );
-  return { bodies, confirms, conversations, askPaths };
+  return { bodies, confirms, conversations, askPaths, downloads };
 }
 
 async function ask(question: string) {
@@ -792,6 +803,36 @@ describe("a proposal", () => {
     expect(
       (screen.getByLabelText("Your question about this screen") as HTMLTextAreaElement).value,
     ).toBe("Change the plan: ");
+  });
+
+  it("AN EXPORT HANDS OVER ITS FILE once, from the card, with the ticket in the body", async () => {
+    stubDownloads();
+    const { downloads } = stubCopilot({
+      chunks: proposalChunks({ ...PROPOSAL, tool: "leads_export", title: "Export leads" }),
+      confirm: {
+        status: 200,
+        body: {
+          tool: "leads_export",
+          object_type: "lead_export",
+          object_id: "",
+          applied: true,
+          detail: "Your file is ready.",
+          plan_id: null,
+          download_ticket: "ticket-abcdefghijklmnop",
+        },
+      },
+      download: "Name,Phone\n",
+    });
+    renderPanel();
+    await ask("export my hot leads");
+    await clickConfirm();
+    const download = await screen.findByRole("button", { name: /Download the file/ });
+    await act(async () => {
+      fireEvent.click(download);
+    });
+    await waitFor(() => expect(downloads).toHaveLength(1));
+    expect(JSON.parse(downloads[0])).toEqual({ ticket: "ticket-abcdefghijklmnop" });
+    await waitFor(() => expect(download.hasAttribute("disabled")).toBe(true));
   });
 
   it("A PLAN PROPOSAL CONFIRMS ONCE with its token and nothing else", async () => {

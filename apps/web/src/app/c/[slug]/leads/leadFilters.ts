@@ -53,9 +53,14 @@ const IN_FORCE: Record<LeadFilterKey, (lens: LeadLens) => boolean> = {
   fields: (lens) => Object.values(lens.fields ?? {}).some((values) => values.length > 0),
   created_from: (lens) => Boolean(lens.created_from),
   created_to: (lens) => Boolean(lens.created_to),
+  last_call_from: (lens) => Boolean(lens.last_call_from),
+  last_call_to: (lens) => Boolean(lens.last_call_to),
   last_outcome: (lens) => Boolean(lens.last_outcome),
+  direction: (lens) => Boolean(lens.direction),
+  test_calls: (lens) => lens.test_calls === false,
   follow_up: (lens) => lens.follow_up !== undefined,
   callback_open: (lens) => lens.callback_open !== undefined,
+  captured: (lens) => (lens.captured?.length ?? 0) > 0,
 };
 
 /** Every key that narrows the rows, in one place — the screen's clear-all iterates it. */
