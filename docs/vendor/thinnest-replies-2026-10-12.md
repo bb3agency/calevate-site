@@ -1968,13 +1968,25 @@ Built as D-884.
 Still open after §35: a forced refresh of `GET /byok/voices` (requested); the longer-first-
 words and repeated-hello behaviour, which only a call can show.
 
-## 36. Reply times on our calls (drafted 27 Oct 2026; the founder sends, nothing sent yet)
+## 36. Reply times on our calls (SENT by the founder 27 Oct 2026 with a new item on the lost opening "Hello"; awaiting reply)
 
 From the latency research of 27 Oct 2026 (`docs/evidence/latency-research-2026-10-27.md`
 §4, questions T1-T6; T7, GPT-Live-1, is left out by the founder's decision of 27 Oct 2026).
 D-896 built what is ours: the facts callers ask most are now in each agent's instructions,
 and each call records the settings it ran on, so we can compare reply times once these are
 answered. T2 was asked twice before (§26 item 1, §28 item 14) and T5 once (21 Oct, Q9).
+
+**As sent (27 Oct 2026, founder):** the draft below went out with two additions ahead of the six
+questions. (1) The caller's first "Hello" is lost with `voice.openingWaitsForCaller: true`: on
+`out_06a14de6-885a-4f95-9523-85318dde7795` (27 Oct 13:19 IST, Telugu, outbound) the founder said
+"Hello" within the first second, the transcript shows it at 0:04 with the opening at 0:04 and
+four seconds of silence before; asked: listen from the moment of answer, and a per-agent silent
+fallback shorter than four seconds. (2) Measured `quality` on that call: responseMs median 2,122 ms
+(p90 2,976), firstTokenMs median 904 ms; on `out_bb3adc74-655d-422b-8e69-3194bee0f95b` (27 Oct
+00:04 IST) 2,377 ms and 1,172 ms; about 1.2 s of each reply falls after the model's first word.
+Decisions waiting on the reply: openingWaitsForCaller off for outbound agents, and a timer-vs-Ear
+comparison on Anjali.
+
 
 What each answer changes:
 - **T1** decides whether our before/after numbers can be trusted at all: our median on Ear
