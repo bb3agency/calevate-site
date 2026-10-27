@@ -75,10 +75,12 @@ from apps.api.copilot.actions import (
     action_schema,
     parse_args,
 )
+from apps.api.copilot.actions import (
+    principal_of as _principal_of,
+)
 from apps.api.copilot.knowledge_actions import KNOWLEDGE_REMOVE
 from apps.api.copilot.sanitize import strip_invisible
 from apps.api.copilot.set_actions import CAMPAIGN_ADD_LEADS, LEADS_BULK_UPDATE
-from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.crm import service as crm_service
 from apps.api.db.ownership import assert_visible
@@ -94,17 +96,6 @@ _BILLED_PER_MINUTE: Final = (
 #: The most leads one bulk or campaign action may name. `POST /v1/leads/bulk` takes 500;
 #: a list longer than this is a screen's job, where a person can see what they selected.
 _MAX_NAME: Final = 120
-
-
-def _principal_of(actor: ToolActor) -> Principal:
-    """The principal a service that writes its own audit row needs (`place_lead_call`)."""
-    return Principal(
-        realm="client",
-        user_id=actor.user_id,
-        tenant_id=actor.tenant_id,
-        role=actor.role,
-        impersonating=actor.impersonating,
-    )
 
 
 def _ist_instant(raw: str, *, field: str) -> datetime:
@@ -844,13 +835,11 @@ async def _plan_callback_reschedule(
 async def _execute_callback_reschedule(
     session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
 ) -> Executed:
-    """`callbacks.service.book` on the row's own execution id: its upsert moves a WAITING
-    promise and changes nothing that is already being dialled."""
+    """`swipe.change_callback` — `PATCH /v1/callbacks/{id}`'s function: it moves a WAITING
+    promise, asks the standing refusals again, and changes nothing already being dialled."""
     parsed = parse_args(_CallbackMoveArgs, args)
-    applied = await _move_callback(
-        session, actor, parsed.callback_id, datetime.fromisoformat(parsed.at)
-    )
     when = datetime.fromisoformat(parsed.at)
+    applied = await _move_callback(session, actor, parsed.callback_id, when)
     return Executed(
         applied=applied,
         detail=(
@@ -865,34 +854,16 @@ async def _execute_callback_reschedule(
 async def _move_callback(
     session: AsyncSession, actor: ToolActor, callback_id: UUID, when: datetime
 ) -> bool:
-    from apps.api.callbacks import service as callbacks_service
+    from apps.api.crm.swipe import change_callback
 
-    row = await _waiting_callback(session, callback_id)
-    origin = (
-        await session.execute(
-            text(
-                "SELECT source_execution_id, source_call_id, language FROM scheduled_callbacks "
-                "WHERE id = :id"
-            ),
-            {"id": callback_id},
-        )
-    ).first()
-    assert origin is not None  # `_waiting_callback` read the same row
-    booked = await callbacks_service.book(
-        session,
-        callback_id=callback_id,
-        tenant_id=actor.tenant_id,
-        agent_id=row["agent_id"],
-        source_call_id=origin[1],
-        source_execution_id=str(origin[0]),
-        lead_id=row["lead_id"],
-        phone_e164=row["phone_e164"],
-        requested_at=when,
-        booked_at=datetime.now(UTC),
-        note=row["note"],
-        language=origin[2],
+    out = await change_callback(
+        session, tenant_id=actor.tenant_id, callback_id=callback_id, change="move", at=when
     )
-    return booked is not None
+    if out.status == "blocked":
+        raise ProblemError.business_rule(
+            "callback_blocked", out.reason or "The calling rules refuse this call-back."
+        )
+    return out.status == "moved"
 
 
 async def _capture_callback_time(
@@ -988,15 +959,14 @@ async def _plan_callback_cancel(
 async def _execute_callback_cancel(
     session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
 ) -> Executed:
-    """`callbacks.service.cancel_one` with the reason `DELETE /v1/callbacks/{id}` gives."""
-    from apps.api.callbacks import service as callbacks_service
+    """`swipe.change_callback` — `DELETE /v1/callbacks/{id}`'s function."""
+    from apps.api.crm.swipe import change_callback
 
-    del actor
     parsed = parse_args(_CallbackCancelArgs, args)
-    stopped = await callbacks_service.cancel_one(
-        session, parsed.callback_id, reason="You called this off."
+    out = await change_callback(
+        session, tenant_id=actor.tenant_id, callback_id=parsed.callback_id, change="cancel"
     )
-    if not stopped:
+    if out.status != "cancelled":
         raise ProblemError.conflict(
             "callback_not_stoppable",
             "That call-back is no longer waiting, so it was not cancelled.",

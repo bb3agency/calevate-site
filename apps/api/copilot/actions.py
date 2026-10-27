@@ -155,6 +155,18 @@ def actor_for(principal: Principal) -> ToolActor | None:
     )
 
 
+def principal_of(actor: ToolActor) -> Principal:
+    """The client principal a service that writes its own audit row needs, back from an
+    actor: the inverse of `actor_for`, so an action and its button record the same person."""
+    return Principal(
+        realm="client",
+        user_id=actor.user_id,
+        tenant_id=actor.tenant_id,
+        role=actor.role,
+        impersonating=actor.impersonating,
+    )
+
+
 def actor_realm(actor: ToolActor) -> str:
     """Which realm this actor came from, DERIVED rather than assumed.
 

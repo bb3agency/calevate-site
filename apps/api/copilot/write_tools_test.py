@@ -289,6 +289,11 @@ def test_the_tool_schemas_are_the_same_bytes_for_every_caller() -> None:
         # D-893's plan-backed set actions APPEND.
         "callbacks_book_bulk",
         "calls_place_bulk",
+        "call_back",
+        "call_follow_up_set",
+        "call_translate",
+        "lead_whatsapp_send",
+        "callbacks_change_bulk",
     ]
     for schema in write_tools.write_tool_schemas():
         function = schema["function"]
