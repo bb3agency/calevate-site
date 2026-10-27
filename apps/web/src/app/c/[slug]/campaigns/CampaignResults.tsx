@@ -100,12 +100,12 @@ export function CampaignResults({
         <Metric
           label="Credit spent"
           value={r.credits_spent_inr === null ? "—" : formatINR(r.credits_spent_inr)}
-          hint={r.credits_spent_inr === null ? "Your role doesn't show billing" : "On this campaign's calls"}
+          hint={r.credits_spent_inr === null ? "Your role doesn't show billing" : "On all this campaign's calls, call-backs included"}
         />
       </MetricRow>
 
       <div className="grid grid-cols-1 gap-10 md:grid-cols-2">
-        <Section title="How the calls went" headingLevel={3}>
+        <Section title="How it went with each person" headingLevel={3}>
           <OutcomeBreakdown outcomes={r.outcomes} />
           {r.opt_outs > 0 && (
             <p className="mt-3 text-meta text-ink-muted">
@@ -115,9 +115,9 @@ export function CampaignResults({
           )}
         </Section>
 
-        <Section title="What the conversations came to" headingLevel={3}>
+        <Section title="What people's conversations came to" headingLevel={3}>
           {tags.length === 0 && sentiment.length === 0 ? (
-            <p className="text-body text-ink-muted">Nothing yet. This fills in as calls are answered.</p>
+            <p className="text-body text-ink-muted">Nothing yet. This fills in as people answer.</p>
           ) : (
             <div className="space-y-4">
               {tags.length > 0 && (
@@ -183,9 +183,10 @@ export function CampaignResults({
 }
 
 /**
- * WHAT PEOPLE SAID (D-905): the agent's own outcomes over the answered calls, and each
- * choice the agent asks about, counted over the people it spoke to. "Not given" is shown
- * beside the choices so a short list of answers is not read as everyone's answer.
+ * WHAT PEOPLE SAID (D-905): the agent's own outcomes and each choice the agent asks about,
+ * counted over the people it spoke to. Each person counts once, by their latest answered
+ * call (D-913), so a call-back does not count them twice. "Not given" is shown beside the
+ * choices so a short list of answers is not read as everyone's answer.
  */
 function Answers({ results }: { results: Results }) {
   const outcomes = results.business_outcomes;
@@ -193,10 +194,11 @@ function Answers({ results }: { results: Results }) {
   if (outcomes.length === 0 && fields.length === 0) return null;
   return (
     <Section title="What people said" headingLevel={3}>
+      <p className="mb-4 text-meta text-ink-muted">Each person counts once, by their latest answered call.</p>
       <div className="grid grid-cols-1 gap-x-10 gap-y-6 md:grid-cols-2">
         {outcomes.length > 0 && (
           <CountList
-            title="How the calls ended for you"
+            title="How it ended, per person"
             rows={outcomes.map((o) => ({ key: o.key, label: o.label, count: o.count }))}
             rest={{ label: "None of these", count: results.business_outcomes_unset }}
           />

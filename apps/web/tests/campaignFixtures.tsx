@@ -77,6 +77,7 @@ export function resultsFixture(over: Partial<CampaignResults> = {}): CampaignRes
     pickup_rate: null,
     calls: 0,
     connected_calls: 0,
+    people_answered: 0,
     average_call_s: null,
     talk_seconds: 0,
     outcome_tags: {},

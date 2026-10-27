@@ -870,6 +870,87 @@ async def test_results_break_down_the_agents_outcomes_and_each_choice_field() ->
     assert registered["not_captured"] == 1
 
 
+async def test_a_person_called_back_counts_once_by_the_call_backs_outcome() -> None:
+    """D-913: a call-back's call belongs to the campaign, so a person called and then
+    called back has two answered calls. What it came to counts them ONCE, by the later call;
+    calls, talk time and spend stay totals over both."""
+    account = await _account()
+    campaign_id = await _campaign(account, contacts=2, status="running")
+    fields = [{"key": "plan", "label": "Plan", "type": "enum", "enum_values": ["Basic", "Plus"]}]
+    async with tenant_session(account.tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO extraction_schemas (id, tenant_id, agent_id, version, fields, "
+                "created_at, updated_at) VALUES (:id, :t, :a, 99, CAST(:f AS jsonb), now(), "
+                "now())"
+            ),
+            {"id": uuid7(), "t": account.tenant_id, "a": account.agent_id, "f": json.dumps(fields)},
+        )
+    twice, once = "+919876500000", "+919876500001"
+    twice_lead = await _lead(account, phone=twice, status="contacted")
+    once_lead = await _lead(account, phone=once, status="contacted")
+    first = await _call(account, campaign_id, status="completed", to=twice, duration=60)
+    callback = await _call(account, campaign_id, status="completed", to=twice, duration=40)
+    unanswered_callback = await _call(account, campaign_id, status="no_answer", to=twice)
+    other = await _call(account, campaign_id, status="completed", to=once, duration=30)
+    rows = [
+        (first, twice_lead, "call_back_booked", "neutral", "later", "Call later", -10),
+        (callback, twice_lead, "answered", "positive", "bought", "Bought", -5),
+        (other, once_lead, "answered", "positive", "bought", "Bought", -1),
+    ]
+    async with tenant_session(account.tenant_id) as session:
+        for call_id, lead_id, tag, mood, key, label, minutes_ago in rows:
+            await session.execute(
+                text(
+                    "UPDATE calls SET lead_id = :l, outcome_tag = :tag, sentiment = :s, "
+                    "business_outcome = :k, business_outcome_label = :lb, "
+                    "started_at = now() + make_interval(mins => :m) WHERE id = :c"
+                ),
+                {
+                    "l": lead_id,
+                    "tag": tag,
+                    "s": mood,
+                    "k": key,
+                    "lb": label,
+                    "m": minutes_ago,
+                    "c": call_id,
+                },
+            )
+        await session.execute(
+            text("UPDATE calls SET started_at = now() WHERE id = :c"), {"c": unanswered_callback}
+        )
+        # The lead holds the latest call's value, as the pipeline's newest-wins merge leaves it.
+        for lead_id, plan in ((twice_lead, "Plus"), (once_lead, "Basic")):
+            await session.execute(
+                text("UPDATE leads SET data = CAST(:d AS jsonb) WHERE id = :l"),
+                {"d": json.dumps({"plan": plan}), "l": lead_id},
+            )
+        for call_id, amount in ((first, "-3.00"), (callback, "-2.00"), (other, "-1.00")):
+            await record_entry(
+                session,
+                tenant_id=account.tenant_id,
+                delta=Decimal(amount),
+                reason="usage",
+                ref=str(call_id),
+            )
+    async with _client() as client:
+        summary = (
+            await client.get(f"/v1/campaigns/{campaign_id}/results", headers=account.headers)
+        ).json()
+    assert summary["people_answered"] == 2
+    assert summary["business_outcomes"] == [{"key": "bought", "label": "Bought", "count": 2}]
+    assert summary["business_outcomes_unset"] == 0
+    assert summary["outcome_tags"] == {"answered": 2}
+    assert summary["sentiment"] == {"positive": 2}
+    plan = next(f for f in summary["fields"] if f["key"] == "plan")
+    assert plan["values"] == [{"value": "Basic", "count": 1}, {"value": "Plus", "count": 1}]
+    # Totals stay over every call.
+    assert summary["calls"] == 4
+    assert summary["connected_calls"] == 3
+    assert summary["talk_seconds"] == 130
+    assert Decimal(summary["credits_spent_inr"]) == Decimal("6.00")
+
+
 async def test_the_page_filters_by_status_and_counts_every_status() -> None:
     account = await _account()
     await _campaign(account, status="running")
