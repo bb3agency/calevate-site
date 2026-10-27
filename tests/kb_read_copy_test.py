@@ -429,6 +429,40 @@ async def test_a_name_another_item_uses_is_refused_and_so_is_the_facts_source() 
     assert taken.value.code == "kb_name_taken"
 
 
+async def test_a_rename_that_waited_on_another_rename_is_refused_not_reported_as_done() -> None:
+    import asyncio
+
+    tenant_id, _agent = await _tenant_with_published_agent()
+    async with tenant_session(tenant_id) as session:
+        source = await kb_service.submit_source(
+            session, tenant_id=tenant_id, name="Parking", body="Parking is behind the shop."
+        )
+    async with tenant_session(tenant_id) as first:
+        await store.rename_source(
+            first, tenant_id=tenant_id, source_id=source["id"], name="Car park"
+        )
+
+        async def second_rename() -> tuple[str, str]:
+            async with tenant_session(tenant_id) as second:
+                return await store.rename_source(
+                    second, tenant_id=tenant_id, source_id=source["id"], name="Visitor parking"
+                )
+
+        waiting = asyncio.create_task(second_rename())
+        await asyncio.sleep(0.5)
+        assert not waiting.done()
+    with pytest.raises(ProblemError) as raced:
+        await waiting
+    assert raced.value.code == "kb_renamed_meanwhile"
+    async with tenant_session(tenant_id) as session:
+        name = (
+            await session.execute(
+                text("SELECT name FROM kb_sources WHERE id = :sid"), {"sid": source["id"]}
+            )
+        ).scalar()
+    assert name == "Car park"
+
+
 async def test_a_note_is_written_replaced_removed_and_put_back_through_the_page_functions(
     s3: FakeS3,
 ) -> None:

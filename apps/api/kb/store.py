@@ -706,6 +706,19 @@ async def rename_source(
             text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
             {"key": f"kb:submit:{tenant_id}:{key}"},
         )
+    # The name was read before the locks: a rename that committed while we waited would
+    # leave the UPDATE below matching no row and this one reporting a rename it never made.
+    still = (
+        await session.execute(
+            text("SELECT name FROM kb_sources WHERE id = :sid"), {"sid": source_id}
+        )
+    ).scalar()
+    if still != old:
+        raise ProblemError.conflict(
+            "kb_renamed_meanwhile",
+            "This item was renamed by someone else just now.",
+            remediation="Reload it and choose the name again.",
+        )
     taken = (
         await session.execute(
             text("SELECT 1 FROM kb_sources WHERE tenant_id = :tid AND name = :name LIMIT 1"),
