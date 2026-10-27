@@ -438,6 +438,11 @@ def _problems(schema: Mapping[str, Any], value: Any, path: str) -> list[str]:
     if "anyOf" in schema:
         if any(not _problems(option, value, path) for option in schema["anyOf"]):
             return []
+        # An object that fails its object form is told what inside it is wrong, which is
+        # what the model can fix; "wrong type" alone sends it back to guess.
+        shape = _object_schema(schema)
+        if isinstance(value, dict) and shape is not None:
+            return _object_problems(shape, value, path)
         return [f"`{path}` has the wrong type"]
     kind = schema.get("type")
     if isinstance(kind, str) and kind in _JSON_TYPES:
@@ -477,6 +482,26 @@ def _nullable(schema: Mapping[str, Any]) -> bool:
     if schema.get("type") == "null":
         return True
     return any(_nullable(option) for option in schema.get("anyOf", ()))
+
+
+def _objects_from_text(parameters: Mapping[str, Any], args: Mapping[str, Any]) -> dict[str, Any]:
+    """`args` with an object argument the model sent as JSON text read as the object.
+
+    A lens read hands the model its lens as a JSON handle to copy into the action
+    (`tools._handle_line`), and models copy it as the string it was shown. Text that is not
+    a JSON object is left as it was, so the check below still names it."""
+    fixed = dict(args)
+    properties: Mapping[str, Any] = parameters.get("properties", {})
+    for key, value in args.items():
+        if not isinstance(value, str) or _object_schema(properties.get(key, {})) is None:
+            continue
+        try:
+            parsed = json.loads(value)
+        except ValueError:
+            continue
+        if isinstance(parsed, dict):
+            fixed[key] = parsed
+    return fixed
 
 
 def _with_nulls(parameters: Mapping[str, Any], args: Mapping[str, Any]) -> dict[str, Any]:
@@ -650,7 +675,7 @@ class AreaSurface:
             raw_args = {}
         if not isinstance(raw_args, dict):
             raise AreaCallError(f"`args` of `{call.name}` must be an object")
-        args = _with_nulls(action.parameters, raw_args)
+        args = _with_nulls(action.parameters, _objects_from_text(action.parameters, raw_args))
         found = _problems(action.parameters, args, "")
         if found:
             raise AreaCallError(

@@ -123,6 +123,25 @@ def test_an_argument_refusal_carries_the_actions_full_schema() -> None:
     assert json.dumps(schema, separators=(",", ":"), ensure_ascii=False) in refused.value.reason
 
 
+def test_a_lens_copied_as_json_text_is_read_as_the_lens() -> None:
+    """A lens read hands the model the lens as JSON text; the copy works as the object."""
+    lens = json.dumps({"from_day": "2026-10-21", "to_day": "2026-10-27"})
+    resolved = copilot_service.area_surface().resolve(
+        _call("calls_find", {"action": "calls_recent", "args": {"lens": lens}})
+    )
+    sent = json.loads(resolved.arguments)["lens"]
+    assert sent["from_day"] == "2026-10-21" and sent["to_day"] == "2026-10-27"
+    assert sent["outcome"] is None
+
+
+def test_a_wrong_member_inside_a_lens_is_named() -> None:
+    with pytest.raises(areas.AreaCallError) as refused:
+        copilot_service.area_surface().resolve(
+            _call("calls_find", {"action": "calls_recent", "args": {"lens": {"week": "this"}}})
+        )
+    assert "`lens.week` is not an argument" in refused.value.reason
+
+
 def test_invalid_json_is_refused() -> None:
     bad = chat.ToolCall(id="c1", name="calls_find", arguments="{nope")
     with pytest.raises(areas.AreaCallError, match="not valid JSON"):

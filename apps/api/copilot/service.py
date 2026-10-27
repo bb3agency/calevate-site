@@ -1117,6 +1117,11 @@ def offered_names(realm: CopilotRealm, *, account_open: bool = True) -> list[str
     return names
 
 
+#: What the panel says about an area call the model wrote in the wrong shape and is told
+#: how to write again.
+AREA_RETRY_DETAIL: Final = "Asked in the wrong form; Pip is asking again."
+
+
 def _dispatch_calls(
     realm: CopilotRealm, calls: Sequence[chat.ToolCall]
 ) -> tuple[list[chat.ToolCall], tuple[chat.ToolCall, str] | None]:
@@ -1820,8 +1825,10 @@ async def _run_tool_loop(
             refusal_reasons = (reason,)
             log.info("copilot_area_call_refused", extra={"turn": turn_index, "tool": call.name})
             yield CopilotEvent(step=_step_start(call))
+            # The person sees that Pip is correcting itself; the schema and field paths are
+            # for the model and read as a fault on the screen.
             yield CopilotEvent(
-                step=_step_end(call, status="refused", detail=reason, started_at=None)
+                step=_step_end(call, status="refused", detail=AREA_RETRY_DETAIL, started_at=None)
             )
             messages = _with_tool_result(
                 messages, outcome, call, "NOTHING was done. " + reason + "."
