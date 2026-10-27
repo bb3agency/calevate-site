@@ -150,10 +150,15 @@ def test_only_the_reviewed_account_actions_skip_the_click() -> None:
     assert immediate == {
         "forwarding_line_change",
         "lead_source_edit",
-        "lead_source_switch",
         "low_balance_alert_set",
     }
-    for name in ("ai_allowance_extra", "auto_recharge_set", "held_lead_decide", "team_invite"):
+    for name in (
+        "ai_allowance_extra",
+        "auto_recharge_set",
+        "held_lead_decide",
+        "lead_source_switch",
+        "team_invite",
+    ):
         assert write_tools.tier_of(name) == "confirm", name
 
 
@@ -475,20 +480,27 @@ async def test_a_lead_source_shows_its_secret_once_and_never_logs_it() -> None:
     assert "shown once" in await _action_summary(tenant_id, "lead_source_rotate")
 
 
-async def test_a_lead_source_is_paused_repointed_and_both_undo() -> None:
+async def test_a_lead_source_is_paused_and_resumed_on_a_click_and_repointed_with_an_undo() -> None:
     tenant_id, slug, token = await _make_tenant()
     agent_id = await _agent_of(tenant_id)
     await _do(tenant_id, token, "lead_source_create", {"source": "custom", "agent_id": None})
     source_id = str((await _one(tenant_id, "SELECT id FROM inbound_webhooks"))[0])
 
-    paused = await _run(
-        tenant_id, token, "lead_source_switch", {"lead_source_id": source_id, "on": False}
-    )
-    assert (await _one(tenant_id, "SELECT active FROM inbound_webhooks"))[0] is False
-    assert (await _undo(token, slug, paused.action_id)).status_code == 200
-    assert (await _one(tenant_id, "SELECT active FROM inbound_webhooks"))[0] is True
+    # A resumed source rings every new lead, so neither direction runs without a click.
     with pytest.raises(write_tools.WriteRefusedError):
         await _run(
+            tenant_id, token, "lead_source_switch", {"lead_source_id": source_id, "on": False}
+        )
+    await _do(tenant_id, token, "lead_source_switch", {"lead_source_id": source_id, "on": False})
+    assert (await _one(tenant_id, "SELECT active FROM inbound_webhooks"))[0] is False
+    resume = await _propose(
+        tenant_id, token, "lead_source_switch", {"lead_source_id": source_id, "on": True}
+    )
+    assert (await _one(tenant_id, "SELECT active FROM inbound_webhooks"))[0] is False
+    await _confirm(tenant_id, _user_of(token), resume.token)
+    assert (await _one(tenant_id, "SELECT active FROM inbound_webhooks"))[0] is True
+    with pytest.raises(write_tools.WriteRefusedError):
+        await _propose(
             tenant_id, token, "lead_source_switch", {"lead_source_id": source_id, "on": True}
         )
 

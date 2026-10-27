@@ -6,14 +6,15 @@ particular to this module:
 
 ═══ THE TIER OF EACH ═══
 
-`immediate` (runs, leaves an Undo): changing how an existing number forwards, pausing or
-resuming a lead source, and pointing a lead source at another agent. None reaches a caller
-or spends anything, and each inverse restores exactly the row the button wrote.
+`immediate` (runs, leaves an Undo): changing how an existing number forwards and pointing a
+lead source at another agent. None reaches a caller or spends anything, and each inverse
+restores exactly the row the button wrote.
 
 `confirm`: everything else here. Pointing a number at an agent changes who answers live
 calls; adding, testing or removing a forwarded number is a personal attestation, a real call
 or a deletion; every team act grants, mails or removes access (OWASP ASI03, identity and
-privilege abuse); a lead source or endpoint created or re-keyed issues a secret; the
+privilege abuse); a resumed lead source rings each new lead it receives; a lead source or
+endpoint created or re-keyed issues a secret; the
 lead-calling plan and a held lead decide who is called; an endpoint edit widens what leaves
 the account; a delivery resend sends data out again; and every billing setting moves what
 stops or charges the wallet. The AI allowance top-up debits credit.
@@ -1441,7 +1442,11 @@ async def _plan_source_switch(
         current="on" if active else "paused",
         proposed="on" if parsed.on else "paused",
         cost=None,
-        reversal="Undo switches it back.",
+        reversal=(
+            "Pause it again at any time. Leads that arrive meanwhile may already have been rung."
+            if parsed.on
+            else "Resume it at any time."
+        ),
         args={"lead_source_id": str(parsed.lead_source_id), "on": parsed.on},
     )
 
@@ -1463,45 +1468,21 @@ async def _execute_source_switch(
     )
 
 
-async def _capture_source_switch(
-    session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
-) -> dict[str, Any]:
-    del actor
-    _source, _agent, active = await _source_row(session, UUID(str(args["lead_source_id"])))
-    return {"active": active}
-
-
-async def _invert_source_switch(session: AsyncSession, actor: ToolActor, record: UndoRecord) -> str:
-    from apps.api.ingest.service import set_active
-
-    del actor
-    source_id = UUID(str(record.args["lead_source_id"]))
-    row = (
-        await session.execute(
-            text("SELECT active FROM inbound_webhooks WHERE id = :id FOR UPDATE"),
-            {"id": source_id},
-        )
-    ).first()
-    if row is None:
-        raise UndoRefusedError("that lead source no longer exists")
-    if bool(row[0]) != record.result_state.get("active"):
-        raise UndoRefusedError("that lead source was switched since, so it was left as it is")
-    prior = bool(record.prior_state["active"])
-    await set_active(session, webhook_id=source_id, active=prior)
-    return "The lead source is on again." if prior else "The lead source is paused again."
-
-
+#: CONFIRM, both directions. A resumed source rings each new lead within a minute through
+#: its agent (`ingest/service.py`, speed-to-lead), so resuming reaches callers and spends
+#: credit — outside the immediate tier's bar. Pausing alone would meet it, but a tier is
+#: per tool, and a second tool would put another schema on every request.
 LEAD_SOURCE_SWITCH: Final = ActionTool(
     name="lead_source_switch",
-    tier="immediate",
-    undo=Undo(capture=_capture_source_switch, invert=_invert_source_switch),
+    tier="confirm",
+    undo=None,
     permission="org:manage",
     object_type="inbound_webhook",
     audit_action="lead_source.switched",
     where="on the Lead sources screen",
     schema=action_schema(
         "lead_source_switch",
-        "Pause (on=false) or resume (on=true) one lead source." + DOES_IT,
+        "Pause (on=false) or resume (on=true) one lead source." + PROPOSES_ONLY,
         {"lead_source_id": {"type": "string"}, "on": {"type": "boolean"}},
     ),
     plan=_plan_source_switch,
