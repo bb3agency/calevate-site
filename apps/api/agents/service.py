@@ -178,7 +178,7 @@ from apps.api.billing.engine_minutes import (
     attested_rate_keys,
     record_engine_rate_key,
 )
-from apps.api.compliance.caller_memory import recall
+from apps.api.compliance.caller_memory import MEMORY_ON_SQL, recall
 from apps.api.compliance.platform_dnc import PLATFORM_DNC_BLOCK_CODE, platform_dnc_refusal
 from apps.api.compliance.trial_access import (
     TRIAL_MIN_CALL_SECONDS,
@@ -600,7 +600,9 @@ async def _load_agent(
                 # the drift read can never disagree about the posture.
                 "a.ai_disclosure_line, a.ai_disclosure_enabled, "
                 "a.recording_notice_line, a.recording_notice_enabled, "
-                "a.caller_memory_notice_line, a.caller_memory_enabled, "
+                # Whether it remembers callers NOW: its switch AND the current statement
+                # accepted (D-900, `MEMORY_ON_SQL`), so publish, drift and recall agree.
+                f"a.caller_memory_notice_line, {MEMORY_ON_SQL}, "
                 # The hours are the BUSINESS's, from its one profile (D-695): every agent of a
                 # client is judged against them.
                 "a.handoff_enabled, a.handoff_trigger, bp.hours, "

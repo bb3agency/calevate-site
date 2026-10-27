@@ -1308,6 +1308,7 @@ AttentionKind = Literal[
     "call_failed",
     "credit_low",
     "forwarded_line_quiet",
+    "caller_memory_paused",
 ]
 
 

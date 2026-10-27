@@ -3712,7 +3712,7 @@ export interface paths {
          *
          *     What is kept is a short note of what the caller wanted, what happened, and any preference they stated, such as the language they like or when they prefer to be called. It is used only for that person's own future calls with you, is never shared, and is deleted after 180 days or sooner if they ask.
          *
-         *     The first time anyone in your account switches this on you are asked to confirm what these calls collect. Some kinds of business cannot use it at all.
+         *     The first time anyone in your account switches this on you are asked to confirm what these calls collect. Some kinds of business cannot use it at all. When that statement changes you are asked again, and until you accept the new one no agent remembers callers; accepting it resumes the agents you left switched on.
          *
          *     Applies immediately: a live agent is updated on the voice platform in the same transaction, so the screen never claims something the phone line is not doing.
          */
@@ -13442,6 +13442,13 @@ export interface components {
             /** Caller Memory Notice Line */
             caller_memory_notice_line: string;
             /**
+             * Caller Memory Paused
+             * @default false
+             */
+            caller_memory_paused: boolean;
+            /** Caller Memory Statement */
+            caller_memory_statement?: string | null;
+            /**
              * Direction
              * @enum {string}
              */
@@ -14239,7 +14246,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "lead_blocked" | "delivery_failed" | "campaign_stalled" | "kb_rejected" | "inbound_stopped" | "action_broken" | "lead_hot" | "call_failed" | "credit_low" | "forwarded_line_quiet";
+            kind: "lead_blocked" | "delivery_failed" | "campaign_stalled" | "kb_rejected" | "inbound_stopped" | "action_broken" | "lead_hot" | "call_failed" | "credit_low" | "forwarded_line_quiet" | "caller_memory_paused";
             /**
              * Occurred At
              * Format: date-time

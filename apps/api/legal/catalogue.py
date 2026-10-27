@@ -1361,6 +1361,20 @@ def reacceptance_required(spec: LegalDocumentSpec, accepted_version: str | None)
     return any(rev.material for rev in spec.revisions[index + 1 :])
 
 
+def reached_revision(spec: LegalDocumentSpec, accepted_version: str, revision: str) -> bool:
+    """Is `accepted_version` `revision` of `spec` or a later one, by position in the history?
+
+    The review state is ignored: a provisional acceptance was still an acceptance of the
+    words that revision carried. A revision the history does not know answers no, for
+    `reacceptance_required`'s reason: we cannot tell what was on the screen.
+    """
+    known = [rev.revision for rev in spec.revisions]
+    accepted = _split(accepted_version)[0]
+    if accepted not in known or revision not in known:
+        return False
+    return known.index(accepted) >= known.index(revision)
+
+
 def changed_since(spec: LegalDocumentSpec, accepted_version: str | None) -> bool:
     """Has the document moved since this acceptance, materially or not? Drives the
     banner; `reacceptance_required` drives the gate."""
@@ -1379,5 +1393,6 @@ __all__ = [
     "document",
     "is_provisional",
     "reacceptance_required",
+    "reached_revision",
     "version_of",
 ]

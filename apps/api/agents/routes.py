@@ -81,8 +81,6 @@ from apps.api.agents.models import (
     AgentStatus,
 )
 from apps.api.agents.publishing import (
-    CALLER_MEMORY_ATTESTATION,
-    CALLER_MEMORY_ATTESTATIONS,
     audit_action_for,
     set_caller_memory,
     set_disclosure_posture,
@@ -91,6 +89,7 @@ from apps.api.agents.schemas import AgentOut
 from apps.api.agents.service import publish_agent
 from apps.api.agents.starters import StarterJob
 from apps.api.compliance.audit import write_audit
+from apps.api.compliance.caller_memory import CALLER_MEMORY_ATTESTATION, CALLER_MEMORY_ATTESTATIONS
 from apps.api.compliance.disclosure import truthful_answer_promise
 from apps.api.core.auth import assert_view_as_may, client_request_ip, requires
 from apps.api.core.context import Principal
@@ -1172,8 +1171,10 @@ class CallerMemoryIn(BaseModel):
 
     enabled: bool
     #: True = "I confirm the statement you showed me." Ignored when switching OFF, and
-    #: ignored on an account that has already confirmed it — a permission is asked for
-    #: when the risk is taken, not every time it is exercised.
+    #: ignored on an account that has already confirmed the CURRENT statement — a permission
+    #: is asked for when the risk is taken, not every time it is exercised. An account that
+    #: confirmed an older one is asked again, and `enabled: true, accept: true` on an agent
+    #: that is already on is how it re-accepts (D-900).
     accept: bool = False
 
 
@@ -1223,7 +1224,9 @@ class CallerMemoryOut(BaseModel):
         "be called. It is used only for that person's own future calls with you, is "
         "never shared, and is deleted after 180 days or sooner if they ask.\n\n"
         "The first time anyone in your account switches this on you are asked to confirm "
-        "what these calls collect. Some kinds of business cannot use it at all.\n\n"
+        "what these calls collect. Some kinds of business cannot use it at all. When that "
+        "statement changes you are asked again, and until you accept the new one no agent "
+        "remembers callers; accepting it resumes the agents you left switched on.\n\n"
         "Applies immediately: a live agent is updated on the voice platform in the same "
         "transaction, so the screen never claims something the phone line is not doing."
     ),
@@ -1283,6 +1286,19 @@ async def set_caller_memory_route(
             object_id=str(agent_id),
             ip=client_request_ip(request),
             summary={"engine_synced": result.engine_synced},
+        )
+    if result.statement_accepted is not None:
+        # Its own row, whether or not the switch moved: a re-acceptance (D-900) is made on an
+        # agent that is already on. The version is the object id because the ledger keeps no
+        # summary, and "which words did they accept" is the question this row answers.
+        await write_audit(
+            session,
+            action="organization.caller_memory_statement_accepted",
+            actor=principal,
+            tenant_id=principal.tenant_id,
+            object_type="caller_memory_statement",
+            object_id=str(result.statement_accepted),
+            ip=client_request_ip(request),
         )
     return CallerMemoryOut(
         agent_id=result.agent_id,

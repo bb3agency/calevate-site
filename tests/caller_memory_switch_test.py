@@ -30,15 +30,17 @@ from datetime import UTC, datetime
 
 import pytest
 from apps.api.agents import lifecycle as agent_lifecycle
-from apps.api.agents.publishing import (
+from apps.api.agents.publishing import set_caller_memory
+from apps.api.agents.roster import agent_by_id
+from apps.api.agents.service import _load_agent, posture_of
+from apps.api.compliance import caller_memory
+from apps.api.compliance.caller_memory import (
     CALLER_MEMORY_ATTESTATION,
     CALLER_MEMORY_ATTESTATION_VERSION,
     CALLER_MEMORY_ATTESTATIONS,
-    set_caller_memory,
 )
-from apps.api.agents.service import _load_agent, posture_of
-from apps.api.compliance import caller_memory
 from apps.api.core.errors import ProblemError
+from apps.api.crm.attention import attention_queue
 from apps.api.db.session import tenant_session
 from calevate_shared.engine import (
     CALLER_MEMORY_GUIDANCE,
@@ -144,37 +146,153 @@ def test_the_current_statement_says_the_note_is_mentioned_before_the_call_ends()
     """Founder, 27 Oct 2026: the agent says the memory sentence as it says goodbye (D-865),
     so the statement says "before ending each call". Version 1 is kept word for word for
     the accounts that accepted it."""
-    assert CALLER_MEMORY_ATTESTATION_VERSION == 2
+    assert CALLER_MEMORY_ATTESTATION_VERSION == 2 == max(CALLER_MEMORY_ATTESTATIONS)
     assert CALLER_MEMORY_ATTESTATIONS[2] == CALLER_MEMORY_ATTESTATION
     assert "before ending each call" in CALLER_MEMORY_ATTESTATION
     assert "start of every call" not in CALLER_MEMORY_ATTESTATION
     assert "will say so at the start of every call" in CALLER_MEMORY_ATTESTATIONS[1]
 
 
-async def test_a_new_acceptance_records_the_current_version_and_an_old_one_keeps_its_own() -> None:
+async def test_a_new_acceptance_records_the_current_version() -> None:
     tenant_id, agent_id, owner = await _tenant()
     result = await set_caller_memory(
         tenant_id=tenant_id, agent_id=agent_id, enabled=True, attested_by=owner
     )
     assert result.attested_version == CALLER_MEMORY_ATTESTATION_VERSION
+    assert result.statement_accepted == CALLER_MEMORY_ATTESTATION_VERSION
 
-    # An account that accepted version 1 before the change, as the migration marks it.
-    other, other_agent, other_owner = await _tenant()
-    async with tenant_session(other) as session:
+
+# --- an account on the old statement (D-900) ------------------------------------------
+
+
+async def _on_version_one() -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
+    """An account that accepted version 1 and switched its agent on before the change, as
+    migration f5cd440f4e1c left it."""
+    tenant_id, agent_id, owner = await _tenant()
+    async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "UPDATE organizations SET caller_memory_attested_at = now(), "
                 "caller_memory_attested_by = :by, caller_memory_attestation_version = 1 "
                 "WHERE id = :tid"
             ),
-            {"by": other_owner, "tid": other},
+            {"by": owner, "tid": tenant_id},
+        )
+        await session.execute(
+            text("UPDATE agents SET caller_memory_enabled = true WHERE id = :aid"),
+            {"aid": agent_id},
         )
         await session.commit()
-    kept = await set_caller_memory(
-        tenant_id=other, agent_id=other_agent, enabled=True, attested_by=None
+    return tenant_id, agent_id, owner
+
+
+async def _remembers(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> tuple[bool, bool]:
+    """(what a publish would send, whether a note may be written) for this agent."""
+    async with tenant_session(tenant_id) as session:
+        agent = await _load_agent(session, tenant_id, agent_id)
+        writes = await caller_memory.memory_enabled(session, agent_id=agent_id)
+    return bool(agent["caller_memory_enabled"]), writes
+
+
+async def _paused_item(tenant_id: uuid.UUID) -> dict[str, object] | None:
+    async with tenant_session(tenant_id) as session:
+        queue = await attention_queue(session)
+    return next((i for i in queue["items"] if i["kind"] == "caller_memory_paused"), None)
+
+
+async def test_an_account_on_the_old_statement_is_asked_and_its_agents_are_paused() -> None:
+    """Version 1 said the note is mentioned "at the start of every call"; agents now say it
+    at the goodbye. Until the owner accepts version 2 the account is treated as one that
+    never accepted: nothing is remembered, and switching memory on asks for the statement.
+    The agent's own switch stays where the owner left it."""
+    tenant_id, agent_id, _owner = await _on_version_one()
+
+    assert await _remembers(tenant_id, agent_id) == (False, False)
+    assert await _column(tenant_id, agent_id) is True
+
+    async with tenant_session(tenant_id) as session:
+        shown = await agent_by_id(session, agent_id)
+    assert shown is not None
+    assert shown.caller_memory_enabled is True
+    assert shown.caller_memory_paused is True
+    assert shown.caller_memory_statement == CALLER_MEMORY_ATTESTATION
+
+    item = await _paused_item(tenant_id)
+    assert item is not None
+    assert item["title"] == "Caller memory is paused"
+    assert item["href"] == f"/agents/{agent_id}?section=settings#call-handling"
+
+    async with tenant_session(tenant_id) as session:
+        second = await agent_lifecycle.create_agent(
+            session,
+            tenant_id=tenant_id,
+            name="Second receptionist",
+            direction="inbound",
+            language_primary="te-IN",
+        )
+        await session.commit()
+    with pytest.raises(ProblemError) as refusal:
+        await set_caller_memory(
+            tenant_id=tenant_id, agent_id=second, enabled=True, attested_by=None
+        )
+    assert refusal.value.code == "caller_memory_attestation_required"
+    assert refusal.value.remediation == CALLER_MEMORY_ATTESTATION
+
+
+async def test_an_account_on_the_current_statement_is_not_asked() -> None:
+    tenant_id, agent_id, owner = await _tenant()
+    await set_caller_memory(tenant_id=tenant_id, agent_id=agent_id, enabled=True, attested_by=owner)
+
+    assert await _remembers(tenant_id, agent_id) == (True, True)
+    async with tenant_session(tenant_id) as session:
+        shown = await agent_by_id(session, agent_id)
+    assert shown is not None
+    assert shown.caller_memory_paused is False
+    assert shown.caller_memory_statement is None
+    assert await _paused_item(tenant_id) is None
+
+
+async def test_re_accepting_records_the_new_version_and_resumes_every_agent() -> None:
+    """Re-acceptance goes through the same switch, on an agent that is already on. It
+    records version 2 for the account, resumes memory, and walks the account's live agents
+    so the ones the owner left on are republished remembering."""
+    tenant_id, agent_id, owner = await _on_version_one()
+
+    again = await set_caller_memory(
+        tenant_id=tenant_id, agent_id=agent_id, enabled=True, attested_by=owner
     )
-    assert kept.enabled is True
-    assert kept.attested_version == 1
+    assert again.unchanged is True
+    assert again.statement_accepted == CALLER_MEMORY_ATTESTATION_VERSION
+    assert again.attested_version == CALLER_MEMORY_ATTESTATION_VERSION
+
+    assert await _remembers(tenant_id, agent_id) == (True, True)
+    assert await _paused_item(tenant_id) is None
+    async with tenant_session(tenant_id) as session:
+        walks = (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM live_apply_runs WHERE scope = 'tenant' "
+                    "AND tenant_id = :tid AND reasons ? 'caller_memory_statement'"
+                ),
+                {"tid": tenant_id},
+            )
+        ).scalar_one()
+    assert walks == 1
+
+    # Accepted once: the next switch-on on this account is not asked again.
+    repeat = await set_caller_memory(
+        tenant_id=tenant_id, agent_id=agent_id, enabled=True, attested_by=None
+    )
+    assert repeat.statement_accepted is None
+
+
+async def test_switching_off_on_the_old_statement_needs_no_acceptance() -> None:
+    tenant_id, agent_id, _owner = await _on_version_one()
+    off = await set_caller_memory(
+        tenant_id=tenant_id, agent_id=agent_id, enabled=False, attested_by=None
+    )
+    assert off.enabled is False and off.statement_accepted is None
+    assert await _paused_item(tenant_id) is None
 
 
 async def test_a_clinic_cannot_attest_its_way_past_the_refusal() -> None:

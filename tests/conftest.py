@@ -19,6 +19,7 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
+from apps.api.compliance.caller_memory import CALLER_MEMORY_ATTESTATION_VERSION
 from apps.api.core.settings import get_settings
 from apps.api.db.session import untenanted_session
 from apps.workers import storage
@@ -398,6 +399,16 @@ async def business_contact(
             {"id": contact_id, "tid": tenant_id, "label": label, "phone": phone},
         )
     return contact_id
+
+
+#: The current caller-memory statement accepted for the account, for fixtures that switch
+#: memory on with a raw UPDATE rather than through `set_caller_memory`: without it the
+#: switch is on and the agent remembers nothing (D-900). Bind `tid`.
+ACCEPT_CALLER_MEMORY_STATEMENT = text(
+    "UPDATE organizations SET caller_memory_attested_at = "
+    "COALESCE(caller_memory_attested_at, now()), caller_memory_attestation_version = "
+    f"{CALLER_MEMORY_ATTESTATION_VERSION} WHERE id = :tid"
+)
 
 
 async def accept_agreements(

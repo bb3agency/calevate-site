@@ -34,6 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.display import display_inr
 from apps.api.billing.service import low_balance_line
+from apps.api.compliance.caller_memory import MEMORY_ON_SQL
 from apps.api.core.logging import get_logger
 from apps.api.crm.schemas import AttentionKind
 from apps.api.db.session import session_tenant
@@ -763,6 +764,36 @@ async def forwarded_line_quiet(
     )
 
 
+#: What the owner is told while caller memory waits on the updated statement (D-900).
+CALLER_MEMORY_PAUSED_DETAIL = "Accept the updated statement to resume it on your agents."
+
+_CALLER_MEMORY_PAUSED_SQL = (
+    "SELECT a.id, COALESCE(o.caller_memory_attested_at, a.updated_at) "
+    "FROM agents a JOIN organizations o ON o.id = a.tenant_id "
+    "WHERE a.caller_memory_enabled AND a.deleted_at IS NULL AND a.archived_at IS NULL "
+    f"AND NOT {MEMORY_ON_SQL} ORDER BY a.created_at, a.id LIMIT 1"
+)
+
+
+async def caller_memory_paused(session: AsyncSession) -> AttentionSource:
+    """One item for the account while agents it switched to remember callers are paused on
+    an older caller-memory statement (a LIVE state, like `low_credit`). It links to the
+    first such agent's settings, where the statement is accepted once for the account."""
+    row = (await session.execute(text(_CALLER_MEMORY_PAUSED_SQL))).first()
+    if row is None:
+        return AttentionSource(kind="caller_memory_paused", items=[], total=0)
+    item = AttentionItem(
+        kind="caller_memory_paused",
+        id="caller-memory-paused",
+        title="Caller memory is paused",
+        detail=CALLER_MEMORY_PAUSED_DETAIL,
+        rule=None,
+        occurred_at=row[1],
+        href=f"/agents/{row[0]}?section=settings#call-handling",
+    )
+    return AttentionSource(kind="caller_memory_paused", items=[item], total=1)
+
+
 async def attention_queue(session: AsyncSession, *, limit: int = DEFAULT_LIMIT) -> dict[str, Any]:
     """Every source, newest first, with per-kind counts for the nav badge.
 
@@ -825,6 +856,7 @@ async def attention_queue(session: AsyncSession, *, limit: int = DEFAULT_LIMIT) 
         await failed_calls(session, limit=limit),
         await forwarded_line_quiet(session, limit=limit),
         await low_credit(session),
+        await caller_memory_paused(session),
     ]
     items = sorted(
         (item for source in sources for item in source.items),
@@ -863,6 +895,7 @@ __all__ = [
     "AttentionSource",
     "attention_queue",
     "blocked_leads",
+    "caller_memory_paused",
     "failed_calls",
     "failed_deliveries",
     "hot_leads",

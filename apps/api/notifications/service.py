@@ -44,6 +44,7 @@ _ATTENTION_TONE: Final[dict[str, Tone]] = {
     "kb_rejected": "warning",
     "action_broken": "warning",
     "forwarded_line_quiet": "warning",
+    "caller_memory_paused": "warning",
 }
 
 

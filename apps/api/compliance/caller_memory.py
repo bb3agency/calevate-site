@@ -285,6 +285,61 @@ def spdi_refuses_memory(vertical_template: str | None) -> bool:
     return vertical_template in SPDI_REFUSED_VERTICALS
 
 
+#: The sentence a client accepts to switch cross-call memory on, stored nowhere and
+#: rendered by the API so the screen and the refusal cannot describe different promises.
+#:
+#: IT IS AN ATTESTATION AND NOT A CHECKBOX ON A FORM, which is why it is phrased as a
+#: statement in the first person about facts only the client knows. It is the per-tenant
+#: instrument `SPDI_REFUSED_VERTICALS` above says belongs on the enable path, and the proxy
+#: stays above it as the belt: a clinic is refused whatever it attests, because the
+#: vertical is a RECORD and an attestation is a CLAIM.
+#:
+#: VERSIONED like the outbound pledge: the account's row keeps the version it accepted
+#: (`organizations.caller_memory_attestation_version`), and a published version is never
+#: edited. Version 2 (founder, 27 Oct 2026): the agent says the memory sentence as it says
+#: goodbye (D-865, `engine.MEMORY_GOODBYE_RULE`), so "at the start of every call" became
+#: "before ending each call".
+CALLER_MEMORY_ATTESTATION_VERSION: Final = 2
+CALLER_MEMORY_ATTESTATIONS: Final[dict[int, str]] = {
+    1: (
+        "I confirm that these calls do not collect health, medical, financial, biometric or "
+        "other sensitive personal data about callers, that my business is the Data Fiduciary "
+        "for these callers, and that my own privacy notice tells them we keep a short note of "
+        "what they ask about. I understand that my agents will say so at the start of every "
+        "call, that notes are kept for 180 days, and that a caller may ask for theirs to be "
+        "erased."
+    ),
+    CALLER_MEMORY_ATTESTATION_VERSION: (
+        "I confirm that these calls do not collect health, medical, financial, biometric or "
+        "other sensitive personal data about callers, that my business is the Data Fiduciary "
+        "for these callers, and that my own privacy notice tells them we keep a short note of "
+        "what they ask about. I understand that my agents will say so before ending each "
+        "call, that notes are kept for 180 days, and that a caller may ask for theirs to be "
+        "erased."
+    ),
+}
+CALLER_MEMORY_ATTESTATION: Final = CALLER_MEMORY_ATTESTATIONS[CALLER_MEMORY_ATTESTATION_VERSION]
+
+#: AN ACCEPTANCE OF AN OLDER STATEMENT DOES NOT COVER WHAT AGENTS DO NOW (D-900, founder,
+#: 27 Oct 2026). Until the owner accepts the current one, the account is treated exactly as
+#: one that never accepted: no agent of it remembers callers (no notes written or read, no
+#: memory sentence, the engine told to start every call fresh), and switching memory on asks
+#: for the statement. The agents' own switches are left as the owner set them, so accepting
+#: resumes memory on exactly those agents with nothing to remember about which were on.
+#:
+#: Every reader that decides whether an agent remembers callers uses this fragment over
+#: `agents a JOIN organizations o`, never `a.caller_memory_enabled` alone.
+MEMORY_ON_SQL: Final = (
+    "(a.caller_memory_enabled AND COALESCE(o.caller_memory_attestation_version, 0) >= "
+    f"{CALLER_MEMORY_ATTESTATION_VERSION})"
+)
+
+
+def statement_is_current(version: int | None) -> bool:
+    """Does an account that accepted statement `version` (None = never) cover memory now?"""
+    return version is not None and version >= CALLER_MEMORY_ATTESTATION_VERSION
+
+
 async def memory_enabled(session: AsyncSession, *, agent_id: UUID) -> bool:
     """Is this agent allowed to remember its callers across calls?
 
@@ -303,7 +358,7 @@ async def memory_enabled(session: AsyncSession, *, agent_id: UUID) -> bool:
     row = (
         await session.execute(
             text(
-                "SELECT a.caller_memory_enabled, "
+                f"SELECT {MEMORY_ON_SQL}, "
                 "COALESCE(o.vertical_template, o.unconfirmed_business_type) FROM agents a "
                 "JOIN organizations o ON o.id = a.tenant_id WHERE a.id = :aid"
             ),
@@ -447,6 +502,9 @@ def _active_handle(tenant_id: UUID, phone_e164: str) -> tuple[str, int]:
 
 
 __all__ = [
+    "CALLER_MEMORY_ATTESTATION",
+    "CALLER_MEMORY_ATTESTATIONS",
+    "CALLER_MEMORY_ATTESTATION_VERSION",
     "CALLER_MEMORY_NOTHING",
     "CALLER_MEMORY_PENDING",
     "CALLER_MEMORY_REMEMBERED",
@@ -454,6 +512,7 @@ __all__ = [
     "CALLER_MEMORY_STATES",
     "MAX_FACTS_PER_CALL",
     "MAX_FACT_CHARS",
+    "MEMORY_ON_SQL",
     "RECALL_LIMIT",
     "SPDI_REFUSED_VERTICALS",
     "clean_fact",
@@ -461,4 +520,5 @@ __all__ = [
     "recall",
     "remember",
     "spdi_refuses_memory",
+    "statement_is_current",
 ]

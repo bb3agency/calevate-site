@@ -7,7 +7,15 @@ and the column is frozen with the lot's other terms, so changing the setting lat
 nothing a client already bought. A lot opened while expiry was off (every lot before the
 switch) never expires. Grants and operator overrides at agreed rates carry no term.
 
-THE TERM IS GATED ON THE TERMS. Clause 6.1 promises 12 months unless a different term is
+THE TERM IS GATED ON THE CLIENT'S ACCEPTANCE (D-900, founder, 27 Oct 2026). A lot gets a term
+only when its organisation had accepted a Terms revision at or after
+`TERMS_REVISION_STATING_EXPIRY` at the moment the money is credited
+(`credit_expiry_months_for`). Credit that landed before that acceptance never expires, and
+accepting later does not stamp it. Buying is not gated on re-acceptance (D-897), so without
+this a client still under revision 18, whose Terms say credit does not expire, would lose
+credit to a clause they never agreed to.
+
+THE TERM IS GATED ON THE PUBLISHED TERMS. Clause 6.1 promises 12 months unless a different term is
 agreed in writing, so the setting is refused below `TERMS_EXPIRY_MONTHS`
 (`assert_expiry_may_switch_on`) — a longer term or none is only kinder than the promise —
 and both the refusal and `credit_expiry_months` read `TERMS_REVISION_STATING_EXPIRY`, which
@@ -83,6 +91,47 @@ def credit_expiry_months() -> int | None:
     """The months a pack bought NOW lapses after, or None when credit does not expire."""
     months = get_settings().credit_pack_expiry_months
     return months if months is not None and _terms_state_expiry() else None
+
+
+_TERMS_ACCEPTED_SQL = (
+    "SELECT DISTINCT document_version FROM legal_acceptances "
+    "WHERE tenant_id = :tid AND document_slug = 'terms'"
+)
+
+
+async def terms_stating_expiry_accepted(session: AsyncSession, *, tenant_id: UUID) -> bool:
+    """Has this organisation accepted a Terms revision that states credit expiry?
+
+    Every acceptance row counts, not only the newest: acceptances only move forward through
+    the history, and one that reached the revision is enough."""
+    stating = TERMS_REVISION_STATING_EXPIRY
+    if stating is None:
+        return False
+    from apps.api.legal.catalogue import document, reached_revision
+
+    terms = document("terms")
+    assert terms is not None, "the catalogue lost its Terms of Service"
+    versions = await session.execute(text(_TERMS_ACCEPTED_SQL), {"tid": tenant_id})
+    return any(
+        reached_revision(terms, str(version), stating)
+        for version in versions.scalars()
+    )
+
+
+async def credit_expiry_months_for(session: AsyncSession, *, tenant_id: UUID) -> int | None:
+    """The months credit put on this organisation's wallet NOW lapses after, or None.
+
+    Read in the transaction that credits the money, so it is the acceptance state at CREDIT
+    time that decides, not the state when the payment was started: a bank transfer begun
+    before the owner accepted and landing after it gets the term, because the lot is opened
+    (and its term stamped) when the money arrives, which is also what the pack card tells a
+    buyer ("a bank transfer that lands later lapses later"). The purchase screen reads the
+    same function, so it states a date exactly when a purchase credited now would get one.
+    """
+    months = credit_expiry_months()
+    if months is None or not await terms_stating_expiry_accepted(session, tenant_id=tenant_id):
+        return None
+    return months
 
 
 def assert_expiry_may_switch_on(months: object) -> None:
@@ -221,10 +270,12 @@ __all__ = [
     "LapsingLot",
     "assert_expiry_may_switch_on",
     "credit_expiry_months",
+    "credit_expiry_months_for",
     "credit_expiry_ref",
     "due_lots",
     "expire_lot",
     "expires_at_for",
     "lapse_notice_key",
     "lapsing_lots",
+    "terms_stating_expiry_accepted",
 ]

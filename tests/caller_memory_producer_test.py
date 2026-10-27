@@ -47,7 +47,7 @@ from apps.workers.caller_memory_distil import (
     within_scope,
 )
 from sqlalchemy import text
-from tests.conftest import create_org_with_receptionist
+from tests.conftest import ACCEPT_CALLER_MEMORY_STATEMENT, create_org_with_receptionist
 
 pytestmark = pytest.mark.anyio
 
@@ -118,6 +118,7 @@ async def _finished_call(
                 text("UPDATE agents SET caller_memory_enabled = true WHERE id = :aid"),
                 {"aid": agent_id},
             )
+            await session.execute(ACCEPT_CALLER_MEMORY_STATEMENT, {"tid": tenant_id})
         await session.execute(
             text(
                 "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, "

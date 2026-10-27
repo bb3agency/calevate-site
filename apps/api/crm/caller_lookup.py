@@ -37,6 +37,7 @@ from calevate_shared.lead_fields import NEED_KEY
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.compliance.caller_memory import MEMORY_ON_SQL
 from apps.api.compliance.dnc import check_number
 
 MAX_VALUES: Final = 20
@@ -107,8 +108,9 @@ async def caller_variables(
         (
             await session.execute(
                 text(
-                    "SELECT caller_memory_enabled FROM agents "
-                    "WHERE id = :aid AND deleted_at IS NULL"
+                    f"SELECT {MEMORY_ON_SQL} FROM agents a "
+                    "JOIN organizations o ON o.id = a.tenant_id "
+                    "WHERE a.id = :aid AND a.deleted_at IS NULL"
                 ),
                 {"aid": agent_id},
             )

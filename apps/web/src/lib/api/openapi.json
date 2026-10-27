@@ -3172,6 +3172,22 @@
             "title": "Caller Memory Notice Line",
             "type": "string"
           },
+          "caller_memory_paused": {
+            "default": false,
+            "title": "Caller Memory Paused",
+            "type": "boolean"
+          },
+          "caller_memory_statement": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Caller Memory Statement"
+          },
           "direction": {
             "enum": [
               "inbound",
@@ -5466,7 +5482,8 @@
               "lead_hot",
               "call_failed",
               "credit_low",
-              "forwarded_line_quiet"
+              "forwarded_line_quiet",
+              "caller_memory_paused"
             ],
             "title": "Kind",
             "type": "string"
@@ -65838,7 +65855,7 @@
     },
     "/v1/agents/{agent_id}/caller-memory": {
       "patch": {
-        "description": "Two abilities, always on or off together. Your agents remember the people they have spoken to and can greet a returning caller with what they asked about last time; and when someone asks to be called back at a particular time, that follow-up is booked for exactly then and dials with everything already learned.\n\nOff unless you switch it on. Switched on, the agent says as it says goodbye that a short note is kept \u2014 that sentence cannot be switched off separately.\n\nWhat is kept is a short note of what the caller wanted, what happened, and any preference they stated, such as the language they like or when they prefer to be called. It is used only for that person's own future calls with you, is never shared, and is deleted after 180 days or sooner if they ask.\n\nThe first time anyone in your account switches this on you are asked to confirm what these calls collect. Some kinds of business cannot use it at all.\n\nApplies immediately: a live agent is updated on the voice platform in the same transaction, so the screen never claims something the phone line is not doing.",
+        "description": "Two abilities, always on or off together. Your agents remember the people they have spoken to and can greet a returning caller with what they asked about last time; and when someone asks to be called back at a particular time, that follow-up is booked for exactly then and dials with everything already learned.\n\nOff unless you switch it on. Switched on, the agent says as it says goodbye that a short note is kept \u2014 that sentence cannot be switched off separately.\n\nWhat is kept is a short note of what the caller wanted, what happened, and any preference they stated, such as the language they like or when they prefer to be called. It is used only for that person's own future calls with you, is never shared, and is deleted after 180 days or sooner if they ask.\n\nThe first time anyone in your account switches this on you are asked to confirm what these calls collect. Some kinds of business cannot use it at all. When that statement changes you are asked again, and until you accept the new one no agent remembers callers; accepting it resumes the agents you left switched on.\n\nApplies immediately: a live agent is updated on the voice platform in the same transaction, so the screen never claims something the phone line is not doing.",
         "operationId": "set_caller_memory_route_v1_agents__agent_id__caller_memory_patch",
         "parameters": [
           {

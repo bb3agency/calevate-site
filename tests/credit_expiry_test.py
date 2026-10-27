@@ -29,7 +29,8 @@ from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
 from apps.workers.credit_expiry import expire_credit_lots
 from sqlalchemy import text
-from tests.spend_attribution_test import _tenant
+from tests.conftest import _owner_of
+from tests.spend_attribution_test import _tenant as _plain_tenant
 
 
 @pytest.fixture
@@ -42,6 +43,29 @@ def expiry_on(monkeypatch: pytest.MonkeyPatch) -> None:
 def expiry_off(monkeypatch: pytest.MonkeyPatch) -> None:
     """The console row cleared: credit bought now carries no term."""
     monkeypatch.setattr(get_settings(), "credit_pack_expiry_months", None)
+
+
+async def _accepts_terms(tenant_id: uuid.UUID, revision: str) -> None:
+    """One acceptance of Terms `revision` by the account's owner."""
+    owner = await _owner_of(tenant_id)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO legal_acceptances (id, tenant_id, document_slug, "
+                "document_version, statement_version, accepted_by_user_id) "
+                "VALUES (:id, :tid, 'terms', :version, '1', :uid)"
+            ),
+            {"id": uuid.uuid4(), "tid": tenant_id, "version": revision, "uid": owner},
+        )
+        await session.commit()
+
+
+async def _tenant(*, monthly_fee: str | None = None) -> tuple[uuid.UUID, uuid.UUID]:
+    """An account whose owner accepted the Terms that state expiry (D-900)."""
+    tenant_id, agent_id = await _plain_tenant(monthly_fee=monthly_fee)
+    assert credit_expiry.TERMS_REVISION_STATING_EXPIRY is not None
+    await _accepts_terms(tenant_id, credit_expiry.TERMS_REVISION_STATING_EXPIRY)
+    return tenant_id, agent_id
 
 
 async def _buy(tenant_id: uuid.UUID, amount: str) -> uuid.UUID:
@@ -432,6 +456,68 @@ async def test_the_pack_card_states_no_term_when_the_console_clears_it(
         card = await rate_card_out(session)
     assert card.credit_expiry_months is None
     assert card.credit_lapses_on_if_bought_now is None
+
+
+# --- only after the client accepts the Terms that state it (D-900) ---------------------
+
+
+async def test_credit_on_an_account_that_has_not_accepted_the_terms_never_expires(
+    expiry_on: None,
+) -> None:
+    """An account still under the revision before 19, whose Terms say credit does not
+    expire, gets no term; accepting later does not stamp what it already bought."""
+    tenant_id, _agent = await _plain_tenant(monthly_fee=None)
+    await _accepts_terms(tenant_id, "18")
+    before = await _buy(tenant_id, "1000")
+    await _accepts_terms(tenant_id, "19")
+    after = await _buy(tenant_id, "500")
+    async with tenant_session(tenant_id) as session:
+        first = await credit_lots.read_lot(session, lot_id=before)
+        second = await credit_lots.read_lot(session, lot_id=after)
+    assert first is not None and first.expires_at is None
+    assert second is not None and second.expires_at is not None
+
+
+async def test_an_account_that_never_accepted_any_terms_gets_no_term(expiry_on: None) -> None:
+    tenant_id, _agent = await _plain_tenant(monthly_fee=None)
+    lot_id = await _buy(tenant_id, "1000")
+    async with tenant_session(tenant_id) as session:
+        lot = await credit_lots.read_lot(session, lot_id=lot_id)
+        assert await credit_expiry.credit_expiry_months_for(session, tenant_id=tenant_id) is None
+    assert lot is not None and lot.expires_at is None
+
+
+async def test_the_signed_in_card_states_no_lapse_until_the_terms_are_accepted(
+    expiry_on: None,
+) -> None:
+    """The purchase screen states a date exactly when a purchase credited now would get one;
+    the public card keeps the platform term, which a new signup accepts."""
+    from apps.api.billing.payment_routes import rate_card_out, stated_for_account
+    from apps.api.db.session import untenanted_session
+
+    tenant_id, _agent = await _plain_tenant(monthly_fee=None)
+    async with untenanted_session() as session:
+        public = await rate_card_out(session)
+    unaccepted = await stated_for_account(public, tenant_id=tenant_id)
+    assert public.credit_expiry_months == 12
+    assert unaccepted.credit_expiry_months is None
+    assert unaccepted.credit_lapses_on_if_bought_now is None
+
+    await _accepts_terms(tenant_id, "19")
+    accepted = await stated_for_account(public, tenant_id=tenant_id)
+    assert accepted.credit_expiry_months == 12
+    assert accepted.credit_lapses_on_if_bought_now == public.credit_lapses_on_if_bought_now
+
+
+def test_reaching_a_terms_revision_is_read_off_the_history() -> None:
+    from apps.api.legal.catalogue import document, reached_revision
+
+    terms = document("terms")
+    assert terms is not None
+    assert reached_revision(terms, "19", "19")
+    assert reached_revision(terms, "19+pre-review", "19")
+    assert not reached_revision(terms, "18", "19")
+    assert not reached_revision(terms, "999", "19")
 
 
 class _Mailbox:

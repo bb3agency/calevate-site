@@ -28,6 +28,8 @@ export const KIND_COPY: Record<AttentionKind, { label: string; dot: string; acti
   kb_rejected: { label: "Something you added was not accepted", dot: "bg-ink-faint", action: "Open What your agents know", rank: 8 },
   // D-746: a forwarded number that normally brings calls has had none for three days.
   forwarded_line_quiet: { label: "No calls on your number", dot: "bg-warn", action: "Test forwarding", rank: 1 },
+  // D-900: agents set to remember callers wait on the owner accepting the updated statement.
+  caller_memory_paused: { label: "Caller memory paused", dot: "bg-warn", action: "Accept the statement", rank: 2 },
 };
 
 /** Most urgent first, newest first within one kind. An unknown kind sorts after the known ones. */

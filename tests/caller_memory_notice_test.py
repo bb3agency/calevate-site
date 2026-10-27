@@ -56,7 +56,7 @@ from calevate_shared.engine import (
 from calevate_shared.languages import staged_language_tags
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
-from tests.conftest import create_org_with_receptionist
+from tests.conftest import ACCEPT_CALLER_MEMORY_STATEMENT, create_org_with_receptionist
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MIGRATION = (
@@ -107,6 +107,7 @@ async def _remember(tenant_id: uuid.UUID, agent_id: uuid.UUID, *, on: bool = Tru
             text("UPDATE agents SET caller_memory_enabled = :on, updated_at = now() WHERE id = :a"),
             {"on": on, "a": agent_id},
         )
+        await session.execute(ACCEPT_CALLER_MEMORY_STATEMENT, {"tid": tenant_id})
 
 
 # --- 1. the composer -----------------------------------------------------------------
@@ -243,6 +244,7 @@ def test_the_roster_indices_agree_with_the_roster_query() -> None:
 
     assert parsed[17] == "a.caller_memory_notice_line"
     assert parsed[18] == "a.caller_memory_enabled"
+    assert parsed[24] == "o.caller_memory_attestation_version"
     # And the fields the older mapper reads are still where it thinks they are — the same
     # shift would have moved these, silently.
     assert parsed[9] == "a.ai_disclosure_line"
