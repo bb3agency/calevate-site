@@ -2414,6 +2414,17 @@
             ],
             "title": "Opening Waits For Caller"
           },
+          "reask_after_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reask After Ms"
+          },
           "turn_silence_ms": {
             "anyOf": [
               {
@@ -2791,6 +2802,17 @@
             ],
             "title": "Organization Opening Wait Ms"
           },
+          "organization_reask_after_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Organization Reask After Ms"
+          },
           "organization_turn_silence_ms": {
             "anyOf": [
               {
@@ -2801,6 +2823,33 @@
               }
             ],
             "title": "Organization Turn Silence Ms"
+          },
+          "patient_caller": {
+            "$ref": "#/components/schemas/PatientCallerOut"
+          },
+          "reask_after_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reask After Ms"
+          },
+          "reask_after_ms_effective": {
+            "title": "Reask After Ms Effective",
+            "type": "integer"
+          },
+          "reask_after_ms_source": {
+            "enum": [
+              "agent",
+              "organization",
+              "platform"
+            ],
+            "title": "Reask After Ms Source",
+            "type": "string"
           },
           "turn_silence_applies": {
             "title": "Turn Silence Applies",
@@ -2864,6 +2913,9 @@
           "opening_wait_ms",
           "opening_wait_ms_effective",
           "opening_wait_ms_source",
+          "reask_after_ms",
+          "reask_after_ms_effective",
+          "reask_after_ms_source",
           "opening_waits_for_caller",
           "organization_turn_silence_ms",
           "organization_end_call_on_finish",
@@ -2875,7 +2927,9 @@
           "organization_ambience",
           "organization_ambience_volume_pct",
           "organization_opening_wait_ms",
-          "bounds"
+          "organization_reask_after_ms",
+          "bounds",
+          "patient_caller"
         ],
         "title": "AgentCallHandlingOut",
         "type": "object"
@@ -3606,6 +3660,17 @@
             ],
             "title": "Opening Wait Ms"
           },
+          "reask_after_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reask After Ms"
+          },
           "turn_silence_ms": {
             "anyOf": [
               {
@@ -3630,7 +3695,8 @@
           "filler_lines",
           "ambience",
           "ambience_volume_pct",
-          "opening_wait_ms"
+          "opening_wait_ms",
+          "reask_after_ms"
         ],
         "title": "AgentOwnCallHandlingOut",
         "type": "object"
@@ -5051,6 +5117,17 @@
               }
             ],
             "title": "Opening Wait Ms"
+          },
+          "reask_after_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reask After Ms"
           },
           "turn_silence_ms": {
             "anyOf": [
@@ -8834,8 +8911,24 @@
             ],
             "title": "Platform Opening Wait Ms"
           },
+          "platform_reask_after_ms": {
+            "title": "Platform Reask After Ms",
+            "type": "integer"
+          },
           "platform_turn_silence_ms": {
             "title": "Platform Turn Silence Ms",
+            "type": "integer"
+          },
+          "reask_after_max_ms": {
+            "title": "Reask After Max Ms",
+            "type": "integer"
+          },
+          "reask_after_min_ms": {
+            "title": "Reask After Min Ms",
+            "type": "integer"
+          },
+          "reask_after_step_ms": {
+            "title": "Reask After Step Ms",
             "type": "integer"
           },
           "turn_silence_max_ms": {
@@ -8873,7 +8966,11 @@
           "opening_wait_min_ms",
           "opening_wait_max_ms",
           "opening_wait_step_ms",
-          "platform_opening_wait_ms"
+          "platform_opening_wait_ms",
+          "reask_after_min_ms",
+          "reask_after_max_ms",
+          "reask_after_step_ms",
+          "platform_reask_after_ms"
         ],
         "title": "CallHandlingBoundsOut",
         "type": "object"
@@ -14711,7 +14808,7 @@
       },
       "ConversationStage": {
         "additionalProperties": false,
-        "description": "One section of the call, a node of the script's section graph.\n\nThe list order is the call order. `mode` \"say\" asks for `instruction` to be said as\nwritten (best effort: only the opening line is guaranteed verbatim). `sounds_like` is an\noptional line in the call's language showing how it sounds. `branches` are the ways out\non a condition, `otherwise` where to go when none holds (empty: the next section), and\n`collect` what must be in hand first. `position` is the canvas layout and is never\ncompiled. Instruction and sounds-like share ThinnestAI's 600-character step detail.",
+        "description": "One section of the call, a node of the script's section graph.\n\nThe list order is the call order. `mode` \"say\" asks for `instruction` to be said as\nwritten (best effort: only the opening line is guaranteed verbatim). `sounds_like` is an\noptional line in the call's language showing how it sounds. `branches` are the ways out\non a condition, `otherwise` where to go when none holds (empty: the next section), and\n`collect` what must be in hand first. `position` is the canvas layout and is never\ncompiled. Instruction and sounds-like share ThinnestAI's 600-character step detail.\n`procedure` is an ordered list of small steps compiled into the instructions text under\nthe section's name (D-908); the step detail only points at it.",
         "properties": {
           "branches": {
             "items": {
@@ -14772,6 +14869,14 @@
                 "type": "null"
               }
             ]
+          },
+          "procedure": {
+            "items": {
+              "$ref": "#/components/schemas/ProcedureStep"
+            },
+            "maxItems": 15,
+            "title": "Procedure",
+            "type": "array"
           },
           "sounds_like": {
             "default": "",
@@ -33906,6 +34011,17 @@
             ],
             "title": "Opening Wait Ms"
           },
+          "reask_after_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reask After Ms"
+          },
           "turn_silence_ms": {
             "anyOf": [
               {
@@ -34100,6 +34216,21 @@
             ],
             "title": "Opening Wait Ms Effective"
           },
+          "reask_after_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reask After Ms"
+          },
+          "reask_after_ms_effective": {
+            "title": "Reask After Ms Effective",
+            "type": "integer"
+          },
           "turn_silence_ms": {
             "anyOf": [
               {
@@ -34137,6 +34268,8 @@
           "ambience_volume_pct_effective",
           "opening_wait_ms",
           "opening_wait_ms_effective",
+          "reask_after_ms",
+          "reask_after_ms_effective",
           "agents_with_own",
           "agents_with_own_total",
           "bounds"
@@ -35068,6 +35201,51 @@
           "revoked"
         ],
         "title": "PasswordChangeOut",
+        "type": "object"
+      },
+      "PatientCallerOut": {
+        "additionalProperties": false,
+        "description": "The \"Patient caller\" preset (D-907) for this agent: what it sets and whether the\nsettings in force match it.",
+        "properties": {
+          "applied": {
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "call_cap_s": {
+            "title": "Call Cap S",
+            "type": "integer"
+          },
+          "end_after_silence_seconds": {
+            "title": "End After Silence Seconds",
+            "type": "integer"
+          },
+          "nudge_after_seconds": {
+            "title": "Nudge After Seconds",
+            "type": "integer"
+          },
+          "nudge_count": {
+            "title": "Nudge Count",
+            "type": "integer"
+          },
+          "nudge_phrase": {
+            "title": "Nudge Phrase",
+            "type": "string"
+          },
+          "reask_after_ms": {
+            "title": "Reask After Ms",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "applied",
+          "nudge_after_seconds",
+          "nudge_count",
+          "nudge_phrase",
+          "end_after_silence_seconds",
+          "reask_after_ms",
+          "call_cap_s"
+        ],
+        "title": "PatientCallerOut",
         "type": "object"
       },
       "PaymentAlarmOut": {
@@ -36954,6 +37132,29 @@
           "compiled"
         ],
         "title": "PreviewOut",
+        "type": "object"
+      },
+      "ProcedureStep": {
+        "additionalProperties": false,
+        "description": "One small step of a section's step-by-step list: what the agent asks the caller to do,\nand what tells it the caller has done it (empty: the caller says so).",
+        "properties": {
+          "action": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Action",
+            "type": "string"
+          },
+          "wait_for": {
+            "default": "",
+            "maxLength": 120,
+            "title": "Wait For",
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "title": "ProcedureStep",
         "type": "object"
       },
       "ProfileBlockerOut": {
@@ -42506,6 +42707,10 @@
             "title": "Max Collect",
             "type": "integer"
           },
+          "max_procedure_steps": {
+            "title": "Max Procedure Steps",
+            "type": "integer"
+          },
           "max_sections": {
             "title": "Max Sections",
             "type": "integer"
@@ -42513,6 +42718,14 @@
           "native_steps": {
             "title": "Native Steps",
             "type": "boolean"
+          },
+          "procedure_step_max": {
+            "title": "Procedure Step Max",
+            "type": "integer"
+          },
+          "procedure_wait_max": {
+            "title": "Procedure Wait Max",
+            "type": "integer"
           },
           "section_detail_max": {
             "title": "Section Detail Max",
@@ -42541,6 +42754,9 @@
           "sounds_like_max",
           "max_branches",
           "max_collect",
+          "max_procedure_steps",
+          "procedure_step_max",
+          "procedure_wait_max",
           "instructions_limit",
           "native_steps",
           "special_targets"
@@ -60714,7 +60930,7 @@
     },
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/call-handling": {
       "get": {
-        "description": "`turn_silence_ms` is the quiet after the caller's last words that ends their turn, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. It is used only while the agent's turns end by silence: `turn_silence_applies` is false when they end by real-time listening, where the value is kept but not used. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.\n\nIf the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, \"\" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).\n\n`opening_waits_for_caller` holds the agent's first words until the person who picked up speaks, or `opening_wait_ms` of silence; it is the agent's own (true or false, never inherited), on by default for an agent that only places calls. `opening_wait_ms` (500-10000 in steps of 100) inherits like the settings below; it may be set only while `bounds.opening_wait_available`, and an effective null is four seconds (`opening_wait_unavailable` otherwise).\n\nEach other setting resolves agent, then the account default, then Calevate's (`bounds.platform_turn_silence_ms`, 250 ms on most agents, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound); `*_source` names the level in force.\n\nA change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range` or `call_setting_out_of_range`.",
+        "description": "`turn_silence_ms` is the quiet after the caller's last words that ends their turn, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. It is used only while the agent's turns end by silence: `turn_silence_applies` is false when they end by real-time listening, where the value is kept but not used. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.\n\nIf the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, \"\" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).\n\n`opening_waits_for_caller` holds the agent's first words until the person who picked up speaks, or `opening_wait_ms` of silence; it is the agent's own (true or false, never inherited), on by default for an agent that only places calls. `opening_wait_ms` (500-10000 in steps of 100) inherits like the settings below; it may be set only while `bounds.opening_wait_available`, and an effective null is four seconds (`opening_wait_unavailable` otherwise).\n\n`reask_after_ms` is how long the agent waits, after a question it asked has had no answer, before asking it again: 1500-10000 in steps of 100, or 0 for never.\n\nEach other setting resolves agent, then the account default, then Calevate's (`bounds.platform_turn_silence_ms`, 250 ms on most agents, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound, ask again after 5 s); `*_source` names the level in force.\n\nA change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range` or `call_setting_out_of_range`.",
         "operationId": "admin_get_agent_call_handling_v1_admin_tenants__tenant_id__agents__agent_id__call_handling_get",
         "parameters": [
           {
@@ -60763,7 +60979,7 @@
         "x-calevate-permission": "admin:tenants"
       },
       "patch": {
-        "description": "`turn_silence_ms` is the quiet after the caller's last words that ends their turn, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. It is used only while the agent's turns end by silence: `turn_silence_applies` is false when they end by real-time listening, where the value is kept but not used. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.\n\nIf the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, \"\" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).\n\n`opening_waits_for_caller` holds the agent's first words until the person who picked up speaks, or `opening_wait_ms` of silence; it is the agent's own (true or false, never inherited), on by default for an agent that only places calls. `opening_wait_ms` (500-10000 in steps of 100) inherits like the settings below; it may be set only while `bounds.opening_wait_available`, and an effective null is four seconds (`opening_wait_unavailable` otherwise).\n\nEach other setting resolves agent, then the account default, then Calevate's (`bounds.platform_turn_silence_ms`, 250 ms on most agents, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound); `*_source` names the level in force.\n\nA change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range` or `call_setting_out_of_range`.",
+        "description": "`turn_silence_ms` is the quiet after the caller's last words that ends their turn, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. It is used only while the agent's turns end by silence: `turn_silence_applies` is false when they end by real-time listening, where the value is kept but not used. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.\n\nIf the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, \"\" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).\n\n`opening_waits_for_caller` holds the agent's first words until the person who picked up speaks, or `opening_wait_ms` of silence; it is the agent's own (true or false, never inherited), on by default for an agent that only places calls. `opening_wait_ms` (500-10000 in steps of 100) inherits like the settings below; it may be set only while `bounds.opening_wait_available`, and an effective null is four seconds (`opening_wait_unavailable` otherwise).\n\n`reask_after_ms` is how long the agent waits, after a question it asked has had no answer, before asking it again: 1500-10000 in steps of 100, or 0 for never.\n\nEach other setting resolves agent, then the account default, then Calevate's (`bounds.platform_turn_silence_ms`, 250 ms on most agents, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound, ask again after 5 s); `*_source` names the level in force.\n\nA change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range` or `call_setting_out_of_range`.",
         "operationId": "admin_set_agent_call_handling_v1_admin_tenants__tenant_id__agents__agent_id__call_handling_patch",
         "parameters": [
           {
@@ -60816,6 +61032,57 @@
           }
         },
         "summary": "Set one client agent's call settings",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "agents:write"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/call-handling/patient-caller": {
+      "post": {
+        "description": "One tap for a caller who follows the agent along on their own phone and goes quiet for long stretches: on this agent alone, ask whether they are still there after 20 s, up to 3 times, in the agent's main language (`patient_caller.nudge_phrase` on the read), hang up after 120 s of silence, never repeat an unanswered question on a timer, and raise the longest call to `patient_caller.call_cap_s` (a longer one is kept). Each is an ordinary setting afterwards. Applies from the next call.",
+        "operationId": "admin_apply_patient_caller_v1_admin_tenants__tenant_id__agents__agent_id__call_handling_patient_caller_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentCallHandlingOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Set one client agent up for a caller who follows along on their phone",
         "tags": [
           "admin"
         ],
@@ -66761,7 +67028,7 @@
     },
     "/v1/agents/{agent_id}/call-handling": {
       "get": {
-        "description": "`turn_silence_ms` is the quiet after the caller's last words that ends their turn, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. It is used only while the agent's turns end by silence: `turn_silence_applies` is false when they end by real-time listening, where the value is kept but not used. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.\n\nIf the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, \"\" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).\n\n`opening_waits_for_caller` holds the agent's first words until the person who picked up speaks, or `opening_wait_ms` of silence; it is the agent's own (true or false, never inherited), on by default for an agent that only places calls. `opening_wait_ms` (500-10000 in steps of 100) inherits like the settings below; it may be set only while `bounds.opening_wait_available`, and an effective null is four seconds (`opening_wait_unavailable` otherwise).\n\nEach other setting resolves agent, then the account default, then Calevate's (`bounds.platform_turn_silence_ms`, 250 ms on most agents, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound); `*_source` names the level in force.\n\nA change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range` or `call_setting_out_of_range`.",
+        "description": "`turn_silence_ms` is the quiet after the caller's last words that ends their turn, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. It is used only while the agent's turns end by silence: `turn_silence_applies` is false when they end by real-time listening, where the value is kept but not used. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.\n\nIf the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, \"\" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).\n\n`opening_waits_for_caller` holds the agent's first words until the person who picked up speaks, or `opening_wait_ms` of silence; it is the agent's own (true or false, never inherited), on by default for an agent that only places calls. `opening_wait_ms` (500-10000 in steps of 100) inherits like the settings below; it may be set only while `bounds.opening_wait_available`, and an effective null is four seconds (`opening_wait_unavailable` otherwise).\n\n`reask_after_ms` is how long the agent waits, after a question it asked has had no answer, before asking it again: 1500-10000 in steps of 100, or 0 for never.\n\nEach other setting resolves agent, then the account default, then Calevate's (`bounds.platform_turn_silence_ms`, 250 ms on most agents, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound, ask again after 5 s); `*_source` names the level in force.\n\nA change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range` or `call_setting_out_of_range`.",
         "operationId": "get_agent_call_handling_v1_agents__agent_id__call_handling_get",
         "parameters": [
           {
@@ -66800,7 +67067,7 @@
         "x-calevate-permission": "agents:read"
       },
       "patch": {
-        "description": "`turn_silence_ms` is the quiet after the caller's last words that ends their turn, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. It is used only while the agent's turns end by silence: `turn_silence_applies` is false when they end by real-time listening, where the value is kept but not used. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.\n\nIf the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, \"\" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).\n\n`opening_waits_for_caller` holds the agent's first words until the person who picked up speaks, or `opening_wait_ms` of silence; it is the agent's own (true or false, never inherited), on by default for an agent that only places calls. `opening_wait_ms` (500-10000 in steps of 100) inherits like the settings below; it may be set only while `bounds.opening_wait_available`, and an effective null is four seconds (`opening_wait_unavailable` otherwise).\n\nEach other setting resolves agent, then the account default, then Calevate's (`bounds.platform_turn_silence_ms`, 250 ms on most agents, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound); `*_source` names the level in force.\n\nA change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range` or `call_setting_out_of_range`.",
+        "description": "`turn_silence_ms` is the quiet after the caller's last words that ends their turn, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. It is used only while the agent's turns end by silence: `turn_silence_applies` is false when they end by real-time listening, where the value is kept but not used. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.\n\nIf the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, \"\" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).\n\n`opening_waits_for_caller` holds the agent's first words until the person who picked up speaks, or `opening_wait_ms` of silence; it is the agent's own (true or false, never inherited), on by default for an agent that only places calls. `opening_wait_ms` (500-10000 in steps of 100) inherits like the settings below; it may be set only while `bounds.opening_wait_available`, and an effective null is four seconds (`opening_wait_unavailable` otherwise).\n\n`reask_after_ms` is how long the agent waits, after a question it asked has had no answer, before asking it again: 1500-10000 in steps of 100, or 0 for never.\n\nEach other setting resolves agent, then the account default, then Calevate's (`bounds.platform_turn_silence_ms`, 250 ms on most agents, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound, ask again after 5 s); `*_source` names the level in force.\n\nA change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range` or `call_setting_out_of_range`.",
         "operationId": "set_agent_call_handling_v1_agents__agent_id__call_handling_patch",
         "parameters": [
           {
@@ -66843,6 +67110,47 @@
           }
         },
         "summary": "Set an agent's call settings, or let them inherit",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/agents/{agent_id}/call-handling/patient-caller": {
+      "post": {
+        "description": "One tap for a caller who follows the agent along on their own phone and goes quiet for long stretches: on this agent alone, ask whether they are still there after 20 s, up to 3 times, in the agent's main language (`patient_caller.nudge_phrase` on the read), hang up after 120 s of silence, never repeat an unanswered question on a timer, and raise the longest call to `patient_caller.call_cap_s` (a longer one is kept). Each is an ordinary setting afterwards. Applies from the next call.",
+        "operationId": "apply_patient_caller_v1_agents__agent_id__call_handling_patient_caller_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentCallHandlingOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Set an agent up for a caller who follows along on their phone",
         "tags": [
           "agents"
         ],
