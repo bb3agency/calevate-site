@@ -94,7 +94,7 @@ export function Closing({ devSlug }: { devSlug?: string }) {
             </p>
             <Link
               href={CLIENT_SIGN_IN_PATH}
-              className="mt-5 inline-flex items-center gap-1.5 text-base font-semibold text-brand-strong underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong focus-visible:ring-offset-2 focus-visible:ring-offset-surface dark:text-brand-bright"
+              className="mt-5 inline-flex items-center gap-1.5 text-base font-semibold text-brand-strong underline-offset-2 hover:underline touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong focus-visible:ring-offset-2 focus-visible:ring-offset-surface dark:text-brand-bright"
             >
               Sign in
               <ArrowRight aria-hidden className="h-3.5 w-3.5" />
