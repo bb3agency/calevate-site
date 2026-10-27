@@ -94,6 +94,12 @@ BODIES: dict[str, dict[str, Any] | None] = {
     "PATCH /v1/admin/tenants/{tenant_id}/agents/{agent_id}/call-handling": {
         "end_call_on_finish": False
     },
+    # The silence preset (D-907) and an operator's per-agent turn detection (D-901).
+    "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/call-handling/give-callers-time": None,
+    "GET /v1/admin/tenants/{tenant_id}/agents/{agent_id}/turn-detection": None,
+    "PUT /v1/admin/tenants/{tenant_id}/agents/{agent_id}/turn-detection": {
+        "turn_detection": "timer"
+    },
     # Studio voice tuning (D-767).
     "GET /v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice-tuning": None,
     "PATCH /v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice-tuning": {"speed": "1.10"},
