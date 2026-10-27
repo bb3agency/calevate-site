@@ -771,3 +771,38 @@ construction. What the framework does with it:
 
 Tests: `apps/api/copilot/plans_test.py`. Alarm: `copilot_plans_resume_failed`
 (`runbooks/copilot-plan-stuck.md`).
+
+## 20. Leads, do-not-call, saved views and exports (D-893 lane L2, `copilot/lead_actions.py`, `LEAD_ACTIONS`)
+
+| Area | Tool (tier, permission) | The button's function |
+|---|---|---|
+| integrations | `lead_source_mapping` (confirm with Undo, `org:manage`) | `ingest.service.set_source_mapping` — `PUT /v1/lead-sources/{id}/mapping`, the Lead sources screen's "Change field names" |
+| leads | `dnc_restore` (confirm, `leads:dispatch`) | `compliance.dnc.restore_optout` — `POST /v1/dnc/{id}/restore` |
+| leads | `lead_view_save` (immediate with Undo, `leads:write`) | `crm.saved_views.create_view` / `update_view` — Save / Update view |
+| leads | `leads_export` (confirm, `calls:read_raw`, code `export_leads:{org}`) | the Leads Export button's lens and file (`crm/routes._export_and_summary`) |
+| calls | `calls_export` (confirm, `calls:read_raw`, code `export_calls:{org}`) | the Calls Export button's lens and file (`service.export_calls_csv`) |
+
+Single and bulk status, owner and name were already Pip's (`lead_set_status`, `lead_assign`,
+`lead_rename`, `leads_bulk_update` by lens or ids, §19); a bulk rename is not offered, because
+one name for many people is never a correction.
+
+* **Opt-out restore.** The card names the ground the person states (`never_asked`, or
+  `asked_to_be_called` with `note`: how and when) and how many opt-outs are on record, never
+  the caller's words; the signed arguments carry the newest record shown, and a newer one is
+  refused (`dnc_restore_stale`) exactly as on the page. A hand-added entry is `dnc_remove`'s.
+  The audit row is the route's `dnc.optout_restored.<ground>` (`Executed.audit_action`).
+* **Saved views** hold the whole lens except the search box and the question
+  (`crm.schemas.SavedViewFilters`): stage, owner (`assigned_to_me` only), facets, created and
+  last-call ranges, last outcome, direction, test calls, follow-up, call-back, captured
+  details. `rolling` (default true) keeps a range that ends today as `last_days`, so a view
+  saved as "this week" still means this week. The Calls log saves views too
+  (`/v1/calls/views`, `crm.schemas.CallViewFilters`), in the same table under `screen`.
+* **Exports hand over a ticket, not a file.** Confirming checks the emailed code the Export
+  button asks for and answers `download_ticket` (`CopilotConfirmOut`); the card's Download
+  button spends it once, within ten minutes, at `POST /v1/exports/download`
+  (`crm/export_tickets.py`), which builds the file from the frozen lens and writes the same
+  `leads.export` / `calls.export` audit row as the buttons. Nothing with a number in it is
+  stored between the two.
+* Tests: `apps/api/copilot/lead_actions_test.py`, `tests/saved_views_lens_test.py`; tool
+  choice: `c-source-fields`, `c-dnc-restore`, `c-view-save`, `c-export-leads`,
+  `c-export-calls`.
