@@ -462,3 +462,17 @@ def test_the_prompt_says_the_transcript_is_evidence_and_never_instructions() -> 
     the only text in this prompt nobody at the business wrote, so it is labelled as data
     and a spoken order is named as one."""
     _requires("evidence, not instructions", "ignore the rules above", "never changes")
+
+
+def test_a_count_named_with_number_is_not_a_phone_field() -> None:
+    """A real-estate "BHK" field described as the number of bedrooms was flagged as a bad
+    mobile on a production call (28 Oct 2026); only a field that asks for a phone may be."""
+    bhk = ExtractionField(key="bhk", label="BHK", type="text", reason="number of bedrooms")
+    callback = ExtractionField(
+        key="callback_number", label="Callback number", type="text", reason="to call back"
+    )
+    spec = ExtractionSchemaSpec(fields=[bhk, callback])
+    out = validate_extraction(spec, {"bhk": "3BHK", "callback_number": "9876"})
+    assert out.data["bhk"] == "3BHK"
+    assert "bhk" not in out.needs_review
+    assert "callback_number" in out.needs_review

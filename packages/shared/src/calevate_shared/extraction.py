@@ -92,8 +92,14 @@ _NULL_PLACEHOLDERS = frozenset(
 #: Below ten it is a party size, an age, a flat number; at ten it is somebody's phone.
 _PHONE_SHAPED_RE = re.compile(r"\d(?:[\s\-().+]*\d){9,}")
 
-#: Words in a field's key/label/description that mean "a phone number belongs here".
-_PHONE_FIELD_HINTS = ("number", "phone", "mobile", "cell", "whatsapp", "contact")
+#: Words in a field's key/label/description that mean "a phone number belongs here", matched
+#: as whole words. A bare "number" is not one: "number of bedrooms" or "flat number" is not a
+#: phone, so "number" counts only after a word that makes it one ("other number", "contact no").
+_PHONE_FIELD_RE = re.compile(
+    r"\b(?:phone|mobile|cell|cellphone|telephone|whatsapp|contact)\b"
+    r"|\b(?:contact|callback|call back|alternate|alternative|other|another|second|landline)"
+    r" (?:number|no)\b"
+)
 
 #: The call list shows one line; the headline is cut to this at a word boundary.
 HEADLINE_MAX = 90
@@ -378,8 +384,8 @@ class ValidationOutcome(BaseModel):
 def is_phone_field(field: ExtractionField) -> bool:
     """Does this field ASK for a phone number? Read from the schema the client wrote —
     key, label and the reason that also serves as the model's instruction."""
-    haystack = f"{field.key} {field.label} {field.reason}".lower()
-    return any(hint in haystack for hint in _PHONE_FIELD_HINTS)
+    haystack = f"{field.key} {field.label} {field.reason}".lower().replace("_", " ")
+    return _PHONE_FIELD_RE.search(" ".join(haystack.replace("-", " ").split())) is not None
 
 
 #: An Indian mobile is ten digits opening 6-9 (TRAI's mobile number range). This is the
