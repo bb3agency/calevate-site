@@ -27,6 +27,8 @@ export function LeadsFooter({
 }) {
   if (!leads.data) return null;
   const { total } = leads.data;
+  // An empty list already says so in its empty state; "Showing 0 of 0" under it repeats it.
+  if (total === 0) return null;
   return (
     <div className="flex flex-wrap items-center justify-between gap-3">
       <p className="text-meta text-ink-muted">

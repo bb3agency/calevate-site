@@ -811,7 +811,7 @@ describe("the counts come from the server or are not shown", () => {
     // is a visible duplicate, and the copy that drifts when the nav entry is renamed.
     const { container } = await renderClientPage(<LeadsPage />, routes());
 
-    await screen.findByText(/Showing/);
+    await screen.findByText(/No leads yet/);
     expect(container.querySelectorAll("h1")).toHaveLength(0);
   });
 });
