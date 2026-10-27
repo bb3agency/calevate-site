@@ -41,6 +41,7 @@ const WAITING: ScheduledCallback = {
   explanation: "Booked for the time the caller asked for.",
   last_call_id: null,
   settled_at: null,
+  held: false,
   note: null,
 };
 

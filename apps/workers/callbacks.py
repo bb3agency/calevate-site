@@ -113,6 +113,12 @@ async def dispatch_due_callbacks(tenant_id: UUID, slots: int) -> dict[str, int]:
     dialled = blocked = 0
     async with tenant_session(tenant_id) as session:
         settled = await callbacks.settle_dialled(session)
+        # A campaign's call-backs follow it (D-914): called off when it stopped, held while
+        # it is paused, back in line once it resumed. Before `expire_stale`, so a held one
+        # never runs out of time behind the pause, and before the claim.
+        settled += await callbacks.call_off_for_stopped_campaigns(session, tenant_id=tenant_id)
+        await callbacks.hold_for_paused_campaigns(session)
+        await callbacks.release_resumed(session)
         settled += await callbacks.expire_stale(session)
         due = await callbacks.claim_due(session, limit=min(slots, MAX_PER_TICK))
     # The claim is COMMITTED here. Everything below runs in its own short transaction.
@@ -140,6 +146,13 @@ async def dispatch_due_callbacks(tenant_id: UUID, slots: int) -> dict[str, int]:
                         session, callback.id, rule="lead_on_a_call", reason=ON_A_CALL_REASON
                     )
                     continue
+            # A call-back its campaign's pause held keeps to that campaign's calling hours
+            # once released (D-914); the gate below knows only the platform's.
+            if await callbacks.defer_to_window(
+                session, callback, rule=CALLING_HOURS_RULE, reason=CALLING_HOURS_REASON
+            ):
+                blocked += 1
+                continue
             # THE GATE (hard rule 5), per callback, at the moment of dialling. This is the
             # dispatch tick DNC additions must precede, and its DNC read is uncached — so a
             # number suppressed between the promise and its time is refused here, on this

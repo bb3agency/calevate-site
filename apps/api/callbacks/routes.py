@@ -109,6 +109,9 @@ class ScheduledCallbackOut(BaseModel):
     settled_at: datetime | None
     #: What the caller said they wanted the call about, in the agent's own short words.
     note: str | None
+    #: Waiting, and on hold because its campaign is paused (D-914): it is called once the
+    #: campaign resumes, at the next moment the calling hours allow.
+    held: bool
 
 
 def _view(row: dict[str, object]) -> ScheduledCallbackOut:
@@ -124,7 +127,12 @@ def _view(row: dict[str, object]) -> ScheduledCallbackOut:
     """
     status = str(row["status"])
     stored = row["last_refusal_reason"]
-    explanation = str(stored) if stored else _ENDINGS.get(status, "")
+    held = bool(row.get("held"))
+    if held:
+        # Read live, so it shows before the tick has marked the row.
+        explanation = callbacks.CAMPAIGN_PAUSED_REASON
+    else:
+        explanation = str(stored) if stored else _ENDINGS.get(status, "")
     return ScheduledCallbackOut(
         id=UUID(str(row["id"])),
         agent_id=UUID(str(row["agent_id"])),
@@ -137,6 +145,7 @@ def _view(row: dict[str, object]) -> ScheduledCallbackOut:
         last_call_id=UUID(str(row["last_call_id"])) if row["last_call_id"] else None,
         settled_at=row["settled_at"],  # type: ignore[arg-type]
         note=str(row["note"]) if row["note"] else None,
+        held=held,
     )
 
 

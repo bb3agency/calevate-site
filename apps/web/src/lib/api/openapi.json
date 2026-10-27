@@ -11241,6 +11241,10 @@
             "title": "Outcomes",
             "type": "object"
           },
+          "people_answered": {
+            "title": "People Answered",
+            "type": "integer"
+          },
           "pickup_rate": {
             "anyOf": [
               {
@@ -11282,6 +11286,7 @@
           "pickup_rate",
           "calls",
           "connected_calls",
+          "people_answered",
           "average_call_s",
           "talk_seconds",
           "outcome_tags",
@@ -42677,6 +42682,10 @@
             "title": "Explanation",
             "type": "string"
           },
+          "held": {
+            "title": "Held",
+            "type": "boolean"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -42754,7 +42763,8 @@
           "explanation",
           "last_call_id",
           "settled_at",
-          "note"
+          "note",
+          "held"
         ],
         "title": "ScheduledCallbackOut",
         "type": "object"

@@ -120,6 +120,10 @@ class ScheduledCallback(PKMixin, TimestampMixin, Base):
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default="scheduled")
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     next_attempt_at: Mapped[datetime | None] = mapped_column()
+    #: Where `GRACE` counts from when a campaign pause held this call-back (D-914): the
+    #: first moment the calling hours allowed after the campaign resumed. NULL for one that
+    #: was never held, whose grace counts from `requested_at` (migration d4a7c3e91f26).
+    grace_from: Mapped[datetime | None] = mapped_column()
     #: The gate's OWN rule name and OWN sentence for the last refusal. The rule is for the
     #: metric and the runbook; the sentence is what the client reads on their screen.
     last_refusal_rule: Mapped[str | None] = mapped_column(Text)

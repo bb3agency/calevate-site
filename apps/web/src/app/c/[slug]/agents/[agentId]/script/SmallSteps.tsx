@@ -85,7 +85,7 @@ export function SmallSteps({
                     rows={2}
                     value={step.action}
                     maxLength={limits.procedureStepMax}
-                    placeholder="For example: Ask them to open Chrome on their phone."
+                    placeholder="For example: Ask them to keep their reference number ready."
                     aria-invalid={errs.length > 0 || undefined}
                     aria-describedby={errs.length ? errId : undefined}
                     onChange={(e) => set(i, { action: e.target.value })}
@@ -97,7 +97,7 @@ export function SmallSteps({
                     className={`${FIELD} mt-0.5`}
                     value={step.wait_for}
                     maxLength={limits.procedureWaitMax}
-                    placeholder="For example: they say it is open"
+                    placeholder="For example: they say they have it"
                     onChange={(e) => set(i, { wait_for: e.target.value })}
                   />
                 </label>

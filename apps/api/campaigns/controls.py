@@ -32,6 +32,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.lifecycle import assert_assignable
+from apps.api.callbacks.service import call_off_for_stopped_campaigns
 from apps.api.campaigns.service import (
     add_contacts,
     create_campaign,
@@ -233,8 +234,11 @@ async def stop_campaign(session: AsyncSession, *, campaign_id: UUID) -> bool:
     lands on its contact. The repeat goes too (`schedule = NULL`), since a stopped campaign
     with a next Tuesday is not stopped. Idempotent like pause: stopping a stopped campaign
     answers success without a second audit row.
+
+    Its waiting call-backs are called off in the same transaction, with a reason the owner
+    reads on the Call-backs page and an audit row (D-914); one already ringing finishes.
     """
-    return await transition_status(
+    moved = await transition_status(
         session,
         table="campaigns",
         entity="Campaign",
@@ -246,6 +250,16 @@ async def stop_campaign(session: AsyncSession, *, campaign_id: UUID) -> bool:
             "paused_by_maintenance_id = NULL, paused_by_heal_id = NULL"
         ),
     )
+    if moved:
+        tenant_id = (
+            await session.execute(
+                text("SELECT tenant_id FROM campaigns WHERE id = :cid"), {"cid": campaign_id}
+            )
+        ).scalar_one()
+        await call_off_for_stopped_campaigns(
+            session, tenant_id=UUID(str(tenant_id)), campaign_id=campaign_id
+        )
+    return moved
 
 
 async def duplicate_campaign(

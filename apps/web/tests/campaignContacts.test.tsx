@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ContactEditor } from "@/app/c/[slug]/campaigns/ContactEditor";
+import { ContactEditor, fileHint } from "@/app/c/[slug]/campaigns/ContactEditor";
 import {
   MAX_CONTACTS_PER_UPLOAD,
   SAMPLE_CSV,
@@ -20,6 +20,17 @@ import {
  */
 
 const entries = (text: string) => rowsToEntries(parseCsv(text)).entries;
+
+describe("the file hint (D-915)", () => {
+  it("names the calling agent's script, never a fixed one, and no vertical's column", () => {
+    expect(fileHint("hi-IN")).toContain("in Hindi script.");
+    expect(fileHint("te-IN")).toContain("in Telugu script.");
+    for (const language of [undefined, null, "en-IN", "xx-IN"]) {
+      expect(fileHint(language)).not.toMatch(/script/);
+    }
+    expect(fileHint("hi-IN")).not.toMatch(/village|Telugu/);
+  });
+});
 
 describe("reading a CSV", () => {
   it("drops a byte-order mark and reads CRLF, LF and CR line ends alike", () => {

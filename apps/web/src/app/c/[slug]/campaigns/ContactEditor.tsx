@@ -5,6 +5,8 @@ import { ClipboardPaste, Download, FileUp, Plus, Trash2, X } from "lucide-react"
 
 import { SearchField } from "@/components/arc/search-field";
 import { FileDrop } from "@/components/fileDrop";
+import { LANGUAGE_NAMES } from "@/lib/agentState";
+import { lookup } from "@/lib/lookup";
 import { Pagination } from "@/components/interior/pagination";
 import {
   FIELD,
@@ -27,6 +29,17 @@ import {
   type ContactEntry,
 } from "./contactList";
 
+/**
+ * What the file drop says about the list (D-915). The script named is the calling agent's,
+ * never a fixed one: a Hindi agent's owner is not told to write Telugu. English names need
+ * no script note, and before an agent is chosen none is named.
+ */
+export function fileHint(agentLanguage: string | null | undefined): string {
+  const name = agentLanguage && agentLanguage !== "en-IN" ? lookup(LANGUAGE_NAMES, agentLanguage) : undefined;
+  const script = name ? ` A name is said best written in your agent's language, in ${name} script.` : "";
+  return `A CSV with a column called phone is all it needs.${script} The agent hears your other columns on each call, so add what it should know about each person. Up to 4 MB.`;
+}
+
 const PAGE = 50;
 /** What the reader below parses: delimited text, never a spreadsheet binary. */
 const CSV_ACCEPT = ".csv,.tsv,.txt,text/csv";
@@ -48,10 +61,13 @@ export function ContactEditor({
   entries,
   onChange,
   label = "Contacts",
+  agentLanguage,
 }: {
   entries: ContactEntry[];
   onChange: (next: ContactEntry[]) => void;
   label?: string;
+  /** The calling agent's main language, when chosen: the file hint names its script. */
+  agentLanguage?: string | null;
 }) {
   const ids = useId();
   const [panel, setPanel] = useState<Panel>("none");
@@ -253,7 +269,7 @@ export function ContactEditor({
       {entries.length === 0 ? (
         <FileDrop
           label="Your contacts file"
-          hint="A CSV with a column called phone is all it needs. A name is said best written in your agent's language, such as Telugu script. The agent hears your other columns, like village, on each call. Up to 4 MB."
+          hint={fileHint(agentLanguage)}
           accept={CSV_ACCEPT}
           validate={(file) =>
             file.size > MAX_FILE_BYTES

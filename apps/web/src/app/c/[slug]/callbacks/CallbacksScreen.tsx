@@ -218,8 +218,8 @@ export function CallbacksScreen() {
       flash: (row) => row.status,
       cell: (row) => (
         <div className="max-w-md space-y-1">
-          <StatusPill tone={lookup(TONE, row.status) ?? "neutral"} wrap>
-            {lookup(HEADINGS, row.status) ?? row.status}
+          <StatusPill tone={row.held ? "warn" : (lookup(TONE, row.status) ?? "neutral")} wrap>
+            {row.held ? "On hold" : (lookup(HEADINGS, row.status) ?? row.status)}
           </StatusPill>
           {row.explanation && <p className="text-meta text-ink-muted">{row.explanation}</p>}
           {/* Not "They said": the note is the agent's summary, a team member's note, or ours

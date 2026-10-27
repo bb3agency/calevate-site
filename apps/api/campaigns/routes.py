@@ -248,10 +248,14 @@ class CampaignResultsOut(Strict):
     tried: int
     #: Connected people over people tried at least once; None before anyone was tried.
     pickup_rate: float | None
+    #: Every call placed, call-backs included, and those answered.
     calls: int
     connected_calls: int
+    #: People with at least one answered call; each counts once (D-913).
+    people_answered: int
     average_call_s: int | None
     talk_seconds: int
+    #: People by what their latest answered call came to (D-913).
     outcome_tags: dict[str, int]
     sentiment: dict[str, int]
     leads: int
@@ -261,11 +265,12 @@ class CampaignResultsOut(Strict):
     #: What these calls took from the credit balance, in rupees (NUMERIC). None for a role
     #: that may not see billing.
     credits_spent_inr: Decimal | None
-    #: The agent's own outcomes (D-836) over the connected calls, most common first.
+    #: People by the agent's own outcome (D-836) of their latest answered call, most common
+    #: first.
     business_outcomes: list[BusinessOutcomeCountOut]
-    #: Connected calls that came to none of the agent's own outcomes.
+    #: People whose latest answered call came to none of the agent's own outcomes.
     business_outcomes_unset: int
-    #: Each choice field the agent captures, over the people its connected calls reached.
+    #: Each choice field the agent captures, over the people its answered calls reached.
     fields: list[FieldBreakdownOut]
 
 

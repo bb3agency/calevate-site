@@ -9,6 +9,15 @@ still waiting; whether an unconnected try was busy, unanswered or a voicemail is
 about its last CALL. `_OUTCOME_SQL` reads both, and both the list and the summary count
 through it, so a filter chip and the number on it cannot disagree.
 
+PEOPLE, NOT CALLS (D-913). A call-back's call belongs to its campaign (D-905), so one
+person can have several answered calls. Every breakdown of what a conversation came to —
+the agent's own outcomes, the outcome tags, the mood and each choice field — counts each
+person ONCE, by their LATEST answered call (`_LATEST_ANSWERED_SQL`). The choice fields read
+the person's lead, whose values are the latest call's wherever that call captured one
+(`workers/pipeline` merges newest-wins). The dial outcome (`_OUTCOME_SQL`) is per contact
+already. Credit spent, call counts and talk time stay totals over EVERY call, because every
+call cost money and took time.
+
 MONEY. What the campaign cost the client is the `usage` debits on `credit_ledger` for its
 calls, keyed by call id (`billing.service.charge_for_call`), summed as NUMERIC and returned
 as a Decimal (hard rule 7). It is the client's charge, never our cost (`usage_events.
@@ -49,7 +58,9 @@ RECENT_LEADS = 10
 MAX_OPTOUTS_LISTED = 100
 
 #: The contact rows with their outcome. `completed` and `no_answer` contact statuses are in
-#: the CHECK and written by nothing; they map to the words they would mean.
+#: the CHECK and written by nothing; they map to the words they would mean. One row per
+#: person already; `last_call_id` stays on the campaign's own dial, so a call-back nobody
+#: answered does not turn a person the campaign reached into "No answer" (D-913).
 _OUTCOME_SQL = """
     SELECT cc.id, cc.name, cc.phone_e164, cc.attempts, cc.last_attempt_at,
            cc.next_attempt_at, cc.last_call_id, cc.status, cc.created_at,
@@ -65,6 +76,25 @@ _OUTCOME_SQL = """
     FROM campaign_contacts cc
     LEFT JOIN calls k ON k.id = cc.last_call_id
     WHERE cc.campaign_id = :cid
+"""
+
+
+#: Each person's latest answered call on this campaign, one row per person (D-913). A
+#: person is the number dialled: a campaign holds a number once and its call-backs dial
+#: the same number. A call with no number left (erased) stands for itself rather than
+#: merging with every other erased call. Latest by start, then by uuid7 id (time-ordered),
+#: so two calls started in the same instant still have one winner.
+#:
+#: Answered only, because only an answered call has an outcome, a mood or captured values:
+#: a call-back nobody picked up leaves the person's earlier conversation as their answer.
+_LATEST_ANSWERED_SQL = """
+    SELECT DISTINCT ON (coalesce(k.to_e164, k.id::text))
+           k.id, k.lead_id, k.outcome_tag, k.sentiment, k.business_outcome,
+           k.business_outcome_label
+    FROM calls k
+    WHERE k.campaign_id = :cid AND k.status = 'completed'
+    ORDER BY coalesce(k.to_e164, k.id::text), coalesce(k.started_at, k.created_at) DESC,
+             k.id DESC
 """
 
 
@@ -169,14 +199,14 @@ MAX_BREAKDOWN_VALUES = 20
 
 
 async def _business_outcomes(session: AsyncSession, campaign_id: UUID) -> dict[str, Any]:
-    """What the connected calls came to in the agent's own outcome words (D-836): each
-    outcome's count under the label it was recorded with, most common first, and the
-    connected calls that came to none of them."""
+    """What the people reached came to in the agent's own outcome words (D-836): each
+    outcome's count of people, by their latest answered call (D-913), under the label it
+    was recorded with, most common first, and the people whose call came to none of them."""
     rows = (
         await session.execute(
             text(
-                "SELECT business_outcome, max(business_outcome_label), count(*) FROM calls "
-                "WHERE campaign_id = :cid AND status = 'completed' "
+                "SELECT business_outcome, max(business_outcome_label), count(*) "
+                f"FROM ({_LATEST_ANSWERED_SQL}) p "
                 "GROUP BY business_outcome ORDER BY count(*) DESC, business_outcome"
             ),
             {"cid": campaign_id},
@@ -193,8 +223,9 @@ async def _business_outcomes(session: AsyncSession, campaign_id: UUID) -> dict[s
 
 async def _field_breakdown(session: AsyncSession, campaign_id: UUID) -> list[dict[str, Any]]:
     """Each choice field the campaign's agent captures (an `enum` of its extraction schema),
-    counted over the people its connected calls reached: how many leads hold each value, and
-    how many have none. A lead is counted once whichever of its calls captured the value."""
+    counted over the people its answered calls reached: how many hold each value, and how
+    many have none. A person is counted once (D-913), through the lead of their latest
+    answered call, whose values are that call's wherever it captured one."""
     from apps.api.crm import columns as lead_columns
     from apps.api.crm.service import lead_columns as schema_of
 
@@ -209,9 +240,8 @@ async def _field_breakdown(session: AsyncSession, campaign_id: UUID) -> list[dic
     rows = (
         await session.execute(
             text(
-                "WITH people AS (SELECT DISTINCT l.id, l.data FROM calls k "
-                "  JOIN leads l ON l.id = k.lead_id "
-                "  WHERE k.campaign_id = :cid AND k.status = 'completed' AND l.deleted_at IS NULL) "
+                f"WITH people AS (SELECT DISTINCT l.id, l.data FROM ({_LATEST_ANSWERED_SQL}) k "
+                "  JOIN leads l ON l.id = k.lead_id WHERE l.deleted_at IS NULL) "
                 "SELECT f.key, nullif(btrim(p.data ->> f.key), ''), count(*) "
                 "FROM people p CROSS JOIN unnest(CAST(:keys AS text[])) AS f(key) "
                 "GROUP BY 1, 2"
@@ -258,6 +288,8 @@ async def summary(
     `pickup_rate` is connected people over people tried at least once, None until somebody
     has been tried. `average_call_s` covers connected calls only, because an unanswered
     ring has no length worth averaging. Spend is None for a role that may not see billing.
+    Calls, talk time and spend are totals over every call, call-backs included; what the
+    conversations came to counts people (D-913, the module docstring).
     """
     await _campaign_status(session, campaign_id)
     counts = await _outcome_counts(session, campaign_id)
@@ -284,11 +316,19 @@ async def summary(
             {"cid": campaign_id},
         )
     ).one()
+    answered = int(
+        (
+            await session.execute(
+                text(f"SELECT count(*) FROM ({_LATEST_ANSWERED_SQL}) p"), {"cid": campaign_id}
+            )
+        ).scalar()
+        or 0
+    )
     tag_rows = (
         await session.execute(
             text(
-                "SELECT outcome_tag, count(*) FROM calls WHERE campaign_id = :cid "
-                "AND status = 'completed' AND outcome_tag IS NOT NULL GROUP BY outcome_tag"
+                f"SELECT outcome_tag, count(*) FROM ({_LATEST_ANSWERED_SQL}) p "
+                "WHERE outcome_tag IS NOT NULL GROUP BY outcome_tag"
             ),
             {"cid": campaign_id},
         )
@@ -301,8 +341,8 @@ async def summary(
     sentiment_rows = (
         await session.execute(
             text(
-                "SELECT sentiment, count(*) FROM calls WHERE campaign_id = :cid "
-                "AND status = 'completed' AND sentiment IS NOT NULL GROUP BY sentiment"
+                f"SELECT sentiment, count(*) FROM ({_LATEST_ANSWERED_SQL}) p "
+                "WHERE sentiment IS NOT NULL GROUP BY sentiment"
             ),
             {"cid": campaign_id},
         )
@@ -333,7 +373,9 @@ async def summary(
         (
             await session.execute(
                 text(
-                    "SELECT count(*) FROM consent_ledger cl JOIN calls k ON k.id = cl.call_id "
+                    # People, not withdrawals: one who said it on two calls is one.
+                    "SELECT count(DISTINCT coalesce(k.to_e164, k.id::text)) "
+                    "FROM consent_ledger cl JOIN calls k ON k.id = cl.call_id "
                     "WHERE k.campaign_id = :cid AND cl.status = 'withdrawn' "
                     "AND cl.purpose = :purpose"
                 ),
@@ -363,6 +405,7 @@ async def summary(
         "pickup_rate": round(connected / tried, 3) if tried else None,
         "calls": int(calls[0]),
         "connected_calls": int(calls[1]),
+        "people_answered": answered,
         "average_call_s": int(calls[2]) if calls[2] is not None else None,
         "talk_seconds": int(calls[3]),
         "outcome_tags": tags,

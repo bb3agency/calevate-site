@@ -141,13 +141,25 @@ def test_a_question_for_every_language_an_agent_can_speak() -> None:
     assert set(patient_caller.NUDGE_PHRASES) == set(BUILT_LANGUAGES)
     for phrase in patient_caller.NUDGE_PHRASES.values():
         assert phrase.strip() == phrase and 0 < len(phrase) <= NUDGE_PHRASE_MAX_CHARS
-    assert patient_caller.nudge_phrase_for("te-IN") == "కనిపించిందా అండి?"
+    assert patient_caller.nudge_phrase_for("te-IN", caller_has_screen=True) == "కనిపించిందా అండి?"
     # A language with none asks the platform's own question in the caller's language.
-    assert patient_caller.nudge_phrase_for("xx-IN") == ""
+    assert patient_caller.nudge_phrase_for("xx-IN", caller_has_screen=True) == ""
+
+
+def test_can_you_see_it_is_asked_only_of_callers_following_a_screen() -> None:
+    """D-915: an agent whose callers have no screen is not set to ask "Can you see it?" in
+    any language; the platform's own "are you still there?" stays."""
+    for language in patient_caller.NUDGE_PHRASES:
+        assert patient_caller.nudge_phrase_for(language, caller_has_screen=False) == ""
+    assert patient_caller.preset_changes("hi-IN", caller_has_screen=False)["nudge_phrase"] == ""
+    assert (
+        patient_caller.preset_changes("hi-IN", caller_has_screen=True)["nudge_phrase"]
+        == (patient_caller.NUDGE_PHRASES["hi-IN"])
+    )
 
 
 def test_the_values_are_valid_settings_and_leave_every_question_an_answer_window() -> None:
-    changes = patient_caller.preset_changes("te-IN")
+    changes = patient_caller.preset_changes("te-IN", caller_has_screen=True)
     refuse_invalid_settings(CallSettings(**changes))  # type: ignore[arg-type]
     # Counted from the caller's last words, the hang-up comes after every question and its
     # answer window (the platform's floor), whether or not a question restarts the count.
@@ -161,6 +173,13 @@ async def test_one_tap_sets_the_agent_and_raises_its_longest_call() -> None:
     tenant_id, agent_id, headers = await _tenant()
     await _make_live(tenant_id, agent_id)
     path = f"/v1/agents/{agent_id}/call-handling"
+    async with _client() as client:
+        no_screen = (await client.get(path, headers=headers)).json()
+    assert no_screen["patient_caller"]["nudge_phrase"] == ""
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE agents SET caller_has_screen = true WHERE id = :aid"), {"aid": agent_id}
+        )
     async with _client() as client:
         before = (await client.get(path, headers=headers)).json()
         applied = await client.post(f"{path}/give-callers-time", headers=headers)

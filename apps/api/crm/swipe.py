@@ -370,7 +370,7 @@ _WAITING_ROW: Final = (
 )
 _MOVE_WAITING: Final = (
     "UPDATE scheduled_callbacks SET requested_at = :at, booked_at = now(), "
-    "next_attempt_at = NULL, updated_at = now() "
+    "next_attempt_at = NULL, grace_from = NULL, updated_at = now() "
     "WHERE id = :id AND status = 'scheduled' RETURNING requested_at"
 )
 

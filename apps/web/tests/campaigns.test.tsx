@@ -697,6 +697,8 @@ describe("one campaign's page", () => {
       }),
     );
     await screen.findByText("What people said");
+    expect(container.textContent).toContain("Each person counts once, by their latest answered call.");
+    expect(container.textContent).toContain("How it ended, per person");
     expect(container.textContent).toContain("Onboarded");
     expect(container.textContent).toContain("None of these");
     expect(container.textContent).toContain("Registered on the app");
