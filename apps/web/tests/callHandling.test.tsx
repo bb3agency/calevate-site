@@ -662,7 +662,7 @@ describe("a client's call handling defaults, from the operator console", () => {
 });
 
 describe("asking an unanswered question again, and the patient caller preset (D-907)", () => {
-  const PATIENT_PATH = `${AGENT_PATH}/patient-caller`;
+  const PATIENT_PATH = `${AGENT_PATH}/give-callers-time`;
 
   it("sets 'never' for this agent and reads the wait in seconds", async () => {
     const { calls } = await renderClientPage(<AgentCallHandlingRows agentId="agent-1" />, {

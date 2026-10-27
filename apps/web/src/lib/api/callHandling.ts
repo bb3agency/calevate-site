@@ -7,9 +7,9 @@
  *   PATCH /v1/agents/{agent_id}/call-handling                    `org:manage` (the owner)
  *   GET   /v1/organization/call-handling                         `org:read`
  *   POST  /v1/organization/call-handling/all-agents              `org:manage`
- *   POST  /v1/agents/{agent_id}/call-handling/patient-caller     `org:manage`, the preset (D-907)
+ *   POST  /v1/agents/{agent_id}/call-handling/give-callers-time     `org:manage`, the preset (D-907)
  *   PATCH /v1/admin/tenants/{tid}/agents/{aid}/call-handling     the operator's door
- *   POST  /v1/admin/tenants/{tid}/agents/{aid}/call-handling/patient-caller   the same preset
+ *   POST  /v1/admin/tenants/{tid}/agents/{aid}/call-handling/give-callers-time   the same preset
  *   GET   /v1/admin/organizations/{org_id}/call-handling         `admin:tenants`
  *   PUT   /v1/admin/organizations/{org_id}/call-handling         `admin:tenants`
  *   GET/PUT /v1/admin/tenants/{tid}/agents/{aid}/turn-detection  an operator's per-agent mode
@@ -337,7 +337,7 @@ export function useApplyPatientCaller(
   const org = session.orgSlug;
   return useMutation({
     mutationFn: () =>
-      apiRequest<AgentCallHandling>(session, `/v1/agents/${agentId}/call-handling/patient-caller`, {
+      apiRequest<AgentCallHandling>(session, `/v1/agents/${agentId}/call-handling/give-callers-time`, {
         method: "POST",
       }),
     onSuccess: (data) => {
@@ -422,7 +422,7 @@ export function useAdminApplyPatientCaller({
     mutationFn: () =>
       apiRequest<AgentCallHandling>(
         adminSession(),
-        `/v1/admin/tenants/${tenantId}/agents/${agentId}/call-handling/patient-caller`,
+        `/v1/admin/tenants/${tenantId}/agents/${agentId}/call-handling/give-callers-time`,
         { method: "POST" },
       ),
     onSuccess: (data) => {

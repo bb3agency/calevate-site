@@ -163,7 +163,7 @@ async def test_one_tap_sets_the_agent_and_raises_its_longest_call() -> None:
     path = f"/v1/agents/{agent_id}/call-handling"
     async with _client() as client:
         before = (await client.get(path, headers=headers)).json()
-        applied = await client.post(f"{path}/patient-caller", headers=headers)
+        applied = await client.post(f"{path}/give-callers-time", headers=headers)
     assert before["patient_caller"]["applied"] is False
     assert before["patient_caller"]["nudge_phrase"] == "కనిపించిందా అండి?"
     assert applied.status_code == 200, applied.text
@@ -203,7 +203,7 @@ async def test_a_longer_call_is_kept_and_a_tweak_reads_as_not_applied() -> None:
         )
     path = f"/v1/agents/{agent_id}/call-handling"
     async with _client() as client:
-        await client.post(f"{path}/patient-caller", headers=headers)
+        await client.post(f"{path}/give-callers-time", headers=headers)
         tweaked = await client.patch(path, headers=headers, json={"nudge_count": 2})
     async with tenant_session(tenant_id) as session:
         cap = (
@@ -222,15 +222,15 @@ async def test_only_the_owner_and_an_operator_apply_it_and_never_across_tenants(
     operator = await _operator()
     async with _client() as client:
         foreign = await client.post(
-            f"/v1/agents/{agent_id}/call-handling/patient-caller", headers=other_owner
+            f"/v1/agents/{agent_id}/call-handling/give-callers-time", headers=other_owner
         )
-        by_staff = await client.post(f"/v1/agents/{_a}/call-handling/patient-caller", headers=staff)
+        by_staff = await client.post(f"/v1/agents/{_a}/call-handling/give-callers-time", headers=staff)
         by_operator = await client.post(
-            f"/v1/admin/tenants/{tenant_id}/agents/{agent_id}/call-handling/patient-caller",
+            f"/v1/admin/tenants/{tenant_id}/agents/{agent_id}/call-handling/give-callers-time",
             headers=operator,
         )
         missing = await client.post(
-            f"/v1/admin/tenants/{tenant_id}/agents/{uuid.uuid4()}/call-handling/patient-caller",
+            f"/v1/admin/tenants/{tenant_id}/agents/{uuid.uuid4()}/call-handling/give-callers-time",
             headers=operator,
         )
     assert foreign.status_code == 404, foreign.text

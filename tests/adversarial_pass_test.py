@@ -632,7 +632,7 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("POST", "/v1/team-alerts/contacts/{contact_id}/default", {}, {}),
     ("DELETE", "/v1/team-alerts/contacts/{contact_id}", {}, {}),
     # D-907. Would change a neighbour's agent's silences and raise its longest call.
-    ("POST", "/v1/agents/{agent_id}/call-handling/patient-caller", {}, {}),
+    ("POST", "/v1/agents/{agent_id}/call-handling/give-callers-time", {}, {}),
     ("GET", "/v1/callbacks/{callback_id}", {}, {}),
     ("DELETE", "/v1/callbacks/{callback_id}", {}, {}),
     ("PATCH", "/v1/callbacks/{callback_id}", {"at": _TOMORROW_NOON_IST}, {}),

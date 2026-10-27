@@ -61602,10 +61602,10 @@
         "x-calevate-permission": "agents:write"
       }
     },
-    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/call-handling/patient-caller": {
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/call-handling/give-callers-time": {
       "post": {
         "description": "One tap for a caller who follows the agent along on their own phone and goes quiet for long stretches: on this agent alone, ask whether they are still there after 20 s, up to 3 times, in the agent's main language (`patient_caller.nudge_phrase` on the read), hang up after 120 s of silence, never repeat an unanswered question on a timer, and raise the longest call to `patient_caller.call_cap_s` (a longer one is kept). Each is an ordinary setting afterwards. Applies from the next call.",
-        "operationId": "admin_apply_patient_caller_v1_admin_tenants__tenant_id__agents__agent_id__call_handling_patient_caller_post",
+        "operationId": "admin_apply_patient_caller_v1_admin_tenants__tenant_id__agents__agent_id__call_handling_give_callers_time_post",
         "parameters": [
           {
             "in": "path",
@@ -67680,10 +67680,10 @@
         "x-calevate-permission": "org:manage"
       }
     },
-    "/v1/agents/{agent_id}/call-handling/patient-caller": {
+    "/v1/agents/{agent_id}/call-handling/give-callers-time": {
       "post": {
         "description": "One tap for a caller who follows the agent along on their own phone and goes quiet for long stretches: on this agent alone, ask whether they are still there after 20 s, up to 3 times, in the agent's main language (`patient_caller.nudge_phrase` on the read), hang up after 120 s of silence, never repeat an unanswered question on a timer, and raise the longest call to `patient_caller.call_cap_s` (a longer one is kept). Each is an ordinary setting afterwards. Applies from the next call.",
-        "operationId": "apply_patient_caller_v1_agents__agent_id__call_handling_patient_caller_post",
+        "operationId": "apply_patient_caller_v1_agents__agent_id__call_handling_give_callers_time_post",
         "parameters": [
           {
             "in": "path",

@@ -4,7 +4,7 @@
  * "PATIENT CALLER" (D-907): one row on an agent's call handling that sets it up, in one tap,
  * for a caller who follows along on their own phone and goes quiet for long stretches while
  * they do what the agent asked. The server sets the values (`POST .../call-handling/
- * patient-caller`); this row only shows what they are and whether they are in force, so the
+ * give-callers-time`); this row only shows what they are and whether they are in force, so the
  * values have one spelling. Afterwards each is an ordinary setting in the rows below.
  *
  * "In use" is the server's `applied`: the silence settings match and the longest call is at

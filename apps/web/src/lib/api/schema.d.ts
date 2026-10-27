@@ -1719,7 +1719,7 @@ export interface paths {
         patch: operations["admin_set_agent_call_handling_v1_admin_tenants__tenant_id__agents__agent_id__call_handling_patch"];
         trace?: never;
     };
-    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/call-handling/patient-caller": {
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/call-handling/give-callers-time": {
         parameters: {
             query?: never;
             header?: never;
@@ -1732,7 +1732,7 @@ export interface paths {
          * Set one client agent up for a caller who follows along on their phone
          * @description One tap for a caller who follows the agent along on their own phone and goes quiet for long stretches: on this agent alone, ask whether they are still there after 20 s, up to 3 times, in the agent's main language (`patient_caller.nudge_phrase` on the read), hang up after 120 s of silence, never repeat an unanswered question on a timer, and raise the longest call to `patient_caller.call_cap_s` (a longer one is kept). Each is an ordinary setting afterwards. Applies from the next call.
          */
-        post: operations["admin_apply_patient_caller_v1_admin_tenants__tenant_id__agents__agent_id__call_handling_patient_caller_post"];
+        post: operations["admin_apply_patient_caller_v1_admin_tenants__tenant_id__agents__agent_id__call_handling_give_callers_time_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3703,7 +3703,7 @@ export interface paths {
         patch: operations["set_agent_call_handling_v1_agents__agent_id__call_handling_patch"];
         trace?: never;
     };
-    "/v1/agents/{agent_id}/call-handling/patient-caller": {
+    "/v1/agents/{agent_id}/call-handling/give-callers-time": {
         parameters: {
             query?: never;
             header?: never;
@@ -3716,7 +3716,7 @@ export interface paths {
          * Set an agent up for a caller who follows along on their phone
          * @description One tap for a caller who follows the agent along on their own phone and goes quiet for long stretches: on this agent alone, ask whether they are still there after 20 s, up to 3 times, in the agent's main language (`patient_caller.nudge_phrase` on the read), hang up after 120 s of silence, never repeat an unanswered question on a timer, and raise the longest call to `patient_caller.call_cap_s` (a longer one is kept). Each is an ordinary setting afterwards. Applies from the next call.
          */
-        post: operations["apply_patient_caller_v1_agents__agent_id__call_handling_patient_caller_post"];
+        post: operations["apply_patient_caller_v1_agents__agent_id__call_handling_give_callers_time_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -36514,7 +36514,7 @@ export interface operations {
             };
         };
     };
-    admin_apply_patient_caller_v1_admin_tenants__tenant_id__agents__agent_id__call_handling_patient_caller_post: {
+    admin_apply_patient_caller_v1_admin_tenants__tenant_id__agents__agent_id__call_handling_give_callers_time_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -40299,7 +40299,7 @@ export interface operations {
             };
         };
     };
-    apply_patient_caller_v1_agents__agent_id__call_handling_patient_caller_post: {
+    apply_patient_caller_v1_agents__agent_id__call_handling_give_callers_time_post: {
         parameters: {
             query?: never;
             header?: never;

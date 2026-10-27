@@ -5,10 +5,10 @@
     GET   /v1/organization/call-handling                            the account's defaults
     PUT   /v1/organization/call-handling                            set them (owner)
     POST  /v1/organization/call-handling/all-agents                 one value on every agent
-    POST  /v1/agents/{agent_id}/call-handling/patient-caller        the "Give callers time" preset
+    POST  /v1/agents/{agent_id}/call-handling/give-callers-time        the "Give callers time" preset
     GET   /v1/admin/tenants/{tid}/agents/{aid}/call-handling        the operator's view
     PATCH /v1/admin/tenants/{tid}/agents/{aid}/call-handling        the operator's door
-    POST  /v1/admin/tenants/{tid}/agents/{aid}/call-handling/patient-caller   the same preset
+    POST  /v1/admin/tenants/{tid}/agents/{aid}/call-handling/give-callers-time   the same preset
     GET   /v1/admin/organizations/{org_id}/call-handling            the operator's view
     PUT   /v1/admin/organizations/{org_id}/call-handling            the operator's door
 
@@ -656,7 +656,7 @@ async def _apply_patient_caller(
 
 
 @router.post(
-    "/v1/agents/{agent_id}/call-handling/patient-caller",
+    "/v1/agents/{agent_id}/call-handling/give-callers-time",
     response_model=AgentCallHandlingOut,
     openapi_extra=permission_meta("org:manage"),
     summary="Set an agent up for a caller who follows along on their phone",
@@ -814,7 +814,7 @@ async def admin_set_agent_call_handling(
 
 
 @admin_router.post(
-    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/call-handling/patient-caller",
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/call-handling/give-callers-time",
     response_model=AgentCallHandlingOut,
     openapi_extra=permission_meta("agents:write"),
     summary="Set one client agent up for a caller who follows along on their phone",
