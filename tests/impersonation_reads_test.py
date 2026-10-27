@@ -34,6 +34,10 @@ ADMIN_CONSOLE_GETS: dict[str, str] = {
         "limit and drift verdict: an admin console read under the tenant's own session, "
         "never reached through impersonation"
     ),
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/turn-detection": (
+        "the operator's per-agent turn detection override (D-901), set from the admin "
+        "agent page and never shown to a client, so never reached through impersonation"
+    ),
     "/v1/admin/announcements": (
         "the operator's composer list of announcements to clients (D-869); a client reads "
         "its own through GET /v1/announcements, which is org:read"
