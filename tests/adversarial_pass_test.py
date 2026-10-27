@@ -598,6 +598,9 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     # this sweep exists over. The call-back pair matters more than it looks: the row names
     # a person and the time we are going to telephone them.
     ("PATCH", "/v1/agents/{agent_id}/caller-memory", {"enabled": False}, {}),
+    # D-906. Reaching a neighbour's agent would change how it speaks to every caller and
+    # republish it.
+    ("PATCH", "/v1/agents/{agent_id}/caller-screen", {"enabled": True}, {}),
     # D-843. How a neighbour's Studio voice sounds: a read, a write that reaches their live
     # agent, and a sample spoken on our key. The seeded agent row is the object.
     ("GET", "/v1/agents/{agent_id}/voice-tuning", {}, {}),

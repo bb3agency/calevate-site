@@ -3743,6 +3743,30 @@ export interface paths {
         patch: operations["set_caller_memory_route_v1_agents__agent_id__caller_memory_patch"];
         trace?: never;
     };
+    "/v1/agents/{agent_id}/caller-screen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Say whether callers follow this agent's steps on a screen of their own (D-906)
+         * @description For an agent that walks callers through an app or a website while they hold the phone: on, it may name what is on their screen, gives one step at a time and waits until they say it is done, says a step again more shortly when they could not do it, and spells a web address letter by letter. Off for every agent unless switched on.
+         *
+         *     `caller_has_screen_limited` on the agent says when a general rule against mentioning buttons still reaches the agent on live calls; this switch cannot remove it there.
+         *
+         *     Applies immediately: a live agent is re-published to the voice platform in the same transaction, and if that push fails nothing is saved.
+         */
+        patch: operations["set_caller_screen_route_v1_agents__agent_id__caller_screen_patch"];
+        trace?: never;
+    };
     "/v1/agents/{agent_id}/deactivate": {
         parameters: {
             query?: never;
@@ -13472,6 +13496,16 @@ export interface components {
             ai_disclosure_line: string;
             /** Archived At */
             archived_at: string | null;
+            /**
+             * Caller Has Screen
+             * @default false
+             */
+            caller_has_screen: boolean;
+            /**
+             * Caller Has Screen Limited
+             * @default false
+             */
+            caller_has_screen_limited: boolean;
             /** Caller Memory Enabled */
             caller_memory_enabled: boolean;
             /** Caller Memory Notice Line */
@@ -15999,6 +16033,26 @@ export interface components {
             recording_notice_off: string[];
             /** Retention */
             retention: components["schemas"]["RetentionLineOut"][];
+        };
+        /**
+         * CallerScreenIn
+         * @description Switch "caller follows along on a screen" for one agent (D-906).
+         */
+        CallerScreenIn: {
+            /** Enabled */
+            enabled: boolean;
+        };
+        /** CallerScreenOut */
+        CallerScreenOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Enabled */
+            enabled: boolean;
+            /** Engine Synced */
+            engine_synced: boolean;
         };
         /**
          * CallingHoursIn
@@ -39904,6 +39958,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CallerMemoryOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_caller_screen_route_v1_agents__agent_id__caller_screen_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CallerScreenIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallerScreenOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

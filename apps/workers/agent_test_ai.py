@@ -114,6 +114,17 @@ def _section(title: str, lines: Sequence[str]) -> list[str]:
     return [f"{title}:", *(f"- {line}" for line in lines)] if lines else []
 
 
+#: Told to the writer, the judge and the improver for an agent whose caller follows along on
+#: a screen (D-906), so an on-screen label or a step is not judged as the agent mentioning
+#: something the caller cannot see.
+SCREEN_BRIEF_LINE: Final = (
+    "The caller follows the agent's steps on their own screen: naming what to tap by its "
+    "on-screen label, one step a turn, waiting until they say it is done, saying a step again "
+    "shorter when they could not do it, and spelling a web address letter by letter are all "
+    "right."
+)
+
+
 def brief_text(brief: AgentBrief, *, history: bool = True, script: bool = True) -> str:
     """The agent as the model reads it. `script` False leaves out the live script's steps,
     opening, objections and ending, for a request that is given the script it edits."""
@@ -155,6 +166,8 @@ def brief_text(brief: AgentBrief, *, history: bool = True, script: bool = True) 
     lines += _section("Knowledge it can look up (titles)", list(brief.knowledge_titles))
     lines += _section("Details it collects", list(brief.lead_fields))
     lines.append(_HAND_OVER.get(brief.hand_over, _HAND_OVER["off"]))
+    if brief.caller_has_screen:
+        lines.append(SCREEN_BRIEF_LINE)
     lines.append(
         "It may offer a call back." if brief.call_backs else "It may NOT offer a call back."
     )

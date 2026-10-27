@@ -959,6 +959,9 @@ class AgentBrief:
     #: (kind, what it does) of each action the agent can take during a call: what a
     #: suggested fix may never take away (`agent_test_ai.capability_problem`).
     actions: tuple[tuple[str, str], ...] = ()
+    #: The caller follows the agent's steps on a screen (D-906), so naming what is on it is
+    #: right rather than a mention of something the caller cannot see.
+    caller_has_screen: bool = False
 
     def rules(self, *, agreements_waiting: bool = False) -> RuleContext:
         return RuleContext(
@@ -1084,7 +1087,7 @@ async def load_brief(session: AsyncSession, agent_id: UUID) -> AgentBrief:
                 "SELECT a.direction, a.language_primary, a.handoff_enabled, a.business_hours, "
                 "a.tenant_id, o.name, o.vertical_template, a.handoff_trigger, "
                 "CASE WHEN a.caller_memory_enabled THEN a.caller_memory_notice_line "
-                "ELSE '' END FROM agents a "
+                "ELSE '' END, a.caller_has_screen FROM agents a "
                 "JOIN organizations o ON o.id = a.tenant_id "
                 "WHERE a.id = :aid AND a.deleted_at IS NULL"
             ),
@@ -1149,6 +1152,7 @@ async def load_brief(session: AsyncSession, agent_id: UUID) -> AgentBrief:
         hand_over_reason=duty.reason,
         real_calls=await count_real_calls(session, agent_id),
         memory_notice=str(row[8] or "").strip(),
+        caller_has_screen=bool(row[9]),
         actions=tuple(
             (tool.kind, (tool.description or tool.name)[:160])
             for tool in await action_service.in_call_tools(session, agent_id=agent_id)

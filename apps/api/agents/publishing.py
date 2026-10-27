@@ -1495,6 +1495,63 @@ async def set_disclosure_posture(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class CallerScreenResult:
+    """Whether one agent's caller follows along on a screen, after a flip (D-906)."""
+
+    agent_id: UUID
+    enabled: bool
+    #: Did the change reach the voice platform? False for an agent it does not hold yet.
+    engine_synced: bool
+    #: The switch was already where it was asked to be: nothing written, nothing audited.
+    unchanged: bool
+
+
+async def set_caller_has_screen(
+    *, tenant_id: UUID, agent_id: UUID, enabled: bool
+) -> CallerScreenResult:
+    """Switch "caller follows along on a screen" for one agent (D-906).
+
+    The ordering is `set_disclosure_posture`'s: the column, then the republish in the same
+    transaction, so a voice-platform refusal rolls the column back and the screen never says
+    the agent guides a screen it does not. Idempotent for the same reason as that one.
+    """
+    async with tenant_session(tenant_id) as session:
+        row = (
+            await session.execute(
+                text(
+                    "SELECT caller_has_screen, status, engine_agent_ref FROM agents "
+                    "WHERE id = :aid AND deleted_at IS NULL FOR UPDATE"
+                ),
+                {"aid": agent_id},
+            )
+        ).first()
+        if row is None:
+            raise ProblemError.not_found("Agent")
+        unchanged = bool(row[0]) == enabled
+        on_engine = is_published(row[1], row[2])
+        if not unchanged:
+            await session.execute(
+                text(
+                    "UPDATE agents SET caller_has_screen = :on, updated_at = now() "
+                    "WHERE id = :aid AND deleted_at IS NULL"
+                ),
+                {"on": enabled, "aid": agent_id},
+            )
+            if on_engine:
+                await publish_agent(
+                    session, tenant_id=tenant_id, agent_id=agent_id, take_calls=False
+                )
+    synced = not unchanged and on_engine
+    log.info(
+        "agent_caller_has_screen_set",
+        extra={"agent_id": str(agent_id), "enabled": enabled, "engine_synced": synced},
+    )
+    return CallerScreenResult(
+        agent_id=agent_id, enabled=enabled, engine_synced=synced, unchanged=unchanged
+    )
+
+
 async def set_caller_memory(
     *, tenant_id: UUID, agent_id: UUID, enabled: bool, attested_by: UUID | None
 ) -> CallerMemoryResult:
@@ -1739,6 +1796,7 @@ __all__ = [
     "AgentVoice",
     "ApplyResult",
     "CallCapResult",
+    "CallerScreenResult",
     "DisclosureResult",
     "EngineDrift",
     "Lane",
@@ -1755,6 +1813,7 @@ __all__ = [
     "lanes",
     "pending_state_for",
     "set_call_cap",
+    "set_caller_has_screen",
     "set_disclosure_posture",
     "undo_staged",
     "worst_case_cost",

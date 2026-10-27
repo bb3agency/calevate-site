@@ -80,6 +80,8 @@ function agent(over: Partial<Agent> = {}): Agent {
     caller_memory_notice_line: "I keep a short note of what you ask about.",
     caller_memory_enabled: false,
     caller_memory_paused: false,
+    caller_has_screen: false,
+    caller_has_screen_limited: false,
     recording_notice_enabled: true,
     opening_line:
       "Namaskaram, this is an AI assistant calling for Sri Clinic. This call is being recorded.",

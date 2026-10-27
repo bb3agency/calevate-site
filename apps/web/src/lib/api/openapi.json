@@ -3241,6 +3241,16 @@
             ],
             "title": "Archived At"
           },
+          "caller_has_screen": {
+            "default": false,
+            "title": "Caller Has Screen",
+            "type": "boolean"
+          },
+          "caller_has_screen_limited": {
+            "default": false,
+            "title": "Caller Has Screen Limited",
+            "type": "boolean"
+          },
           "caller_memory_enabled": {
             "title": "Caller Memory Enabled",
             "type": "boolean"
@@ -10845,6 +10855,46 @@
           "notice_markdown"
         ],
         "title": "CallerNoticeOut",
+        "type": "object"
+      },
+      "CallerScreenIn": {
+        "additionalProperties": false,
+        "description": "Switch \"caller follows along on a screen\" for one agent (D-906).",
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "title": "CallerScreenIn",
+        "type": "object"
+      },
+      "CallerScreenOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "engine_synced": {
+            "title": "Engine Synced",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "agent_id",
+          "enabled",
+          "engine_synced"
+        ],
+        "title": "CallerScreenOut",
         "type": "object"
       },
       "CallingHoursIn": {
@@ -66961,6 +67011,57 @@
           }
         },
         "summary": "Let an agent remember returning callers, and book call-backs",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/agents/{agent_id}/caller-screen": {
+      "patch": {
+        "description": "For an agent that walks callers through an app or a website while they hold the phone: on, it may name what is on their screen, gives one step at a time and waits until they say it is done, says a step again more shortly when they could not do it, and spells a web address letter by letter. Off for every agent unless switched on.\n\n`caller_has_screen_limited` on the agent says when a general rule against mentioning buttons still reaches the agent on live calls; this switch cannot remove it there.\n\nApplies immediately: a live agent is re-published to the voice platform in the same transaction, and if that push fails nothing is saved.",
+        "operationId": "set_caller_screen_route_v1_agents__agent_id__caller_screen_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CallerScreenIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallerScreenOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Say whether callers follow this agent's steps on a screen of their own (D-906)",
         "tags": [
           "agents"
         ],

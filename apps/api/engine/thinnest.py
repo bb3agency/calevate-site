@@ -53,7 +53,6 @@ import httpx
 from calevate_shared.call_script import business_line_of, substitute_variables
 from calevate_shared.calling_window import CALLING_HOURS_RULE, DEFAULT_WINDOW
 from calevate_shared.engine import (
-    CALL_INSTRUCTIONS,
     E164,
     NAME_VARIABLE,
     TODAY_VARIABLE,
@@ -80,6 +79,7 @@ from calevate_shared.engine import (
     ProvisionedNumber,
     RecallOutcome,
     WebhookVerdict,
+    call_instructions,
     compose_engine_prompt,
     compose_first_utterance,
     neutralise_markers,
@@ -2170,7 +2170,7 @@ class ThinnestEngine:
             # Our call rules in place of the engine's defaults (D-850), or `null` for the
             # defaults; always stated, so switching off puts every agent back on them.
             CALL_INSTRUCTIONS_FIELD: self._within(
-                CALL_INSTRUCTIONS,
+                call_instructions(cfg),
                 CALL_INSTRUCTIONS_MAX_CHARS,
                 code="engine_call_instructions_too_long",
                 what="call rules",

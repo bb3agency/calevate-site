@@ -133,6 +133,8 @@ function agent(over: Partial<Agent> = {}): Agent {
     caller_memory_notice_line: "I keep a short note of what you ask about.",
     caller_memory_enabled: false,
     caller_memory_paused: false,
+    caller_has_screen: false,
+    caller_has_screen_limited: false,
     recording_notice_enabled: true,
     opening_line:
       "Namaskaram, this is an AI assistant calling for Sri Clinic. This call is being recorded.",
@@ -920,6 +922,31 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
     await screen.findByText("Caller memory is paused until you accept the updated statement");
     expect(container.textContent).toContain(STATEMENT);
     expect(screen.getByRole("button", { name: "Accept and resume" })).toBeTruthy();
+  });
+
+  it("offers the screen-guide switch off by default, with how it works (D-906)", async () => {
+    openSection("settings");
+    const { container } = await renderClientPage(page, routes());
+
+    await screen.findByText("Caller follows along on a screen");
+    const toggle = screen.getByRole("switch", { name: "Guide callers through their screen" });
+    expect((toggle as HTMLInputElement).checked).toBe(false);
+    expect(container.textContent).not.toContain("general rule not to mention buttons");
+  });
+
+  it("says when a general rule still holds a screen agent back on live calls (D-906)", async () => {
+    openSection("settings");
+    const { container } = await renderClientPage(
+      page,
+      routes({
+        "/v1/agents/agent-1": agent({ caller_has_screen: true, caller_has_screen_limited: true }),
+      }),
+    );
+
+    await screen.findByText("Caller follows along on a screen");
+    const toggle = screen.getByRole("switch", { name: "Guide callers through their screen" });
+    expect((toggle as HTMLInputElement).checked).toBe(true);
+    expect(container.textContent).toContain("general rule not to mention buttons");
   });
 
   it("shows no re-accept prompt on an account on the current statement", async () => {

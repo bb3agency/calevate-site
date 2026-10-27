@@ -18,6 +18,7 @@ import { noFill } from "@/lib/copilot/types";
 
 import { AgentCallHandlingRows } from "../../panels/callHandling";
 import { CallerContinuity } from "../../panels/callerContinuity";
+import { CallerScreen } from "../../panels/callerScreen";
 import { CallCapChoice, VoiceChoice } from "../../panels/delivery";
 import { Handover } from "../../panels/handover";
 import { VoiceNow, WorstCaseCost } from "../../panels/publishing";
@@ -74,6 +75,7 @@ export function CallHandlingSection({ agent }: { agent: Agent }) {
         value: pending.data ? (pending.data.worst_case_call_cost_inr ?? "no limit set") : "not loaded",
       },
       { key: "caller_memory", label: "Remembers callers between calls", value: agent.caller_memory_enabled ? "yes" : "no" },
+      { key: "caller_has_screen", label: "Guides callers through their screen", value: agent.caller_has_screen ? "yes" : "no" },
       {
         key: "pause_before_reply",
         label: "Pause before the agent replies",
@@ -118,6 +120,7 @@ export function CallHandlingSection({ agent }: { agent: Agent }) {
       </div>
       <Handover agent={agent} />
       <CallerContinuity agent={agent} />
+      <CallerScreen agent={agent} />
     </div>
   );
 }

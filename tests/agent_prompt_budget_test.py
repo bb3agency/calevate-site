@@ -171,6 +171,10 @@ def test_a_long_realistic_script_fits_with_margin() -> None:
 #: rest and waits, and takes the number down only once all ten are read back and confirmed.
 #: D-901 (27 Oct 2026) CUT both by 5: "open with a few words and a comma" replaced "the first
 #: shortest" and "more only if asked".
+#: D-906 (27 Oct 2026) left both where they were (each 1 under): the action-claim rule's "or
+#: they say they did" is paid for by "for the team to confirm", "announce or narrate", "ask
+#: them to repeat" and "offer a call back" without "instead". The screen switch's steps are
+#: composed only for an agent whose owner turns it on.
 PER_CALL_MAX = 7_294
 PER_CALL_ONE_LANGUAGE_MAX = 6_419
 

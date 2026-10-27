@@ -38,6 +38,17 @@ change, promoted staging→live, rollbackable.
    secrets into a script on the strength of this rule: SECURITY-COMPLIANCE §6.1 explains
    why a prompt is not a security control, and no layer of ours sits between the engine's
    model and its voice.
+7. **Claims of done (D-906)**: the agent never says anything is booked, fixed, confirmed or
+   done unless one of its tools did it on this call, or the caller says they did it
+   themselves ("saved?" "yes, saved" may be acknowledged). Write scripts the same way.
+
+**An agent whose callers follow along on a screen (D-906)** is a per-agent switch, not
+script text: on, the platform tells it to give one step a turn, name each on-screen label
+word for word in the call's letters, wait for "done", say a failed step again shorter, and
+spell a web address by English letter names (`spoken_style.json` `spelled_address`). A
+script for such an agent lists the steps and the exact labels; it does not need to restate
+how to speak them. Until the platform's own call rules are replaced by ours, a general rule
+against mentioning buttons still reaches the model on live calls, so check a real test call.
 
 ## 2. Prompt structure (template order matters for TTFT and adherence)
 

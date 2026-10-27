@@ -73,7 +73,8 @@ CALL_RULES: Final[tuple[CallRule, ...]] = (
             "placed, booked, fixed or confirmed, or details saved, unless "
             "one of its actions did it, and never offers to do what none of its actions can "
             "(confirm an order, send a message); taking the details and saying the team will "
-            "confirm is right."
+            "confirm is right, and so is acknowledging what the caller says they did "
+            "themselves."
         ),
         writer=(
             "No line or step says an order or booking is placed, booked, fixed or confirmed, or "

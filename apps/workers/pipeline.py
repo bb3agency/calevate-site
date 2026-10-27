@@ -2215,14 +2215,19 @@ async def _claim_without_action(
     it. Nothing is looked up when no turn makes such a claim.
     """
     unheard = set(likely_cut_off(snapshot.transcript))
-    claim = next(
-        (
-            t
-            for t in snapshot.transcript
-            if t.speaker == "agent" and t.idx not in unheard and claims_done(t.text)
-        ),
-        None,
-    )
+    claim = None
+    # A claim right after the caller said they did it acknowledges their act (D-906).
+    caller_said = ""
+    for t in snapshot.transcript:
+        if t.speaker == "caller":
+            caller_said = t.text
+        elif (
+            t.speaker == "agent"
+            and t.idx not in unheard
+            and claims_done(t.text, caller_said=caller_said)
+        ):
+            claim = t
+            break
     if claim is None or acted:
         return None
     async with tenant_session(tenant_id) as session:

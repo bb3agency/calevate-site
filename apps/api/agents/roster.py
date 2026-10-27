@@ -57,6 +57,7 @@ from apps.api.agents.schemas import AgentOut, GreetingBudgetOut
 from apps.api.billing.rates import llm_surcharge_applies
 from apps.api.compliance.caller_memory import CALLER_MEMORY_ATTESTATION, statement_is_current
 from apps.api.compliance.disclosure import truthful_answer_promise
+from apps.api.core.settings import get_settings
 from apps.api.engine import engine_capabilities, get_engine
 
 #: The roster query, spelled once and reached from every reader (D-302).
@@ -101,7 +102,9 @@ AGENT_ROSTER_SQL = (
     # The capture schema's version, the editor's save token (`expected_version`).
     "es.version, "
     # The caller-memory statement this account accepted, appended for the reason above.
-    "o.caller_memory_attestation_version "
+    "o.caller_memory_attestation_version, "
+    # Whether the caller follows along on a screen (D-906), appended for the reason above.
+    "a.caller_has_screen "
     "FROM agents a LEFT JOIN extraction_schemas es ON es.id = a.extraction_schema_id "
     "LEFT JOIN organizations o ON o.id = a.tenant_id "
     "LEFT JOIN prompt_versions pv ON pv.id = COALESCE(a.live_prompt_id, a.system_prompt_id) "
@@ -115,6 +118,12 @@ AGENT_ROSTER_SQL = (
 #: each row carries the agent's whole extraction schema, so the response grows in two
 #: dimensions at once.
 AGENT_ROSTER_LIMIT = 200
+
+
+def _engine_call_rules_in_force() -> bool:
+    """The engine's own call rules, which forbid mentioning buttons, are read on calls in
+    place of ours (D-850): the same test `agents/service._to_config` publishes with."""
+    return get_settings().engine == "thinnest" and not get_settings().thinnest_call_instructions
 
 
 def agent_out(r: Any) -> AgentOut:
@@ -174,6 +183,8 @@ def agent_out(r: Any) -> AgentOut:
         caller_memory_enabled=bool(r[18]),
         caller_memory_paused=paused,
         caller_memory_statement=CALLER_MEMORY_ATTESTATION if paused else None,
+        caller_has_screen=bool(r[25]),
+        caller_has_screen_limited=bool(r[25]) and _engine_call_rules_in_force(),
         archived_at=r[13],
         inbound_number_count=int(r[14]),
         llm_tier=tier_of_model(r[15]),

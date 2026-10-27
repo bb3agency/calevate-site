@@ -186,6 +186,7 @@ def platform_prompt_revision() -> str:
     from calevate_shared.engine import (
         CALL_INSTRUCTIONS,
         INTRODUCTION_SALUTATIONS,
+        SCREEN_CALL_INSTRUCTIONS,
         AgentConfig,
         compose_engine_prompt,
         join_first_words,
@@ -232,10 +233,12 @@ def platform_prompt_revision() -> str:
             caller_memory_in_engine=in_knowledge,
             # Our hand-over rule (D-847) is composed only under `ownRules`.
             engine_own_rules=callbacks,
+            # A screen agent's steps and spelling (D-906) on the first and third.
+            caller_has_screen=callbacks,
         )
         parts.append(compose_engine_prompt(cfg))
     # Our call rules (D-850), sent beside the prompt while their switch is on.
-    parts.append(CALL_INSTRUCTIONS)
+    parts += [CALL_INSTRUCTIONS, SCREEN_CALL_INSTRUCTIONS]
     # How the greeting field orders the opening line and the notices (D-861), and the
     # introduction with its salutation in each language that has one (D-865), which the
     # reference agents above cannot show: their script has no opening line.

@@ -128,6 +128,10 @@ class LanguageStyle:
     #: Short exchanges the in-call prompt quotes as how a turn sounds (D-778); only the
     #: founder-approved ones in the file, never the published layer (see `_prompt_examples`).
     prompt_examples: tuple[tuple[ExampleTurn, ...], ...] = ()
+    #: A web address spelled the way a caller following on a screen hears it (D-906): English
+    #: letter names in this language's letters, a comma between. Read from the file alone,
+    #: like `prompt_examples`, because it reaches the in-call prompt.
+    spelled_address: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -344,6 +348,7 @@ def _build(tag: str, row: Mapping[str, Any]) -> LanguageStyle:
         punctuation=tuple(e.value["text"] for e in by_kind["punctuation"]),
         reviewed_on=reviewed_on,
         prompt_examples=_prompt_examples(tag, row),
+        spelled_address=row.get("spelled_address") or None,
     )
 
 
@@ -659,6 +664,12 @@ def register_guidance(tag: str | None) -> str | None:
     return " ".join(parts)
 
 
+def spelled_address(tag: str | None) -> str | None:
+    """How a web address is spelled aloud in this language (D-906), or None without one."""
+    style = style_for(tag)
+    return style.spelled_address if style is not None else None
+
+
 #: How the example line names each side: the agent reading it is "you".
 _WHO: Final[dict[str, str]] = {"caller": "caller", "agent": "you"}
 
@@ -854,6 +865,7 @@ __all__ = [
     "prompt_example_line",
     "register_guidance",
     "shipped_pack_choice",
+    "spelled_address",
     "style_for",
     "thinking_lines",
     "trial_call_opening",

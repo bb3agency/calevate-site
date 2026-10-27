@@ -114,7 +114,7 @@ def test_an_agent_with_only_one_of_them_is_told_about_that_one() -> None:
 def test_the_chat_hears_the_honesty_rules_the_call_rules_would_have_given() -> None:
     assert "Never re-ask what they said or repeat a sentence." in VOICE_STYLE_GUIDANCE
     assert "booked, fixed, confirmed or done unless a tool" in ACTION_CLAIM_RULE
-    assert "say it is noted and the team will confirm" in ACTION_CLAIM_RULE
+    assert "say it is noted for the team to confirm" in ACTION_CLAIM_RULE
     assert "what happens next" not in ACTION_CLAIM_RULE
     prompt = compose_engine_prompt(_cfg())
     assert (
