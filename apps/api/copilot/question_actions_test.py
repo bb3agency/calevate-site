@@ -301,3 +301,14 @@ async def test_a_saved_test_is_added_at_once_and_undo_deletes_it() -> None:
             await undo_client_action(
                 session, UUID(str(done.action_id)), principal=principal, ip=None
             )
+
+
+def test_an_operator_in_view_as_is_never_recorded_as_the_client_user() -> None:
+    from apps.api.copilot.actions import ToolActor
+    from apps.api.copilot.question_actions import _client_user_id
+
+    person = uuid.uuid4()
+    client = ToolActor(tenant_id=uuid.uuid4(), user_id=person, role="owner", impersonating=False)
+    operator = ToolActor(tenant_id=uuid.uuid4(), user_id=person, role="owner", impersonating=True)
+    assert _client_user_id(client) == person
+    assert _client_user_id(operator) is None

@@ -69,6 +69,13 @@ def _auto_approve(actor: ToolActor) -> bool:
     return goes_live_without_review(realm=actor_realm(actor), impersonating=actor.impersonating)
 
 
+def _client_user_id(actor: ToolActor) -> UUID | None:
+    # `settled_by` and `knowledge_gaps.resolved_by` hold a `users.id`; in a view-as session
+    # `actor.user_id` is an `admin_users.id`, so an operator is recorded as nobody, as
+    # `Principal.client_user_id` answers for the page's own buttons.
+    return None if actor.impersonating else actor.user_id
+
+
 def _owner_words(value: str, *, limit: int, what: str) -> str:
     cleaned = " ".join(strip_invisible(value).split())
     if not cleaned:
@@ -141,7 +148,7 @@ async def _execute_settle(
             tenant_id=actor.tenant_id,
             key=parsed.question_key,
             reason=None,
-            client_user_id=actor.user_id,
+            client_user_id=_client_user_id(actor),
         )
         detail = "Dismissed. It comes back only if a caller asks it again."
     else:
@@ -151,7 +158,7 @@ async def _execute_settle(
             key=parsed.question_key,
             answer=parsed.answer,
             saved_by=actor.user_id,
-            client_user_id=actor.user_id,
+            client_user_id=_client_user_id(actor),
             auto_approve=_auto_approve(actor),
         )
         detail = "Saved. Your agents use the answer from their next call."
