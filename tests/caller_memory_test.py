@@ -54,7 +54,7 @@ from apps.api.retrieval.models import (
     SUBJECT_RETENTION,
 )
 from sqlalchemy import text
-from tests.conftest import create_org_with_receptionist
+from tests.conftest import ACCEPT_CALLER_MEMORY_STATEMENT, create_org_with_receptionist
 
 pytestmark = pytest.mark.anyio
 
@@ -95,6 +95,7 @@ async def _enable(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> None:
             text("UPDATE agents SET caller_memory_enabled = true WHERE id = :aid"),
             {"aid": agent_id},
         )
+        await session.execute(ACCEPT_CALLER_MEMORY_STATEMENT, {"tid": tenant_id})
         await session.commit()
 
 

@@ -132,6 +132,7 @@ function agent(over: Partial<Agent> = {}): Agent {
     recording_notice_line: "This call is being recorded.",
     caller_memory_notice_line: "I keep a short note of what you ask about.",
     caller_memory_enabled: false,
+    caller_memory_paused: false,
     recording_notice_enabled: true,
     opening_line:
       "Namaskaram, this is an AI assistant calling for Sri Clinic. This call is being recorded.",
@@ -880,6 +881,7 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
       routes({
         "/v1/agents/agent-1": agent({
           caller_memory_enabled: true,
+          caller_memory_paused: false,
           caller_memory_notice_line: MEMORY,
           opening_line: `${OPENING} ${MEMORY}`,
         }),
@@ -899,6 +901,36 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
     expect(container.textContent).toContain(
       "remembers what callers asked about",
     );
+  });
+
+  it("asks an account on the old caller-memory statement to accept the new one (D-900)", async () => {
+    openSection("settings");
+    const STATEMENT = "I confirm the updated statement about what these calls collect.";
+    const { container } = await renderClientPage(
+      page,
+      routes({
+        "/v1/agents/agent-1": agent({
+          caller_memory_enabled: true,
+          caller_memory_paused: true,
+          caller_memory_statement: STATEMENT,
+        }),
+      }),
+    );
+
+    await screen.findByText("Caller memory is paused until you accept the updated statement");
+    expect(container.textContent).toContain(STATEMENT);
+    expect(screen.getByRole("button", { name: "Accept and resume" })).toBeTruthy();
+  });
+
+  it("shows no re-accept prompt on an account on the current statement", async () => {
+    openSection("settings");
+    const { container } = await renderClientPage(
+      page,
+      routes({ "/v1/agents/agent-1": agent({ caller_memory_enabled: true }) }),
+    );
+
+    await screen.findByText("Remembering callers");
+    expect(container.textContent).not.toContain("Caller memory is paused");
   });
 
   it("says nothing about memory for an agent that does not remember", async () => {

@@ -71,7 +71,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.admin.service import tenant_exists
 from apps.api.agents.hosted_voices import rungs_awaiting_setup
 from apps.api.agents.studio_voices import studio_open_to
-from apps.api.billing.credit_expiry import credit_expiry_months, expires_at_for
+from apps.api.billing.credit_expiry import (
+    credit_expiry_months,
+    credit_expiry_months_for,
+    expires_at_for,
+)
 from apps.api.billing.credit_packs import (
     CreditPack,
     pack_by_id,
@@ -442,7 +446,8 @@ class CreditPacksOut(Strict):
     #: live from the ops console, so a page never quotes a fee nobody is charged.
     platform_fee_inr_per_month: Decimal | None = None
     #: How many months after purchase the credit bought today lapses, stated wherever a pack
-    #: is sold (D-840); null when credit bought now does not expire.
+    #: is sold (D-840); null when credit bought now does not expire, which on the signed-in
+    #: card includes an account that has not accepted the Terms stating expiry (D-900).
     credit_expiry_months: int | None = None
     #: The IST day credit bought today would lapse on, so a buy screen can state the date at
     #: purchase (Terms 6.1). A day, not an instant, so the card stays the same all day for the
@@ -571,7 +576,7 @@ def _pack_out(pack: CreditPack) -> CreditPackOut:
         "`talk_time_minutes` are DEPRECATED (D-547) and go next release."
     ),
 )
-async def read_credit_packs(session: RateCardSession, _principal: TopUpRead) -> CreditPacksOut:
+async def read_credit_packs(session: RateCardSession, principal: TopUpRead) -> CreditPacksOut:
     """The rate card IN FORCE, and the next change to it if one is scheduled.
 
     ⚠ **THIS USED TO READ THE STATIC CATALOGUE, AND READING IT WOULD NOW BE A LIE (D-550).**
@@ -582,10 +587,27 @@ async def read_credit_packs(session: RateCardSession, _principal: TopUpRead) -> 
     catalogue survives as the per-cell fallback inside `card_at`, which is why a deployment
     that has never recorded a card sees no change at all.
 
-    No tenant state is read: the card is the same for everyone, which is why the public
-    route below still answers with the identical body from the same builder.
+    The rates are the same for everyone, from the builder the public route uses. The one
+    thing read about the account is whether credit it buys now would lapse: not until its
+    owner has accepted the Terms that say so (D-900, `credit_expiry_months_for`).
     """
-    return await rate_card_out(session)
+    assert principal.tenant_id is not None  # client realm; `requires()` resolves it
+    return await stated_for_account(await rate_card_out(session), tenant_id=principal.tenant_id)
+
+
+async def stated_for_account(card: CreditPacksOut, *, tenant_id: UUID) -> CreditPacksOut:
+    """`card` with the credit term this account's next purchase would actually get.
+
+    Read on the tenant's own session: `legal_acceptances` is tenant-scoped and the card's
+    session is the global one. The public card keeps the platform term, which is what an
+    account that signs up now accepts."""
+    async with tenant_session(tenant_id) as session:
+        months = await credit_expiry_months_for(session, tenant_id=tenant_id)
+    if months is not None or card.credit_expiry_months is None:
+        return card
+    return card.model_copy(
+        update={"credit_expiry_months": None, "credit_lapses_on_if_bought_now": None}
+    )
 
 
 #: On an engine that does not sell its own voices by band the cheaper rung has no attested

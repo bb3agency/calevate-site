@@ -97,6 +97,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.engine_limits import refuse_notice_without_room
 from apps.api.agents.hosted_voices import parse_hosted_voice_id, source_rate_key
+from apps.api.agents.live_apply import queue_live_apply
 from apps.api.agents.models import is_published
 from apps.api.agents.service import (
     effective_call_cap,
@@ -110,7 +111,12 @@ from apps.api.billing.lots import voice_tier_rates
 from apps.api.billing.plans import NOW_SQL, OVERAGE_RATE_SECOND_SQL, plan_in_effect_sql
 from apps.api.billing.rates import VoiceTier
 from apps.api.billing.service import to_paise
-from apps.api.compliance.caller_memory import spdi_refuses_memory
+from apps.api.compliance.caller_memory import (
+    CALLER_MEMORY_ATTESTATION,
+    CALLER_MEMORY_ATTESTATION_VERSION,
+    spdi_refuses_memory,
+    statement_is_current,
+)
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.result import rowcount_of
@@ -513,6 +519,10 @@ class CallerMemoryResult:
     attested_by_name: str | None
     #: The `CALLER_MEMORY_ATTESTATIONS` version this business accepted; `None` when nobody has.
     attested_version: int | None = None
+    #: The statement version this call recorded, or None when it recorded no acceptance. The
+    #: route audits an acceptance whether or not the switch moved: a re-acceptance (D-900) is
+    #: made on an agent that is already on.
+    statement_accepted: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1485,45 +1495,6 @@ async def set_disclosure_posture(
     )
 
 
-#: The sentence a client accepts to switch cross-call memory on, stored nowhere and
-#: rendered by the API so the screen and the refusal cannot describe different promises.
-#:
-#: IT IS AN ATTESTATION AND NOT A CHECKBOX ON A FORM, which is why it is phrased as a
-#: statement in the first person about facts only the client knows.
-#: `compliance.caller_memory.SPDI_REFUSED_VERTICALS` says of itself that it is "a PROXY AND
-#: KNOWN TO BE ONE ... the enable path — when one is built — is where a per-tenant
-#: attestation belongs". This is that instrument, and the proxy stays above it as the belt:
-#: a clinic is refused whatever it attests, because the vertical is a RECORD and an
-#: attestation is a CLAIM.
-#:
-#: VERSIONED like the outbound pledge: an account keeps the version it accepted
-#: (`organizations.caller_memory_attestation_version`), and a new acceptance records the
-#: current one. A changed word is a new version; a published version is never edited.
-#: Version 2 (founder, 27 Oct 2026): the agent says the memory sentence as it says goodbye
-#: (D-865, `engine.MEMORY_GOODBYE_RULE`), so "at the start of every call" became "before
-#: ending each call".
-CALLER_MEMORY_ATTESTATIONS: dict[int, str] = {
-    1: (
-        "I confirm that these calls do not collect health, medical, financial, biometric or "
-        "other sensitive personal data about callers, that my business is the Data Fiduciary "
-        "for these callers, and that my own privacy notice tells them we keep a short note of "
-        "what they ask about. I understand that my agents will say so at the start of every "
-        "call, that notes are kept for 180 days, and that a caller may ask for theirs to be "
-        "erased."
-    ),
-    2: (
-        "I confirm that these calls do not collect health, medical, financial, biometric or "
-        "other sensitive personal data about callers, that my business is the Data Fiduciary "
-        "for these callers, and that my own privacy notice tells them we keep a short note of "
-        "what they ask about. I understand that my agents will say so before ending each "
-        "call, that notes are kept for 180 days, and that a caller may ask for theirs to be "
-        "erased."
-    ),
-}
-CALLER_MEMORY_ATTESTATION_VERSION = max(CALLER_MEMORY_ATTESTATIONS)
-CALLER_MEMORY_ATTESTATION = CALLER_MEMORY_ATTESTATIONS[CALLER_MEMORY_ATTESTATION_VERSION]
-
-
 async def set_caller_memory(
     *, tenant_id: UUID, agent_id: UUID, enabled: bool, attested_by: UUID | None
 ) -> CallerMemoryResult:
@@ -1611,50 +1582,54 @@ async def set_caller_memory(
         )
         # No room check: the memory sentence is said with the goodbye, not in the greeting
         # (D-865), so switching memory on adds nothing to the first turn.
-        if enabled and attested_at is None and attested_by is None:
+        #
+        # An acceptance of an older statement does not cover memory now (D-900): the account
+        # is asked again exactly as one that never accepted.
+        covered = attested_at is not None and statement_is_current(attested_version)
+        if enabled and not covered and attested_by is None:
             raise ProblemError.business_rule(
                 "caller_memory_attestation_required",
                 "Confirm what these calls collect before agents can remember callers.",
                 remediation=CALLER_MEMORY_ATTESTATION,
             )
+        accepted_now = enabled and not covered
+        # A re-acceptance resumes memory on every agent whose switch the owner left on,
+        # each of which was published paused.
+        resumed = accepted_now and attested_at is not None
 
-        if current != enabled:
-            if enabled and attested_at is None:
-                # In the SAME transaction as the switch it permits. An attestation that
-                # committed while the switch rolled back would be a recorded promise about
-                # a capability nobody turned on, and the client would never be asked again.
+        if accepted_now:
+            # In the SAME transaction as the switch it permits. An attestation that committed
+            # while the switch rolled back would be a recorded promise about a capability
+            # nobody turned on, and the client would never be asked again.
+            await session.execute(
+                text(
+                    "UPDATE organizations SET caller_memory_attested_at = now(), "
+                    "caller_memory_attested_by = :by, "
+                    "caller_memory_attestation_version = :version, updated_at = now() "
+                    "WHERE id = :tid "
+                    "AND COALESCE(caller_memory_attestation_version, 0) < :version"
+                ),
+                {"by": attested_by, "tid": tenant_id, "version": CALLER_MEMORY_ATTESTATION_VERSION},
+            )
+            # RE-READ RATHER THAN STAMPED FROM PYTHON: the UPDATE is guarded on the version,
+            # so a concurrent request may have won it, and the value the client is shown
+            # must be the one on the row — after a race, the WINNER's name.
+            attested = (
                 await session.execute(
                     text(
-                        "UPDATE organizations SET caller_memory_attested_at = now(), "
-                        "caller_memory_attested_by = :by, "
-                        "caller_memory_attestation_version = :version, updated_at = now() "
-                        "WHERE id = :tid AND caller_memory_attested_at IS NULL"
+                        "SELECT o.caller_memory_attested_at, u.name, "
+                        "o.caller_memory_attestation_version "
+                        "FROM organizations o "
+                        "LEFT JOIN users u ON u.id = o.caller_memory_attested_by "
+                        "WHERE o.id = :tid"
                     ),
-                    {
-                        "by": attested_by,
-                        "tid": tenant_id,
-                        "version": CALLER_MEMORY_ATTESTATION_VERSION,
-                    },
+                    {"tid": tenant_id},
                 )
-                # RE-READ RATHER THAN STAMPED FROM PYTHON: the UPDATE is guarded on
-                # `IS NULL`, so a concurrent request may have won it, and the value the
-                # client is shown must be the one on the row. The attester's name is read
-                # back with it for the same reason — after a race it is the WINNER's name.
-                attested = (
-                    await session.execute(
-                        text(
-                            "SELECT o.caller_memory_attested_at, u.name, "
-                            "o.caller_memory_attestation_version "
-                            "FROM organizations o "
-                            "LEFT JOIN users u ON u.id = o.caller_memory_attested_by "
-                            "WHERE o.id = :tid"
-                        ),
-                        {"tid": tenant_id},
-                    )
-                ).one()
-                attested_at = attested[0]
-                attested_by_name = None if attested[1] is None else str(attested[1])
-                attested_version = None if attested[2] is None else int(attested[2])
+            ).one()
+            attested_at = attested[0]
+            attested_by_name = None if attested[1] is None else str(attested[1])
+            attested_version = None if attested[2] is None else int(attested[2])
+        if current != enabled:
             await session.execute(
                 text(
                     "UPDATE agents SET caller_memory_enabled = :on, updated_at = now() "
@@ -1663,8 +1638,17 @@ async def set_caller_memory(
                 {"on": enabled, "aid": agent_id},
             )
         on_engine = is_published(row[6], row[7])
-        if current != enabled and on_engine:
+        engine_synced = (current != enabled or resumed) and on_engine
+        if engine_synced:
             await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id, take_calls=False)
+        if resumed:
+            await queue_live_apply(
+                session,
+                scope="tenant",
+                tenant_id=tenant_id,
+                reason="caller_memory_statement",
+                requested_by=attested_by,
+            )
 
     # Ids and booleans (hard rule 6). The sentence itself is the client's own copy and
     # nothing is served by putting it in a log line.
@@ -1674,7 +1658,8 @@ async def set_caller_memory(
             "agent_id": str(agent_id),
             "enabled": enabled,
             "changed": current != enabled,
-            "engine_synced": (current != enabled) and on_engine,
+            "engine_synced": engine_synced,
+            "statement_accepted": accepted_now,
         },
     )
     return CallerMemoryResult(
@@ -1683,11 +1668,12 @@ async def set_caller_memory(
         opening_line=compose_opening_line(
             posture, call_is_recorded=engine_capabilities().records_audio
         ),
-        engine_synced=(current != enabled) and on_engine,
+        engine_synced=engine_synced,
         unchanged=current == enabled,
         attested_at=attested_at,
         attested_by_name=attested_by_name,
         attested_version=attested_version,
+        statement_accepted=CALLER_MEMORY_ATTESTATION_VERSION if accepted_now else None,
     )
 
 

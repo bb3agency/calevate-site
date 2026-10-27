@@ -55,6 +55,7 @@ from apps.api.agents.llm_tiers import engine_model_token, tier_label, tier_of_mo
 from apps.api.agents.models import AgentStatus
 from apps.api.agents.schemas import AgentOut, GreetingBudgetOut
 from apps.api.billing.rates import llm_surcharge_applies
+from apps.api.compliance.caller_memory import CALLER_MEMORY_ATTESTATION, statement_is_current
 from apps.api.compliance.disclosure import truthful_answer_promise
 from apps.api.engine import engine_capabilities, get_engine
 
@@ -98,7 +99,9 @@ AGENT_ROSTER_SQL = (
     # The reply languages after the main one, appended for the reason above.
     "a.languages_extra, "
     # The capture schema's version, the editor's save token (`expected_version`).
-    "es.version "
+    "es.version, "
+    # The caller-memory statement this account accepted, appended for the reason above.
+    "o.caller_memory_attestation_version "
     "FROM agents a LEFT JOIN extraction_schemas es ON es.id = a.extraction_schema_id "
     "LEFT JOIN organizations o ON o.id = a.tenant_id "
     "LEFT JOIN prompt_versions pv ON pv.id = COALESCE(a.live_prompt_id, a.system_prompt_id) "
@@ -143,6 +146,8 @@ def agent_out(r: Any) -> AgentOut:
     budget = greeting_budget(
         get_engine(), posture=posture, opening=opening, direction=str(r[2]), language=str(r[4])
     )
+    # The switch on and the statement accepted out of date: `MEMORY_ON_SQL`'s other half.
+    paused = bool(r[18]) and not statement_is_current(None if r[24] is None else int(r[24]))
     return AgentOut(
         id=r[0],
         name=r[1],
@@ -167,6 +172,8 @@ def agent_out(r: Any) -> AgentOut:
         recording_notice_enabled=bool(r[12]),
         caller_memory_notice_line=str(r[17]),
         caller_memory_enabled=bool(r[18]),
+        caller_memory_paused=paused,
+        caller_memory_statement=CALLER_MEMORY_ATTESTATION if paused else None,
         archived_at=r[13],
         inbound_number_count=int(r[14]),
         llm_tier=tier_of_model(r[15]),

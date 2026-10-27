@@ -1264,15 +1264,18 @@ async def apply_credit_to_lots(
     remainder = (credits_inr - repaid).quantize(MONEY_Q, rounding=ROUNDING)
     if remainder <= 0:
         return CreditedLot(lot_id=None, credits_inr=Decimal("0"), repaid_overdraft_inr=repaid)
-    # A PURCHASE's credit lapses on the term in force now (D-840); a grant, a migration and
-    # an override carry none. Imported here: `credit_expiry` imports this module.
+    # A PURCHASE's credit lapses on the term in force now (D-840), and only once the client
+    # has accepted the Terms that state it (D-900); a grant, a migration and an override
+    # carry none. Imported here: `credit_expiry` imports this module.
     from apps.api.billing.credit_expiry import (
-        credit_expiry_months,
+        credit_expiry_months_for,
         credit_expiry_ref,
         expires_at_for,
     )
 
-    months = credit_expiry_months() if source == "topup" else None
+    months = (
+        await credit_expiry_months_for(session, tenant_id=tenant_id) if source == "topup" else None
+    )
     if restate_lot_id is not None:
         target = await credit_lots.read_lot(session, lot_id=restate_lot_id)
         lapsed = (

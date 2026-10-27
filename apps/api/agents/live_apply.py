@@ -254,6 +254,11 @@ def platform_prompt_revision() -> str:
     from apps.api.agents.models import PUBLISHED_STATUSES
 
     parts.append(",".join(PUBLISHED_STATUSES))
+    # The caller-memory statement in force (D-900): a new version pauses memory on every
+    # account that accepted an older one, which only reaches the engine by a republish.
+    from apps.api.compliance.caller_memory import CALLER_MEMORY_ATTESTATION_VERSION
+
+    parts.append(f"caller_memory_statement:{CALLER_MEMORY_ATTESTATION_VERSION}")
     return hashlib.sha256("\x1f".join(parts).encode()).hexdigest()[:16]
 
 

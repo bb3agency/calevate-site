@@ -332,6 +332,7 @@ export function agentRow(over: Partial<Agent> = {}): Agent {
     recording_notice_enabled: true,
     caller_memory_notice_line: "I keep a short note of what you ask about.",
     caller_memory_enabled: false,
+    caller_memory_paused: false,
     opening_line:
       "Namaskaram, this is an AI assistant calling for Sri Clinic. This call is being recorded.",
     script_opening_line: "",

@@ -54,6 +54,7 @@ from apps.api.agents.models import (
     NUDGE_PHRASE_MAX_CHARS,
 )
 from apps.api.agents.script_publish import put_draft_live
+from apps.api.compliance.caller_memory import CALLER_MEMORY_ATTESTATION_VERSION
 from apps.api.copilot.actions import (
     DOES_IT,
     PROPOSES_ONLY,
@@ -751,11 +752,13 @@ async def _current(session: AsyncSession, agent_id: UUID) -> _Current:
         await session.execute(
             text(
                 "SELECT a.max_call_duration_s, a.llm_model, a.caller_memory_enabled, "
-                "o.caller_memory_attested_at IS NOT NULL FROM agents a "
+                # Attested to the CURRENT statement (D-900): an older acceptance is asked again.
+                "o.caller_memory_attested_at IS NOT NULL AND COALESCE("
+                "o.caller_memory_attestation_version, 0) >= :statement FROM agents a "
                 "JOIN organizations o ON o.id = a.tenant_id "
                 "WHERE a.id = :aid AND a.deleted_at IS NULL"
             ),
-            {"aid": agent_id},
+            {"aid": agent_id, "statement": CALLER_MEMORY_ATTESTATION_VERSION},
         )
     ).first()
     if row is None:  # pragma: no cover - the caller has already resolved the agent

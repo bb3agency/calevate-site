@@ -38,6 +38,7 @@ from apps.api.reliability import engine_lookups
 from apps.api.worker.engine_lookups import verify_lookup_signature
 from calevate_shared.webhook_signature import timestamped_sha256_signature
 from sqlalchemy import text
+from tests.conftest import ACCEPT_CALLER_MEMORY_STATEMENT
 from tests.smoke_pipeline_test import _seed_tenant
 from tests.thinnest_engine_test import _cfg, tools_state
 
@@ -378,6 +379,7 @@ async def test_variables_carry_name_and_interest_and_history_only_with_memory() 
         await session.execute(
             text("UPDATE agents SET caller_memory_enabled = true WHERE id = :a"), {"a": agent_id}
         )
+        await session.execute(ACCEPT_CALLER_MEMORY_STATEMENT, {"tid": tenant_id})
         await session.execute(
             text(
                 "INSERT INTO dnc_list (id, tenant_id, phone_e164, scope, source, created_at) "

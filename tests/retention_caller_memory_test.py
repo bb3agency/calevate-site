@@ -61,7 +61,7 @@ from apps.api.retrieval.models import (
 )
 from apps.workers.retention import sweep_tenant
 from sqlalchemy import text
-from tests.conftest import create_org_with_receptionist
+from tests.conftest import ACCEPT_CALLER_MEMORY_STATEMENT, create_org_with_receptionist
 
 pytestmark = pytest.mark.anyio
 
@@ -120,6 +120,7 @@ async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
         await session.execute(
             text("UPDATE agents SET caller_memory_enabled = true WHERE id = :a"), {"a": agent_id}
         )
+        await session.execute(ACCEPT_CALLER_MEMORY_STATEMENT, {"tid": tenant_id})
         await session.commit()
     return tenant_id, agent_id
 

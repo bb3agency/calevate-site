@@ -104,6 +104,7 @@ from apps.api.compliance.caller_memory import (
     CALLER_MEMORY_SKIPPED,
     MAX_FACT_CHARS,
     MAX_FACTS_PER_CALL,
+    MEMORY_ON_SQL,
     clean_fact,
     remember,
 )
@@ -215,10 +216,12 @@ _SYSTEM_PROMPT: Final = (
 
 #: DISCOVERY. One statement, and every clause in it is load-bearing:
 #:
-#: * `a.caller_memory_enabled` — the fan-out STARTS from the switch, so a tenant with the
-#:   feature off contributes no rows and therefore no model calls (the "default costs
-#:   nothing" clause of the gap note). It is re-checked inside `remember()` too; that arm
-#:   is the one that matters if the switch moves between this read and the write.
+#: * `MEMORY_ON_SQL` — the fan-out STARTS from the switch and the current statement accepted
+#:   (D-900), so a tenant with the feature off contributes no rows and therefore no model
+#:   calls. It is re-checked inside `remember()` too; that arm is the one that matters if
+#:   the switch moves between this read and the write.
+#: * a call that started before the account accepted the current statement is never
+#:   distilled: a paused agent did not tell that caller, and resuming does not reach back.
 #: * `c.from_e164 IS NOT NULL` — the subject key is derived from the number, and a call
 #:   whose number a DPDP erasure has already NULLed has no subject to file a fact under.
 #'   Such a call is marked `skipped`, not left pending, below.
@@ -231,9 +234,10 @@ _SYSTEM_PROMPT: Final = (
 #: * `:set_aside` — calls the provider refused, which would otherwise head every tick.
 _PENDING_CALLS_SQL: Final = f"""
 SELECT c.id, c.agent_id, c.from_e164, c.ended_at
-FROM calls c JOIN agents a ON a.id = c.agent_id
+FROM calls c JOIN agents a ON a.id = c.agent_id JOIN organizations o ON o.id = a.tenant_id
 WHERE c.caller_memory_state = '{CALLER_MEMORY_PENDING}'
-  AND a.caller_memory_enabled
+  AND {MEMORY_ON_SQL}
+  AND COALESCE(c.started_at, c.created_at) >= o.caller_memory_attested_at
   AND c.status = 'completed'
   AND c.ended_at IS NOT NULL
   AND c.ended_at < now() - make_interval(mins => :settle_minutes)

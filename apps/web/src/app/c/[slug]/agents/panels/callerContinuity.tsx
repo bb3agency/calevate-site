@@ -28,13 +28,20 @@
  * Two consequences worth keeping: the screen and the refusal can never describe different
  * promises, and a business whose kind cannot use this at all is refused permanently by the
  * same channel with its own sentence, which `ProblemNotice` shows unchanged.
+ *
+ * ## Paused on an older statement (D-900)
+ *
+ * When the statement changes, an account that accepted the old one no longer has memory on
+ * any agent until its owner accepts the new one; the switch stays where they left it. The
+ * agent row says so (`caller_memory_paused`) and carries the statement to accept, so the
+ * re-accept prompt is rendered from the server's words like the first one.
  */
 
 import { ShieldCheck } from "lucide-react";
 import { useState } from "react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
-import { ProblemNotice, RestrictionNote, ToggleSwitch } from "@/components/ui";
+import { NoticeBox, ProblemNotice, RestrictionNote, ToggleSwitch } from "@/components/ui";
 import { HowItWorks } from "@/components/console/howItWorks";
 import { useSetCallerMemory, type Agent } from "@/lib/api/agents";
 import { useActAccess } from "@/lib/api/hooks";
@@ -60,6 +67,8 @@ export function CallerContinuity({ agent }: { agent: Agent }) {
   // Which control sent the last request: the confirm button shows its own state only for
   // its own press, not the switch's first refusal that brought it onto the screen.
   const [confirming, setConfirming] = useState(false);
+  const [reaccepting, setReaccepting] = useState(false);
+  const paused = agent.caller_memory_paused && Boolean(agent.caller_memory_statement);
   // Local, and only for the width of one refusal: the server decides whether an
   // attestation is still needed, so this is the record of "the client has now READ it",
   // which is a fact about this screen and about nothing else.
@@ -97,6 +106,34 @@ export function CallerContinuity({ agent }: { agent: Agent }) {
         <ProblemNotice error={setCallerMemory.error} />
       )}
 
+      {paused && (
+        <div className="mt-4">
+          <NoticeBox tone="warn" role="status" title="Caller memory is paused until you accept the updated statement">
+            No agent remembers callers until then. Accepting resumes it on every agent you left on.
+          </NoticeBox>
+          <blockquote className="mt-3 border-l-2 border-brand pl-4 text-body text-ink">
+            {agent.caller_memory_statement}
+          </blockquote>
+          <div className="mt-3">
+            <RestrictionNote reason={attest.reason} />
+          </div>
+          <ActionButton
+            className="mt-3"
+            status={reaccepting ? memoryFeedback.status : "idle"}
+            successLabel="Resumed"
+            disabled={!attest.allowed || setCallerMemory.isPending}
+            title={attest.reason ?? undefined}
+            onClick={() => {
+              setConfirming(false);
+              setReaccepting(true);
+              setCallerMemory.mutate({ enabled: true, accept: true });
+            }}
+          >
+            Accept and resume
+          </ActionButton>
+        </div>
+      )}
+
       <div className="mt-4">
         <ToggleSwitch
           label="Remember callers and book their call-backs"
@@ -104,13 +141,18 @@ export function CallerContinuity({ agent }: { agent: Agent }) {
           disabled={setCallerMemory.isPending}
           onChange={(next) => {
             setConfirming(false);
+            setReaccepting(false);
             setCallerMemory.mutate({ enabled: next, accept: readStatement });
           }}
         />
         <p className="mt-2 flex items-start gap-2 text-xs text-ink-muted">
           <ShieldCheck aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span>
-            {agent.caller_memory_enabled ? "This agent tells" : "When on, the agent tells"}{" "}
+            {paused
+              ? "Once resumed, the agent tells"
+              : agent.caller_memory_enabled
+                ? "This agent tells"
+                : "When on, the agent tells"}{" "}
             callers, as it says goodbye, that a short note is kept. Notes are charged like
             other assistant work and stop at your spending limit.
           </span>
@@ -122,6 +164,7 @@ export function CallerContinuity({ agent }: { agent: Agent }) {
             "Never kept: health details, amounts of money, or their exact words.",
             "Used only for that person's calls with you, never shared. Deleted after 180 days, or sooner if asked.",
             "The goodbye sentence goes with this switch; it cannot be turned off on its own.",
+            "If the statement you confirm changes, memory pauses on every agent until you accept the new one.",
           ]}
         />
       </div>

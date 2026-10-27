@@ -37,6 +37,7 @@ import {
   type UseQueryResult,
 } from "@tanstack/react-query";
 
+import { attentionKey } from "./attention";
 import { apiRequest, type AgentSummary, type Session } from "./client";
 import { publishingKeys } from "./publishing";
 import type { components } from "./schema";
@@ -169,6 +170,8 @@ export function useSetCallerMemory(
       Promise.all([
         client.invalidateQueries({ queryKey: agentKeys.all(session.orgSlug) }),
         client.invalidateQueries({ queryKey: agentKeys.one(session.orgSlug, agentId) }),
+        // Accepting the updated statement clears "Caller memory paused" (D-900).
+        client.invalidateQueries({ queryKey: attentionKey(session.orgSlug) }),
       ]),
   });
 }

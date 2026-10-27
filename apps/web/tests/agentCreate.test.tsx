@@ -98,6 +98,7 @@ function created(over: Partial<Agent> = {}): Agent {
     recording_notice_line: "This call is being recorded.",
     caller_memory_notice_line: "I keep a short note of what you ask about.",
     caller_memory_enabled: false,
+    caller_memory_paused: false,
     recording_notice_enabled: false,
     opening_line: "",
     script_opening_line: "",

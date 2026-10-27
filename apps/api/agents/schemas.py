@@ -98,6 +98,11 @@ class AgentOut(BaseModel):
     #: fact only the flag carries.
     caller_memory_notice_line: str
     caller_memory_enabled: bool
+    #: True when the switch is on but the account accepted an older caller-memory statement,
+    #: so the agent does not remember callers until the owner accepts the current one
+    #: (D-900). `caller_memory_statement` is then the statement to accept; null otherwise.
+    caller_memory_paused: bool = False
+    caller_memory_statement: str | None = None
     #: The NOTICES this agent says after its opening line, composed by the server from the
     #: two switches. Empty string = both off: the agent volunteers neither and opens on its
     #: opening line. Composed here rather than left to the screen because a UI that

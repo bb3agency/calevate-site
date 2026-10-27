@@ -43,6 +43,7 @@ function agent(over: Partial<Agent> = {}): Agent {
     recording_notice_enabled: false,
     caller_memory_notice_line: "Oka chinna note gurtu pettukuntanu.",
     caller_memory_enabled: false,
+    caller_memory_paused: false,
     opening_line: "",
     script_opening_line: LONG,
     first_words: LONG,
