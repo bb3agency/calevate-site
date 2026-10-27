@@ -271,7 +271,7 @@ function routes(over: Record<string, unknown> = {}) {
     "/v1/agents/agent-1/pending": settled(),
     // The header reads the trial to lock an answer-only agent's switch on a trial (D-853).
     "/v1/trial": { on_trial: false },
-    "/v1/kb/sources": [],
+    "/v1/kb/notes": { notes: [] },
     "/v1/organization/llm-defaults": LLM_DEFAULTS,
     // The Actions tab's reads, so the panel renders rather than raising its own alert —
     // these tests are about the pending/voice surface, not actions.

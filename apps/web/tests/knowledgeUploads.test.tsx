@@ -93,7 +93,7 @@ async function renderKnowledge(
 ) {
   const rendered = await renderClientPage(<KnowledgePage />, {
     "/v1/me": ME,
-    "/v1/kb/sources": [],
+    "/v1/kb/notes": { notes: [] },
     "/v1/kb/staff-curation": { staff_may_curate_knowledge: false },
     "/v1/kb/knows": { facts: [], facts_state: "none", items: [], pinned_not_yet_on: [] },
     "/v1/teach/questions": { items: [], open_count: 0 },

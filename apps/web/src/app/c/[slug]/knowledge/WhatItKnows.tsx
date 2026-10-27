@@ -18,7 +18,7 @@ import {
   Skeleton,
   formatCount,
 } from "@/components/ui";
-import { useKbChunks, useKbUploads, type KbUpload, type useKbSources } from "@/lib/api/kb";
+import { useKbUploads, type KbUpload, type useKbNotes } from "@/lib/api/kb";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
 import { PRICES_QUESTION } from "@/lib/api/teachQuestions";
 import { useVerticalExamples } from "@/lib/useVerticalExamples";
@@ -32,11 +32,9 @@ import {
   type PinnedNotYetOn,
 } from "@/lib/api/teach";
 
-import { FactRow as NoteRow } from "./SubmittedList";
+import { NotesList } from "./NotesList";
 import { UploadRow } from "./UploadList";
 
-/** `apps/api/teach/facts.FACTS_SOURCE_NAME`: the source the taught facts compile into. */
-const TAUGHT_FACTS_SOURCE = "Facts you taught";
 
 function matches(query: string, ...values: (string | null | undefined)[]): boolean {
   const q = query.trim().toLocaleLowerCase();
@@ -56,11 +54,11 @@ function matches(query: string, ...values: (string | null | undefined)[]): boole
  */
 export function WhatItKnows({
   canWrite,
-  sources,
+  notes: notesRead,
   onAnswerQuestions,
 }: {
   canWrite: boolean;
-  sources: ReturnType<typeof useKbSources>;
+  notes: ReturnType<typeof useKbNotes>;
   /** Opens the Questions to answer view, on one question when it names one. */
   onAnswerQuestions?: (key: string) => void;
 }) {
@@ -69,8 +67,6 @@ export function WhatItKnows({
   const uploads = useKbUploads(session);
   const [query, setQuery] = useState("");
   const clearQuery = () => setQuery("");
-  const [previewing, setPreviewing] = useState<string | null>(null);
-  const chunks = useKbChunks(session, previewing);
 
   const pinned = useMemo(() => knows.data?.facts.filter((f) => f.pinned) ?? [], [knows.data]);
   const other = useMemo(() => knows.data?.facts.filter((f) => !f.pinned) ?? [], [knows.data]);
@@ -81,9 +77,10 @@ export function WhatItKnows({
   );
   const files = current.filter((u) => u.source_kind !== "url");
   const links = current.filter((u) => u.source_kind === "url");
-  // The teach box's own facts compile into one source; they are listed one by one above.
-  const notes =
-    sources.data?.filter((s) => s.kind === "text" && s.name !== TAUGHT_FACTS_SOURCE) ?? [];
+  // Every typed note, removed ones included so the page can put them back; only the
+  // others are knowledge and count toward what the agents were given.
+  const allNotes = notesRead.data?.notes ?? [];
+  const notes = allNotes.filter((n) => n.state !== "removed");
 
   if (knows.isLoading) return <Skeleton rows={5} label="Loading what your agents know" />;
   if (knows.error || !knows.data) {
@@ -103,12 +100,13 @@ export function WhatItKnows({
   const uploadMatches = (u: KbUpload) => matches(query, u.name, u.filename, u.source_url);
   const shownFiles = files.filter(uploadMatches);
   const shownLinks = links.filter(uploadMatches);
-  const shownNotes = notes.filter((n) => matches(query, n.name));
+  const shownAnyNote = allNotes.some((n) => matches(query, n.name));
   const total = pinned.length + other.length + files.length + links.length + notes.length;
   // "Nothing yet" is said only when every read answered; a read still out is not empty.
-  const empty = total === 0 && Boolean(uploads.data) && Boolean(sources.data);
+  const empty =
+    total === 0 && allNotes.length === 0 && Boolean(uploads.data) && Boolean(notesRead.data);
   const shown =
-    shownPinned.length + shownOther.length + shownFiles.length + shownLinks.length + shownNotes.length;
+    shownPinned.length + shownOther.length + shownFiles.length + shownLinks.length + (shownAnyNote ? 1 : 0);
 
   if (empty) {
     // The Add area above is the one way in, so the empty list offers no second form.
@@ -230,24 +228,20 @@ export function WhatItKnows({
         </>
       )}
 
-      {sources.data && notes.length > 0 ? (
+      {notesRead.isLoading ? (
+        <Skeleton rows={2} label="Loading your notes" />
+      ) : allNotes.length > 0 ? (
         <Group
           title="Notes you wrote earlier"
           count={notes.length}
-          hidden={filtered && shownNotes.length === 0}
+          hidden={filtered && !shownAnyNote}
           info={<p>Longer notes added before you could write facts one by one.</p>}
         >
-          <ul className="divide-y divide-line border-y border-line">
-            {shownNotes.map((source) => (
-              <NoteRow
-                key={source.id}
-                source={source}
-                open={previewing === source.id}
-                onToggle={() => setPreviewing(previewing === source.id ? null : source.id)}
-                chunks={chunks}
-              />
-            ))}
-          </ul>
+          <NotesList
+            notes={allNotes}
+            canWrite={canWrite}
+            query={(name) => matches(query, name)}
+          />
         </Group>
       ) : null}
     </div>

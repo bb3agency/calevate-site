@@ -22,16 +22,6 @@ export type KbSource = Schemas["SourceOut"];
 export type KbChunk = Schemas["ChunkOut"];
 export type KbSubmitResult = Schemas["SubmitOut"];
 
-export function useKbSources(session: Session): UseQueryResult<KbSource[]> {
-  return useQuery({
-    queryKey: ["kb", session.orgSlug],
-    queryFn: () => apiRequest<KbSource[]>(session, "/v1/kb/sources"),
-    // Slower than the call surfaces: an approval is a human on our side, measured in
-    // hours, not the two-minute post-call SLO.
-    refetchInterval: livePoll(120_000),
-  });
-}
-
 export function useKbChunks(session: Session, sourceId: string | null) {
   return useQuery({
     queryKey: ["kb-preview", session.orgSlug, sourceId],
@@ -172,12 +162,11 @@ export function useKbUpload(session: Session, upload: KbUpload): UseQueryResult<
 }
 
 /**
- * Everything an upload invalidates: its own list, the sources list it also appears in, the
- * "what it knows" list, and the stored words a reader shows (`kbUploadTextKey`).
+ * Everything an upload invalidates: its own list, the "what it knows" list, and the stored
+ * words a reader shows (`kbUploadTextKey`).
  */
 function invalidateKnowledge(client: ReturnType<typeof useQueryClient>, session: Session): void {
   void client.invalidateQueries({ queryKey: ["kb-uploads", session.orgSlug] });
-  void client.invalidateQueries({ queryKey: ["kb", session.orgSlug] });
   void client.invalidateQueries({ queryKey: ["kb-upload-text", session.orgSlug] });
   void client.invalidateQueries({ queryKey: knowsKey(session.orgSlug) });
 }
@@ -241,6 +230,54 @@ export function useDeleteUpload(session: Session) {
     mutationFn: (uploadId: string) =>
       apiRequest<void>(session, `/v1/kb/uploads/${uploadId}`, { method: "DELETE" }),
     onSuccess: () => invalidateKnowledge(client, session),
+  });
+}
+
+export type KbNote = Schemas["NoteOut"];
+export type KbNotes = Schemas["NotesOut"];
+
+/** The typed notes, removed ones included so they can be put back (D-893 L7). */
+export const kbNotesKey = (slug: string) => ["kb-notes", slug] as const;
+
+export function useKbNotes(session: Session): UseQueryResult<KbNotes> {
+  return useQuery({
+    queryKey: kbNotesKey(session.orgSlug),
+    queryFn: () => apiRequest<KbNotes>(session, "/v1/kb/notes"),
+  });
+}
+
+function invalidateNotes(client: ReturnType<typeof useQueryClient>, session: Session): void {
+  void client.invalidateQueries({ queryKey: kbNotesKey(session.orgSlug) });
+  invalidateKnowledge(client, session);
+}
+
+/** Rename a typed note: every version, so its history stays one item. */
+export function useRenameNote(session: Session) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ noteId, name }: { noteId: string; name: string }) =>
+      apiRequest<KbNote>(session, `/v1/kb/notes/${noteId}`, { method: "PATCH", body: { name } }),
+    onSuccess: () => invalidateNotes(client, session),
+  });
+}
+
+/** Take a note off every agent; its versions are kept, so `useRestoreNote` undoes it. */
+export function useRemoveNote(session: Session) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (noteId: string) =>
+      apiRequest<KbNote>(session, `/v1/kb/notes/${noteId}/remove`, { method: "POST" }),
+    onSuccess: () => invalidateNotes(client, session),
+  });
+}
+
+/** Put a removed note back on every agent, as it last was. */
+export function useRestoreNote(session: Session) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (noteId: string) =>
+      apiRequest<KbNote>(session, `/v1/kb/notes/${noteId}/restore`, { method: "POST" }),
+    onSuccess: () => invalidateNotes(client, session),
   });
 }
 

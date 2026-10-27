@@ -474,7 +474,7 @@ function agentRoutes(over: Record<string, unknown> = {}) {
     "/v1/agents/agent-1/pending": pending,
     "/v1/agents/agent-1/call-handling": agentCallHandling(),
     "/v1/agents/agent-1/script": agentScript(),
-    "/v1/kb/sources": [],
+    "/v1/kb/notes": { notes: [] },
     "/v1/organization/llm-defaults": defaults(),
     // The other panels this screen mounts, stubbed so the only alert is the model panel's.
     "/v1/agents/agent-1/actions": {

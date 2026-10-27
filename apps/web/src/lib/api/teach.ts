@@ -139,7 +139,6 @@ export function useSaveTeaching(session: Session) {
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: knowsKey(session.orgSlug) });
       void client.invalidateQueries({ queryKey: ["teach-questions", session.orgSlug] });
-      void client.invalidateQueries({ queryKey: ["kb", session.orgSlug] });
       void client.invalidateQueries({ queryKey: openTeachingKey(session.orgSlug) });
     },
   });

@@ -56,7 +56,7 @@ async function renderKnowledge(over: Routes = {}) {
   return await renderClientPage(<KnowledgePage />, {
     "/v1/me": ME,
     "/v1/agents": AGENTS,
-    "/v1/kb/sources": [],
+    "/v1/kb/notes": { notes: [] },
     "/v1/kb/uploads": [],
     "/v1/kb/staff-curation": { staff_may_curate_knowledge: false },
     "/v1/kb/knows": { facts: [], facts_state: "none", items: [], pinned_not_yet_on: [] },

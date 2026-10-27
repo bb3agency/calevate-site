@@ -9,7 +9,7 @@ import { Tabs } from "@/components/interior/tabs";
 import { ProblemNotice, RestrictionNote, formatCount } from "@/components/ui";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
-import { useKbSources } from "@/lib/api/kb";
+import { useKbNotes } from "@/lib/api/kb";
 import { QUESTION_PARAM, useTeachQuestions } from "@/lib/api/teachQuestions";
 
 import { AddArea } from "./AddArea";
@@ -34,7 +34,7 @@ import { StaffCurationSwitch } from "./permissions";
  */
 export function KnowledgeScreen() {
   const session = useClientSession();
-  const sources = useKbSources(session);
+  const notes = useKbNotes(session);
   const questions = useTeachQuestions(session);
   const params = useSearchParams();
   const [focus, setFocus] = useState(params.get(QUESTION_PARAM));
@@ -66,7 +66,7 @@ export function KnowledgeScreen() {
       <PageHeader description="What your agents tell callers about your business. Every agent shares it." />
 
       <RestrictionNote reason={write.reason} />
-      {sources.error && <ProblemNotice error={sources.error} onRetry={() => sources.refetch()} />}
+      {notes.error && <ProblemNotice error={notes.error} onRetry={() => notes.refetch()} />}
 
       <AddArea allowed={write.allowed} reason={write.reason} />
 
@@ -88,7 +88,7 @@ export function KnowledgeScreen() {
           ) : (
             <WhatItKnows
               canWrite={write.allowed}
-              sources={sources}
+              notes={notes}
               onAnswerQuestions={(key) => {
                 setFocus(key);
                 setTab("questions");

@@ -1184,6 +1184,27 @@ function performanceAnalytics(): Routes {
       other_calls: 0,
       window: ANALYTICS_WINDOW,
     },
+    [`/v1/analytics/summary?${q}&bucket=week`]: {
+      window: ANALYTICS_WINDOW,
+      bucket: "week",
+      rows: [{ from_date: addDays(todayIST(), -6), to_date: todayIST(), calls: 12, answered: 9, leads: 3, spent_inr: "1240.50" }],
+      calls: 12,
+      answered: 9,
+      leads: 3,
+      spent_inr: "1240.50",
+      spend_withheld: null,
+    },
+    [`/v1/analytics/call-groups?days=30&to=${todayIST()}&test_calls=false&by=caller&min_calls=2&limit=25`]: {
+      window: ANALYTICS_WINDOW,
+      by: "caller",
+      calls: 12,
+      groups_total: 1,
+      repeat_groups: 1,
+      min_calls: 2,
+      groups: [
+        { key: "l1", label: "Ravi Kumar", lead_id: "0192f0aa-0000-7000-8000-00000000000a", number_tail: "42", calls: 3, answered: 2, latest_at: "2026-10-26T09:30:00Z", latest_outcome: "answered" },
+      ],
+    },
     [`/v1/analytics/timeline?days=90&to=${todayIST()}&test_calls=true`]: {
       calls: 45,
       answered: 30,
@@ -3466,18 +3487,30 @@ const CLIENT_SCREENS: Screen[] = [
           change_detected_at: null,
         },
       ],
-      "/v1/kb/sources": [
-        {
-          id: "kb-1",
-          title: "Clinic timings",
-          status: "live",
-          tier: "T1",
-          version: 2,
-          updated_at: "2026-08-10T06:00:00Z",
-          submitted_by_name: "Priya Nair",
-          review_note: null,
-        },
-      ],
+      // One note in use and one removed, so the rename, remove and put-back controls
+      // are all on the swept screen.
+      "/v1/kb/notes": {
+        notes: [
+          {
+            id: "kb-1",
+            name: "Clinic timings",
+            state: "in_use",
+            version: 2,
+            chunks: 3,
+            changed_at: "2026-08-10T06:00:00Z",
+            restorable: true,
+          },
+          {
+            id: "kb-2",
+            name: "Diwali hours",
+            state: "removed",
+            version: 1,
+            chunks: 1,
+            changed_at: "2026-08-12T06:00:00Z",
+            restorable: true,
+          },
+        ],
+      },
     },
   },
   {

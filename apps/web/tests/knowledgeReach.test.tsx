@@ -103,7 +103,7 @@ describe("which kinds reach the agents", () => {
 async function renderKnowledge(over: Routes = {}) {
   return await renderClientPage(<KnowledgePage />, {
     "/v1/me": ME,
-    "/v1/kb/sources": [],
+    "/v1/kb/notes": { notes: [] },
     "/v1/kb/uploads": [],
     "/v1/teach/questions": { items: [], open_count: 0 },
     "/v1/kb/staff-curation": { staff_may_curate_knowledge: false },

@@ -152,7 +152,7 @@ export function ToolsVignette() {
 
 /**
  * Your answers — facts on the knowledge screen, live on the agent ("Live",
- * `knowledge/SubmittedList.tsx`). There is no review state to show for what the business
+ * `knowledge/WhatItKnows.tsx`). There is no review state to show for what the business
  * adds (D-658).
  */
 export function AnswersVignette() {

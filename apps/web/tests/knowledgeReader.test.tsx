@@ -64,7 +64,7 @@ function page(n: number, words: string): KbUploadText {
 async function openReader(me: Me = OWNER, over: Routes = {}) {
   const rendered = await renderClientPage(<KnowledgePage />, {
     "/v1/me": me,
-    "/v1/kb/sources": [],
+    "/v1/kb/notes": { notes: [] },
     "/v1/kb/uploads": [MENU],
     "/v1/teach/questions": { items: [], open_count: 0 },
     "/v1/kb/staff-curation": { staff_may_curate_knowledge: false },
