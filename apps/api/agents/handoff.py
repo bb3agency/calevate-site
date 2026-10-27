@@ -203,12 +203,10 @@ _UNAVAILABLE_REASONS: Final[dict[str, str]] = {
     "disabled": "Transfer to a person is off for this agent. Turn it on to use it.",
     "no_members": "Nobody is chosen to take calls. Add someone from your team.",
     "none_active": (
-        "Everyone on the list is switched off. Switch someone back on, or callers get "
-        "a call-back."
+        "Everyone on the list is switched off. Switch someone back on, or callers get a call-back."
     ),
     "hours_unknown": (
-        "Add your opening hours so we know when to ring your team. Until then, nobody "
-        "is rung."
+        "Add your opening hours so we know when to ring your team. Until then, nobody is rung."
     ),
     "outside_hours": "Nobody is available right now, so callers get a call-back.",
     PLATFORM_CANNOT_TRANSFER: (
