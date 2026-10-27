@@ -12,6 +12,7 @@ import { isAssignable } from "@/lib/agentState";
 import { useAgents } from "@/lib/api/agents";
 import {
   recurrenceUntil,
+  addLeadsToCampaign,
   useCampaignNumbers,
   useCreateCampaign,
   useDltTemplates,
@@ -23,6 +24,7 @@ import { useClientRealm } from "@/lib/api/session";
 import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 
 import { TrialLockNotice } from "../TrialLockNotice";
+import { usePickedLeads } from "./LeadPicker";
 import { NewCampaignFlow } from "./NewCampaignFlow";
 import { campaignNumbers } from "./NewCampaignSteps";
 import { useCampaignForm, useScheduleForm } from "./campaignForm";
@@ -31,7 +33,7 @@ import { useCampaignsCopilotSurface } from "./campaignsCopilotSurface";
 /**
  * `/c/{slug}/campaigns/new`: the create page (FLOWS §5).
  *
- * Creating makes a DRAFT. The list, the leads filter and a chosen start are sent once the
+ * Creating makes a DRAFT. The list, the leads lens and a chosen start are sent once the
  * draft exists, and the page then moves to the campaign's own address, where the launch
  * checklist decides whether it can dial. A step that fails after the draft exists is
  * reported on the campaign's page by its own section (contacts, schedule), and the draft
@@ -52,6 +54,7 @@ export function NewCampaignScreen({ slug }: { slug: string }) {
   });
   const form = useCampaignForm();
   const scheduleForm = useScheduleForm();
+  const picked = usePickedLeads(session, form.leads, form.fromLeads);
   const [followUp, setFollowUp] = useState<unknown>(null);
   const [saving, setSaving] = useState(false);
 
@@ -104,10 +107,13 @@ export function NewCampaignScreen({ slug }: { slug: string }) {
                 body: { contacts: form.checked.ready },
               });
             }
-            if (form.fromLeads) {
-              await apiRequest(session, `${base}/contacts/from-leads`, {
-                method: "POST",
-                body: { filter: form.fromLeads },
+            if (form.fromLeads && picked.matching) {
+              // The count shown on the step travels with the lens, so leads that changed
+              // since are refused rather than added unseen.
+              await addLeadsToCampaign(session, {
+                campaignId: id,
+                lens: form.leads.lens,
+                expectedCount: picked.matching,
               });
             }
             if (scheduleForm.startMode === "later" && scheduleForm.startIso) {
@@ -185,6 +191,7 @@ export function NewCampaignScreen({ slug }: { slug: string }) {
         canWrite={write.allowed && !saving && failed === null}
         onSubmit={submit}
         onCancel={() => router.push(href(`/c/${slug}/campaigns`))}
+        leadsMatching={form.fromLeads ? picked.matching : undefined}
       />
     </div>
   );

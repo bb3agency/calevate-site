@@ -8,9 +8,10 @@ import {
   DEFAULT_RETRY,
   type Classification,
   type ConsentSource,
-  type LeadFilter,
   type RetryPolicy,
 } from "@/lib/api/campaigns";
+
+import { useLeadsLens, type LeadsLensState } from "../leads/useLeadsLens";
 
 import { checkContacts, type CheckedList, type ContactEntry } from "./contactList";
 
@@ -57,9 +58,10 @@ export interface CampaignFormState {
   /** How many tries per person and the gaps between them (`RetryPolicyIn`). */
   retry: RetryPolicy;
   setRetry: (value: RetryPolicy) => void;
-  /** CRM leads to add once the draft exists, chosen by filter; null when none. */
-  fromLeads: LeadFilter | null;
-  setFromLeads: (value: LeadFilter | null) => void;
+  /** Whether CRM leads are added once the draft exists, and the lens that chooses them. */
+  fromLeads: boolean;
+  setFromLeads: (value: boolean) => void;
+  leads: LeadsLensState;
   /** Each row's verdict, the counts, and the request the ready rows become. */
   checked: CheckedList;
   /** The consent date as the API takes it, or `null` when it is unusable. */
@@ -79,7 +81,8 @@ export function useCampaignForm(): CampaignFormState {
   const [templateId, setTemplateId] = useState("");
   const [contacts, setContacts] = useState<ContactEntry[]>([]);
   const [retry, setRetry] = useState<RetryPolicy>(DEFAULT_RETRY);
-  const [fromLeads, setFromLeads] = useState<LeadFilter | null>(null);
+  const [fromLeads, setFromLeads] = useState(false);
+  const leads = useLeadsLens();
   // Asked at creation, not deferred to the launch check: the client is holding the
   // list in their hand at this moment, which is the only moment they can answer
   // cheaply. Empty string, never a default source — there is no sensible default for
@@ -118,7 +121,9 @@ export function useCampaignForm(): CampaignFormState {
   const reset = () => {
     setName("");
     setContacts([]);
-    setFromLeads(null);
+    setFromLeads(false);
+    leads.clearFilters();
+    leads.setActiveViewId(undefined);
     setConsentSource("");
     setConsentDate("");
   };
@@ -132,7 +137,7 @@ export function useCampaignForm(): CampaignFormState {
     templateId, setTemplateId,
     contacts, setContacts,
     retry, setRetry,
-    fromLeads, setFromLeads,
+    fromLeads, setFromLeads, leads,
     consentSource, setConsentSource,
     consentDate, setConsentDate,
     restrictHours, setRestrictHours,

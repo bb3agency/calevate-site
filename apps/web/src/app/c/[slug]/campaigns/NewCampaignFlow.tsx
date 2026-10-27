@@ -73,6 +73,7 @@ export function NewCampaignFlow({
   canWrite,
   onSubmit,
   onCancel,
+  leadsMatching,
 }: {
   form: CampaignFormState;
   schedule: ScheduleFormState;
@@ -90,13 +91,15 @@ export function NewCampaignFlow({
   canWrite: boolean;
   onSubmit: () => void;
   onCancel: () => void;
+  /** How many leads the picker's filters match; undefined while they are counted. */
+  leadsMatching: number | undefined;
 }) {
   const { counts, refusal } = form.checked;
   const [step, setStep] = useState(0);
   // Which steps the person has tried to leave. A step's problem shows only after that,
   // and is worked out on every render, so it goes away the moment it is fixed.
   const [tried, setTried] = useState<ReadonlySet<number>>(() => new Set());
-  const formRef = useRef<HTMLFormElement>(null);
+  const formRef = useRef<HTMLDivElement>(null);
   const markTried = (index: number) => setTried((seen) => new Set(seen).add(index));
 
   /** The first thing stopping step `index` being finished, in the order it asks. */
@@ -109,6 +112,10 @@ export function NewCampaignFlow({
     if (index === 1) {
       if (counts.ready === 0 && !form.fromLeads) {
         return "Add at least one number we can call, or choose people from your leads.";
+      }
+      if (form.fromLeads && leadsMatching === undefined) return "Wait a moment while your leads are counted.";
+      if (form.fromLeads && leadsMatching === 0 && counts.ready === 0) {
+        return "No leads match these filters. Change them, or add numbers above.";
       }
       if (refusal) return refusal;
       if (!form.provenanceAnswered) {
@@ -236,7 +243,9 @@ export function NewCampaignFlow({
               value={
                 <>
                   {formatCount(counts.ready)} {counts.ready === 1 ? "number" : "numbers"} ready
-                  {form.fromLeads ? ", plus people from your leads" : ""}
+                  {form.fromLeads && leadsMatching !== undefined
+                    ? `, plus ${formatCount(leadsMatching)} ${leadsMatching === 1 ? "lead" : "leads"}`
+                    : ""}
                 </>
               }
               onChange={() => goTo(1)}
@@ -261,13 +270,10 @@ export function NewCampaignFlow({
   ];
 
   return (
-    <form
-      ref={formRef}
-      noValidate
-      aria-label="New campaign"
-      className="max-w-2xl"
-      onSubmit={(event) => event.preventDefault()}
-    >
+    // A `div role="form"` rather than a `<form>`: the leads picker carries the Leads
+    // screen's own small forms (a detail filter, naming a saved view), and a form may not
+    // sit inside another. Nothing here submits; WizardSteps' buttons drive every step.
+    <div ref={formRef} role="form" aria-label="New campaign" className="max-w-2xl">
       <WizardSteps
         steps={steps.map((s, index) =>
           index === step
@@ -308,7 +314,7 @@ export function NewCampaignFlow({
           </button>
         }
       />
-    </form>
+    </div>
   );
 }
 
@@ -335,23 +341,23 @@ function ReviewRow({ label, value, onChange }: { label: string; value: ReactNode
 }
 
 /**
- * "From your leads" on the create page. The filter is kept on the form and sent once the
- * draft exists (`POST …/contacts/from-leads`), beside any pasted list.
+ * "From your leads" on the create page. The lens is kept on the form and sent with the
+ * count shown here once the draft exists (`POST …/contacts/from-leads`), beside any pasted
+ * list.
  */
 function LeadsChoice({ form }: { form: CampaignFormState }) {
-  const on = form.fromLeads !== null;
   return (
     <div className="space-y-3 border-t border-line pt-4">
       <label className="flex items-center gap-2 touch:min-h-11">
         <input
           type="checkbox"
-          checked={on}
-          onChange={(e) => form.setFromLeads(e.target.checked ? { statuses: [], sources: [] } : null)}
+          checked={form.fromLeads}
+          onChange={(e) => form.setFromLeads(e.target.checked)}
           className="h-4 w-4 rounded border-line accent-brand"
         />
         <span className="text-body text-ink">Also call people from your leads</span>
       </label>
-      {form.fromLeads && <LeadPicker value={form.fromLeads} onChange={form.setFromLeads} />}
+      {form.fromLeads && <LeadPicker f={form.leads} />}
     </div>
   );
 }

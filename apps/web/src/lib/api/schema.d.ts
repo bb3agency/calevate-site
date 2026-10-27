@@ -6407,23 +6407,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/campaigns/lead-pool": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** How many of your leads a filter selects, before adding them to a campaign */
-        get: operations["lead_pool_v1_campaigns_lead_pool_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/campaigns/numbers": {
         parameters: {
             query?: never;
@@ -6586,12 +6569,11 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Add your CRM leads to a campaign, picked by id or by a filter
-         * @description The numbers are read from the leads on the server (`controls.add_leads`). A filter
-         *     matching more than `controls.MAX_LEADS_PER_ADD` is refused rather than cut short, so
-         *     "add these leads" never silently means "add some of them". A `lens` that large runs
-         *     instead as the approved `campaign_add_leads` plan Pip makes (D-893 F3), because the
-         *     person confirmed that whole count on the Leads screen.
+         * Add your CRM leads to a campaign, picked by id or by the leads lens
+         * @description The numbers are read from the leads on the server (`controls.add_leads`). A lens
+         *     matching more than `controls.MAX_LEADS_PER_ADD` runs as the approved
+         *     `campaign_add_leads` plan Pip makes (D-893 F3) rather than being cut short, because the
+         *     person confirmed that whole count.
          */
         post: operations["add_contacts_from_leads_v1_campaigns__campaign_id__contacts_from_leads_post"];
         delete?: never;
@@ -12603,14 +12585,12 @@ export interface components {
         };
         /**
          * AddLeadsIn
-         * @description Exactly one of: named leads (a selection), the campaign picker's `filter`, or the
-         *     Leads screen's `lens` (D-893 F2, the same definition the Leads table, its exports and
-         *     Pip read).
+         * @description Exactly one of: named leads (a selection) or a `lens` (D-893 F2: the one lead
+         *     definition the Leads table, its exports, the campaign's own picker and Pip read).
          */
         AddLeadsIn: {
             /** Expected Count */
             expected_count?: number | null;
-            filter?: components["schemas"]["LeadFilterIn"] | null;
             /** Lead Ids */
             lead_ids?: string[] | null;
             lens?: components["schemas"]["LeadLensIn"] | null;
@@ -22805,22 +22785,6 @@ export interface components {
             fields_kept: number;
         };
         /**
-         * LeadFilterIn
-         * @description Which of the account's leads to add. Every field narrows; none means every lead.
-         */
-        LeadFilterIn: {
-            /** Agent Id */
-            agent_id?: string | null;
-            /** Created Since */
-            created_since?: string | null;
-            /** Created Until */
-            created_until?: string | null;
-            /** Sources */
-            sources?: ("inbound_call" | "webhook" | "campaign" | "manual" | "test_call" | "outbound_call")[];
-            /** Statuses */
-            statuses?: ("new" | "contacted" | "interested" | "hot" | "won" | "lost")[];
-        };
-        /**
          * LeadLensIn
          * @description The Leads table's lens — WHICH ROWS and WHICH COLUMNS — carried in a request BODY.
          *
@@ -22974,13 +22938,6 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
-        };
-        /** LeadPoolOut */
-        LeadPoolOut: {
-            /** Limit */
-            limit: number;
-            /** Matching */
-            matching: number;
         };
         /**
          * LeadSearchIn
@@ -44426,41 +44383,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CreateCampaignOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    lead_pool_v1_campaigns_lead_pool_get: {
-        parameters: {
-            query?: {
-                statuses?: ("new" | "contacted" | "interested" | "hot" | "won" | "lost")[];
-                sources?: ("inbound_call" | "webhook" | "campaign" | "manual" | "test_call" | "outbound_call")[];
-                agent_id?: string | null;
-                created_since?: string | null;
-                created_until?: string | null;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LeadPoolOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

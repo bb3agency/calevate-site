@@ -16,6 +16,7 @@ import { fromViewDays, toViewDays } from "@/lib/viewDays";
 
 import { anyFilterInForce, type LeadFilterKey } from "./leadFilters";
 import { PAGE_SIZE } from "./leadsTable";
+import type { LeadCallFilters } from "./MoreFilters";
 
 type LeadStatus = NonNullable<SavedViewFilters["status"]>;
 type Outcome = NonNullable<SavedViewFilters["last_outcome"]>;
@@ -180,9 +181,45 @@ export function useLeadsLens(needKey: string = "need") {
     setOffset(0);
   }, [filterKey]);
 
+  /** How many of the "More filters" are narrowing the rows, for its closed state. */
+  const moreInUse =
+    (assignedTo ? 1 : 0) +
+    Object.values(facetValues).filter((values) => values.length > 0).length +
+    (created ? 1 : 0) +
+    (lastCall ? 1 : 0) +
+    (lastOutcome ? 1 : 0) +
+    (direction ? 1 : 0) +
+    (testCalls ? 0 : 1) +
+    (followUp ? 1 : 0) +
+    (callbackOpen !== undefined ? 1 : 0) +
+    captured.length;
+
+  /** `MoreFilters`' call half, given the details this account captures. */
+  const callFilters = (capturedFields: LeadCallFilters["capturedFields"]): LeadCallFilters => ({
+    created,
+    onCreated: setCreated,
+    lastCall,
+    onLastCall: setLastCall,
+    lastOutcome,
+    onLastOutcome: setLastOutcome,
+    direction,
+    onDirection: setDirection,
+    testCalls,
+    onTestCalls: setTestCalls,
+    followUp,
+    onFollowUp: setFollowUp,
+    callbackOpen,
+    onCallbackOpen: setCallbackOpen,
+    captured,
+    onCaptured: setCaptured,
+    capturedFields,
+  });
+
   return {
     lens,
     filtered: anyFilterInForce(lens),
+    moreInUse,
+    callFilters,
     /** The key a selection must be cleared on: the lens AND the page. */
     currentLens: lensKey(lens, { limit: PAGE_SIZE, offset: offset || undefined }),
     clearFilters,
@@ -224,3 +261,6 @@ export function useLeadsLens(needKey: string = "need") {
     setOffset,
   };
 }
+
+/** The lens state one screen holds; the campaign picker takes it from the form. */
+export type LeadsLensState = ReturnType<typeof useLeadsLens>;

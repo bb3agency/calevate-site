@@ -1,4 +1,4 @@
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import EditCampaignPage from "@/app/c/[slug]/campaigns/[campaignId]/edit/page";
@@ -15,6 +15,7 @@ import {
   contactsPath,
   detailRoutes,
   dltRegistrationRoute,
+  leadPickerRoutes,
   listPage,
   newCampaignPage,
   pageFixture,
@@ -116,7 +117,6 @@ function newRoutes(extra: Routes = {}): Routes {
     "/v1/agents": [AGENT],
     "/v1/campaigns/numbers": [],
     "/v1/campaigns/templates": [],
-    "/v1/campaigns/lead-pool": { matching: 0, limit: 5000 },
     ...dltRegistrationRoute(),
     ...extra,
   };
@@ -151,10 +151,16 @@ function next(): void {
 }
 
 /** Fills the basics and the list, then walks to the review step. */
-async function fillNew(container: HTMLElement, name = "Diwali reminder"): Promise<void> {
-  await screen.findByRole("heading", { name: "The basics" });
-  fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: name } });
-  next();
+async function fillNew(
+  container: HTMLElement,
+  name = "Diwali reminder",
+  { atWhoToCall = false }: { atWhoToCall?: boolean } = {},
+): Promise<void> {
+  if (!atWhoToCall) {
+    await screen.findByRole("heading", { name: "The basics" });
+    fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: name } });
+    next();
+  }
   await screen.findByRole("heading", { name: "Who should we call?" });
   pasteContacts("9876543210,Priya");
   fireEvent.click(consentRadios(container)[0]);
@@ -445,6 +451,43 @@ describe("creating a campaign", () => {
     expect(rendered.calls.filter((c) => c.method === "POST" && c.path === "/v1/campaigns")).toHaveLength(1);
   });
 
+  it("adds leads by the Leads lens with the count it showed", async () => {
+    const rendered = await renderClientPage(
+      newCampaignPage(),
+      newRoutes({
+        ...leadPickerRoutes(4),
+        "POST /v1/campaigns": { id: CAMPAIGN_ID, status: "draft" },
+        [`POST /v1/campaigns/${CAMPAIGN_ID}/contacts`]: { added: 1, duplicate: 0, malformed: 0, foreign: 0 },
+        [`POST /v1/campaigns/${CAMPAIGN_ID}/contacts/from-leads`]: {
+          added: 4,
+          duplicate: 0,
+          malformed: 0,
+          foreign: 0,
+          plan_id: null,
+        },
+      }),
+    );
+    await screen.findByRole("heading", { name: "The basics" });
+    fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: "Hot leads" } });
+    next();
+    await screen.findByRole("heading", { name: "Who should we call?" });
+    fireEvent.click(screen.getByRole("checkbox", { name: "Also call people from your leads" }));
+    const stages = await screen.findByRole("radiogroup", { name: "Filter by status" });
+    fireEvent.click(within(stages).getByRole("radio", { name: /^Hot/ }));
+    await screen.findByText(/4 leads match/);
+    await fillNew(rendered.container, "Hot leads", { atWhoToCall: true });
+    expect(screen.getByText(/plus 4 leads/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Create campaign" }));
+    const added = await vi.waitFor(() => {
+      const call = rendered.calls.find(
+        (c) => c.method === "POST" && c.path === `/v1/campaigns/${CAMPAIGN_ID}/contacts/from-leads`,
+      );
+      expect(call).toBeDefined();
+      return call!;
+    });
+    expect(JSON.parse(added.body ?? "{}")).toEqual({ lens: { status: "hot" }, expected_count: 4 });
+  });
+
   it("arms a chosen start after the draft exists, with its IST offset", async () => {
     const rendered = await renderClientPage(
       newCampaignPage(),
@@ -473,6 +516,42 @@ describe("creating a campaign", () => {
       return call!;
     });
     expect(JSON.parse(armed.body ?? "{}").start_at).toBe("2030-01-15T10:00:00+05:30");
+  });
+});
+
+describe("adding leads to a draft", () => {
+  it("sends the Leads lens and the count shown, and shows a large set as its plan", async () => {
+    const rendered = await renderClientPage(
+      campaignPage(),
+      detail(progressFixture({ id: CAMPAIGN_ID, status: "draft" }), {
+        ...leadPickerRoutes(7),
+        [`POST /v1/campaigns/${CAMPAIGN_ID}/contacts/from-leads`]: {
+          added: 0,
+          duplicate: 0,
+          malformed: 0,
+          plan_id: "0192f0aa-9999-7000-8000-000000000001",
+        },
+        "/v1/copilot/plans/0192f0aa-9999-7000-8000-000000000001": stillLoading(),
+      }),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Add people" }));
+    fireEvent.change(await screen.findByRole("searchbox", { name: "Search leads" }), {
+      target: { value: "Priya" },
+    });
+    // The count under the typed search, not the one from before it: the button waits.
+    await vi.waitFor(() =>
+      expect(rendered.calls.some((c) => c.path === "/v1/leads/search" && c.body?.includes("Priya"))).toBe(true),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Add 7 leads" }));
+    const added = await vi.waitFor(() => {
+      const call = rendered.calls.find(
+        (c) => c.method === "POST" && c.path === `/v1/campaigns/${CAMPAIGN_ID}/contacts/from-leads`,
+      );
+      expect(call).toBeDefined();
+      return call!;
+    });
+    expect(JSON.parse(added.body ?? "{}")).toEqual({ lens: { search: "Priya" }, expected_count: 7 });
+    expect(rendered.container.textContent).not.toContain("Added 0");
   });
 });
 

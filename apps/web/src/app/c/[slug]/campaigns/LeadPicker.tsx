@@ -1,110 +1,110 @@
 "use client";
 
-import { DatePicker } from "@/components/arc/calendar";
-import { ChipGroup } from "@/components/arc/chip-group";
-import { addDays, todayIST } from "@/components/arc/ist-dates";
-import { FIELD_HINT, FIELD_LABEL, formatCount, istDateStamp, istDateToInstant } from "@/components/ui";
-import { useLeadPool, type LeadFilter } from "@/lib/api/campaigns";
+import { SearchField } from "@/components/arc/search-field";
+import { HowItWorks } from "@/components/console/howItWorks";
+import { SegmentedControl } from "@/components/interior/segmented-control";
+import { FIELD_HINT, formatCount } from "@/components/ui";
+import type { Session } from "@/lib/api/client";
+import { useActAccess, useMe } from "@/lib/api/hooks";
+import { useLeadFacets, useLeadsUnderLens, useSavedViews, type LeadStatus } from "@/lib/api/leads";
 import { useClientSession } from "@/lib/api/session";
-import type { Lead } from "@/lib/api/leads";
-import { sourceLabel } from "@/lib/leadLabels";
+import { lookup } from "@/lib/lookup";
 
+import { MoreFilters, capturedFieldsOf } from "../leads/MoreFilters";
 import { STATUSES } from "../leads/StatusSelect";
+import type { LeadsLensState } from "../leads/useLeadsLens";
 
-const SOURCES: Lead["source"][] = ["inbound_call", "outbound_call", "webhook", "campaign", "manual"];
-
-/** The IST day an instant falls on, or null. */
-function dayOf(instant: string | null | undefined): string | null {
-  return instant ? istDateStamp(new Date(instant)) : null;
+/**
+ * The leads a lens matches, counted by the Leads table's own route (`POST /v1/leads/search`)
+ * with one row, so the number here is the number the Leads screen shows for the same
+ * filters. `matching` is undefined while a changed lens is still being counted: the
+ * previous figure must not be sent as the confirmed count.
+ */
+export function usePickedLeads(session: Session, f: LeadsLensState, enabled = true) {
+  const list = useLeadsUnderLens(session, f.lens, { limit: 1 }, enabled);
+  const matching = list.data && !list.isPlaceholderData ? list.data.total : undefined;
+  return { list, matching };
 }
 
 /**
- * PEOPLE FROM YOUR LEADS (D-773): choose CRM leads by stage, where they came from and when.
- *
- * Only the filter leaves the browser; the server reads the leads' numbers itself
- * (`POST …/contacts/from-leads`), and says first how many leads the filter matches
- * (`GET /v1/campaigns/lead-pool`). Leads carry no tags, so there is no tag filter. Dates
- * are IST days; `created_until` is the start of the day AFTER the one picked, so the
- * picked day is included.
+ * PEOPLE FROM YOUR LEADS (D-893 F2): the Leads screen's own filters over the one lead lens
+ * (`crm/lens.py`), so search, stage, outcome, follow-up, captured details and saved views
+ * choose the same leads here as there. Only the lens and the confirmed count leave the
+ * browser (`POST …/contacts/from-leads`); the server reads the numbers itself and refuses
+ * a set that moved since it was counted.
  */
-export function LeadPicker({
-  value,
-  onChange,
-}: {
-  value: LeadFilter;
-  onChange: (value: LeadFilter) => void;
-}) {
+export function LeadPicker({ f }: { f: LeadsLensState }) {
   const session = useClientSession();
-  const pool = useLeadPool(session, value, true);
-  const since = dayOf(value.created_since);
-  const untilExclusive = dayOf(value.created_until);
-  const until = untilExclusive ? addDays(untilExclusive, -1) : null;
-  const today = todayIST();
+  const { list, matching } = usePickedLeads(session, f);
+  const facets = useLeadFacets(session, f.lens);
+  const views = useSavedViews(session);
+  const me = useMe(session);
+  const mayApplyView = useActAccess(session, "leads:write", "leads.saved_view", "save a view");
+  const myUserId = me.data?.user_id ?? undefined;
+  const stageCounts: Record<string, number> = list.data?.status_counts_matching_search ?? {};
+
   return (
     <div className="space-y-4">
-      <div>
-        <p aria-hidden className={FIELD_LABEL}>
-          Stage
-        </p>
-        <ChipGroup
-          mode="multiple"
-          label="Stage"
-          className="mt-1.5"
-          value={value.statuses ?? []}
-          onChange={(next) => onChange({ ...value, statuses: STATUSES.filter((s) => next.includes(s)) })}
-          chips={STATUSES.map((status) => ({ value: status, label: status.charAt(0).toUpperCase() + status.slice(1) }))}
-          allLabel="Any stage"
+      <div className="max-w-sm">
+        <SearchField
+          label="Search leads"
+          hideLabel
+          value={f.search}
+          onValueChange={f.setSearch}
+          maxLength={60}
+          placeholder="Name or last digits"
         />
       </div>
-      <div>
-        <p aria-hidden className={FIELD_LABEL}>
-          Came from
-        </p>
-        <ChipGroup
-          mode="multiple"
-          label="Came from"
-          className="mt-1.5"
-          value={value.sources ?? []}
-          onChange={(next) => onChange({ ...value, sources: SOURCES.filter((s) => next.includes(s)) })}
-          chips={SOURCES.map((source) => ({ value: source, label: sourceLabel(source) }))}
-          allLabel="Anywhere"
-        />
-      </div>
-      <div className="grid max-w-md grid-cols-1 gap-3 sm:grid-cols-2">
-        <DatePicker
-          label="Added on or after"
-          value={since}
-          onChange={(day) => onChange({ ...value, created_since: day ? istDateToInstant(day) : null })}
-          max={until ?? today}
-          clearable
-          placeholder="Any day"
-        />
-        <DatePicker
-          label="Added on or before"
-          value={until}
-          onChange={(day) =>
-            onChange({ ...value, created_until: day ? istDateToInstant(addDays(day, 1)) : null })
-          }
-          min={since ?? undefined}
-          max={today}
-          clearable
-          placeholder="Any day"
-        />
-      </div>
+      <SegmentedControl
+        label="Filter by status"
+        value={f.status ?? ""}
+        onValueChange={(next) => f.setStatus(next === "" ? undefined : next)}
+        options={[
+          { value: "", label: "All" },
+          ...STATUSES.map((s: LeadStatus) => ({
+            value: s,
+            label: s.charAt(0).toUpperCase() + s.slice(1),
+            count: list.data ? formatCount(lookup(stageCounts, s)) : undefined,
+          })),
+        ]}
+        className="min-w-0"
+      />
+      <MoreFilters
+        inUse={f.moreInUse}
+        myUserId={myUserId}
+        assignedToMe={f.assignedTo !== undefined}
+        onAssignedToMe={(on) => f.setAssignedTo(on ? myUserId : undefined)}
+        impersonating={me.data?.impersonating}
+        facets={facets}
+        facetValues={f.facetValues}
+        onFacetValues={f.setFacetValues}
+        calls={f.callFilters(capturedFieldsOf(list.data))}
+        views={views}
+        activeViewId={f.activeViewId}
+        canSaveView={mayApplyView.allowed}
+        saveViewReason={mayApplyView.reason}
+        onApplyView={(view) => f.applyView(view, myUserId)}
+        viewFilters={f.viewFilters}
+        columns={f.chosenColumns ?? null}
+      />
       <p role="status" className={FIELD_HINT}>
-        {pool.data
-          ? pool.data.matching > pool.data.limit
-            ? `${formatCount(pool.data.matching)} leads match. One campaign takes up to ${formatCount(pool.data.limit)} at a time, so narrow it down.`
-            : `${formatCount(pool.data.matching)} ${pool.data.matching === 1 ? "lead matches" : "leads match"}. Anyone on your do-not-call list is skipped when the campaign starts.`
-          : pool.error
-            ? "We could not count the matching leads."
-            : <span className="text-shimmer">Counting matching leads…</span>}
+        {matching !== undefined ? (
+          `${formatCount(matching)} ${matching === 1 ? "lead matches" : "leads match"}. Anyone on your do-not-call list is skipped when the campaign starts.`
+        ) : list.error ? (
+          "We could not count the matching leads."
+        ) : (
+          <span className="text-shimmer">Counting matching leads…</span>
+        )}
       </p>
+      <HowItWorks
+        className="mt-1"
+        items={[
+          "These are the filters from your Leads page, and your saved views work here too.",
+          "We read each number from the lead itself; numbers already on the campaign or outside India are left out.",
+          "If the leads change before you add them, nothing is added and you are asked to check again.",
+          "A large set is added in the background; you can follow it on the card that appears.",
+        ]}
+      />
     </div>
   );
-}
-
-/** True when the picker's count says the filter can be added. */
-export function leadPoolFits(matching: number | undefined, limit: number | undefined): boolean {
-  return matching !== undefined && limit !== undefined && matching > 0 && matching <= limit;
 }

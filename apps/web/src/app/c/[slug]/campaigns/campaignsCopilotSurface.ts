@@ -4,9 +4,8 @@ import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
 import { canDialOut } from "@/lib/agentState";
 import type { Agent } from "@/lib/api/agents";
-import { istDateToInstant } from "@/components/ui";
+import { istDateStamp } from "@/components/ui";
 import { RETRY_GAP_CHOICES, type CampaignNumber, type DltTemplate } from "@/lib/api/campaigns";
-import type { LeadStatus } from "@/lib/api/leads";
 
 import { STATUSES } from "../leads/StatusSelect";
 
@@ -208,17 +207,17 @@ export function useCampaignsCopilotSurface({
         help: `One per retry, each one of ${RETRY_GAP_CHOICES.join(", ")}.`,
       },
       {
-        id: "campaign-leads-statuses",
-        label: "Also call leads at these stages",
+        id: "campaign-leads-stage",
+        label: "Also call leads at this stage",
         type: "text",
-        value: (form.fromLeads?.statuses ?? []).join(","),
-        help: `Comma-separated, from ${STATUSES.join(", ")}. Empty means no leads are added.`,
+        value: form.fromLeads ? (form.leads.status ?? "any") : "",
+        help: `One of ${STATUSES.join(", ")}, or "any" for every stage. Empty means no leads are added.`,
       },
       {
         id: "campaign-leads-since",
-        label: "Only leads added on or after",
+        label: "Only leads that came in on or after",
         type: "date",
-        value: form.fromLeads?.created_since ? form.fromLeads.created_since.slice(0, 10) : "",
+        value: form.fromLeads ? (form.leads.created?.start ?? "") : "",
         help: "YYYY-MM-DD, India time. Needs a stage above.",
       },
     ],
@@ -303,7 +302,7 @@ export function useCampaignsCopilotSurface({
           case "campaign-repeat-days": {
             // "2,4" or "Tue, Thu": ISO weekday numbers (1 = Monday) or the short names.
             const days = text
-              .split(/[s,]+/)
+              .split(/[\s,]+/)
               .map((part) => WEEKDAYS.find((d) => String(d.value) === part || d.short.toLowerCase() === part.toLowerCase().slice(0, 3))?.value)
               .filter((day): day is number => day !== undefined);
             scheduleForm.setRepeatDays([...new Set(days)].sort());
@@ -319,23 +318,28 @@ export function useCampaignsCopilotSurface({
             break;
           }
           case "campaign-retry-gaps": {
-            const gaps = text.split(/[s,]+/).map((part) => Number.parseInt(part, 10));
+            const gaps = text.split(/[\s,]+/).map((part) => Number.parseInt(part, 10));
             const wanted = form.retry.max_attempts - 1;
             if (gaps.length === wanted && gaps.every((gap) => (RETRY_GAP_CHOICES as readonly number[]).includes(gap))) {
               form.setRetry({ ...form.retry, gaps_minutes: gaps });
             }
             break;
           }
-          case "campaign-leads-statuses": {
-            const statuses = text
-              .split(/[s,]+/)
-              .map((part) => part.toLowerCase())
-              .filter((part): part is LeadStatus => (STATUSES as string[]).includes(part));
-            form.setFromLeads(statuses.length ? { ...(form.fromLeads ?? {}), statuses } : null);
+          case "campaign-leads-stage": {
+            const stage = text.trim().toLowerCase();
+            if (stage === "") form.setFromLeads(false);
+            else if (stage === "any" || (STATUSES as string[]).includes(stage)) {
+              form.setFromLeads(true);
+              form.leads.setStatus(stage === "any" ? undefined : stage);
+            }
             break;
           }
           case "campaign-leads-since":
-            if (form.fromLeads) form.setFromLeads({ ...form.fromLeads, created_since: istDateToInstant(text) });
+            // Not gated on `fromLeads`: the stage in the same batch has not re-rendered yet,
+            // and a date with leads off is simply never sent.
+            if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+              form.leads.setCreated({ start: text, end: istDateStamp() });
+            }
             break;
           default:
             break;

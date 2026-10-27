@@ -1870,7 +1870,7 @@ Other exports: none.
 
 **Overlaps in Calevate:** native `<input type="date">` (19 occurrences, 11 files; see calendar). The native control gives a phone its own date wheel or sheet, takes and returns an IST-neutral `YYYY-MM-DD` string, and is fully accessible. `campaignForm.ts` (~L171) records the choice of two native fields "because a date picker and a time picker are what a phone renders usefully". Replacing it under one way per problem means moving all 11 files.
 
-**Where in Calevate:** the campaign start date and "Stop after" date in `app/c/[slug]/campaigns/new` (`NewCampaignSteps.tsx` L305, L342), `campaigns/ArmingForms.tsx`, `campaigns/ConsentProvenance.tsx`, `campaigns/LeadPicker.tsx`, `lead-sources/CallingPlan.tsx`, and the admin `ops/RateCardPanel.tsx`, `ops/ModelPricingPanel.tsx`, `ops/voices/hosted/VoiceDrawer.tsx` and `tenants/[tenantId]/DltRegistrationPanel.tsx`.
+**Where in Calevate:** the campaign start date and "Stop after" date in `app/c/[slug]/campaigns/new` (`NewCampaignSteps.tsx` L305, L342), `campaigns/ArmingForms.tsx`, `campaigns/ConsentProvenance.tsx`, `lead-sources/CallingPlan.tsx`, and the admin `ops/RateCardPanel.tsx`, `ops/ModelPricingPanel.tsx`, `ops/voices/hosted/VoiceDrawer.tsx` and `tenants/[tenantId]/DltRegistrationPanel.tsx`.
 
 **Verdict: ADAPT.** Take it only if the founder wants one custom date control across all 11 files. It must first be fixed for IST today, a `YYYY-MM-DD` string value, translatable copy, a portal at `--z-dropdown`, a bottom sheet (or the native input) on phones, 44px targets and a no-Clear required mode. Otherwise the native input should stay, because it is already correct on the phones most clients use.
 

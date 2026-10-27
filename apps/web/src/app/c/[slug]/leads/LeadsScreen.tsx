@@ -35,7 +35,7 @@ import { DialerPicker } from "./DialerPicker";
 import { LeadTable } from "./LeadTable";
 import { LeadsFooter } from "./LeadsFooter";
 import { LeadsToolbar } from "./LeadsToolbar";
-import { MoreFilters } from "./MoreFilters";
+import { MoreFilters, capturedFieldsOf } from "./MoreFilters";
 import { STATUSES } from "./StatusSelect";
 import { narrowedBeyondStatus } from "./leadFilters";
 import { PAGE_SIZE, exportRefusal, scopeLabel } from "./leadsTable";
@@ -211,18 +211,7 @@ export function LeadsScreen() {
           exportTotal === 1 ? "this 1 lead" : `these ${formatCount(exportTotal)} leads`
 }: name and full phone number first, then the columns shown here.`;
 
-  /** How many of the "More filters" are narrowing the rows, for its closed state. */
-  const moreInUse =
-    (f.assignedTo ? 1 : 0) +
-    Object.values(f.facetValues).filter((values) => values.length > 0).length +
-    (f.created ? 1 : 0) +
-    (f.lastCall ? 1 : 0) +
-    (f.lastOutcome ? 1 : 0) +
-    (f.direction ? 1 : 0) +
-    (f.testCalls ? 0 : 1) +
-    (f.followUp ? 1 : 0) +
-    (f.callbackOpen !== undefined ? 1 : 0) +
-    f.captured.length;
+  const { moreInUse } = f;
   const [filtersOpen, setFiltersOpen] = useState(false);
   const panelId = useId();
 
@@ -315,27 +304,7 @@ export function LeadsScreen() {
         facets={facets}
         facetValues={f.facetValues}
         onFacetValues={f.setFacetValues}
-        calls={{
-          created: f.created,
-          onCreated: f.setCreated,
-          lastCall: f.lastCall,
-          onLastCall: f.setLastCall,
-          lastOutcome: f.lastOutcome,
-          onLastOutcome: f.setLastOutcome,
-          direction: f.direction,
-          onDirection: f.setDirection,
-          testCalls: f.testCalls,
-          onTestCalls: f.setTestCalls,
-          followUp: f.followUp,
-          onFollowUp: f.setFollowUp,
-          callbackOpen: f.callbackOpen,
-          onCallbackOpen: f.setCallbackOpen,
-          captured: f.captured,
-          onCaptured: f.setCaptured,
-          capturedFields: (leads.data?.available_columns ?? [])
-            .filter((c) => c.kind === "extraction")
-            .map((c) => ({ key: c.key, label: c.label })),
-        }}
+        calls={f.callFilters(capturedFieldsOf(leads.data))}
         views={savedViews}
         activeViewId={f.activeViewId}
         canSaveView={mayApplyView.allowed}

@@ -447,7 +447,7 @@
       },
       "AddLeadsIn": {
         "additionalProperties": false,
-        "description": "Exactly one of: named leads (a selection), the campaign picker's `filter`, or the\nLeads screen's `lens` (D-893 F2, the same definition the Leads table, its exports and\nPip read).",
+        "description": "Exactly one of: named leads (a selection) or a `lens` (D-893 F2: the one lead\ndefinition the Leads table, its exports, the campaign's own picker and Pip read).",
         "properties": {
           "expected_count": {
             "anyOf": [
@@ -460,16 +460,6 @@
               }
             ],
             "title": "Expected Count"
-          },
-          "filter": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/LeadFilterIn"
-              },
-              {
-                "type": "null"
-              }
-            ]
           },
           "lead_ids": {
             "anyOf": [
@@ -28153,82 +28143,6 @@
         "title": "LeadFieldsReviewOut",
         "type": "object"
       },
-      "LeadFilterIn": {
-        "additionalProperties": false,
-        "description": "Which of the account's leads to add. Every field narrows; none means every lead.",
-        "properties": {
-          "agent_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Agent Id"
-          },
-          "created_since": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Created Since"
-          },
-          "created_until": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Created Until"
-          },
-          "sources": {
-            "items": {
-              "enum": [
-                "inbound_call",
-                "webhook",
-                "campaign",
-                "manual",
-                "test_call",
-                "outbound_call"
-              ],
-              "type": "string"
-            },
-            "maxItems": 6,
-            "title": "Sources",
-            "type": "array"
-          },
-          "statuses": {
-            "items": {
-              "enum": [
-                "new",
-                "contacted",
-                "interested",
-                "hot",
-                "won",
-                "lost"
-              ],
-              "type": "string"
-            },
-            "maxItems": 6,
-            "title": "Statuses",
-            "type": "array"
-          }
-        },
-        "title": "LeadFilterIn",
-        "type": "object"
-      },
       "LeadLensIn": {
         "additionalProperties": false,
         "description": "The Leads table's lens \u2014 WHICH ROWS and WHICH COLUMNS \u2014 carried in a request BODY.\n\nIt exists because of the one field in it that is personal data. `search` is matched\nagainst `leads.phone_e164` with a suffix LIKE (`crm.service._lead_scope`), so on a\nGET it is a customer's phone number written into nginx's `combined` access log\n(`$request` is the whole request line), into Cloudflare's edge log, into browser\nhistory and into the `Referer` of the next navigation. This repository already made\nthat judgement twice \u2014 `POST /v1/dnc/check` is a POST because \"the identifier IS the\npersonal data\", and SEC-COMP \u00a74 requires a number in the body and never in a URL \u2014\nand the leads screen is the busiest surface in the product to have been left out of\nit (hard rule 6).\n\nThe field NAMES match the query parameters the GET routes take, including the two\nencoded ones (`columns` as a comma-separated string, `f` as `key:value` entries), so\none parser serves both shapes and the client's lens object does not change form when\nit moves into a body.",
@@ -28730,25 +28644,6 @@
           "updated_at"
         ],
         "title": "LeadOut",
-        "type": "object"
-      },
-      "LeadPoolOut": {
-        "additionalProperties": false,
-        "properties": {
-          "limit": {
-            "title": "Limit",
-            "type": "integer"
-          },
-          "matching": {
-            "title": "Matching",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "matching",
-          "limit"
-        ],
-        "title": "LeadPoolOut",
         "type": "object"
       },
       "LeadSearchIn": {
@@ -72748,129 +72643,6 @@
         "x-calevate-permission": "leads:dispatch"
       }
     },
-    "/v1/campaigns/lead-pool": {
-      "get": {
-        "operationId": "lead_pool_v1_campaigns_lead_pool_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "statuses",
-            "required": false,
-            "schema": {
-              "default": [],
-              "items": {
-                "enum": [
-                  "new",
-                  "contacted",
-                  "interested",
-                  "hot",
-                  "won",
-                  "lost"
-                ],
-                "type": "string"
-              },
-              "title": "Statuses",
-              "type": "array"
-            }
-          },
-          {
-            "in": "query",
-            "name": "sources",
-            "required": false,
-            "schema": {
-              "default": [],
-              "items": {
-                "enum": [
-                  "inbound_call",
-                  "webhook",
-                  "campaign",
-                  "manual",
-                  "test_call",
-                  "outbound_call"
-                ],
-                "type": "string"
-              },
-              "title": "Sources",
-              "type": "array"
-            }
-          },
-          {
-            "in": "query",
-            "name": "agent_id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "format": "uuid",
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Agent Id"
-            }
-          },
-          {
-            "in": "query",
-            "name": "created_since",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "format": "date-time",
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Created Since"
-            }
-          },
-          {
-            "in": "query",
-            "name": "created_until",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "format": "date-time",
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Created Until"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LeadPoolOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "How many of your leads a filter selects, before adding them to a campaign",
-        "tags": [
-          "campaigns"
-        ],
-        "x-calevate-permission": "leads:read"
-      }
-    },
     "/v1/campaigns/numbers": {
       "get": {
         "operationId": "list_numbers_v1_campaigns_numbers_get",
@@ -73394,7 +73166,7 @@
     },
     "/v1/campaigns/{campaign_id}/contacts/from-leads": {
       "post": {
-        "description": "The numbers are read from the leads on the server (`controls.add_leads`). A filter\nmatching more than `controls.MAX_LEADS_PER_ADD` is refused rather than cut short, so\n\"add these leads\" never silently means \"add some of them\". A `lens` that large runs\ninstead as the approved `campaign_add_leads` plan Pip makes (D-893 F3), because the\nperson confirmed that whole count on the Leads screen.",
+        "description": "The numbers are read from the leads on the server (`controls.add_leads`). A lens\nmatching more than `controls.MAX_LEADS_PER_ADD` runs as the approved\n`campaign_add_leads` plan Pip makes (D-893 F3) rather than being cut short, because the\nperson confirmed that whole count.",
         "operationId": "add_contacts_from_leads_v1_campaigns__campaign_id__contacts_from_leads_post",
         "parameters": [
           {
@@ -73436,7 +73208,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Add your CRM leads to a campaign, picked by id or by a filter",
+        "summary": "Add your CRM leads to a campaign, picked by id or by the leads lens",
         "tags": [
           "campaigns"
         ],
