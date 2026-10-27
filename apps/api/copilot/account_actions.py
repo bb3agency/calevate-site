@@ -768,9 +768,10 @@ async def _execute_member_role(
         new_role=parsed.role,
         expected_role=parsed.expected_role,
     )
+    changed = previous != parsed.role
     return Executed(
-        applied=previous != parsed.role,
-        detail="The role is changed.",
+        applied=changed,
+        detail="The role is changed." if changed else "They already had that role.",
         audit_summary={"from": previous, "to": parsed.role},
     )
 
@@ -1018,7 +1019,9 @@ async def _execute_fallback(
     if phone is None:
         removed = await protection.clear_fallback_phone(session)
         return Executed(
-            applied=removed, detail="The backup phone is removed.", audit_summary={"set": False}
+            applied=removed,
+            detail="The backup phone is removed." if removed else "There was no backup phone.",
+            audit_summary={"set": False},
         )
     await protection.set_fallback_phone(
         session, tenant_id=actor.tenant_id, user_id=actor.user_id, phone_e164=str(phone)

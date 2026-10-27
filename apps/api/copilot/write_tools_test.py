@@ -311,6 +311,7 @@ def test_the_tool_schemas_are_the_same_bytes_for_every_caller() -> None:
         "lead_view_save",
         "leads_export",
         "calls_export",
+        "campaign_consent_set",
     ]
     for schema in write_tools.write_tool_schemas():
         function = schema["function"]
