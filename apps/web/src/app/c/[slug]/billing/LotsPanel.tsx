@@ -1,5 +1,6 @@
 "use client";
 
+import { CARD } from "@/components/console/dataTable";
 import { Section } from "@/components/console/section";
 import { NOTICE_BAR, NOTICE_BASE, ScrollRegion, formatINR, formatIST, formatISTDate } from "@/components/ui";
 
@@ -69,12 +70,12 @@ export function LotsPanel({ lots }: { lots: WalletLots }) {
       {lots.lots.length > 0 && (
         <>
           <ScrollRegion label="Your credit, purchase by purchase" className="scroll-shadow-x">
-          <table className="w-full border-collapse text-body">
+          <table className={`w-full border-collapse text-body ${CARD.table}`}>
             <caption className="sr-only">
               Your credit, in the order it will be spent — {lots.lots.length}{" "}
               {lots.lots.length === 1 ? "purchase" : "purchases"}
             </caption>
-            <thead>
+            <thead className={CARD.head}>
               <tr className="border-b border-line text-left text-meta text-ink-muted">
                 <th scope="col" className="py-2 pr-3 font-medium">
                   Credit left
@@ -89,10 +90,10 @@ export function LotsPanel({ lots }: { lots: WalletLots }) {
                 </th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className={CARD.body}>
               {lots.lots.map((lot, index) => (
-                <tr key={lot.lot_id} className="border-b border-line last:border-b-0">
-                  <th scope="row" className="py-3.5 pr-3 text-left font-medium tabular-nums text-ink">
+                <tr key={lot.lot_id} className={`border-b border-line last:border-b-0 ${CARD.row} max-sm:px-0`}>
+                  <th scope="row" className={`py-3.5 pr-3 text-left font-medium tabular-nums text-ink ${CARD.title}`}>
                     {formatINR(lot.credits_remaining)}
                     {index === 0 && (
                       <span className="ml-2 text-meta font-normal text-ink-muted">
@@ -103,21 +104,24 @@ export function LotsPanel({ lots }: { lots: WalletLots }) {
                   {lots.tiers.map((tier) => (
                     <td
                       key={tier.voice_tier}
-                      className="py-3.5 pr-3 text-right tabular-nums text-ink-muted"
+                      data-label={tier.label}
+                      className={`py-3.5 pr-3 text-right tabular-nums text-ink-muted ${CARD.field}`}
                     >
                       {isVoiceTier(tier.voice_tier)
                         ? `${formatINR(lotRate(lot, tier.voice_tier))}/min`
                         : null}
                     </td>
                   ))}
-                  <td className="py-3.5 text-right text-ink-muted">
+                  <td data-label="Bought" className={`py-3.5 text-right text-ink-muted ${CARD.field}`}>
+                    <span>
                     {formatIST(lot.opened_at)}
-                    {/* Each purchase keeps the term it was bought on (Terms 6.1): one bought
+{/* Each purchase keeps the term it was bought on (Terms 6.1): one bought
                         before expiry was switched on has none, and says so beside one that does. */}
                     <span className="block text-meta">
                       {lot.expires_at ? `Lapses ${formatISTDate(lot.expires_at) ?? "—"}` : "No expiry"}
                     </span>
-                  </td>
+                    </span>
+</td>
                 </tr>
               ))}
             </tbody>

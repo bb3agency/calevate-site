@@ -10,6 +10,7 @@ import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import { EmptyState } from "@/components/console/emptyState";
 import { EmptySketch } from "@/components/console/emptySketch";
 import { TEXT_ACTION } from "@/components/console/section";
+import { HowItWorks } from "@/components/console/howItWorks";
 import { PageHeader } from "@/components/console/pageHeader";
 import { SegmentedControl } from "@/components/interior/segmented-control";
 import { ModalDialog } from "@/components/modalDialog";
@@ -213,6 +214,7 @@ export function CallbacksScreen() {
     {
       id: "status",
       header: "Status",
+      card: "block",
       flash: (row) => row.status,
       cell: (row) => (
         <div className="max-w-md space-y-1">
@@ -230,10 +232,11 @@ export function CallbacksScreen() {
       id: "action",
       header: "Action",
       align: "right",
+      card: "block",
       cell: (row) =>
         // `dialing` is not stoppable: that phone may be ringing as this renders.
         row.status === "scheduled" && write.allowed ? (
-          <div className="flex flex-col items-end gap-0.5 sm:flex-row sm:justify-end sm:gap-3">
+          <div className="flex items-center gap-4 max-sm:pt-1 sm:justify-end sm:gap-3">
             <button
               type="button"
               onClick={() => {
@@ -263,13 +266,20 @@ export function CallbacksScreen() {
 
   return (
     <div className="max-w-4xl space-y-6 pb-12">
-      <PageHeader description="Calls your agents promised, placed at the time the caller asked." />
-      {/* Qualifies the compliance gate every call-back passes: visible and word for word. */}
-      <p className="max-w-prose text-meta text-ink-muted">
-        It goes through the same checks as every other call — the do-not-call list,
-        permitted calling hours, and your account&apos;s credit — so a promise that cannot
-        lawfully be kept is stopped and says why.
-      </p>
+      {/* The checks every call-back passes qualify a compliance control, so they stay on the
+          page in the one line under the title; the rest is behind How it works. */}
+      <div>
+        <PageHeader description="Calls your agents promised. Each one first passes the do-not-call list, calling hours and your credit." />
+        <HowItWorks
+          headingLevel={3}
+          items={[
+            "A call-back rings at the time the caller asked for.",
+            "One that a check stops is not placed, and says why.",
+            "Move one to any time between 9am and 9pm India time.",
+            "Calling one off does not tell the caller. Ring them if it matters.",
+          ]}
+        />
+      </div>
 
       <RestrictionNote reason={write.reason} />
 
