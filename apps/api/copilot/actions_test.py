@@ -46,6 +46,7 @@ from apps.api.copilot.actions import ACTION_TIERS, ActionTool
 from apps.api.copilot.schemas import CopilotAskIn
 from apps.api.copilot.write_tools_test import (  # reuse, never re-implement
     _ask,
+    _audit,
     _principal,
     _scripted,
     _turn,
@@ -98,7 +99,6 @@ _REVIEWED_IMMEDIATE: dict[str, str] = {
         "setting is restored exactly"
     ),
     "lead_source_edit": "which agent a source names; the prior agent is the exact inverse",
-    "lead_source_switch": "accepting leads on or off; the prior switch is the exact inverse",
     "low_balance_alert_set": "when a warning is sent; charges nothing, prior line restored",
     # D-893 L8: a heading, not an answer; the prior name is the exact inverse.
     "knowledge_rename": "renames a file, link or note; Undo restores the old name under a CAS",
@@ -533,6 +533,13 @@ async def test_a_job_stages_an_immediate_action_and_writes_nothing(
         )
     assert out.applied is True
     assert await _lead_status(tenant_id, lead_id) == "lost"
+
+    # A create has no id until it runs; its audit row names the object it produced.
+    create_approval = next(a for a in staged if a.tool == "agent_create")
+    async with tenant_session(tenant_id) as session:
+        await write_tools.approve(session, create_approval.action_id, principal=principal, ip=None)
+    agent_id = str((await _agent_row(tenant_id, "Job made"))["id"])
+    assert ("agent.created", "agent", agent_id) in await _audit(tenant_id)
 
 
 async def test_the_same_immediate_action_still_runs_at_once_interactively(

@@ -368,6 +368,7 @@ async def _execute_remove(
             applied=True,
             detail="The note is back on every agent.",
             audit_summary={"source_id": str(source_id), "put_back": True, "version": version},
+            audit_action="kb.restored",
         )
     if kind == "note":
         await store.remove_note(session, tenant_id=actor.tenant_id, source_id=source_id)

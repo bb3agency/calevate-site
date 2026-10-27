@@ -20901,8 +20901,6 @@ export interface components {
             opening_room: number;
             /** Opening Room With Ai Disclosure */
             opening_room_with_ai_disclosure: number;
-            /** Opening Room With Caller Memory */
-            opening_room_with_caller_memory: number;
             /** Opening Room With Recording Notice */
             opening_room_with_recording_notice: number;
         };

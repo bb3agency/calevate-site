@@ -497,6 +497,21 @@ async def test_two_tabs_pressing_callback_on_one_call_place_one_call() -> None:
     assert int(dialled or 0) == 1, "one follow-up call row for two presses"
 
 
+async def test_two_people_pressing_callback_on_one_call_place_one_call() -> None:
+    tenant_id, agent_id, slug, headers = await _dialable_tenant()
+    lead_id, phone = await _lead(tenant_id, agent_id)
+    parent = await _finished_call(tenant_id, agent_id, lead_id, phone)
+    teammate = await _member_of(tenant_id, slug, "owner")
+
+    async with _client() as http:
+        first = await http.post(f"/v1/calls/{parent}/callback", headers=headers)
+        second = await http.post(f"/v1/calls/{parent}/callback", headers=teammate)
+
+    assert first.json()["status"] == "queued", first.text
+    assert second.json() == first.json(), "the teammate's press replays the first answer"
+    assert await _outbound_calls(tenant_id) == [(phone, "completed"), (phone, "queued")]
+
+
 async def test_the_callback_button_refuses_a_number_that_joined_the_dnc_list() -> None:
     """Same gate, same vocabulary, and — the part only the POST can prove — no call.
     A customer who opted out after the first call must not be rung by the follow-up
@@ -1282,6 +1297,11 @@ async def test_staff_cannot_reach_the_recording_audio(monkeypatch: pytest.Monkey
 async def _staff_of(tenant_id: uuid.UUID, slug: str) -> dict[str, str]:
     """A second member of the SAME org, holding `staff` — the role a client hands a
     junior telecaller."""
+    return await _member_of(tenant_id, slug, "staff")
+
+
+async def _member_of(tenant_id: uuid.UUID, slug: str, role: str) -> dict[str, str]:
+    """Auth headers for a new member of the org holding `role`."""
     user_id = uuid7()
     async with untenanted_session() as session:
         await session.execute(
@@ -1295,8 +1315,8 @@ async def _staff_of(tenant_id: uuid.UUID, slug: str) -> dict[str, str]:
         await session.execute(
             text(
                 "INSERT INTO memberships (id, tenant_id, user_id, role, created_at, updated_at) "
-                "VALUES (:id, :tid, :uid, 'staff', now(), now())"
+                "VALUES (:id, :tid, :uid, :role, now(), now())"
             ),
-            {"id": uuid7(), "tid": tenant_id, "uid": user_id},
+            {"id": uuid7(), "tid": tenant_id, "uid": user_id, "role": role},
         )
     return {"Authorization": f"Bearer dev:client:{user_id}", "X-Org-Slug": slug}

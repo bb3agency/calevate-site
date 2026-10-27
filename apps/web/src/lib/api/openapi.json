@@ -23265,10 +23265,6 @@
             "title": "Opening Room With Ai Disclosure",
             "type": "integer"
           },
-          "opening_room_with_caller_memory": {
-            "title": "Opening Room With Caller Memory",
-            "type": "integer"
-          },
           "opening_room_with_recording_notice": {
             "title": "Opening Room With Recording Notice",
             "type": "integer"
@@ -23279,8 +23275,7 @@
           "opening_chars",
           "opening_room",
           "opening_room_with_ai_disclosure",
-          "opening_room_with_recording_notice",
-          "opening_room_with_caller_memory"
+          "opening_room_with_recording_notice"
         ],
         "title": "GreetingBudgetOut",
         "type": "object"

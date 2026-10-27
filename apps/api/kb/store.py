@@ -22,7 +22,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Final, Literal, cast
+from typing import Final, Literal
 from uuid import UUID
 
 from sqlalchemy import text
@@ -44,12 +44,15 @@ from apps.api.teach.facts import FACTS_SOURCE_NAME
 ItemKind = Literal["pinned_fact", "fact", "note", "file", "photo", "link", "profile", "rule"]
 ItemState = Literal[
     "in_use", "not_used_yet", "being_read", "getting_ready", "in_review", "needs_attention",
-    "waiting",
+    "waiting", "removed",
 ]  # fmt: skip
 
 ITEM_KINDS: Final[tuple[str, ...]] = (
     "pinned_fact", "fact", "note", "file", "photo", "link", "profile", "rule",
 )  # fmt: skip
+#: The states a find can filter on. "removed" (a note that can be put back) is listed but
+#: not offered as a filter: this vocabulary is spelled out in `knowledge_sources`' schema,
+#: which every Pip request pays for, and a removed note is found by its name.
 ITEM_STATES: Final[tuple[str, ...]] = (
     "in_use", "not_used_yet", "being_read", "getting_ready", "in_review", "needs_attention",
     "waiting",
@@ -179,20 +182,27 @@ async def _uploads(session: AsyncSession) -> list[StoreItem]:
     return items
 
 
-#: The newest version of every typed note that is not history. A typed note is a `text`
-#: source with no upload behind it; the taught facts' own source is listed fact by fact.
-#: The newest version of each typed note, one row per name. A note whose newest version is
-#: archived and not live was removed (`remove_note`); it stays listed so it can be put back.
+#: The newest version of each typed note, one row per name, most recently changed first. A
+#: typed note is a `text` source with no upload behind it; the taught facts' own source is
+#: listed fact by fact. A note whose newest version is archived and not live was removed
+#: (`remove_note`); it stays listed so it can be put back.
+#: `DISTINCT ON` must order by the name first, so the newest-change order and the cap sit
+#: outside it: capping inside would keep the first 200 names alphabetically and drop a
+#: note changed today whose name sorts late.
 _NOTES_SQL = """
-SELECT DISTINCT ON (s.name) s.id, s.name, s.status, s.is_active, s.updated_at, s.version,
-       (SELECT count(*) FROM kb_documents d WHERE d.source_id = s.id) AS chunks,
-       EXISTS (SELECT 1 FROM kb_sources a WHERE a.tenant_id = s.tenant_id AND a.name = s.name
-               AND a.approved_at IS NOT NULL) AS restorable
-FROM kb_sources s
-WHERE s.kind = 'text' AND s.name <> :facts
-  AND NOT EXISTS (SELECT 1 FROM kb_uploads u WHERE u.source_id = s.id)
-  AND (CAST(:only AS uuid) IS NULL OR s.name = (SELECT n.name FROM kb_sources n WHERE n.id = :only))
-ORDER BY s.name, s.version DESC
+SELECT * FROM (
+  SELECT DISTINCT ON (s.name) s.id, s.name, s.status, s.is_active, s.updated_at, s.version,
+         (SELECT count(*) FROM kb_documents d WHERE d.source_id = s.id) AS chunks,
+         EXISTS (SELECT 1 FROM kb_sources a WHERE a.tenant_id = s.tenant_id AND a.name = s.name
+                 AND a.approved_at IS NOT NULL) AS restorable
+  FROM kb_sources s
+  WHERE s.kind = 'text' AND s.name <> :facts
+    AND NOT EXISTS (SELECT 1 FROM kb_uploads u WHERE u.source_id = s.id)
+    AND (CAST(:only AS uuid) IS NULL
+         OR s.name = (SELECT n.name FROM kb_sources n WHERE n.id = :only))
+  ORDER BY s.name, s.version DESC
+) newest
+ORDER BY newest.updated_at DESC, newest.id DESC
 LIMIT 200
 """
 
@@ -243,7 +253,6 @@ async def list_notes(session: AsyncSession, *, only: UUID | None = None) -> list
         )
         for r in rows
     ]
-    notes.sort(key=lambda note: note.changed_at, reverse=True)
     return notes
 
 
@@ -257,19 +266,24 @@ async def read_note(session: AsyncSession, source_id: UUID) -> Note:
 async def _notes(session: AsyncSession) -> list[StoreItem]:
     items: list[StoreItem] = []
     for note in await list_notes(session):
-        if note.state == "removed":
-            continue  # its versions are kept for a restore, but it is not knowledge
+        # A removed note is listed, so "put back the note I removed" has a [ref] to name.
+        removed = note.state == "removed"
         items.append(
             StoreItem(
                 ref=item_ref("note", note.id),
                 kind="note",
                 name=note.name,
-                state=cast(ItemState, note.state),
+                state=note.state,
                 agents_use=note.state == "in_use",
                 changed_at=note.changed_at,
+                note=None if not removed else _removed_note_words(restorable=note.restorable),
             )
         )
     return items
+
+
+def _removed_note_words(*, restorable: bool) -> str:
+    return "can be put back" if restorable else "cannot be put back; write it again"
 
 
 def _fact_name(value: str) -> str:
@@ -472,9 +486,7 @@ async def _note_text(session: AsyncSession, source_id: UUID, page: int) -> ItemT
     ).first()
     if row is None:
         raise ProblemError.not_found("Knowledge note")
-    found = _note_state(str(row[2]), bool(row[3]))
-    # `ItemState` has no "removed": a removed version opened by its ref reads as not live.
-    state: ItemState = "getting_ready" if found == "removed" else found
+    state: ItemState = _note_state(str(row[2]), bool(row[3]))
     shown_page, pages, sections = _paged(await _chunks(session, source_id), page)
     return ItemText(
         ref=item_ref("note", source_id),

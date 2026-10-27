@@ -62,6 +62,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
 import pytest
+from apps.api.compliance.audit import write_audit
 from apps.api.db.registry import RLS_EXEMPT_TENANT_COLUMNS
 from apps.api.db.session import tenant_session, untenanted_session
 from calevate_shared.config import Settings
@@ -223,22 +224,44 @@ async def sweep() -> AsyncIterator[Sweep]:
                 ),
                 {"id": uuid.uuid4(), "tid": org, "aid": agent},
             )
+            # `audit_log` is exempt and onboarding writes no row to it; through its one
+            # writer, so the hash chain stays whole.
+            await write_audit(s, action="sweep.fixture", tenant_id=org, object_type="organization")
 
     owner_url = Settings().alembic_database_url
     assert owner_url, "ALEMBIC_DATABASE_URL required: ground-truth counts bypass RLS"
     owner = create_async_engine(owner_url)
     try:
-        # One row each in two more RLS-exempt tables that carry a tenant, for the engine KB
-        # claim's reason above, written as the owner so the fixture needs no live test or
-        # engine. An ended leg is inert: nothing counts it.
+        # One row each in the other RLS-exempt tables that carry a tenant, for the engine KB
+        # claim's reason above, written as the owner so the fixture needs no live test,
+        # engine or alarm. Each is inert: nothing counts an ended leg, no healer sweep picks
+        # up a resolved incident, and inbound routing reads active routes only.
         async with owner.begin() as conn:
-            for org in (a["id"], b["id"]):
+            for org, agent in ((a["id"], a["agent_id"]), (b["id"], b["agent_id"])):
                 await conn.execute(
                     text(
                         "INSERT INTO forwarding_test_legs (id, test_id, tenant_id, leg, status) "
                         "VALUES (:id, :test, :tid, 1, 'ended')"
                     ),
                     {"id": uuid.uuid4(), "test": uuid.uuid4(), "tid": org},
+                )
+                await conn.execute(
+                    text(
+                        "INSERT INTO heal_incidents (id, dedupe_key, playbook, trigger_code, "
+                        "scope, tenant_id, agent_id, state, attempts, next_attempt_at, "
+                        "component, public, opened_at, resolved_at, created_at, updated_at) "
+                        "VALUES (:id, :key, 'sweep_fixture', 'sweep_fixture', 'agent', :tid, "
+                        ":aid, 'resolved', 0, now(), 'calls', false, now(), now(), now(), now())"
+                    ),
+                    {"id": uuid.uuid4(), "key": f"sweep:{uuid.uuid4()}", "tid": org, "aid": agent},
+                )
+                await conn.execute(
+                    text(
+                        "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, "
+                        "agent_id, active, created_at, updated_at) "
+                        "VALUES ('fake', :ref, :tid, :aid, false, now(), now())"
+                    ),
+                    {"ref": f"agent-sweep-{uuid.uuid4().hex[:12]}", "tid": org, "aid": agent},
                 )
                 await conn.execute(
                     text(
@@ -255,6 +278,18 @@ async def sweep() -> AsyncIterator[Sweep]:
             }
             ground_a = {t: await _count(conn, t, a["id"]) for t in tables}
             ground_b = {t: await _count(conn, t, b["id"]) for t in tables}
+            # The exemption probes need a victim row on every table they cover, and that
+            # must not depend on what earlier tests left in the database.
+            probed = (set(RLS_EXEMPT_TENANT_COLUMNS) & discovered) - set(
+                _EXEMPT_WRITES_NOT_YET_ISOLATED
+            )
+            unseeded = [
+                f"{table} ({label})"
+                for table in sorted(probed)
+                for label, org in (("A", a["id"]), ("B", b["id"]))
+                if not await _count(conn, table, org)
+            ]
+            assert not unseeded, f"the fixture seeds no row in exempt table(s): {unseeded}"
             has_id = {
                 str(r[0])
                 for r in await conn.execute(
@@ -833,6 +868,9 @@ async def test_an_rls_exempt_table_refuses_an_untenanted_write(sweep: Sweep) -> 
     #     than raising, so rowcount 0 IS the refusal on an ordinary table.
     escaped = []
     for table, victim in victims.items():
+        # Re-tenanting a row to the tenant it already has changes nothing, and a guard that
+        # compares OLD with NEW (heal_incidents' trigger) rightly lets that through.
+        other = sweep.org_b if victim == sweep.org_a else sweep.org_a
         for verb, statement in (
             ("UPDATE", f"UPDATE {_ident(table)} SET tenant_id = :other WHERE tenant_id = :tid"),
             ("DELETE", f"DELETE FROM {_ident(table)} WHERE tenant_id = :tid"),
@@ -840,7 +878,7 @@ async def test_an_rls_exempt_table_refuses_an_untenanted_write(sweep: Sweep) -> 
             async with untenanted_session() as s:
                 savepoint = await s.begin_nested()
                 try:
-                    result = await s.execute(text(statement), {"tid": victim, "other": sweep.org_a})
+                    result = await s.execute(text(statement), {"tid": victim, "other": other})
                 except DBAPIError as exc:
                     state = str(getattr(exc.orig, "sqlstate", "") or "")
                     if state not in (_RLS_VIOLATION, _APPEND_ONLY_VIOLATION):

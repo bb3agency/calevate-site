@@ -211,14 +211,16 @@ async def place_call_back(
 
     `place_lead_call`'s three transactions and claim rules, with the key derived from the
     CALL rather than sent by the client: "follow up this call" is naturally keyed by the
-    call, so two tabs, or the button and Pip, cannot ring the customer twice."""
+    call, so two tabs, the button and Pip, or two people on the team cannot ring the
+    customer twice. The claim is scoped to the account, not the person: a per-user scope
+    would give each teammate their own claim on the same call."""
     assert principal.tenant_id is not None
     tenant_id = principal.tenant_id
     plan = await service.plan_callback(session, call_id)
     async with tenant_session(tenant_id) as claim_session:
         claim = await claim_idempotency(
             claim_session,
-            scope=scope_key(tenant_id=tenant_id, user_id=principal.user_id),
+            scope=scope_key(tenant_id=tenant_id, user_id=None),
             route=CALL_BACK_ROUTE,
             method="POST",
             key=str(call_id),

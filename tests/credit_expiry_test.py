@@ -456,6 +456,15 @@ async def _promised_notices(tenant_id: uuid.UUID, lot_id: uuid.UUID) -> int:
     return int(count)
 
 
+def test_the_lapse_email_states_the_amount_the_way_the_client_screens_do() -> None:
+    from apps.workers.credit_expiry import compose_lapse_notice
+
+    body = compose_lapse_notice(
+        remaining=Decimal("123456.5000"), expires_at=datetime(2027, 1, 5, tzinfo=UTC), slug="s"
+    )
+    assert body.startswith("₹1,23,456.5 of your calling credit")
+
+
 async def test_a_lot_lapsing_within_thirty_days_is_warned_once_by_email(
     expiry_on: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -485,7 +494,7 @@ async def test_a_lot_lapsing_within_thirty_days_is_warned_once_by_email(
     assert await worker.notify_credit_lapsing({"job_try": 1}, payload) == "sent"
     [mail] = mailbox.sent
     assert mail["to"] == "owner@example.test"
-    assert "₹750.00" in mail["body"]
+    assert "₹750 of your calling credit" in mail["body"]
     assert worker.ist_moment(lot.expires_at) in mail["body"]
     for vendor in ("Razorpay", "ThinnestAI", "Cartesia", "Sarvam"):
         assert vendor not in mail["body"]

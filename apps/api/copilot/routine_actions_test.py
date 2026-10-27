@@ -70,9 +70,7 @@ async def test_create_is_confirmed_then_saved_redacted_on_the_schedule_asked() -
         True,
     )
     assert "9876543210" not in row.instruction
-    assert ("copilot.routine_created", "copilot_routine") in [
-        a[:2] for a in await _audit(tenant_id)
-    ]
+    assert ("copilot.routine_created", "copilot_routine", str(row.id)) in await _audit(tenant_id)
     listed = await _list(tenant_id, user_id)
     assert f"[{row.id}] Morning list · Mon, Fri at 09:30 IST · on, next" in listed
 

@@ -122,7 +122,6 @@ class GreetingBudget:
     opening_room: int
     opening_room_with_ai_disclosure: int
     opening_room_with_recording_notice: int
-    opening_room_with_caller_memory: int
 
 
 def greeting_budget(
@@ -151,7 +150,6 @@ def greeting_budget(
         opening_room=now,
         opening_room_with_ai_disclosure=room("ai_disclosure_enabled") or 0,
         opening_room_with_recording_notice=room("recording_notice_enabled") or 0,
-        opening_room_with_caller_memory=room("caller_memory_enabled") or 0,
     )
 
 

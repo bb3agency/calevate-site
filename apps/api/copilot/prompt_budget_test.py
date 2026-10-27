@@ -32,7 +32,7 @@ from apps.api.copilot.schemas import (
 #: array alone has its own budget below. The admin account surface offers the client's
 #: reads as flat tools, so it carries the leads and calls lens (~520 tokens) on
 #: `leads_search` and `calls_recent` and the D-893 lanes' reads in full, plus
-#: `agent_known_facts` (D-896, ~100 tokens: measured 10,343 before, 10,444 with it).
+#: `agent_known_facts` (D-896, ~100 tokens: measured 10,343 before, 10,449 with it).
 PREFIX_BUDGET_TOKENS = {"client": 17_500, "admin_account": 10_450, "admin_console": 6_500}
 
 #: The client tool array alone (PIP-AGENT-PLAN §2a): every read and action of every area.

@@ -578,12 +578,20 @@ async def _run_change(
 ) -> plans.TargetOutcome:
     """`swipe.change_callback` — the Call-backs screen's own function, per call-back."""
     parsed = _BulkCallbackChange.model_validate(change)
+    at = None if parsed.at is None else datetime.fromisoformat(parsed.at)
+    if parsed.change == "move" and at is not None:
+        # The time was checked when the plan was drawn up, but a plan can be approved or
+        # resumed hours later; a past `requested_at` would be rung on the next tick.
+        try:
+            swipe.check_schedule_time(at, now=datetime.now(UTC))
+        except ProblemError:
+            return plans.TargetOutcome("skipped", "That time has passed.")
     out = await swipe.change_callback(
         session,
         tenant_id=actor.tenant_id,
         callback_id=callback_id,
         change=parsed.change,
-        at=None if parsed.at is None else datetime.fromisoformat(parsed.at),
+        at=at,
     )
     if out.status in ("cancelled", "moved"):
         return plans.TargetOutcome("done")

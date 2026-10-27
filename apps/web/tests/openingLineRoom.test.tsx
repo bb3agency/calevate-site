@@ -52,7 +52,6 @@ function agent(over: Partial<Agent> = {}): Agent {
       opening_room: 200,
       opening_room_with_ai_disclosure: 165,
       opening_room_with_recording_notice: 175,
-      opening_room_with_caller_memory: 141,
     },
     truthful_answer_rule: "The agent always answers honestly when a caller asks.",
     engine: "thinnest",
