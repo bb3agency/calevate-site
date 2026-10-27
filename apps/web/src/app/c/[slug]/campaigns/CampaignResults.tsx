@@ -141,17 +141,21 @@ export function CampaignResults({
         </Section>
       </div>
 
+      <Answers results={r} />
+
       {r.recent_leads.length > 0 && (
         <Section
           title="Leads from this campaign"
           headingLevel={3}
           action={
-            <Link
-              href={href(`/c/${slug}/calls?campaign_id=${campaignId}`)}
-              className={TEXT_ACTION}
-            >
-              All this campaign&rsquo;s calls
-            </Link>
+            <span className="flex flex-wrap gap-x-4 gap-y-1">
+              <Link href={href(`/c/${slug}/leads?campaign_id=${campaignId}`)} className={TEXT_ACTION}>
+                All its leads
+              </Link>
+              <Link href={href(`/c/${slug}/calls?campaign_id=${campaignId}`)} className={TEXT_ACTION}>
+                All its calls
+              </Link>
+            </span>
           }
         >
           <ul className="max-w-xl divide-y divide-line border-y border-line">
@@ -174,6 +178,68 @@ export function CampaignResults({
           )}
         </Section>
       )}
+    </div>
+  );
+}
+
+/**
+ * WHAT PEOPLE SAID (D-905): the agent's own outcomes over the answered calls, and each
+ * choice the agent asks about, counted over the people it spoke to. "Not given" is shown
+ * beside the choices so a short list of answers is not read as everyone's answer.
+ */
+function Answers({ results }: { results: Results }) {
+  const outcomes = results.business_outcomes;
+  const fields = results.fields.filter((field) => field.values.some((v) => v.count > 0) || field.not_captured > 0);
+  if (outcomes.length === 0 && fields.length === 0) return null;
+  return (
+    <Section title="What people said" headingLevel={3}>
+      <div className="grid grid-cols-1 gap-x-10 gap-y-6 md:grid-cols-2">
+        {outcomes.length > 0 && (
+          <CountList
+            title="How the calls ended for you"
+            rows={outcomes.map((o) => ({ key: o.key, label: o.label, count: o.count }))}
+            rest={{ label: "None of these", count: results.business_outcomes_unset }}
+          />
+        )}
+        {fields.map((field) => (
+          <CountList
+            key={field.key}
+            title={field.label}
+            rows={field.values.map((v) => ({ key: v.value, label: v.value, count: v.count }))}
+            rest={{ label: "Not given", count: field.not_captured }}
+          />
+        ))}
+      </div>
+    </Section>
+  );
+}
+
+function CountList({
+  title,
+  rows,
+  rest,
+}: {
+  title: string;
+  rows: { key: string; label: string; count: number }[];
+  rest: { label: string; count: number };
+}) {
+  return (
+    <div className="min-w-0 space-y-2">
+      <h4 className="text-body font-semibold text-ink">{title}</h4>
+      <dl className="divide-y divide-line border-y border-line">
+        {rows.map((row) => (
+          <div key={row.key} className="flex items-baseline justify-between gap-3 py-2 text-body">
+            <dt className="min-w-0 break-words text-ink">{row.label}</dt>
+            <dd className="shrink-0 tabular-nums text-ink-muted">{formatCount(row.count)}</dd>
+          </div>
+        ))}
+        {rest.count > 0 && (
+          <div className="flex items-baseline justify-between gap-3 py-2 text-body">
+            <dt className="min-w-0 text-ink-muted">{rest.label}</dt>
+            <dd className="shrink-0 tabular-nums text-ink-muted">{formatCount(rest.count)}</dd>
+          </div>
+        )}
+      </dl>
     </div>
   );
 }

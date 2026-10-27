@@ -33,7 +33,7 @@ type Outcome = NonNullable<SavedViewFilters["last_outcome"]>;
  * A saved view holds the whole lens except the search box and the question
  * (`crm.schemas.SavedViewFilters`), so `viewFilters` and `applyView` are exact inverses.
  */
-export function useLeadsLens(needKey: string = "need") {
+export function useLeadsLens(needKey: string = "need", initial: { campaignId?: string } = {}) {
   const [status, setStatus] = useState<string | undefined>();
   const [search, setSearch] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
@@ -67,6 +67,8 @@ export function useLeadsLens(needKey: string = "need") {
   const [callbackOpen, setCallbackOpen] = useState<boolean | undefined>();
   /** Captured details the rows must match ("city contains Hyd"). */
   const [captured, setCaptured] = useState<CapturedFilter[]>([]);
+  /** The leads one campaign reached, set by the link from its results (D-905). */
+  const [campaignId, setCampaignId] = useState<string | undefined>(initial.campaignId);
   const [activeViewId, setActiveViewId] = useState<string | undefined>();
   const [offset, setOffset] = useState(0);
 
@@ -93,6 +95,7 @@ export function useLeadsLens(needKey: string = "need") {
     follow_up: followUp,
     callback_open: callbackOpen,
     captured: captured.length ? captured : undefined,
+    campaign_id: campaignId,
     columns: chosenColumns ?? DEFAULT_LEAD_COLUMNS.map((key) => (key === "need" ? needKey : key)),
   };
 
@@ -128,6 +131,7 @@ export function useLeadsLens(needKey: string = "need") {
     follow_up: () => setFollowUp(undefined),
     callback_open: () => setCallbackOpen(undefined),
     captured: () => setCaptured([]),
+    campaign_id: () => setCampaignId(undefined),
   };
   const clearFilters = () => {
     for (const clear of Object.values(clearFilter)) clear();
@@ -172,6 +176,8 @@ export function useLeadsLens(needKey: string = "need") {
     setFollowUp(filters?.follow_up ?? undefined);
     setCallbackOpen(filters?.callback_open ?? undefined);
     setCaptured(filters?.captured ?? []);
+    // A view does not hold a campaign: that filter arrives only by its link.
+    setCampaignId(undefined);
   };
 
   // A changed FILTER returns to page one — page 4 of "hot" is not page 4 of "won". Keyed
@@ -255,6 +261,8 @@ export function useLeadsLens(needKey: string = "need") {
     setCallbackOpen,
     captured,
     setCaptured,
+    campaignId,
+    setCampaignId,
     activeViewId,
     setActiveViewId,
     offset,

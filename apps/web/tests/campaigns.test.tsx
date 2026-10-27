@@ -670,6 +670,41 @@ describe("one campaign's page", () => {
     expect(container.textContent).toContain("₹12.5");
   });
 
+  it("breaks the results down by the agent's outcomes and each choice it asks about", async () => {
+    const { container } = await renderClientPage(
+      campaignPage(),
+      detail(progressFixture({ status: "running", launched_at: "2026-10-14T04:30:00Z", total: 3 }), {
+        [`/v1/campaigns/${CAMPAIGN_ID}/results`]: resultsFixture({
+          contacts: 3,
+          tried: 3,
+          business_outcomes: [{ key: "onboarded", label: "Onboarded", count: 2 }],
+          business_outcomes_unset: 1,
+          fields: [
+            {
+              key: "registered",
+              label: "Registered on the app",
+              values: [
+                { value: "Yes", count: 2 },
+                { value: "No", count: 0 },
+              ],
+              not_captured: 1,
+            },
+          ],
+          leads: 1,
+          recent_leads: [{ id: "lead-1", name: "రాము", status: "contacted", updated_at: "2026-10-14T05:00:00Z" }],
+        }),
+      }),
+    );
+    await screen.findByText("What people said");
+    expect(container.textContent).toContain("Onboarded");
+    expect(container.textContent).toContain("None of these");
+    expect(container.textContent).toContain("Registered on the app");
+    expect(container.textContent).toContain("Not given");
+    expect(screen.getByRole("link", { name: "All its leads" }).getAttribute("href")).toBe(
+      `/c/acme/leads?campaign_id=${CAMPAIGN_ID}`,
+    );
+  });
+
   it("offers Call the unreached again only once the campaign has finished", async () => {
     await renderClientPage(
       campaignPage(),

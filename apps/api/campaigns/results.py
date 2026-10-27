@@ -163,6 +163,93 @@ async def contacts_page(
     return ContactsPage(items=items, total=total, counts=counts)
 
 
+#: The most values one field's breakdown lists: every declared value, then the most common
+#: undeclared ones (a schema edited after rows were captured) up to this many in all.
+MAX_BREAKDOWN_VALUES = 20
+
+
+async def _business_outcomes(session: AsyncSession, campaign_id: UUID) -> dict[str, Any]:
+    """What the connected calls came to in the agent's own outcome words (D-836): each
+    outcome's count under the label it was recorded with, most common first, and the
+    connected calls that came to none of them."""
+    rows = (
+        await session.execute(
+            text(
+                "SELECT business_outcome, max(business_outcome_label), count(*) FROM calls "
+                "WHERE campaign_id = :cid AND status = 'completed' "
+                "GROUP BY business_outcome ORDER BY count(*) DESC, business_outcome"
+            ),
+            {"cid": campaign_id},
+        )
+    ).all()
+    items = [
+        {"key": str(key), "label": str(label or key), "count": int(count)}
+        for key, label, count in rows
+        if key is not None
+    ]
+    unset = sum(int(count) for key, _, count in rows if key is None)
+    return {"business_outcomes": items, "business_outcomes_unset": unset}
+
+
+async def _field_breakdown(session: AsyncSession, campaign_id: UUID) -> list[dict[str, Any]]:
+    """Each choice field the campaign's agent captures (an `enum` of its extraction schema),
+    counted over the people its connected calls reached: how many leads hold each value, and
+    how many have none. A lead is counted once whichever of its calls captured the value."""
+    from apps.api.crm import columns as lead_columns
+    from apps.api.crm.service import lead_columns as schema_of
+
+    agent_id = (
+        await session.execute(
+            text("SELECT agent_id FROM campaigns WHERE id = :cid"), {"cid": campaign_id}
+        )
+    ).scalar()
+    fields = lead_columns.facetable(lead_columns.available(await schema_of(session, agent_id)))
+    if not fields:
+        return []
+    rows = (
+        await session.execute(
+            text(
+                "WITH people AS (SELECT DISTINCT l.id, l.data FROM calls k "
+                "  JOIN leads l ON l.id = k.lead_id "
+                "  WHERE k.campaign_id = :cid AND k.status = 'completed' AND l.deleted_at IS NULL) "
+                "SELECT f.key, nullif(btrim(p.data ->> f.key), ''), count(*) "
+                "FROM people p CROSS JOIN unnest(CAST(:keys AS text[])) AS f(key) "
+                "GROUP BY 1, 2"
+            ),
+            {"cid": campaign_id, "keys": [f.key for f in fields]},
+        )
+    ).all()
+    counted: dict[str, dict[str | None, int]] = {}
+    for key, value, count in rows:
+        counted.setdefault(str(key), {})[value] = int(count)
+    out = []
+    for field in fields:
+        seen = counted.get(field.key, {})
+        # Declared values in their declared order, matched without regard to case, zero
+        # included, so the screen shows every choice the agent offers.
+        declared = {value.lower(): value for value in field.enum_values}
+        totals: dict[str, int] = dict.fromkeys(field.enum_values, 0)
+        for value, count in seen.items():
+            if value is None:
+                continue
+            name = declared.get(value.lower(), value)
+            totals[name] = totals.get(name, 0) + count
+        extra = sorted(
+            ((v, c) for v, c in totals.items() if v not in field.enum_values),
+            key=lambda item: (-item[1], item[0]),
+        )
+        listed = [(v, totals[v]) for v in field.enum_values] + extra
+        out.append(
+            {
+                "key": field.key,
+                "label": field.label,
+                "values": [{"value": v, "count": c} for v, c in listed[:MAX_BREAKDOWN_VALUES]],
+                "not_captured": seen.get(None, 0),
+            }
+        )
+    return out
+
+
 async def summary(
     session: AsyncSession, *, campaign_id: UUID, include_spend: bool
 ) -> dict[str, Any]:
@@ -287,6 +374,8 @@ async def summary(
         ],
         "opt_outs": optouts,
         "credits_spent_inr": spend_inr,
+        **await _business_outcomes(session, campaign_id),
+        "fields": await _field_breakdown(session, campaign_id),
     }
 
 

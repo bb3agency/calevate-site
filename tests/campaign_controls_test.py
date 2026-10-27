@@ -8,6 +8,7 @@ tested together, and against a second tenant, so RLS is part of every answer.
 from __future__ import annotations
 
 import asyncio
+import json
 import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -813,6 +814,60 @@ async def test_results_count_outcomes_from_the_calls_and_spend_in_rupees() -> No
     assert summary["pickup_rate"] == 0.5
     assert summary["average_call_s"] == 90
     assert Decimal(summary["credits_spent_inr"]) == Decimal("7.50")
+
+
+async def test_results_break_down_the_agents_outcomes_and_each_choice_field() -> None:
+    """D-905: counts per business outcome over the answered calls, and per value of each
+    enum the agent captures over the people reached, with the gaps counted too."""
+    account = await _account()
+    campaign_id = await _campaign(account, contacts=3, status="running")
+    fields = [
+        {
+            "key": "registered",
+            "label": "Registered",
+            "type": "enum",
+            "enum_values": ["Yes", "No"],
+        }
+    ]
+    async with tenant_session(account.tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO extraction_schemas (id, tenant_id, agent_id, version, fields, "
+                "created_at, updated_at) VALUES (:id, :t, :a, 99, CAST(:f AS jsonb), now(), "
+                "now())"
+            ),
+            {"id": uuid7(), "t": account.tenant_id, "a": account.agent_id, "f": json.dumps(fields)},
+        )
+    answers = [
+        ("yes", "onboarded", "Onboarded"),
+        ("Yes", "onboarded", "Onboarded"),
+        (None, None, None),
+    ]
+    for n, (registered, key, label) in enumerate(answers):
+        phone = f"+91987650000{n}"
+        lead_id = await _lead(account, phone=phone, status="contacted")
+        call_id = await _call(account, campaign_id, status="completed", to=phone, duration=60)
+        async with tenant_session(account.tenant_id) as session:
+            await session.execute(
+                text("UPDATE leads SET data = CAST(:d AS jsonb) WHERE id = :l"),
+                {"d": json.dumps({"registered": registered} if registered else {}), "l": lead_id},
+            )
+            await session.execute(
+                text(
+                    "UPDATE calls SET lead_id = :l, business_outcome = :k, "
+                    "business_outcome_label = :lb WHERE id = :c"
+                ),
+                {"l": lead_id, "k": key, "lb": label, "c": call_id},
+            )
+    async with _client() as client:
+        summary = (
+            await client.get(f"/v1/campaigns/{campaign_id}/results", headers=account.headers)
+        ).json()
+    assert summary["business_outcomes"] == [{"key": "onboarded", "label": "Onboarded", "count": 2}]
+    assert summary["business_outcomes_unset"] == 1
+    registered = next(f for f in summary["fields"] if f["key"] == "registered")
+    assert registered["values"] == [{"value": "Yes", "count": 2}, {"value": "No", "count": 0}]
+    assert registered["not_captured"] == 1
 
 
 async def test_the_page_filters_by_status_and_counts_every_status() -> None:
