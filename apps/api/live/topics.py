@@ -125,6 +125,9 @@ TABLE_TOPICS: Final[dict[str, Topic]] = {
     "agent_health_windows": "agents",
     # The agent page's "Knows by heart", re-chosen by a worker the owner did not trigger.
     "agent_hot_facts": "agents",
+    # Tell my team (D-904): an agent's rule shows on its Settings; the addresses are the account's.
+    "team_alert_rules": "agents",
+    "team_alert_contacts": "account",
     "agent_rule_proposals": "agents",
     "agent_test_cases": "agents",
     "call_test_case_drafts": "agents",
@@ -247,6 +250,7 @@ QUIET_TABLES: Final[dict[str, str]] = {
     "audit_log": "the tamper-evident ledger; read on demand, and every write would echo",
     "first_run_recordings": "a brief clip kept only until it is text; its one screen polls it",
     "first_runs": "one owner's first-run state; the first-run screen polls it while a job runs",
+    "team_alerts": "the log of alerts sent to a business's own team; no screen lists it",
     "agent_test_copies": (
         "the developer-workspace copy a paid account's test call rides (D-859), republished "
         "before each call; no screen reads it"
