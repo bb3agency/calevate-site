@@ -112,10 +112,7 @@ async def terms_stating_expiry_accepted(session: AsyncSession, *, tenant_id: UUI
     terms = document("terms")
     assert terms is not None, "the catalogue lost its Terms of Service"
     versions = await session.execute(text(_TERMS_ACCEPTED_SQL), {"tid": tenant_id})
-    return any(
-        reached_revision(terms, str(version), stating)
-        for version in versions.scalars()
-    )
+    return any(reached_revision(terms, str(version), stating) for version in versions.scalars())
 
 
 async def credit_expiry_months_for(session: AsyncSession, *, tenant_id: UUID) -> int | None:
