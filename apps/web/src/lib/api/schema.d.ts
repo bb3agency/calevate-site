@@ -4410,6 +4410,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agents/{agent_id}/team-alert": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** When this agent tells your team about a caller */
+        get: operations["get_team_alert_rule_v1_agents__agent_id__team_alert_get"];
+        /** Set when this agent tells your team about a caller */
+        put: operations["set_team_alert_rule_v1_agents__agent_id__team_alert_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents/{agent_id}/test-cases": {
         parameters: {
             query?: never;
@@ -12248,6 +12266,92 @@ export interface paths {
         put?: never;
         /** Not something we answer: the question leaves the list */
         post: operations["dismiss_teach_question_v1_teach_questions__key__dismiss_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/team-alerts/contacts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The team addresses that may be told about a caller */
+        get: operations["list_team_contacts_v1_team_alerts_contacts_get"];
+        put?: never;
+        /** Add a team address; a six-digit code is emailed to it */
+        post: operations["add_team_contact_v1_team_alerts_contacts_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/team-alerts/contacts/{contact_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Stop telling this team address about callers */
+        delete: operations["remove_team_contact_v1_team_alerts_contacts__contact_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/team-alerts/contacts/{contact_id}/code": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Email a new code to a team address */
+        post: operations["resend_team_code_v1_team_alerts_contacts__contact_id__code_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/team-alerts/contacts/{contact_id}/default": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Make a team address the one agents use unless they name another */
+        post: operations["default_team_contact_v1_team_alerts_contacts__contact_id__default_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/team-alerts/contacts/{contact_id}/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Confirm a team address with the code emailed to it */
+        post: operations["verify_team_contact_v1_team_alerts_contacts__contact_id__verify_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -20668,6 +20772,13 @@ export interface components {
             label: string;
             /** Scenarios */
             scenarios: number;
+        };
+        /** FieldTriggerIO */
+        FieldTriggerIO: {
+            /** Key */
+            key: string;
+            /** Values */
+            values: string[];
         };
         /** FieldValueCountOut */
         FieldValueCountOut: {
@@ -29717,6 +29828,95 @@ export interface components {
             /** Words */
             words: string | null;
         };
+        /** TeamAlertChoiceOut */
+        TeamAlertChoiceOut: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Values */
+            values: string[];
+        };
+        /** TeamAlertRuleIn */
+        TeamAlertRuleIn: {
+            /** Contact Id */
+            contact_id?: string | null;
+            /**
+             * In Call
+             * @default false
+             */
+            in_call: boolean;
+            /** On Fields */
+            on_fields?: components["schemas"]["FieldTriggerIO"][];
+            /** On Outcomes */
+            on_outcomes?: string[];
+        };
+        /** TeamAlertRuleOut */
+        TeamAlertRuleOut: {
+            /** Contact Id */
+            contact_id: string | null;
+            /** Fields */
+            fields: components["schemas"]["TeamAlertChoiceOut"][];
+            /** In Call */
+            in_call: boolean;
+            /** In Call Live */
+            in_call_live: boolean;
+            /** On Fields */
+            on_fields: components["schemas"]["FieldTriggerIO"][];
+            /** On Outcomes */
+            on_outcomes: string[];
+            /** Outcomes */
+            outcomes: components["schemas"]["TeamAlertChoiceOut"][];
+            /** Sends To */
+            sends_to: string | null;
+        };
+        /** TeamCodeIn */
+        TeamCodeIn: {
+            /** Code */
+            code: string;
+        };
+        /** TeamContactIn */
+        TeamContactIn: {
+            /** Address */
+            address: string;
+            /**
+             * Channel
+             * @default email
+             * @enum {string}
+             */
+            channel: "email" | "whatsapp";
+            whatsapp?: components["schemas"]["TeamWhatsAppIn"] | null;
+        };
+        /** TeamContactOut */
+        TeamContactOut: {
+            /** Address */
+            address: string;
+            /**
+             * Channel
+             * @enum {string}
+             */
+            channel: "email" | "whatsapp";
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Is Default */
+            is_default: boolean;
+            /** Verified */
+            verified: boolean;
+            /** Whatsapp Account Id */
+            whatsapp_account_id: string | null;
+        };
+        /** TeamContactsOut */
+        TeamContactsOut: {
+            /** Contacts */
+            contacts: components["schemas"]["TeamContactOut"][];
+            /** Max Contacts */
+            max_contacts: number;
+            /** Whatsapp Accounts */
+            whatsapp_accounts: components["schemas"]["TeamWhatsAppAccountOut"][];
+        };
         /**
          * TeamMemberOut
          * @description One person who can sign in to this client's account right now.
@@ -29800,6 +30000,32 @@ export interface components {
              * @enum {string}
              */
             role: "owner" | "staff";
+        };
+        /** TeamWhatsAppAccountOut */
+        TeamWhatsAppAccountOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Label */
+            label: string;
+        };
+        /** TeamWhatsAppIn */
+        TeamWhatsAppIn: {
+            /**
+             * Account Id
+             * Format: uuid
+             */
+            account_id: string;
+            /** Body Values */
+            body_values: ("name" | "phone" | "why" | "link")[];
+            /** Language */
+            language?: string | null;
+            /** Phone Number Id */
+            phone_number_id?: string | null;
+            /** Template */
+            template: string;
         };
         /** TemplateOut */
         TemplateOut: {
@@ -31399,6 +31625,8 @@ export interface components {
             minutes_used: number;
             /** On Trial */
             on_trial: boolean;
+            /** Own Number Max Call Seconds */
+            own_number_max_call_seconds?: number | null;
             /**
              * Paid Test Calls
              * @default false
@@ -41243,6 +41471,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DraftOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_team_alert_rule_v1_agents__agent_id__team_alert_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamAlertRuleOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_team_alert_rule_v1_agents__agent_id__team_alert_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TeamAlertRuleIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamAlertRuleOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -55300,6 +55594,194 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["QuestionSettledOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_team_contacts_v1_team_alerts_contacts_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamContactsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    add_team_contact_v1_team_alerts_contacts_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TeamContactIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamContactsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    remove_team_contact_v1_team_alerts_contacts__contact_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                contact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    resend_team_code_v1_team_alerts_contacts__contact_id__code_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                contact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamContactsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    default_team_contact_v1_team_alerts_contacts__contact_id__default_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                contact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamContactsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    verify_team_contact_v1_team_alerts_contacts__contact_id__verify_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                contact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TeamCodeIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamContactsOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

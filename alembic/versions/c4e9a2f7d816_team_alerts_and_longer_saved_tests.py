@@ -1,7 +1,7 @@
 """team alerts (contacts, per-agent rules, deliveries); saved tests up to 20 caller lines
 
 Revision ID: c4e9a2f7d816
-Revises: d8f3a6c1e924
+Revises: e7c2a9b4d158
 Create Date: 2026-10-27 23:30:00.000000
 
 D-904 (founder, 27 Oct 2026).
@@ -30,7 +30,7 @@ from sqlalchemy.dialects import postgresql
 from apps.api.db.migration_offline import execute_data_statement
 
 revision: str = "c4e9a2f7d816"
-down_revision: str | None = "d8f3a6c1e924"
+down_revision: str | None = "e7c2a9b4d158"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
