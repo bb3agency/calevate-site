@@ -113,7 +113,9 @@ function Row({ item, next = false, nextLabel }: { item: ChecklistItem; next?: bo
       {/* The text and the action WRAP rather than share a line at any cost: the text asks
           for at least 14rem, and when that and the action do not both fit, the action
           drops under the text instead of squeezing it to a word per line. */}
-      <div className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-x-4 gap-y-1.5">
+      {/* `touch:min-h-11` matches a row with no action to one whose action is touch-sized,
+          so a done step without a link does not sit shorter than its neighbours. */}
+      <div className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-x-4 gap-y-1.5 touch:min-h-11">
         <div className="min-w-0 grow basis-56">
           {next && nextLabel ? (
             <p className="text-meta font-semibold text-brand-strong">{nextLabel}</p>

@@ -36,10 +36,12 @@ export function InfoTip({
       align={align}
       className="w-72"
       trigger={
+        // `touch:-my-2.5` keeps the 44px touch target while the button takes only 24px of
+        // its line, so an ⓘ at the end of a sentence does not open a gap above it.
         <button
           type="button"
           aria-label={`About ${label}`}
-          className={`press inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full align-middle text-ink-faint hover:bg-ink/[0.06] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand data-[state=open]:bg-ink/[0.06] data-[state=open]:text-ink touch:h-11 touch:w-11 ${className}`}
+          className={`press inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full align-middle text-ink-faint hover:bg-ink/[0.06] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand data-[state=open]:bg-ink/[0.06] data-[state=open]:text-ink touch:-my-2.5 touch:h-11 touch:w-11 ${className}`}
         >
           <Info aria-hidden className="h-4 w-4" />
         </button>

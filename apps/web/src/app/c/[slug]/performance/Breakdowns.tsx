@@ -166,7 +166,7 @@ export function CallGroupsTable({ range }: { range: AnalyticsRange }) {
       header: by === "caller" ? "Caller" : by === "outcome" ? "Outcome" : "Agent",
       cell: (group) =>
         by === "caller" && group.lead_id ? (
-          <Link href={`/c/${slug}/leads/${group.lead_id}`} className="underline-offset-2 hover:underline [overflow-wrap:anywhere]">
+          <Link href={`/c/${slug}/leads/${group.lead_id}`} className="font-medium underline-offset-2 hover:underline [overflow-wrap:anywhere] after:absolute after:inset-0 focus-visible:outline-none focus-visible:after:rounded-md focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-brand">
             {groupName(group, by)}
           </Link>
         ) : (

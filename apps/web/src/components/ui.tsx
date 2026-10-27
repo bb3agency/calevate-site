@@ -192,7 +192,7 @@ export function ToggleSwitch({
 }) {
   return (
     <div className={className}>
-      <label className="flex cursor-pointer items-start gap-3">
+      <label className="flex cursor-pointer items-start gap-3 touch:min-h-11 touch:py-2.5">
         <input
           type="checkbox"
           role="switch"
@@ -1188,7 +1188,7 @@ export function NoticeBox({
       {/* With no title, the ⓘ sits with the action rather than inside the sentence: its
           44px touch target would otherwise open a gap in the line it interrupts. */}
       {(action || (!title && info)) && (
-        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0">
+        <div className="flex w-full max-w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0">
           {!title && info && <InfoTip label={tipLabel}>{info}</InfoTip>}
           {action}
         </div>

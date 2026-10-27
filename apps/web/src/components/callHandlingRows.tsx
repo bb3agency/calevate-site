@@ -120,7 +120,7 @@ export function ScopeChoice({
       <legend className="mb-2 text-sm font-semibold text-ink">Use this for</legend>
       <div className="space-y-2">
         {choices.map((choice) => (
-          <label key={choice.value} className="flex items-start gap-2 text-sm text-ink">
+          <label key={choice.value} className="flex items-start gap-2 text-sm text-ink touch:min-h-11 touch:py-2.5">
             <input
               type="radio"
               name={`${id}-scope`}
@@ -154,7 +154,7 @@ export function DefaultCheckbox({
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <label className="flex items-start gap-2 text-sm text-ink">
+    <label className="flex items-start gap-2 text-sm text-ink touch:min-h-11 touch:py-2.5">
       <input
         type="checkbox"
         checked={checked}

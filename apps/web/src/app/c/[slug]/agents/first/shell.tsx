@@ -180,13 +180,13 @@ export function StepRail({
                 <button
                   type="button"
                   onClick={() => onGo(index)}
-                  className={`press ${look.step} gap-2.5 rounded-md px-1 py-1 text-left hover:bg-ink/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand`}
+                  className={`press ${look.step} gap-2.5 rounded-md px-1 py-1 text-left hover:bg-ink/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11`}
                 >
                   {tile}
                   <span className="sr-only">, done. Go back to it</span>
                 </button>
               ) : (
-                <span className={`${look.step} gap-2.5 px-1 py-1`}>{tile}</span>
+                <span className={`${look.step} gap-2.5 px-1 py-1 touch:min-h-11`}>{tile}</span>
               )}
             </li>
           );
