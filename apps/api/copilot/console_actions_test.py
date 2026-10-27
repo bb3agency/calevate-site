@@ -163,6 +163,7 @@ def test_the_console_actions_are_appended_after_the_earlier_ones() -> None:
         + len(CAMPAIGN_ACTIONS)
         + len(ROUTINE_ACTIONS)
         + len(LEAD_ACTIONS)
+        + 1  # CAMPAIGN_CONSENT_SET
     )
     assert names[-len(console) - later : -later] == console
     assert len(set(names)) == len(names)

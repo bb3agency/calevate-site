@@ -85,6 +85,7 @@ def test_each_is_on_its_buttons_permission_and_only_the_form_filler_skips_the_cl
         + len(CAMPAIGN_ACTIONS)
         + len(ROUTINE_ACTIONS)
         + len(LEAD_ACTIONS)
+        + 1  # CAMPAIGN_CONSENT_SET
     )
     assert write_tools.WRITE_TOOLS[-count - after : -after] == assist_actions.ASSIST_ACTIONS
 
