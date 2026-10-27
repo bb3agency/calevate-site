@@ -1968,7 +1968,7 @@ Built as D-884.
 Still open after §35: a forced refresh of `GET /byok/voices` (requested); the longer-first-
 words and repeated-hello behaviour, which only a call can show.
 
-## 36. Reply times on our calls (SENT by the founder 27 Oct 2026 with a new item on the lost opening "Hello"; awaiting reply)
+## 36. Reply times on our calls (SENT by the founder 27 Oct 2026 with a new item on the lost opening "Hello"; answered 27 Oct 2026, §37)
 
 From the latency research of 27 Oct 2026 (`docs/evidence/latency-research-2026-10-27.md`
 §4, questions T1-T6; T7, GPT-Live-1, is left out by the founder's decision of 27 Oct 2026).
@@ -2021,6 +2021,82 @@ What each answer changes:
 >    only once a full sentence is ready?
 > 6. **Region.** Where do the call audio, the speech recogniser, and the requests to Cartesia
 >    and Gemini run?
+>
+> Thanks,
+> Umesh
+
+## 37. Ashutosh's answer to §36, received 27 Oct 2026
+
+Founder-relayed email (**VENDOR-STATED**, 27 Oct 2026), in substance and item by item. None
+of it is in the docs mirror yet (latest snapshot 2026-10-19); the new field is to be read in
+`api-reference/agents/update-agent` once it is live. Built as D-901.
+
+1. **The lost "Hello" (our item 1).** On `out_06a14de6-885a-4f95-9523-85318dde7795` the carrier
+   answered at 13:19:59 IST and their audio stream was up within about a second. Nothing was
+   heard until 3.6 s (the caller's "Hello"), which was transcribed 0.95 s later, and the
+   opening played as the reply to it; the four-second silent fallback did not fire. A "Hello"
+   said at the instant of pickup comes before their stream starts and cannot be caught.
+2. **A shorter silent fallback.** **Live from 28 Oct 2026**: `voice.openingWaitSeconds`,
+   0.5 to 10 seconds to a tenth, sent with `voice.openingWaitsForCaller: true`; `null` is the
+   default 4 s. It is read when a call starts, so it applies to calls placed after it is set.
+   The console has a box for it under "Wait for the customer to speak first". He suggests
+   starting at 1.5 s. Trade-off: a short wait can talk over a caller whose "Hello" is slow.
+3. **Fillers in the reply time (T1).** A filler (thinking line) or an Ear acknowledgement that
+   plays first **ends** the `responseMs` measurement. The time to the first word of the actual
+   answer is not reported. With our `thinkingDelayMs` of 2,000 ms, our 2,122 ms median is
+   partly the filler timer.
+4. **Where the time goes (T2).** Per-turn split on `out_06a14de6` (milliseconds): Ear's pause
+   check about 203 (172 to 208; 572 once, while a number was being dictated); the model's
+   first sentence about 970 (267 to 1,906); the voice's first audio about 190 (147 to 279);
+   turn decided to first audio 1,165 median (468 to 2,106). The remaining ~950 ms of the
+   median falls before the turn is decided. On the other call (`out_bb3adc74-…`): pause check
+   median 255, turn decided to first audio median 1,609. The split is **not** in Get Call.
+5. **Knowledge on calls (T3).** The switch exists in the console, but the tools API does not
+   accept it yet. There is no per-call count of knowledge searches.
+6. **Ear's second check (T4).** About 0.2 s on average; not tunable per agent.
+7. **When speech starts (T5).** The voice starts speaking at the first clause: a comma, dash
+   or semicolon once three words exist. Later text goes at sentence ends. With no early comma,
+   the first full sentence is the wait.
+8. **Region (T6).** Audio, speech recognition and orchestration run in Mumbai; about 29 ms to
+   Cartesia and about 5 ms to Gemini. Where the model providers serve from is not known to
+   them.
+9. **Suggestion.** Try Timer turn detection.
+
+**What we do (D-901):**
+- Item 2: `voice.openingWaitSeconds` is built, behind the console setting
+  `thinnest_opening_wait_ms`, which starts **unset** so nothing changes on the wire before the
+  field is live; the founder sets it (1.5 s) once it is. Clients can then set their own on the
+  agent's Settings, for one agent or all of them. Sent only beside the switch on, never null.
+- Item 3: every reply-time figure and target now reads as the wait for the agent's **first
+  sound**; turns that open with one of our filler lines are counted from the transcript
+  (whether fillers are transcribed is UNKNOWN) and the typical figure is also given over calls
+  with none found. No time-to-answer is invented.
+- Item 7: our spoken-style rule asks replies to open with a few words and a comma, at five
+  characters fewer; the time saved is not measured.
+- Item 9: an operator can put one agent (Anjali) on Timer without moving every agent; each
+  call records the mode it ran on, so five calls each can be compared on the reply-time screen.
+- Items 4-6, 8: recorded; nothing to build. The ~950 ms before the turn is decided is where the
+  Ear/Timer comparison will tell us most.
+
+### 37.1 Our reply (drafted 27 Oct 2026; the founder sends)
+
+> Subject: Re: Reply times on our calls
+>
+> Hi Ashutosh,
+>
+> Thank you, this is exactly what we needed.
+>
+> We have built `voice.openingWaitSeconds` and will switch it on at 1.5 s for our outbound
+> agents once it is live on 28 Oct. Could you confirm when it is live, and whether an agent
+> write that includes the field is refused before then?
+>
+> On reply times: since a filler or acknowledgement ends `responseMs`, could `quality` also
+> report the time to the first word of the actual answer, or a count of turns where a filler
+> played first? Even the per-turn split you sent for `out_06a14de6` in Get Call would let us
+> see where the ~950 ms before the turn is decided goes.
+>
+> We will try Timer turn detection on one agent and compare a few calls each way. Also: when
+> the tools API accepts the knowledge-on-calls switch, please let us know.
 >
 > Thanks,
 > Umesh
