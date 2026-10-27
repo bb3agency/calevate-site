@@ -60,6 +60,7 @@ from apps.api.copilot import (
     console_reads,
     jobs,
     navigation,
+    routine_actions,
     write_tools,
 )
 from apps.api.copilot import admin_prompt as admin_prompt_module
@@ -995,6 +996,12 @@ def build_messages(
     return messages
 
 
+def _shared_reads() -> tuple[tools_module.ReadTool, ...]:
+    """The account reads both realms carry. D-698: `console_reads.CONSOLE_READ_TOOLS`
+    follows `READ_TOOLS`, so the earlier tools keep their place in the cacheable prefix."""
+    return (*tools_module.READ_TOOLS, *console_reads.CONSOLE_READ_TOOLS)
+
+
 def realm_read_tools(realm: CopilotRealm) -> tuple[tools_module.ReadTool, ...]:
     """The read tools of ONE realm, in a FIXED order. The single enumeration (D-499).
 
@@ -1011,12 +1018,11 @@ def realm_read_tools(realm: CopilotRealm) -> tuple[tools_module.ReadTool, ...]:
     what makes "the tenant currently being viewed" a real capability rather than a second
     implementation of six tools that already exist.
     """
-    # D-698: `console_reads.CONSOLE_READ_TOOLS` follows `READ_TOOLS` in both realms, so the
-    # earlier tools keep their place in the cacheable prefix.
-    client_reads = (*tools_module.READ_TOOLS, *console_reads.CONSOLE_READ_TOOLS)
     if realm == "admin":
-        return (*admin_tools.ADMIN_READ_TOOLS, *client_reads)
-    return client_reads
+        return (*admin_tools.ADMIN_READ_TOOLS, *_shared_reads())
+    # A routine is one client person's; an operator has none in the account, so the admin
+    # surfaces do not carry a read that could only refuse (D-816).
+    return (*_shared_reads(), *routine_actions.ROUTINE_READS)
 
 
 def _read_tool_registry(realm: CopilotRealm) -> Mapping[str, tools_module.ReadTool]:
@@ -1078,11 +1084,11 @@ def tool_array(realm: CopilotRealm, *, account_open: bool = True) -> list[dict[s
     `copilot/tool_surfaces_test.py` pin the byte-identity and the three lists.
     """
     if realm == "admin":
-        account_reads = [tool for tool in realm_read_tools("client") if tool.scope == "tenant"]
+        account_reads = [tool for tool in _shared_reads() if tool.scope == "tenant"]
         return [
             prompt_module.set_fields_tool(),
             *[_read_schema(tool) for tool in admin_tools.ADMIN_READ_TOOLS],
-            *[_read_schema(tool) for tool in realm_read_tools("client") if tool.scope != "tenant"],
+            *[_read_schema(tool) for tool in _shared_reads() if tool.scope != "tenant"],
             *admin_actions.admin_action_schemas(),
             admin_screens.admin_open_screen_tool(),
             *([_read_schema(tool) for tool in account_reads] if account_open else []),

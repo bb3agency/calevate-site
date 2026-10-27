@@ -215,6 +215,14 @@ async def _seed_one_of_everything(tenant_id: uuid.UUID, user_id: uuid.UUID) -> d
                 "VALUES (:i, :t, :a, 'text', 'Adversarial kb')",
                 {},
             ),
+            # A typed note (D-893 L7): a text source no upload hangs off.
+            (
+                "note_id",
+                "kb_sources",
+                "(id, tenant_id, agent_id, kind, name) "
+                "VALUES (:i, :t, :a, 'text', 'Adversarial note')",
+                {},
+            ),
             (
                 "invitation_id",
                 "invitations",
@@ -812,6 +820,10 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("GET", "/v1/kb/uploads/{upload_id}/text", {}, {}),
     ("PATCH", "/v1/kb/uploads/{upload_id}", {"name": "Summer prices"}, {}),
     ("POST", "/v1/kb/uploads/{upload_id}/read", {}, {}),
+    # D-893 L7: a typed note renamed, removed and put back from the knowledge page.
+    ("PATCH", "/v1/kb/notes/{note_id}", {"name": "Summer hours"}, {}),
+    ("POST", "/v1/kb/notes/{note_id}/remove", {}, {}),
+    ("POST", "/v1/kb/notes/{note_id}/restore", {}, {}),
     # D-893 F3: a plan, its targets, and its one click either way.
     ("GET", "/v1/copilot/plans/{plan_id}", {}, {}),
     ("GET", "/v1/copilot/plans/{plan_id}/targets", {}, {}),

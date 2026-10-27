@@ -587,6 +587,123 @@ async def rename_upload(
     return UploadOut.model_validate(await uploads.get_upload(session, upload_id))
 
 
+# --- typed notes: list, rename, remove, put back (D-893 L7) ---------------------------
+
+
+class NoteOut(Strict):
+    #: The newest version's id: what the preview, rename, remove and restore take.
+    id: UUID
+    name: str
+    state: Literal["in_use", "in_review", "needs_attention", "getting_ready", "removed"]
+    version: int
+    chunks: int
+    changed_at: datetime
+    restorable: bool
+
+
+class NotesOut(Strict):
+    notes: list[NoteOut]
+
+
+def _note_out(note: store.Note) -> NoteOut:
+    return NoteOut(
+        id=note.id,
+        name=note.name,
+        state=note.state,
+        version=note.version,
+        chunks=note.chunks,
+        changed_at=note.changed_at,
+        restorable=note.restorable,
+    )
+
+
+async def _note_audit(
+    session: AsyncSession, principal: Principal, request: Request, *, action: str, note_id: UUID
+) -> None:
+    await write_audit(
+        session,
+        action=action,
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="kb_source",
+        object_id=str(note_id),
+        ip=client_request_ip(request),
+        # Ids only: a note's name is the client's business data (hard rule 6).
+        summary={"note": True},
+    )
+
+
+@router.get(
+    "/notes",
+    response_model=NotesOut,
+    openapi_extra=permission_meta("agents:read"),
+    summary="Typed notes, newest change first, removed ones included so they can be put back",
+)
+async def list_notes(session: Session, _: Principal = Depends(requires("agents:read"))) -> NotesOut:
+    return NotesOut(notes=[_note_out(note) for note in await store.list_notes(session)])
+
+
+@router.patch(
+    "/notes/{note_id}",
+    response_model=NoteOut,
+    openapi_extra=permission_meta("kb:write"),
+    summary="Rename a typed note",
+    description="Every version is renamed, so its history stays one item.",
+)
+async def rename_note(
+    note_id: UUID,
+    payload: RenameIn,
+    session: Session,
+    request: Request,
+    principal: Principal = Depends(requires_kb_curation()),
+) -> NoteOut:
+    assert principal.tenant_id is not None
+    note = await store.read_note(session, note_id)
+    await store.rename_source(
+        session, tenant_id=principal.tenant_id, source_id=note.id, name=payload.name
+    )
+    await _note_audit(session, principal, request, action="kb.renamed", note_id=note.id)
+    return _note_out(await store.read_note(session, note.id))
+
+
+@router.post(
+    "/notes/{note_id}/remove",
+    response_model=NoteOut,
+    openapi_extra=permission_meta("kb:write"),
+    summary="Take a typed note off every agent, keeping its versions so it can be put back",
+)
+async def remove_note(
+    note_id: UUID,
+    session: Session,
+    request: Request,
+    principal: Principal = Depends(requires_kb_curation()),
+) -> NoteOut:
+    assert principal.tenant_id is not None
+    note = await store.read_note(session, note_id)
+    await store.remove_note(session, tenant_id=principal.tenant_id, source_id=note.id)
+    await _note_audit(session, principal, request, action="kb.removed", note_id=note.id)
+    return _note_out(await store.read_note(session, note.id))
+
+
+@router.post(
+    "/notes/{note_id}/restore",
+    response_model=NoteOut,
+    openapi_extra=permission_meta("kb:write"),
+    summary="Put a removed note back on every agent, as it last was",
+)
+async def restore_note(
+    note_id: UUID,
+    session: Session,
+    request: Request,
+    principal: Principal = Depends(requires_kb_curation()),
+) -> NoteOut:
+    assert principal.tenant_id is not None
+    note = await store.read_note(session, note_id)
+    await store.restore_note(session, tenant_id=principal.tenant_id, source_id=note.id)
+    await _note_audit(session, principal, request, action="kb.restored", note_id=note.id)
+    return _note_out(await store.read_note(session, note.id))
+
+
 @router.post(
     "/uploads/{upload_id}/read",
     response_model=UploadOut,

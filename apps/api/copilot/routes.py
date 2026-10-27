@@ -708,6 +708,7 @@ async def ask_copilot(
                 role=principal.role,
                 # The gate above refused an account that has not turned Pip on.
                 unmasked=Unmasked(actor=principal, ip=client_request_ip(request)),
+                user_id=principal.client_user_id,
             ),
             live=live,
             # WHO THE ACTIONS RUN AS, and it is the verified principal itself rather than
