@@ -168,7 +168,7 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
     # --- actions ------------------------------------------------------------------------
     AreaEntry("lead_set_status", "leads", "one lead's status; many leads: leads_bulk_update"),
     AreaEntry("dnc_add", "leads", "stop calling one lead's number"),
-    AreaEntry("campaign_pause", "campaigns", "pause a running campaign"),
+    AreaEntry("campaign_pause", "campaigns", "pause a running campaign; for good: campaign_stop"),
     AreaEntry(
         "propose_knowledge",
         "knowledge",
@@ -203,7 +203,7 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
     AreaEntry(
         "campaign_add_leads",
         "campaigns",
-        "add leads to a draft campaign, by `lens` (filters) or lead_ids",
+        "add leads to a draft campaign, by `lens` or lead_ids; a list: campaign_contacts_add",
     ),
     AreaEntry("campaign_schedule", "campaigns", "start a draft campaign later"),
     AreaEntry("campaign_unschedule", "campaigns", "cancel a scheduled start"),
@@ -382,6 +382,21 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
         "agents",
         "save a hand-written practice test; from a call: call_test_prepare",
     ),
+    # D-893 L3: the campaign screen's remaining buttons.
+    AreaEntry("campaign_edit", "campaigns", "a draft's name, agent, pace, hours or tries"),
+    AreaEntry("campaign_repeat", "campaigns", "start it every week on these days (1=Mon)"),
+    AreaEntry(
+        "campaign_stop",
+        "campaigns",
+        "end for good; for now: campaign_pause; draft: campaign_delete",
+    ),
+    AreaEntry("campaign_delete", "campaigns", "delete a draft; launched: campaign_stop"),
+    AreaEntry(
+        "campaign_contacts_add",
+        "campaigns",
+        "people from a pasted or attached list; leads: campaign_add_leads",
+    ),
+    AreaEntry("campaign_contacts_remove", "campaigns", "take people off before they are called"),
 )
 
 AREA_OF: Final[dict[str, Area]] = {entry.tool: entry.area for entry in ENTRIES}

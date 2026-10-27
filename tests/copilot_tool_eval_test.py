@@ -168,6 +168,9 @@ SIBLINGS = (
     ("billing_overview", "billing_settings"),
     ("call_place", "calls_place_bulk"),
     ("callback_book", "callbacks_book_bulk"),
+    ("campaign_pause", "campaign_stop"),
+    ("campaign_stop", "campaign_delete"),
+    ("campaign_add_leads", "campaign_contacts_add"),
 )
 
 

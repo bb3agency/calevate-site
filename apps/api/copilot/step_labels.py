@@ -156,6 +156,14 @@ STEP_LABELS: Final[dict[str, StepLabel]] = {
     "agent_test_add": _l("Saving the practice test", "Saved the practice test"),
     "callbacks_book_bulk": _l("Preparing the call-backs", "Prepared the call-backs"),
     "calls_place_bulk": _l("Preparing the calls", "Prepared the calls"),
+    "campaign_edit": _l("Changing the campaign", "Changed the campaign"),
+    "campaign_repeat": _l("Preparing the repeat", "Prepared the repeat"),
+    "campaign_stop": _l("Preparing to stop the campaign", "Prepared to stop the campaign"),
+    "campaign_delete": _l("Preparing to delete the draft", "Prepared to delete the draft"),
+    "campaign_contacts_add": _l("Preparing the people to add", "Prepared the people to add"),
+    "campaign_contacts_remove": _l(
+        "Preparing the people to take off", "Prepared the people to take off"
+    ),
     "open_screen": _l("Opening the screen", "Opened the screen"),
     "run_in_background": _l("Starting a background task", "Started a background task"),
     # Operator reads and actions (admin realm).

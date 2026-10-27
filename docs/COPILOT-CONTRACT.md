@@ -771,3 +771,21 @@ construction. What the framework does with it:
 
 Tests: `apps/api/copilot/plans_test.py`. Alarm: `copilot_plans_resume_failed`
 (`runbooks/copilot-plan-stuck.md`).
+
+## 20. The campaign screen's buttons (D-893 lane L3, `copilot/campaign_actions.py`)
+
+| Tool | Tier, audit | Executor (the button's function) |
+|---|---|---|
+| `campaign_edit` | immediate with Undo, `campaign.updated` | `controls.update_draft` with `service.validated_window` and `validated_retry_policy` (`PATCH /v1/campaigns/{id}`); `tries` alone keeps the chosen waits |
+| `campaign_repeat` | confirm, `campaign.recurrence_set` | `scheduling.schedule_recurrence` (`POST .../recurrence`); `until` is the last IST day |
+| `campaign_stop` | confirm, `campaign.stopped` | `controls.stop_campaign` (`POST .../stop`) |
+| `campaign_delete` | confirm, `campaign.deleted` | `controls.delete_draft` (`DELETE /v1/campaigns/{id}`); kept as stopped when calls name it |
+| `campaign_contacts_add` | confirm, `campaign.contacts_added` | `service.add_contacts` (`POST .../contacts`), at most 100 rows from a list the person pasted or attached |
+| `campaign_contacts_remove` | confirm, `campaign.contacts_removed` | `controls.remove_contacts` (`POST .../contacts/remove`); `who` (names or numbers) is resolved to contact ids on the card, so confirming removes exactly the people it listed |
+
+All are `leads:dispatch`, the campaign buttons' permission, and area `campaigns`. None runs
+the launch gate, exactly as the buttons do not: a repeat runs the gate each time it fires and
+every dial runs `check_dispatch` and the big red switch. Leads already in the account go in
+through `campaign_add_leads` (a plan, §19). Tests: `apps/api/copilot/campaign_actions_test.py`;
+tool choice: the `c-campaign-retry`, `-repeat`, `-stop`, `-delete`, `-list-add` and `-remove`
+cases.

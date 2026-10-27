@@ -289,6 +289,13 @@ def test_the_tool_schemas_are_the_same_bytes_for_every_caller() -> None:
         # D-893's plan-backed set actions APPEND.
         "callbacks_book_bulk",
         "calls_place_bulk",
+        # D-893 lane L3's campaign buttons APPEND.
+        "campaign_edit",
+        "campaign_repeat",
+        "campaign_stop",
+        "campaign_delete",
+        "campaign_contacts_add",
+        "campaign_contacts_remove",
     ]
     for schema in write_tools.write_tool_schemas():
         function = schema["function"]

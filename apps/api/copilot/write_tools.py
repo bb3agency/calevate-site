@@ -126,6 +126,7 @@ from apps.api.copilot.agent_actions import AGENT_ACTIONS
 from apps.api.copilot.agent_setup_actions import AGENT_SETUP_ACTIONS
 from apps.api.copilot.agent_tool_actions import AGENT_TOOL_ACTIONS
 from apps.api.copilot.assist_actions import ASSIST_ACTIONS
+from apps.api.copilot.campaign_actions import CAMPAIGN_ACTIONS
 from apps.api.copilot.console_actions import CONSOLE_ACTIONS
 from apps.api.copilot.fact_actions import FACT_ACTIONS
 from apps.api.copilot.knowledge_actions import KNOWLEDGE_ACTIONS
@@ -950,6 +951,8 @@ WRITE_TOOLS: Final[tuple[ActionTool, ...]] = (
     *TRAINING_ACTIONS,
     # D-893: plan-backed actions over a set (`set_actions.py`).
     *SET_ACTIONS,
+    # D-893 lane L3: the campaign screen's remaining buttons.
+    *CAMPAIGN_ACTIONS,
 )
 
 _BY_NAME: Final[dict[str, WriteTool]] = {tool.name: tool for tool in WRITE_TOOLS}
