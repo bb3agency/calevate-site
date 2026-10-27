@@ -81,7 +81,7 @@ async def test_a_console_change_is_drift_and_repair_sends_both_fields() -> None:
         client=httpx.AsyncClient(base_url=BASE_URL, transport=httpx.MockTransport(handler)),
     )
     drifted = await engine.settings_drift(AGENT, cfg)
-    assert drifted == ["opening_waits_for_caller"]
+    assert drifted == ["opening_wait"]
     await engine.repair_settings(AGENT, cfg, drifted)
     assert sent == [{"voice": {"openingWaitsForCaller": True, "openingWaitSeconds": 1.5}}]
     # `1.50` read back is the same wait; an unstated wait is not compared.

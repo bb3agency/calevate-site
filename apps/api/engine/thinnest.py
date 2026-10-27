@@ -1223,6 +1223,22 @@ def _digits(value: Any) -> str | None:
     return "".join(ch for ch in value if ch.isdigit()) or None
 
 
+#: Whether the agent searches its knowledge during phone and web calls: a top-level boolean
+#: of `PATCH`/`GET /agents/{id}/tools`, on unless switched off, chat unaffected
+#: (docs.thinnest.ai/api-reference/tools/update-built-in-tools and list-built-in-tools, read
+#: 27 Oct 2026; live per ThinnestAI's email of 27 Oct 2026, VENDOR-STATED).
+KNOWLEDGE_ON_CALLS_FIELD: Final = "knowledgeOnCalls"
+
+
+def _knowledge_on_calls(cfg: AgentConfig) -> bool:
+    """On whenever the business's facts are held as knowledge or the prompt names the search
+    tool (`calevate_shared.engine._knowledge_section`), so on every publish to this engine
+    (`hosted_platform.THINNEST_LIMITS`). Stated rather than left to the vendor default: with
+    search off an agent whose facts live in its knowledge would answer that it does not
+    know them."""
+    return cfg.facts_in_knowledge or cfg.knowledge_tool is not None
+
+
 def _tools_drift(wanted: dict[str, Any], held: dict[str, Any]) -> list[str]:
     """Which of `built_in_tools_body`'s settings the vendor does NOT hold, by our names.
 
@@ -1241,6 +1257,10 @@ def _tools_drift(wanted: dict[str, Any], held: dict[str, Any]) -> list[str]:
     drifted = [
         f"tools.{tool}" for tool, on in wanted["tools"].items() if switches.get(tool) is not on
     ]
+    # A required boolean in every answer (docs.thinnest.ai/api-reference/tools/
+    # list-built-in-tools, `AgentBuiltInTools`, read 27 Oct 2026): absent is drift too.
+    if held.get(KNOWLEDGE_ON_CALLS_FIELD) is not wanted[KNOWLEDGE_ON_CALLS_FIELD]:
+        drifted.append(KNOWLEDGE_ON_CALLS_FIELD)
     want, have = wanted["handOver"], held.get("handOver")
     have = have if isinstance(have, dict) else {}
     if want["mode"] == "call":
@@ -1294,6 +1314,8 @@ def handoff_agents_body(
     return [{"agent": raw_of(t.engine_agent_ref), "when": t.when} for t in targets]
 
 
+_OPENING_WAIT_KEY: Final = "voice.openingWaitSeconds"
+
 #: Our setting label (`agents/engine_settings.AGENT_SETTING_LABELS`) -> the agent field that
 #: carries it (`voice.` for a field of the agent's `voice` object, update-agent.md:940-1016).
 _SETTING_KEYS: Final[dict[str, tuple[str, ...]]] = {
@@ -1306,7 +1328,8 @@ _SETTING_KEYS: Final[dict[str, tuple[str, ...]]] = {
     "caller_memory": ("voice.pastConversations",),
     "machine_detection": ("voice.detectMachines",),
     "end_call_on_finish": ("voice.endCallOnFinish",),
-    "opening_waits_for_caller": ("voice.openingWaitsForCaller", "voice.openingWaitSeconds"),
+    "opening_waits_for_caller": ("voice.openingWaitsForCaller",),
+    "opening_wait": (_OPENING_WAIT_KEY,),
     "speaking_speed": ("voice.speakingSpeed",),
     "turn_silence": ("voice.turnSilenceSeconds", "voice.turnDetection", "voice.acknowledgements"),
     "early_answers": ("voice.earlyAnswers",),
@@ -1439,9 +1462,14 @@ def _settings_drift(wanted: dict[str, Any], held: dict[str, Any]) -> list[str]:
     for label, keys in _SETTING_KEYS.items():
         for key in keys:
             stated, want = _field(wanted, key)
+            present, have = _field(held, key)
+            if key == _OPENING_WAIT_KEY:
+                if not _same_opening_wait(wanted, stated, want, present, have):
+                    drifted.append(label)
+                    break
+                continue
             if not stated or (key in ("voice.voice", "model") and want is None):
                 continue
-            present, have = _field(held, key)
             if key in _LANGUAGE_KEYS:
                 same = present and _same_language(want, have)
             elif key == "escalation":
@@ -1452,11 +1480,7 @@ def _settings_drift(wanted: dict[str, Any], held: dict[str, Any]) -> list[str]:
                 same = isinstance(have, list) and have == want
             elif key == "steps":
                 same = _steps_held(have) == want
-            elif key in (
-                "voice.turnSilenceSeconds",
-                "voice.reaskAfterSeconds",
-                "voice.openingWaitSeconds",
-            ):
+            elif key in ("voice.turnSilenceSeconds", "voice.reaskAfterSeconds"):
                 same = _same_seconds(want, have)
             elif key == "maxReplyTokens":
                 same = _same_whole_number(want, have)
@@ -1478,6 +1502,31 @@ def _settings_drift(wanted: dict[str, Any], held: dict[str, Any]) -> list[str]:
     if _own_rules_drift(wanted, held):
         drifted.append("own_rules")
     return drifted
+
+
+#: What Get Agent reports for `voice.openingWaitSeconds` when none was set: "4 unless set"
+#: (docs.thinnest.ai/api-reference/agents/get-agent, read 27 Oct 2026; null sent is 4 s,
+#: update-agent, same date).
+OPENING_WAIT_VENDOR_DEFAULT_SECONDS: Final = 4
+
+
+def _same_opening_wait(
+    wanted: dict[str, Any], stated: bool, want: Any, present: bool, have: Any
+) -> bool:
+    """The opening's wait as Get Agent reports it: the number the call uses, to a tenth
+    (ThinnestAI's email of 27 Oct 2026, VENDOR-STATED). With the switch off the wait is
+    accepted and ignored, so it is not compared. With it on and no wait stated the call
+    uses 4 s, so a held 4 (or an answer without the field) is in step and anything else is
+    a wait somebody set that no publish of ours asks for."""
+    if _field(wanted, "voice.openingWaitsForCaller")[1] is not True:
+        return True
+    if not stated:
+        if not present:
+            return True
+        want = OPENING_WAIT_VENDOR_DEFAULT_SECONDS
+    if isinstance(have, bool) or not isinstance(have, int | float):
+        return False
+    return round(have * 10) == round(float(want) * 10)
 
 
 def _same_seconds(wanted: Any, held: Any) -> bool:
@@ -2043,12 +2092,13 @@ class ThinnestEngine:
             # agents/update-agent, read 24 Oct 2026). Always stated, so a console change
             # reads as drift.
             "openingWaitsForCaller": cfg.opening_waits_for_caller,
-            # How long that opening waits through silence, 0.5-10 s to a tenth, sent "with
-            # `voice.openingWaitsForCaller: true`"; null is 4 s; read at call start (ThinnestAI
-            # email of 27 Oct 2026, VENDOR-STATED, live 28 Oct; D-901). Omitted, never null,
-            # while the switch is off or no wait is set: the field means nothing without the
-            # switch, and before 28 Oct a field the vendor does not know may refuse the
-            # write. Omitted, it is also not compared as drift (`_settings_drift`).
+            # How long that opening waits through silence, 0.5-10 s to a tenth (outside it a
+            # 400, never clamped); null is 4 s; read at call start (update-agent, read 27 Oct
+            # 2026; ThinnestAI email of 27 Oct 2026, VENDOR-STATED; D-901, D-903). Sent only
+            # beside the switch on, as the vendor asks: with it off a wait is accepted and
+            # ignored. Omitted while the console has no wait, so nothing reaches the wire
+            # until the founder sets one; Get Agent then reports 4, which the drift sweep
+            # expects (`_same_opening_wait`).
             **(
                 {"openingWaitSeconds": cfg.opening_wait_ms / 1000}
                 if cfg.opening_waits_for_caller and cfg.opening_wait_ms is not None
@@ -2063,12 +2113,17 @@ class ThinnestEngine:
             # Seconds of quiet that end the caller's turn, a number 0.2 to 3 that reads back
             # null until set, "0.25 s on most lines" (same pages, read 11 Oct 2026). Always
             # stated, so a console reset to null reads as drift. Whole milliseconds on our
-            # side (`agents/call_handling`), divided only here.
+            # side (`agents/call_handling`), divided only here. Sent under `ear` too, where it
+            # is not read, so an agent moved back to the timer keeps its pause (D-903).
             "turnSilenceSeconds": cfg.turn_silence_ms / 1000,
-            # The console's mode (D-849), always stated so a change of the vendor's default
-            # (`null`) cannot change what the client's pause means: under `timer` that number
-            # is the silence that ends a turn, under `smart` a ceiling (snapshots/2026-10-13/
-            # pages/api-reference/agents/update-agent.md:1349-1381, channels/voice.md:871-895).
+            # The console's mode or an operator's per agent (D-849, D-901), always stated so a
+            # change of the vendor's default (`null`) cannot change what the client's pause
+            # means: under `timer` it is silence counted from the recogniser's final words, so
+            # the wait is the recogniser's own plus the pause; under `smart` a ceiling
+            # (snapshots/2026-10-13/pages/api-reference/agents/update-agent.md:1349-1381);
+            # under `ear` it is not read: the recogniser's end of speech (about 0.5 s) and a
+            # check of about 200 ms end the turn (ThinnestAI email of 27 Oct 2026,
+            # VENDOR-STATED, D-903).
             "turnDetection": cfg.turn_detection,
             # An Ear-only field, so sent only under `ear` (update-agent.md:1548-1553, 19 Oct
             # 2026 snapshot; vendor default on).
@@ -2218,6 +2273,7 @@ class ThinnestEngine:
         phone and the line the agent says first; otherwise it is off and `handOver` is
         cleared, so a number entered in the vendor console cannot receive our callers
         (snapshots/2026-10-08/pages/api-reference/tools/update-built-in-tools.md:553-637).
+        `knowledgeOnCalls` is stated on every publish (`_knowledge_on_calls`).
 
         `handOver.agents`, passing a live call to another of the client's agents, is sent
         empty: the product offers no agent-to-agent hand-off. The empty list also clears one
@@ -2236,6 +2292,7 @@ class ThinnestEngine:
                 "schedule_callback": False,
                 "escalate_to_human": handoff is not None,
             },
+            KNOWLEDGE_ON_CALLS_FIELD: _knowledge_on_calls(cfg),
             "handOver": (
                 {
                     "mode": "call",
@@ -2859,6 +2916,8 @@ class ThinnestEngine:
             drifted.append("built_in_tools")
         if any(name.startswith("handOver.") for name in tool_drift):
             drifted.append("hand_over")
+        if KNOWLEDGE_ON_CALLS_FIELD in tool_drift:
+            drifted.append("knowledge_on_calls")
         if cfg.engine_byok_voice_id:
             # A Studio voice's settings live on their own route (`GET` returns each, null
             # while unset; bring-your-own-keys.md:390-392).
@@ -2900,6 +2959,18 @@ class ThinnestEngine:
                         voice[field_name] = wanted["voice"][field_name]
                 elif key in wanted:
                     body[key] = wanted[key]
+        stated_wait = wanted["voice"].get("openingWaitSeconds")
+        if "opening_wait" in drifted and stated_wait is None:
+            # A wait held that no publish asks for: null is the vendor's own 4 s
+            # (update-agent, read 27 Oct 2026), which `_same_opening_wait` expects. Sent only
+            # to repair such a wait, so an agent in step is sent nothing new.
+            voice["openingWaitSeconds"] = None
+        elif stated_wait is not None and {"opening_wait", "opening_waits_for_caller"} & set(
+            drifted
+        ):
+            # The switch and the wait go together, as the vendor asks.
+            voice["openingWaitsForCaller"] = True
+            voice["openingWaitSeconds"] = stated_wait
         if voice:
             body["voice"] = voice
         if "own_rules" in drifted:
@@ -2908,7 +2979,7 @@ class ThinnestEngine:
             body[OWN_RULES_FIELD] = _own_rules_wanted(wanted)
         if body:
             await self._write_agent("PATCH", f"/agents/{raw}", "/agents/{ref}", workspace, body)
-        if {"built_in_tools", "hand_over"} & set(drifted):
+        if {"built_in_tools", "hand_over", "knowledge_on_calls"} & set(drifted):
             await self._apply_built_in_tools(raw, workspace, cfg)
         if "voice_tuning" in drifted:
             await self._apply_own_key_voice(raw, workspace, cfg)

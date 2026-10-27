@@ -1,9 +1,10 @@
 """The call settings a client decides per agent or for the whole account (D-751, F3, F9).
 
-- **Pause before the agent replies**: the silence that ends the caller's turn, after which the
-  agent answers (sent with the platform's timer mode, so the number keeps that meaning). Too
-  short and a caller reading out a phone number is answered half way through it; too long
-  and every reply waits.
+- **Pause before the agent replies**: under the silence timer, the quiet after the caller's
+  last words that ends their turn. Too short and a caller reading out a phone number is
+  answered half way through it; too long and every reply waits. Under real-time listening
+  (`ear`) it is not used at all (D-903): the screens say so and the value is still sent, so
+  an agent moved back to the timer keeps it.
 - **Hang up when the conversation ends**: the agent releases the line when it has finished,
   rather than leaving it open, and billed, until the caller puts the phone down.
 - **If the caller goes quiet** (F3, F9, 12 Oct 2026): ask "are you still there?" after some
@@ -188,12 +189,28 @@ PLATFORM_SETTINGS: Final = CallSettings(
 )
 
 
-def platform_settings() -> CallSettings:
-    """Calevate's level as it stands now: the constants, and the console's opening wait."""
-    wait = get_settings().thinnest_opening_wait_ms
-    if wait is None:
-        return PLATFORM_SETTINGS
-    return replace(PLATFORM_SETTINGS, opening_wait_ms=wait)
+def platform_turn_silence_ms(own_turn_detection: TurnDetection | None = None) -> int:
+    """Calevate's pause for one agent. An agent an operator put on the timer on its own
+    (D-901) starts from the console's `thinnest_timer_turn_silence_ms`: under the timer the
+    pause is counted from the recogniser's final words, after its own end-of-speech wait, and
+    ThinnestAI's advice for a first Telugu trial is 0.35-0.4 s (email of 27 Oct 2026,
+    VENDOR-STATED; no Telugu measurement exists). Every other agent keeps
+    `TURN_SILENCE_DEFAULT_MS`: the console's mode is the founder's choice for every agent,
+    and a timer default tied to it would move every agent's pause with one switch."""
+    if own_turn_detection == "timer":
+        return get_settings().thinnest_timer_turn_silence_ms
+    return TURN_SILENCE_DEFAULT_MS
+
+
+def platform_settings(own_turn_detection: TurnDetection | None = None) -> CallSettings:
+    """Calevate's level as it stands now for an agent whose own turn detection is
+    `own_turn_detection` (None follows the console's): the constants, the console's opening
+    wait, and `platform_turn_silence_ms`."""
+    return replace(
+        PLATFORM_SETTINGS,
+        opening_wait_ms=get_settings().thinnest_opening_wait_ms,
+        turn_silence_ms=platform_turn_silence_ms(own_turn_detection),
+    )
 
 
 def opening_wait_available() -> bool:
@@ -221,12 +238,17 @@ class ResolvedSettings:
     sources: Mapping[str, SettingSource]
 
 
-def resolve_turn_silence(agent_ms: int | None, organization_ms: int | None) -> TurnSilence:
+def resolve_turn_silence(
+    agent_ms: int | None,
+    organization_ms: int | None,
+    *,
+    own_turn_detection: TurnDetection | None = None,
+) -> TurnSilence:
     if agent_ms is not None:
         return TurnSilence(agent_ms, "agent")
     if organization_ms is not None:
         return TurnSilence(organization_ms, "organization")
-    return TurnSilence(TURN_SILENCE_DEFAULT_MS, "platform")
+    return TurnSilence(platform_turn_silence_ms(own_turn_detection), "platform")
 
 
 def resolve_end_call_on_finish(agent: bool | None, organization: bool | None) -> EndCallOnFinish:
@@ -237,11 +259,17 @@ def resolve_end_call_on_finish(agent: bool | None, organization: bool | None) ->
     return EndCallOnFinish(END_CALL_ON_FINISH_DEFAULT, "platform")
 
 
-def resolve_settings(own: CallSettings, organization: CallSettings) -> ResolvedSettings:
-    """Each field from the first level that holds a value: the agent, the account, Calevate."""
+def resolve_settings(
+    own: CallSettings,
+    organization: CallSettings,
+    *,
+    own_turn_detection: TurnDetection | None = None,
+) -> ResolvedSettings:
+    """Each field from the first level that holds a value: the agent, the account, Calevate
+    (`platform_settings` for an agent whose own turn detection is `own_turn_detection`)."""
     chosen: dict[str, object] = {}
     sources: dict[str, SettingSource] = {}
-    platform = platform_settings()
+    platform = platform_settings(own_turn_detection)
     for field in SETTING_FIELDS:
         mine, theirs = getattr(own, field), getattr(organization, field)
         if mine is not None:
@@ -410,6 +438,20 @@ class AgentCallHandling:
     resolved: ResolvedSettings
     #: The agent's own, never inherited (`AGENT_ONLY_FIELDS`).
     opening_waits_for_caller: bool = False
+    #: An operator's turn detection for this agent (D-901); None follows the console's.
+    turn_detection: TurnDetection | None = None
+
+    @property
+    def turn_detection_effective(self) -> TurnDetection:
+        return self.turn_detection or get_settings().thinnest_turn_detection
+
+    @property
+    def turn_silence_applies(self) -> bool:
+        """Whether the pause decides anything on this agent's calls. Under `ear` the
+        recogniser's own end of speech and a short check end the turn and `turnSilenceSeconds`
+        is not read (ThinnestAI's email of 27 Oct 2026, VENDOR-STATED); it is still sent, so
+        the agent keeps its pause if it is moved back to the timer."""
+        return self.turn_detection_effective != "ear"
 
     @property
     def turn_silence_ms(self) -> int | None:
@@ -429,7 +471,11 @@ class AgentCallHandling:
 
     @property
     def turn_silence(self) -> TurnSilence:
-        return resolve_turn_silence(self.own.turn_silence_ms, self.organization.turn_silence_ms)
+        return resolve_turn_silence(
+            self.own.turn_silence_ms,
+            self.organization.turn_silence_ms,
+            own_turn_detection=self.turn_detection,
+        )
 
     @property
     def end_call(self) -> EndCallOnFinish:
@@ -485,7 +531,7 @@ ORG_SETTING_COLUMNS: Final = ", ".join(f"o.{f}" for f in ORG_SETTING_FIELDS)
 _AGENT_ROW: Final = (
     f"SELECT {AGENT_SETTING_COLUMNS}, {ORG_SETTING_COLUMNS}, "
     + ", ".join(f"a.{f}" for f in AGENT_ONLY_FIELDS)
-    + " "
+    + ", a.turn_detection "
     "FROM agents a LEFT JOIN organizations o ON o.id = a.tenant_id "
     "WHERE a.id = :aid AND a.deleted_at IS NULL"
 )
@@ -576,12 +622,14 @@ def _agent_state(agent_id: UUID, row: Sequence[object]) -> AgentCallHandling:
     width = len(SETTING_FIELDS)
     own = settings_from_row(row[:width])
     organization = settings_from_row(row[width : 2 * width])
+    turn_detection = turn_detection_of(row[2 * width + len(AGENT_ONLY_FIELDS)])
     return AgentCallHandling(
         agent_id=agent_id,
         own=own,
         organization=organization,
-        resolved=resolve_settings(own, organization),
+        resolved=resolve_settings(own, organization, own_turn_detection=turn_detection),
         opening_waits_for_caller=bool(row[2 * width]),
+        turn_detection=turn_detection,
     )
 
 
@@ -821,16 +869,6 @@ async def set_call_handling_for_all_agents(
     )
 
 
-@dataclass(frozen=True, slots=True)
-class AgentTurnDetection:
-    """An operator's turn detection for one agent (D-901): its own (None follows the
-    console's `thinnest_turn_detection`), and the mode its calls use."""
-
-    agent_id: UUID
-    own: TurnDetection | None
-    effective: TurnDetection
-
-
 def turn_detection_of(value: object) -> TurnDetection | None:
     """`agents.turn_detection` as the engine's word; its CHECK holds the column to these."""
     if value == "timer":
@@ -848,30 +886,18 @@ _AGENT_TURN_DETECTION: Final = (
 )
 
 
-def _turn_state(agent_id: UUID, own: TurnDetection | None) -> AgentTurnDetection:
-    return AgentTurnDetection(
-        agent_id=agent_id, own=own, effective=own or get_settings().thinnest_turn_detection
-    )
-
-
-async def read_agent_turn_detection(session: AsyncSession, agent_id: UUID) -> AgentTurnDetection:
-    row = (await session.execute(text(_AGENT_TURN_DETECTION), {"aid": agent_id})).first()
-    if row is None:
-        raise ProblemError.not_found("Agent")
-    return _turn_state(agent_id, turn_detection_of(row[0]))
-
-
 async def set_agent_turn_detection(
     session: AsyncSession,
     *,
     tenant_id: UUID,
     agent_id: UUID,
     mode: TurnDetection | None,
-) -> tuple[AgentTurnDetection, bool]:
+) -> tuple[AgentCallHandling, bool]:
     """Put one agent on its own turn detection, or back on the console's (None), so a mode
     can be tried on one agent without moving every client's (D-901). An operator's setting,
-    never a client's: the console's mode is a platform decision. Answers the new state and
-    whether it moved; a move on a published agent queues its live apply."""
+    never a client's: the console's mode is a platform decision. Answers the agent's call
+    settings as they now resolve (the pause moves with the mode, `platform_turn_silence_ms`)
+    and whether it moved; a move on a published agent queues its live apply."""
     row = (
         await session.execute(text(_AGENT_TURN_DETECTION + " FOR UPDATE"), {"aid": agent_id})
     ).first()
@@ -892,7 +918,7 @@ async def set_agent_turn_detection(
                 reason="turn_detection",
             )
     log.info("agent_turn_detection_set", extra={"agent_id": str(agent_id), "moved": moved})
-    return _turn_state(agent_id, mode), moved
+    return await read_agent_call_handling(session, agent_id), moved
 
 
 __all__ = [
@@ -915,7 +941,6 @@ __all__ = [
     "TURN_SILENCE_MIN_MS",
     "AgentCallHandling",
     "AgentOwnSettings",
-    "AgentTurnDetection",
     "AllAgentsCallHandling",
     "CallSettings",
     "EndCallOnFinish",
@@ -928,8 +953,8 @@ __all__ = [
     "opening_wait_available",
     "opening_waits_default",
     "platform_settings",
+    "platform_turn_silence_ms",
     "read_agent_call_handling",
-    "read_agent_turn_detection",
     "read_organization_call_handling",
     "refuse_invalid_settings",
     "refuse_opening_wait",

@@ -51,6 +51,9 @@ AGENT_SETTING_LABELS: Final[frozenset[str]] = frozenset(
         "end_call_on_finish",
         # The opening waits for the person who picked up to speak (D-871).
         "opening_waits_for_caller",
+        # How long such an opening waits through silence (D-901), as Get Agent reports it:
+        # 4 s when we state none (D-903).
+        "opening_wait",
         # How fast the agent talks on a Clear voice (D-884).
         "speaking_speed",
         # The silence that ends the caller's turn (D-751), and the turn mode that makes it so.
@@ -72,6 +75,9 @@ AGENT_SETTING_LABELS: Final[frozenset[str]] = frozenset(
         "script_steps",
         "built_in_tools",
         "hand_over",
+        # Whether the agent searches its knowledge on calls: on wherever its facts are held
+        # as knowledge (D-689).
+        "knowledge_on_calls",
         # Phone only: never the website call button or WhatsApp (founder decision F1,
         # 12 Oct 2026, superseding D-720).
         "surfaces",

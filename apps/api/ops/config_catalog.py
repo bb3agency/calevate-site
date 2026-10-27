@@ -335,8 +335,16 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "voice-engine",
         "thinnest",
         "How agents know the caller has finished",
-        "Silence uses the Call handling pause. Ear listens live and waits through a "
-        "mid-sentence pause; there the pause only starts its check that the caller is done.",
+        "Silence: the Call handling pause after the caller's last words ends the turn. Ear: "
+        "live listening ends it and the pause is not used.",
+        _THINNEST,
+    ),
+    "thinnest_timer_turn_silence_ms": _m(
+        "voice-engine",
+        "thinnest",
+        "Pause for an agent put on Silence on its own",
+        "Used when the agent and its account set no pause. Counted after the caller's last "
+        "words; ThinnestAI suggests 350-400 ms to start.",
         _THINNEST,
     ),
     "thinnest_opening_wait_ms": _m(
@@ -344,7 +352,7 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "thinnest",
         "Silence before a waiting opening plays",
         "For agents that wait for hello: how long silence lasts before they speak. Unset, "
-        "nothing is sent and ThinnestAI waits 4 s. Live there from 28 Oct 2026.",
+        "nothing is sent and ThinnestAI waits 4 s.",
         _THINNEST,
     ),
     "thinnest_acknowledgements": _m(
@@ -1325,12 +1333,15 @@ CONTROL_HINTS: Final[dict[str, ControlHint]] = {
     "thinnest_opening_wait_ms": ControlHint(
         kind="duration",
         unit="milliseconds",
-        help="Whole tenths, 500 to 10,000. Leave unset until ThinnestAI accepts the field.",
+        help="Whole tenths, 500 to 10,000. Unset, nothing is sent and ThinnestAI waits 4 s.",
+    ),
+    "thinnest_timer_turn_silence_ms": ControlHint(
+        kind="duration", unit="milliseconds", help="200 to 3,000."
     ),
     "thinnest_turn_detection": ControlHint(
         options=(
             OptionLabel("timer", "Silence", "The pause set in Call handling ends the turn."),
-            OptionLabel("ear", "Ear", "Real-time listening; waits through a mid-sentence pause."),
+            OptionLabel("ear", "Ear", "Real-time listening ends the turn; the pause is not used."),
             OptionLabel("smart", "Smart", "A model judges; replies start later."),
         )
     ),

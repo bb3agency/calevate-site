@@ -153,14 +153,31 @@ def _thinnest_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], htt
             ref = parts[1]
             if ref not in agents:
                 return httpx.Response(404, json={"error": "No such agent in your workspace."})
+            # `knowledgeOnCalls` is a required boolean, on unless switched off (docs.thinnest.ai
+            # api-reference/tools/list-built-in-tools, read 27 Oct 2026).
             held = agents[ref].setdefault(
-                "_tools", {"switches": {}, "handOver": {"mode": "chat", "phone": None}}
+                "_tools",
+                {
+                    "switches": {},
+                    "handOver": {"mode": "chat", "phone": None},
+                    "knowledgeOnCalls": True,
+                },
             )
             if method == "PATCH":
                 held["switches"].update(body.get("tools", {}))
                 held["handOver"].update(body.get("handOver", {}))
+                if "knowledgeOnCalls" in body:
+                    assert isinstance(body["knowledgeOnCalls"], bool)
+                    held["knowledgeOnCalls"] = body["knowledgeOnCalls"]
             rows = [{"id": tool, "enabled": on} for tool, on in held["switches"].items()]
-            return httpx.Response(200, json={"tools": rows, "handOver": held["handOver"]})
+            return httpx.Response(
+                200,
+                json={
+                    "tools": rows,
+                    "handOver": held["handOver"],
+                    "knowledgeOnCalls": held["knowledgeOnCalls"],
+                },
+            )
         if len(parts) >= 3 and parts[0] == "agents" and parts[2] == "knowledge":
             ref = parts[1]
             if ref not in agents:
