@@ -63,6 +63,7 @@ from apps.api.engine.thinnest_actions import (
     ThinnestActions,
     thinnest_actions,
 )
+from apps.api.team_alerts import service as team_alerts
 
 log = get_logger(__name__)
 
@@ -291,9 +292,28 @@ async def client_definitions(
     own workspace (its handle carries it, D-693). Only the agent-filled parameters are
     declared; static and call values are applied by our executor."""
     tools = await in_call_tools(session, agent_id=agent_id)
-    if len(tools) > THINNEST_CLIENT_ACTIONS_MAX:
-        raise too_many_client_actions(len(tools))
+    # Tell my team (D-904) shares the client's action budget: it is one more action the vendor
+    # agent carries, and whether the vendor counts it against the eight is not documented.
+    tell_team = await team_alerts.in_call_live(session, agent_id)
+    count = len(tools) + (1 if tell_team else 0)
+    if count > THINNEST_CLIENT_ACTIONS_MAX:
+        raise too_many_client_actions(count)
     out: list[ActionDefinition] = []
+    if tell_team:
+        out.append(
+            ActionDefinition(
+                name=team_alerts.TEAM_ACTION_NAME,
+                description=team_alerts.TEAM_ACTION_DESCRIPTION + CLIENT_DESCRIPTION_SUFFIX,
+                url=client_action_url(engine, engine_agent_ref, team_alerts.TEAM_ACTION_NAME),
+                parameters=(
+                    ActionParam(
+                        team_alerts.TEAM_PROBLEM_PARAM, team_alerts.TEAM_PROBLEM_DESCRIPTION, True
+                    ),
+                ),
+                speak_before=None,
+                client=True,
+            )
+        )
     for tool in tools:
         params = tuple(
             ActionParam(

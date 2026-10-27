@@ -199,6 +199,8 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "script-versions",
     "script-proposal",
     "call-handling",
+    // Tell my team (D-904): a rule offers the agent's outcomes and choice fields.
+    "team-alerts",
     "turn-detection",
     "reply-length",
     "voice-tuning",
@@ -249,6 +251,8 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     // The call settings every agent shares live on `organizations`, and each agent's read
     // resolves through them, so a change for all agents moves every agent's call handling.
     "call-handling",
+    // The team addresses are the account's (D-904).
+    "team-alerts",
     // The account's AI-written examples (D-827): a run writes `business_copies`.
     "business-copy",
     "admin/business-copy",

@@ -47,6 +47,7 @@ from apps.api.core.queue import enqueue
 from apps.api.core.redis import get_redis
 from apps.api.db.session import tenant_session
 from apps.api.reliability.in_call_once import once_per_call
+from apps.api.team_alerts import service as team_alerts
 
 log = get_logger(__name__)
 
@@ -249,9 +250,41 @@ async def run_in_call_action(
     return InCallAnswer(status, say, {k: v for k, v in body.items() if k not in ("status", "say")})
 
 
+#: What the agent is told after `tell_the_team` (D-904).
+TEAM_SAY: Final[dict[str, str]] = {
+    "queued": (
+        "The team has been told, with the caller's name and number and the problem you "
+        "described. Tell the caller someone from the team will contact them. Do not promise "
+        "a time."
+    ),
+    "already_told": (
+        "The team was already told about this call. Tell the caller someone from the team "
+        "will contact them. Do not promise a time."
+    ),
+    "unavailable": (
+        "Nothing was sent: the team cannot be told from this call. Do NOT say the team was "
+        "told or will call. Apologise and say you cannot pass this on right now."
+    ),
+}
+
+
+async def _tell_the_team(
+    *, tenant_id: UUID, agent_id: UUID, args: dict[str, Any], call: CallFacts
+) -> InCallAnswer:
+    outcome = await team_alerts.queue_in_call(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        call_id=call.call_id,
+        problem=args.get(team_alerts.TEAM_PROBLEM_PARAM),
+    )
+    return InCallAnswer(outcome, TEAM_SAY[outcome])
+
+
 async def _run_in_call_action(
     *, tenant_id: UUID, agent_id: UUID, name: str, args: dict[str, Any], call: CallFacts
 ) -> InCallAnswer:
+    if name == team_alerts.TEAM_ACTION_NAME:
+        return await _tell_the_team(tenant_id=tenant_id, agent_id=agent_id, args=args, call=call)
     ids = {"tenant_id": str(tenant_id), "agent_id": str(agent_id)}
     async with tenant_session(tenant_id) as session:
         tool = await in_call_tool(session, agent_id=agent_id, name=name)

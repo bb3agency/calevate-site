@@ -15,7 +15,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents.paid_test_calls import read_paid_test_access
+from apps.api.agents.paid_test_calls import OWN_NUMBER_TEST_MAX_SECONDS, read_paid_test_access
 from apps.api.agents.trial_calls import NOT_READY_REASON, TRIAL_CALL_ENGINES, trial_calling_ready
 from apps.api.compliance.outbound_pledge import pledge_blocker
 from apps.api.compliance.trial_access import TRIAL_REFUSALS, read_trial_access
@@ -44,8 +44,12 @@ class TrialPanelOut(BaseModel):
     minutes_left: int | None = None
     calls_today: int = 0
     daily_cap: int = 0
-    #: The longest one test call may run, in seconds.
+    #: The longest one test call may run, in seconds. For a paying account this is the shared
+    #: number's limit; from its own number see `own_number_max_call_seconds`.
     max_call_seconds: int = 0
+    #: A paying account only: the most a test call from its own number may run, in seconds. Each
+    #: agent's own longest-call setting applies up to this (D-904). Null otherwise.
+    own_number_max_call_seconds: int | None = None
     #: Whether the no-cold-calls pledge is accepted; a test call needs it.
     pledge_accepted: bool = False
     #: Whether a test call can be placed now, and the sentence that says why not.
@@ -108,6 +112,7 @@ async def _paid_panel(session: AsyncSession, *, tenant_id: UUID, at: datetime) -
         calls_today=paid.calls_today,
         daily_cap=paid.daily_cap,
         max_call_seconds=paid.max_call_seconds,
+        own_number_max_call_seconds=OWN_NUMBER_TEST_MAX_SECONDS,
         pledge_accepted=unpledged is None,
         can_call=reason is None,
         blocked_reason=reason,

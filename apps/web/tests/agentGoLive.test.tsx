@@ -8,6 +8,7 @@ import { problem, stillLoading, type Routes } from "./harness";
 import {
   agentCallHandling,
   organizationCallHandling,
+  teamAlertReads,
   agentReplyLength,
   agentRow,
   agentTurnDetection,
@@ -123,6 +124,7 @@ function render(over: Partial<Routes> = {}) {
       "/v1/agents": [agentRow({ id: AGENT })],
       [`/v1/agents/${AGENT}/call-handling`]: agentCallHandling(AGENT),
       "/v1/organization/call-handling": organizationCallHandling(),
+      ...teamAlertReads(AGENT),
       [`/v1/admin/tenants/${TENANT}/agents/${AGENT}/reply-length`]: agentReplyLength(AGENT),
       [`/v1/admin/tenants/${TENANT}/agents/${AGENT}/turn-detection`]: agentTurnDetection(AGENT),
       [ME_PATH]: {

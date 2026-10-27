@@ -13,6 +13,7 @@ import {
   spendThisMonth,
   agentCallHandling,
   organizationCallHandling,
+  teamAlertReads,
 } from "./fixtures/sharedReads";
 
 // The handover panel lives in the workspace's Call handling section (D-657), so every test
@@ -147,6 +148,7 @@ function routes(over: Record<string, unknown> = {}) {
     "/v1/agents/agent-1/pending": PENDING,
     "/v1/agents/agent-1/call-handling": agentCallHandling(),
     "/v1/organization/call-handling": organizationCallHandling(),
+    ...teamAlertReads(),
     "/v1/agents/agent-1/script": agentScript(),
     "/v1/kb/notes": { notes: [] },
     "/v1/organization/llm-defaults": clientLlmTiers({ available: [] }),

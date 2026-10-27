@@ -531,6 +531,14 @@ async def _seed_one_of_everything(tenant_id: uuid.UUID, user_id: uuid.UUID) -> d
                 "'connected')",
                 {},
             ),
+            # D-904: a team address. A neighbour confirming, re-coding, defaulting or removing
+            # it would decide who hears this business's callers' numbers.
+            (
+                "contact_id",
+                "INSERT INTO team_alert_contacts (id, tenant_id, channel, address) "
+                "VALUES (:i, :t, 'email', 'team-' || CAST(:i AS text) || '@example.com')",
+                {},
+            ),
             # One spoken turn, so the call has something to put into English.
             (
                 "turn_id",
@@ -613,6 +621,13 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     # whether its finished calls stay connected, and billed, until the caller hangs up.
     ("GET", "/v1/agents/{agent_id}/call-handling", {}, {}),
     ("PATCH", "/v1/agents/{agent_id}/call-handling", {"end_call_on_finish": False}, {}),
+    # D-904. Who a neighbour's agent tells about its callers, and their team addresses.
+    ("GET", "/v1/agents/{agent_id}/team-alert", {}, {}),
+    ("PUT", "/v1/agents/{agent_id}/team-alert", {}, {}),
+    ("POST", "/v1/team-alerts/contacts/{contact_id}/code", {}, {}),
+    ("POST", "/v1/team-alerts/contacts/{contact_id}/verify", {"code": "123456"}, {}),
+    ("POST", "/v1/team-alerts/contacts/{contact_id}/default", {}, {}),
+    ("DELETE", "/v1/team-alerts/contacts/{contact_id}", {}, {}),
     ("GET", "/v1/callbacks/{callback_id}", {}, {}),
     ("DELETE", "/v1/callbacks/{callback_id}", {}, {}),
     ("PATCH", "/v1/callbacks/{callback_id}", {"at": _TOMORROW_NOON_IST}, {}),

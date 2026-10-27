@@ -175,6 +175,7 @@ from apps.api.reliability.service import (
     mark_inbox_failed,
     mark_inbox_processed,
 )
+from apps.api.team_alerts import service as team_alerts
 from apps.api.tenancy.engine_workspace import engine_has_workspaces
 from apps.workers import call_language, call_timeline, call_translation, storage
 from apps.workers import extraction as extraction_module
@@ -1520,6 +1521,23 @@ async def _post_call_stages(
                 connected=snapshot.status == "completed",
             )
             set_span_attributes(stage, outcome=outcome)
+
+    # STEP 6b — tell the business's own team (D-904), when the outcome or a choice the owner
+    # picked says so. After extraction, through the outbox, once per call and address.
+    if extraction is not None:
+        with span("pipeline.team_alert", call_id=str(call_id)) as stage:
+            async with tenant_session(tenant_id) as session:
+                team_outcome = await team_alerts.queue_after_call(
+                    session,
+                    tenant_id=tenant_id,
+                    agent_id=agent_id,
+                    call_id=call_id,
+                    outcome_key=business_outcome.key if business_outcome else None,
+                    outcome_label=business_outcome.label if business_outcome else None,
+                    data=extraction.data,
+                    labels={f.key: f.label for f in spec.fields},
+                )
+            set_span_attributes(stage, outcome=team_outcome)
 
     # STEP 7 — if this call was a campaign dial, the outcome closes the contact or puts
     # it back on the retry ladder (FLOWS §5). Local import: the dispatcher is a worker

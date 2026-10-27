@@ -30,6 +30,7 @@ import { CopilotSurfaceScope } from "@/lib/copilot/registry";
 import { AgentIdentity } from "../../AgentIdentity";
 import { AgentLifecycle } from "../../AgentLifecycle";
 import { AgentModel } from "../../AgentModel";
+import { TeamAlertsPanel } from "../../panels/teamAlerts";
 import { CallHandlingSection } from "./deliverySections";
 
 /** The anchor a test result's "Open call handling" lands on. */
@@ -55,6 +56,14 @@ export function SettingsTab({ agent, slug }: { agent: Agent; slug: string }) {
             <CallHandlingSection agent={agent} />
           </Section>
         </div>
+
+        <Section
+          headingLevel={3}
+          title="Tell my team"
+          description="Callers the agent cannot help are passed to your team with their name and number, so nobody is left waiting."
+        >
+          <TeamAlertsPanel agent={agent} />
+        </Section>
 
         <Section headingLevel={3} title="Model">
           <AgentModel agent={agent} slug={slug} />

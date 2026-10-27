@@ -2483,6 +2483,21 @@ WHERE (
 """
 
 
+_TEAM_ALERT_ERASE_SQL = """
+UPDATE team_alerts SET reasons = '[]'::jsonb, updated_at = now()
+WHERE call_id = ANY(:ids) AND reasons <> '[]'::jsonb
+"""
+
+
+async def _erase_team_alert_reasons(session: AsyncSession, *, call_ids: Sequence[UUID]) -> None:
+    """Clear what each team alert (D-904) recorded about these calls: the matched answers are
+    this caller's extraction values. The row stays as the record that the team was told; the
+    address it went to is the business's own, not the caller's. The message itself was never
+    stored (the agent's note rode in the outbox payload, cleared at publish)."""
+    if call_ids:
+        await session.execute(text(_TEAM_ALERT_ERASE_SQL), {"ids": list(call_ids)})
+
+
 async def _erase_handoff_briefs(session: AsyncSession, *, call_ids: Sequence[UUID]) -> int:
     """Clear the model's account of what these calls were about. Returns the row count.
 
@@ -2817,6 +2832,7 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
             # `_erase_handoff_briefs` for why "it is redacted on write" is not a defence
             # and why `destination_e164` is deliberately not touched.
             handoff_briefs_erased = await _erase_handoff_briefs(session, call_ids=list(calls))
+            await _erase_team_alert_reasons(session, call_ids=list(calls))
             # Test cases saved from these calls hold the caller's lines (`teach/test_cases`),
             # a copy emptying the call does not reach. A test run that asked one of them
             # copied its lines into `scenarios` and `results`, so the run goes first, while
@@ -3475,6 +3491,7 @@ async def _erase_tenant_calls(
         # that left them would keep a model's account of every caller who asked for a
         # person, for a client that no longer exists.
         counts["handoff_briefs_erased"] += await _erase_handoff_briefs(session, call_ids=call_ids)
+        await _erase_team_alert_reasons(session, call_ids=call_ids)
 
         counts["webhook_bodies_erased"] += await _erase_delivery_bodies(
             session,

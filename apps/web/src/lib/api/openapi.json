@@ -22516,6 +22516,32 @@
         "title": "FieldLimit",
         "type": "object"
       },
+      "FieldTriggerIO": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Key",
+            "type": "string"
+          },
+          "values": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Values",
+            "type": "array"
+          }
+        },
+        "required": [
+          "key",
+          "values"
+        ],
+        "title": "FieldTriggerIO",
+        "type": "object"
+      },
       "FirstRunOut": {
         "additionalProperties": false,
         "properties": {
@@ -46619,6 +46645,284 @@
         "title": "TeachingOut",
         "type": "object"
       },
+      "TeamAlertChoiceOut": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "values": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Values",
+            "type": "array"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "values"
+        ],
+        "title": "TeamAlertChoiceOut",
+        "type": "object"
+      },
+      "TeamAlertRuleIn": {
+        "additionalProperties": false,
+        "properties": {
+          "contact_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Id"
+          },
+          "in_call": {
+            "default": false,
+            "title": "In Call",
+            "type": "boolean"
+          },
+          "on_fields": {
+            "items": {
+              "$ref": "#/components/schemas/FieldTriggerIO"
+            },
+            "maxItems": 10,
+            "title": "On Fields",
+            "type": "array"
+          },
+          "on_outcomes": {
+            "items": {
+              "maxLength": 200,
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "On Outcomes",
+            "type": "array"
+          }
+        },
+        "title": "TeamAlertRuleIn",
+        "type": "object"
+      },
+      "TeamAlertRuleOut": {
+        "additionalProperties": false,
+        "properties": {
+          "contact_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Id"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/TeamAlertChoiceOut"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "in_call": {
+            "title": "In Call",
+            "type": "boolean"
+          },
+          "in_call_live": {
+            "title": "In Call Live",
+            "type": "boolean"
+          },
+          "on_fields": {
+            "items": {
+              "$ref": "#/components/schemas/FieldTriggerIO"
+            },
+            "title": "On Fields",
+            "type": "array"
+          },
+          "on_outcomes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "On Outcomes",
+            "type": "array"
+          },
+          "outcomes": {
+            "items": {
+              "$ref": "#/components/schemas/TeamAlertChoiceOut"
+            },
+            "title": "Outcomes",
+            "type": "array"
+          },
+          "sends_to": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sends To"
+          }
+        },
+        "required": [
+          "contact_id",
+          "on_outcomes",
+          "on_fields",
+          "in_call",
+          "sends_to",
+          "in_call_live",
+          "outcomes",
+          "fields"
+        ],
+        "title": "TeamAlertRuleOut",
+        "type": "object"
+      },
+      "TeamCodeIn": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "maxLength": 12,
+            "minLength": 4,
+            "title": "Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "title": "TeamCodeIn",
+        "type": "object"
+      },
+      "TeamContactIn": {
+        "additionalProperties": false,
+        "properties": {
+          "address": {
+            "maxLength": 254,
+            "minLength": 3,
+            "title": "Address",
+            "type": "string"
+          },
+          "channel": {
+            "default": "email",
+            "enum": [
+              "email",
+              "whatsapp"
+            ],
+            "title": "Channel",
+            "type": "string"
+          },
+          "whatsapp": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TeamWhatsAppIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "address"
+        ],
+        "title": "TeamContactIn",
+        "type": "object"
+      },
+      "TeamContactOut": {
+        "additionalProperties": false,
+        "properties": {
+          "address": {
+            "title": "Address",
+            "type": "string"
+          },
+          "channel": {
+            "enum": [
+              "email",
+              "whatsapp"
+            ],
+            "title": "Channel",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "is_default": {
+            "title": "Is Default",
+            "type": "boolean"
+          },
+          "verified": {
+            "title": "Verified",
+            "type": "boolean"
+          },
+          "whatsapp_account_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Whatsapp Account Id"
+          }
+        },
+        "required": [
+          "id",
+          "channel",
+          "address",
+          "is_default",
+          "verified",
+          "whatsapp_account_id"
+        ],
+        "title": "TeamContactOut",
+        "type": "object"
+      },
+      "TeamContactsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "contacts": {
+            "items": {
+              "$ref": "#/components/schemas/TeamContactOut"
+            },
+            "title": "Contacts",
+            "type": "array"
+          },
+          "max_contacts": {
+            "title": "Max Contacts",
+            "type": "integer"
+          },
+          "whatsapp_accounts": {
+            "items": {
+              "$ref": "#/components/schemas/TeamWhatsAppAccountOut"
+            },
+            "title": "Whatsapp Accounts",
+            "type": "array"
+          }
+        },
+        "required": [
+          "contacts",
+          "max_contacts",
+          "whatsapp_accounts"
+        ],
+        "title": "TeamContactsOut",
+        "type": "object"
+      },
       "TeamMemberOut": {
         "additionalProperties": false,
         "description": "One person who can sign in to this client's account right now.\n\n**The address is here in full, and that is the same disclosure `PendingInviteOut`\nalready makes one screen away** \u2014 not a widening of it. `email` is a\n`CONTACT_PII_FIELD`, which `scripts/check_redaction_exposure.py` permits on a route\nthat declares a permission (D-436), and this read declares one, runs in the tenant's\nown RLS scope and records an impersonation read. It is here because the operator is\nabout to revoke somebody's access BY NAME and `name` cannot carry that weight: it is\nNULLABLE (an invitee who typed no name has none) and it is not unique, so a console\noffering \"Remove Ramesh\" against a team with two would be a control whose target the\noperator cannot verify. The client-realm `MemberOut` omits the address for the\nopposite reason and both are right \u2014 that one is an assignee picker for colleagues\nwho already know each other, and nothing on it acts on a person.\n\n`leads_assigned` is on the ROSTER and not only in the removal's answer, because it is\nthe fact that decides the act. Removal does not unassign anybody's work\n(`members.remove_member` argues why), so an operator who sees the number afterwards\nhas already made a pile of leads nobody's business; seeing it first is how that\nbecomes a conversation with the client instead.",
@@ -46729,6 +47033,89 @@
           "expected_role"
         ],
         "title": "TeamMemberRoleIn",
+        "type": "object"
+      },
+      "TeamWhatsAppAccountOut": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label"
+        ],
+        "title": "TeamWhatsAppAccountOut",
+        "type": "object"
+      },
+      "TeamWhatsAppIn": {
+        "additionalProperties": false,
+        "properties": {
+          "account_id": {
+            "format": "uuid",
+            "title": "Account Id",
+            "type": "string"
+          },
+          "body_values": {
+            "items": {
+              "enum": [
+                "name",
+                "phone",
+                "why",
+                "link"
+              ],
+              "type": "string"
+            },
+            "maxItems": 4,
+            "minItems": 3,
+            "title": "Body Values",
+            "type": "array"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "maxLength": 16,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "phone_number_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "pattern": "^[0-9]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone Number Id"
+          },
+          "template": {
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Template",
+            "type": "string"
+          }
+        },
+        "required": [
+          "account_id",
+          "template",
+          "body_values"
+        ],
+        "title": "TeamWhatsAppIn",
         "type": "object"
       },
       "TemplateOut": {
@@ -48358,7 +48745,7 @@
             "items": {
               "type": "string"
             },
-            "maxItems": 6,
+            "maxItems": 20,
             "minItems": 1,
             "title": "Caller Lines",
             "type": "array"
@@ -50964,6 +51351,17 @@
           "on_trial": {
             "title": "On Trial",
             "type": "boolean"
+          },
+          "own_number_max_call_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Own Number Max Call Seconds"
           },
           "paid_test_calls": {
             "default": false,
@@ -68698,6 +69096,94 @@
         "summary": "Copy an earlier version into the draft (callers keep the live one)",
         "tags": [
           "agents"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/agents/{agent_id}/team-alert": {
+      "get": {
+        "operationId": "get_team_alert_rule_v1_agents__agent_id__team_alert_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamAlertRuleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "When this agent tells your team about a caller",
+        "tags": [
+          "team-alerts"
+        ],
+        "x-calevate-permission": "agents:read"
+      },
+      "put": {
+        "operationId": "set_team_alert_rule_v1_agents__agent_id__team_alert_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TeamAlertRuleIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamAlertRuleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Set when this agent tells your team about a caller",
+        "tags": [
+          "team-alerts"
         ],
         "x-calevate-permission": "org:manage"
       }
@@ -88473,6 +88959,233 @@
           "teach"
         ],
         "x-calevate-permission": "kb:write"
+      }
+    },
+    "/v1/team-alerts/contacts": {
+      "get": {
+        "operationId": "list_team_contacts_v1_team_alerts_contacts_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamContactsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The team addresses that may be told about a caller",
+        "tags": [
+          "team-alerts"
+        ],
+        "x-calevate-permission": "org:read"
+      },
+      "post": {
+        "operationId": "add_team_contact_v1_team_alerts_contacts_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TeamContactIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamContactsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Add a team address; a six-digit code is emailed to it",
+        "tags": [
+          "team-alerts"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/team-alerts/contacts/{contact_id}": {
+      "delete": {
+        "operationId": "remove_team_contact_v1_team_alerts_contacts__contact_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "contact_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Contact Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Stop telling this team address about callers",
+        "tags": [
+          "team-alerts"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/team-alerts/contacts/{contact_id}/code": {
+      "post": {
+        "operationId": "resend_team_code_v1_team_alerts_contacts__contact_id__code_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "contact_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Contact Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamContactsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Email a new code to a team address",
+        "tags": [
+          "team-alerts"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/team-alerts/contacts/{contact_id}/default": {
+      "post": {
+        "operationId": "default_team_contact_v1_team_alerts_contacts__contact_id__default_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "contact_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Contact Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamContactsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Make a team address the one agents use unless they name another",
+        "tags": [
+          "team-alerts"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/team-alerts/contacts/{contact_id}/verify": {
+      "post": {
+        "operationId": "verify_team_contact_v1_team_alerts_contacts__contact_id__verify_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "contact_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Contact Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TeamCodeIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamContactsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Confirm a team address with the code emailed to it",
+        "tags": [
+          "team-alerts"
+        ],
+        "x-calevate-permission": "org:manage"
       }
     },
     "/v1/team/members": {

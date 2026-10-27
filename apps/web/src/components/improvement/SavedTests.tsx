@@ -143,8 +143,10 @@ export function SavedTests({
 
 /** `teach/test_cases.MAX_CASES_PER_AGENT`: the server refuses a test past it. */
 const MAX_SAVED_TESTS = 20;
+/** `workers/agent_test_cases.TOO_LONG`: the run stopped at its time budget. */
+const TOO_LONG = "too_long";
 /** `teach/models.MAX_CASE_LINES`. */
-const MAX_CALLER_LINES = 6;
+const MAX_CALLER_LINES = 20;
 
 /** The list's own frame when a disclosure around it already carries the title. */
 function Unframed({ action, children }: { action?: ReactNode; children?: ReactNode } & Record<string, unknown>) {
@@ -215,7 +217,15 @@ function WriteATest({ agentId }: { agentId: string }) {
           onChange={(event) => setSaid(event.target.value)}
           className={FIELD}
         />
-        <span className={FIELD_HINT}>One line for each thing they say.</span>
+        <span className={FIELD_HINT}>
+          One line for each thing they say, up to {MAX_CALLER_LINES}. Enough to walk through a
+          whole guided call.
+        </span>
+        {lines.length > MAX_CALLER_LINES ? (
+          <p role="status" className="text-meta text-warn">
+            Only the first {MAX_CALLER_LINES} lines are saved.
+          </p>
+        ) : null}
         {valid.error("said")}
       </div>
       <div>
@@ -275,7 +285,12 @@ function CaseRow({
         </span>
       </div>
       <p className="text-meta text-ink-muted">Should: {testCase.expected}</p>
-      {testCase.last_error ? (
+      {testCase.last_error === TOO_LONG ? (
+        <p className="text-meta text-warn">
+          The agent was slow to reply, so the run stopped before the last line. Run it again,
+          or split it into two tests.
+        </p>
+      ) : testCase.last_error ? (
         <p className="text-meta text-warn">The last run did not finish. Run it again.</p>
       ) : null}
       {result ? (

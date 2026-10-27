@@ -297,6 +297,7 @@ from apps.workers.studio_voice_key import (
     sweep_studio_workspaces,
 )
 from apps.workers.teach_questions import draft_teach_question
+from apps.workers.team_alerts import deliver_team_alert, send_team_contact_code
 from apps.workers.tls_expiry import check_tls_expiry
 from apps.workers.topup_settlement import SETTLEMENT_MINUTES, sweep_topup_settlement
 from apps.workers.trial_notices import (
@@ -450,6 +451,11 @@ FUNCTIONS: list[Any] = [
         # D-841. One call's failed reading read again, queued by `sweep_failed_extractions`.
         reread_call_extraction,
         notify_hot_lead,
+        # D-904. Tell my team: a caller's details to the business's verified team address
+        # (from the post-call pipeline and the agent's in-call action), and the code that
+        # verifies that address.
+        deliver_team_alert,
+        send_team_contact_code,
         # D-23: the client's CRM hears about leads and calls through the same outbox as
         # every other side effect, so a delivery cannot outlive a rolled-back write.
         deliver_outbound_webhook,
@@ -616,6 +622,10 @@ OUTBOX_RESULT_WINDOW_S: Final[int] = int(
 )
 RESULT_WINDOW_S: Final[Mapping[str, int]] = {
     deliver_auth_email.__name__: 0,
+    # A live verification code, for `deliver_auth_email`'s reason.
+    send_team_contact_code.__name__: 0,
+    # Carries the agent's note of the caller's problem.
+    deliver_team_alert.__name__: OUTBOX_RESULT_WINDOW_S,
     run_post_call_pipeline.__name__: 0,
     deliver_outbound_webhook.__name__: OUTBOX_RESULT_WINDOW_S,
     recall_dials_for_dnc.__name__: OUTBOX_RESULT_WINDOW_S,
