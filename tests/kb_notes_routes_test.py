@@ -80,7 +80,9 @@ async def test_a_note_is_listed_renamed_removed_and_put_back(s3: FakeS3) -> None
     assert any(item.name == "Car park" and item.state == "in_use" for item in items)
 
 
-async def test_a_removed_note_is_not_knowledge_but_stays_listed_for_the_page(s3: FakeS3) -> None:
+async def test_a_removed_note_is_not_knowledge_but_stays_listed_to_be_put_back(
+    s3: FakeS3,
+) -> None:
     del s3
     tenant_id, _agent = await _tenant_with_published_agent()
     note_id = await _note(tenant_id, "Holidays")
@@ -88,8 +90,36 @@ async def test_a_removed_note_is_not_knowledge_but_stays_listed_for_the_page(s3:
         await store.remove_note(session, tenant_id=tenant_id, source_id=note_id)
         items, _total = await store.find_items(session, tenant_id=tenant_id, kinds=["note"])
         notes = await store.list_notes(session)
-    assert all(item.name != "Holidays" for item in items)
+    assert [(i.state, i.agents_use) for i in items if i.name == "Holidays"] == [("removed", False)]
     assert [(n.name, n.state) for n in notes if n.name == "Holidays"] == [("Holidays", "removed")]
+
+
+async def test_past_the_cap_the_most_recently_changed_notes_are_the_ones_listed() -> None:
+    tenant_id, _agent = await _tenant_with_published_agent()
+    async with tenant_session(tenant_id) as session:
+        # 200 old notes whose names sort first, then one changed now whose name sorts last.
+        await session.execute(
+            text(
+                "INSERT INTO kb_sources (id, tenant_id, kind, name, status, version, is_active, "
+                "created_at, updated_at) SELECT gen_random_uuid(), :t, 'text', "
+                "'A note ' || lpad(n::text, 3, '0'), 'approved', 1, true, "
+                "now() - interval '30 days', now() - interval '30 days' "
+                "FROM generate_series(1, 200) AS n"
+            ),
+            {"t": tenant_id},
+        )
+        await session.execute(
+            text(
+                "INSERT INTO kb_sources (id, tenant_id, kind, name, status, version, is_active, "
+                "created_at, updated_at) VALUES (gen_random_uuid(), :t, 'text', 'Zoo timings', "
+                "'approved', 1, true, now(), now())"
+            ),
+            {"t": tenant_id},
+        )
+        notes = await store.list_notes(session)
+    assert len(notes) == 200
+    assert notes[0].name == "Zoo timings"
+    assert [n.changed_at for n in notes] == sorted((n.changed_at for n in notes), reverse=True)
 
 
 async def test_staff_without_curation_are_refused_and_another_account_sees_404(

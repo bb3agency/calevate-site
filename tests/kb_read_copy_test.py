@@ -496,14 +496,23 @@ async def test_a_note_is_written_replaced_removed_and_put_back_through_the_page_
     async with tenant_session(tenant_id) as session:
         removal = await KNOWLEDGE_REMOVE.plan(session, actor, {"item": ref, "put_back": None})
         assert "versions are kept" in removal.summary
-        await KNOWLEDGE_REMOVE.execute(session, actor, removal.args)
+        removed = await KNOWLEDGE_REMOVE.execute(session, actor, removal.args)
         items, _total = await store.find_items(session, tenant_id=tenant_id, kinds=["note"])
-    assert all(item.name != "Parking" for item in items)
+    assert removed.audit_action is None  # the tool's own `kb.removed`
+    [listed] = [item for item in items if item.name == "Parking"]
+    assert (listed.state, listed.agents_use, listed.note) == ("removed", False, "can be put back")
+    pip_sees = await _tool(
+        "knowledge_sources",
+        json.dumps({"kind": "note", "find": "Parking", "page": None}),
+        context=_ctx(tenant_id),
+    )
+    assert "removed, agents don't use it" in pip_sees and f"[{listed.ref}]" in pip_sees
 
     async with tenant_session(tenant_id) as session:
-        back = await KNOWLEDGE_REMOVE.plan(session, actor, {"item": ref, "put_back": True})
-        await KNOWLEDGE_REMOVE.execute(session, actor, back.args)
+        back = await KNOWLEDGE_REMOVE.plan(session, actor, {"item": listed.ref, "put_back": True})
+        restored = await KNOWLEDGE_REMOVE.execute(session, actor, back.args)
         items, _total = await store.find_items(session, tenant_id=tenant_id, kinds=["note"])
+    assert restored.audit_action == "kb.restored"
     assert any(item.name == "Parking" and item.state == "in_use" for item in items)
 
 

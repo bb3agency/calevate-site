@@ -35,6 +35,7 @@ _STATE_WORDS: Final[dict[str, str]] = {
     "in_review": "waiting for review",
     "needs_attention": "needs attention",
     "waiting": "waiting for the script",
+    "removed": "removed, agents don't use it",
 }
 
 
