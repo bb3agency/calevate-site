@@ -41,7 +41,7 @@ const SLOT_ORDERS: readonly { value: string; slots: Slot[]; label: string }[] = 
   { value: "name,phone,why", slots: ["name", "phone", "why"], label: "Name, number, why" },
 ];
 
-export function TeamAlertsPanel({ agent }: { agent: Agent }) {
+export function TeamAlertsPanel({ agent }: { agent: Pick<Agent, "id"> }) {
   const session = useClientSession();
   const contacts = useTeamContacts(session);
   const rule = useTeamAlertRule(session, agent.id);
@@ -95,6 +95,8 @@ function ContactRow({ contact, canWrite, reason }: { contact: TeamContact; canWr
   const resend = useResendTeamCode(session);
   const makeDefault = useDefaultTeamContact(session);
   const remove = useRemoveTeamContact(session);
+  useActionFeedback(makeDefault, { errorDisplay: "inline", successToast: "Default set" });
+  useActionFeedback(remove, { errorDisplay: "inline", successToast: "Removed" });
   const verifyFeedback = useActionFeedback(verify, { errorDisplay: "inline", successToast: "Confirmed" });
   const resendFeedback = useActionFeedback(resend, { errorDisplay: "inline", successToast: "New code sent" });
   const [code, setCode] = useState("");

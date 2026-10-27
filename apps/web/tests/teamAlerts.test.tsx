@@ -2,7 +2,6 @@ import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { TeamAlertsPanel } from "@/app/c/[slug]/agents/panels/teamAlerts";
-import type { Agent } from "@/lib/api/agents";
 
 import { renderClientPage, type ApiCall } from "./harness";
 import { OWNER_ME, teamAlertReads } from "./fixtures/sharedReads";
@@ -13,7 +12,7 @@ import { OWNER_ME, teamAlertReads } from "./fixtures/sharedReads";
  * connected; otherwise one line says why it is not there.
  */
 
-const AGENT = { id: "agent-1", name: "Rytu" } as Agent;
+const AGENT = { id: "agent-1" };
 
 function routes(overrides: Record<string, unknown> = {}) {
   return { "/v1/me": OWNER_ME, ...teamAlertReads(), ...overrides };
