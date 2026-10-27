@@ -494,7 +494,7 @@ function agentRoutes(over: Record<string, unknown> = {}) {
       recent: [],
       on_duty_member_id: null,
       unavailable_reason: "disabled",
-      remediation: "Handing calls to a person is switched off for this agent.",
+      remediation: "Transfer to a person is off for this agent. Turn it on to use it.",
       published: true,
     },
     "/v1/agents/lanes": LANES,

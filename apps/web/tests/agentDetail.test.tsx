@@ -306,7 +306,7 @@ function routes(over: Record<string, unknown> = {}) {
       recent: [],
       on_duty_member_id: null,
       unavailable_reason: "disabled",
-      remediation: "Handing calls to a person is switched off for this agent.",
+      remediation: "Transfer to a person is off for this agent. Turn it on to use it.",
       published: true,
     },
     // The voices the Voice section offers, and the lane rules: both read on this screen, and
