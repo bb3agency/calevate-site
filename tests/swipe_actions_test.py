@@ -250,13 +250,11 @@ async def test_whatsapp_needs_a_connected_account() -> None:
     assert send.json()["status"] == "blocked"
 
 
-async def test_whatsapp_is_sent_only_with_consent_and_once_per_key(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The account, its template and the wire are stood in for (no WABA here); the consent
-    read and the timeline are real. The dispatch gate answers `allowed`, because whether
-    it allows a number at this hour of the test run is its own suite's business."""
-    tenant_id, headers, lead_id, phone = await _tenant()
+def _stub_whatsapp(monkeypatch: pytest.MonkeyPatch) -> tuple[uuid.UUID, list[Any]]:
+    """The account, its one template ("Hi, this is {{1}} following up.") and the wire stood
+    in for (no WABA here). The dispatch gate answers `allowed`, because whether it allows a
+    number at this hour of the test run is its own suite's business. Returns the template's
+    id and the list each sent request lands in."""
     template_id = uuid.uuid4()
     account = accounts.Account(
         id=uuid.uuid4(),
@@ -316,6 +314,15 @@ async def test_whatsapp_is_sent_only_with_consent_and_once_per_key(
     monkeypatch.setattr(swipe, "_send", _send)
     monkeypatch.setattr("apps.api.actions.whatsapp.check_dispatch", _allowed)
 
+    return template_id, sent
+
+
+async def test_whatsapp_is_sent_only_with_consent_and_once_per_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The consent read and the timeline are real; the rest is `_stub_whatsapp`."""
+    tenant_id, headers, lead_id, phone = await _tenant()
+    template_id, sent = _stub_whatsapp(monkeypatch)
     url = f"/v1/leads/{lead_id}/whatsapp"
     body = {"template_id": str(template_id), "values": ["Sri Homes"]}
     async with _client() as http:
@@ -333,26 +340,7 @@ async def test_whatsapp_is_sent_only_with_consent_and_once_per_key(
     assert wrong_count.status_code == 422
     assert sent == []
 
-    call_id = uuid7()
-    async with tenant_session(tenant_id) as session:
-        agent_id = (await session.execute(text("SELECT id FROM agents LIMIT 1"))).scalar()
-        await session.execute(
-            text(
-                "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, status, "
-                "started_at, created_at, updated_at) VALUES (:id, :t, :a, :e, 'inbound', "
-                "'completed', now(), now(), now())"
-            ),
-            {"id": call_id, "t": tenant_id, "a": agent_id, "e": f"wa-{uuid.uuid4().hex}"},
-        )
-        await record_messaging_consent(
-            session,
-            tenant_id=tenant_id,
-            raw_phone=phone,
-            status="granted",
-            source="inbound_call_verbal",
-            call_id=call_id,
-            evidence={"transcript_span": "turn 4", "asked": "shall I WhatsApp you?"},
-        )
+    await _grant_whatsapp_consent(tenant_id, phone)
 
     async with _client() as http:
         ok = await http.post(url, headers=headers | {"Idempotency-Key": "w3"}, json=body)
@@ -378,3 +366,127 @@ async def test_whatsapp_is_sent_only_with_consent_and_once_per_key(
         )
     assert statuses == ["blocked", "sent"]
     assert await _audit(str(lead_id), "lead.whatsapp_follow_up") == 2
+
+
+async def _grant_whatsapp_consent(tenant_id: uuid.UUID, phone: str) -> None:
+    """The person agreed on a call to be sent WhatsApp messages."""
+    call_id = uuid7()
+    async with tenant_session(tenant_id) as session:
+        agent_id = (await session.execute(text("SELECT id FROM agents LIMIT 1"))).scalar()
+        await session.execute(
+            text(
+                "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, status, "
+                "started_at, created_at, updated_at) VALUES (:id, :t, :a, :e, 'inbound', "
+                "'completed', now(), now(), now())"
+            ),
+            {"id": call_id, "t": tenant_id, "a": agent_id, "e": f"wa-{uuid.uuid4().hex}"},
+        )
+        await record_messaging_consent(
+            session,
+            tenant_id=tenant_id,
+            raw_phone=phone,
+            status="granted",
+            source="inbound_call_verbal",
+            call_id=call_id,
+            evidence={"transcript_span": "turn 4", "asked": "shall I WhatsApp you?"},
+        )
+
+
+# --- 5. moving and calling off call-backs ------------------------------------------------
+
+
+async def _booked(headers: dict[str, str], lead_id: uuid.UUID, hour: int) -> str:
+    async with _client() as http:
+        booked = await http.post(
+            f"/v1/leads/{lead_id}/callbacks",
+            headers=headers | {"Idempotency-Key": f"b-{uuid.uuid4()}"},
+            json={"at": _tomorrow_ist(hour)},
+        )
+    assert booked.json()["status"] == "scheduled", booked.text
+    return str(booked.json()["callback_id"])
+
+
+async def test_a_waiting_call_back_is_moved_inside_the_window_and_not_once_it_ended() -> None:
+    tenant_id, headers, lead_id, _phone = await _tenant()
+    await _outbound_agent(tenant_id)
+    _other, other_headers, _l, _p = await _tenant()
+    callback_id = await _booked(headers, lead_id, 16)
+    url = f"/v1/callbacks/{callback_id}"
+    async with _client() as http:
+        night = await http.patch(url, headers=headers, json={"at": _tomorrow_ist(22)})
+        moved = await http.patch(url, headers=headers, json={"at": _tomorrow_ist(18)})
+        neighbour = await http.patch(url, headers=other_headers, json={"at": _tomorrow_ist(18)})
+        await http.delete(url, headers=headers)
+        ended = await http.patch(url, headers=headers, json={"at": _tomorrow_ist(19)})
+
+    assert night.status_code == 422 and _code(night) == "callback_time_not_allowed"
+    assert moved.status_code == 200, moved.text
+    assert moved.json()["status"] == "scheduled"
+    moved_at = datetime.fromisoformat(moved.json()["requested_at"])
+    assert (moved_at + _IST).hour == 18
+    assert neighbour.status_code == 404
+    assert ended.status_code == 409 and _code(ended) == "callback_not_stoppable"
+    assert await _audit(callback_id, "callback.rescheduled") == 1
+    assert await _audit(callback_id, "callback.cancelled") == 1
+
+
+async def test_many_call_backs_are_moved_or_called_off_each_on_its_own() -> None:
+    tenant_id, headers, lead_id, phone = await _tenant()
+    await _outbound_agent(tenant_id)
+    first = await _booked(headers, lead_id, 16)
+    other_lead = uuid7()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO leads (id, tenant_id, agent_id, phone_e164, source, status, "
+                "created_at, updated_at) SELECT :id, tenant_id, agent_id, :p, 'manual', 'new', "
+                "now(), now() FROM leads WHERE id = :l"
+            ),
+            {"id": other_lead, "p": f"+9196{uuid.uuid4().int % 100000000:08d}", "l": lead_id},
+        )
+    second = await _booked(headers, other_lead, 17)
+    async with _client() as http:
+        no_time = await http.post(
+            "/v1/callbacks/bulk", headers=headers, json={"action": "move", "callback_ids": [first]}
+        )
+        await http.delete(f"/v1/callbacks/{second}", headers=headers)
+        moved = await http.post(
+            "/v1/callbacks/bulk",
+            headers=headers,
+            json={"action": "move", "callback_ids": [first, second], "at": _tomorrow_ist(11)},
+        )
+    assert no_time.status_code == 422 and _code(no_time) == "callback_time_missing"
+    assert moved.status_code == 200, moved.text
+    assert moved.json()["changed"] == 1
+    assert [r["status"] for r in moved.json()["results"]] == ["moved", "not_waiting"]
+
+    # A number put on the do-not-call list since is left where it is, with the reason.
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO dnc_list (id, tenant_id, phone_e164, scope, source, created_at) "
+                "VALUES (:id, :t, :p, 'tenant', 'manual', now())"
+            ),
+            {"id": uuid.uuid4(), "t": tenant_id, "p": phone},
+        )
+    async with _client() as http:
+        blocked = await http.post(
+            "/v1/callbacks/bulk",
+            headers=headers,
+            json={"action": "move", "callback_ids": [first], "at": _tomorrow_ist(12)},
+        )
+        cancelled = await http.post(
+            "/v1/callbacks/bulk",
+            headers=headers,
+            json={"action": "cancel", "callback_ids": [first]},
+        )
+    assert blocked.json()["results"][0]["status"] == "blocked"
+    assert blocked.json()["results"][0]["reason"]
+    assert cancelled.json() == {
+        "results": [
+            {"callback_id": first, "status": "cancelled", "requested_at": None, "reason": None}
+        ],
+        "changed": 1,
+    }
+    assert await _audit(first, "callback.rescheduled") == 1
+    assert await _audit(first, "callback.cancelled") == 1

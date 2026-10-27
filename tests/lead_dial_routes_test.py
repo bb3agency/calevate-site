@@ -1078,15 +1078,15 @@ async def test_a_callback_whose_gate_raised_can_be_pressed_again(
     async def gate_down(*args: object, **kwargs: object) -> None:
         raise RuntimeError("gate read failed")
 
-    original_gate = routes.check_dispatch
-    monkeypatch.setattr(routes, "check_dispatch", gate_down)
+    original_gate = lead_dial.check_dispatch
+    monkeypatch.setattr(lead_dial, "check_dispatch", gate_down)
     async with _no_reraise_client() as http:
         failed = await http.post(f"/v1/calls/{parent}/callback", headers=headers)
     assert failed.status_code >= 500, failed.text
     assert await _outbound_calls(tenant_id) == [(phone, "completed")], "nothing was dialled"
 
     # Restored by name: `monkeypatch.undo()` would also revert the autouse daytime pin.
-    monkeypatch.setattr(routes, "check_dispatch", original_gate)
+    monkeypatch.setattr(lead_dial, "check_dispatch", original_gate)
     async with _client() as http:
         again = await http.post(f"/v1/calls/{parent}/callback", headers=headers)
     assert again.json()["status"] == "queued", again.text

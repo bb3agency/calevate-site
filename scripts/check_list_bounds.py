@@ -395,6 +395,10 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "GET /v1/copilot/plans/{plan_id}": _ONE_PLAN,
     "POST /v1/copilot/plans/{plan_id}/approve": _ONE_PLAN,
     "POST /v1/copilot/plans/{plan_id}/cancel": _ONE_PLAN,
+    "POST /v1/copilot/plans": _ONE_PLAN,
+    "POST /v1/callbacks/bulk": BoundedByConstruction(
+        by="one result per submitted id, and `callbacks/routes.MAX_PAGE` (200) bounds the request."
+    ),
     # --- D-693 a client's own voice workspace -----------------------------------------
     "GET /v1/numbers/own/available": BoundedByConstruction(
         by=(

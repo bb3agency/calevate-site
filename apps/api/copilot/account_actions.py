@@ -67,8 +67,10 @@ from apps.api.copilot.actions import (
     action_schema,
     parse_args,
 )
+from apps.api.copilot.actions import (
+    principal_of as _principal_of,
+)
 from apps.api.copilot.sanitize import strip_invisible
-from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.db.ownership import assert_visible
 
@@ -85,17 +87,6 @@ def _owner_promotion_code(args: Mapping[str, Any]) -> str | None:
     if args.get("role") != "owner":
         return None
     return f"promote_owner:{{org}}:{args['user_id']}"
-
-
-def _principal_of(actor: ToolActor) -> Principal:
-    """The principal a service that writes its own audit row or attestation needs."""
-    return Principal(
-        realm="client",
-        user_id=actor.user_id,
-        tenant_id=actor.tenant_id,
-        role=actor.role,
-        impersonating=actor.impersonating,
-    )
 
 
 def _masked(phone: str) -> str:

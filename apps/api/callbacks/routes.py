@@ -2,15 +2,14 @@
 
     GET    /v1/callbacks              every promise, soonest activity first
     GET    /v1/callbacks/{id}         one of them
+    PATCH  /v1/callbacks/{id}         move one that is still waiting
     DELETE /v1/callbacks/{id}         call one off before it rings
+    POST   /v1/callbacks/bulk         move or call off the ticked ones
 
-THREE ROUTES AND NO WAY TO CREATE ONE, WHICH IS THE POINT. A call-back is booked by a
-caller ASKING for one, mid-call, through the in-call tool in `apps/voice-runtime` — that
-is the entire feature. A `POST` here would be a second way to make the platform ring
-somebody, with no conversation behind it and no execution to attribute it to, and it
-would bypass the confirm-before-commit turn that stops a misheard "four" ringing a
-household at 04:00. Placing a call to a lead on purpose already has a button, and it is
-`POST /v1/leads/{id}/dial`.
+NO WAY TO CREATE ONE HERE. A caller asks for one mid-call (the in-call tool in
+`apps/voice-runtime`), or a person books one on a lead (`POST /v1/leads/{id}/callbacks`,
+`crm/swipe_routes.py`), which keeps the lead it is about. Moving and calling off go through
+`crm/swipe.change_callback`, which Pip's call-back actions call too.
 
 **THE SCREEN READS SENTENCES, NOT STATUS WORDS.** `status` is our vocabulary and it is
 returned because a screen needs something to sort and filter on, but every row also
@@ -21,21 +20,19 @@ like `refused` and left to guess.
 
 PERMISSIONS. Reading is `leads:read` — a call-back belongs to the same screen as the lead
 it came from, and a person who may see the lead may see what was promised to them.
-Cancelling is `leads:dispatch`, the permission that already governs who may cause a call
-to be placed: calling one off is the same decision in the other direction, which is
-`dnc_routes.py`'s argument for the same pairing.
-
-This router is NOT mounted here — the integrator mounts it in `main._mount_routers`.
+Moving and cancelling are `leads:dispatch`, the permission that already governs who may
+cause a call to be placed: when it rings, or whether it does, is the same decision, which
+is `dnc_routes.py`'s argument for the same pairing.
 """
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.callbacks import service as callbacks
@@ -45,6 +42,7 @@ from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
+from apps.api.crm import swipe
 
 router = APIRouter(prefix="/v1/callbacks", tags=["callbacks"])
 
@@ -176,10 +174,54 @@ async def get_callback(callback_id: UUID, session: Session, _: Reader) -> Schedu
     return _view(row)
 
 
-#: What the row records when a client called a promise off themselves. Their own words are
-#: not asked for: a free-text reason on this row would be shown back to whoever reads the
-#: screen next, and nothing acts on it.
-CANCELLED_BY_CLIENT = "You called this off."
+#: Kept under its old name for the screens' tests; the one sentence lives in `crm/swipe`.
+CANCELLED_BY_CLIENT = swipe.CANCELLED_BY_CLIENT
+
+_NOT_STOPPABLE_REMEDIATION = (
+    "It is either being placed right now, or it has already finished. The call itself will "
+    "show on this lead once it has."
+)
+
+
+def _refuse(out: swipe.CallbackChangeOut, *, verb: str) -> None:
+    """404 for a promise that is not there, 409 for one already claimed or ended: "it is
+    gone" means look again; "it is being placed now" means the phone may be ringing and
+    there is nothing to undo."""
+    if out.status == "not_found":
+        raise ProblemError.not_found("Call-back")
+    if out.status == "not_waiting":
+        raise ProblemError.conflict(
+            "callback_not_stoppable",
+            f"This call-back can no longer be {verb}.",
+            remediation=_NOT_STOPPABLE_REMEDIATION,
+        )
+    if out.status == "blocked":
+        raise ProblemError.business_rule(
+            "callback_blocked", out.reason or "The calling rules refuse this call-back."
+        )
+
+
+async def _audit_change(
+    session: AsyncSession, request: Request, principal: Principal, out: swipe.CallbackChangeOut
+) -> None:
+    assert principal.tenant_id is not None  # client realm; `requires()` resolves it
+    await write_audit(
+        session,
+        action="callback.cancelled" if out.status == "cancelled" else "callback.rescheduled",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="callback",
+        object_id=str(out.callback_id),
+        ip=client_request_ip(request),
+        summary=None if out.requested_at is None else {"at": out.requested_at.isoformat()},
+    )
+
+
+async def _read_back(session: AsyncSession, callback_id: UUID) -> ScheduledCallbackOut:
+    row = await callbacks.get_callback(session, callback_id)
+    if row is None:
+        raise ProblemError.not_found("Call-back")
+    return _view(row)
 
 
 @router.delete(
@@ -199,37 +241,129 @@ async def cancel_callback(
     request: Request,
     principal: Dispatcher,
 ) -> ScheduledCallbackOut:
-    """Cancel, then read back — so the response is what the row IS, not what we asked for.
-
-    A 404 for a promise that is not there, and a 409 for one that has already been claimed
-    or has already ended: those are different problems for the person holding the screen.
-    "It is gone" means look again; "it is being placed now" means the phone may be ringing
-    and there is nothing to undo.
-    """
-    stopped = await callbacks.cancel_one(session, callback_id, reason=CANCELLED_BY_CLIENT)
-    row = await callbacks.get_callback(session, callback_id)
-    if row is None:
-        raise ProblemError.not_found("Call-back")
-    if not stopped:
-        raise ProblemError.conflict(
-            "callback_not_stoppable",
-            "This call-back can no longer be called off.",
-            remediation=(
-                "It is either being placed right now, or it has already finished. The "
-                "call itself will show on this lead once it has."
-            ),
-        )
-    assert principal.tenant_id is not None  # client realm; `requires()` resolves it
-    await write_audit(
-        session,
-        action="callback.cancelled",
-        actor=principal,
-        tenant_id=principal.tenant_id,
-        object_type="callback",
-        object_id=str(callback_id),
-        ip=client_request_ip(request),
+    """Cancel, then read back — so the response is what the row IS, not what we asked for."""
+    assert principal.tenant_id is not None
+    out = await swipe.change_callback(
+        session, tenant_id=principal.tenant_id, callback_id=callback_id, change="cancel"
     )
-    return _view(row)
+    _refuse(out, verb="called off")
+    await _audit_change(session, request, principal, out)
+    return await _read_back(session, callback_id)
 
 
-__all__ = ["MAX_PAGE", "ScheduledCallbackOut", "router"]
+class CallbackMoveIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: The new time, with its offset (IST: +05:30). Between 09:00 and 21:00 IST, at least two
+    #: minutes from now and at most 30 days ahead.
+    at: datetime
+
+
+@router.patch(
+    "/{callback_id}",
+    response_model=ScheduledCallbackOut,
+    openapi_extra=permission_meta("leads:dispatch"),
+    summary="Move a waiting call-back to another time, 09:00-21:00 IST",
+    description=(
+        "Moves a call-back that has not gone out yet. Refused when it is already being "
+        "placed or has ended (409), or when a calling rule that waiting cannot lift refuses "
+        "the number (422)."
+    ),
+)
+async def move_callback(
+    callback_id: UUID,
+    payload: CallbackMoveIn,
+    session: Session,
+    request: Request,
+    principal: Dispatcher,
+) -> ScheduledCallbackOut:
+    """`leads:dispatch` for `cancel_callback`'s reason: when a phone rings is the same
+    decision as whether it does. No `Idempotency-Key`: moving to one time twice is one move."""
+    assert principal.tenant_id is not None
+    swipe.check_schedule_time(payload.at, now=datetime.now(UTC))
+    out = await swipe.change_callback(
+        session,
+        tenant_id=principal.tenant_id,
+        callback_id=callback_id,
+        change="move",
+        at=payload.at,
+    )
+    _refuse(out, verb="moved")
+    await _audit_change(session, request, principal, out)
+    return await _read_back(session, callback_id)
+
+
+class CallbacksBulkIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action: swipe.CallbackChange
+    #: The rows ticked on the Call-backs screen; at most one page of it.
+    callback_ids: list[UUID] = Field(min_length=1, max_length=MAX_PAGE)
+    #: With `move`: the new time for every one of them, as for a single move.
+    at: datetime | None = None
+
+
+class CallbacksBulkOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: One per requested call-back, in the order asked; each says what happened and why not.
+    results: list[swipe.CallbackChangeOut]
+    changed: int
+
+
+@router.post(
+    "/bulk",
+    response_model=CallbacksBulkOut,
+    openapi_extra=permission_meta("leads:dispatch"),
+    summary="Move or call off many waiting call-backs at once",
+    description=(
+        "The Call-backs screen's selection. Each one is changed on its own: one that is "
+        "already being placed, has ended or is refused by a calling rule is left as it is "
+        "and says why, and the rest still change."
+    ),
+)
+async def change_callbacks(
+    payload: CallbacksBulkIn,
+    session: Session,
+    request: Request,
+    principal: Dispatcher,
+) -> CallbacksBulkOut:
+    """Bounded by one page (`MAX_PAGE`), so it runs in the request; Pip's
+    `callbacks_change_bulk` takes any number as a plan and calls the same function per row."""
+    assert principal.tenant_id is not None
+    if payload.action == "move":
+        if payload.at is None:
+            raise ProblemError(
+                kind="validation",
+                code="callback_time_missing",
+                title="Say when to move them to",
+                detail="Moving call-backs needs the new time.",
+                remediation="Send `at`, between 9am and 9pm India time.",
+            )
+        swipe.check_schedule_time(payload.at, now=datetime.now(UTC))
+    results: list[swipe.CallbackChangeOut] = []
+    for callback_id in dict.fromkeys(payload.callback_ids):
+        out = await swipe.change_callback(
+            session,
+            tenant_id=principal.tenant_id,
+            callback_id=callback_id,
+            change=payload.action,
+            at=payload.at,
+        )
+        if out.status in ("cancelled", "moved"):
+            await _audit_change(session, request, principal, out)
+        results.append(out)
+    return CallbacksBulkOut(
+        results=results,
+        changed=sum(1 for out in results if out.status in ("cancelled", "moved")),
+    )
+
+
+__all__ = [
+    "MAX_PAGE",
+    "CallbackMoveIn",
+    "CallbacksBulkIn",
+    "CallbacksBulkOut",
+    "ScheduledCallbackOut",
+    "router",
+]

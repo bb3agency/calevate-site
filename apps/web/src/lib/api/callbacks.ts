@@ -1,11 +1,9 @@
 /**
- * The call-backs an agent promised on a call (D-514).
+ * The call-backs promised to callers and leads (D-514, D-869, D-893).
  *
- * READ AND CANCEL, AND NO CREATE, which mirrors the API deliberately rather than by
- * omission: a call-back exists because a caller asked for one mid-call, and the only
- * booking path is the agent's in-call tool. "Ring this lead" is a different button on a
- * different screen (`leads.ts`), and conflating them here would put a way to make the
- * platform phone somebody behind a list view.
+ * READ, MOVE AND CALL OFF, AND NO CREATE here: a call-back is booked by a caller mid-call
+ * or on a lead (`swipe.ts`, "Call back later"), which keeps the person it is about. This
+ * list changes when and whether one rings.
  *
  * Types alias the GENERATED schema (client.ts doctrine) so they cannot drift from the API.
  */
@@ -14,6 +12,7 @@ import {
   useMutation,
   useQuery,
   useQueryClient,
+  type QueryClient,
   type UseMutationResult,
   type UseQueryResult,
 } from "@tanstack/react-query";
@@ -52,13 +51,25 @@ export function useCallbacks(
 }
 
 /**
- * Call one off before it rings.
- *
- * Invalidates BOTH views rather than the one that issued it: cancelling removes a row
- * from the open list and changes a row in the full one, and a client who cancels from the
- * filtered view and then clears the filter must not read "waiting" about a promise they
- * just stopped.
+ * After a call-back changed: BOTH views rather than the one that issued it (a change moves
+ * a row in one list and changes it in the other), and the call it was booked on and the
+ * lead it is for, which both say what it came to.
  */
+function refreshCallbacks(client: QueryClient, org: string): Promise<unknown> {
+  return Promise.all(
+    [
+      callbackKeys.list(org, true),
+      callbackKeys.list(org, false),
+      ["call", org],
+      ["calls", org],
+      ["calls-log", org],
+      ["lead", org],
+      ["leads", org],
+    ].map((queryKey) => client.invalidateQueries({ queryKey })),
+  );
+}
+
+/** Call one off before it rings. */
 export function useCancelCallback(
   session: Session,
 ): UseMutationResult<ScheduledCallback, Error, string> {
@@ -68,18 +79,43 @@ export function useCancelCallback(
       apiRequest<ScheduledCallback>(session, `/v1/callbacks/${callbackId}`, {
         method: "DELETE",
       }),
-    // The call it was booked on and the lead it is for both say what it came to.
-    onSuccess: () =>
-      Promise.all(
-        [
-          callbackKeys.list(session.orgSlug, true),
-          callbackKeys.list(session.orgSlug, false),
-          ["call", session.orgSlug],
-          ["calls", session.orgSlug],
-          ["calls-log", session.orgSlug],
-          ["lead", session.orgSlug],
-          ["leads", session.orgSlug],
-        ].map((queryKey) => client.invalidateQueries({ queryKey })),
-      ),
+    onSuccess: () => refreshCallbacks(client, session.orgSlug),
+  });
+}
+
+export type CallbackChangeResult = components["schemas"]["CallbackChangeOut"];
+export type CallbacksBulkResult = components["schemas"]["CallbacksBulkOut"];
+export type CallbacksBulkBody = components["schemas"]["CallbacksBulkIn"];
+
+/**
+ * Move one that is still waiting (`PATCH /v1/callbacks/{id}`). `at` carries its offset
+ * (`…+05:30`); the server holds it to 9am–9pm India time, as booking does.
+ */
+export function useMoveCallback(
+  session: Session,
+): UseMutationResult<ScheduledCallback, Error, { callbackId: string; at: string }> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ callbackId, at }) =>
+      apiRequest<ScheduledCallback>(session, `/v1/callbacks/${callbackId}`, {
+        method: "PATCH",
+        body: { at },
+      }),
+    onSuccess: () => refreshCallbacks(client, session.orgSlug),
+  });
+}
+
+/**
+ * Move or call off the ticked ones (`POST /v1/callbacks/bulk`), at most one page. Each is
+ * changed on its own; the answer says, per call-back, what happened and why not.
+ */
+export function useChangeCallbacks(
+  session: Session,
+): UseMutationResult<CallbacksBulkResult, Error, CallbacksBulkBody> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body) =>
+      apiRequest<CallbacksBulkResult>(session, "/v1/callbacks/bulk", { method: "POST", body }),
+    onSettled: () => refreshCallbacks(client, session.orgSlug),
   });
 }

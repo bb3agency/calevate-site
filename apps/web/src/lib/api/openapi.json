@@ -9415,6 +9415,56 @@
         "title": "CallVarianceOut",
         "type": "object"
       },
+      "CallbackChangeOut": {
+        "additionalProperties": false,
+        "properties": {
+          "callback_id": {
+            "format": "uuid",
+            "title": "Callback Id",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "requested_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested At"
+          },
+          "status": {
+            "enum": [
+              "cancelled",
+              "moved",
+              "blocked",
+              "not_waiting",
+              "not_found"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "callback_id",
+          "status"
+        ],
+        "title": "CallbackChangeOut",
+        "type": "object"
+      },
       "CallbackEligibilityOut": {
         "additionalProperties": false,
         "properties": {
@@ -9460,6 +9510,21 @@
           "eligible"
         ],
         "title": "CallbackEligibilityOut",
+        "type": "object"
+      },
+      "CallbackMoveIn": {
+        "additionalProperties": false,
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "at"
+        ],
+        "title": "CallbackMoveIn",
         "type": "object"
       },
       "CallbackOut": {
@@ -9523,6 +9588,69 @@
           "status"
         ],
         "title": "CallbackOut",
+        "type": "object"
+      },
+      "CallbacksBulkIn": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "cancel",
+              "move"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At"
+          },
+          "callback_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Callback Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "action",
+          "callback_ids"
+        ],
+        "title": "CallbacksBulkIn",
+        "type": "object"
+      },
+      "CallbacksBulkOut": {
+        "additionalProperties": false,
+        "properties": {
+          "changed": {
+            "title": "Changed",
+            "type": "integer"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/CallbackChangeOut"
+            },
+            "title": "Results",
+            "type": "array"
+          }
+        },
+        "required": [
+          "results",
+          "changed"
+        ],
+        "title": "CallbacksBulkOut",
         "type": "object"
       },
       "CallerMemoryIn": {
@@ -14751,6 +14879,29 @@
           "plans"
         ],
         "title": "CopilotPlanPageOut",
+        "type": "object"
+      },
+      "CopilotPlanProposeIn": {
+        "additionalProperties": false,
+        "description": "A plan a screen asks for: a set action's registry name and its arguments, exactly as\nPip would pass them (`copilot/set_actions.py`, `copilot/call_actions.py`).",
+        "properties": {
+          "args": {
+            "additionalProperties": true,
+            "title": "Args",
+            "type": "object"
+          },
+          "tool": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Tool",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tool",
+          "args"
+        ],
+        "title": "CopilotPlanProposeIn",
         "type": "object"
       },
       "CopilotPlanTargetOut": {
@@ -70036,6 +70187,45 @@
         "x-calevate-permission": "leads:read"
       }
     },
+    "/v1/callbacks/bulk": {
+      "post": {
+        "description": "The Call-backs screen's selection. Each one is changed on its own: one that is already being placed, has ended or is refused by a calling rule is left as it is and says why, and the rest still change.",
+        "operationId": "change_callbacks_v1_callbacks_bulk_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CallbacksBulkIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallbacksBulkOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Move or call off many waiting call-backs at once",
+        "tags": [
+          "callbacks"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
     "/v1/callbacks/{callback_id}": {
       "delete": {
         "description": "Stops a call-back that has not gone out yet. A call-back that is already being placed cannot be stopped here \u2014 the phone may already be ringing \u2014 and one that has already ended stays as it ended.",
@@ -70113,6 +70303,55 @@
           "callbacks"
         ],
         "x-calevate-permission": "leads:read"
+      },
+      "patch": {
+        "description": "Moves a call-back that has not gone out yet. Refused when it is already being placed or has ended (409), or when a calling rule that waiting cannot lift refuses the number (422).",
+        "operationId": "move_callback_v1_callbacks__callback_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "callback_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Callback Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CallbackMoveIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduledCallbackOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Move a waiting call-back to another time, 09:00-21:00 IST",
+        "tags": [
+          "callbacks"
+        ],
+        "x-calevate-permission": "leads:dispatch"
       }
     },
     "/v1/calls": {
@@ -70663,7 +70902,7 @@
     },
     "/v1/calls/{call_id}/callback": {
       "get": {
-        "description": "A GET so the button renders disabled-with-a-reason on page load.\n\nBoth the eligibility rules AND the compliance gate are evaluated, because a call\nthat is eligible on our rules can still be un-dialable right now (outside calling\nhours, DNC, spend cap) \u2014 and \"the button is greyed out and I do not know why\" is\nthe exact failure SURFACES \u00a72b exists to prevent.",
+        "description": "A GET so the button renders disabled-with-a-reason on page load: our rules AND the\ncompliance gate, because \"greyed out and I do not know why\" is the failure SURFACES \u00a72b\nexists to prevent.",
         "operationId": "callback_eligibility_v1_calls__call_id__callback_get",
         "parameters": [
           {
@@ -70702,7 +70941,7 @@
         "x-calevate-permission": "leads:read"
       },
       "post": {
-        "description": "Re-dispatch the same agent to the same lead, carrying what happened last time.\n\nIdempotency keys off the CALL, not a client-supplied header: the natural key for\n\"follow up this call\" is the call itself, and a double-click must not ring a\ncustomer twice even from two browser tabs.",
+        "description": "Re-dispatch the same agent to the same lead, carrying what happened last time.\n`crm/lead_dial.place_call_back`, which Pip's `call_back` calls too; idempotent on the\ncall itself.",
         "operationId": "call_back_v1_calls__call_id__callback_post",
         "parameters": [
           {
@@ -73956,6 +74195,43 @@
           }
         },
         "summary": "My recent plans, newest first",
+        "tags": [
+          "copilot"
+        ],
+        "x-calevate-permission": "copilot:use"
+      },
+      "post": {
+        "description": "Resolves the set the arguments name, leaves out who the calling rules refuse with the reason, estimates the cost and freezes it as a proposed plan. Nothing runs until the plan is approved. Requires the plan action's own permission.",
+        "operationId": "propose_copilot_plan_v1_copilot_plans_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CopilotPlanProposeIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CopilotPlanOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Prepare a plan from a screen: the same card Pip makes, for one approval",
         "tags": [
           "copilot"
         ],
@@ -80041,6 +80317,7 @@
         "x-calevate-permission": "leads:read"
       },
       "post": {
+        "description": "`crm/lead_message.send_lead_whatsapp`, which Pip's `lead_whatsapp_send` calls too.",
         "operationId": "send_whatsapp_v1_leads__lead_id__whatsapp_post",
         "parameters": [
           {

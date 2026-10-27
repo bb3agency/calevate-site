@@ -30,8 +30,7 @@ from apps.api.billing.models import (
 )
 from apps.api.core.errors import ProblemError
 from apps.api.core.redis import get_redis
-from apps.api.crm import recording_download
-from apps.api.crm import routes as crm_routes
+from apps.api.crm import recording_download, translation
 from apps.api.crm.translation import TRANSLATE_CALL_JOB
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
@@ -197,7 +196,7 @@ async def test_at_the_ceiling_nothing_is_queued(monkeypatch: pytest.MonkeyPatch)
     async def _refuse(*args: Any, **kwargs: Any) -> None:
         raise ProblemError.business_rule("ai_quota_exceeded", "This account is at its limit.")
 
-    monkeypatch.setattr(crm_routes, "require_ai_assist", _refuse)
+    monkeypatch.setattr(translation, "require_ai_assist", _refuse)
     async with _client() as http:
         response = await http.post(f"/v1/calls/{call_id}/translation", headers=headers)
     assert response.status_code == 422, response.text

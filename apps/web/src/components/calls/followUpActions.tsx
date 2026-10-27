@@ -150,6 +150,65 @@ export function defaultCallbackSlot(today: ISODate = todayIST(), nowMin: number 
   return { day: addDays(today, 1), minutes: 10 * 60 };
 }
 
+/**
+ * The day and time of a call-back, offering only the slots the server accepts. `check()`
+ * shows what is missing and returns the instant (`…+05:30`) or null; `fields` is the pair
+ * of controls, side by side from `sm`. Shared by "Call back later" and the Call-backs
+ * screen's Move, so both offer the same times.
+ */
+export function useCallbackWhen(): { fields: ReactNode; check: () => string | null } {
+  const today = todayIST();
+  const [initial] = useState(() => defaultCallbackSlot(today));
+  const [day, setDay] = useState<ISODate | null>(initial.day);
+  const [minutes, setMinutes] = useState<number>(initial.minutes);
+  const [tried, setTried] = useState(false);
+  const slots = day ? callbackSlots(day, today) : [];
+  const chosen = slots.includes(minutes) ? minutes : (slots[0] ?? null);
+  const dayError =
+    tried && !day
+      ? "Choose the day to call back."
+      : tried && day && chosen === null
+        ? "There is no time left today between 9am and 9pm. Choose another day."
+        : null;
+  const fields = (
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <DatePicker
+        label="Day"
+        value={day}
+        onChange={setDay}
+        min={today}
+        max={addDays(today, MAX_DAYS_AHEAD)}
+        error={dayError}
+      />
+      <Field label="Time (India time)">
+        {(control) => (
+          <select
+            {...control}
+            value={chosen ?? ""}
+            disabled={slots.length === 0}
+            onChange={(event) => setMinutes(Number(event.target.value))}
+            className={FIELD}
+          >
+            {slots.length === 0 ? <option value="">No time left that day</option> : null}
+            {slots.map((slot) => (
+              <option key={slot} value={slot}>
+                {slotLabel(slot)}
+              </option>
+            ))}
+          </select>
+        )}
+      </Field>
+    </div>
+  );
+  return {
+    fields,
+    check: () => {
+      setTried(true);
+      return day && chosen !== null ? `${day}T${hhmm(chosen)}:00+05:30` : null;
+    },
+  };
+}
+
 // --- the hook -----------------------------------------------------------------------------
 
 type Dialog =
@@ -636,21 +695,13 @@ function LaterDialog({
   onClose: () => void;
   onSubmit: (at: string, note: string) => void;
 }) {
-  const today = todayIST();
-  const [initial] = useState(() => defaultCallbackSlot(today));
-  const [day, setDay] = useState<ISODate | null>(initial.day);
-  const [minutes, setMinutes] = useState<number>(initial.minutes);
+  const when = useCallbackWhen();
   const [note, setNote] = useState("");
-  const [tried, setTried] = useState(false);
-  const slots = day ? callbackSlots(day, today) : [];
-  const chosen = slots.includes(minutes) ? minutes : (slots[0] ?? null);
-  const dayError = tried && !day ? "Choose the day to call back." : tried && day && chosen === null ? "There is no time left today between 9am and 9pm. Choose another day." : null;
   const blocked = result?.status === "blocked";
 
   const submit = () => {
-    setTried(true);
-    if (!day || chosen === null) return;
-    onSubmit(`${day}T${hhmm(chosen)}:00+05:30`, note.trim());
+    const at = when.check();
+    if (at) onSubmit(at, note.trim());
   };
 
   return (
@@ -682,34 +733,7 @@ function LaterDialog({
           submit();
         }}
       >
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <DatePicker
-            label="Day"
-            value={day}
-            onChange={setDay}
-            min={today}
-            max={addDays(today, MAX_DAYS_AHEAD)}
-            error={dayError}
-          />
-          <Field label="Time (India time)">
-            {(control) => (
-              <select
-                {...control}
-                value={chosen ?? ""}
-                disabled={slots.length === 0}
-                onChange={(event) => setMinutes(Number(event.target.value))}
-                className={FIELD}
-              >
-                {slots.length === 0 ? <option value="">No time left that day</option> : null}
-                {slots.map((slot) => (
-                  <option key={slot} value={slot}>
-                    {slotLabel(slot)}
-                  </option>
-                ))}
-              </select>
-            )}
-          </Field>
-        </div>
+        {when.fields}
         <Field label="What is it about? (optional)" hint="Your agent hears this before it rings.">
           {(control) => (
             <textarea

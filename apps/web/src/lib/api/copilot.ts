@@ -103,6 +103,12 @@ const INVALIDATES: Record<string, readonly (readonly string[])[]> = {
   calls_place_bulk: [["campaigns"], ["campaign"], ["calls-log"], ["dashboard"]],
   callback_book: [["callbacks"], ["leads"], ["calls-log"]],
   callback_reschedule: [["callbacks"], ["calls-log"]],
+  // D-893 L1: each the keys its call-page, ⋯ menu or Call-backs button refreshes.
+  call_back: [["calls-log"], ["calls"], ["call"], ["callback-check"], ["lead"]],
+  call_follow_up_set: [["calls-log"], ["calls"], ["call"], ["leads"]],
+  call_translate: [["call"]],
+  lead_whatsapp_send: [["lead-whatsapp"], ["lead-timeline"], ["lead"]],
+  callbacks_change_bulk: [["callbacks"], ["calls-log"], ["leads"], ["lead"]],
 };
 
 export function refreshAfterConfirm(

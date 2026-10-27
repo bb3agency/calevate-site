@@ -60,6 +60,7 @@ import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
 import { lookup } from "@/lib/lookup";
 
+import { CallAgain } from "./CallAgain";
 import { callColumns, liveOf, outcomeRowClass } from "./callColumns";
 import { CallsPhoneList } from "./CallsPhoneList";
 import { endedReads, liveIds, withLive } from "./liveRows";
@@ -129,6 +130,7 @@ export function CallsScreen({ slug }: { slug: string }) {
   // The file arriving is its own success; the button's tick says it started.
   const exporting = useActionFeedback(exportCalls, { errorTitle: "Could not export your calls" });
   const exportAccess = useWriteAccess(session, "calls:read_raw", "export your calls");
+  const dispatch = useWriteAccess(session, "leads:dispatch", "call people again");
   const filtered = Boolean(
     status ||
       agentId ||
@@ -439,6 +441,14 @@ export function CallsScreen({ slug }: { slug: string }) {
             {filtered ? " matching these filters" : ""}
             {phone && rows.length > 0 ? ". Swipe a call for quick actions." : ""}
           </p>
+        ) : null}
+        {/* Retrying the unanswered: offered on the view that shows them (D-893 L1). */}
+        {outcome === "missed" && dispatch.allowed ? (
+          <CallAgain
+            session={session}
+            dialers={dialers}
+            scope={{ direction, fromDay: dates?.start, toDay: dates?.end, testCalls }}
+          />
         ) : null}
         {live.isError ? (
           <p role="status" className="text-meta text-ink-muted">

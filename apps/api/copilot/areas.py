@@ -286,7 +286,7 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
         "calls_place_bulk",
         "calls",
         "an agent calls many leads as a campaign, by `lens` or lead_ids; ask consent_source; "
-        "one lead now: call_place",
+        "retry unanswered: lens last_outcome missed; one lead now: call_place",
     ),
     # D-893 lanes L4-L8: reads.
     AreaEntry(
@@ -382,6 +382,14 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
         "agents",
         "save a hand-written practice test; from a call: call_test_prepare",
     ),
+    # D-893 L1: calls and call-backs.
+    AreaEntry("call_back", "calls", "the call's agent rings them now with that call's context"),
+    AreaEntry("call_follow_up_set", "calls", "mark a call done (resolved), needs_you or null"),
+    AreaEntry("call_translate", "calls", "make a call's failed English again"),
+    AreaEntry(
+        "lead_whatsapp_send", "calls", "approved WhatsApp to one lead; no template_id lists them"
+    ),
+    AreaEntry("callbacks_change_bulk", "callbacks", "move or cancel many waiting call-backs"),
 )
 
 AREA_OF: Final[dict[str, Area]] = {entry.tool: entry.area for entry in ENTRIES}

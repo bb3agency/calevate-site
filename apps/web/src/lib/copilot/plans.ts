@@ -86,6 +86,20 @@ function refreshPlan(client: QueryClient, org: string, plan: CopilotPlanOut): vo
   void client.invalidateQueries({ queryKey: planKeys.recent(org) });
 }
 
+/**
+ * A plan a screen asks for (`POST /v1/copilot/plans`): a set action's registry name and the
+ * same arguments Pip would pass. Nothing runs until the card's Approve; the answer is the
+ * plan to draw that card from.
+ */
+export function useProposePlan(session: Session) {
+  const client = useQueryClient();
+  return useMutation<CopilotPlanOut, unknown, { tool: string; args: Record<string, unknown> }>({
+    mutationFn: (body) =>
+      apiRequest<CopilotPlanOut>(session, "/v1/copilot/plans", { method: "POST", body }),
+    onSuccess: (plan) => refreshPlan(client, session.orgSlug, plan),
+  });
+}
+
 /** Approve exactly this plan — the hash it was shown with is what the server binds. */
 export function approvePlan(session: Session, plan: CopilotPlanOut): Promise<CopilotPlanOut> {
   return apiRequest<CopilotPlanOut>(session, planPath(plan.id, "/approve"), {
