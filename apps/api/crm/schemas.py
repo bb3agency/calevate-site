@@ -271,6 +271,12 @@ class TurnTimingOut(Strict):
     voice_ms: int | None
     #: Negative when the model was asked before the turn was decided (early answers).
     model_asked_ms: int | None
+    #: The moments behind the split; the first three only under the end-of-turn check.
+    pause_called_ms: int | None = None
+    final_words_ms: int | None = None
+    check_decided_ms: int | None = None
+    turn_decided_ms: int | None = None
+    answer_text_ms: int | None = None
 
 
 CallSignalKind = Literal[

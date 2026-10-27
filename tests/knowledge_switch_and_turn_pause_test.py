@@ -89,7 +89,8 @@ async def test_a_switch_turned_off_in_the_console_is_drift_and_repaired() -> Non
             if request.method == "PATCH":
                 sent.append((request.url.path, body))
                 return httpx.Response(200, json=tools_state(body))
-            return httpx.Response(200, json=tools_state({"knowledgeOnCalls": False}))
+            held = {"knowledgeOnCalls": False, "recall": "verified"}
+            return httpx.Response(200, json=tools_state(held))
         if request.method == "GET":
             return httpx.Response(200, json=wanted)
         sent.append((request.url.path, body))

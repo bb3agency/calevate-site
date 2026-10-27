@@ -236,6 +236,10 @@ def _thinnest_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], htt
                     "switches": {},
                     "handOver": {"mode": "chat", "phone": None},
                     "knowledgeOnCalls": True,
+                    # Required in every answer, vendor defaults `two_tier` and false
+                    # (`AgentBuiltInTools`, snapshots/2026-10-28/openapi.json).
+                    "recall": "two_tier",
+                    "verifyByCode": False,
                 },
             )
             if method == "PATCH":
@@ -244,6 +248,12 @@ def _thinnest_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], htt
                 if "knowledgeOnCalls" in body:
                     assert isinstance(body["knowledgeOnCalls"], bool)
                     held["knowledgeOnCalls"] = body["knowledgeOnCalls"]
+                if "recall" in body:
+                    assert body["recall"] in ("trusted", "two_tier", "verified")
+                    held["recall"] = body["recall"]
+                if "verifyByCode" in body:
+                    assert isinstance(body["verifyByCode"], bool)
+                    held["verifyByCode"] = body["verifyByCode"]
             rows = [{"id": tool, "enabled": on} for tool, on in held["switches"].items()]
             return httpx.Response(
                 200,
@@ -251,6 +261,8 @@ def _thinnest_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], htt
                     "tools": rows,
                     "handOver": held["handOver"],
                     "knowledgeOnCalls": held["knowledgeOnCalls"],
+                    "recall": held["recall"],
+                    "verifyByCode": held["verifyByCode"],
                 },
             )
         if len(parts) >= 3 and parts[0] == "agents" and parts[2] == "knowledge":

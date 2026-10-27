@@ -89,17 +89,22 @@ def tools_state(body: dict[str, Any] | None = None) -> dict[str, Any]:
     hand_over: dict[str, Any] = {"mode": "chat", "phone": None, "line": None}
     # On unless switched off (list-built-in-tools, read 27 Oct 2026).
     knowledge_on_calls = True
+    # As a publish of ours leaves them (`CUSTOMER_RECALL`, D-911); the vendor's own default
+    # recall is `two_tier`.
+    recall, verify_by_code = "verified", False
     if body:
         switches.update(body.get("tools", {}))
         hand_over.update(body.get("handOver", {}))
         knowledge_on_calls = body.get("knowledgeOnCalls", knowledge_on_calls)
+        recall = body.get("recall", recall)
+        verify_by_code = body.get("verifyByCode", verify_by_code)
     return {
         "agent": "ag_1",
         "tools": [{"id": "search_knowledge", "enabled": True}]
         + [{"id": tool, "enabled": on} for tool, on in switches.items()],
         "webSearch": {"enabled": False, "switchable": False},
-        "recall": "two_tier",
-        "verifyByCode": False,
+        "recall": recall,
+        "verifyByCode": verify_by_code,
         "knowledgeOnCalls": knowledge_on_calls,
         "handOver": hand_over,
         "messages": [],
@@ -175,6 +180,8 @@ async def test_create_sends_the_composed_prompt_and_the_call_settings() -> None:
         "turnSilenceSeconds": 0.25,
         # Silence ends the turn, stated rather than left to the platform's default.
         "turnDetection": "timer",
+        # The business's name for the recogniser; this config names none (D-911).
+        "vocabulary": [],
         # Early answers stated at the vendor's default (D-852).
         "earlyAnswers": True,
         # The console's count (`thinnest_interrupt_words`, 2).
