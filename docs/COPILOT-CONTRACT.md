@@ -763,6 +763,7 @@ construction. What the framework does with it:
 
 | Route | Does |
 |---|---|
+| `POST /v1/copilot/plans` | `{tool, args}` from a screen: the same plan Pip makes, `proposed`, nothing run; `422 copilot_plan_tool_unknown` for a tool that is not a set action, `422 copilot_plan_refused` with the refusal in the person's words, `403` without the action's permission. |
 | `GET /v1/copilot/plans?limit` | The person's recent plans. |
 | `GET /v1/copilot/plans/{id}` | `CopilotPlanOut`: title, why, who, run_at, counts, exclusions (top 10 reasons), estimate, status, progress, result, campaign, can_approve, can_cancel. |
 | `GET /v1/copilot/plans/{id}/targets?limit&offset&status` | One page of targets with the lead's name read through the lead. |
@@ -771,3 +772,24 @@ construction. What the framework does with it:
 
 Tests: `apps/api/copilot/plans_test.py`. Alarm: `copilot_plans_resume_failed`
 (`runbooks/copilot-plan-stuck.md`).
+
+## 20. Calls and call-backs (D-893 lane L1, `copilot/call_actions.py`)
+
+| Area | Tool (tier) | The button and its function |
+|---|---|---|
+| calls | `call_back` (confirm) | Call page "Have the agent call back": `crm/lead_dial.place_call_back`, keyed on the call, so the button and Pip ring once |
+| calls | `call_follow_up_set` (immediate, Undo) | Done / Needs you mark: `crm/swipe.set_call_follow_up`; Undo is its compare-and-swap |
+| calls | `call_translate` (confirm) | Call page "Try again" on the English: `crm/translation.retranslate` (AI allowance) |
+| calls | `lead_whatsapp_send` (confirm) | Lead ⋯ WhatsApp: `crm/lead_message.send_lead_whatsapp` (dispatch gate, messaging consent, claim, timeline) |
+| callbacks | `callbacks_change_bulk` (plan) | Call-backs screen Move / Call off: `crm/swipe.change_callback` per call-back |
+
+* `callback_reschedule` and `callback_cancel` also run `swipe.change_callback`, the function
+  behind `PATCH` and `DELETE /v1/callbacks/{id}` and `POST /v1/callbacks/bulk`.
+* `lead_whatsapp_send` without `template_id` is refused with the approved messages, their ids
+  and blanks, so the next call can be right without a separate read.
+* Retrying unanswered calls is `calls_place_bulk` with `lens.last_outcome = missed` (whose
+  LATEST call went unanswered); the Calls screen asks `POST /v1/copilot/plans` for the same
+  plan. There is no second retry tool.
+
+Tests: `apps/api/copilot/call_actions_test.py`, `tests/swipe_actions_test.py`,
+`apps/web/tests/callbacksChange.test.tsx`.
