@@ -43,8 +43,8 @@ LEAD_LENS_SCHEMA: Final[dict[str, Any]] = _nullable(
     {
         "type": "object",
         "description": (
-            "Which leads: every member optional. Dates are India days, both ends included; "
-            "last_* and direction and follow_up are about the lead's latest call."
+            "Which leads; all optional; India days, inclusive; "
+            "last_*, direction, follow_up: the latest call."
         ),
         "properties": {
             "status": _nullable({"type": "string", "enum": list(get_args(LeadStatus))}),
@@ -102,7 +102,7 @@ LEAD_LENS_SCHEMA: Final[dict[str, Any]] = _nullable(
 CALL_LENS_SCHEMA: Final[dict[str, Any]] = _nullable(
     {
         "type": "object",
-        "description": "Which calls: every member optional. Days are India days, inclusive.",
+        "description": "Which calls; all optional; India days, inclusive.",
         "properties": {
             "status": _nullable({"type": "string", "enum": list(CALL_STATUSES)}),
             "outcome": _nullable({"type": "string", "enum": _OUTCOMES}),
