@@ -151,7 +151,7 @@ describe("one agent's call handling", () => {
       }),
     });
     await screen.findByText("Unhurried (0.7 s)");
-    expect(screen.getByText("Only this agent")).toBeTruthy();
+    expect(screen.getByText("Just this agent")).toBeTruthy();
     const [pauseChange] = screen.getAllByRole("button", { name: "Change" });
     await act(async () => {
       fireEvent.click(pauseChange);
@@ -164,7 +164,7 @@ describe("one agent's call handling", () => {
     expect(JSON.parse(calls.find((c) => c.method === "PATCH")?.body ?? "{}")).toEqual({
       turn_silence_ms: null,
     });
-    await screen.findByText("Same for all your agents");
+    await screen.findByText("All my agents");
   });
 
   it("holds a custom pause inside the server's range and saves it in milliseconds", async () => {

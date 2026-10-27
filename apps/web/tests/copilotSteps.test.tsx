@@ -83,6 +83,29 @@ describe("the assistant's steps, as the person sees them", () => {
     expect(screen.getByText("Could not finish searching your calls")).toBeTruthy();
   });
 
+  it("reads a step that worked on the second try as a retry, not a failure", () => {
+    render(
+      <StepList
+        steps={[
+          step({ id: "a", status: "failed", label: "Searching your calls…", detail: null }),
+          step({ id: "b", status: "done", detail: null }),
+        ]}
+      />,
+    );
+    expect(screen.getByText("Checked 2 things")).toBeTruthy();
+    open();
+    expect(screen.getByText("Tried again")).toBeTruthy();
+    expect(screen.queryByText(/Could not finish/)).toBeNull();
+  });
+
+  it("says a step that did not finish in muted ink, not the warning colour", () => {
+    render(<StepList steps={[step({ status: "refused", label: "Searching your calls…", detail: null }), step({ id: "s2", tool: "calls_recent" })]} />);
+    expect(screen.getByText("1 of 2 steps did not finish")).toBeTruthy();
+    open();
+    const line = screen.getByText("Could not finish searching your calls");
+    expect(line.className).not.toContain("text-warn");
+  });
+
   it("never echoes the machine name when the server sent no label", () => {
     render(<StepList steps={[{ id: "r1", tool: "leads_search", status: "refused", args: "" } as CopilotStep]} />);
     open();

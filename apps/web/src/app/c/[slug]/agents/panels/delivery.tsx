@@ -96,8 +96,8 @@ export function CallCapChoice({ agentId, state }: { agentId: string; state: Pend
         label="Longest one call may run"
         hint={
           state.call_cap_is_platform_default
-            ? "The standard limit we put on every agent."
-            : "Set specifically for this agent."
+            ? "Calevate default"
+            : "Just this agent"
         }
         info={
           <p>

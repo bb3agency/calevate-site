@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
-import { Check, ChevronDown, Loader2, TriangleAlert } from "lucide-react";
+import { Check, ChevronDown, CircleMinus, Loader2, RotateCcw } from "lucide-react";
 
 import type { CopilotStep } from "@/lib/copilot/types";
 
@@ -20,8 +20,15 @@ import type { CopilotStep } from "@/lib/copilot/types";
  * While steps run, each running one shows as a line with a small spinner ("Searching your
  * calls…"), which is how somebody tells a slow answer from a stuck one. Once they settle
  * they fold into ONE muted line ("Checked 2 things") that opens to the list
- * (progressive disclosure: the answer is the content, the steps are the receipt). A step
- * that failed or was refused keeps the line in the warning tone and says so in words.
+ * (progressive disclosure: the answer is the content, the steps are the receipt).
+ *
+ * ## Calm about what did not finish
+ *
+ * A step that failed or was refused says so in words, in the same muted ink as the rest:
+ * the answer above already says what Pip could and could not do, and nothing here asks the
+ * reader to act, so the warning colour would be an alarm with no action behind it. A step
+ * that failed and then succeeded when Pip tried the same thing again is not a problem at
+ * all: it reads "Tried again" and does not count against the summary.
  *
  * ## No repeated sentences
  *
@@ -52,7 +59,8 @@ export function StepList({ steps, answer = "" }: { steps: CopilotStep[]; answer?
     );
   }
 
-  const problems = steps.filter((step) => step.status === "failed" || step.status === "refused").length;
+  const retried = recoveredSteps(steps);
+  const problems = steps.filter((step) => isProblem(step) && !retried.has(step.id)).length;
   const summary =
     problems > 0
       ? problems === steps.length
@@ -71,7 +79,7 @@ export function StepList({ steps, answer = "" }: { steps: CopilotStep[]; answer?
         className="press inline-flex items-center gap-1.5 rounded-sm hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
       >
         {problems > 0 ? (
-          <TriangleAlert aria-hidden className="h-3.5 w-3.5 text-warn" />
+          <CircleMinus aria-hidden className="h-3.5 w-3.5 text-ink-faint" />
         ) : (
           <Check aria-hidden className="h-3.5 w-3.5 text-ink-faint" />
         )}
@@ -82,12 +90,14 @@ export function StepList({ steps, answer = "" }: { steps: CopilotStep[]; answer?
         <ul id={listId} className="mt-1.5 space-y-1.5 border-l border-line pl-3">
           {steps.map((step) => {
             const detail = freshDetail(step.detail, shown);
-            const failed = step.status === "failed" || step.status === "refused";
+            const again = retried.has(step.id);
+            const failed = isProblem(step) && !again;
             return (
               <li key={step.id} title={step.tool}>
-                <span className={`flex items-center gap-1.5 ${failed ? "text-warn" : "text-ink"}`}>
-                  {failed ? <TriangleAlert aria-hidden className="h-3.5 w-3.5 shrink-0" /> : null}
-                  {labelOf(step)}
+                <span className={`flex items-center gap-1.5 ${failed || again ? "text-ink-muted" : "text-ink"}`}>
+                  {again ? <RotateCcw aria-hidden className="h-3.5 w-3.5 shrink-0 text-ink-faint" /> : null}
+                  {failed ? <CircleMinus aria-hidden className="h-3.5 w-3.5 shrink-0 text-ink-faint" /> : null}
+                  {again ? "Tried again" : labelOf(step)}
                 </span>
                 {detail ? <span className="block break-words">{detail}</span> : null}
               </li>
@@ -97,6 +107,22 @@ export function StepList({ steps, answer = "" }: { steps: CopilotStep[]; answer?
       ) : null}
     </div>
   );
+}
+
+function isProblem(step: CopilotStep): boolean {
+  return step.status === "failed" || step.status === "refused";
+}
+
+/** Problem steps that a later run of the same tool finished: a retry that worked. */
+function recoveredSteps(steps: CopilotStep[]): Set<string> {
+  const recovered = new Set<string>();
+  steps.forEach((step, index) => {
+    if (!isProblem(step)) return;
+    if (steps.slice(index + 1).some((later) => later.tool === step.tool && later.status === "done")) {
+      recovered.add(step.id);
+    }
+  });
+  return recovered;
 }
 
 /** The server's words for the step, in the tense of its status. */

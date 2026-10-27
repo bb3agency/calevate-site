@@ -168,11 +168,12 @@ function QuestionRow({
           <RowHeading className="text-sm font-semibold text-ink [overflow-wrap:anywhere]">
             {question.question}
           </RowHeading>
-          <p className="mt-0.5 text-meta text-ink-muted">
-            {whyLine(question)}
+          {/* A flex row, not a " · " in running text: on a phone the link wraps to its own
+              line and a trailing dot was left hanging after the reason. */}
+          <p className="mt-0.5 flex flex-wrap items-center gap-x-1 text-meta text-ink-muted">
+            <span>{whyLine(question)}</span>
             {question.latest_call_id ? (
               <>
-                {" · "}
                 <Link
                   href={href(`/c/${session.orgSlug}/calls/${question.latest_call_id}`)}
                   className={TEXT_ACTION_SM}
