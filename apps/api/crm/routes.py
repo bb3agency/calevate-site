@@ -37,7 +37,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta, role_has
 from apps.api.core.stepup import ActionCode, ClientActionCode, client_confirmation
 from apps.api.crm import columns as lead_column_registry
-from apps.api.crm import lead_search, lens, saved_views, service, translation
+from apps.api.crm import export_tickets, lead_search, lens, saved_views, service, translation
 from apps.api.crm.attention import attention_queue
 from apps.api.crm.captured import captured_fields, lead_unlisted
 from apps.api.crm.lead_dial import place_lead_call
@@ -53,10 +53,16 @@ from apps.api.crm.schemas import (
     CallDetailOut,
     CallLeadIn,
     CallLeadOut,
+    CallLensIn,
+    CallSavedViewIn,
+    CallSavedViewListOut,
+    CallSavedViewOut,
+    CallSavedViewUpdateIn,
     CallSummaryOut,
     CallTranslationOut,
     CapturedFieldsOut,
     DashboardOut,
+    ExportDownloadIn,
     FollowUpFilter,
     LeadBulkFailureOut,
     LeadBulkIn,
@@ -338,6 +344,76 @@ def recording_link_ttl_s(duration_s: int | None) -> int:
     if duration_s is None or duration_s <= 0:
         return RECORDING_LINK_FLOOR_S
     return min(max(RECORDING_LINK_FLOOR_S, duration_s * 2), RECORDING_LINK_CEILING_S)
+
+
+# The Calls log's views: the same table, owner and privacy as the Leads table's, declared
+# before `/calls/{call_id}`, which would otherwise take "views" as an id. Saving one takes
+# `leads:write`, the permission every Leads view write already takes, rather than a new one
+# every role would hold exactly when it holds that.
+
+
+@router.get(
+    "/calls/views",
+    response_model=CallSavedViewListOut,
+    openapi_extra=permission_meta("calls:read"),
+    summary="My saved views of the call log",
+)
+async def get_call_views(
+    session: Session, principal: Principal = Depends(requires("calls:read"))
+) -> CallSavedViewListOut:
+    return CallSavedViewListOut(
+        items=await saved_views.list_call_views(session, user_id=_view_owner(principal))
+    )
+
+
+@router.post(
+    "/calls/views",
+    response_model=CallSavedViewOut,
+    status_code=201,
+    openapi_extra=permission_meta("leads:write"),
+    summary="Save the call log's current filters under a name",
+)
+async def create_call_view(
+    payload: CallSavedViewIn,
+    session: Session,
+    principal: Principal = Depends(requires("leads:write")),
+) -> CallSavedViewOut:
+    return await saved_views.create_call_view(
+        session, user_id=_view_owner(principal), payload=payload
+    )
+
+
+@router.patch(
+    "/calls/views/{view_id}",
+    response_model=CallSavedViewOut,
+    openapi_extra=permission_meta("leads:write"),
+    summary="Rename a saved view of the call log, or re-pin its filters",
+)
+async def patch_call_view(
+    view_id: UUID,
+    payload: CallSavedViewUpdateIn,
+    session: Session,
+    principal: Principal = Depends(requires("leads:write")),
+) -> CallSavedViewOut:
+    return await saved_views.update_call_view(
+        session, view_id, user_id=_view_owner(principal), payload=payload
+    )
+
+
+@router.delete(
+    "/calls/views/{view_id}",
+    status_code=204,
+    response_class=Response,
+    openapi_extra=permission_meta("leads:write"),
+    summary="Delete one of my saved views of the call log",
+)
+async def delete_call_view(
+    view_id: UUID,
+    session: Session,
+    principal: Principal = Depends(requires("leads:write")),
+) -> Response:
+    await saved_views.delete_call_view(session, view_id, user_id=_view_owner(principal))
+    return Response(status_code=204)
 
 
 @router.get(
@@ -1137,6 +1213,57 @@ async def export_leads_filtered(
         content=export.csv,
         media_type="text/csv",
         headers={"Content-Disposition": 'attachment; filename="leads.csv"'},
+    )
+
+
+@router.post(
+    "/exports/download",
+    # The gate and the audit of the two Export buttons. The emailed code was typed for the
+    # confirm that issued the ticket (`ActionTool.action_code`), and the ticket is spent here.
+    openapi_extra=permission_meta("calls:read_raw"),
+    summary="Download an export Pip prepared — once, within ten minutes, audit-logged",
+    response_class=Response,
+)
+async def download_prepared_export(
+    payload: ExportDownloadIn,
+    session: Session,
+    request: Request,
+    principal: Principal = Depends(requires("calls:read_raw")),
+) -> Response:
+    assert principal.tenant_id is not None and principal.user_id is not None
+    ticket = await export_tickets.redeem(
+        token=payload.ticket, tenant_id=principal.tenant_id, user_id=principal.user_id
+    )
+    if ticket.kind == "leads":
+        export, summary = await _export_and_summary(session, LeadLensIn.model_validate(ticket.lens))
+        csv, rows, action, object_type = export.csv, export.row_count, "leads.export", "lead_export"
+    else:
+        call_lens = CallLensIn.model_validate(ticket.lens)
+        calls = await service.export_calls_csv(session, lens.call_filters(call_lens))
+        csv, rows, action, object_type = calls.csv, calls.row_count, "calls.export", "call_export"
+        summary = {
+            "rows": rows,
+            "outcome": call_lens.outcome,
+            "direction": call_lens.direction,
+            "from_day": call_lens.from_day.isoformat() if call_lens.from_day else None,
+            "to_day": call_lens.to_day.isoformat() if call_lens.to_day else None,
+            "agent_id": str(call_lens.agent_id) if call_lens.agent_id else None,
+            "follow_up": call_lens.follow_up,
+            "callback_open": call_lens.callback_open,
+        }
+    await write_audit(
+        session,
+        action=action,
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type=object_type,
+        ip=client_request_ip(request),
+        summary={**summary, "rows": rows, "via": "copilot"},
+    )
+    return Response(
+        content=csv,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{ticket.kind}.csv"'},
     )
 
 

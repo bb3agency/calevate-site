@@ -361,6 +361,11 @@ READS_SHAPED_AS_POSTS: dict[str, str] = {
         "reason as `/v1/leads/search`. It reads; `calls:read_raw` and the audit row are "
         "what gate it, and both shapes share them"
     ),
+    "/v1/exports/download": (
+        "the file of an export Pip prepared, under the Export buttons' `calls:read_raw` "
+        "and audit row. It reads; the one-time ticket rides in the body because a URL is "
+        "a log line"
+    ),
     "/v1/lead-sources/{webhook_id}/meta/setup": (
         "hands back a verify token. POST because the RESPONSE is credential-shaped, "
         "the mirror of `/v1/dnc/check` being POST because the REQUEST is — and it is "

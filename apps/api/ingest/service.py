@@ -1342,6 +1342,34 @@ async def set_source_agent(
     return None if row[0] is None else UUID(str(row[0]))
 
 
+async def set_source_mapping(
+    session: AsyncSession, *, webhook_id: UUID, mapping: dict[str, str]
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Replace which form fields a lead source reads: `PUT /v1/lead-sources/{id}/mapping`
+    and Pip's `lead_source_mapping`. Returns `(before, after)`, for the audit row and Undo.
+
+    Checked exactly as at creation (`validate_mapping`); the secret, the address and the
+    agent are unchanged. Leads already received keep what they were saved with. The row is
+    locked so two edits serialise."""
+    cleaned = validate_mapping(mapping)
+    row = (
+        await session.execute(
+            text("SELECT mapping FROM inbound_webhooks WHERE id = :id FOR UPDATE"),
+            {"id": webhook_id},
+        )
+    ).first()
+    if row is None:
+        raise ProblemError.not_found("Lead source")
+    await session.execute(
+        text(
+            "UPDATE inbound_webhooks SET mapping = CAST(:mapping AS jsonb), updated_at = now() "
+            "WHERE id = :id"
+        ),
+        {"id": webhook_id, "mapping": _json(cleaned)},
+    )
+    return readable_mapping(row[0]), cleaned
+
+
 async def set_active(session: AsyncSession, *, webhook_id: UUID, active: bool) -> bool:
     """CAS on the flag (BACKEND-PATTERNS §5); True when this call is what changed it.
 
@@ -1397,6 +1425,7 @@ __all__ = [
     "rotate_secret",
     "set_active",
     "set_source_agent",
+    "set_source_mapping",
     "validate_mapping",
     "verify_ingest_secret",
 ]

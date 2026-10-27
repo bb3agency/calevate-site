@@ -612,8 +612,8 @@ class LeadSavedView(PKMixin, TimestampMixin, Base):
     to get a permission wrong on. Adding `visibility` later is an additive migration.
 
     **`user_id` is a plain FK to a GLOBAL table** (`users`, no RLS — DATA-MODEL §2), so
-    it is `tenant_id` that isolates this row and `UNIQUE(tenant_id, user_id, name)` that
-    scopes a name to one person on one account. Every read also filters `user_id`
+    it is `tenant_id` that isolates this row and `UNIQUE(tenant_id, user_id, screen, name)` that
+    scopes a name to one person on one screen of one account. Every read also filters `user_id`
     explicitly: RLS answers "which tenant", never "which person", and treating the
     policy as if it did is how one colleague's views would show up in another's picker.
 
@@ -623,7 +623,16 @@ class LeadSavedView(PKMixin, TimestampMixin, Base):
     """
 
     __tablename__ = "lead_saved_views"
-    __table_args__ = (UniqueConstraint("tenant_id", "user_id", "name"),)
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "user_id",
+            "screen",
+            "name",
+            name="uq_lead_saved_views_tenant_user_screen_name",
+        ),
+        CheckConstraint("screen IN ('leads', 'calls')", name="screen_is_known"),
+    )
 
     tenant_id: Mapped[UUID] = mapped_column(
         ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
@@ -638,6 +647,9 @@ class LeadSavedView(PKMixin, TimestampMixin, Base):
     user_id: Mapped[UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
+    #: The Leads table's or the Calls log's (migration e5a1c7d93b20); names are unique per
+    #: person per screen.
+    screen: Mapped[str] = mapped_column(Text, nullable=False, server_default="leads")
     name: Mapped[str] = mapped_column(Text, nullable=False)
     filters: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
     #: NULL = "no column choice was made", which renders every column this agent has.

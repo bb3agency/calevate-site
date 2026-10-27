@@ -19,7 +19,7 @@ and `tests/call_summary_redaction_test.py` is what proves the claim.
 from __future__ import annotations
 
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID
@@ -792,6 +792,48 @@ MAX_SAVED_VIEWS_PER_USER = 50
 MAX_VIEW_FILTER_KEYS = 10
 MAX_VIEW_FILTER_VALUES = 25
 
+#: The longest rolling range a view may keep: a year and a day, so "the last 365 days"
+#: across a leap day still fits.
+MAX_VIEW_LAST_DAYS = 366
+
+
+class ViewDaysIn(Strict):
+    """A saved view's range of India days: fixed (`from_day`..`to_day`, both included), or
+    `last_days` counted back from the day the view is read, so a view saved as "the last 7
+    days" still means the last 7 days next month.
+
+    `last_days` wins: a rolling range is stored without `from_day`/`to_day`, and a read
+    answers it with the days it means today (`crm.saved_views`), so the screen can show and
+    apply concrete days and send the same object back unchanged.
+    """
+
+    from_day: date | None = None
+    to_day: date | None = None
+    last_days: int | None = Field(default=None, ge=1, le=MAX_VIEW_LAST_DAYS)
+
+    @model_validator(mode="after")
+    def _one_form(self) -> ViewDaysIn:
+        if self.last_days is not None:
+            self.from_day = None
+            self.to_day = None
+            return self
+        if self.from_day is None and self.to_day is None:
+            raise ValueError("a date range needs a start, an end or last_days")
+        if self.from_day is not None and self.to_day is not None and self.to_day < self.from_day:
+            raise ValueError("the date range ends before it starts")
+        return self
+
+    def days(self, today: date) -> tuple[date | None, date | None]:
+        """The India days this range covers when read on `today`."""
+        if self.last_days is not None:
+            return today - timedelta(days=self.last_days - 1), today
+        return self.from_day, self.to_day
+
+    def resolved(self, today: date) -> ViewDaysIn:
+        """This range with `from_day`/`to_day` filled in for `today`; `last_days` kept."""
+        start, end = self.days(today)
+        return ViewDaysIn.model_construct(from_day=start, to_day=end, last_days=self.last_days)
+
 
 class SavedViewFilters(Strict):
     """What a saved view narrows the table to.
@@ -813,6 +855,37 @@ class SavedViewFilters(Strict):
     #: extraction-schema key → the values selected under it. OR within a key, AND across
     #: keys — the researched faceted-search semantic (`crm.service._lead_scope`).
     fields: dict[str, list[str]] = Field(default_factory=dict)
+    # The rest of the lead lens (`LeadLensIn`, D-893 F2), so applying a view puts back every
+    # filter it was saved with. Views saved before these existed read as their defaults.
+    created: ViewDaysIn | None = None
+    last_call: ViewDaysIn | None = None
+    last_outcome: OutcomeTag | None = None
+    direction: Literal["inbound", "outbound"] | None = None
+    test_calls: bool = True
+    callback_open: bool | None = None
+    follow_up: FollowUpFilter | None = None
+    captured: list[CapturedFieldFilterIn] = Field(default_factory=list, max_length=5)
+
+    def lens(self, today: date) -> LeadLensIn:
+        """The lead lens this view selects when read on `today` (search, question, owner and
+        columns are the reader's; `assigned_to_me` is resolved by the caller)."""
+        created_from, created_to = self.created.days(today) if self.created else (None, None)
+        call_from, call_to = self.last_call.days(today) if self.last_call else (None, None)
+        return LeadLensIn(
+            status=self.status,
+            agent_id=self.agent_id,
+            f=[f"{key}:{value}" for key, values in self.fields.items() for value in values],
+            created_from=created_from,
+            created_to=created_to,
+            last_call_from=call_from,
+            last_call_to=call_to,
+            last_outcome=self.last_outcome,
+            direction=self.direction,
+            test_calls=self.test_calls,
+            callback_open=self.callback_open,
+            follow_up=self.follow_up,
+            captured=list(self.captured),
+        )
 
     @field_validator("fields")
     @classmethod
@@ -888,6 +961,69 @@ class SavedViewOut(Strict):
 
 class SavedViewListOut(Strict):
     items: list[SavedViewOut]
+
+
+class ExportDownloadIn(Strict):
+    #: From Pip's confirmed `leads_export` / `calls_export` (`crm/export_tickets.py`).
+    ticket: str = Field(min_length=16, max_length=64)
+
+
+class CallViewFilters(Strict):
+    """What a saved view of the Calls screen narrows the log to: the call lens
+    (`CallLensIn`) with its days as a `ViewDaysIn`, so a rolling range stays rolling."""
+
+    status: str | None = Field(default=None, max_length=32)
+    agent_id: UUID | None = None
+    outcome: OutcomeTag | None = None
+    direction: Literal["inbound", "outbound"] | None = None
+    when: ViewDaysIn | None = None
+    test_calls: bool = True
+    campaign_id: UUID | None = None
+    follow_up: FollowUpFilter | None = None
+    callback_open: bool | None = None
+
+    def lens(self, today: date) -> CallLensIn:
+        """The call lens this view selects when read on `today`."""
+        start, end = self.when.days(today) if self.when else (None, None)
+        return CallLensIn(
+            status=self.status,
+            agent_id=self.agent_id,
+            outcome=self.outcome,
+            direction=self.direction,
+            from_day=start,
+            to_day=end,
+            test_calls=self.test_calls,
+            campaign_id=self.campaign_id,
+            follow_up=self.follow_up,
+            callback_open=self.callback_open,
+        )
+
+
+class CallSavedViewIn(Strict):
+    name: str = Field(min_length=1, max_length=60)
+    filters: CallViewFilters = Field(default_factory=CallViewFilters)
+
+
+class CallSavedViewUpdateIn(Strict):
+    """Rename or re-pin; an omitted field is left alone."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=60)
+    filters: CallViewFilters | None = None
+
+
+class CallSavedViewOut(Strict):
+    """One saved view of the Calls screen, private to its author like a leads view. A
+    rolling `when` comes back with the days it covers today."""
+
+    id: UUID
+    name: str
+    filters: CallViewFilters
+    created_at: datetime
+    updated_at: datetime
+
+
+class CallSavedViewListOut(Strict):
+    items: list[CallSavedViewOut]
 
 
 class LeadTimelineEventOut(Strict):
@@ -1403,13 +1539,19 @@ __all__ = [
     "CallDetailOut",
     "CallLeadIn",
     "CallLeadOut",
+    "CallSavedViewIn",
+    "CallSavedViewListOut",
+    "CallSavedViewOut",
+    "CallSavedViewUpdateIn",
     "CallSummaryOut",
     "CallTranslationOut",
+    "CallViewFilters",
     "CallbackEligibilityOut",
     "CallbackOut",
     "CapturedChipOut",
     "DashboardDayOut",
     "DashboardOut",
+    "ExportDownloadIn",
     "LeadColumnOut",
     "LeadFacetOut",
     "LeadFacetValueOut",
@@ -1432,4 +1574,5 @@ __all__ = [
     "TranscriptTurnOut",
     "UsagePanelOut",
     "UsageTrialOut",
+    "ViewDaysIn",
 ]
