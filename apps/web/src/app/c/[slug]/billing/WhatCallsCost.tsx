@@ -1,8 +1,8 @@
 "use client";
 
 import {
+  CalendarClock,
   Clock3,
-  Infinity as InfinityIcon,
   Lock,
   PhoneMissed,
   ReceiptText,
@@ -61,10 +61,11 @@ import type { TierLabels } from "./lots";
  *    figure is ₹0.00 at `minutes <= 0`, and `billing/service.charge_for_call` returns before
  *    touching the ledger at `amount_inr <= 0`, so no entry is even written.
  *
- * 5. **Credits do not expire — but calls are not the only thing that spends them.**
- *    `credit_ledger` (migration `f170dbce6f47`) carries delta / reason / ref /
- *    balance_after / occurred_at / meta and NO expiry column; the balance is the sum of the
- *    deltas, and the only sweeping job in the tree sweeps idempotency records. CALLS ARE
+ * 5. **Credit lasts 12 months — and calls are not the only thing that spends it.** Terms
+ *    6.1 (revision 19, D-840): a purchase's lot is stamped with `credit_lots.expires_at`
+ *    when it is credited, the daily `expire_credit_lots` lapses what is left after it, and
+ *    a lot bought before the switch has no term. The months come from the card
+ *    (`credit_expiry_months`), so the claim follows the console setting. CALLS ARE
  *    NOT THE ONLY DRAWDOWN, and a claim that they are is contradicted two cards below on
  *    this same screen: a block of extra dashboard AI a person accepts is a `usage` debit on
  *    this wallet (`apps/api/billing/ai_quota.py`, one row, `ref = ai_assist:<YYYY-MM>`) and
@@ -109,6 +110,7 @@ export function WhatCallsCost({
   /** What a client calls each quality, from the same card. */
   labels: TierLabels | undefined;
 }) {
+  const months = card?.credit_expiry_months ?? null;
   return (
     <Disclosure
       title="What calls cost"
@@ -181,20 +183,30 @@ export function WhatCallsCost({
         </Fact>
 
         <Fact
-          icon={<InfinityIcon className="h-4 w-4" aria-hidden />}
-          claim="Your credit never expires"
+          icon={<CalendarClock className="h-4 w-4" aria-hidden />}
+          claim={
+            months ? `Credit you buy lasts ${months} months` : "What uses your credit"
+          }
         >
           {/* Calls are not the only drawdown: a block of extra dashboard AI is one
               `credit_ledger` debit against this wallet (`apps/api/billing/ai_quota.py`) and
               a correction we post is another (`WhereItWent`&rsquo;s "Corrections" row), and
-              that panel is two cards below this one. The claim this fact may make is only
-              that nothing EXPIRES and nothing is swept. */}
+              that panel is two cards below this one. Without the card (staff, or still
+              loading) the term is not stated rather than guessed. */}
           Your calls run it down, and so do the monthly rent for your phone
           numbers and a block of extra dashboard AI if you accept one — nothing
-          else does. It never expires and is never
-          swept, so a large pack bought in a quiet month is still there in a
-          busy one. If we ever billed you wrongly, the correction is posted here
-          too, where you can see it.
+          else does.{" "}
+          {months ? (
+            <>
+              Each purchase lasts {months} months from the day it is added, and
+              any of it still unused then lapses and is not refunded. Your
+              oldest credit is used first, and your list of purchases shows when
+              each one lapses. Credit bought before 27 October 2026 does not
+              expire.{" "}
+            </>
+          ) : null}
+          If we ever billed you wrongly, the correction is posted here too, where
+          you can see it.
         </Fact>
 
         <Fact

@@ -650,10 +650,11 @@ class Settings(BaseSettings):
     #: `billing/trials`.
     self_serve_trial_days: int = Field(default=7, ge=1, le=365)
     self_serve_trial_free_minutes: int = Field(default=15, ge=1, le=1000)
-    #: Months after purchase that credit bought in a pack lapses (D-840); unset, credit does
-    #: not expire. Applies only once a Terms revision stating it is published
-    #: (`billing/credit_expiry.TERMS_REVISION_STATING_EXPIRY`), and only to credit bought after.
-    credit_pack_expiry_months: int | None = Field(default=None, ge=1, le=60)
+    #: Months after purchase that credit bought in a pack lapses (D-840): 12, as Terms clause
+    #: 6.1 promises. Applies only to credit bought after a change; the console refuses fewer
+    #: than the Terms promise (`billing/credit_expiry.assert_expiry_may_switch_on`), and
+    #: clearing it stops credit bought from then on expiring.
+    credit_pack_expiry_months: int | None = Field(default=12, ge=1, le=60)
     #: Simultaneous calls on an engine with no call ceiling of its own (the fake engine), inbound
     #: and outbound together. An engine with its own ceiling uses that instead
     #: (`engine/dial_lines.outbound_line_pool`).

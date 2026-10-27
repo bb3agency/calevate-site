@@ -601,7 +601,7 @@ async def set_value(
     # and never holds the per-key lock. Only this one key carries the gate.
     if key == _RESOURCE_KEY:
         _assert_resource_attested(stored)
-    # Credit may be set to expire only once the Terms that say so are published (D-840).
+    # Credit may lapse no sooner than the Terms promise (D-840, Terms 6.1).
     if key == "credit_pack_expiry_months":
         from apps.api.billing.credit_expiry import assert_expiry_may_switch_on
 

@@ -206,7 +206,7 @@ export default async function PricingPage() {
         lede={
           rateCard === null
             ? "Not per seat, not per agent, not per number — you pay for the minutes your agents actually talk, in 30-second steps. Our live rate card could not be loaded just now, so there is no figure on this page we can stand behind; reload in a moment."
-            : `The ${tierLabel(rateCard, other ?? "clear")} voice is ${bandSentence(rateCard, other ?? "clear")} on the same card. ${voiceNotOfferedNotice(rateCard) ?? ""} ${feeLine} — you are billed for the minutes your agents actually talk, in 30-second steps, and ${rateCard.credit_expiry_months ? `credit expires ${rateCard.credit_expiry_months} months after you buy it` : "credit does not expire"}.`
+            : `The ${tierLabel(rateCard, other ?? "clear")} voice is ${bandSentence(rateCard, other ?? "clear")} on the same card. ${voiceNotOfferedNotice(rateCard) ?? ""} ${feeLine} — you are billed for the minutes your agents actually talk, in 30-second steps, and ${rateCard.credit_expiry_months ? `credit you buy lasts ${rateCard.credit_expiry_months} months from the day it is added` : "credit does not expire"}.`
         }
       >
         <div className="mt-8 flex flex-wrap gap-3">

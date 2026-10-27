@@ -665,7 +665,11 @@ write, calls no writer, and proves both from its own AST on every run.
 app log `"ts"` fields (`+05:30`), the host clock, journald, nginx and Postgres log lines,
 and `systemctl list-timers`. The nightly jobs, in IST: hygiene 00:30, base backup 02:30,
 offsite dump 03:30 (systemd); then the ARQ crons from 07:20 (Monday QA draw) through 10:07
-(pack collector), with the full list in D-709. One thing still reads UTC: Docker's own
+(pack collector), with the full list in D-709. Pack credit lapses at 08:11 IST
+(`expire_credit_lots`, D-840/D-897), which also promises the 30-day lapse email per purchase;
+its alarms are `credit_expiry_incomplete`, `credit_lapse_notice_promise_failed` and
+`credit_lapse_notice_no_billing_email` (`runbooks/alarm-index.md`). The term is the console's
+**Credit expires after (months)** (default 12; fewer than the Terms' 12 is refused). One thing still reads UTC: Docker's own
 `docker logs --timestamps` prefix (read the `"ts"` field instead). Moving
 the VPS to IST, with the inspect and verify steps, is `docs/DEPLOYMENT.md` §13.
 

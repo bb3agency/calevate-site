@@ -579,8 +579,8 @@ describe("the credit itself: what is left, and at which rates", () => {
     await renderBillingHub(routes({ [LOTS_ROUTE]: lots }));
     const table = await screen.findByRole("table", { name: /in the order it will be spent/i });
     const rows = within(table).getAllByRole("row");
-    expect(rows[1].textContent).toMatch(/Expires/);
-    expect(rows[2].textContent).not.toMatch(/Expires/);
+    expect(rows[1].textContent).toMatch(/Lapses/);
+    expect(rows[2].textContent).not.toMatch(/Lapses/);
   });
 
   it("states the expiry at checkout while credit expires (D-840)", async () => {

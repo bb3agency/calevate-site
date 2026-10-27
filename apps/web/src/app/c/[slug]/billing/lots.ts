@@ -395,18 +395,9 @@ export function formatWhole(value: string): string {
   return `${value.startsWith("-") ? "-" : ""}${count.toLocaleString("en-IN")}`;
 }
 
-/** A calendar date in India, as a deadline reads: "14 Oct 2027". `null` when unparseable. */
-export function formatISTDate(value: string | null | undefined): string | null {
-  if (!value) return null;
-  const at = new Date(value);
-  if (Number.isNaN(at.getTime())) return null;
-  return at.toLocaleDateString("en-IN", {
-    timeZone: "Asia/Kolkata",
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
-}
+import { formatISTDate } from "@/components/ui";
+
+export { formatISTDate };
 
 /**
  * The open lot that lapses first, or `null` when no open lot carries an expiry (D-840 off,

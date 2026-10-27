@@ -780,9 +780,10 @@ describe("the resources page", () => {
     stubApi({});
     const { container } = render(<ResourcesPage />);
     const wallet = glossary(container).get("Wallet and credits") ?? "";
-    // Rates frozen on the purchase, oldest purchase first, and no expiry — the same three
-    // the terms state (`lib/legal/terms.ts`, clause 6.1) and the console's own panel does.
-    expect(wallet).toMatch(/never expires|does not expire/i);
+    // Rates frozen on the purchase, oldest purchase first, and a 12-month term — the same
+    // three the terms state (`lib/legal/terms.ts`, clause 6.1) and the console's own panel does.
+    expect(wallet).toMatch(/lasts 12 months/i);
+    expect(wallet).not.toMatch(/never expires|does not expire/i);
     expect(wallet).toMatch(/oldest purchase first/i);
     expect(wallet).toMatch(/fixes what a minute costs|frozen|cannot reprice/i);
     // The one thing it may not say: that a bigger pack buys more credit. It buys a cheaper

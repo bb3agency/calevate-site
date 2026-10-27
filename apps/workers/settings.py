@@ -136,7 +136,7 @@ from apps.workers.copilot_transcript import (
     TRANSCRIPT_SWEEP_MINUTE,
     sweep_ended_conversations,
 )
-from apps.workers.credit_expiry import expire_credit_lots
+from apps.workers.credit_expiry import expire_credit_lots, notify_credit_lapsing
 from apps.workers.dial_recall import recall_queued_dials
 from apps.workers.dispatcher import (
     ERASURE_PROBE_MINUTE,
@@ -513,6 +513,9 @@ FUNCTIONS: list[Any] = [
         # The "your free test minutes are used" email, published through the outbox by
         # `workers/trials._end_if_minutes_used` when the minutes end a trial early.
         notify_trial_minutes_used,
+        # D-840. The email before a purchase's credit lapses, promised through the outbox by
+        # the daily `expire_credit_lots` sweep, once per lot.
+        notify_credit_lapsing,
         # D-890. The client's notice and email and every super admin's alert after a grant
         # or a complimentary conversion, from the outbox (`billing/comp_notices`).
         notify_comp,

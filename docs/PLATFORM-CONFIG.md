@@ -239,10 +239,11 @@ Google, `google_signin_redirect_uri` (`https://app.calevate.tech/auth/google/cal
 OPERATIONS gate G-1), `google_cloud_project_number` and the secret `google_picker_api_key`
 (gate G-2). `google_sheets_service_account_json` is deleted: Sheets now writes with each
 client's own Google account.
-D-840 adds, live, under Billing: `credit_pack_expiry_months` (unset by default, 1..60), the months
-after purchase that pack credit lapses. It is refused, and ignored if set from the environment,
-until `billing/credit_expiry.TERMS_REVISION_STATING_EXPIRY` names a published Terms revision that
-states the expiry; credit bought before it is set never expires. The wallet top-up fee, the payment
+D-840 adds, live, under Billing: `credit_pack_expiry_months`, the months after purchase that pack
+credit lapses. Since D-897 (27 Oct 2026) it defaults to 12 and `billing/credit_expiry.
+TERMS_REVISION_STATING_EXPIRY` names Terms revision 19, whose clause 6.1 promises 12 months: a
+value under 12 is refused (`credit_expiry_shorter_than_terms`), a longer one or none is allowed
+and applies only to credit bought afterwards. Credit bought before 27 Oct 2026 never expires. The wallet top-up fee, the payment
 gateway's fee and a console-rented number's rent are not settings: they are attested, dated rows
 (`platform_cost_attestations`) on the ops Per-minute rates panel.
 `ENGINE_INTAKE_KEK` is env-only, in `ENV_ONLY_REASONS`. No BYOK provider key is stored

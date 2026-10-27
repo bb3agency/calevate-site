@@ -284,6 +284,9 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # nothing billed wrongly meanwhile.
     "cost_floor_input_unattested": "attention",
     "credit_expiry_incomplete": "attention",
+    # The warning before credit lapses could not be promised or had no address (D-840).
+    "credit_lapse_notice_promise_failed": "attention",
+    "credit_lapse_notice_no_billing_email": "attention",
     "engine_agent_unmapped": "attention",
     # The call has NO ROW: no lead, no transcript, no usage event. Unrecoverable.
     "engine_ingest_abandoned": "page",

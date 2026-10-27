@@ -17948,6 +17948,8 @@ export interface components {
             credits_remaining: string;
             /** Credits Total */
             credits_total: string;
+            /** Expires At */
+            expires_at?: string | null;
             /**
              * Lot Id
              * Format: uuid
@@ -18023,6 +18025,8 @@ export interface components {
             clear_tier_label: string;
             /** Credit Expiry Months */
             credit_expiry_months?: number | null;
+            /** Credit Lapses On If Bought Now */
+            credit_lapses_on_if_bought_now?: string | null;
             /** From Clear Inr Per Min */
             from_clear_inr_per_min: string;
             /** From Inr Per Min */

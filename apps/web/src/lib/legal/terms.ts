@@ -396,8 +396,32 @@ export const TERMS_OF_SERVICE: LegalDocument = {
                 "Each purchase of credit is priced at the per-minute rates shown for that " +
                 "purchase when you made it, for the voice each agent uses. Those rates " +
                 "apply to that purchase's credit until it is spent, and a later change to " +
-                "our rate card does not change them. Credit does not expire. Credit is " +
-                "spent oldest purchase first.",
+                "our rate card does not change them. Credit is spent oldest purchase " +
+                "first.",
+            },
+            {
+              // D-840, founder 20 Oct 2026, switched on by D-897 (27 Oct 2026). The code freezes the term
+              // on each purchase when it is bought (`credit_lots.expires_at`), so credit bought
+              // before this clause keeps the term it was sold on. Only a purchase at card rates
+              // lapses (`source = topup`): a goodwill grant, and a payment an operator records
+              // at agreed rates (`source = override`, the "agreed in writing" arm), open their
+              // lots with no expiry. A correction that puts credit back on a lapsed purchase
+              // opens new credit with a fresh term (`billing/service.apply_credit_to_lots`),
+              // and a reversal of one is met first from what lapsed
+              // (`remove_credit_from_lots`), which is the last sentence.
+              kind: "para",
+              text:
+                "Credit you buy lasts 12 months from the day it is added to your account, " +
+                "unless we have agreed a different term with you in writing. Any of it still unused at the end of those 12 months lapses: it is " +
+                "removed from your balance and is not refunded. We show you the date it " +
+                "lapses when you buy it, and on your Billing page beside each purchase. " +
+                "Credit bought before 27 October 2026 keeps the terms it was bought on " +
+                "and does not expire, and credit we add free of charge, such as a " +
+                "goodwill credit, does not lapse. If credit is put back on a purchase " +
+                "after its credit has lapsed, it is added as new credit that lasts 12 " +
+                "months from that day; if a purchase is refunded or reversed after its " +
+                "credit has lapsed, the lapsed credit counts towards that amount first, " +
+                "so the same money is never taken from you twice.",
             },
             {
               kind: "para",

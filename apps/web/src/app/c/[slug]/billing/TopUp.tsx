@@ -17,6 +17,7 @@ import {
   Skeleton,
   formatCount,
   formatINR,
+  formatISTDate,
 } from "@/components/ui";
 import {
   MAX_TOPUP_INR,
@@ -459,7 +460,10 @@ function PackPicker({
   const name = useId();
   const wanted = wantedMinutes(monthly);
   const match = wanted === null ? null : suggestPack(card.packs, wanted);
-  const lapse = card.credit_expiry_months ? lapseDateFromToday(card.credit_expiry_months) : null;
+  // The server's own IST date when it sent one (Terms 6.1); else counted here from the term.
+  const lapse = card.credit_expiry_months
+    ? (formatISTDate(card.credit_lapses_on_if_bought_now) ?? lapseDateFromToday(card.credit_expiry_months))
+    : null;
 
   return (
     <div className="space-y-5">
