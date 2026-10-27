@@ -218,7 +218,7 @@ export function CallbacksScreen() {
       flash: (row) => row.status,
       cell: (row) => (
         <div className="max-w-md space-y-1">
-          <StatusPill tone={lookup(TONE, row.status) ?? "neutral"}>
+          <StatusPill tone={lookup(TONE, row.status) ?? "neutral"} wrap>
             {lookup(HEADINGS, row.status) ?? row.status}
           </StatusPill>
           {row.explanation && <p className="text-meta text-ink-muted">{row.explanation}</p>}
