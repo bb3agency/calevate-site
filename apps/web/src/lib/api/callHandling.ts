@@ -391,6 +391,14 @@ export function useAdminSetAgentTurnDetection(
       }),
     onSuccess: (data) => {
       client.setQueryData(adminTurnKey(tenantId, agentId), data);
+      // The mode moves the pause in force and whether it is used (D-903), which the agent's
+      // call settings read shows.
+      return client.invalidateQueries({
+        predicate: (query) =>
+          query.queryKey[0] === "call-handling" &&
+          query.queryKey[2] === "agent" &&
+          query.queryKey[3] === agentId,
+      });
     },
   });
 }

@@ -101,7 +101,8 @@ export function AgentCallHandlingRows({ agentId }: { agentId: string }) {
           inheritLabel={labels.pause}
           minMs={data.bounds.turn_silence_min_ms}
           maxMs={data.bounds.turn_silence_max_ms}
-          canChange={write.allowed}
+          notUsed={!data.turn_silence_applies}
+          canChange={write.allowed && data.turn_silence_applies}
           status={rowStatus("pause")}
           error={failed("pause")}
           scope={offer("pause", calevate.pause)}

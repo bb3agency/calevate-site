@@ -78,7 +78,9 @@ export function CallHandlingSection({ agent }: { agent: Agent }) {
         key: "pause_before_reply",
         label: "Pause before the agent replies",
         value: handling.data
-          ? `${pauseLabel(handling.data.turn_silence_ms_effective)}, ${sourceLabel(handling.data.turn_silence_source).toLowerCase()}`
+          ? handling.data.turn_silence_applies
+            ? `${pauseLabel(handling.data.turn_silence_ms_effective)}, ${sourceLabel(handling.data.turn_silence_source).toLowerCase()}`
+            : "not used: the agent hears when the caller has finished"
           : unread,
       },
       {
