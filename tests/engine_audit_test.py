@@ -1657,6 +1657,10 @@ _VENDOR_ONLY_KEYS = frozenset(
         "recogniserMs",
         "voiceMs",
         "waitBeforeDecisionMs",
+        # D-903: the drift sweep reads the opening wait and its switch back from Get Agent.
+        # Ours are `opening_waits_for_caller` and `opening_wait_ms`.
+        "openingWaitSeconds",
+        "openingWaitsForCaller",
     }
 )
 
