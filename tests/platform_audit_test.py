@@ -438,7 +438,6 @@ async def test_the_engine_kb_matches_what_is_approved_and_active() -> None:
 # Adding a dispatch path without `check_dispatch`/`assert_dispatch_allowed` is how the
 # big red switch quietly stops being global.
 _OUTBOUND_MODULES = {
-    "apps/api/crm/routes.py",
     "apps/api/ingest/service.py",
     "apps/workers/campaign_dispatch.py",
     # The FOURTH (D-514): the call-back a caller asked for on a call, dialled at the time
@@ -452,8 +451,9 @@ _OUTBOUND_MODULES = {
     # trial number. `place_trial_call` asks `check_dispatch(trial_call=True)` and obeys it
     # before `dispatch_call(trial=...)`, so the halt stops it like every other dial.
     "apps/api/agents/trial_calls.py",
-    # The lead call's body, shared by the console button and the assistant (D-694):
-    # `place_lead_call` asks `check_dispatch` and obeys it before `dispatch_call`.
+    # The lead call and the call-back on a call, each shared by the console button and the
+    # assistant (D-694): `place_lead_call` and `place_call_back` ask `check_dispatch` and
+    # obey it before `dispatch_call`. `crm/routes.py` only delegates here.
     "apps/api/crm/lead_dial.py",
 }
 
