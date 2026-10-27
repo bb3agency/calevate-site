@@ -2013,9 +2013,11 @@ _ASSIST_REMEDIATION: Final[dict[tuple[str, str], str]] = {
         "enable it — there is nothing to change on your side."
     ),
     ("operator", NO_CREDENTIAL_REASON): (
-        "No AI provider is configured on this deployment. Install an Azure OpenAI "
-        "resource (AZURE_OPENAI_RESOURCE + AZURE_OPENAI_API_KEY + "
-        "AZURE_OPENAI_DEPLOYMENT) or a Sarvam API key."
+        "No assist model can serve on this deployment. Gemini is the main one: install "
+        "GEMINI_API_KEY, attest its price, and record the Google data-use attestation in "
+        "Admin > Ops > Dashboard data use. Azure OpenAI (AZURE_OPENAI_RESOURCE + "
+        "AZURE_OPENAI_API_KEY + AZURE_OPENAI_DEPLOYMENT) is used only if it is configured; "
+        "a Sarvam API key is the last standby."
     ),
     ("client", TENANT_PROVIDER_UNSUPPORTED_REASON): (
         "The AI model you chose for your account runs your phone agents, but it cannot be "
@@ -2031,9 +2033,11 @@ _ASSIST_REMEDIATION: Final[dict[tuple[str, str], str]] = {
         "The model this account runs — its own choice, or the platform default when it has "
         "made none — is on a provider that may not serve the dashboard assist leg "
         "(agents/llm_models.dashboard_leg_reason says which ground), and this "
-        "deployment has nothing to substitute. Install an Azure OpenAI resource "
-        "(AZURE_OPENAI_RESOURCE + AZURE_OPENAI_API_KEY + AZURE_OPENAI_DEPLOYMENT) or a "
-        "Sarvam API key."
+        "deployment has nothing to substitute. Make Gemini serve (GEMINI_API_KEY, its "
+        "attested price and the Google data-use attestation in Admin > Ops > Dashboard "
+        "data use); Azure OpenAI (AZURE_OPENAI_RESOURCE + AZURE_OPENAI_API_KEY + "
+        "AZURE_OPENAI_DEPLOYMENT) is used only if configured, and a Sarvam API key is the "
+        "last standby."
     ),
 }
 
