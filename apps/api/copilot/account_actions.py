@@ -51,6 +51,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.billing.display import display_inr
 from apps.api.copilot.actions import (
     DOES_IT,
     PROPOSES_ONLY,
@@ -2152,7 +2153,7 @@ def _rupees(raw: str | None, *, field: str) -> Decimal | None:
 
 
 def _inr(value: Decimal | None) -> str:
-    return "none" if value is None else f"₹{value:,.2f}"
+    return "none" if value is None else display_inr(value)
 
 
 class _CapsArgs(BaseModel):

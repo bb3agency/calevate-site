@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 
-import { Card, ProblemNotice, Skeleton, formatCount, formatINR } from "@/components/ui";
+import { Card, ProblemNotice, Skeleton, formatCount, formatDecimal, formatINR } from "@/components/ui";
 import { Metric } from "@/components/console/metric";
 import type { UsagePanel, useUsage } from "@/lib/api/hooks";
 
@@ -63,8 +63,8 @@ export function SpendThisMonth({
  */
 function minutesHint(usage: UsagePanel): string {
   if (usage.trial.active) {
-    return `${usage.minutes_used} min used, free during your trial (worth ${formatINR(usage.trial_absorbed_inr)})`;
+    return `${formatDecimal(usage.minutes_used)} min used, free during your trial (worth ${formatINR(usage.trial_absorbed_inr)})`;
   }
-  if (usage.included_minutes === 0) return `${usage.minutes_used} min used`;
-  return `${usage.minutes_used} min used of ${formatCount(usage.included_minutes)} included`;
+  if (usage.included_minutes === 0) return `${formatDecimal(usage.minutes_used)} min used`;
+  return `${formatDecimal(usage.minutes_used)} min used of ${formatCount(usage.included_minutes)} included`;
 }

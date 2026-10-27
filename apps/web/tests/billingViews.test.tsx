@@ -64,10 +64,10 @@ describe("drawing spend", () => {
     const table = await screen.findByRole("table", { name: "Spending by day (IST)" });
     // A header row and one row per day, the empty day included.
     expect(within(table).getAllByRole("row")).toHaveLength(4);
-    expect(table.textContent).toContain("₹10,159.00");
-    expect(table.textContent).toContain("₹0.00");
-    expect(table.textContent).toContain("₹5,079.50");
-    expect(container.textContent).toContain("₹15,238.50");
+    expect(table.textContent).toContain("₹10,159");
+    expect(table.textContent).toContain("₹0");
+    expect(table.textContent).toContain("₹5,079.5");
+    expect(container.textContent).toContain("₹15,238.5");
     await screen.findByText("Front desk");
     // A zero rental is not a metric.
     expect(container.textContent).not.toContain("Phone number rental");
@@ -84,7 +84,7 @@ describe("drawing spend", () => {
     };
     await renderBillingHub(routes({ [HUB_SPEND_SERIES_ROUTE]: withRental }));
     const label = await screen.findByText("Phone number rental");
-    expect(label.parentElement?.textContent).toContain("₹499.00");
+    expect(label.parentElement?.textContent).toContain("₹499");
   });
 });
 
@@ -96,13 +96,13 @@ describe("the wallet header", () => {
         "/v1/billing/wallet/lots": walletLots({ lots: [], overdraft_inr: "120.00" }),
       }),
     );
-    await screen.findByText("-₹120.00");
-    await screen.findByText("You owe ₹120.00");
+    await screen.findByText("-₹120");
+    await screen.findByText("You owe ₹120");
   });
 
   it("says nothing is owed on a wallet in credit", async () => {
     const { container } = await renderBillingHub(routes());
-    await screen.findByText("₹3,400.00");
+    await screen.findByText("₹3,400");
     expect(container.textContent).not.toContain("You owe");
   });
 });

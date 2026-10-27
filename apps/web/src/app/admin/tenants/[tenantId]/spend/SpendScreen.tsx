@@ -10,7 +10,7 @@ import {
   formatCount,
   formatCountOf,
   formatDuration,
-  formatINR,
+  formatINRExact,
   formatIST,
 } from "@/components/ui";
 import { viewAsHref } from "@/lib/api/session";
@@ -204,15 +204,15 @@ function SpendBoard({ data, tenantId, slug }: { data: TenantSpend; tenantId: str
       <div
         className={`grid grid-cols-2 gap-x-6 gap-y-5 ${trialCost ? "lg:grid-cols-5" : "lg:grid-cols-4"}`}
       >
-        <Metric label={`Revenue · ${data.month}`} value={formatINR(data.revenue_inr)} />
+        <Metric label={`Revenue · ${data.month}`} value={formatINRExact(data.revenue_inr)} />
         <Metric
           label={trialCost ? "Our cost of paid calls" : "Our cost of calls"}
-          value={formatINR(data.paid_cost_inr)}
+          value={formatINRExact(data.paid_cost_inr)}
         />
         {trialCost && (
           <Metric
             label="Trial calls we cover"
-            value={formatINR(data.trial_cost_inr)}
+            value={formatINRExact(data.trial_cost_inr)}
             hint={`${formatCountOf(data.trial_calls, "free trial call")}, ${data.trial_minutes} minutes. An acquisition cost, not in the margin.`}
           />
         )}
@@ -223,7 +223,7 @@ function SpendBoard({ data, tenantId, slug }: { data: TenantSpend; tenantId: str
           value={
             <>
               {negative && <span className="sr-only">Losing money: </span>}
-              {formatINR(data.paid_margin_inr)}
+              {formatINRExact(data.paid_margin_inr)}
             </>
           }
         />
@@ -240,7 +240,7 @@ function SpendBoard({ data, tenantId, slug }: { data: TenantSpend; tenantId: str
             : `, ${formatCount(data.trial_calls)} of them on a free trial`)}
         {data.retainer_inr === null
           ? ", no monthly fee"
-          : `, plus a ${formatINR(data.retainer_inr)} monthly fee`}
+          : `, plus a ${formatINRExact(data.retainer_inr)} monthly fee`}
         . <strong className="font-semibold text-ink">{basis.label}</strong> — the client sees
         the same per-call figures on their own spend screen.{" "}
         {data.cost_currency_stated ? (
@@ -264,9 +264,9 @@ function SpendBoard({ data, tenantId, slug }: { data: TenantSpend; tenantId: str
 
       {data.residual_reason !== null && (
         <div className="border-l-2 border-warn py-1 pl-3 text-meta text-ink">
-          The rows below account for {formatINR(data.itemised_charge_inr)} of{" "}
-          {formatINR(data.period_charge_inr)} in calling charge — a residual of{" "}
-          {formatINR(data.itemisation_residual_inr)} ({data.residual_reason}).
+          The rows below account for {formatINRExact(data.itemised_charge_inr)} of{" "}
+          {formatINRExact(data.period_charge_inr)} in calling charge — a residual of{" "}
+          {formatINRExact(data.itemisation_residual_inr)} ({data.residual_reason}).
         </div>
       )}
 
@@ -282,7 +282,7 @@ function SpendBoard({ data, tenantId, slug }: { data: TenantSpend; tenantId: str
 
       {data.unattributed && (
         <div className="border-l-2 border-line py-1 pl-3 text-meta text-ink-muted">
-          {formatINR(data.unattributed.cost_inr)} of cost this month belongs to no call
+          {formatINRExact(data.unattributed.cost_inr)} of cost this month belongs to no call
           ({data.unattributed.minutes} minutes). The only unit that lands here is{" "}
           <span className="font-mono">number_rental</span>: our cost of the phone numbers we
           rent to this client. What they were charged for them is in the revenue above.
@@ -298,7 +298,7 @@ function SpendBoard({ data, tenantId, slug }: { data: TenantSpend; tenantId: str
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <h3 className="text-meta font-semibold text-ink">{ASSISTANT_NAME} — cost we absorb</h3>
             <p className="text-heading tabular-nums text-ink">
-              {formatINR(data.ai_assist.used_inr)}
+              {formatINRExact(data.ai_assist.used_inr)}
             </p>
           </div>
           <p className="mt-1 text-meta text-ink-muted">
@@ -321,7 +321,7 @@ function SpendBoard({ data, tenantId, slug }: { data: TenantSpend; tenantId: str
               non-English text, reading photographed pages, and indexing both)
             </dt>
             <dd className="text-body font-semibold tabular-nums text-ink">
-              {formatINR(data.ai_assist.kb_used_inr)}
+              {formatINRExact(data.ai_assist.kb_used_inr)}
               <span className="ml-2 text-meta font-normal text-ink-muted">
                 {formatCount(data.ai_assist.kb_requests)}{" "}
                 {data.ai_assist.kb_requests === 1 ? "job" : "jobs"}
@@ -366,12 +366,12 @@ function ChargeVariance({
     <section className="border-y border-line py-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h3 className="text-meta font-semibold text-ink">Charged by the voice platform vs metered</h3>
-        <p className="text-heading tabular-nums text-ink">{formatINR(variance.variance_inr)}</p>
+        <p className="text-heading tabular-nums text-ink">{formatINRExact(variance.variance_inr)}</p>
       </div>
       <p className="mt-1 text-meta text-ink-muted">
         {formatCount(variance.calls)} settled {variance.calls === 1 ? "call" : "calls"}: charged{" "}
-        {formatINR(variance.vendor_inr)} with the top-up fee, metered{" "}
-        {formatINR(variance.metered_inr)}. Positive means we metered more than we were charged.
+        {formatINRExact(variance.vendor_inr)} with the top-up fee, metered{" "}
+        {formatINRExact(variance.metered_inr)}. Positive means we metered more than we were charged.
       </p>
       {variance.largest.length > 0 && (
         <ul className="mt-2 divide-y divide-line text-meta">
@@ -396,8 +396,8 @@ function ChargeVariance({
                 );
               })()}
               <span className="tabular-nums text-ink">
-                {formatINR(call.vendor_inr)} charged · {formatINR(call.metered_inr)} metered ·{" "}
-                <span className="font-medium">{formatINR(call.variance_inr)}</span>
+                {formatINRExact(call.vendor_inr)} charged · {formatINRExact(call.metered_inr)} metered ·{" "}
+                <span className="font-medium">{formatINRExact(call.variance_inr)}</span>
               </span>
             </li>
           ))}

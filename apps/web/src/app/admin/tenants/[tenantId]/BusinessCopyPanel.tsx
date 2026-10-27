@@ -4,7 +4,7 @@ import { useAdminAccess } from "@/app/admin/access";
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { Section } from "@/components/console/section";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
-import { ProblemNotice, Skeleton, formatINR, formatISTStamp } from "@/components/ui";
+import { ProblemNotice, Skeleton, formatINRExact, formatISTStamp } from "@/components/ui";
 import {
   useAdminBusinessCopy,
   useAdminRefreshBusinessCopy,
@@ -85,5 +85,5 @@ export function writtenLine(data: AdminBusinessCopy): string {
 /** Exported for the test. */
 export function costLine(data: AdminBusinessCopy): string {
   if (!data.cost_inr) return "—";
-  return `${formatINR(data.cost_inr)}, ${data.absorbed ? "paid by us" : "from the client's AI allowance"}${data.model ? ` on ${data.model}` : ""}`;
+  return `${formatINRExact(data.cost_inr)}, ${data.absorbed ? "paid by us" : "from the client's AI allowance"}${data.model ? ` on ${data.model}` : ""}`;
 }

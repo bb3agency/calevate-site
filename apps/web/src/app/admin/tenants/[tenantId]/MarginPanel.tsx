@@ -8,7 +8,7 @@ import {
   ProblemNotice,
   Skeleton,
   formatCount,
-  formatINR,
+  formatINRExact,
 } from "@/components/ui";
 import { useMargin, type Margin } from "@/lib/api/admin";
 import { isZeroMoney, marginPctLabel } from "@/lib/api/spend";
@@ -22,7 +22,7 @@ import { isZeroMoney, marginPctLabel } from "@/lib/api/spend";
  * theirs.
  *
  * MONEY: `revenue_inr` / `cost_inr` / `margin_inr` are exact decimal STRINGS and go
- * through `formatINR`, which formats the digits and never parses them. They used to be
+ * through `formatINRExact`, which formats the digits and never parses them. They used to be
  * interpolated raw as `₹{string}`, which printed `₹1015900.00` — ungrouped, and a
  * server-sent `1015900.0` would have printed a single paise digit. These are TOTALS, so
  * two decimals is what they mean; the rate on the invoice is the one figure that must
@@ -52,21 +52,21 @@ export function MarginPanel({ tenantId }: { tenantId: string }) {
   return (
     <Section title={`Margin · ${data.month}`} info={info}>
       <MetricRow className="border-b-0 pb-0">
-        <Metric label="Revenue" value={formatINR(data.revenue_inr)} />
+        <Metric label="Revenue" value={formatINRExact(data.revenue_inr)} />
         <Metric
           label={trialCost ? "Our cost of paid calls" : "Our cost"}
-          value={formatINR(data.paid_cost_inr)}
+          value={formatINRExact(data.paid_cost_inr)}
         />
         {trialCost && (
           <Metric
             label="Trial calls we cover"
-            value={formatINR(data.trial_cost_inr)}
+            value={formatINRExact(data.trial_cost_inr)}
             hint="Free trial calls: an acquisition cost, not in the margin."
           />
         )}
         <Metric
           label="Margin"
-          value={formatINR(data.paid_margin_inr)}
+          value={formatINRExact(data.paid_margin_inr)}
           tone={negative ? "danger" : "default"}
           hint={negative ? "Below cost this month" : undefined}
         />
@@ -159,7 +159,7 @@ function TierSplit({ tiers }: { tiers: Margin["tiers"] }) {
           <div key={rung.label}>
             <dt className="text-meta text-ink-muted">{rung.label}</dt>
             <dd className="text-body font-semibold tabular-nums text-ink">
-              {formatINR(rung.cost)}
+              {formatINRExact(rung.cost)}
               <span className="ml-1.5 font-normal text-ink-muted">{rung.minutes} min</span>
             </dd>
           </div>

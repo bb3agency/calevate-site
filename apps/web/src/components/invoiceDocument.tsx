@@ -13,7 +13,7 @@ import {
   PartyDetail,
   TotalsBlock,
 } from "@/components/billing/documentParts";
-import { ScrollRegion, formatINR, formatIST, formatRupeeRate } from "@/components/ui";
+import { ScrollRegion, formatINRExact, formatIST, formatRupeeRateExact } from "@/components/ui";
 import type { Invoice } from "@/lib/api/invoice";
 import { GST_STATUS_SENTENCE } from "@/lib/gstStatus";
 
@@ -41,8 +41,10 @@ import { GST_STATUS_SENTENCE } from "@/lib/gstStatus";
  *
  * Every figure arrives as an exact decimal STRING and is never parsed (hard rule 7's
  * frontend shadow): `Number("10159.00")` is how ₹10,159.00 becomes ₹10,158.999999999998
- * on a document an accountant files. TOTALS and line AMOUNTS go through `formatINR`, which
- * formats the digits without parsing them and groups them the Indian way.
+ * on a document an accountant files. TOTALS and line AMOUNTS go through `formatINRExact`, which
+ * formats the digits without parsing them and groups them the Indian way. This is a tax
+ * document, so it is the exception to the one-decimal client display rule
+ * (`lib/numberDisplay.ts`): a tax invoice must reconcile to the paisa.
  *
  * The `Unit ₹` column does NOT, and that is the load-bearing decision here.
  * `overage_rate_inr` is NUMERIC(12,4) published unrounded on purpose
@@ -154,10 +156,10 @@ export function InvoiceDocument({ data }: { data: Invoice }) {
                     client checks by hand. */}
                 <td className="px-3 py-2.5 text-right font-mono tabular-nums">{item.qty}</td>
                 <td className="px-3 py-2.5 text-right font-mono tabular-nums">
-                  {formatRupeeRate(item.unit_inr)}
+                  {formatRupeeRateExact(item.unit_inr)}
                 </td>
                 <td className="px-3 py-2.5 text-right font-mono tabular-nums">
-                  {formatINR(item.amount_inr)}
+                  {formatINRExact(item.amount_inr)}
                 </td>
               </tr>
             ))}
@@ -201,14 +203,14 @@ export function InvoiceDocument({ data }: { data: Invoice }) {
             ₹9.00. */}
         <TotalsBlock
           rows={[
-            ["Subtotal", formatINR(data.subtotal_inr)],
+            ["Subtotal", formatINRExact(data.subtotal_inr)],
             ...data.tax_components.map(
               (component) =>
-                [`${component.label} @ ${component.rate_pct}%`, formatINR(component.amount_inr)] as const,
+                [`${component.label} @ ${component.rate_pct}%`, formatINRExact(component.amount_inr)] as const,
             ),
           ]}
           totalLabel="Total"
-          total={formatINR(data.total_inr)}
+          total={formatINRExact(data.total_inr)}
         />
       </div>
     </DocumentSheet>

@@ -1,18 +1,18 @@
-import { formatINR, formatRupeeRate } from "@/components/ui";
+import { formatINRExact, formatRupeeRateExact } from "@/components/ui";
 import type { PlanRow } from "@/lib/api/commercials";
 
 /**
- * Fees go through `formatINR`, which formats the DIGITS of the API's string and never
+ * Fees go through `formatINRExact`, which formats the DIGITS of the API's string and never
  * parses them. A RATE does not: `overage_rate` is NUMERIC(12,4) published unrounded so
  * `qty x unit = amount` holds, and rounding ₹7.1250 to ₹7.12 on screen would break the
  * invoice's arithmetic in our favour (BUILD-LOG §52).
  */
 export function money(value: string | null): string | null {
-  return value === null ? null : formatINR(value);
+  return value === null ? null : formatINRExact(value);
 }
 
 export function rate(value: string | null): string | null {
-  return value === null ? null : formatRupeeRate(value);
+  return value === null ? null : formatRupeeRateExact(value);
 }
 
 /**

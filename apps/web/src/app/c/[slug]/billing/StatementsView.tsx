@@ -16,7 +16,7 @@ import {
   SECONDARY_BUTTON_SM,
   Skeleton,
   formatCount,
-  formatINR,
+  formatINRExact,
 } from "@/components/ui";
 import { useStatements, type StatementSummary } from "@/lib/api/billingHistory";
 import type { Session } from "@/lib/api/client";
@@ -28,7 +28,9 @@ import { PRINT_FAILED, usePrintDocument } from "@/lib/printDocument";
  * One row per IST month since the account opened, newest first, each opening that
  * month's statement. The list is the server's (`useStatements`); a row's document is the
  * existing statement fetch for that month, so the sheet a client prints is the same one
- * an operator sees — this screen never assembles a statement of its own.
+ * an operator sees — this screen never assembles a statement of its own. Its figures are
+ * paisa-exact (`formatINRExact`), the tax-document exception to the one-decimal display
+ * rule, so a row matches the statement it opens.
  */
 export function StatementsView({ session, allowed }: { session: Session; allowed: boolean | null }) {
   const statements = useStatements(session, { enabled: allowed === true });
@@ -57,21 +59,21 @@ export function StatementsView({ session, allowed }: { session: Session; allowed
       id: "total",
       header: "Statement total",
       align: "right",
-      cell: (row) => <span className="font-semibold tabular-nums">{formatINR(row.total_inr)}</span>,
+      cell: (row) => <span className="font-semibold tabular-nums">{formatINRExact(row.total_inr)}</span>,
     },
     {
       id: "added",
       header: "Credit added",
       align: "right",
       hideBelow: "md",
-      cell: (row) => <span className="tabular-nums text-ink-muted">{formatINR(row.credit_added_inr)}</span>,
+      cell: (row) => <span className="tabular-nums text-ink-muted">{formatINRExact(row.credit_added_inr)}</span>,
     },
     {
       id: "spent",
       header: "Spent",
       align: "right",
       hideBelow: "sm",
-      cell: (row) => <span className="tabular-nums text-ink-muted">{formatINR(row.wallet_spent_inr)}</span>,
+      cell: (row) => <span className="tabular-nums text-ink-muted">{formatINRExact(row.wallet_spent_inr)}</span>,
     },
     {
       id: "calls",

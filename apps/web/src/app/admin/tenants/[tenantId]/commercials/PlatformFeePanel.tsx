@@ -13,7 +13,7 @@ import {
   ProblemNotice,
   RestrictionNote,
   Skeleton,
-  formatINR,
+  formatINRExact,
   formatIST,
 } from "@/components/ui";
 import { useAdminAccess } from "@/app/admin/access";
@@ -59,7 +59,7 @@ function FeeDetail({ tenantId, fee }: { tenantId: string; fee: AdminPlatformFee 
     <div className="space-y-6">
       <p className="text-body text-ink-muted">
         {fee.enabled && fee.amount_inr
-          ? `On for the platform: ${formatINR(fee.amount_inr)} a month, ${fee.grace_days} days to pay.`
+          ? `On for the platform: ${formatINRExact(fee.amount_inr)} a month, ${fee.grace_days} days to pay.`
           : fee.enabled
             ? "Switched on with no amount set, so no fee is being raised for anybody."
             : "Switched off for the platform. No client is raised a fee."}
@@ -163,7 +163,7 @@ function ChargeRow({ tenantId, charge }: { tenantId: string; charge: PlatformFee
     <li className="space-y-2 py-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="font-medium">
-          {feeMonth(charge.period)} · <span className="tabular-nums">{formatINR(charge.amount_inr)}</span>
+          {feeMonth(charge.period)} · <span className="tabular-nums">{formatINRExact(charge.amount_inr)}</span>
         </span>
         <StatusPill tone={copy.tone}>
           {copy.label}

@@ -1,5 +1,5 @@
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
-import { formatCountOf, formatINR } from "@/components/ui";
+import { formatCountOf, formatINRExact } from "@/components/ui";
 import type { CostBreakdown } from "@/lib/api/spend";
 
 /**
@@ -41,7 +41,7 @@ export function CostBreakdownList({ breakdown }: { breakdown: CostBreakdown }) {
         <div key={row.label} className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 py-1.5">
           <dt className="text-meta text-ink-muted">{row.label}</dt>
           <dd className="text-body tabular-nums text-ink">
-            {formatINR(row.value)}
+            {formatINRExact(row.value)}
             {row.detail && <span className="ml-2 text-meta text-ink-muted">{row.detail}</span>}
           </dd>
         </div>
@@ -49,7 +49,7 @@ export function CostBreakdownList({ breakdown }: { breakdown: CostBreakdown }) {
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 py-1.5">
         <dt className="text-meta font-semibold text-ink">Total cost to us</dt>
         <dd className="text-body font-semibold tabular-nums text-ink">
-          {formatINR(breakdown.total_inr)}
+          {formatINRExact(breakdown.total_inr)}
         </dd>
       </div>
     </dl>

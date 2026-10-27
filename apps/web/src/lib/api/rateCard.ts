@@ -57,7 +57,6 @@
  * calculator and `lib/api/wallet.ts` states for the console.
  */
 
-import { formatPaiseINR } from "@/lib/roi";
 import { MONEY_STRING } from "@/lib/money";
 
 import { apiRequest, type Session } from "./client";
@@ -253,25 +252,6 @@ export function rateToTenThousandths(value: string): number {
  */
 export function ratePaisePerMin(rate: string): number {
   return rateToTenThousandths(rate) / 100;
-}
-
-/**
- * A rate for a sentence: `"4.6296"` → `"₹4.63"`. Half-up to the paisa, in integer
- * arithmetic, then formatted from the digits by the calculator's own formatter.
- */
-export function formatRateINR(rate: string): string {
-  const tenThousandths = rateToTenThousandths(rate);
-  return formatPaiseINR(Math.floor((tenThousandths + 50) / 100));
-}
-
-/**
- * An amount for a sentence: `"50000.00"` → `"₹50,000"`, `"2500.50"` → `"₹2,500.50"`.
- * Whole rupees drop the `.00` — a pack is "the ₹50,000 pack", not "the ₹50,000.00 pack".
- */
-export function formatAmountINR(amount: string): string {
-  const paise = Math.floor((rateToTenThousandths(amount) + 50) / 100);
-  const formatted = formatPaiseINR(paise);
-  return paise % 100 === 0 ? formatted.slice(0, -3) : formatted;
 }
 
 /**

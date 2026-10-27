@@ -55,7 +55,7 @@ import {
   type UseQueryResult,
 } from "@tanstack/react-query";
 
-import { formatRupeeRate } from "@/components/ui";
+import { formatRupeeRateExact } from "@/components/ui";
 import { needsReauthentication } from "@/lib/authn/problems";
 import { withActionCode } from "@/lib/authn/stepUpPrompt";
 import { lookup } from "@/lib/lookup";
@@ -385,7 +385,7 @@ export function creditAdjustmentConfirmation(entryId: string): string {
  * the API ignores is a confirmation of nothing), and how loudly the screen states the
  * consequence.
  *
- * Read off the DIGITS, never `Number()`: `formatINR` keeps a leading minus and so does
+ * Read off the DIGITS, never `Number()`: `formatINRExact` keeps a leading minus and so does
  * this, which is the same reason the ledger row colours itself from the string
  * (hard rule 7 — parsing money in the browser is how ₹10,159.00 becomes
  * ₹10,158.999999999998).
@@ -679,8 +679,8 @@ export function grantCeilingProblem(raw: string): string | null {
   const paise = grantPaise(raw);
   if (paise < grantPaise(MIN_GRANT_INR) || paise > grantPaise(MAX_GRANT_INR)) {
     return (
-      `A grant is between ${formatRupeeRate(MIN_GRANT_INR)} and ` +
-      `${formatRupeeRate(MAX_GRANT_INR)}.`
+      `A grant is between ${formatRupeeRateExact(MIN_GRANT_INR)} and ` +
+      `${formatRupeeRateExact(MAX_GRANT_INR)}.`
     );
   }
   return null;

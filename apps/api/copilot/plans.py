@@ -40,6 +40,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.billing.display import display_inr
 from apps.api.copilot.actions import (
     PROPOSES_ONLY,
     ActionTool,
@@ -704,7 +705,7 @@ def _money(inr: Decimal | None, note: str) -> str:
         return f"Cost not known. {note}"
     if inr == 0:
         return note
-    return f"About ₹{inr:,.2f}. {note}"
+    return f"About {display_inr(inr)}. {note}"
 
 
 def plan_card(plan: PlanRow) -> Plan:

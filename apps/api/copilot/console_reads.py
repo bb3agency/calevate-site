@@ -43,6 +43,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import roster, voice_tuning
+from apps.api.billing.display import display_decimal, display_inr
 from apps.api.billing.rates import PREPAID_TIERS
 from apps.api.billing.service import plan_tier_of
 from apps.api.billing.wallet import read_wallet
@@ -425,7 +426,7 @@ async def _numbers_list(
                 f"- {dumped.get('e164')} · {dumped.get('direction') or 'no direction'}"
                 + (" · answers calls" if dumped.get("answerable") else "")
                 + (
-                    f" · ₹{dumped['inr_per_month']}/month"
+                    f" · {display_inr(dumped['inr_per_month'])}/month"
                     if dumped.get("inr_per_month") is not None
                     else ""
                 )
@@ -446,7 +447,7 @@ async def _numbers_list(
             price = readiness.client_inr_per_month
             body += (
                 "\nA new number can be bought"
-                + (f" at ₹{price} a month" if price is not None else "")
+                + (f" at {display_inr(price)} a month" if price is not None else "")
                 + " (`number_buy`)."
             )
         else:
@@ -552,7 +553,7 @@ async def _billing_overview(
     )
     lines = []
     if wallet.prepaid:
-        lines.append(f"Credit balance: ₹{wallet.balance.amount_inr}.")
+        lines.append(f"Credit balance: {display_inr(wallet.balance.amount_inr)}.")
         runway = wallet.runway
         days = getattr(runway, "days", None)
         lines.append(
@@ -892,13 +893,13 @@ async def _billing_settings(
     from apps.api.billing.ai_quota import read_ai_quota
     from apps.api.billing.auto_recharge import read_auto_recharge
     from apps.api.billing.caps import read_caps, read_spend_counters
-    from apps.api.billing.service import LOW_BALANCE_INR, chosen_low_balance_line, to_paise
+    from apps.api.billing.service import LOW_BALANCE_INR, chosen_low_balance_line
 
     assert context.tenant_id is not None
     tenant_id = context.tenant_id
 
     def inr(value: Any) -> str:
-        return "none" if value is None else f"₹{to_paise(value)}"
+        return "none" if value is None else display_inr(value)
 
     caps = await read_caps(session, tenant_id=tenant_id)
     counters = await read_spend_counters(session, tenant_id=tenant_id)
@@ -908,7 +909,7 @@ async def _billing_settings(
     lines = [
         f"Spending limit this month: the account's own {inr(caps.client_cap_spend)} and "
         f"{caps.client_cap_min or 'no'} minutes; the plan's {inr(caps.admin_cap_spend)}. "
-        f"Used {inr(counters.billed_inr)} and {to_paise(counters.minutes_used)} minutes"
+        f"Used {inr(counters.billed_inr)} and {display_decimal(counters.minutes_used)} minutes"
         + ("; outgoing calls are stopped by the limit." if counters.capped else "."),
         (
             f"Auto-recharge on: adds {inr(auto.amount_inr)} below {inr(auto.threshold_inr)}, "

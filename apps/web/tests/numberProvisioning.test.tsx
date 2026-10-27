@@ -205,8 +205,8 @@ describe("browsing what is on offer", () => {
 
     // `formatINR("149900.00")`: Indian grouping and two paise, from the digits the server
     // sent. `₹149900.00` is what a template literal would have printed.
-    expect(await screen.findByText(/₹1,49,900\.00 a month/)).toBeTruthy();
-    expect(container.textContent).toContain("₹2,00,000.00");
+    expect(await screen.findByText(/₹1,49,900 a month/)).toBeTruthy();
+    expect(container.textContent).toContain("₹2,00,000");
   });
 
   it("says who the number will be registered to, and that it is permanent", async () => {
@@ -282,7 +282,7 @@ describe("buying", () => {
 
   async function openConfirmation(extra: Routes = {}) {
     const render = await renderClientPage(<PhoneNumberPage />, routes(extra));
-    await screen.findByText(/₹1,49,900\.00 a month/);
+    await screen.findByText(/₹1,49,900 a month/);
     await chooseNumber();
     // Enabled once the registrant read lands, a round trip after the offers.
     const buy = screen.getByRole("button", { name: /buy this number/i });
@@ -298,8 +298,8 @@ describe("buying", () => {
     await openConfirmation();
 
     const dialog = confirmation();
-    expect(dialog.textContent).toContain("₹1,49,900.00 every month");
-    expect(dialog.textContent).toContain("₹2,00,000.00 before this purchase");
+    expect(dialog.textContent).toContain("₹1,49,900 every month");
+    expect(dialog.textContent).toContain("₹2,00,000 before this purchase");
     expect(dialog.textContent).toMatch(/registered to Acme Dental/);
   });
 

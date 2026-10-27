@@ -12,7 +12,7 @@ import {
   PartyDetail,
   TotalsBlock,
 } from "@/components/billing/documentParts";
-import { formatINR, formatIST } from "@/components/ui";
+import { formatINRExact, formatIST } from "@/components/ui";
 import type { PaymentReceipt } from "@/lib/api/wallet";
 
 /**
@@ -41,7 +41,9 @@ import type { PaymentReceipt } from "@/lib/api/wallet";
  * ## Money
  *
  * Every figure is an exact decimal STRING and is never parsed (hard rule 7's frontend
- * shadow). `formatINR` groups the digits the server sent; nothing here adds, subtracts or
+ * shadow). `formatINRExact` groups the digits the server sent, to the paisa, because a receipt
+ * is a tax document and the exception to the one-decimal display rule
+ * (`lib/numberDisplay.ts`); nothing here adds, subtracts or
  * rounds — `amount_inr` is the total the SERVER summed across every ledger row that
  * belongs to this payment, including rows that have scrolled off the client's page. It is
  * printed ONCE, in the totals block: a one-item receipt has no line table whose row would
@@ -85,7 +87,7 @@ export function ReceiptDocument({ data }: { data: PaymentReceipt }) {
       </div>
 
       <div className="mt-6 flex flex-col items-end gap-1">
-        <TotalsBlock rows={[]} totalLabel="Amount received" total={formatINR(data.amount_inr)} />
+        <TotalsBlock rows={[]} totalLabel="Amount received" total={formatINRExact(data.amount_inr)} />
         {/* A payment recorded across more than one entry is one we later corrected upwards.
             The amount above is the TOTAL, and saying how it got there is what stops a client
             comparing a single ledger row against a bank statement and finding it short. */}

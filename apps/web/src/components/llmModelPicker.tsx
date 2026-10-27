@@ -81,7 +81,7 @@
 import { CheckCircle2 } from "lucide-react";
 
 import { CHOICE_CARD, CHOICE_OFF, CHOICE_ON } from "@/components/console/choiceCard";
-import { formatRupeeRate } from "@/components/ui";
+import { formatINR } from "@/components/ui";
 import { providerLabel } from "@/lib/api/llmModels";
 import { compareRates, rateDifference } from "@/lib/llmRates";
 
@@ -174,7 +174,7 @@ function priceComparison(surcharge: string | null, baseline: string | null): str
   if (order === "same") return compareRates(surcharge, "0") === "same" ? null : "same price";
   const difference = rateDifference(surcharge, baseline);
   if (difference === null) return null;
-  return `${formatRupeeRate(difference)} ${order === "dearer" ? "more" : "less"} a minute`;
+  return `${formatINR(difference)} ${order === "dearer" ? "more" : "less"} a minute`;
 }
 
 /**
@@ -189,7 +189,7 @@ function surchargeLabel(surcharge: string | null): string {
   if (surcharge === null) return "—";
   return compareRates(surcharge, "0") === "same"
     ? "No extra charge"
-    : `+${formatRupeeRate(surcharge)} / min`;
+    : `+${formatINR(surcharge)} / min`;
 }
 
 /** The server's reason fragment ("it isn't switched on…") as a sentence a client reads. */

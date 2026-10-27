@@ -18,7 +18,7 @@ import {
   SECONDARY_BUTTON_SM,
   Skeleton,
   formatIST,
-  formatRupeeRate,
+  formatRupeeRateExact,
 } from "@/components/ui";
 import {
   useAttestCost,
@@ -69,13 +69,13 @@ export function feeSentence(costs: EngineMinutePrices["costs"]): string {
 export function allInNote(row: EngineMinutePrice): string | null {
   if (!row.inr_per_min_with_fee) return null;
   if (!row.topup_fee_percent || row.topup_fee_percent === "0") return null;
-  return `${formatRupeeRate(row.inr_per_min_with_fee)} with the ${row.topup_fee_percent}% top-up fee`;
+  return `${formatRupeeRateExact(row.inr_per_min_with_fee)} with the ${row.topup_fee_percent}% top-up fee`;
 }
 
 /** How a cost input reads beside its label: "2.36%", "₹349.00 a month", or not recorded. */
 export function costValue(cost: CostAttestation): string {
   if (!cost.value) return "Not recorded";
-  return cost.unit === "percent" ? `${cost.value}%` : `${formatRupeeRate(cost.value)} a month`;
+  return cost.unit === "percent" ? `${cost.value}%` : `${formatRupeeRateExact(cost.value)} a month`;
 }
 
 function rowId(row: EngineMinutePrice): string {
@@ -161,7 +161,7 @@ export function EngineMinutePricePanel({ access }: { access: Access }) {
                   <p className="text-meta text-ink-muted">{saleNote(row)}</p>
                   {row.inr_per_min ? (
                     <p className="text-meta text-ink-muted">
-                      {formatRupeeRate(row.inr_per_min)} per minute posted
+                      {formatRupeeRateExact(row.inr_per_min)} per minute posted
                       {allInNote(row) ? ` · ${allInNote(row)}` : ""} ·{" "}
                       {row.source_note ?? "—"}
                       {row.attested_at ? ` · recorded ${formatIST(row.attested_at)}` : ""}

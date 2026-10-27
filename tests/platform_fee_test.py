@@ -336,7 +336,7 @@ async def test_the_notice_ladder_and_its_copy() -> None:
     for notice in ("issued", "reminder", "paused"):
         body = compose(notice, charge=charge, slug="fee-clinic")  # type: ignore[arg-type]
         assert "Incoming calls keep being answered" in body
-        assert "₹1,999.00" in body
+        assert "₹1,999" in body
 
 
 # --- the payment ------------------------------------------------------------------------

@@ -12,7 +12,7 @@ import {
   NoticeBox,
   ProblemNotice,
   Skeleton,
-  formatINR,
+  formatINRExact,
   formatIST,
 } from "@/components/ui";
 import { useClientHealth } from "@/lib/api/admin";
@@ -303,12 +303,12 @@ function remedies(row: ClientHealth): Map<string, string> {
 
 /**
  * The spend behind a `spend_cap_near`, or null with no ceiling to be near. Both amounts go
- * through `formatINR`, which formats the DIGITS the API sent and never parses them
+ * through `formatINRExact`, which formats the DIGITS the API sent and never parses them
  * (hard rule 7).
  */
 function spendLine(row: ClientHealth): string | null {
   if (row.spend_cap_inr === null) return null;
-  return `${formatINR(row.spend_used_inr)} of ${formatINR(row.spend_cap_inr)}`;
+  return `${formatINRExact(row.spend_used_inr)} of ${formatINRExact(row.spend_cap_inr)}`;
 }
 
 function SignalCell({ signal, row }: { signal: HealthSignal; row: ClientHealth }) {

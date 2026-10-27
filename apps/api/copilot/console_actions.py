@@ -58,6 +58,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import lifecycle
 from apps.api.agents.languages import LANGUAGE_LABELS, OfferedLanguage
+from apps.api.billing.display import display_inr
 from apps.api.campaigns import controls as campaign_controls
 from apps.api.campaigns import service as campaigns_service
 from apps.api.copilot.actions import (
@@ -2869,7 +2870,7 @@ async def _plan_number_buy(
         current=None,
         proposed=masked,
         cost=(
-            f"₹{price} a month, the first month charged from your credit now."
+            f"{display_inr(price)} a month, the first month charged from your credit now."
             if price is not None
             else "A monthly rental, charged from your credit."
         ),

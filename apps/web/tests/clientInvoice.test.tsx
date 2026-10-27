@@ -1,7 +1,7 @@
 import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { formatINR } from "@/components/ui";
+import { formatINRExact } from "@/components/ui";
 import type { Invoice } from "@/lib/api/invoice";
 import { formatBillingMonth } from "@/lib/billingMonth";
 import { GST_STATUS_SENTENCE } from "@/lib/gstStatus";
@@ -225,7 +225,7 @@ describe("the client's own invoice", () => {
     expect(container.textContent).toContain("No input tax credit can be claimed");
     // Unregistered is the normal state, not a fault: no settings name, no "missing".
     expect(container.textContent).not.toMatch(/GST_SUPPL|Missing configuration/i);
-    expect(container.textContent).toContain(formatINR("10145.06"));
+    expect(container.textContent).toContain(formatINRExact("10145.06"));
   });
 
   it("falls back to the shared sentence when the server sends no note", async () => {
@@ -267,7 +267,7 @@ describe("the client's own invoice", () => {
     // CGST, SGST/UTGST and IGST are three different ledgers on the recipient's side; tax
     // charged without saying which one cannot be claimed.
     expect(container.textContent).toContain("IGST @ 18%");
-    expect(container.textContent).toContain(formatINR("1826.11"));
+    expect(container.textContent).toContain(formatINRExact("1826.11"));
   });
 
   it("splits an intra-State supply into CGST and SGST", async () => {
@@ -301,8 +301,8 @@ describe("the client's own invoice", () => {
     // The two halves are the SERVER's and are printed as sent — the browser never adds
     // them up, which is why an odd paisa can differ between them without anything here
     // needing to know.
-    expect(container.textContent).toContain(formatINR("913.06"));
-    expect(container.textContent).toContain(formatINR("913.05"));
+    expect(container.textContent).toContain(formatINRExact("913.06"));
+    expect(container.textContent).toContain(formatINRExact("913.05"));
   });
 
   it("prints the RATE at the precision the server published, never rounded to paise", async () => {
@@ -313,7 +313,7 @@ describe("the client's own invoice", () => {
     // Asserted on the CELL: the string also appears in server-composed descriptions, and
     // a `textContent` match there would be satisfied by prose while the figure was wrong.
     expect(screen.getByText("₹7.1250").tagName).toBe("TD");
-    // What `formatINR` would have produced. It breaks `qty × unit = amount` on the one
+    // What `formatINRExact` would have produced. It breaks `qty × unit = amount` on the one
     // line a client checks with a calculator, in our favour.
     expect(screen.queryByText("₹7.12")).toBeNull();
     expect(screen.getByText("20.5").tagName).toBe("TD");

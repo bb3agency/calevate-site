@@ -32,6 +32,7 @@ from apps.api.billing.auto_recharge import (
     pending_mandates,
     refresh_pending_mandate,
 )
+from apps.api.billing.display import display_inr
 from apps.api.billing.payments import payment_capability
 from apps.api.billing.reconciliation import reconcile
 from apps.api.core.alerting import alert
@@ -137,7 +138,7 @@ _SUBJECTS: Final = {
 def compose(kind: str, *, amount_inr: str | None, reason: str | None, slug: str) -> str:
     """The email body for one notice, in the client's words."""
     link = f"{CONSOLE_BASE}/c/{slug}/billing"
-    amount = f"₹{amount_inr}" if amount_inr else "the recharge amount"
+    amount = display_inr(amount_inr) if amount_inr else "the recharge amount"
     if kind == "recharge_started":
         return (
             f"Your calling credit is below the level you set, so we are adding {amount} "

@@ -1,6 +1,6 @@
 import { Fragment } from "react";
 
-import { formatCount, formatINR } from "@/components/ui";
+import { formatCount, formatINRExact } from "@/components/ui";
 import type { TenantSummary } from "@/lib/api/admin";
 
 type Credit = Pick<TenantSummary, "plan_tier" | "credit_inr" | "minutes_left">;
@@ -32,7 +32,7 @@ export function CreditLeft({ credit, compact = false }: { credit: Credit; compac
     return <span className="text-ink-muted">—</span>;
   }
   const tiers = credit.minutes_left && credit.minutes_left.length > 0 ? credit.minutes_left : null;
-  const rupees = credit.credit_inr === null ? null : formatINR(credit.credit_inr);
+  const rupees = credit.credit_inr === null ? null : formatINRExact(credit.credit_inr);
   const overdrawn = credit.credit_inr !== null && credit.credit_inr.trim().startsWith("-");
   return (
     <span className={compact ? "inline" : "block"}>

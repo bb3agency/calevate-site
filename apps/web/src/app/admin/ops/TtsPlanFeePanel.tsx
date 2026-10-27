@@ -23,7 +23,7 @@ import {
   SECONDARY_BUTTON,
   SECONDARY_BUTTON_SM,
   Skeleton,
-  formatINR,
+  formatINRExact,
   formatIST,
 } from "@/components/ui";
 
@@ -145,7 +145,7 @@ function PlanFeeSlot({
         <dl className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div>
             <dt className="text-meta font-medium text-ink-muted">Billed for {current.month}</dt>
-            <dd className="mt-0.5 text-body font-semibold text-ink">{formatINR(current.plan_inr)}</dd>
+            <dd className="mt-0.5 text-body font-semibold text-ink">{formatINRExact(current.plan_inr)}</dd>
           </div>
           <div>
             <dt className="text-meta font-medium text-ink-muted">Read from</dt>

@@ -62,9 +62,10 @@ from calevate_shared.backoff import ladder_delay_s
 from sqlalchemy import text
 
 from apps.api.billing.credit_packs import PACK_CATALOGUE
+from apps.api.billing.display import display_inr
 from apps.api.billing.list_rates import card_at
 from apps.api.billing.rates import PREPAID_TIERS, VOICE_TIERS, VoiceTier, voice_tier_label
-from apps.api.billing.service import plan_tier_of, to_paise
+from apps.api.billing.service import plan_tier_of
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.core.transport import _domain, get_transport
@@ -168,8 +169,8 @@ def compose(*, starts_on: str, rungs: Sequence[PackRates], slug: str) -> str:
         "The new rates:",
     ]
     for rung in rungs:
-        priced = ", ".join(f"₹{to_paise(rate)}/min on {label}" for label, rate in rung.rates)
-        lines.append(f"  ₹{to_paise(rung.amount_inr)} of credit — {priced}")
+        priced = ", ".join(f"{display_inr(rate)}/min on {label}" for label, rate in rung.rates)
+        lines.append(f"  {display_inr(rung.amount_inr)} of credit — {priced}")
     lines += [
         "",
         f"If you want to buy credit at today's rates, you can do so any time before {starts_on}:",

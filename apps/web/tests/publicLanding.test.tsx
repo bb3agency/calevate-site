@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import Home from "@/app/page";
 import { HOME } from "@/components/marketing/home/band";
+import { formatINR } from "@/components/ui";
 import { LEGAL_DOCUMENTS } from "@/lib/legal";
 
 import { copyUnder, tsSources } from "./copyScan";
@@ -1273,13 +1274,13 @@ describe("the footer's legal links", () => {
  */
 describe("the ROI calculator", () => {
   /** The card's own Clear list rate, formatted the way the page formats it ("₹4.00"). */
-  const LIST_RATE = `₹${Number(RATE_CARD.list_rate_inr_per_min).toFixed(2)}`;
+  const LIST_RATE = formatINR(RATE_CARD.list_rate_inr_per_min);
 
   it("prices its worked examples at the card's published Clear list rate", () => {
     // The rupee totals below are arithmetic ON THIS RATE. If the founder moves the card
     // they must move too, and this assertion is what says so in one line rather than
     // leaving three tests to fail with no explanation.
-    expect(LIST_RATE).toBe("₹4.00");
+    expect(LIST_RATE).toBe("₹4");
   });
 
   function calc(container: HTMLElement): HTMLElement {
@@ -1323,12 +1324,12 @@ describe("the ROI calculator", () => {
     // somebody attests its price, so opening on Clear would quote a rate this buyer
     // cannot run at. `LIST_RATE` above is asserted against the fixture; what is asserted
     // here is the arithmetic.
-    expect(calc(container).textContent).toContain("₹72,800.00");
+    expect(calc(container).textContent).toContain("₹72,800");
     fireEvent.change(screen.getByRole("spinbutton", { name: "Calls a day" }), {
       target: { value: "100" },
     });
     // 100 × 26 × 2 × ₹7.00 = ₹36,400.00.
-    expect(calc(container).textContent).toContain("₹36,400.00");
+    expect(calc(container).textContent).toContain("₹36,400");
   });
 
   it("exposes an assumptions disclosure, closed by default and labelled illustrative", async () => {
@@ -1447,17 +1448,17 @@ describe("the ROI calculator", () => {
     const text = calc(container).textContent ?? "";
     // Four salespeople on the whole list at ₹1,28,000 …
     expect(text).toMatch(/hire\s*4\s*salespeople/);
-    expect(text).toContain("₹1,28,000.00");
+    expect(text).toContain("₹1,28,000");
     // … versus ₹72,800 of first calls (5,200 × 2 min × ₹7.00, the STUDIO list rate) plus
     // two salespeople at ₹64,000 = ₹1,36,800.
     //
     // At the Studio rate the two-stage funnel costs ₹8,800 MORE than the team on the whole
     // list, and the page says so in those words rather than hiding it — the property the
     // next assertion pins. A calculator that cannot lose is a brochure.
-    expect(text).toContain("₹72,800.00");
-    expect(text).toContain("₹64,000.00");
-    expect(text).toContain("₹1,36,800.00");
-    expect(text).toMatch(/₹8,800\.00\s*more a month, not less/);
+    expect(text).toContain("₹72,800");
+    expect(text).toContain("₹64,000");
+    expect(text).toContain("₹1,36,800");
+    expect(text).toMatch(/₹8,800\s*more a month, not less/);
     // The capacity line — the actual argument, and pure arithmetic off the buyer's inputs.
     expect(text).toMatch(/3,640[^]*never reach a person/);
     expect(text).toMatch(/364[^]*hours a month/);
@@ -1478,7 +1479,7 @@ describe("the ROI calculator", () => {
       },
     );
     expect(calc(container).textContent).toMatch(
-      /costs\s*₹[\d,]+\.\d\d\s*more a month, not less/,
+      /costs\s*₹[\d,]+(\.\d)?\s*more a month, not less/,
     );
   });
 

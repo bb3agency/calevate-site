@@ -49,6 +49,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.billing.display import display_inr
 from apps.api.billing.payment_objects import AUTO_RECHARGE, MANDATE, record_route
 from apps.api.billing.payments import NOTES_TENANT_KEY, verify_checkout_signature
 from apps.api.billing.plans import ist_billing_month, ist_month_window
@@ -257,7 +258,7 @@ def _validate(threshold: Decimal, amount: Decimal, cap: Decimal) -> None:
     if amount < MIN_TOPUP_INR or amount > ceiling:
         raise ProblemError.business_rule(
             "auto_recharge_invalid",
-            f"A recharge is between ₹{MIN_TOPUP_INR:,.0f} and ₹{ceiling:,.0f}.",
+            f"A recharge is between {display_inr(MIN_TOPUP_INR)} and {display_inr(ceiling)}.",
             remediation=(
                 "Automatic payments above ₹15,000 need you to approve each one, so they "
                 "cannot run unattended."
@@ -296,7 +297,7 @@ async def save_auto_recharge(
         if row.mandate_max_inr is not None and amount_inr > Decimal(str(row.mandate_max_inr)):
             raise ProblemError.business_rule(
                 "auto_recharge_over_mandate",
-                f"Your approved limit is ₹{to_paise(Decimal(str(row.mandate_max_inr)))} per "
+                f"Your approved limit is {display_inr(Decimal(str(row.mandate_max_inr)))} per "
                 "payment.",
                 remediation="Lower the recharge amount, or approve a new payment method.",
             )
@@ -381,7 +382,7 @@ async def begin_mandate(
     if max_debit_inr < MIN_TOPUP_INR or max_debit_inr > MANDATE_MAX_DEBIT_INR:
         raise ProblemError.business_rule(
             "auto_recharge_invalid",
-            f"The per-payment limit is between ₹{MIN_TOPUP_INR:,.0f} and ₹15,000.",
+            f"The per-payment limit is between {display_inr(MIN_TOPUP_INR)} and ₹15,000.",
             remediation="Choose the largest single recharge you want to allow.",
         )
     async with tenant_session(tenant_id) as session:

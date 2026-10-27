@@ -19,6 +19,7 @@ import {
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
+  formatDecimal,
   formatIST,
   NoticeBox,
   ProblemNotice,
@@ -320,7 +321,7 @@ export function RunsPanel({
               </span>
               <span className="text-ink-muted">
                 {lookup(RUN_SOURCE_LABELS, run.source) ?? run.source} · {formatIST(run.at)}
-                {run.duration_ms !== null ? ` · ${(run.duration_ms / 1000).toFixed(1)} s` : ""}
+                {run.duration_ms !== null ? ` · ${formatDecimal(run.duration_ms / 1000)} s` : ""}
               </span>
             </li>
           ))}

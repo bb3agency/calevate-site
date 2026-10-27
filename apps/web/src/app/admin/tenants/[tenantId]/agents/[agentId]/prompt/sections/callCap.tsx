@@ -10,7 +10,7 @@ import {
   RestrictionNote,
   Skeleton,
   formatCallCap,
-  formatINR,
+  formatINRExact,
 } from "@/components/ui";
 import type { useAdminAccess } from "@/app/admin/access";
 import { useSetCallCap, useTenantLanes, type PendingState } from "@/lib/api/publishing";
@@ -86,13 +86,13 @@ export function CallCapPanel({
               }
             />
             {/* Null is "no rate on the plan", not free: rendering ₹0 would be a lie the
-                client then sees on their own screen. `formatINR` formats the digits and
+                client then sees on their own screen. `formatINRExact` formats the digits and
                 never parses them (hard rule 7). */}
             <SettingRow
               label="Worst case, one call"
               value={
                 <span className="tabular-nums">
-                  {hasWorstCase ? formatINR(worstCase) : "no rate on this plan"}
+                  {hasWorstCase ? formatINRExact(worstCase) : "no rate on this plan"}
                 </span>
               }
             />

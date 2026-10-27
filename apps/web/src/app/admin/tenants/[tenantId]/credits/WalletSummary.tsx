@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 
 import { minutesLine } from "@/components/admin/credit";
-import { NoticeBox, formatINR, formatIST } from "@/components/ui";
+import { NoticeBox, formatINRExact, formatIST } from "@/components/ui";
 import { InfoTip } from "@/components/console/infoTip";
 import { Metric } from "@/components/console/metric";
 import { Section } from "@/components/console/section";
@@ -43,7 +43,7 @@ export function WalletSummary({
           />
           <Metric
             label="On the wallet now"
-            value={formatINR(wallet.balance_inr)}
+            value={formatINRExact(wallet.balance_inr)}
             tone={wallet.is_low ? "warn" : "default"}
             hint={
               newest
@@ -51,8 +51,8 @@ export function WalletSummary({
                 : "No entry has ever been written to this ledger."
             }
           />
-          <Metric label="Paid for, lifetime" value={formatINR(wallet.paid_inr)} />
-          <Metric label="Given, lifetime" value={formatINR(wallet.granted_inr)} />
+          <Metric label="Paid for, lifetime" value={formatINRExact(wallet.paid_inr)} />
+          <Metric label="Given, lifetime" value={formatINRExact(wallet.granted_inr)} />
         </div>
         <div className="flex w-full flex-wrap gap-2 sm:w-auto [&>*]:max-sm:flex-1">{actions}</div>
       </div>
@@ -64,7 +64,7 @@ export function WalletSummary({
       {wallet.is_low && (
         <NoticeBox
           tone="warn"
-          title={`Below the low-balance line of ${formatINR(wallet.low_balance_threshold_inr)}`}
+          title={`Below the low-balance line of ${formatINRExact(wallet.low_balance_threshold_inr)}`}
           info="Every client pays from a wallet. Callers hear a short apology that gives no reason. A client inside a trial period is on us and is stopped by neither, however empty this wallet is."
           infoLabel="the low-balance line"
         >

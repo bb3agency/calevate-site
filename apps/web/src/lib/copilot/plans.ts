@@ -13,6 +13,7 @@ import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tansta
 import { apiRequest, type Session } from "@/lib/api/client";
 import { refreshAfterConfirm } from "@/lib/api/copilot";
 import type { components } from "@/lib/api/schema";
+import { formatINR } from "@/lib/numberDisplay";
 
 type Schemas = components["schemas"];
 
@@ -154,8 +155,7 @@ export function countOf(n: number, type: CopilotPlanOut["target_type"]): string 
 /** The estimate as a person reads it: a rupee figure, "Free", or "Not known". */
 export function estimateWords(plan: Pick<CopilotPlanOut, "estimate_inr">): string {
   if (plan.estimate_inr === null) return "Not known";
-  const value = Number(plan.estimate_inr);
-  if (!Number.isFinite(value)) return "Not known";
-  if (value === 0) return "Free";
-  return `About ₹${value.toLocaleString("en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+  if (!/^-?\d+(\.\d+)?$/.test(plan.estimate_inr)) return "Not known";
+  if (!/[1-9]/.test(plan.estimate_inr)) return "Free";
+  return `About ${formatINR(plan.estimate_inr)}`;
 }

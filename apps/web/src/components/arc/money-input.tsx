@@ -16,7 +16,7 @@
  *
  * `paise={false}` takes whole rupees only (a top-up pack, a cap); the default allows two
  * decimals. A per-minute rate with four decimals is not this field: it is a rate string
- * the operator types exactly and `formatRupeeRate` prints.
+ * the operator types exactly and `formatRupeeRateExact` prints.
  */
 
 import { useEffect, useRef, useState, type ChangeEvent } from "react";

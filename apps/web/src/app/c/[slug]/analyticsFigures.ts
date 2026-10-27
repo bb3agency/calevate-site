@@ -1,7 +1,7 @@
 import type { StatItem } from "@/components/arc/stats-band";
 import type { MetricDelta } from "@/components/console/metric";
 import { formatDateShort } from "@/components/arc/ist-dates";
-import { formatCount, formatDuration } from "@/components/ui";
+import { formatCount, formatDecimal, formatDuration, formatPercent } from "@/components/ui";
 import type { Stats, StatsMetric } from "@/lib/api/analytics";
 
 type MetricKey = StatsMetric["key"];
@@ -33,19 +33,14 @@ export function statValue(metric: StatsMetric): string {
   if (metric.value === null) return "—";
   switch (metric.key) {
     case "answer_rate_pct":
-      return `${trimZero(metric.value)}%`;
+      return formatPercent(metric.value);
     case "avg_duration_s":
       return formatDuration(Math.round(Number(metric.value)));
     case "talk_minutes":
-      return `${trimZero(metric.value)} min`;
+      return `${formatDecimal(metric.value)} min`;
     default:
       return formatCount(Number(metric.value));
   }
-}
-
-/** "12.0" → "12"; "12.5" stays. The figures are counts and percentages, never money. */
-function trimZero(value: string): string {
-  return value.replace(/\.0+$/, "");
 }
 
 /**
@@ -57,15 +52,11 @@ export function statDelta(metric: StatsMetric, context: string): MetricDelta | u
   if (metric.key === "answer_rate_pct") {
     if (metric.value === null || metric.previous === null) return undefined;
     const points = Math.round((Number(metric.value) - Number(metric.previous)) * 10) / 10;
-    return delta(points, `${formatPoints(Math.abs(points))} ${Math.abs(points) === 1 ? "point" : "points"}`, metric, context);
+    return delta(points, `${formatDecimal(Math.abs(points))} ${Math.abs(points) === 1 ? "point" : "points"}`, metric, context);
   }
   if (metric.change_pct === null) return undefined;
   const change = Number(metric.change_pct);
-  return delta(change, `${trimZero(metric.change_pct.replace(/^[-+]/, ""))}%`, metric, context);
-}
-
-function formatPoints(value: number): string {
-  return value.toLocaleString("en-IN", { maximumFractionDigits: 1 });
+  return delta(change, formatPercent(metric.change_pct.replace(/^[-+]/, "")), metric, context);
 }
 
 function delta(change: number, magnitude: string, metric: StatsMetric, context: string): MetricDelta {

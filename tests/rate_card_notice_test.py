@@ -27,6 +27,7 @@ from uuid import UUID
 
 import pytest
 from apps.api.billing.credit_packs import PACK_CATALOGUE
+from apps.api.billing.display import display_inr
 from apps.api.billing.list_rates import record_card
 from apps.api.billing.rates import VOICE_TIERS, voice_tier_label
 from apps.api.db.session import tenant_session, untenanted_session
@@ -149,7 +150,7 @@ def test_the_body_says_the_date_the_rates_and_that_bought_credit_is_untouched() 
     for rung in rungs:
         for label, rate in rung.rates:
             assert f"/min on {label}" in body
-            assert str(rate.quantize(Decimal("0.01"))) in body
+            assert f"{display_inr(rate)}/min on {label}" in body
     assert "/c/clinic/credits" in body
 
 
@@ -275,7 +276,7 @@ async def test_one_client_is_sent_the_scheduled_cards_own_rates(
     for pack in PACK_CATALOGUE:
         for voice in VOICE_TIERS:
             raised = (pack.inr_per_min(voice) + Decimal("0.50")).quantize(Decimal("0.01"))
-            assert str(raised) in body
+            assert display_inr(raised) in body
     assert _starts_on(CARD_AT) in body
 
 

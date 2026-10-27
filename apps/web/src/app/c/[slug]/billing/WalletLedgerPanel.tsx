@@ -12,9 +12,9 @@ import {
   SECONDARY_BUTTON_SM,
   ScrollRegion,
   Skeleton,
+  formatDecimal,
   formatINR,
   formatIST,
-  formatRupeeRate,
 } from "@/components/ui";
 import { takesCreditAway } from "@/lib/api/credits";
 import {
@@ -301,7 +301,7 @@ function splitSentence(
     return `${formatINR(split.credits)} of extra AI help, from credit bought earlier`;
   }
   const quality = labels ? ` on ${labels[split.voice_tier]}` : "";
-  return `${formatINR(split.credits)} — ${split.minutes} min at ${formatRupeeRate(
+  return `${formatINR(split.credits)} — ${formatDecimal(split.minutes)} min at ${formatINR(
     split.inr_per_min,
   )}/min${quality}, from credit bought at that rate`;
 }

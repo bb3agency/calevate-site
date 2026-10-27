@@ -9,7 +9,7 @@ import {
   NoticeBox,
   ProblemNotice,
   RestrictionNote,
-  formatINR,
+  formatINRExact,
   formatIST,
 } from "@/components/ui";
 import type { useAdminAccess } from "@/app/admin/access";
@@ -290,7 +290,7 @@ export function RecordForm({
             title="That reference is already on this ledger"
           >
             <p className="mt-1">
-              It credited {formatINR(alreadyOnLedger.delta_inr)} on{" "}
+              It credited {formatINRExact(alreadyOnLedger.delta_inr)} on{" "}
               {formatIST(alreadyOnLedger.occurred_at)}. Sending it again credits nothing.
               The server returns the entry that already exists. If this is a second,
               genuine payment it has its own reference; reusing this one for a different
@@ -307,7 +307,7 @@ export function RecordForm({
           <div className="min-w-0">
             <p className="font-semibold text-ink">
               {amountReady
-                ? `This puts ${formatINR(amount)} of real money on ${clientName}'s wallet`
+                ? `This puts ${formatINRExact(amount)} of real money on ${clientName}'s wallet`
                 : `This puts real money on ${clientName}'s wallet`}
             </p>
             <p className="mt-1 text-ink-muted">
@@ -336,7 +336,7 @@ export function RecordForm({
           successLabel="Recorded"
           disabled={!ready}
         >
-          {amountReady ? `Credit ${formatINR(amount)} to ${clientName}` : "Credit this payment"}
+          {amountReady ? `Credit ${formatINRExact(amount)} to ${clientName}` : "Credit this payment"}
         </ActionButton>
 
         <RestrictionNote reason={write.reason} />
@@ -366,8 +366,8 @@ function Outcome({ result }: { result: TopUpResult }) {
       >
         <p className="mt-1">
           <span className="font-mono">{result.payment_ref}</span> was already on this
-          wallet for {formatINR(result.amount_inr)}, so no second entry was written and
-          the balance did not move. It stands at {formatINR(result.balance_inr)}.{" "}
+          wallet for {formatINRExact(result.amount_inr)}, so no second entry was written and
+          the balance did not move. It stands at {formatINRExact(result.balance_inr)}.{" "}
           <span className="font-semibold">
             This client has not been credited twice. This is the reference doing its job.
           </span>
@@ -384,11 +384,11 @@ function Outcome({ result }: { result: TopUpResult }) {
   return (
     <NoticeBox
       tone="ok"
-      title={`Recorded: ${formatINR(result.amount_inr)} credited`}
+      title={`Recorded: ${formatINRExact(result.amount_inr)} credited`}
     >
       <p className="mt-1">
         Against <span className="font-mono">{result.payment_ref}</span>. The wallet now
-        holds {formatINR(result.balance_inr)}
+        holds {formatINRExact(result.balance_inr)}
         {result.is_low ? ", which is still under the low-balance line." : "."}
       </p>
       <p className="mt-2 text-meta">

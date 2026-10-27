@@ -4,7 +4,7 @@ import clsx from "clsx";
 import { File as FileIcon, FileImage, FileSpreadsheet, FileText, Upload, X } from "lucide-react";
 import { useId, useRef, useState, type ReactNode } from "react";
 
-import { SECONDARY_BUTTON_SM } from "@/components/ui";
+import { SECONDARY_BUTTON_SM, formatDecimal } from "@/components/ui";
 
 /**
  * THE ONE FILE CONTROL. Every place a person hands the product a file uses this, so the
@@ -250,7 +250,7 @@ export function formatFileSize(bytes: number | null | undefined): string | null 
   if (bytes < 1024) return `${bytes} bytes`;
   const kb = bytes / 1024;
   if (kb < 1024) return `${Math.round(kb)} KB`;
-  return `${(kb / 1024).toFixed(1)} MB`;
+  return `${formatDecimal(kb / 1024)} MB`;
 }
 
 function extensionOf(name: string): string {

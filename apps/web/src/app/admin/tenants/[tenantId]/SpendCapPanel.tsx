@@ -15,7 +15,7 @@ import {
   RestrictionNote,
   Skeleton,
   formatCount,
-  formatINR,
+  formatINRExact,
 } from "@/components/ui";
 import { useAdminAccess } from "@/app/admin/access";
 import { useCaps } from "@/lib/api/caps";
@@ -124,11 +124,11 @@ export function SpendCapPanel({
           </NoticeBox>
 
           {/* MONEY AS STRINGS. Every rupee field here is an exact decimal the API sent as
-              text (hard rule 7); `formatINR` groups the digits and never parses them. */}
+              text (hard rule 7); `formatINRExact` groups the digits and never parses them. */}
           <SettingRows className="border-y border-line">
             <CapFact
               label={`Spent · ${data.month}`}
-              value={formatINR(data.spend_used_inr)}
+              value={formatINRExact(data.spend_used_inr)}
               note={
                 data.trial_active
                   ? `${data.minutes_used} minutes, free trial: no rupees count against the cap`
@@ -137,7 +137,7 @@ export function SpendCapPanel({
             />
             <CapFact
               label="Ceiling in force"
-              value={formatINR(data.effective_cap_spend_inr)}
+              value={formatINRExact(data.effective_cap_spend_inr)}
               note={
                 data.effective_cap_minutes === null
                   ? "no minute ceiling"
@@ -146,7 +146,7 @@ export function SpendCapPanel({
             />
             <CapFact
               label="Our ceiling (the plan's)"
-              value={formatINR(data.plan_cap_spend_inr)}
+              value={formatINRExact(data.plan_cap_spend_inr)}
               note={
                 data.plan_cap_minutes === null
                   ? "no minute ceiling"
@@ -164,7 +164,7 @@ export function SpendCapPanel({
                 here would promise a control that does not exist. */}
             <CapFact
               label="Their own ceiling"
-              value={formatINR(data.client_cap_spend_inr)}
+              value={formatINRExact(data.client_cap_spend_inr)}
               note={
                 data.client_cap_minutes === null
                   ? "no minute ceiling"
@@ -191,7 +191,7 @@ export function SpendCapPanel({
             >
               <p className="mt-1">
                 {recompute.data.capped
-                  ? `They have spent ${formatINR(recompute.data.spend_used_inr)} of ${formatINR(
+                  ? `They have spent ${formatINRExact(recompute.data.spend_used_inr)} of ${formatINRExact(
                       recompute.data.effective_cap_spend_inr,
                     )} this month, so the ceiling in force is still the smaller number. Raise it (or ask them to raise theirs, if the effective ceiling is the client's) and run this again.`
                   : "Their next dial is allowed. Campaigns pick up at the next dispatch tick."}

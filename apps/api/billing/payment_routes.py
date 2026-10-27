@@ -77,6 +77,7 @@ from apps.api.billing.credit_packs import (
     pack_by_id,
     pack_talk_time_minutes,
 )
+from apps.api.billing.display import display_inr
 from apps.api.billing.engine_minutes import (
     BAND_SOLD_ENGINES,
     BYOK_VOICE_RATE_KEY,
@@ -763,7 +764,7 @@ async def create_topup_intent(payload: TopUpIntentIn, principal: TopUpWrite) -> 
     if amount < MIN_TOPUP_INR or amount > MAX_TOPUP_INR:
         raise ProblemError.business_rule(
             "topup_amount_out_of_range",
-            f"A top-up is between ₹{MIN_TOPUP_INR:,.0f} and ₹{MAX_TOPUP_INR:,.0f}.",
+            f"A top-up is between {display_inr(MIN_TOPUP_INR)} and {display_inr(MAX_TOPUP_INR)}.",
             remediation="Adjust the amount, or contact us for a larger prepayment.",
         )
 

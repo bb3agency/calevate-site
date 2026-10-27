@@ -28,7 +28,7 @@ import {
   SECONDARY_BUTTON_SM,
   Skeleton,
   formatIST,
-  formatINR,
+  formatINRExact,
   formatPhone,
 } from "@/components/ui";
 import {
@@ -194,7 +194,7 @@ function WorkspaceBody({
         />
         <SettingRow
           label="Client pays"
-          value={data.client_inr_per_month ? `${formatINR(data.client_inr_per_month)} a month per number` : "No attested price"}
+          value={data.client_inr_per_month ? `${formatINRExact(data.client_inr_per_month)} a month per number` : "No attested price"}
         />
       </SettingRows>
 
@@ -413,8 +413,8 @@ function AdminBuyNumber({
                   <span className="font-mono text-ink">{formatPhone(offer.e164)}</span>
                   {offer.city && <span className="text-meta text-ink-muted">{offer.city}</span>}
                   <span className="ml-auto text-ink-muted">
-                    Client pays {offer.client_inr_per_month ? formatINR(offer.client_inr_per_month) : "—"}
-                    {" · "}our cost {offer.vendor_inr_per_month ? formatINR(offer.vendor_inr_per_month) : "—"} a month
+                    Client pays {offer.client_inr_per_month ? formatINRExact(offer.client_inr_per_month) : "—"}
+                    {" · "}our cost {offer.vendor_inr_per_month ? formatINRExact(offer.vendor_inr_per_month) : "—"} a month
                   </span>
                   <button
                     type="button"
@@ -473,8 +473,8 @@ function AdminBuyNumber({
         >
           <p>
             Rented in the client&apos;s workspace, in its business name. The client pays{" "}
-            {chosen.client_inr_per_month ? formatINR(chosen.client_inr_per_month) : "no attested price"} a
-            month; our cost is {chosen.vendor_inr_per_month ? formatINR(chosen.vendor_inr_per_month) : "not stated"}.
+            {chosen.client_inr_per_month ? formatINRExact(chosen.client_inr_per_month) : "no attested price"} a
+            month; our cost is {chosen.vendor_inr_per_month ? formatINRExact(chosen.vendor_inr_per_month) : "not stated"}.
           </p>
           <label className="flex flex-col gap-1">
             <span className={FIELD_LABEL}>Agent (optional)</span>

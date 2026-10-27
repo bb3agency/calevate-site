@@ -119,7 +119,7 @@ describe("TierComparison", () => {
   it("prints the server's rate string, marks the current tier and offers the other", () => {
     const onChoose = vi.fn();
     render(<TierComparison tiers={tiers} currentId="clear" onChoose={onChoose} />);
-    expect(screen.getByText("₹4.50")).toBeTruthy();
+    expect(screen.getByText("₹4.5")).toBeTruthy();
     expect(screen.getByText("Your agents use this")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Use Clear" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Use Studio" }));

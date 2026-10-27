@@ -13,7 +13,7 @@ import {
   ProblemNotice,
   Skeleton,
   formatCount,
-  formatINR,
+  formatINRExact,
 } from "@/components/ui";
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import { EmptyState } from "@/components/console/emptyState";
@@ -44,7 +44,7 @@ import { VoiceCostModel } from "./VoiceCostModel";
  * the slowest read in this console and is not polled — and it hides nobody. The server's
  * order is kept: re-sorting here would be a second opinion about triage.
  *
- * MONEY: every figure is an exact decimal STRING formatted by `formatINR`, and nothing is
+ * MONEY: every figure is an exact decimal STRING formatted by `formatINRExact`, and nothing is
  * summed in the browser — the totals are the server's own sums of the rows.
  */
 export function FleetSpendScreen() {
@@ -173,15 +173,15 @@ function Totals({ data }: { data: FleetSpend }) {
   const trialCost = !isZeroMoney(data.trial_cost_inr);
   return (
     <MetricRow>
-      <Metric label={`Revenue · ${data.month}`} value={formatINR(data.revenue_inr)} />
+      <Metric label={`Revenue · ${data.month}`} value={formatINRExact(data.revenue_inr)} />
       <Metric
         label={trialCost ? "Our cost of paid calls" : "Our cost"}
-        value={formatINR(data.paid_cost_inr)}
+        value={formatINRExact(data.paid_cost_inr)}
       />
       {trialCost && (
         <Metric
           label="Trial cost we cover"
-          value={formatINR(data.trial_cost_inr)}
+          value={formatINRExact(data.trial_cost_inr)}
           hint="Free trial calls: an acquisition cost, not in the margin."
         />
       )}
@@ -192,7 +192,7 @@ function Totals({ data }: { data: FleetSpend }) {
           <>
             {/* Colour is never the only signal that a month is losing money (F-18). */}
             {negative && <span className="sr-only">Losing money: </span>}
-            {formatINR(data.paid_margin_inr)}
+            {formatINRExact(data.paid_margin_inr)}
           </>
         }
       />
@@ -205,14 +205,14 @@ function Totals({ data }: { data: FleetSpend }) {
       {/* Outside the margin: the assistant has no matching revenue (AbsorbedAiSpendOut). */}
       <Metric
         label="AI we absorb"
-        value={formatINR(data.ai_absorbed_inr)}
+        value={formatINRExact(data.ai_absorbed_inr)}
         hint={`${ASSISTANT_NAME}, AI tools, the standby model and post-call extraction. Not billed, not in the margin.`}
       />
       {/* The same absorbed line each client's Spend screen shows ("all in"); hidden at zero. */}
       {!isZeroMoney(data.absorbed_other_inr) && (
         <Metric
           label="Other costs we absorb"
-          value={formatINR(data.absorbed_other_inr)}
+          value={formatINRExact(data.absorbed_other_inr)}
           hint="Forwarding checks, WhatsApp messages and voice notes. Not billed, not in the margin."
         />
       )}
@@ -251,8 +251,8 @@ function ClientTable({ data }: { data: FleetSpend }) {
     { id: "plan", header: "Plan", hideBelow: "lg", cell: (tenant) => <span className="text-ink-muted">{tenant.plan_tier}</span> },
     { id: "calls", header: "Calls", align: "right", hideBelow: "md", cell: (tenant) => <span className={num}>{formatCount(tenant.calls)}</span> },
     { id: "minutes", header: "Minutes", align: "right", hideBelow: "lg", cell: (tenant) => <span className={`${num} text-ink-muted`}>{tenant.minutes_used}</span> },
-    { id: "revenue", header: "Revenue", align: "right", cell: (tenant) => <span className={num}>{formatINR(tenant.revenue_inr)}</span> },
-    { id: "cost", header: "Our cost", align: "right", hideBelow: "sm", cell: (tenant) => <span className={`${num} text-ink-muted`}>{formatINR(tenant.paid_cost_inr)}</span> },
+    { id: "revenue", header: "Revenue", align: "right", cell: (tenant) => <span className={num}>{formatINRExact(tenant.revenue_inr)}</span> },
+    { id: "cost", header: "Our cost", align: "right", hideBelow: "sm", cell: (tenant) => <span className={`${num} text-ink-muted`}>{formatINRExact(tenant.paid_cost_inr)}</span> },
     {
       id: "trial",
       header: "Trial cost we cover",
@@ -260,7 +260,7 @@ function ClientTable({ data }: { data: FleetSpend }) {
       hideBelow: "md",
       cell: (tenant) => (
         <span className={`${num} text-ink-muted`}>
-          {isZeroMoney(tenant.trial_cost_inr) && !tenant.trial_in_month ? "—" : formatINR(tenant.trial_cost_inr)}
+          {isZeroMoney(tenant.trial_cost_inr) && !tenant.trial_in_month ? "—" : formatINRExact(tenant.trial_cost_inr)}
         </span>
       ),
     },
@@ -276,7 +276,7 @@ function ClientTable({ data }: { data: FleetSpend }) {
               <span className="sr-only">Losing money: </span>
             </>
           )}
-          {formatINR(tenant.paid_margin_inr)}
+          {formatINRExact(tenant.paid_margin_inr)}
         </span>
       ),
     },
@@ -287,7 +287,7 @@ function ClientTable({ data }: { data: FleetSpend }) {
       hideBelow: "md",
       cell: (tenant) => (
         <span className={`${num} text-ink-muted`}>
-          {formatINR(tenant.ai_absorbed_inr)}
+          {formatINRExact(tenant.ai_absorbed_inr)}
           {/* The space keeps the count a separate word for screen readers and copy-paste. */}
           {tenant.ai_requests > 0 && " "}
           {tenant.ai_requests > 0 && (
@@ -305,7 +305,7 @@ function ClientTable({ data }: { data: FleetSpend }) {
       hideBelow: "lg",
       cell: (tenant) => (
         <span className={`${num} text-ink-muted`}>
-          {isZeroMoney(tenant.absorbed_other_inr) ? "—" : formatINR(tenant.absorbed_other_inr)}
+          {isZeroMoney(tenant.absorbed_other_inr) ? "—" : formatINRExact(tenant.absorbed_other_inr)}
         </span>
       ),
     },
@@ -338,7 +338,7 @@ function ClientTable({ data }: { data: FleetSpend }) {
           )}
           {tenant.charge_variance_inr != null && (
             <span className="block text-meta">
-              {formatINR(tenant.charge_variance_inr)} vs charged
+              {formatINRExact(tenant.charge_variance_inr)} vs charged
             </span>
           )}
         </span>

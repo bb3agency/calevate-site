@@ -155,14 +155,14 @@ describe("the account's default model tier", () => {
     expect(screen.queryByRole("group", { name: VENDOR_WORDS })).toBeNull();
   });
 
-  it("prices every tier at the precision the server sent, and never through a float", async () => {
+  it("prices every tier under the one-decimal display rule, and never through a float", async () => {
     const { container } = await renderClientPage(settingsPage, settingsRoutes());
 
     await screen.findByRole("radio", { name: /^Standard/ });
-    expect(container.textContent).toContain("+₹1.5000 / min");
+    expect(container.textContent).toContain("+₹1.5 / min");
     expect(container.textContent).toContain("No extra charge");
-    expect(container.textContent).not.toContain("₹1.50 /");
-    expect(container.textContent).toContain("₹1.5000 more a minute");
+    expect(container.textContent).not.toContain("₹1.5000");
+    expect(container.textContent).toContain("₹1.5 more a minute");
     expect(container.textContent).not.toContain("1.5000000");
     // The row in force says what it is rather than "same price".
     expect(container.textContent).toContain("the model running now");
@@ -341,7 +341,7 @@ describe("the account's default model tier", () => {
     expect(container.textContent).toContain("ask your Calevate team to enable it");
     expect(container.textContent).not.toContain("deployment");
     expect(container.textContent).not.toContain("ops console");
-    expect(container.textContent).toContain("+₹1.5000 / min");
+    expect(container.textContent).toContain("+₹1.5 / min");
   });
 
   it("never disables a row on an API build that does not report availability", async () => {
@@ -535,7 +535,7 @@ describe("where one agent's model tier came from", () => {
     expect(screen.queryByText(/^Follows your organisation default\./)).toBeNull();
     const plus = await screen.findByRole("radio", { name: /^Plus/ });
     expect((plus as HTMLInputElement).checked).toBe(true);
-    expect(plus.closest("label")?.textContent).toContain("+₹1.5000 / min");
+    expect(plus.closest("label")?.textContent).toContain("+₹1.5 / min");
     expect(plus.closest("label")?.textContent).toContain("the model running now");
   });
 

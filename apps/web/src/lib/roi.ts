@@ -26,6 +26,8 @@
  * constants below and again in the page's "How we calculate this" disclosure.
  */
 
+import { formatINR } from "@/lib/numberDisplay";
+
 /**
  * The rate the PURE MODEL runs at when a caller supplies none, in paise per minute.
  *
@@ -443,24 +445,13 @@ export function computeTwoStage(inputs: TwoStageInputs): TwoStageResult {
 }
 
 /**
- * Format an integer count of paise as an Indian-grouped rupee string, e.g. `520000` →
- * `"₹5,200.00"`. Digit-only, like `ui.tsx::formatINR`: the paise integer is split into
- * whole rupees and remainder, the rupees are grouped last-three-then-twos, and the paise
- * are two fixed digits — the value is never turned back into a float. Kept here (rather
- * than importing `formatINR`) so this money module is self-contained and unit-testable
- * with no React dependency.
+ * An integer count of paise as rupees under the display rule (`lib/numberDisplay.ts`):
+ * `520000` → `"₹5,200"`, `462` → `"₹4.6"`. The paise are written out as a decimal string
+ * from the integer, so the rounding is digit arithmetic, never a float's.
  */
 export function formatPaiseINR(paise: number): string {
-  const negative = paise < 0;
-  const abs = Math.abs(Math.round(paise));
-  const rupees = Math.floor(abs / 100);
-  const remainder = abs % 100;
-  const whole = String(rupees);
-  const head = whole.length > 3 ? whole.slice(0, -3) : "";
-  const tail = whole.slice(-3);
-  const grouped = head
-    ? `${head.replace(/\B(?=(\d{2})+(?!\d))/g, ",")},${tail}`
-    : tail;
-  const paisePart = String(remainder).padStart(2, "0");
-  return `${negative ? "-" : ""}₹${grouped}.${paisePart}`;
+  const rounded = Math.round(paise);
+  const abs = Math.abs(rounded);
+  const rupees = `${Math.floor(abs / 100)}.${String(abs % 100).padStart(2, "0")}`;
+  return formatINR(rounded < 0 ? `-${rupees}` : rupees);
 }

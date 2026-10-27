@@ -5,8 +5,8 @@ import {
   ProblemNotice,
   Skeleton,
   formatCount,
-  formatINR,
-  formatRupeeRate,
+  formatINRExact,
+  formatRupeeRateExact,
 } from "@/components/ui";
 import {
   useTtsSpeakingRate,
@@ -105,17 +105,17 @@ function TtsPlanRow({ row }: { row: TtsPlanSpend }) {
       <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-meta sm:grid-cols-4">
         <div>
           <dt className="text-ink-muted">Plan spend</dt>
-          <dd className="tabular-nums text-ink">{formatINR(row.plan_inr)}</dd>
+          <dd className="tabular-nums text-ink">{formatINRExact(row.plan_inr)}</dd>
         </div>
         <div>
           <dt className="text-ink-muted">Attributed to calls</dt>
-          <dd className="tabular-nums text-ink">{formatINR(row.attributed_inr)}</dd>
+          <dd className="tabular-nums text-ink">{formatINRExact(row.attributed_inr)}</dd>
         </div>
         <div>
           <dt className="text-ink-muted">Allotment unused</dt>
           {/* The SERVER's subtraction; "—" where it sent none. */}
           <dd className="tabular-nums text-ink-muted">
-            {row.unused_inr === null ? "—" : formatINR(row.unused_inr)}
+            {row.unused_inr === null ? "—" : formatINRExact(row.unused_inr)}
           </dd>
         </div>
         <div>
@@ -125,7 +125,7 @@ function TtsPlanRow({ row }: { row: TtsPlanSpend }) {
       </dl>
       <p className="mt-2 text-meta text-ink-muted">
         {row.inr_per_1k_chars
-          ? `Attributed at the confirmed ${formatRupeeRate(row.inr_per_1k_chars)} per 1,000 characters, counted from our own transcripts.`
+          ? `Attributed at the confirmed ${formatRupeeRateExact(row.inr_per_1k_chars)} per 1,000 characters, counted from our own transcripts.`
           : "No price is confirmed for this vendor, so its calls attribute no cost at all — confirm the price on the ops model-prices panel before reading this row as a margin."}
       </p>
     </div>
@@ -144,7 +144,7 @@ function RatePoint({ point }: { point: SpeakingRatePoint }) {
       <span className="font-semibold tabular-nums text-ink">
         {trimRate(point.chars_per_minute)}
       </span>{" "}
-      chars/min → {formatRupeeRate(point.tts_inr_per_minute)}/min
+      chars/min → {formatRupeeRateExact(point.tts_inr_per_minute)}/min
     </>
   );
 }
@@ -165,7 +165,7 @@ function SpeakingRate({ rate }: { rate: TtsSpeakingRate }) {
           transcript across{" "}
           <span className="font-semibold text-ink">{formatCount(rate.clients)}</span>{" "}
           {rate.clients === 1 ? "client" : "clients"}, priced at{" "}
-          {formatRupeeRate(rate.tts_inr_per_10k_chars)} per 10,000 characters.
+          {formatRupeeRateExact(rate.tts_inr_per_10k_chars)} per 10,000 characters.
         </p>
         <dl className="grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-3">
           <div>
@@ -191,8 +191,8 @@ function SpeakingRate({ rate }: { rate: TtsSpeakingRate }) {
         <p>
           Replaces the assumed {trimRate(rate.assumed_low.chars_per_minute)}–
           {trimRate(rate.assumed_high.chars_per_minute)} chars/min (
-          {formatRupeeRate(rate.assumed_low.tts_inr_per_minute)}–
-          {formatRupeeRate(rate.assumed_high.tts_inr_per_minute)}/min) used in the cost model.
+          {formatRupeeRateExact(rate.assumed_low.tts_inr_per_minute)}–
+          {formatRupeeRateExact(rate.assumed_high.tts_inr_per_minute)}/min) used in the cost model.
         </p>
         <FleetFloorLine rate={rate} />
       </div>
@@ -215,8 +215,8 @@ function SpeakingRate({ rate }: { rate: TtsSpeakingRate }) {
         Until then the cost floor rests on the assumed{" "}
         {trimRate(rate.assumed_low.chars_per_minute)}–
         {trimRate(rate.assumed_high.chars_per_minute)} chars/min (
-        {formatRupeeRate(rate.assumed_low.tts_inr_per_minute)}–
-        {formatRupeeRate(rate.assumed_high.tts_inr_per_minute)}/min), which
+        {formatRupeeRateExact(rate.assumed_low.tts_inr_per_minute)}–
+        {formatRupeeRateExact(rate.assumed_high.tts_inr_per_minute)}/min), which
         is an assumption and not a reading.
       </p>
       <FleetFloorLine rate={rate} />
@@ -238,8 +238,8 @@ function FleetFloorLine({ rate }: { rate: TtsSpeakingRate }) {
     <p>
       <span className="font-semibold text-ink">What the cost model uses:</span>{" "}
       {fleet.basis}. A Clear call-minute costs{" "}
-      {formatRupeeRate(fleet.cost_floor_inr_per_min)} at that rate; a rate card
-      is refused below {formatRupeeRate(fleet.refusal_floor_inr_per_min)}, which
+      {formatRupeeRateExact(fleet.cost_floor_inr_per_min)} at that rate; a rate card
+      is refused below {formatRupeeRateExact(fleet.refusal_floor_inr_per_min)}, which
       stays where it is whatever this measurement says.{" "}
       {fleet.floor_above_refusal ? (
         <span className="font-semibold text-danger">
@@ -283,10 +283,10 @@ function VendorRateLine({ row }: { row: SpeakingRateByProvider }) {
   return (
     <>
       <span className="font-semibold text-ink">{vendor}</span>:{" "}
-      {formatRupeeRate(row.inr_per_1k_chars)} per 1,000 characters
+      {formatRupeeRateExact(row.inr_per_1k_chars)} per 1,000 characters
       {/* The server's own multiplication or nothing: the browser does not multiply money. */}
       {row.pooled_inr_per_minute !== null
-        ? ` → ${formatRupeeRate(row.pooled_inr_per_minute)}/min at the pooled rate above.`
+        ? ` → ${formatRupeeRateExact(row.pooled_inr_per_minute)}/min at the pooled rate above.`
         : "."}
     </>
   );

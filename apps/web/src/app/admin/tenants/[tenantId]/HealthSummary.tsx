@@ -13,7 +13,7 @@ import {
   StatusBadge,
   formatCount,
   formatDuration,
-  formatINR,
+  formatINRExact,
   formatIST,
 } from "@/components/ui";
 import { useTenantHealth, viewAsSession, type TenantSummary } from "@/lib/api/admin";
@@ -290,7 +290,7 @@ function creditHint(tenant: TenantSummary, runwayDays: number | null): string | 
   const [first, ...rest] = tenant.minutes_left ?? [];
   const parts = [
     first ? `${first.label}${rest.map((tier) => ` · ${tier.label} ${formatCount(tier.minutes)} min`).join("")}` : null,
-    tenant.credit_inr == null ? null : formatINR(tenant.credit_inr),
+    tenant.credit_inr == null ? null : formatINRExact(tenant.credit_inr),
     runwayDays == null ? null : `about ${formatCount(runwayDays)} days at the recent rate`,
   ].filter(Boolean);
   return parts.length > 0 ? parts.join(" · ") : undefined;

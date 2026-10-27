@@ -1,4 +1,4 @@
-import { formatINR } from "@/components/ui";
+import { formatINRExact } from "@/components/ui";
 import type { components } from "@/lib/api/schema";
 
 export type FirstPeriod = components["schemas"]["RecordedEngineNumberOut"]["first_period"];
@@ -11,7 +11,7 @@ export type FirstPeriod = components["schemas"]["RecordedEngineNumberOut"]["firs
  * today" on those was a claim about money that had not moved.
  */
 export function firstPeriodPhrase(period: FirstPeriod | undefined, inrPerMonth: string): string {
-  const monthly = formatINR(inrPerMonth);
+  const monthly = formatINRExact(inrPerMonth);
   switch (period) {
     case "charged":
       return `${monthly} charged now for the first month, then monthly.`;

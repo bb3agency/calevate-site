@@ -25,7 +25,7 @@ import {
   SECONDARY_BUTTON,
   SECONDARY_BUTTON_SM,
   Skeleton,
-  formatINR,
+  formatINRExact,
   formatIST,
 } from "@/components/ui";
 import {
@@ -190,7 +190,7 @@ export function PaymentsScreen() {
               <SettingRow label="Unexplained" value={reconcile.data.unexplained.join(", ") || "None"} />
               <SettingRow
                 label="Settlements"
-                value={`${reconcile.data.settlements}, ${formatINR(reconcile.data.settled_inr)}`}
+                value={`${reconcile.data.settlements}, ${formatINRExact(reconcile.data.settled_inr)}`}
               />
             </SettingRows>
           )}
@@ -238,7 +238,7 @@ export function PaymentsScreen() {
                   >
                     <span className="font-mono text-ink">{p.payment_id}</span>
                     <span className="text-ink-muted">
-                      {p.status} · {formatINR(p.amount_inr)} · {p.method ?? "?"}
+                      {p.status} · {formatINRExact(p.amount_inr)} · {p.method ?? "?"}
                       {p.international ? " · international" : ""} ·{" "}
                       {p.tenant_id ? `client ${p.tenant_id}` : "no order record"}
                     </span>
@@ -323,13 +323,13 @@ function DisputeRow({ dispute, canAct }: { dispute: Dispute; canAct: boolean }) 
         <div className="min-w-0">
           <p className="flex flex-wrap items-center gap-2 text-body font-medium text-ink">
             <span>
-              {dispute.tenant_name ?? dispute.tenant_id} · {formatINR(dispute.amount_inr)}
+              {dispute.tenant_name ?? dispute.tenant_id} · {formatINRExact(dispute.amount_inr)}
             </span>
             <StatusPill tone={lookup(DISPUTE_TONE, dispute.status) ?? "neutral"}>{sentenceCase(dispute.status)}</StatusPill>
             {dispute.action_required && <StatusPill tone="warn">More evidence asked for</StatusPill>}
           </p>
           <p className="mt-0.5 text-meta text-ink-muted">
-            Payment <span className="font-mono">{dispute.payment_id}</span> · held {formatINR(dispute.hold_inr)} ·
+            Payment <span className="font-mono">{dispute.payment_id}</span> · held {formatINRExact(dispute.hold_inr)} ·
             reason {dispute.reason_code ?? "not given"}
             {dispute.respond_by ? ` · respond by ${formatIST(dispute.respond_by)}` : ""}
           </p>
@@ -452,7 +452,7 @@ function DisputeRow({ dispute, canAct }: { dispute: Dispute; canAct: boolean }) 
           onConfirm={() => acceptFeedback.run(dispute.dispute_id)}
         >
           <p>
-            {formatINR(dispute.amount_inr)} goes back to {dispute.tenant_name ?? dispute.tenant_id}&apos;s
+            {formatINRExact(dispute.amount_inr)} goes back to {dispute.tenant_name ?? dispute.tenant_id}&apos;s
             customer. This cannot be undone.
           </p>
         </ConfirmDialog>

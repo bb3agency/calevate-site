@@ -274,7 +274,7 @@ async def test_switching_on_above_the_mandate_limit_is_refused_and_within_it_res
                 actor_user_id=None,
             )
     assert refused.value.code == "auto_recharge_over_mandate"
-    assert "2000.00" in str(refused.value.detail)
+    assert "₹2,000" in str(refused.value.detail)
 
     actor = uuid.uuid4()
     async with tenant_session(tenant_id) as session:

@@ -20,8 +20,9 @@ import { noReply, stubApi } from "./harness";
 /** `"50000.00"` → `"₹50,000"`. The page's own rule: whole rupees drop the paise. */
 function formatRateForTest(rate: string): string {
   const tenThousandths = Math.round(Number(rate) * 10_000);
-  const paise = Math.floor((tenThousandths + 50) / 100);
-  return `₹${(paise / 100).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const tenths = Math.floor((tenThousandths + 500) / 1000);
+  const fraction = tenths % 10;
+  return `₹${Math.floor(tenths / 10).toLocaleString("en-IN")}${fraction ? `.${fraction}` : ""}`;
 }
 
 function formatAmountForTest(amount: string): string {
@@ -250,7 +251,14 @@ describe("the pricing page", () => {
           RATE_CARD.packs.map((pack) => formatAmountForTest(pack.amount_inr)),
         ),
     );
-    const rendered = text.match(/₹[\d,]+(\.\d{2})?/g) ?? [];
+    // Per text node: a whole-rupee figure ("₹4") followed by a sibling's digits ("500 min")
+    // would otherwise read as one figure in the concatenated text.
+    const walker = document.createTreeWalker(container.querySelector("main") ?? container, NodeFilter.SHOW_TEXT);
+    const rendered: string[] = [];
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      rendered.push(...(node.textContent?.match(/₹[\d,]+(\.\d)?/g) ?? []));
+    }
+    expect(text).toContain("₹");
     expect(rendered.length, "the page shows no price at all").toBeGreaterThan(
       0,
     );
@@ -276,8 +284,8 @@ describe("the pricing page", () => {
     const { container } = render(await PricingPage());
     const selfServe = container.querySelector("#self-serve");
     const text = selfServe?.textContent ?? "";
-    // The two headline figures are the card's own per-voice "from" rates, rounded to the
-    // paisa by the page.
+    // The two headline figures are the card's own per-voice "from" rates, rounded to one
+    // decimal by the page.
     expect(text).toContain(
       formatRateForTest(RATE_CARD.from_clear_inr_per_min),
     );

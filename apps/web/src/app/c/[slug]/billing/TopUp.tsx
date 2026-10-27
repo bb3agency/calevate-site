@@ -13,7 +13,6 @@ import {
   Skeleton,
   formatCount,
   formatINR,
-  formatRupeeRate,
 } from "@/components/ui";
 import {
   MAX_TOPUP_INR,
@@ -533,9 +532,9 @@ const PAYMENT_FAILED: ApiProblem = paymentFailedProblem();
  *
  * ## The rules this stayed inside
  *
- * Every figure is the SERVER's, rendered from its digits — `formatINR` for amounts,
- * `formatRupeeRate` for the rates (a rate is not a rupee amount and must not be rounded
- * like one), `formatWhole` for the credit counts. No money is put through `Number` here
+ * Every figure is the SERVER's, rendered from its digits — `formatINR` for amounts and
+ * rates (the client display rule, `lib/numberDisplay.ts`), `formatWhole` for the credit
+ * counts. No money is put through `Number` here
  * (hard rule 7 reaches the browser). Nothing is hardcoded about how many packs exist or
  * what they cost: the catalogue is whatever `GET /v1/billing/topups/packs` sent, in the
  * order it sent it.
@@ -648,7 +647,7 @@ function PackChooser({
                       <dt className="text-ink-muted">{labels[tier]}</dt>
                       <dd className="tabular-nums text-ink">
                         <strong className="font-semibold">
-                          {formatRupeeRate(packRate(pack, tier))}
+                          {formatINR(packRate(pack, tier))}
                         </strong>
                         /min · {formatCount(packMinutes(pack, tier))} min
                       </dd>
@@ -725,7 +724,7 @@ function AmountRates({
         <span key={tier}>
           {index > 0 ? " and " : ""}
           <strong className="font-semibold tabular-nums">
-            {formatRupeeRate(packRate(pack, tier))}
+            {formatINR(packRate(pack, tier))}
           </strong>
           /min on {labels[tier]}
         </span>

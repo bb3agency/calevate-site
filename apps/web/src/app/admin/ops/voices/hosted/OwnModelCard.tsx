@@ -15,7 +15,7 @@ import {
   ProblemNotice,
   Skeleton,
   formatCount,
-  formatRupeeRate,
+  formatRupeeRateExact,
 } from "@/components/ui";
 import {
   useEnableOwnModelDeveloper,
@@ -217,7 +217,7 @@ export function OwnModelCard() {
       <p className="text-meta text-ink-muted">
         {data.floor_model_inr_per_min == null
           ? `Cost floor: ${data.default_model} has no reference price to add at `
-          : `Cost floor: ${data.default_model} adds ${formatRupeeRate(data.floor_model_inr_per_min)}/min at `}
+          : `Cost floor: ${data.default_model} adds ${formatRupeeRateExact(data.floor_model_inr_per_min)}/min at `}
         {data.floor_prompt_basis}.{" "}
         {data.fleet_cache_share == null
           ? "Cache share: not measured yet."

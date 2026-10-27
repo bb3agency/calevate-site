@@ -528,7 +528,7 @@ describe("which voice callers are actually hearing", () => {
 
     await screen.findByText("Voice quality and rate");
     // The server's own digits, prefixed and never parsed (hard rule 7).
-    expect(factValue("Voice quality and rate")).toBe("Studio — ₹8.0000 / min");
+    expect(factValue("Voice quality and rate")).toBe("Studio — ₹8 / min");
     expect(container.textContent).toContain(
       "You have 1 later purchase behind it, each at the rates it was bought at.",
     );
@@ -589,7 +589,7 @@ describe("which voice callers are actually hearing", () => {
     );
 
     await screen.findByText("Voice quality and rate");
-    expect(factValue("Voice quality and rate")).toBe("Studio — ₹8.0000 / min");
+    expect(factValue("Voice quality and rate")).toBe("Studio — ₹8 / min");
     expect(container.textContent).not.toContain("5.0000");
   });
 
@@ -725,7 +725,7 @@ describe("the numbers come from the server", () => {
     );
 
     await screen.findByText("Most one call can cost you");
-    expect(container.textContent).toContain("₹1,500.50");
+    expect(container.textContent).toContain("₹1,500.5");
     expect(container.textContent).not.toContain("₹1500.5");
     expect(container.textContent).not.toContain("$");
   });
@@ -765,7 +765,7 @@ describe("the numbers come from the server", () => {
     );
 
     await screen.findByText("Most one call can cost you");
-    expect(container.textContent).toContain("₹70.00");
+    expect(container.textContent).toContain("₹70");
     expect(container.textContent).toContain(
       "at the dearest per-minute rate your account can be charged",
     );
@@ -2426,7 +2426,7 @@ describe("the setup checklist reflects the real state", () => {
     await screen.findByText("Add calling credit");
     const credit = row("Add calling credit");
     expect(credit.textContent).toContain("Done");
-    expect(credit.textContent).toContain("₹5,000.00 left");
+    expect(credit.textContent).toContain("₹5,000 left");
     expect(within(credit).queryByRole("link", { name: /Top up/ })).toBeNull();
   });
 
@@ -2621,8 +2621,8 @@ describe("what this agent spent this month", () => {
         }),
       }),
     );
-    await screen.findByText(/₹1,200\.00 this month/);
-    expect(screen.queryByText(/₹90\.00/)).toBeNull();
+    await screen.findByText(/₹1,200 this month/);
+    expect(screen.queryByText(/₹90/)).toBeNull();
   });
 
   it("says nothing was spent when the agent has no row this month", async () => {

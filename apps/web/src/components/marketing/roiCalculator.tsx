@@ -89,11 +89,10 @@ import { useId, useMemo, useState } from "react";
 import { Bot, Filter, Handshake, TrendingDown, UserRound } from "lucide-react";
 
 import { SliderTrack } from "@/components/arc/slider";
+import { formatINR } from "@/components/ui";
 import {
   cardFromRate,
   cheapestPack,
-  formatAmountINR,
-  formatRateINR,
   headlineVoice,
   ladderFalls,
   packMinutes,
@@ -375,11 +374,11 @@ function voiceOptions(
     // deepest pack" — one figure quoted as a saving on itself.
     // `ladderFalls` is the same guard `/pricing`'s `bandSentence` applies.
     const pack = ladderFalls(card, voice)
-      ? ` Down to ${formatRateINR(cardFromRate(card, voice))}/min on the deepest pack.`
+      ? ` Down to ${formatINR(cardFromRate(card, voice))}/min on the deepest pack.`
       : "";
     return {
       id: voice,
-      label: `${tierLabel(card, voice)} voice — ${formatRateINR(rateFor(card, voice, LIST_RATE).rate)}/min`,
+      label: `${tierLabel(card, voice)} voice — ${formatINR(rateFor(card, voice, LIST_RATE).rate)}/min`,
       caption:
         // No agent can start on or be moved to this rung on this deployment (the server's
         // `voice_not_offered`: unpriced on our own voices, D-631; held back on ThinnestAI until
@@ -413,12 +412,12 @@ function rateOptions(
   return [
     {
       id: LIST_RATE,
-      label: `Pay as you go — ${formatRateINR(rateFor(card, voice, LIST_RATE).rate)}/min`,
+      label: `Pay as you go — ${formatINR(rateFor(card, voice, LIST_RATE).rate)}/min`,
       caption: "The list rate. Top up any amount; nothing to commit to.",
     },
     ...card.packs.map((pack) => ({
       id: pack.pack_id,
-      label: `${formatAmountINR(pack.amount_inr)} pack — ${formatRateINR(packRate(pack, voice))}/min`,
+      label: `${formatINR(pack.amount_inr)} pack — ${formatINR(packRate(pack, voice))}/min`,
       caption: `${packMinutes(pack, voice).toLocaleString("en-IN")} min of talk time${pack.best_value ? " · best value" : ""}`,
     })),
   ];
@@ -733,7 +732,7 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
                  and until D-629 it was the cheapest on the card — which is now a rung
                  nobody can choose. A legend leading with it would advertise a price no
                  agent can be run at. */
-              legend={`Which voice your agents use — priced from ${formatRateINR(cardFromRate(card, "studio"))}/min`}
+              legend={`Which voice your agents use — priced from ${formatINR(cardFromRate(card, "studio"))}/min`}
               options={voiceOptions(card)}
               value={voice}
               onChange={setVoice}
@@ -742,7 +741,7 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
             <RadioCards
               legend={
                 cheapest
-                  ? `How you pay — from ${formatRateINR(cardFromRate(card, voice))}/min with the ${formatAmountINR(cheapest.amount_inr)} pack`
+                  ? `How you pay — from ${formatINR(cardFromRate(card, voice))}/min with the ${formatINR(cheapest.amount_inr)} pack`
                   : "How you pay"
               }
               options={rateOptions(card, voice)}
@@ -978,10 +977,10 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
                 {formatPaiseINR(result.calevatePaise)}
               </p>
               <p className="mt-2 text-base text-ink-muted">
-                Variable and pay-as-you-go at {formatRateINR(selectedRate)}/min
+                Variable and pay-as-you-go at {formatINR(selectedRate)}/min
                 on the {tierLabel(card, voice)} voice
                 {selectedPack
-                  ? `, ${formatAmountINR(selectedPack.amount_inr)} pack`
+                  ? `, ${formatINR(selectedPack.amount_inr)} pack`
                   : ", at the list rate"}{" "}
                 — it rises with your calls and falls to zero on a quiet day. No
                 headcount to carry between the busy months.
@@ -991,8 +990,8 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
                 // held to 4.5:1 against `--surface` and `--app`. Measured 4.47:1 here by
                 // axe in a real Chromium, 9 Sep 2026.
                 <p className="mt-3 text-sm text-ink-muted">
-                  From {formatRateINR(cardFromRate(card, voice))}/min with the{" "}
-                  {formatAmountINR(cheapest.amount_inr)} pack — pick one under
+                  From {formatINR(cardFromRate(card, voice))}/min with the{" "}
+                  {formatINR(cheapest.amount_inr)} pack — pick one under
                   “Adjust assumptions”, or see the{" "}
                   <Link
                     href="/pricing#self-serve"
@@ -1206,13 +1205,13 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
             <ul className="list-disc space-y-2 pl-5">
               <li>
                 <span className="font-medium text-ink">Calevate</span> = calls a
-                day × average length × {formatRateINR(selectedRate)}/min ×
+                day × average length × {formatINR(selectedRate)}/min ×
                 working days.{" "}
                 {/* The bullet leads with the voice this opened on, then the other with why
                     it is not selectable. Leading with `card.list_rate_inr_per_min` (the
                     Clear column) would explain the sum above with a rate the sum did not
                     use, since the arithmetic runs at whatever voice is selected. */}
-                {formatRateINR(rateFor(card, "studio", LIST_RATE).rate)}/min is
+                {formatINR(rateFor(card, "studio", LIST_RATE).rate)}/min is
                 our published list rate on the{" "}
                 {tierLabel(card, "studio")} voice, read from our own rate card
                 when this page loaded
@@ -1222,11 +1221,11 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
                 {ladderFalls(card, "studio") && (
                   <>
                     ; a prepaid pack brings it down to{" "}
-                    {formatRateINR(cardFromRate(card, "studio"))}/min
+                    {formatINR(cardFromRate(card, "studio"))}/min
                   </>
                 )}
                 . The {tierLabel(card, "clear")} voice is{" "}
-                {formatRateINR(card.list_rate_inr_per_min)}/min on the same card
+                {formatINR(card.list_rate_inr_per_min)}/min on the same card
                 and cannot be chosen at the moment, for the reason printed
                 beside it above — which is why the comparison opens on the{" "}
                 {tierLabel(card, "studio")} voice, and at the list rate rather

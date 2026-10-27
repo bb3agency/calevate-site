@@ -13,7 +13,7 @@ import {
   ProblemNotice,
   RestrictionNote,
   Skeleton,
-  formatINR,
+  formatINRExact,
   formatIST,
   formatISTStamp,
   hasNonZeroDigit,
@@ -335,7 +335,7 @@ function CloseForm({
 
         <NoticeBox tone={hasNonZeroDigit(forfeitedInr) ? "warn" : "neutral"}>
           <p className="text-body">
-            Unused credit on this account: <strong>{formatINR(forfeitedInr)}</strong>. It is
+            Unused credit on this account: <strong>{formatINRExact(forfeitedInr)}</strong>. It is
             forfeited on closure and not refunded, as the Terms and the Refund Policy say. Use
             the credits page first if any of it is owed back for a charge made in error.
           </p>

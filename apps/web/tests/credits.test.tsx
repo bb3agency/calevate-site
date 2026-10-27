@@ -291,11 +291,11 @@ describe("the hero: how much, and how long it lasts", () => {
     const tile = (await screen.findByText("Calling credit")).closest(
       "div",
     ) as HTMLElement;
-    within(tile).getByText("₹3,400.00");
+    within(tile).getByText("₹3,400");
     await screen.findByText(/About 10 days of calling left/);
     // THE WORKING, not only the conclusion: an owner who disagrees with "10 days" can see
     // the ₹340 a day it came from.
-    await screen.findByText(/₹340\.00 a day over the last 30 days/);
+    await screen.findByText(/₹340 a day over the last 30 days/);
     // THE MINUTES ARE A PAIR NOW, one figure per voice quality, and both come from the lot
     // queue — summed lot by lot at each lot's own frozen rate (D-547). The single "about N
     // minutes at today's rate" that used to sit here divided one balance by one LIST rate,
@@ -308,7 +308,7 @@ describe("the hero: how much, and how long it lasts", () => {
     // `wallet.minutes_left` is 425 on this fixture and is no longer rendered anywhere.
     expect(container.textContent).not.toContain("425 minutes");
     // Nothing on this screen is a sum the browser worked out.
-    expect(container.textContent).not.toContain("₹12,100.00 spent");
+    expect(container.textContent).not.toContain("₹12,100 spent");
   });
 
   it("refuses to project from an account too new to divide, and says how much is needed", async () => {
@@ -525,7 +525,7 @@ describe("an empty wallet: what stopped, and what emphatically did not", () => {
     const notice = (await screen.findByText(/running low/)).closest(
       "[role=status]",
     );
-    expect(notice?.textContent).toContain("₹150.00");
+    expect(notice?.textContent).toContain("₹150");
     // Nothing has stopped, so nothing says it has.
     expect(screen.queryByText(/Outgoing calls have stopped/)).toBeNull();
   });
@@ -545,13 +545,13 @@ describe("the credit itself: what is left, and at which rates", () => {
     // Header, then the two lots IN SPEND ORDER. The order is the fact: the first row is
     // what the next call is charged at, which is why it — and not the newest purchase —
     // carries the marker.
-    expect(within(rows[1]).getByText("₹3,200.00")).toBeTruthy();
+    expect(within(rows[1]).getByText("₹3,200")).toBeTruthy();
     expect(within(rows[1]).getByText("Spent first")).toBeTruthy();
-    expect(within(rows[1]).getByText("₹4.7000/min")).toBeTruthy();
-    expect(within(rows[1]).getByText("₹6.5000/min")).toBeTruthy();
-    expect(within(rows[2]).getByText("₹2,000.00")).toBeTruthy();
-    expect(within(rows[2]).getByText("₹5.0000/min")).toBeTruthy();
-    expect(within(rows[2]).getByText("₹8.0000/min")).toBeTruthy();
+    expect(within(rows[1]).getByText("₹4.7/min")).toBeTruthy();
+    expect(within(rows[1]).getByText("₹6.5/min")).toBeTruthy();
+    expect(within(rows[2]).getByText("₹2,000")).toBeTruthy();
+    expect(within(rows[2]).getByText("₹5/min")).toBeTruthy();
+    expect(within(rows[2]).getByText("₹8/min")).toBeTruthy();
     expect(within(rows[2]).queryByText("Spent first")).toBeNull();
     // The columns are named by the SERVER's words for the two qualities, never the
     // vendors' — which company synthesises a voice is not a product tier a client reads.
@@ -644,7 +644,7 @@ describe("the credit itself: what is left, and at which rates", () => {
       routes({ [LOTS_ROUTE]: problem(503, { title: "Service unavailable" }) }),
     );
 
-    await screen.findByText("₹3,400.00");
+    await screen.findByText("₹3,400");
     expect(
       screen.queryByRole("table", { name: /in the order it will be spent/i }),
     ).toBeNull();
@@ -677,7 +677,7 @@ describe("the credit itself: what is left, and at which rates", () => {
       }),
     );
 
-    await screen.findByText(/run ₹1,000.00 past the credit on the account/);
+    await screen.findByText(/run ₹1,000 past the credit on the account/);
     await screen.findByText(/next top-up clears that first/);
     expect(
       screen.queryByRole("table", { name: /in the order it will be spent/i }),
@@ -718,8 +718,8 @@ describe("the credit itself: what is left, and at which rates", () => {
     const cells = within(within(table).getAllByRole("row")[1] as HTMLElement)
       .getAllByRole("cell")
       .map((td) => td.textContent);
-    expect(cells[0]).toBe("₹6.5000/min");
-    expect(cells[1]).toBe("₹4.7000/min");
+    expect(cells[0]).toBe("₹6.5/min");
+    expect(cells[1]).toBe("₹4.7/min");
   });
 
   it("prints no rate at all in a column for a quality it cannot price", async () => {
@@ -748,7 +748,7 @@ describe("the credit itself: what is left, and at which rates", () => {
     const cells = within(within(table).getAllByRole("row")[1] as HTMLElement)
       .getAllByRole("cell")
       .map((td) => td.textContent);
-    expect(cells[0]).toBe("₹4.7000/min");
+    expect(cells[0]).toBe("₹4.7/min");
     expect(cells[1]).toBe("");
   });
 
@@ -806,7 +806,7 @@ describe("the credit itself: what is left, and at which rates", () => {
     const tile = (await screen.findByText("Calling credit")).closest(
       "div",
     ) as HTMLElement;
-    within(tile).getByText("-₹120.00");
+    within(tile).getByText("-₹120");
     expect(tile.textContent).toMatch(/a little below zero/);
     expect(tile.textContent).toMatch(/next top-up clears what is owed first/);
     // And it is not said to everybody: a wallet in credit gets the plain sentence only.
@@ -817,7 +817,7 @@ describe("the credit itself: what is left, and at which rates", () => {
 
   it("says nothing about going below zero on a wallet that is in credit", async () => {
     const { container } = await renderBillingHub(routes());
-    await screen.findByText("₹3,400.00");
+    await screen.findByText("₹3,400");
     expect(container.textContent).not.toMatch(/a little below zero/);
   });
 
@@ -837,7 +837,7 @@ describe("the credit itself: what is left, and at which rates", () => {
       }),
     );
 
-    await screen.findByText("₹3,400.00");
+    await screen.findByText("₹3,400");
     expect(
       screen.queryByText("Your credit and what it costs a minute"),
     ).toBeNull();
@@ -879,10 +879,10 @@ describe("where the money went", () => {
     const panel = await card();
     const table = await within(panel).findByRole("table");
     expect(table.textContent).toContain("Calls");
-    expect(table.textContent).toContain("₹8,400.00");
+    expect(table.textContent).toContain("₹8,400");
     expect(table.textContent).toContain("Extra AI help");
-    within(panel).getByText("₹8,700.00");
-    expect(panel.textContent).toContain("₹12,100.00");
+    within(panel).getByText("₹8,700");
+    expect(panel.textContent).toContain("₹12,100");
     // MESSAGING IS NOT A BUCKET, and a zero bucket is left out.
     expect(container.textContent).not.toContain("Messaging");
     expect(table.textContent).not.toContain("Corrections");
@@ -898,9 +898,9 @@ describe("where the money went", () => {
       }),
     );
     const panel = await card();
-    await within(panel).findAllByText("₹8,400.00");
+    await within(panel).findAllByText("₹8,400");
     fireEvent.click(within(panel).getByRole("radio", { name: "All time" }));
-    await within(panel).findAllByText("₹20,899.00");
+    await within(panel).findAllByText("₹20,899");
     // Phone number rental is its own part (D-665).
     expect(within(panel).getByRole("table").textContent).toContain("Phone number rental");
   });
@@ -922,7 +922,7 @@ describe("where the money went", () => {
     const { calls } = await renderBillingHub(
       routes({ "/v1/me": { ...ME, permissions: ["wallet:read"] } }),
     );
-    await screen.findByText("₹3,400.00");
+    await screen.findByText("₹3,400");
     expect(calls.some((call) => call.path === CREDIT_USAGE_PATH)).toBe(false);
     expect(screen.queryByRole("heading", { name: "Where your credit went" })).toBeNull();
   });
@@ -949,7 +949,7 @@ describe("the ledger and its receipts", () => {
       within(rows[2]).getByRole("button", { name: /receipt for the payment/i }),
     ).toBeTruthy();
     // The sign is in the DIGITS, not only in a colour (WCAG 1.4.1).
-    expect(within(rows[1]).getByText("-₹42.50")).toBeTruthy();
+    expect(within(rows[1]).getByText("-₹42.5")).toBeTruthy();
   });
 
   it("expands a call charge into the purchases it was drawn from, at each one's rate", async () => {
@@ -1029,14 +1029,14 @@ describe("the ledger and its receipts", () => {
     const detail = document.getElementById(
       expander.getAttribute("aria-controls") ?? "",
     );
-    expect(detail?.textContent).toContain("₹47.00");
+    expect(detail?.textContent).toContain("₹47");
     expect(detail?.textContent).toContain(
-      "10.0000 min at ₹4.7000/min on Clear",
+      "10 min at ₹4.7/min on Clear",
     );
-    expect(detail?.textContent).toContain("2.6000 min at ₹5.0000/min on Clear");
+    expect(detail?.textContent).toContain("2.6 min at ₹5/min on Clear");
     // NOTHING IS SUMMED HERE: the row's own -₹60.00 is the server's, and the splits are
     // shown beside it rather than added up to check it.
-    expect(within(table).getByText("-₹60.00")).toBeTruthy();
+    expect(within(table).getByText("-₹60")).toBeTruthy();
 
     // AN AI-ASSIST SPLIT IS A DIFFERENT SENTENCE, because it is a different thing: it buys
     // rupees of help, not minutes of talk, and carries no rate and no voice at all
@@ -1050,7 +1050,7 @@ describe("the ledger and its receipts", () => {
       assist.getAttribute("aria-controls") ?? "",
     );
     await waitFor(() =>
-      expect(assistDetail?.textContent).toContain("₹12.00 of extra AI help"),
+      expect(assistDetail?.textContent).toContain("₹12 of extra AI help"),
     );
     expect(assistDetail?.textContent).not.toContain("/min");
   });
@@ -1095,7 +1095,7 @@ describe("the ledger and its receipts", () => {
       rental.getAttribute("aria-controls") ?? "",
     );
     await waitFor(() =>
-      expect(detail?.textContent).toContain("₹499.00 from credit bought earlier"),
+      expect(detail?.textContent).toContain("₹499 from credit bought earlier"),
     );
     expect(detail?.textContent).not.toContain("AI help");
   });
@@ -1272,7 +1272,7 @@ describe("the states that are not a balance", () => {
     expect(
       container.querySelector("[role=status][aria-live=polite]"),
     ).toBeTruthy();
-    expect(container.textContent).not.toContain("₹0.00");
+    expect(container.textContent).not.toContain("₹0");
   });
 
   it("refuses rather than rendering an empty wallet when the read fails", async () => {
@@ -1331,7 +1331,7 @@ describe("the states that are not a balance", () => {
       }),
     );
     await screen.findByText(/limited to people with access to it/);
-    expect(screen.queryByText("₹3,400.00")).toBeNull();
+    expect(screen.queryByText("₹3,400")).toBeNull();
   });
 });
 
@@ -1367,7 +1367,7 @@ describe("the explainer's claims about the money", () => {
       await screen.findByRole("heading", { name: "Where your credit went" })
     ).closest("section") as HTMLElement;
     expect((await within(spend).findByRole("table")).textContent).toContain("Extra AI help");
-    expect(container.textContent).toContain("₹300.00");
+    expect(container.textContent).toContain("₹300");
   });
 
   it("answers what a voice change does to credit already bought", async () => {
@@ -1441,7 +1441,7 @@ describe("the facts the hub hands the assistant", () => {
         },
       }),
     );
-    await screen.findByText("₹3,400.00");
+    await screen.findByText("₹3,400");
 
     const facts = (holder as SurfaceHolder | null)?.read()?.facts ?? [];
     const runway = facts.find((fact) => fact.key === "minutes_left");

@@ -31,7 +31,7 @@ describe("VoiceNow with a voice the calling platform supplies", () => {
     expect(screen.getByText("Chosen")).toBeTruthy();
     expect(screen.getByText("Callers hear Anika.")).toBeTruthy();
     expect(screen.getByText("Voice quality and rate")).toBeTruthy();
-    expect(screen.getByText(/Clear — ₹2\.50 \/ min/)).toBeTruthy();
+    expect(screen.getByText(/Clear — ₹2\.5 \/ min/)).toBeTruthy();
   });
 
   it("says it is used once switched on before the agent is published, with no rate yet", () => {

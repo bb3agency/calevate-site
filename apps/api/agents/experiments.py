@@ -84,6 +84,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID
 
@@ -105,6 +106,7 @@ from apps.api.agents.proportions import (
 )
 from apps.api.agents.service import ArmToPublish, publish_variants
 from apps.api.agents.t0_block import with_knowledge_of
+from apps.api.billing.display import display_decimal
 from apps.api.compliance.disclosure import bundled_disclosure_line
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -672,7 +674,7 @@ def judge(variants: list[VariantResult]) -> tuple[Basis, Verdict, str | None, st
 
 
 def _pct(value: float) -> str:
-    return f"{value * 100:.1f} points"
+    return f"{display_decimal(Decimal(str(value)) * 100)} points"
 
 
 async def results_for(*, tenant_id: UUID, agent_id: UUID) -> ExperimentResults | None:

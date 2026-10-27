@@ -11,7 +11,7 @@ import {
   ProblemNotice,
   RestrictionNote,
   Skeleton,
-  formatRupeeRate,
+  formatRupeeRateExact,
 } from "@/components/ui";
 import { TypedConfirmation } from "@/components/typedConfirmation";
 import { InfoTip } from "@/components/console/infoTip";
@@ -78,7 +78,7 @@ import { WriteFailure } from "@/app/admin/writeFailure";
  *
  * The comparison is `lib/llmRates.ts` — digits, never `Number()` (hard rule 7). Nothing on
  * this screen multiplies, adds or rounds a rupee figure: the rates are the server's
- * strings, `formatRupeeRate` only prefixes the symbol, and the one subtraction is
+ * strings, `formatRupeeRateExact` only prefixes the symbol, and the one subtraction is
  * `rateDifference`, which refuses rather than rounds.
  *
  * ## Inheriting is a DISTINCT, REACHABLE state — in both directions
@@ -310,8 +310,8 @@ function PerMinute({ option }: { option: LlmModelOption }) {
       ·{" "}
       {free
         ? "no extra charge"
-        : `+${formatRupeeRate(option.client_surcharge_inr_per_minute)}/min client`}{" "}
-      · {formatRupeeRate(option.platform_cost_inr_per_minute)}/min ours
+        : `+${formatRupeeRateExact(option.client_surcharge_inr_per_minute)}/min client`}{" "}
+      · {formatRupeeRateExact(option.platform_cost_inr_per_minute)}/min ours
     </span>
   );
 }
@@ -336,7 +336,7 @@ function priceChangeSentence(from: string | undefined, to: string | undefined): 
   if (order === "same") return "the same per-minute price as now";
   const difference = rateDifference(to, from);
   if (difference === null) return null;
-  return `${formatRupeeRate(difference)} per minute ${order === "dearer" ? "more" : "less"} than now`;
+  return `${formatRupeeRateExact(difference)} per minute ${order === "dearer" ? "more" : "less"} than now`;
 }
 
 /** The inherit row's description, referenced by `aria-describedby`. */
@@ -606,13 +606,13 @@ function ChoiceForm({
                 ? "a charge this screen cannot state; that model is not in the priced list."
                 : compareRates(projectedSurcharge, "0") === "same"
                   ? `nothing per minute${surchargeChange === null ? "" : `, ${surchargeChange}`}.`
-                  : `${formatRupeeRate(projectedSurcharge)} per minute${surchargeChange === null ? "" : `, ${surchargeChange}`}.`}
+                  : `${formatRupeeRateExact(projectedSurcharge)} per minute${surchargeChange === null ? "" : `, ${surchargeChange}`}.`}
             </li>
             <li>
               <span className="text-ink-muted">It costs us</span> —{" "}
               {projectedOption === undefined
                 ? "a cost this screen cannot state; that model is not in the priced list."
-                : `${formatRupeeRate(projectedOption.platform_cost_inr_per_minute)} per minute of a five-minute call${costChange === null ? "" : `, ${costChange}`}.`}
+                : `${formatRupeeRateExact(projectedOption.platform_cost_inr_per_minute)} per minute of a five-minute call${costChange === null ? "" : `, ${costChange}`}.`}
             </li>
             <li>
               <span className="text-ink-muted">Scope</span> — every agent on this account
@@ -732,8 +732,8 @@ function ModelOption({
         <span className="mt-0.5 block text-ink-muted">
           {compareRates(option.client_surcharge_inr_per_minute, "0") === "same"
             ? "no extra charge to them"
-            : `+${formatRupeeRate(option.client_surcharge_inr_per_minute)} per minute to them`}{" "}
-          · {formatRupeeRate(option.platform_cost_inr_per_minute)} per minute to us
+            : `+${formatRupeeRateExact(option.client_surcharge_inr_per_minute)} per minute to them`}{" "}
+          · {formatRupeeRateExact(option.platform_cost_inr_per_minute)} per minute to us
           {option.is_platform_default ? " · what the platform runs by default" : ""}
         </span>
         {/* Only when there IS a comparison to make. `priceChangeSentence` returns null

@@ -1,7 +1,7 @@
 "use client";
 
 import { Section } from "@/components/console/section";
-import { NOTICE_BAR, NOTICE_BASE, ScrollRegion, formatINR, formatIST, formatRupeeRate } from "@/components/ui";
+import { NOTICE_BAR, NOTICE_BASE, ScrollRegion, formatINR, formatIST } from "@/components/ui";
 
 import { formatWhole, isVoiceTier, lotRate, type WalletLots } from "./lots";
 
@@ -40,9 +40,8 @@ import { formatWhole, isVoiceTier, lotRate, type WalletLots } from "./lots";
  * the other voice's rate. `tests/credits.test.tsx` feeds a reversed tier order.
  *
  * Every
- * figure is an exact decimal string formatted from its digits: `formatINR` for credits (a
- * credit is ₹1) and `formatRupeeRate` for the rates, which keeps the server's full
- * NUMERIC(12,4) precision because ₹4.7000/min rounded to two places stops multiplying out.
+ * figure is an exact decimal string formatted from its digits by `formatINR`, credits and
+ * rates alike, under the client display rule (`lib/numberDisplay.ts`).
  *
  * Two states are deliberately not rendered as an empty table. A wallet with no open lot and
  * nothing owed renders NOTHING at all — the hero above already says the balance is empty,
@@ -107,7 +106,7 @@ export function LotsPanel({ lots }: { lots: WalletLots }) {
                       className="py-3.5 pr-3 text-right tabular-nums text-ink-muted"
                     >
                       {isVoiceTier(tier.voice_tier)
-                        ? `${formatRupeeRate(lotRate(lot, tier.voice_tier))}/min`
+                        ? `${formatINR(lotRate(lot, tier.voice_tier))}/min`
                         : null}
                     </td>
                   ))}

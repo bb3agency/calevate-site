@@ -501,7 +501,7 @@ describe("the dashboard renders what the server said, or says it could not", () 
       await screen.findByText("What they want: Two kilos of rice · Preferred time: Saturday"),
     ).toBeTruthy();
     expect(screen.getByRole("columnheader", { name: "Cost" })).toBeTruthy();
-    expect(screen.getByText("₹12.50")).toBeTruthy();
+    expect(screen.getByText("₹12.5")).toBeTruthy();
   });
 
   it("shows no cost column when the server sent no cost, as it does for staff", async () => {
@@ -588,7 +588,7 @@ describe("the dashboard renders what the server said, or says it could not", () 
     //
     // `Number("10159.00")` formats as 10,158.999999999998 on some paths; the exact
     // grouped string is the assertion, and the currency is INR, not the design's "$".
-    expect(container.textContent).toContain("₹15,158.00");
+    expect(container.textContent).toContain("₹15,158");
     expect(container.textContent).not.toContain("$");
   });
 
@@ -622,7 +622,7 @@ describe("the dashboard renders what the server said, or says it could not", () 
 
     await screen.findByText("Spend this month");
     // ₹4,999.00 retainer + ₹180.75 upgrade. Never ₹4,999.00, and never ₹0.00.
-    expect(container.textContent).toContain("₹5,179.75");
+    expect(container.textContent).toContain("₹5,179.8");
   });
 });
 
@@ -795,7 +795,7 @@ describe("the calling credit tile", () => {
     await renderClientPage(page, routes());
 
     const tile = (await screen.findByText("Calling credit left")).parentElement;
-    expect(tile?.textContent).toContain("₹3,400.00");
+    expect(tile?.textContent).toContain("₹3,400");
     const link = within(tile as HTMLElement).getByRole("link");
     expect(link.getAttribute("href")).toContain("/c/acme/billing?tab=credits");
   });
@@ -898,8 +898,8 @@ describe("the calling credit tile", () => {
     );
 
     const tile = (await screen.findByText("Spend this month")).parentElement;
-    expect(tile?.textContent).toContain("₹0.00");
-    expect(tile?.textContent).toContain("120.5 min used, free during your trial (worth ₹602.50)");
+    expect(tile?.textContent).toContain("₹0");
+    expect(tile?.textContent).toContain("120.5 min used, free during your trial (worth ₹602.5)");
   });
 
   it("refuses rather than printing a dash when the balance cannot be read", async () => {
