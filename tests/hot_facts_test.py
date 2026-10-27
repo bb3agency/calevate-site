@@ -346,3 +346,32 @@ async def test_the_known_facts_route_answers_for_the_clients_own_agent_only(
         assert body["looked_up_total"] == 2
         refused = await client.get(f"/v1/agents/{t.agent_id}/known-facts", headers=stranger.headers)
     assert refused.status_code == 404
+
+
+async def test_a_first_empty_choice_republishes_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Switched off, an agent with no stored choice was published with no known facts, so
+    the first sweep must not republish it."""
+    from apps.api.agents import service as agent_service
+    from apps.api.engine import get_engine
+
+    monkeypatch.setitem(hosted_platform._LIMITS_BY_ENGINE, "fake", THINNEST_LIMITS)
+    monkeypatch.setattr(get_settings(), "hot_facts_enabled", False)
+    published: list[uuid.UUID] = []
+
+    async def _publish(_session: object, *, agent_id: uuid.UUID, **_: object) -> None:
+        published.append(agent_id)
+
+    monkeypatch.setattr(agent_service, "publish_agent", _publish)
+    t = await _tenant()
+    await _agent_with_script(t.tenant_id, t.agent_id, "[IDENTITY]\nYou sell chilli.")
+    async with tenant_session(t.tenant_id) as session:
+        await session.execute(
+            text("UPDATE agents SET status = 'live', engine_agent_ref = 'ref-hf' WHERE id = :a"),
+            {"a": t.agent_id},
+        )
+        outcome = await hot_facts.recompute_agent(
+            session, tenant_id=t.tenant_id, agent_id=t.agent_id, engine=get_engine()
+        )
+        stored = await hot_facts.load(session, agent_id=t.agent_id)
+    assert outcome == "unchanged" and published == []
+    assert stored is not None and stored.items == ()

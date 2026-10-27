@@ -598,7 +598,12 @@ async def recompute_agent(
     )
     digest = digest_of([c.text for c in chosen], enabled=enabled)
     await _save(session, tenant_id=tenant_id, agent_id=agent_id, choice=choice, digest=digest)
-    if stored is not None and stored.digest == digest:
+    # An agent with no stored choice was last published with no known facts
+    # (`load_texts` gave `()`), so an empty first choice changes nothing it carries.
+    # Without this the first daily sweep republishes every published agent in the fleet,
+    # switch off included.
+    before = stored.digest if stored is not None else digest_of((), enabled=enabled)
+    if before == digest:
         return "unchanged"
     log.info(
         "hot_facts_chosen",
