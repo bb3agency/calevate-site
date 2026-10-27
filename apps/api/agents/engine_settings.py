@@ -78,6 +78,13 @@ AGENT_SETTING_LABELS: Final[frozenset[str]] = frozenset(
         # Whether the agent searches its knowledge on calls: on wherever its facts are held
         # as knowledge (D-689).
         "knowledge_on_calls",
+        # Nothing a caller said on another channel is used, and no identity is checked by a
+        # code sent on one (D-911).
+        "customer_recall",
+        # The business's name as the recogniser's custom vocabulary (D-911).
+        "vocabulary",
+        # How adventurous the wording is, held at the engine's own default (D-911).
+        "temperature",
         # Phone only: never the website call button or WhatsApp (founder decision F1,
         # 12 Oct 2026, superseding D-720).
         "surfaces",

@@ -1661,6 +1661,17 @@ _VENDOR_ONLY_KEYS = frozenset(
         # Ours are `opening_waits_for_caller` and `opening_wait_ms`.
         "openingWaitSeconds",
         "openingWaitsForCaller",
+        # D-911: the tools answer's code verification and a call's billing basis. Ours are
+        # `VERIFY_BY_CODE` (stated, never read beyond the adapter) and `CallBilling`.
+        "verifyByCode",
+        "billedOn",
+        # D-911: Get Call Timeline's per-turn moments. Ours are `TurnTiming.pause_called_ms`,
+        # `final_words_ms`, `check_decided_ms`, `turn_decided_ms` and `answer_text_ms`.
+        "answerTextMs",
+        "earPausedMs",
+        "judgeDecidedMs",
+        "transcriptMs",
+        "turnDecidedMs",
     }
 )
 
@@ -1689,6 +1700,9 @@ _SHARED_PAYLOAD_KEYS = frozenset(
         # (`CallBilling`, `CallBilling.keys`, the billing module).
         "billing",
         "keys",
+        # D-911: the tools answer's cross-channel `recall`; also the name of our own memory
+        # readers (`copilot.memory.recall`, `compliance.caller_memory.recall`).
+        "recall",
         # D-797/D-798 reads that are words of ours too: `own` (`OwnVoiceKeyState.using ==
         # "own"`, our own-key vocabulary), `change` (the WhatsApp webhook reads it) and
         # `workspaceId`, which the voice-runtime receiver reads to refuse a delivery about

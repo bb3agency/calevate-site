@@ -131,3 +131,12 @@ What matters to us (paths under `snapshots/2026-10-19/pages/`; the item-by-item 
 - **Lending a number ends no call**; a waiting call that named it fails (`channels/phone-numbers.md:696-702`).
 - **Rent Phone Number takes `Idempotency-Key`** (`api-reference/phone-numbers/rent-phone-number.md:7`, `:552-561`); a shared clone's `id` in a customer is the developer's own (`channels/voice-clone.md:120-121`).
 - **Webhooks:** `contact.erased` and `byok.changed` save again (`whats-new/index.md:13-18`); each signature header is also sent under a neutral `x-webhook-*` name (`api-reference/webhooks.md:228-231`).
+
+## Snapshot of 28 Oct 2026 (`snapshots/2026-10-28/`)
+
+A full re-fetch on 27 Oct 2026 at 20:44-20:47 UTC (28 Oct IST): 288 of 288 pages in `llms.txt`, 0 failures, with its own `llms.txt` (sha256 `aa86d457…4734`) and `MANIFEST.json`, and `https://app.thinnest.ai/openapi.json` as `openapi.json`. The spec as fetched hashes `a79445b6…080a`, the same bytes D-902 read on 27 Oct; the two example account ids of the form `AC` + 32 hex in it are masked (same byte length), and the manifest carries both hashes (`openapi.sha256`, `openapi.sha256_as_fetched`). Every page differs from `2026-10-19/` by bytes, because each page embeds the spec and its server description changed; the substantive differences are below. Cite this snapshot for anything current.
+
+- **Added:** `api-reference/calls/get-call-timeline`, `channels/calling-rules`, `workspace/regions`.
+- **Agent fields new since 19 Oct:** `ownRules`; `voice.earlyAnswers`, `openingWaitsForCaller`, `openingWaitSeconds`, `vocabulary` (up to 50 terms of 64 characters, the recogniser's custom vocabulary), `realtimeVoice` and `realtimeSession` (realtime models, Enterprise only); tools `knowledgeOnCalls`. Answers: `TestChatResponse.mode`, `CallSummary.to`, `CallBilling.billedOn`/`chargedMicro`, `CallQuality.answerMs`/`knowledgeTurns`, Get Call Timeline. `PublicModel.billing`/`voices`; `callTier` and `PublicVoice.tier` no longer list `standard` (retired 23 Oct 2026).
+- **Calling hours:** Place Call's `callingHours` defaults are `00:00`-`24:00`; "There are no calling hours of our own" (`channels/calling-rules.md`, `api-reference/errors.md:118`).
+- What D-911 did with each is `docs/THINNEST-INTEGRATION.md` "Live docs of 28 Oct 2026".

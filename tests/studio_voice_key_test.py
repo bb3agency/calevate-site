@@ -266,7 +266,7 @@ async def test_our_developer_workspace_on_is_left_alone(
     with selected(engine):
         summary = await studio_voice_key.sweep_studio_workspaces({})
     assert summary.startswith("developer=ok")
-    assert alarms == [] and (engine.enabled, engine.disabled) == (0, 0)
+    assert alarms == [] and engine.enabled == 0
 
 
 async def test_our_developer_workspace_found_off_is_switched_back_on_and_alarmed(

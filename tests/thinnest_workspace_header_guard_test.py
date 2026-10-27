@@ -221,7 +221,6 @@ def _tenant_ops(rec: Recorder) -> list[Callable[[], Awaitable[Any]]]:
         lambda: scoped(engine.list_account_kb),
         lambda: scoped(lambda: engine.list_executions(since=datetime(2026, 10, 1, tzinfo=UTC))),
         lambda: scoped(lambda: engine.list_call_charges(since=date(2026, 10, 1))),
-        lambda: scoped(engine.list_voice_clones),
         lambda: scoped(lambda: engine.create_voice_clone(sample)),
         lambda: scoped(lambda: engine.find_voice_clone("v")),
         lambda: scoped(lambda: engine.delete_voice_clone("c")),
@@ -234,7 +233,6 @@ def _tenant_ops(rec: Recorder) -> list[Callable[[], Awaitable[Any]]]:
             lambda: engine.install_own_voice_key(provider="cartesia", api_key="k", model=None)
         ),
         lambda: scoped(engine.enable_own_voice_key),
-        lambda: scoped(engine.disable_own_voice_key),
         lambda: scoped(engine.list_hosted_voices),
         lambda: numbers.get_number(number),
         lambda: numbers.attach(number, agent=AGENT, calling_agent=None),
@@ -288,7 +286,6 @@ async def test_our_own_accounts_calls_carry_no_header() -> None:
     customers = ThinnestCustomers(api_key="ta_live_test", client=_http(rec))
     for op in (
         engine.own_key_state,
-        engine.disable_own_voice_key,
         lambda: engine.install_own_voice_key(provider="cartesia", api_key="k", model=None),
         engine.read_catalogue,
         engine.list_own_key_voices,

@@ -179,6 +179,9 @@ def test_a_hand_off_list_is_always_sent_empty_and_one_typed_in_the_console_is_dr
     held = {
         "tools": [{"id": t, "enabled": on} for t, on in body["tools"].items()],
         "handOver": {"mode": "chat", "agents": [{"agent": "ag_x", "when": "orders"}]},
+        "knowledgeOnCalls": body["knowledgeOnCalls"],
+        "recall": body["recall"],
+        "verifyByCode": body["verifyByCode"],
     }
     assert _tools_drift(body, held) == ["handOver.agents"]
 

@@ -52900,6 +52900,28 @@
             ],
             "title": "Answer Ms"
           },
+          "answer_text_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Text Ms"
+          },
+          "check_decided_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Check Decided Ms"
+          },
           "ear_check_ms": {
             "anyOf": [
               {
@@ -52910,6 +52932,17 @@
               }
             ],
             "title": "Ear Check Ms"
+          },
+          "final_words_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Final Words Ms"
           },
           "first_sound_kind": {
             "anyOf": [
@@ -52960,6 +52993,17 @@
             ],
             "title": "Model First Sentence Ms"
           },
+          "pause_called_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pause Called Ms"
+          },
           "recogniser_ms": {
             "anyOf": [
               {
@@ -52974,6 +53018,17 @@
           "turn": {
             "title": "Turn",
             "type": "integer"
+          },
+          "turn_decided_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turn Decided Ms"
           },
           "voice_ms": {
             "anyOf": [

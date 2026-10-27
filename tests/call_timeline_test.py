@@ -244,3 +244,34 @@ def test_a_timeline_is_read_in_turn_order_with_missing_steps_null() -> None:
     first = timeline.turns[0]
     assert first.first_sound_kind is None and first.answer_estimated is False
     assert parse_timeline(None) is None
+
+
+def test_the_moments_behind_the_split_are_read_and_null_off_ear() -> None:
+    """`CallTimelineTurn`'s moments (snapshots/2026-10-28/openapi.json, D-911): the three Ear
+    ones are null on a timer turn; the turn decided and the answer text are on every turn."""
+    ear = {
+        "turn": 1,
+        "earPausedMs": 480,
+        "transcriptMs": 520,
+        "judgeDecidedMs": 730,
+        "turnDecidedMs": 735,
+        "modelAskedMs": -40,
+        "answerTextMs": 1600,
+    }
+    timer = {**ear, "turn": 2, "earPausedMs": None, "transcriptMs": None, "judgeDecidedMs": None}
+    timeline = parse_timeline({"v": 1, "turns": [ear, timer]})
+    assert timeline is not None
+    first, second = timeline.turns
+    assert (
+        first.pause_called_ms,
+        first.final_words_ms,
+        first.check_decided_ms,
+        first.turn_decided_ms,
+        first.answer_text_ms,
+    ) == (480, 520, 730, 735, 1600)
+    assert (second.pause_called_ms, second.final_words_ms, second.check_decided_ms) == (
+        None,
+        None,
+        None,
+    )
+    assert (second.turn_decided_ms, second.answer_text_ms) == (735, 1600)
