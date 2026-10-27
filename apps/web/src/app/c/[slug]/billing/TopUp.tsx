@@ -13,6 +13,7 @@ import {
   Skeleton,
   formatCount,
   formatINR,
+  formatISTDate,
   formatRupeeRate,
 } from "@/components/ui";
 import {
@@ -109,6 +110,7 @@ export function TopUp({ session }: { session: Session }) {
      rates — an unnamed pair of rupee figures beside one another is worse than silence,
      because a reader assigns the cheaper one to whichever voice they were thinking of. */
   const labels = tierLabels(packs.data);
+  const lapse = packs.data ? creditLapse(packs.data) : null;
 
   /**
    * Open the provider's window for an order the SERVER created.
@@ -367,10 +369,10 @@ export function TopUp({ session }: { session: Session }) {
         )}
       </form>
 
-      {packs.data?.credit_expiry_months ? (
+      {/* STATED AT PURCHASE (Terms 6.1): the term and the date, before the pay button. */}
+      {lapse ? (
         <p className="text-body text-ink-muted">
-          Credit you buy now expires {packs.data.credit_expiry_months} months after you buy it.
-          Credit you already hold keeps the terms it was bought on.
+          {lapse} Credit you already hold keeps the terms it was bought on.
         </p>
       ) : null}
 
@@ -383,6 +385,7 @@ export function TopUp({ session }: { session: Session }) {
             {formatINR(order.amount_inr)}
             {stage.at === "verified" ? " — paid." : " — nothing has been charged yet."}
           </p>
+          {lapse ? <p className="mt-1">{lapse}</p> : null}
           {order.provider_order_id === null ? (
             <p className="mt-1">
               We cannot take card or UPI payment on this account yet. Transfer{" "}
@@ -440,6 +443,23 @@ export function TopUp({ session }: { session: Session }) {
       )}
     </div>
   );
+}
+
+/**
+ * How long credit bought now lasts, with the day it lapses if added today, or `null` when
+ * credit bought now does not expire. The server stamps the term when the money is credited,
+ * so the sentence counts "from the day it is added": a bank transfer that lands next week
+ * lapses a week after the date shown.
+ */
+export function creditLapse(card: {
+  credit_expiry_months?: number | null;
+  credit_lapses_on_if_bought_now?: string | null;
+}): string | null {
+  const months = card.credit_expiry_months;
+  if (!months) return null;
+  const term = `Credit lasts ${months} months from the day it is added to your balance.`;
+  const day = formatISTDate(card.credit_lapses_on_if_bought_now);
+  return day ? `${term} Added today, any of it still unused lapses on ${day}.` : term;
 }
 
 /** The custom-amount row's spinner key, distinct from any pack id the catalogue can hold. */

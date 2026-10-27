@@ -51,8 +51,10 @@ export const REFUND_POLICY: LegalDocument = {
                 "Every account buys calling credit in advance, and calls draw it down as " +
                 "they are metered. Each top-up carries its own per-minute rates — one for " +
                 "each voice quality an agent can speak in — fixed at the moment you buy " +
-                "it and unchanged by any later change to our rate card; your credit does " +
-                "not expire, and it is spent oldest purchase first. Clause 6.1 of the " +
+                "it and unchanged by any later change to our rate card, and it is spent " +
+                "oldest purchase first. Credit you buy lasts 12 months from the day it is " +
+                "added, and any of it still unused then lapses; credit bought before 27 " +
+                "October 2026 does not expire. Clause 6.1 of the " +
                 "Terms of Service states this, and it is what an unused balance in this " +
                 "policy means.",
             },
@@ -144,6 +146,9 @@ export const REFUND_POLICY: LegalDocument = {
               "were paid for it, and the cost is not recoverable by us.",
             "Unused credit when you close your account, or when we close it because you " +
               "breached the Acceptable Use Policy. It is forfeited, not refunded.",
+            "Credit that has lapsed because it was not used within 12 months of being " +
+              "bought, as clause 6.1 of the Terms of Service provides. We show the date " +
+              "credit lapses when you buy it and on your Billing page.",
             "A setup fee invoiced under an arrangement made before 10 October 2026, once " +
               "the work it paid for had started. No setup fee is charged since then.",
             "Third-party charges we incurred on your instruction: number rentals, " +

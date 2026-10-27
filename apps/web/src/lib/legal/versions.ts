@@ -457,7 +457,7 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
       {
         revision: "13",
         material: true,
-        contentHash: 
+        contentHash:
           "sha256:b2b9b68886a69169bfd0bc8aad01ff9fb010a47643b04d45a558fb59bb8b289a",
       },
       // D-707: clause 6.1 puts every account on one pricing model (prepaid credit at the
@@ -510,6 +510,17 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         material: true,
         contentHash:
           "sha256:b9fe2e2a915c756b2350e141c88a49ebb0599801a183bd300cb6a52cd4f240d8",
+      },
+      // D-897 switches on D-840 (founder, 27 Oct 2026): clause 6.1 says credit bought from 27 Oct
+      // 2026 lasts 12 months from the day it is added, unused credit then lapses and is not
+      // refunded, the date is shown at purchase and on the Billing page; credit bought before
+      // keeps its terms and does not expire; free credit does not lapse; corrections of a
+      // lapsed purchase. MATERIAL: credit a client buys can now be lost.
+      {
+        revision: "19",
+        material: true,
+        contentHash:
+          "sha256:9e3be81bf964127556c88897cd180619856f74964fc5342f7d425f864a2ce103",
       },
     ],
     effectiveDate: "2026-09-02",
@@ -1005,7 +1016,7 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
       {
         revision: "5",
         material: true,
-        contentHash: 
+        contentHash:
           "sha256:81ed76eaa163b78a969a1cfb0242e0ad5faea8fa626b3cb7ea3f4513d93f0f06",
       },
       // D-707: section 1 describes one way of paying (prepaid credit) and the optional
@@ -1016,6 +1027,15 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         material: true,
         contentHash:
           "sha256:714e543d04509af4b063f4745878e58e95d22ccdd8d1b7f6bd1c3cc95294b812",
+      },
+      // D-897 switches on D-840: section 1 says credit bought from 27 Oct 2026 lapses 12 months
+      // after it is added, and section 4 lists lapsed credit as not refunded. MATERIAL: what
+      // an unused balance means changes.
+      {
+        revision: "7",
+        material: true,
+        contentHash:
+          "sha256:5058e0670ca4ec8124e48ecc3520a3907ae95018635cfa21f67eede09e9689de",
       },
     ],
     effectiveDate: "2026-09-02",

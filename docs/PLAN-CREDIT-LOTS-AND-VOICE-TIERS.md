@@ -25,7 +25,8 @@ Decision-log entry on landing: **D-547** (next free id after D-546, `docs/ROADMA
 The founder's decisions that fix the shape (7 Sep 2026): credits are sold in packs; a
 bigger pack means a **cheaper minute**, delivered as a **falling rate, not bonus credits**;
 the rate falls **faster for the Cartesia voice** than for Sarvam; the voice tier is chosen
-**per agent**; credits **never expire**; each purchase's terms are **frozen on that
+**per agent**; credits **never expire** *(superseded for credit bought from 27 Oct 2026: it
+lasts 12 months, D-840/D-897, Terms 6.1 revision 19)*; each purchase's terms are **frozen on that
 purchase** and spent **oldest-first**; a **₹2,000 pack** exists with Cartesia at ₹8.00.
 
 ---
@@ -83,7 +84,7 @@ The maps found more already built than the conversation assumed. Read this befor
 ## 2. Domain model
 
 ### 2.1 Definitions
-- **Credit**: ₹1 of prepaid value. Never expires.
+- **Credit**: ₹1 of prepaid value. Bought from 27 Oct 2026, lapses 12 months after it is credited (D-897); bought before, never expires.
 - **Pack**: a catalogue row — `pack_id`, `amount_inr`, `clear_inr_per_min`, `studio_inr_per_min`. Static, bounded (`check_list_bounds` already pins the two pack endpoints as bounded by `PACK_CATALOGUE` being static, `scripts/check_list_bounds.py:286-292`).
 - **Lot**: the credits one purchase (or grant, or migration) created, with the two rates frozen at creation. `credits_total`, `credits_remaining`, `clear_inr_per_min`, `studio_inr_per_min`, `source` (`topup` | `grant` | `bonus_legacy` | `migration` | `override`), `pack_id` (nullable), `override_of_pack_id` (nullable, Q6), `opened_at`.
 - **Voice tier**: `clear` | `studio`, a property of the AGENT (`agents.voice_tier`, derived from the chosen voice's provider — never stored separately from the voice, §4.3).

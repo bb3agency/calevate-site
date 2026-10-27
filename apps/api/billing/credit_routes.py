@@ -616,6 +616,9 @@ class CreditLotOut(Strict):
     #: close the lot it corrects and the receipt has to say so rather than showing a lot
     #: with credit the client no longer has.
     closed_at: datetime | None
+    #: When the credit left on this lot lapses (D-840), or `null` for a lot with no term: a
+    #: grant, an override at agreed rates, or a purchase from before expiry was switched on.
+    expires_at: datetime | None = None
 
 
 class OverridePackOut(Strict):
@@ -1030,7 +1033,7 @@ def _override_pack(payload: TopUpIn) -> CreditPack | None:
 #: to another tenant is not visible to ask about (`lots._SELECT_ONE_OPEN_LOT`'s argument).
 _LOT_FIELDS = (
     "SELECT id, source, pack_id, override_of_pack_id, credits_total, credits_remaining, "
-    "clear_inr_per_min, studio_inr_per_min, opened_at, closed_at FROM credit_lots "
+    "clear_inr_per_min, studio_inr_per_min, opened_at, closed_at, expires_at FROM credit_lots "
 )
 
 
@@ -1056,6 +1059,7 @@ def _lot_out(row: Any) -> CreditLotOut:
         studio_label=voice_tier_label(PREMIUM_VOICE_TIER),
         opened_at=row[8],
         closed_at=row[9],
+        expires_at=row[10],
     )
 
 

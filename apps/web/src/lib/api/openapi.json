@@ -16128,6 +16128,18 @@
             "title": "Credits Total",
             "type": "string"
           },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
           "lot_id": {
             "format": "uuid",
             "title": "Lot Id",
@@ -16292,6 +16304,18 @@
               }
             ],
             "title": "Credit Expiry Months"
+          },
+          "credit_lapses_on_if_bought_now": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credit Lapses On If Bought Now"
           },
           "from_clear_inr_per_min": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",

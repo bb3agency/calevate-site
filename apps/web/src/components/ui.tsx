@@ -1602,6 +1602,23 @@ export function formatISTDay(value: string | null | undefined): string | null {
 }
 
 /**
+ * The calendar day in India an instant falls on, with the year: "27 Oct 2027". For a date a
+ * year or more away, such as when credit lapses, where `formatIST`'s day and month alone
+ * would not say which year. `null` when there is no instant or it does not parse.
+ */
+export function formatISTDate(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const at = new Date(value);
+  if (Number.isNaN(at.getTime())) return null;
+  return at.toLocaleDateString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+/**
  * The calendar day in India, as `YYYY-MM-DD` — for naming a file after the day it was taken.
  *
  * `new Date().toISOString().slice(0, 10)` is the spelling this replaces, and it is wrong

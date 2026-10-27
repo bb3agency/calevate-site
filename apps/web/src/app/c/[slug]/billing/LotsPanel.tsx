@@ -1,7 +1,7 @@
 "use client";
 
 import { Section } from "@/components/console/section";
-import { NOTICE_BAR, NOTICE_BASE, ScrollRegion, formatINR, formatIST, formatRupeeRate } from "@/components/ui";
+import { NOTICE_BAR, NOTICE_BASE, ScrollRegion, formatINR, formatIST, formatISTDate, formatRupeeRate } from "@/components/ui";
 
 import { formatWhole, isVoiceTier, lotRate, type WalletLots } from "./lots";
 
@@ -113,9 +113,11 @@ export function LotsPanel({ lots }: { lots: WalletLots }) {
                   ))}
                   <td className="py-3.5 text-right text-ink-muted">
                     {formatIST(lot.opened_at)}
-                    {lot.expires_at ? (
-                      <span className="block text-meta">Expires {formatIST(lot.expires_at)}</span>
-                    ) : null}
+                    {/* Each purchase keeps the term it was bought on (Terms 6.1): one bought
+                        before expiry was switched on has none, and says so beside one that does. */}
+                    <span className="block text-meta">
+                      {lot.expires_at ? `Lapses ${formatISTDate(lot.expires_at) ?? "—"}` : "No expiry"}
+                    </span>
                   </td>
                 </tr>
               ))}

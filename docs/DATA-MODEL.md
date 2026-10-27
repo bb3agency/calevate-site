@@ -1106,10 +1106,17 @@ credit_lots(id, tenant_id, source ENUM-as-CHECK[topup,grant,bonus_legacy,migrati
   pack_id NULL, override_of_pack_id NULL,
   credits_total NUMERIC(12,4), credits_remaining NUMERIC(12,4),
   clear_inr_per_min NUMERIC(12,4), studio_inr_per_min NUMERIC(12,4),
-  ledger_entry_id UNIQUE FK credit_ledger(id), opened_at, closed_at NULL,
+  ledger_entry_id UNIQUE FK credit_ledger(id), opened_at, closed_at NULL, expires_at NULL,
   created_at, updated_at)                    -- NOT append-only, and NOT in APPEND_ONLY_TABLES
 -- WHAT IT HOLDS AND WHY IT EXISTS (D-547, `docs/PLAN-CREDIT-LOTS-AND-VOICE-TIERS.md` §3.1).
---   A credit is still ₹1 and still never expires. What a bigger pack buys is no longer BONUS
+--   A credit is still ₹1. EXPIRY (D-840, on since D-897, 27 Oct 2026, Terms 6.1 revision 19):
+--   a purchase (`source = topup`) opened while `Settings.credit_pack_expiry_months` is set
+--   (default 12) gets `expires_at` = opened_at + that many IST calendar months, frozen with the
+--   lot's other terms; grants, overrides and every lot opened before the switch carry NULL
+--   and never expire. `workers/credit_expiry.expire_credit_lots` (daily 08:11 IST) lapses what
+--   is left by one negative `adjustment` row (`meta.kind = credit_expiry`) and closes the lot,
+--   and promises one `notify_credit_lapsing` email per lot 30 days before.
+--   What a bigger pack buys is no longer BONUS
 --   CREDITS on the balance — it is a CHEAPER MINUTE, and a minute has two prices because the
 --   voice tier is chosen per agent (`clear` | `studio`). A price that varies by purchase
 --   cannot live on the tenant and cannot live on the ledger row that spends it: it belongs to

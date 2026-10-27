@@ -59,7 +59,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import ROUND_DOWN, Decimal
 from typing import Annotated, Any, Final, Literal
 from uuid import UUID
@@ -71,7 +71,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.admin.service import tenant_exists
 from apps.api.agents.hosted_voices import rungs_awaiting_setup
 from apps.api.agents.studio_voices import studio_open_to
-from apps.api.billing.credit_expiry import credit_expiry_months
+from apps.api.billing.credit_expiry import credit_expiry_months, expires_at_for
 from apps.api.billing.credit_packs import (
     CreditPack,
     pack_by_id,
@@ -441,8 +441,13 @@ class CreditPacksOut(Strict):
     #: live from the ops console, so a page never quotes a fee nobody is charged.
     platform_fee_inr_per_month: Decimal | None = None
     #: How many months after purchase the credit bought today lapses, stated wherever a pack
-    #: is sold (D-840); null while credit does not expire.
+    #: is sold (D-840); null when credit bought now does not expire.
     credit_expiry_months: int | None = None
+    #: The IST day credit bought today would lapse on, so a buy screen can state the date at
+    #: purchase (Terms 6.1). A day, not an instant, so the card stays the same all day for the
+    #: public cache. The lot is stamped when the money is credited, so a bank transfer that
+    #: lands later lapses later; null when credit bought now does not expire.
+    credit_lapses_on_if_bought_now: date | None = None
 
 
 class WebhookAck(Strict):
@@ -659,6 +664,7 @@ async def rate_card_out(session: AsyncSession) -> CreditPacksOut:
     packs = [_pack_out(pack) for pack in in_force]
     from_sarvam = min(pack.clear_inr_per_min for pack in packs)
     engine = get_settings().engine
+    months = credit_expiry_months()
     not_offered = voice_tier_not_offered(
         engine, studio_ready=await _studio_on_sale(session, engine=engine, at=now)
     )
@@ -678,7 +684,10 @@ async def rate_card_out(session: AsyncSession) -> CreditPacksOut:
         voice_not_offered_notice=not_offered[1] if not_offered else None,
         packs=packs,
         platform_fee_inr_per_month=_published_platform_fee(),
-        credit_expiry_months=credit_expiry_months(),
+        credit_expiry_months=months,
+        credit_lapses_on_if_bought_now=(
+            None if months is None else expires_at_for(now, months=months).date()
+        ),
         # ONLY THE SOONEST. An operator may have several cards on the books; a client
         # planning a top-up needs to know what changes NEXT, and a ladder of future prices
         # on a buy screen is an operator's view rather than theirs.

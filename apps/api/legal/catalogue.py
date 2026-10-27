@@ -643,6 +643,17 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "staff can see all client data; clause 14.2 widens the indemnity. MATERIAL: new "
                 "obligations and a wider indemnity.",
             ),
+            # D-897: D-840 switched on by the founder, 27 Oct 2026.
+            Revision(
+                "19",
+                True,
+                "D-840: clause 6.1 says credit bought from 27 October 2026 lasts 12 months from "
+                "the day it is added unless a different term is agreed in writing, unused "
+                "credit then lapses and is not refunded, and the date is shown at purchase and "
+                "on the Billing page; credit bought before keeps its terms and does not expire; "
+                "free credit does not lapse; a correction of a lapsed purchase adds new credit "
+                "or counts the lapsed credit first. MATERIAL: credit a client buys can be lost.",
+            ),
         ),
         effective_date="2026-09-02",
     ),
@@ -1204,6 +1215,14 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "optional monthly platform fee; the managed engagement and its cancellation "
                 "clause go, and a setup fee is non-refundable only where one was invoiced "
                 "before 10 October 2026. MATERIAL: what a client pays changes.",
+            ),
+            # D-897: D-840 switched on by the founder, 27 Oct 2026.
+            Revision(
+                "7",
+                True,
+                "D-840: section 1 says credit bought from 27 October 2026 lapses 12 months after "
+                "it is added, and section 4 lists lapsed credit among what is not refunded. "
+                "MATERIAL: what an unused balance means changes.",
             ),
         ),
         effective_date="2026-09-02",

@@ -692,8 +692,8 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "billing",
         "prices",
         "Credit expires after (months)",
-        "Credit bought in a pack lapses this many months after purchase. Empty: it does not. "
-        "Refused until the Terms that say so are published.",
+        "Months after purchase that pack credit lapses. The Terms promise 12, so fewer is "
+        "refused. Empty: credit bought from now on does not lapse.",
     ),
     "platform_fee_enabled": _m(
         "billing",

@@ -1,4 +1,4 @@
-"""Pack credit lapses some months after purchase, once the Terms say so (D-840)."""
+"""Pack credit lapses 12 months after purchase, as Terms 6.1 (revision 19) says (D-840)."""
 
 from __future__ import annotations
 
@@ -34,9 +34,14 @@ from tests.spend_attribution_test import _tenant
 
 @pytest.fixture
 def expiry_on(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Twelve months, with a Terms revision that exists standing in for the approved one."""
-    monkeypatch.setattr(credit_expiry, "TERMS_REVISION_STATING_EXPIRY", "1")
+    """Twelve months, pinned so an ambient console value cannot change the term under test."""
     monkeypatch.setattr(get_settings(), "credit_pack_expiry_months", 12)
+
+
+@pytest.fixture
+def expiry_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The console row cleared: credit bought now carries no term."""
+    monkeypatch.setattr(get_settings(), "credit_pack_expiry_months", None)
 
 
 async def _buy(tenant_id: uuid.UUID, amount: str) -> uuid.UUID:
@@ -71,9 +76,34 @@ def test_the_term_is_calendar_months_in_ist_clamped_to_the_month() -> None:
     assert expires_at_for(late, months=1) == datetime(2026, 5, 1, 1, 30, tzinfo=IST)
 
 
-def test_the_setting_is_refused_and_ignored_until_the_terms_state_it(
+def test_expiry_is_on_by_default_and_names_a_published_terms_revision() -> None:
+    from apps.api.legal.catalogue import DOCUMENTS
+    from calevate_shared.config import Settings
+
+    terms = next(doc for doc in DOCUMENTS if doc.slug == "terms")
+    stating = next(
+        rev
+        for rev in terms.revisions
+        if rev.revision == credit_expiry.TERMS_REVISION_STATING_EXPIRY
+    )
+    assert stating.material, "a revision that makes bought credit lapse must re-ask acceptance"
+    assert Settings.model_fields["credit_pack_expiry_months"].default == 12
+    assert credit_expiry.TERMS_EXPIRY_MONTHS == 12
+
+
+def test_the_setting_is_accepted_at_or_above_the_promised_term(expiry_on: None) -> None:
+    assert credit_expiry_months() == 12
+    for months in (12, 24, 60, None):
+        assert_expiry_may_switch_on(months)
+    with pytest.raises(ProblemError) as caught:
+        assert_expiry_may_switch_on(11)
+    assert caught.value.code == "credit_expiry_shorter_than_terms"
+
+
+def test_the_setting_is_refused_and_ignored_without_a_terms_revision(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(credit_expiry, "TERMS_REVISION_STATING_EXPIRY", None)
     monkeypatch.setattr(get_settings(), "credit_pack_expiry_months", 12)
     assert credit_expiry_months() is None
     with pytest.raises(ProblemError) as caught:
@@ -82,11 +112,55 @@ def test_the_setting_is_refused_and_ignored_until_the_terms_state_it(
     assert_expiry_may_switch_on(None)
 
 
-async def test_credit_bought_while_expiry_is_off_never_expires() -> None:
+async def test_credit_bought_while_expiry_is_off_never_expires(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A lot opened before the switch keeps no term after it: the term is frozen at purchase."""
+    monkeypatch.setattr(get_settings(), "credit_pack_expiry_months", None)
+    tenant_id, _agent = await _tenant(monthly_fee=None)
+    lot_id = await _buy(tenant_id, "1000")
+    monkeypatch.setattr(get_settings(), "credit_pack_expiry_months", 12)
+    async with tenant_session(tenant_id) as session:
+        lot = await credit_lots.read_lot(session, lot_id=lot_id)
+        far = datetime.now(UTC) + timedelta(days=3650)
+        assert await due_lots(session, now=far) == []
+    assert lot is not None and lot.expires_at is None
+
+
+async def test_a_pack_bought_now_lapses_twelve_ist_calendar_months_after_it_opened(
+    expiry_on: None,
+) -> None:
     tenant_id, _agent = await _tenant(monthly_fee=None)
     lot_id = await _buy(tenant_id, "1000")
     async with tenant_session(tenant_id) as session:
         lot = await credit_lots.read_lot(session, lot_id=lot_id)
+    assert lot is not None and lot.expires_at is not None
+    # `opened_at` is the database clock and the term the Python one, a moment apart.
+    expected = expires_at_for(lot.opened_at, months=12)
+    assert abs(lot.expires_at - expected) < timedelta(seconds=5)
+    assert lot.expires_at.astimezone(IST).day == lot.opened_at.astimezone(IST).day
+
+
+async def test_a_grant_carries_no_term(expiry_on: None) -> None:
+    tenant_id, _agent = await _tenant(monthly_fee=None)
+    async with tenant_session(tenant_id) as session:
+        balance = await record_entry(
+            session, tenant_id=tenant_id, delta=Decimal("200"), reason="grant", ref="GIFT-1"
+        )
+        entry = await find_entry_by_ref(session, tenant_id=tenant_id, reason="grant", ref="GIFT-1")
+        assert entry is not None
+        credited = await apply_credit_to_lots(
+            session,
+            tenant_id=tenant_id,
+            credits_inr=Decimal("200"),
+            balance_after=balance.amount_inr,
+            rates=LotRates(clear_inr_per_min=Decimal("4.50"), studio_inr_per_min=Decimal("6.00")),
+            source="grant",
+            pack_id=None,
+            ledger_entry_id=entry.entry_id,
+        )
+        assert credited.lot_id is not None
+        lot = await credit_lots.read_lot(session, lot_id=credited.lot_id)
     assert lot is not None and lot.expires_at is None
 
 
@@ -331,3 +405,92 @@ async def test_a_dispute_on_a_lapsed_purchase_won_back_leaves_the_balance_where_
     assert final == Decimal("300")
     assert untouched is not None and untouched.credits_remaining == Decimal("300")
     assert await _lots_total(tenant_id) == final
+
+
+async def test_the_pack_card_states_the_term_and_the_ist_day_it_lapses(expiry_on: None) -> None:
+    """Stated at purchase (Terms 6.1): the buy screen and the public price page read these."""
+    from apps.api.billing.payment_routes import rate_card_out
+    from apps.api.db.session import untenanted_session
+
+    async with untenanted_session() as session:
+        card = await rate_card_out(session)
+    assert card.credit_expiry_months == 12
+    today = datetime.now(UTC)
+    assert card.credit_lapses_on_if_bought_now in {
+        expires_at_for(today - timedelta(minutes=1), months=12).date(),
+        expires_at_for(today, months=12).date(),
+    }
+
+
+async def test_the_pack_card_states_no_term_when_the_console_clears_it(
+    expiry_off: None,
+) -> None:
+    from apps.api.billing.payment_routes import rate_card_out
+    from apps.api.db.session import untenanted_session
+
+    async with untenanted_session() as session:
+        card = await rate_card_out(session)
+    assert card.credit_expiry_months is None
+    assert card.credit_lapses_on_if_bought_now is None
+
+
+class _Mailbox:
+    def __init__(self) -> None:
+        self.sent: list[dict[str, str]] = []
+
+    def send(self, *, to: str, subject: str, body: str, html: str | None = None) -> bool:
+        self.sent.append({"to": to, "subject": subject, "body": body})
+        return True
+
+
+async def _promised_notices(tenant_id: uuid.UUID, lot_id: uuid.UUID) -> int:
+    from apps.api.billing.credit_expiry import lapse_notice_key
+
+    async with tenant_session(tenant_id) as session:
+        count = (
+            await session.execute(
+                text("SELECT count(*) FROM outbox_messages WHERE dedupe_key = :k"),
+                {"k": lapse_notice_key(lot_id)},
+            )
+        ).scalar_one()
+    return int(count)
+
+
+async def test_a_lot_lapsing_within_thirty_days_is_warned_once_by_email(
+    expiry_on: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from apps.workers import credit_expiry as worker
+
+    tenant_id, _agent = await _tenant(monthly_fee=None)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE organizations SET billing_email = 'owner@example.test' WHERE id = :i"),
+            {"i": tenant_id},
+        )
+    lot_id = await _buy(tenant_id, "750")
+    async with tenant_session(tenant_id) as session:
+        lot = await credit_lots.read_lot(session, lot_id=lot_id)
+    assert lot is not None and lot.expires_at is not None
+
+    early = lot.expires_at - timedelta(days=31)
+    assert await worker._promise_lapse_notices(tenant_id, now=early) == 0
+    inside = lot.expires_at - timedelta(days=10)
+    assert await worker._promise_lapse_notices(tenant_id, now=inside) == 1
+    assert await worker._promise_lapse_notices(tenant_id, now=inside) == 0, "promised twice"
+    assert await _promised_notices(tenant_id, lot_id) == 1
+
+    mailbox = _Mailbox()
+    monkeypatch.setattr(worker, "get_transport", lambda: mailbox)
+    payload = {"tenant_id": str(tenant_id), "lot_id": str(lot_id)}
+    assert await worker.notify_credit_lapsing({"job_try": 1}, payload) == "sent"
+    [mail] = mailbox.sent
+    assert mail["to"] == "owner@example.test"
+    assert "₹750.00" in mail["body"]
+    assert worker.ist_moment(lot.expires_at) in mail["body"]
+    for vendor in ("Razorpay", "ThinnestAI", "Cartesia", "Sarvam"):
+        assert vendor not in mail["body"]
+
+    # Lapsed before the email goes: nothing left to warn about.
+    await _lapse(tenant_id, lot_id)
+    assert await worker.notify_credit_lapsing({"job_try": 1}, payload) == "nothing_to_lapse"
+    assert len(mailbox.sent) == 1

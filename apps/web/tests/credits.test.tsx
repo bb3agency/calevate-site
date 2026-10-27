@@ -575,24 +575,43 @@ describe("the credit itself: what is left, and at which rates", () => {
     await renderBillingHub(routes({ [LOTS_ROUTE]: lots }));
     const table = await screen.findByRole("table", { name: /in the order it will be spent/i });
     const rows = within(table).getAllByRole("row");
-    expect(rows[1].textContent).toMatch(/Expires/);
-    expect(rows[2].textContent).not.toMatch(/Expires/);
+    // The year is shown: a date twelve months away without one is ambiguous.
+    expect(rows[1].textContent).toMatch(/Lapses 1 Aug 2027/);
+    expect(rows[2].textContent).toMatch(/No expiry/);
+    expect(rows[2].textContent).not.toMatch(/Lapses/);
   });
 
-  it("states the expiry at checkout while credit expires (D-840)", async () => {
+  it("states the term and the lapse date at checkout (D-840, Terms 6.1)", async () => {
+    await renderBillingHub(
+      routes({
+        [PACKS]: {
+          ...PACK_CARD,
+          credit_expiry_months: 12,
+          credit_lapses_on_if_bought_now: "2027-10-27",
+        },
+      }),
+      "Credits",
+    );
+    expect(
+      await screen.findByText(
+        /Credit lasts 12 months from the day it is added to your balance\. Added today, any of it still unused lapses on 27 Oct 2027\./,
+      ),
+    ).toBeTruthy();
+  });
+
+  it("never tells a client their credit never expires (founder, 27 Oct 2026)", async () => {
     await renderBillingHub(
       routes({ [PACKS]: { ...PACK_CARD, credit_expiry_months: 12 } }),
       "Credits",
     );
-    expect(
-      await screen.findByText(/Credit you buy now expires 12 months after you buy it\./),
-    ).toBeTruthy();
+    await screen.findByRole("button", { name: /Pay|Continue|Add/ });
+    expect(document.body.textContent).not.toMatch(/never expires|never swept/i);
   });
 
-  it("says nothing about expiry at checkout while credit does not expire", async () => {
+  it("says nothing about a term at checkout when credit bought now does not expire", async () => {
     await renderBillingHub(routes(), "Credits");
     await screen.findByRole("button", { name: /Pay|Continue|Add/ });
-    expect(document.body.textContent).not.toMatch(/expires \d+ months after you buy it/);
+    expect(document.body.textContent).not.toMatch(/Credit lasts \d+ months/);
   });
 
   it("renders whatever the server calls the two qualities, never a name held here", async () => {

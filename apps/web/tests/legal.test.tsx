@@ -837,7 +837,8 @@ describe("what each document must contain", () => {
    *
    * The wording of the first paragraph below is the founder's, approved on 7 September
    * 2026, and it is a promise the database now keeps: each purchase freezes its own two
-   * per-minute rates, credit never expires, and the oldest purchase is spent first. A
+   * per-minute rates and the oldest purchase is spent first (the 12-month term, D-840, is
+   * pinned below it). A
    * later edit that softened "does not change them" into "will not normally change" would
    * change an operative fee term, and this asserts the exact words that may not move.
    *
@@ -852,12 +853,25 @@ describe("what each document must contain", () => {
       "Each purchase of credit is priced at the per-minute rates shown for that purchase " +
       "when you made it, for the voice each agent uses. Those rates apply to that " +
       "purchase's credit until it is spent, and a later change to our rate card does not " +
-      "change them. Credit does not expire. Credit is spent oldest purchase first.";
+      "change them. Credit is spent oldest purchase first.";
     const terms = textOf(bySlug("terms")).replace(/\s+/g, " ");
     expect(
       terms,
       "clause 6.1 no longer carries the approved credit-lot wording",
     ).toContain(promise);
+
+    // THE CREDIT TERM (D-840, founder 20 Oct 2026, switched on 27 Oct 2026, revision 19).
+    // `billing/credit_expiry.TERMS_EXPIRY_MONTHS` refuses a shorter console setting against
+    // these words, and lots bought before the date carry no term in the database.
+    expect(terms).toContain(
+      "Credit you buy lasts 12 months from the day it is added to your account, unless we " +
+        "have agreed a different term with you in writing.",
+    );
+    expect(terms).toContain("Credit bought before 27 October 2026 keeps the terms it was bought on");
+    expect(terms).toMatch(/We show you the date it lapses when you buy it/);
+    expect(terms, "the old promise must not survive beside the new term").not.toMatch(
+      /Credit does not expire\./,
+    );
 
     // Two rates, one per voice — the singular reading is the defect this replaced, and it
     // would read as a promise that a Studio minute costs a Clear minute's rate.
@@ -873,7 +887,9 @@ describe("what each document must contain", () => {
     const refunds = textOf(bySlug("refunds")).replace(/\s+/g, " ");
     expect(refunds).toMatch(/own per-minute rates/);
     expect(refunds).toMatch(/spent oldest purchase first/);
-    expect(refunds).toMatch(/does not expire/);
+    expect(refunds).toMatch(/lasts 12 months from the day it is added/);
+    expect(refunds).toMatch(/credit bought before 27 October 2026 does not expire/);
+    expect(refunds).toMatch(/Credit that has lapsed because it was not used within 12 months/);
 
     // NO VENDOR IS NAMED AS A PRODUCT CHOICE (founder, 7 September 2026). A client picks a
     // voice QUALITY; the companies behind them are a disclosure and belong on the
