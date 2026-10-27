@@ -1,18 +1,20 @@
 /**
- * A server component may not call a formatter through `@/components/ui`.
+ * Server-rendered code may not call into a "use client" module.
  *
- * `components/ui.tsx` is a "use client" module, so every function it exports is a client
- * reference on the server: calling `formatINR(...)` from a server component throws at render
- * and the page answers 500. That took `/pricing` down once. The display rule lives in
- * `lib/numberDisplay.ts`, which has no directive and is safe on both sides; server files
- * import it from there.
+ * Every export of a "use client" module is a client reference on the server: rendering a
+ * component from one is fine, but calling a function (`formatINR(...)`) or reading a
+ * constant from one throws at render and the page answers 500. That took `/pricing` down
+ * once. Shared helpers such as the display rule live in directive-less modules
+ * (`lib/numberDisplay.ts`) that are safe on both sides.
  *
- * Scoped to what is certainly rendered on the server: route files (page, layout, template,
- * not-found) with no directive, and the public site under components/marketing. A directive-less helper elsewhere is usually
- * only ever imported by client code, where the ui import is fine.
+ * The walk starts at every server entry (route files with no directive, and the public
+ * site under components/marketing) and follows imports through directive-less modules,
+ * because a helper with no directive imported by a server page runs on the server too.
+ * It stops at a "use client" module: what is imported FROM it is checked, what it imports
+ * runs in the browser. A PascalCase name is taken to be a component and allowed.
  */
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
@@ -26,29 +28,79 @@ function files(dir: string): string[] {
   });
 }
 
+const ENTRY = /^app\/(.*\/)?(page|layout|template|not-found|loading|default|opengraph-image)\.tsx?$/;
 const CLIENT = /^\s*["']use client["'];?/m;
-const UI_IMPORT = /import\s+\{([^}]*)\}\s+from\s+["']@\/components\/ui["']/g;
+const IMPORT = /(?:^|\n)\s*import\s+(type\s+)?([^;]*?)\s+from\s+["']([^"']+)["']/g;
+const COMPONENT = /^[A-Z][a-z0-9]/;
 
-describe("server components and the client formatters", () => {
-  it("never import a format* function from the client ui module", () => {
-    const offenders: string[] = [];
-    const serverSide = files(SRC).filter((path) => {
-      const rel = relative(SRC, path).split("\\").join("/");
-      return /^app\/(.*\/)?(page|layout|template|not-found)\.tsx$/.test(rel) || rel.startsWith("components/marketing/");
+const sourceCache = new Map<string, string>();
+function source(path: string): string {
+  let text = sourceCache.get(path);
+  if (text === undefined) {
+    text = readFileSync(path, "utf8");
+    sourceCache.set(path, text);
+  }
+  return text;
+}
+
+function isClient(path: string): boolean {
+  return CLIENT.test(source(path).split("\n").slice(0, 3).join("\n"));
+}
+
+function resolveImport(from: string, spec: string): string | null {
+  let base: string;
+  if (spec.startsWith("@/")) base = join(SRC, spec.slice(2));
+  else if (spec.startsWith(".")) base = resolve(dirname(from), spec);
+  else return null;
+  for (const candidate of [base, `${base}.ts`, `${base}.tsx`, join(base, "index.ts"), join(base, "index.tsx")]) {
+    if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
+  }
+  return null;
+}
+
+/** The value names an import clause brings in: default and named, minus type-only ones. */
+function valueNames(clause: string): string[] {
+  const names: string[] = [];
+  const braces = clause.match(/\{([^}]*)\}/);
+  const head = clause.replace(/\{[^}]*\}/, "").replace(/,/g, " ").trim();
+  if (head && !head.startsWith("*")) names.push(head.split(/\s+/)[0]!);
+  if (head.startsWith("*")) names.push("*");
+  for (const part of braces?.[1]?.split(",") ?? []) {
+    const name = part.trim();
+    if (!name || name.startsWith("type ")) continue;
+    names.push(name.split(/\s+as\s+/)[0]!.trim());
+  }
+  return names;
+}
+
+describe("server-rendered code and client modules", () => {
+  it("never calls a function or reads a constant from a use-client module", () => {
+    const rel = (path: string) => relative(SRC, path).split("\\").join("/");
+    const entries = files(SRC).filter((path) => {
+      const name = rel(path);
+      return (ENTRY.test(name) || name.startsWith("components/marketing/")) && !isClient(path);
     });
-    for (const path of serverSide) {
-      const source = readFileSync(path, "utf8");
-      if (CLIENT.test(source.split("\n").slice(0, 3).join("\n"))) continue;
-      for (const match of source.matchAll(UI_IMPORT)) {
-        if (/^\s*type\b/.test(match[0].slice(6))) continue;
-        const names = match[1]!
-          .split(",")
-          .map((name) => name.trim())
-          .filter((name) => name && !name.startsWith("type "));
-        const formatters = names.filter((name) => /^format[A-Z]/.test(name));
-        if (formatters.length) offenders.push(`${relative(SRC, path)}: ${formatters.join(", ")}`);
+    expect(entries.length).toBeGreaterThan(10);
+
+    const offenders = new Set<string>();
+    const seen = new Set<string>();
+    const queue = [...entries];
+    while (queue.length) {
+      const path = queue.pop()!;
+      if (seen.has(path)) continue;
+      seen.add(path);
+      for (const match of source(path).matchAll(IMPORT)) {
+        if (match[1]) continue;
+        const target = resolveImport(path, match[3]!);
+        if (!target) continue;
+        if (isClient(target)) {
+          const bad = valueNames(match[2]!).filter((name) => !COMPONENT.test(name));
+          if (bad.length) offenders.add(`${rel(path)} -> ${match[3]}: ${bad.join(", ")}`);
+        } else {
+          queue.push(target);
+        }
       }
     }
-    expect(offenders).toEqual([]);
+    expect([...offenders]).toEqual([]);
   });
 });

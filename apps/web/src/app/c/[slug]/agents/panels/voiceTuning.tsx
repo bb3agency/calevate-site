@@ -59,8 +59,14 @@ export function valueOf(position: number, min: number, max: number, step = 0.01)
   return Math.round(Math.round(raw / step) * step * 100) / 100;
 }
 
+/** Hundredths with trailing zeros dropped: the slider steps in hundredths, so one decimal
+ *  would make 1.05 and 1.1 read alike, while "1.10" breaks the no-needless-decimals rule. */
+function trimmed(value: number): string {
+  return String(Number(value.toFixed(2)));
+}
+
 export function multiplierLabel(value: number): string {
-  return value === NORMAL ? "Normal" : `${value.toFixed(2)}×`;
+  return value === NORMAL ? "Normal" : `${trimmed(value)}×`;
 }
 
 const EMOTION_LABELS: Record<string, string> = {
@@ -143,7 +149,7 @@ function Slider({
       value={positionOf(value, min, max)}
       onChange={(position) => onChange(valueOf(position, min, max, step))}
       valueText={() => multiplierLabel(value)}
-      spokenText={() => (value === NORMAL ? "Normal" : `${value.toFixed(2)} times normal`)}
+      spokenText={() => (value === NORMAL ? "Normal" : `${trimmed(value)} times normal`)}
       scale={[slower, "Normal", faster]}
       marks={[HALF]}
       labelAction={

@@ -1,5 +1,6 @@
 "use client";
 
+import { formatPayableINR } from "@/lib/numberDisplay";
 import { useState, type ReactNode } from "react";
 import { Receipt } from "lucide-react";
 
@@ -250,7 +251,7 @@ function LedgerRow({
               /* The accessible name carries the AMOUNT: a column of buttons all reading
                  "Receipt" is a column of identically-named controls in a screen reader's
                  list, and the one thing that tells them apart is the row's figure. */
-              aria-label={`Receipt for the payment of ${formatINR(entry.delta_inr)}`}
+              aria-label={`Receipt for the payment of ${formatPayableINR(entry.delta_inr)}`}
             >
               <Receipt className="mr-1 inline h-3.5 w-3.5" aria-hidden />
               Receipt

@@ -66,6 +66,12 @@ describe("the monthly platform fee card", () => {
     expect(screen.getByRole("button", { name: /Pay ₹1,999/ })).toBeTruthy();
   });
 
+  it("asks for the fee to the paisa, never rounded to the display rule", async () => {
+    const owed = { ...OVERDUE, amount_inr: "1178.82", charges: [{ ...OVERDUE.charges[0]!, amount_inr: "1178.82" }] };
+    await renderBillingHub(routes(owed));
+    expect(await screen.findByRole("button", { name: /Pay ₹1,178.82/ })).toBeTruthy();
+  });
+
   it("renders nothing while the fee is off and nothing is owed", async () => {
     const { container } = await renderBillingHub(routes(PLATFORM_FEE_OFF));
     await screen.findByText("Calling credit");

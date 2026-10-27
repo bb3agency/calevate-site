@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 
-import { ProblemNotice, Skeleton, formatCount } from "@/components/ui";
+import { ProblemNotice, Skeleton, formatCount, formatINR } from "@/components/ui";
 import { Section } from "@/components/console/section";
 import { Metric } from "@/components/console/metric";
 import { useAgentStats, useAgents } from "@/lib/api/agents";
@@ -162,9 +162,9 @@ export function DashboardScreen({ slug }: { slug: string }) {
           ? trial !== null && trial.test_calls_only
             ? `the account is on a free trial until ${trialEndsAt(trial)}: it can place test calls from the dashboard, and adding credit ends the trial and opens business verification, its own number and live calls`
             : trial !== null
-            ? `${wallet.data.prepaid ? `${wallet.data.balance_inr} INR left; ` : ""}the account is on a free trial until ${trialEndsAt(trial)}, so calls are on us, nothing is taken from the credit, and an empty balance stops no calls`
+            ? `${wallet.data.prepaid ? `${formatINR(wallet.data.balance_inr)} left; ` : ""}the account is on a free trial until ${trialEndsAt(trial)}, so calls are on us, nothing is taken from the credit, and an empty balance stops no calls`
             : wallet.data.prepaid
-            ? `${wallet.data.balance_inr} INR left${
+            ? `${formatINR(wallet.data.balance_inr)} left${
                 wallet.data.outbound_stopped
                   ? " — outgoing calls have stopped and the agents are no longer answering incoming ones; adding credit starts both again straight away"
                   : wallet.data.is_low

@@ -25,8 +25,8 @@ import { ApiProblem } from "@/lib/api/client";
 import { CLIENT_ACCOUNT_PATH, CLIENT_SIGN_IN_PATH } from "@/lib/authn/clientAuthn";
 import { ClientSessionProvider, useClientSessionRow } from "@/lib/authn/clientSession";
 import { lookup } from "@/lib/lookup";
+import { SIGNUP_CONTACT_EMAIL } from "@/lib/signupConfig";
 import {
-  SIGNUP_CONTACT_EMAIL,
   SIGNUP_VERTICALS,
   isSignupClosed,
   isSignupDeferred,

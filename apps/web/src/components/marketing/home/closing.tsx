@@ -13,7 +13,7 @@ import {
   SHELL,
 } from "@/components/marketing/pageShell";
 import { CLIENT_SIGN_IN_PATH } from "@/lib/authn/clientAuthn";
-import { SIGNUP_CONTACT_EMAIL, SIGNUP_OPEN } from "@/lib/api/signup";
+import { SIGNUP_CONTACT_EMAIL, SIGNUP_OPEN } from "@/lib/signupConfig";
 
 /**
  * The closing offer and the two doors. MOVED, NOT REWRITTEN.

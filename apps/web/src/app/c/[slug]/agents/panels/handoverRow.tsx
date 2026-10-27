@@ -58,7 +58,7 @@ export function HandoverRow({
           <button
             type="button"
             className={QUIET_ICON_BUTTON}
-            aria-label="Move up"
+            aria-label={`Move ${name} up`}
             title="Move up"
             disabled={index === 0}
             onClick={() => onMove(index - 1)}
@@ -68,7 +68,7 @@ export function HandoverRow({
           <button
             type="button"
             className={QUIET_ICON_BUTTON}
-            aria-label="Move down"
+            aria-label={`Move ${name} down`}
             title="Move down"
             disabled={last}
             onClick={() => onMove(index + 1)}

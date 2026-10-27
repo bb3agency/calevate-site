@@ -413,7 +413,7 @@ describe("recent handovers and saving the list", () => {
     await panelHeading();
 
     // The editor fails closed until `/v1/me` has said this session holds `org:manage`.
-    const moveUp = screen.getAllByRole("button", { name: "Move up" })[1];
+    const moveUp = screen.getAllByRole("button", { name: /^Move .+ up$/ })[1];
     await waitFor(() => expect(moveUp.hasAttribute("disabled")).toBe(false));
     fireEvent.click(moveUp);
     fireEvent.click(screen.getByRole("button", { name: "Save the list" }));
@@ -447,7 +447,7 @@ describe("recent handovers and saving the list", () => {
       "Only an account owner can change who calls are put through to.",
     );
 
-    for (const name of ["Move up", "Move down", "Save the list"]) {
+    for (const name of [/^Move .+ up$/, /^Move .+ down$/, "Save the list"]) {
       for (const button of screen.getAllByRole("button", { name })) {
         expect(button.matches(":disabled"), `${name} is pressable`).toBe(true);
       }
@@ -455,7 +455,7 @@ describe("recent handovers and saving the list", () => {
     for (const box of screen.getAllByRole("textbox", { name: "Note for this agent (optional)" })) {
       expect(box.matches(":disabled")).toBe(true);
     }
-    fireEvent.click(screen.getAllByRole("button", { name: "Move up" })[1]);
+    fireEvent.click(screen.getAllByRole("button", { name: /^Move .+ up$/ })[1]);
     fireEvent.click(screen.getByRole("button", { name: "Save the list" }));
     expect(calls.some((call) => call.method === "PUT")).toBe(false);
   });

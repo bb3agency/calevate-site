@@ -157,7 +157,10 @@ export function TopUp({ session }: { session: Session }) {
   const bankOnly = !capability.data.online_payments_available;
   /** A RENDERING HINT for the button's words; the intent route is the authority (D-75). */
   const payable = capability.data.provider_orders_available;
-  const busy = intent.isPending || stage.at === "opening" || stage.at === "open";
+  /** "unverified" holds too: a checkout we could not confirm may already have taken the
+      money, so no second order may start until the drawer is reopened. */
+  const busy =
+    intent.isPending || stage.at === "opening" || stage.at === "open" || stage.at === "unverified";
   const order = intent.data ?? null;
   const card = packs.data;
   const selected = card ? selection(card.packs, choice, amount) : null;

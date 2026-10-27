@@ -1000,6 +1000,8 @@ describe("the payment window", () => {
     // Nothing that reads as a completed payment.
     expect(screen.queryByText("Payment received")).toBeNull();
     expect(container.textContent).not.toContain("— paid.");
+    // The money may have moved, so no second order may start from the pinned button.
+    expect(screen.getByRole("button", { name: "Continue" }).matches(":disabled")).toBe(true);
   });
 
   it("says so when the provider's script will not load, and offers a way through", async () => {

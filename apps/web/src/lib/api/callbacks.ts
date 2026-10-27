@@ -63,6 +63,7 @@ function refreshCallbacks(client: QueryClient, org: string): Promise<unknown> {
       ["call", org],
       ["calls", org],
       ["calls-log", org],
+      ["callback-check", org],
       ["lead", org],
       ["leads", org],
     ].map((queryKey) => client.invalidateQueries({ queryKey })),

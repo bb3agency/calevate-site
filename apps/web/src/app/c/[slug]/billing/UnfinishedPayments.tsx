@@ -1,5 +1,6 @@
 "use client";
 
+import { formatPayableINR } from "@/lib/numberDisplay";
 import { CircleAlert, CircleCheck, Clock, HelpCircle } from "lucide-react";
 import type { ReactNode } from "react";
 
@@ -8,7 +9,6 @@ import {
   MonoValue,
   ProblemNotice,
   Skeleton,
-  formatINR,
   formatIST,
 } from "@/components/ui";
 import { lookup } from "@/lib/lookup";
@@ -135,7 +135,7 @@ function AttemptRow({ attempt }: { attempt: TopUpAttempt }) {
           <span className="text-ink-muted" aria-hidden>
             {copy?.icon ?? <HelpCircle className="h-4 w-4" />}
           </span>
-          {formatINR(attempt.amount_inr)}
+          {formatPayableINR(attempt.amount_inr)}
           <span className="text-meta font-normal text-ink-muted">
             {copy?.title ?? attempt.outcome}
           </span>

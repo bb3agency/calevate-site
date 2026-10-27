@@ -81,7 +81,7 @@ describe("How it sounds", () => {
       },
     });
     const speed = screen.getByRole("slider", { name: "Speed" });
-    expect(speed.getAttribute("aria-valuetext")).toBe("1.20 times normal");
+    expect(speed.getAttribute("aria-valuetext")).toBe("1.2 times normal");
     fireEvent.click(screen.getByRole("button", { name: "Reset speed to normal" }));
     expect(speed.getAttribute("aria-valuetext")).toBe("Normal");
     expect((speed as HTMLInputElement).value).toBe("50");
@@ -161,7 +161,7 @@ describe("How it sounds", () => {
     const loudness = screen.getByRole("slider", { name: "Loudness" });
     expect((loudness as HTMLInputElement).disabled).toBe(false);
     fireEvent.change(loudness, { target: { value: "100" } });
-    expect(loudness.getAttribute("aria-valuetext")).toBe("2.00 times normal");
+    expect(loudness.getAttribute("aria-valuetext")).toBe("2 times normal");
   });
 
   it("sets only the speed on a Clear voice, in its own range and step (D-884)", async () => {

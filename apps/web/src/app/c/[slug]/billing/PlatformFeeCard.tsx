@@ -1,5 +1,6 @@
 "use client";
 
+import { formatPayableINR } from "@/lib/numberDisplay";
 import { useState } from "react";
 
 import { Receipt } from "lucide-react";
@@ -12,7 +13,6 @@ import {
   ProblemNotice,
   RestrictionNote,
   Skeleton,
-  formatINR,
   formatIST,
 } from "@/components/ui";
 import { useConfirmTopUp } from "@/lib/api/billing";
@@ -125,7 +125,7 @@ function FeeBody({ session, fee }: { session: Session; fee: PlatformFee }) {
         <p className="max-w-prose text-body text-ink-muted">
           {amount ? (
             <>
-              {formatINR(amount)} a month, paid separately from your calling credit. It never
+              {formatPayableINR(amount)} a month, paid separately from your calling credit. It never
               comes out of your balance, and buying credit never pays it.
             </>
           ) : (
@@ -155,7 +155,7 @@ function FeeBody({ session, fee }: { session: Session; fee: PlatformFee }) {
           <div className="flex flex-wrap items-end justify-between gap-4 rounded-md border border-line p-4">
             <div className="space-y-1">
               <p className="text-meta text-ink-muted">{feeMonth(owed.period)}</p>
-              <p className="text-title font-semibold">{formatINR(owed.amount_inr)}</p>
+              <p className="text-title font-semibold">{formatPayableINR(owed.amount_inr)}</p>
               <p className="text-meta text-ink-muted">
                 {owed.status === "overdue"
                   ? `Unpaid since ${formatIST(owed.grace_ends_at)}`
@@ -171,7 +171,7 @@ function FeeBody({ session, fee }: { session: Session; fee: PlatformFee }) {
                 onClick={() => pay(owed.id)}
               >
                 <Receipt aria-hidden className="h-4 w-4" />
-                Pay {formatINR(owed.amount_inr)}
+                Pay {formatPayableINR(owed.amount_inr)}
               </ActionButton>
               <RestrictionNote reason={write.reason} />
             </div>
@@ -180,7 +180,7 @@ function FeeBody({ session, fee }: { session: Session; fee: PlatformFee }) {
 
         {stage.at === "bank" && (
           <NoticeBox tone="neutral" title="Pay by bank transfer">
-            Online payment is not available yet. Transfer {formatINR(stage.order.amount_inr)} and
+            Online payment is not available yet. Transfer {formatPayableINR(stage.order.amount_inr)} and
             quote the reference <MonoValue>{stage.order.receipt}</MonoValue>; we record it as
             soon as it arrives.
           </NoticeBox>
@@ -209,7 +209,7 @@ function FeeBody({ session, fee }: { session: Session; fee: PlatformFee }) {
               {fee.charges.map((charge) => (
                 <tr key={charge.id} className="border-t border-line">
                   <td className="py-2">{feeMonth(charge.period)}</td>
-                  <td className="py-2">{formatINR(charge.amount_inr)}</td>
+                  <td className="py-2">{formatPayableINR(charge.amount_inr)}</td>
                   <td className="py-2">{feeStatusCopy(charge.status).label}</td>
                 </tr>
               ))}

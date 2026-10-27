@@ -83,13 +83,15 @@ export function PlanCard({
   const client = useQueryClient();
   const data = plan.data;
 
-  // The screens the plan's action touches are refreshed once, when it ends.
+  // The screens the plan's action touches are refreshed once, when it ends. A plan the
+  // worker finishes before the first re-read goes straight from proposed to done.
   const lastStatus = useRef<PlanStatus | undefined>(undefined);
   useEffect(() => {
     if (data === undefined) return;
     const was = lastStatus.current;
     lastStatus.current = data.status;
-    if (was !== undefined && isActive(was) && !isActive(data.status)) {
+    const ran = was !== undefined && (isActive(was) || (was === "proposed" && data.status === "done"));
+    if (ran && !isActive(data.status)) {
       refreshAfterPlan(client, session.orgSlug, data);
     }
   }, [data, client, session.orgSlug]);
@@ -200,7 +202,7 @@ function PlanBody({
         <dt className="text-ink-faint">Cost</dt>
         <dd className="min-w-0 break-words text-ink-muted [overflow-wrap:anywhere]">
           <span className="font-medium text-ink">{estimateWords(plan)}</span>
-          {plan.estimate_note && plan.estimate_inr !== "0.00" ? ` · ${plan.estimate_note}` : ""}
+          {plan.estimate_note && !/^0*(\.0*)?$/.test(plan.estimate_inr ?? "0") ? ` · ${plan.estimate_note}` : ""}
         </dd>
         {plan.excluded_count > 0 && (
           <>

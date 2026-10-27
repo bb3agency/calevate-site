@@ -117,12 +117,12 @@ export function AiAssistScreen() {
             { key: "kb_requests_used", label: "Files and facts prepared for your agents this month", value: String(quota.data.kb_requests_used) },
             { key: "balance_inr", label: "Allowance left, signed — negative means overdrawn (INR)", value: quota.data.balance_inr },
             { key: "allowance_inr", label: "Allowance for AI help (INR)", value: quota.data.allowance_inr },
-            { key: "remaining_inr", label: "Allowance left (INR)", value: quota.data.remaining_inr },
+            { key: "remaining_inr", label: "Allowance left", value: formatINR(quota.data.remaining_inr) },
             {
               key: "extra_available",
               label: "May another block be bought?",
               value: quota.data.extra_available
-                ? `yes — ${quota.data.extra_block_requests} more requests for INR ${quota.data.extra_block_inr}`
+                ? `yes — ${quota.data.extra_block_requests} more requests for ${formatINR(quota.data.extra_block_inr)}`
                 : `no — ${quota.data.extra_unavailable_reason ?? "no reason given"}`,
             },
             {

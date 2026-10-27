@@ -1,5 +1,6 @@
 "use client";
 
+import { formatPayableINR } from "@/lib/numberDisplay";
 import { useEffect, useState } from "react";
 import { RefreshCw } from "lucide-react";
 
@@ -179,7 +180,7 @@ export function AutoRechargePanel({
       status={data.enabled ? "On" : "Off"}
       subtitle={
         data.enabled
-          ? `Adds ${formatINR(data.amount_inr)} when credit falls below ${formatINR(data.threshold_inr)}`
+          ? `Adds ${formatPayableINR(data.amount_inr)} when credit falls below ${formatINR(data.threshold_inr)}`
           : "Refill your credit automatically when it runs low"
       }
       showLabel={confirmed ? "Change" : "Set up"}
@@ -205,7 +206,7 @@ export function AutoRechargePanel({
           </div>
           <p className="text-body text-ink-muted">
             {confirmed && data.mandate_method
-              ? `${methodName} approved, up to ${formatINR(data.mandate_max_inr)} per top-up.`
+              ? `${methodName} approved, up to ${formatPayableINR(data.mandate_max_inr)} per top-up.`
               : (lookup(MANDATE_STATUS_TEXT, data.mandate_status) ?? data.mandate_status)}
           </p>
           {!available && <p className="text-meta text-ink-muted">{UNAVAILABLE}</p>}
@@ -319,7 +320,7 @@ export function AutoRechargePanel({
                 <li key={charge.created_at} className="flex flex-wrap justify-between gap-x-4 py-2.5">
                   <span className="text-ink-muted">{formatIST(charge.created_at)}</span>
                   <span className="tabular-nums text-ink">
-                    {formatINR(charge.amount_inr)} ·{" "}
+                    {formatPayableINR(charge.amount_inr)} ·{" "}
                     {charge.status === "captured"
                       ? "Added"
                       : charge.status === "pending"
