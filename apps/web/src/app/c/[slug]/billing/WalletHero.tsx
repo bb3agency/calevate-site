@@ -1,60 +1,44 @@
 "use client";
 
+import { CircleAlert, CircleDashed, TriangleAlert } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { FlashValue } from "@/components/console/valueFlash";
-import { NOTICE_BAR, NOTICE_BASE, formatINR, hasNonZeroDigit } from "@/components/ui";
+import { formatINR, hasNonZeroDigit } from "@/components/ui";
 import {
   activeTrial,
-  creditLeftPhrase,
-  runwaySentence,
+  trialEndsAt,
   walletState,
+  type Runway,
   type Wallet as WalletData,
 } from "@/lib/api/wallet";
 
 import { TierRunwayLines } from "./LotsPanel";
-import type { WalletLots } from "./lots";
+import { firstLapse, formatISTDate, type WalletLots } from "./lots";
 
 /**
- * The hero: what you have, and how long it lasts.
+ * The summary card: the balance, how long it lasts, when any of it lapses, and the screen's
+ * one primary action.
  *
- * **"HOW LONG WILL THIS LAST" IS THE POINT OF THIS SCREEN, and it is why the runway is
- * set in the same type size as the balance rather than as a caption under it.** A rupee
- * figure means nothing to a clinic owner — ₹3,400 is either a fortnight or an afternoon
- * depending on how much they call — and the number they actually plan around is the days.
- * So the two are a PAIR, not a figure and its footnote.
+ * **The runway line is printed only when the server made a projection.** "We need 7 days of
+ * history" and "nothing to work a pace from" are true and useless to an owner glancing at
+ * a balance, so they are not shown at all; a projection that is shown is never invented
+ * (`days` and `beyond_horizon` are the server's). The copilot still reads the full reason
+ * through `runwaySentence`.
  *
- * **The sentence is never invented.** `runwaySentence` refuses to print a projection the
- * server declined to make, and says which of four reasons applies. On a brand-new account
- * — the first thing every client ever sees here — that reads "we need about 7 days of
- * calling to work out how long your credit lasts", which is true, and not "0 days left",
- * which is a lie that would make an owner buy credit they do not need.
+ * **MONEY IS NEVER CONVEYED BY COLOUR ALONE.** Every state carries an icon and a sentence
+ * (WCAG 1.4.1). The run-out notice is `role="alert"` because something has already stopped.
  *
- * **MONEY IS NEVER CONVEYED BY COLOUR ALONE.** Every state carries an icon and a sentence;
- * the tint is the third channel, not the only one (WCAG 1.4.1). The empty state is a
- * `role="alert"` because it names something that has already stopped happening.
+ * **THE EMPTY-WALLET NOTICE MAY NOT REASSURE ABOUT INCOMING CALLS.** At zero the agents
+ * are silenced at the engine (`agents/service.py::reconcile_inbound_answering`, D-551), so
+ * the notice states, in this order, the same three facts as
+ * `crm/attention.BLOCK_REMEDIES["no_credits"]` and the low-balance email: both directions
+ * have stopped, callers hear an apology that says nothing about the account, and adding
+ * credit restarts both.
  *
- * ⚠ **THE EMPTY-WALLET BANNER MAY NOT REASSURE ABOUT INCOMING CALLS.** At zero the agents
- * are silenced at the engine (`agents/service.py::reconcile_inbound_answering`, D-551) and
- * a caller hears a short apology, so "people calling you still get through" would be the
- * most expensive false sentence in the product: the owner reads it, does nothing, and their
- * callers are turned away all night.
- *
- * So the banner leads with what has actually happened, then with the two things the owner
- * will be asked about within the hour: what their own customers hear (an apology that
- * gives no reason and says nothing about their account, because a caller who works out
- * that the business has not paid is a harm we inflicted on our client), and that topping
- * up is the whole fix. Same three facts, same order, as
- * `crm/attention.BLOCK_REMEDIES["no_credits"]` and the low-balance email — a client must
- * not get two accounts of one event on two screens.
- *
- * **AN EMPTY WALLET AND A BRAND-NEW ONE ARE THE SAME NUMBER AND DIFFERENT NEWS**, and
- * since prepaid became the motion every account starts on, the second one is what most
- * clients meet first. `outbound_stopped` is true on both, so the server's verdict alone
- * cannot tell them apart; `funded` — has anything ever moved on this wallet — is what
- * does, and it comes from the ledger the panel below already reads (same query key, so no
- * second request). "Your calling credit has run out" on day one is a sentence about a
- * failure to a client who has not had a chance to have one yet.
+ * **AN EMPTY WALLET AND A BRAND-NEW ONE ARE THE SAME NUMBER AND DIFFERENT NEWS.**
+ * `outbound_stopped` is true on both; `funded` (has anything ever moved on this wallet)
+ * tells them apart, so day one reads as "not started", never as "ran out".
  */
 export function WalletHero({
   wallet,
@@ -63,155 +47,159 @@ export function WalletHero({
   action,
 }: {
   wallet: WalletData;
-  /**
-   * Has this wallet ever had anything on it? `null` while the history is still in
-   * flight — see the day-one paragraph in the module comment.
-   */
+  /** Has this wallet ever had anything on it? `null` while the history is in flight. */
   funded: boolean | null;
   /**
-   * The lot queue, when the server can answer for it. It carries the RUNWAY IN MINUTES —
-   * one figure per voice quality, summed lot by lot at each lot's own frozen rate (D-547).
-   * Absent, no minutes figure is printed at all: `wallet.minutes_left` divides one balance
-   * by one LIST rate, which is precisely the arithmetic lots exist to stop being true, and
-   * a wrong minute count is worse on this screen than none.
+   * The lot queue, when the server can answer for it: the minutes per voice quality and
+   * each lot's lapse date. Absent, no minutes figure is printed — `wallet.minutes_left`
+   * divides one balance by one list rate, which lots exist to stop being true (D-547).
    */
   lots: WalletLots | undefined;
-  /** The screen's one primary action (Add credit), set beside the figures. */
+  /** The screen's one primary action (Add credit). */
   action?: ReactNode;
 }) {
   const state = walletState(wallet);
   const trial = activeTrial(wallet);
-  /* DAY ONE IS NOT AN OUTAGE. A zero balance and an empty history is an account that
-     has not started, and "your calling credit has run out" is false about it — it says
-     something broke, on the first screen a new client opens, before they have done
-     anything wrong. Both sentences lead with the same reassurance, so the two variants
-     say the same thing to somebody who reads the first line and stops. */
   const dayOne = state === "stopped" && funded === false;
   const negative = wallet.balance_inr.trimStart().startsWith("-");
-  /* WHAT IS OWED, from the lot queue's `overdraft_inr` when it was read, else from the sign
-     of the balance — string work only, no arithmetic on money (hard rule 7). */
+  /* What is owed, from the lot queue when it was read, else from the sign of the balance —
+     string work only, no arithmetic on money (hard rule 7). */
   const owed =
     lots && hasNonZeroDigit(lots.overdraft_inr)
       ? lots.overdraft_inr
       : negative && hasNonZeroDigit(wallet.balance_inr)
         ? wallet.balance_inr.trimStart().slice(1)
         : null;
+  const runway = runwayLine(wallet.runway);
+  const lapse = firstLapse(lots);
+  const lapseDay = lapse ? formatISTDate(lapse.expires_at) : null;
+
   return (
-    <div className="space-y-4">
+    <section
+      aria-label="Your calling credit"
+      className="overflow-hidden rounded-card border border-line bg-surface"
+    >
       {state === "stopped" && (
-        <div
-          /* `alert` interrupts; `status` waits its turn. Something HAS stopped on an
-             account that was running, and nothing has on a new one — so the day-one
-             variant is polite and the run-out is not. */
+        <Notice
+          /* `alert` interrupts; `status` waits its turn. Something has stopped on an
+             account that was running, and nothing has on a new one. */
           role={dayOne ? "status" : "alert"}
-          className={`${NOTICE_BASE} ${NOTICE_BAR[dayOne ? "neutral" : "stop"]}`}
-        >
-          <p className="font-semibold">
-            {/* THE HEADLINE FACT ON BOTH VARIANTS IS THE PHONE, not the campaigns: an
-                owner whose agents have gone quiet is about to be asked by their own
-                customers, and that is the sentence they must not have to hunt for. Day one
-                differs only in tense — nothing has stopped on an account that never
-                started, so it says what will not happen rather than what has. */}
-            {dayOne
+          tone={dayOne ? "neutral" : "stop"}
+          title={
+            dayOne
               ? "Until there is credit on the account your agents cannot make outgoing calls and will not answer incoming ones."
-              : "Your calling credit has run out, so outgoing calls have stopped and your agents are no longer answering incoming ones."}
+              : "Your calling credit has run out, so outgoing calls have stopped and your agents are no longer answering incoming ones."
+          }
+        >
+          {/* `funded === null`: the history has not arrived, so the sentence must be true
+              of both a spent wallet and one that never had credit. */}
+          {dayOne || funded === null
+            ? "Callers hear a short apology that gives no reason and says nothing about your account. Add credit and answering, campaigns and call-backs start straight away."
+            : "Callers hear a short apology that gives no reason and says nothing about your account. Add credit and answering, campaigns and call-backs all start again straight away."}
+        </Notice>
+      )}
+      {state === "low" && (
+        <Notice role="status" tone="warn" title="Your calling credit is running low.">
+          {formatINR(wallet.balance_inr)} left, below the {formatINR(wallet.low_balance_threshold_inr)} we
+          warn at. At zero, calls stop in both directions.
+        </Notice>
+      )}
+
+      <div className="flex flex-col gap-5 p-5 sm:flex-row sm:items-end sm:justify-between sm:gap-8 sm:p-6">
+        <div className="min-w-0 space-y-1.5">
+          <p className="text-meta font-medium text-ink-muted">Calling credit</p>
+          {/* `formatINR` formats the server's digits and never parses them (hard rule 7). */}
+          <p
+            className={`text-[clamp(1.75rem,8vw,2.25rem)] font-semibold leading-none tracking-tight tabular-nums [overflow-wrap:anywhere] ${
+              negative ? "text-danger" : "text-ink"
+            }`}
+          >
+            <FlashValue value={wallet.balance_inr}>{formatINR(wallet.balance_inr)}</FlashValue>
           </p>
-          {dayOne ? (
-            <p className="mt-2">
-              Anyone ringing you meanwhile hears a short apology asking them to try again
-              later; it gives no reason and says nothing about your account. Add credit
-              below and your agents start answering, and your campaigns and call-backs
-              start going out, straight away.
+          {owed !== null && (
+            <div className="pt-1 text-body">
+              <p className="font-medium text-danger">You owe {formatINR(owed)}</p>
+              {/* Read off the SIGN of the server's string, never a parsed number. */}
+              <p className="text-ink-muted">
+                A call in progress is finished rather than cut off, so the balance can dip a
+                little below zero. Your next top-up clears what is owed first.
+              </p>
+            </div>
+          )}
+          {runway && (
+            <p className="pt-1 text-body text-ink [text-wrap:pretty]">
+              {runway}
+              {/* The working, so an owner who doubts the days can see what they came from. */}
+              {wallet.runway.daily_burn_inr !== null && runway !== BEYOND && (
+                <span className="text-ink-muted">
+                  , spending about {formatINR(wallet.runway.daily_burn_inr)} a day
+                </span>
+              )}
             </p>
-          ) : funded === null ? (
-            /* THE HISTORY HAS NOT ARRIVED, so neither sentence may be asserted. This one
-               is true of both: it names what stopped without claiming money ran out on an
-               account that may never have had any (BUILD-LOG §52 — an unknown is not a
-               state). */
-            <p className="mt-2">
-              There is no credit on the account right now, and calling needs it in both
-              directions. People ringing you hear a short apology asking them to try again
-              later — it gives no reason and says nothing about your account. Add credit
-              below and answering, campaigns and call-backs all start again straight away.
+          )}
+          {/* One figure per voice quality, from the lot queue (D-547). */}
+          {lots && <TierRunwayLines lots={lots} />}
+          {lapse && lapseDay && (
+            <p className="text-meta text-ink-muted">
+              {formatINR(lapse.credits_remaining)} of it lapses on {lapseDay} if it is not used.
             </p>
-          ) : (
-            <p className="mt-2">
-              People ringing you hear a short apology asking them to try again later — it
-              gives no reason and says nothing about your account. Add credit below and
-              answering, campaigns and call-backs all start again straight away.
+          )}
+          {trial !== null && (
+            /* D-536: while a trial runs nothing is debited and an empty balance stops no
+               calls, so the trial is a quiet fact here rather than a paragraph. */
+            <p className="flex items-center gap-1.5 pt-1 text-meta text-brand-strong dark:text-brand-bright">
+              <CircleDashed aria-hidden className="h-3.5 w-3.5 shrink-0" />
+              <span>
+                Free trial — calls aren&rsquo;t charged until {trialEndsAt(trial)}.
+              </span>
             </p>
           )}
         </div>
-      )}
-      {state === "low" && (
-        <div role="status" className={`${NOTICE_BASE} ${NOTICE_BAR.warn}`}>
-          <p className="font-semibold">
-            Your calling credit is running low.
-          </p>
-          <p className="mt-2">
-            {creditLeftPhrase(wallet)}. The balance is below the{" "}
-            {formatINR(wallet.low_balance_threshold_inr)} we start warning at. When it
-            reaches zero your calls stop in both directions: nothing goes out, and your
-            agents stop answering the phone. We email the account owner at this point too.
-          </p>
-        </div>
-      )}
-
-      {/* THE WALLET HEADER. The runway leads, because the days are what an owner plans
-          around; the balance it is worked from sits under it; the one primary action
-          closes the pair. Whitespace, not cards: they are one fact. */}
-      <section
-        aria-label="Your calling credit"
-        className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between lg:gap-12"
-      >
-        <div className="min-w-0 flex-1 space-y-6">
-          <div className="min-w-0">
-            <p className="text-meta font-medium text-ink-muted">How long this lasts</p>
-            <p className="mt-1 max-w-xl text-title text-ink [text-wrap:balance]">
-              {runwaySentence(wallet.runway)}
-            </p>
-            {/* The working, not only the conclusion. */}
-            {wallet.runway.daily_burn_inr !== null && (
-              <p className="mt-1 text-meta text-ink-muted">
-                Worked out from {formatINR(wallet.runway.daily_burn_inr)} a day over the last{" "}
-                {wallet.runway.window_days} days.
-              </p>
-            )}
-            {/* One figure per voice quality, from the lot queue (D-547) — never one
-                balance divided by one list rate. */}
-            {lots && <TierRunwayLines lots={lots} />}
-          </div>
-
-          {/* `formatINR` formats the server's digits and never parses them (hard rule 7). */}
-          <div className="min-w-0">
-            <p className="text-meta font-medium text-ink-muted">Calling credit</p>
-            <p
-              className={`mt-1 text-figure tabular-nums ${negative ? "text-danger" : "text-ink"}`}
-            >
-              <FlashValue value={wallet.balance_inr}>{formatINR(wallet.balance_inr)}</FlashValue>
-            </p>
-            {owed !== null && (
-              <p className="mt-1 text-body font-medium text-danger">You owe {formatINR(owed)}</p>
-            )}
-            {/* Both directions stop at zero (D-551); during a trial neither does (D-536). */}
-            <p className="mt-1 text-meta text-ink-muted">
-              {trial !== null
-                ? "During your free trial nothing is taken from this credit, and an empty balance stops no calls."
-                : "Outgoing calls stop when this reaches zero, and your agents stop answering incoming ones."}
-            </p>
-            {/* A balance below zero is a call that was finished rather than cut off; read
-                off the SIGN of the server's string, never a parsed number. */}
-            {negative && (
-              <p className="mt-1 text-meta text-ink-muted">
-                It can go a little below zero when a call is already in progress — we finish
-                that call rather than cut it off. Your next top-up clears what is owed first,
-                and the rest opens as new credit.
-              </p>
-            )}
-          </div>
-        </div>
         {action && <div className="shrink-0">{action}</div>}
-      </section>
+      </div>
+    </section>
+  );
+}
+
+const BEYOND = "Lasts more than a year at your current pace";
+
+/**
+ * How long the credit lasts, or `null` when the server made no projection. Only the
+ * `projected` basis and the beyond-a-year cap are printed: every other basis is a reason
+ * there is no number, and a reason is not worth a line on the balance.
+ */
+export function runwayLine(runway: Runway): string | null {
+  if (runway.beyond_horizon) return BEYOND;
+  if (runway.basis !== "projected" || runway.days === null) return null;
+  return `About ${runway.days.toLocaleString("en-IN")} ${runway.days === 1 ? "day" : "days"} left at your current pace`;
+}
+
+const NOTICE_TONES = {
+  stop: { bar: "bg-danger-soft text-danger", icon: CircleAlert },
+  warn: { bar: "bg-warn-soft text-warn", icon: TriangleAlert },
+  neutral: { bar: "bg-surface-muted text-ink-muted", icon: CircleDashed },
+} as const;
+
+/** The state strip across the top of the card: an icon, a sentence in bold, one more line. */
+function Notice({
+  role,
+  tone,
+  title,
+  children,
+}: {
+  role: "alert" | "status";
+  tone: keyof typeof NOTICE_TONES;
+  title: string;
+  children: ReactNode;
+}) {
+  const { bar, icon: Icon } = NOTICE_TONES[tone];
+  return (
+    <div role={role} className={`flex gap-3 border-b border-line px-5 py-3.5 sm:px-6 ${bar}`}>
+      <Icon aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
+      <div className="min-w-0 text-body">
+        <p className="font-semibold text-ink">{title}</p>
+        <p className="mt-0.5 text-ink-muted">{children}</p>
+      </div>
     </div>
   );
 }

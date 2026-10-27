@@ -1,11 +1,15 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useId, useState, type ReactNode } from "react";
+import { Landmark } from "lucide-react";
 
 import { ActionButton, useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
 import { MoneyInput, compareMoney } from "@/components/arc/money-input";
+import { ChoiceCard } from "@/components/console/choiceCards";
 import {
-  FIELD,
+  FIELD_GROUP,
+  FIELD_GROUP_INPUT,
+  FIELD_HINT,
   MonoValue,
   NoticeBox,
   ProblemNotice,
@@ -13,7 +17,6 @@ import {
   Skeleton,
   formatCount,
   formatINR,
-  formatRupeeRate,
 } from "@/components/ui";
 import {
   MAX_TOPUP_INR,
@@ -23,9 +26,11 @@ import {
   useTopUpCapability,
   useTopUpIntent,
   type CreditPack,
+  type CreditPacks,
   type TopUpIntent,
 } from "@/lib/api/billing";
 import { useWriteAccess } from "@/lib/api/hooks";
+import { formatAmountINR, formatRateINR } from "@/lib/api/rateCard";
 import { CREDIT_WAIT_MS, useCreditLanding, type AwaitedCredit } from "@/lib/api/wallet";
 import { openRazorpayCheckout, paymentFailedProblem } from "@/lib/razorpayCheckout";
 import type { ApiProblem, Session } from "@/lib/api/client";
@@ -33,6 +38,7 @@ import type { ApiProblem, Session } from "@/lib/api/client";
 import {
   VOICE_TIERS,
   formatWhole,
+  lapseDateFromToday,
   packForAmount,
   packMinutes,
   packRate,
@@ -41,54 +47,42 @@ import {
 } from "./lots";
 
 /**
- * Adding credit — all the way to a completed payment.
+ * Adding credit — a picker, then a completed payment.
  *
- * The symptom this closed: the server minted a real Razorpay order and the browser
- * dead-ended on it. `POST /v1/billing/topups/intent` returned `key_id`,
- * `provider_order_id` and `amount_paise` — everything Checkout needs — and the screen
- * printed the order id as a reference to email somebody. A prepaid client whose wallet
- * emptied could not pay, on a product whose outbound calling stops when it does.
+ * ## The picker
  *
- * ## The four outcomes, and why each has its own state
+ * One optional question first ("minutes you call in a month"), which selects the smallest
+ * pack that covers it; then the packs as radio cards (one tab stop, arrow keys, "selected"
+ * read aloud), each showing its amount and what it buys on each voice in one line; then
+ * ONE button. The per-minute rates differ by pack, so they are stated once, for the
+ * selection, rather than repeated on every card.
  *
- * A payment window has more ways to end than a request does, and three of the four are
- * not failures of ours:
+ * Nothing is computed about money here: every amount, rate and minute count is the
+ * server's, formatted by the shared formatters, and the pack a free amount buys at is the
+ * server's rule (`packForAmount`). The server prices the intent and remains the authority.
+ *
+ * ## The four outcomes of a payment window, each with its own state
  *
  * - **paid** → the three fields go to `POST /v1/billing/topups/callback`, which verifies
- *   the signature with the key secret SERVER-SIDE. We never assert a new balance: the
- *   callback carries no amount, the webhook is the single writer, and `credit_pending` is
- *   `true` on every successful response by construction. So the sentence is "received,
- *   updating" and the balance reads are invalidated (`useConfirmTopUp`).
- * - **dismissed** → the client closed the window. Not an error, not a failure notice, and
- *   emphatically not a spinner left running: the panel returns to exactly the state it was
- *   in, with the order still live so the same "Pay" button reopens it rather than minting
- *   a second order.
- * - **failed** → the provider reported a failed attempt. Rendered as OUR problem sentence
- *   through `ProblemNotice`, never the vendor's string (`paymentFailedProblem`).
- * - **not verified** → the callback was refused. This is the one outcome that must not
- *   look like success, and it is also the one where the client's money may genuinely have
- *   moved. The server's own words are rendered (it owns that wording), and beneath them
- *   the one fact that is ours to state: the wallet is credited by the webhook, so a real
- *   payment still lands without this page.
+ *   the signature SERVER-SIDE. We never assert a new balance: the webhook is the single
+ *   writer, so the sentence is "received, updating" and the balance reads are invalidated.
+ * - **dismissed** → not an error: the panel returns to where it was, with the order still
+ *   live so "Pay now" reopens it rather than minting a second order.
+ * - **failed** → OUR sentence through `ProblemNotice`, never the vendor's string.
+ * - **not verified** → the one outcome that must not look like success, and the one where
+ *   money may have moved. The server's words, then the fact that is ours: the webhook
+ *   still credits a real payment without this page.
  *
- * ## The state machine is MONOTONIC, deliberately
- *
- * `lib/razorpayCheckout.ts` forwards the provider's three callbacks raw, because Checkout
- * fires `ondismiss` when it closes — including after a successful payment, and possibly
- * after a failed attempt the client then retries inside the window. A "first callback
- * wins" rule at that seam gets one of those two wrong. Here, `dismissed` and `failed` may
- * only move a stage that is still `opening`/`open`; once a payment exists we are
- * `verifying` and nothing walks that back. Money moving is the one transition that must
- * not be undone by a window closing.
+ * The state machine is MONOTONIC: Checkout fires `ondismiss` after a successful payment
+ * too, so `dismissed` and `failed` may only move a stage that is still `opening`/`open`.
+ * Once a payment exists we are `verifying` and nothing walks that back.
  */
 export function TopUp({ session }: { session: Session }) {
-  const [amount, setAmount] = useState("");
   const capability = useTopUpCapability(session);
   const intent = useTopUpIntent(session);
   const packs = useCreditPacks(session);
   const confirm = useConfirmTopUp(session);
-  // Both outcomes are said on this panel (the intent's ProblemNotice, the stage notices), so
-  // neither is toasted; the buttons carry pending and their tick.
+  // Both outcomes are said on this panel, so neither is toasted.
   const intentFeedback = useActionFeedback(intent, { errorDisplay: "inline" });
   const confirmFeedback = useActionFeedback(confirm, { errorDisplay: "inline" });
   const [stage, setStage] = useState<Stage>({ at: "idle" });
@@ -96,34 +90,22 @@ export function TopUp({ session }: { session: Session }) {
     session,
     stage.at === "verified" ? stage.awaited : null,
   );
-  // Which control the in-flight intent belongs to, so only the pack the client clicked
-  // (or the custom row) shows its spinner — never every button at once.
-  const [pending, setPending] = useState<string | null>(null);
-  // `org:manage` is what the endpoint requires — staff should see the balance and not a
-  // form that will 403 them, and an operator in "view as client" cannot spend a client's
-  // money from a client screen (D-22).
+  /** A pack id, `CUSTOM`, or "" before anything is chosen. */
+  const [choice, setChoice] = useState("");
+  const [amount, setAmount] = useState("");
+  // `org:manage` is what the endpoint requires; staff see the prices and not a form that
+  // will 403 them, and an operator viewing as the client cannot spend its money (D-22).
   const write = useWriteAccess(session, "org:manage", "add credit");
-  /* WHAT A CLIENT CALLS EACH VOICE QUALITY, read from the card the server sent and held
-     nowhere else. No client-facing surface names a vendor as a tier (founder, 7 Sep 2026),
-     so a build whose card carries no labels prints no quality names and no per-minute
-     rates — an unnamed pair of rupee figures beside one another is worse than silence,
-     because a reader assigns the cheaper one to whichever voice they were thinking of. */
+  /* What a client calls each voice quality, from the card and held nowhere else. A card
+     without them prints no quality names and no per-minute rates: an unnamed pair of rupee
+     figures is worse than none, because a reader assigns the cheaper one to whichever voice
+     they had in mind. */
   const labels = tierLabels(packs.data);
 
-  /**
-   * Open the provider's window for an order the SERVER created.
-   *
-   * Every value handed over is the server's, copied and not computed — `amount_paise` in
-   * particular is the integer the order itself was created with (hard rule 7: a second
-   * rupee-to-paise conversion in the browser would be a second source of the number, and
-   * its failure mode is charging a different amount than the one agreed).
-   *
-   * Nothing is prefilled. The intent carries no email and no phone, and inventing one
-   * from the session would put a contact detail into a third party's form that nobody
-   * asked us to send (hard rule 6's neighbour).
-   */
   const startCheckout = (order: TopUpIntent & { provider_order_id: string }) => {
     setStage({ at: "opening" });
+    // Every value handed over is the server's, copied and not computed — `amount_paise`
+    // above all (hard rule 7). Nothing is prefilled: the intent carries no contact detail.
     void openRazorpayCheckout({
       keyId: order.key_id,
       orderId: order.provider_order_id,
@@ -148,89 +130,40 @@ export function TopUp({ session }: { session: Session }) {
     })
       .then(() => setStage(whileOpening({ at: "open" })))
       .catch((error: unknown) => {
-        // The script did not load, or left no constructor behind. `openRazorpayCheckout`
-        // rejects with an `ApiProblem` precisely so this renders as a sentence with a way
-        // forward rather than as "Something went wrong".
+        // The script did not load; `openRazorpayCheckout` rejects with an `ApiProblem` so
+        // this renders as a sentence with a way forward.
         setStage({ at: "blocked", problem: error as ApiProblem });
       });
   };
 
   const onIntent = (data: TopUpIntent) => {
     const orderId = data.provider_order_id;
-    // No order means no checkout — the manual reference path, unchanged. The capability
-    // hint said the same thing before the click; this is the authority saying it after.
+    // No order means no checkout — the bank-transfer reference renders instead.
     if (orderId === null) return;
     startCheckout({ ...data, provider_order_id: orderId });
   };
 
-  if (capability.isLoading) return <Skeleton rows={2} />;
+  if (capability.isLoading) return <PickerSkeleton />;
   if (capability.error) {
-    return (
-      <div>
-        <ProblemNotice error={capability.error} onRetry={() => void capability.refetch()} />
-      </div>
-    );
+    return <ProblemNotice error={capability.error} onRetry={() => void capability.refetch()} />;
   }
   if (!capability.data) return null;
 
-  if (!capability.data.online_payments_available) {
-    /* Not an empty state and not an error: a true statement about this deployment, with
-       the path that works. The server's authored reason is deliberately NOT shown — a
-       client cannot act on "no_webhook_secret" and naming our missing secret is an
-       internals leak.
-
-       THE PRICES STILL RENDER, AND THAT IS THE POINT OF THIS BRANCH RATHER THAN AN
-       ADDITION TO IT. This used to `return` here, before the rate card — so on every
-       deployment that cannot take a card (which is all of them until a provider account
-       exists) a client opened "Add credit" and found one sentence: no packs, no prices,
-       no idea what any of it costs. They cannot decide what to transfer without knowing
-       what a pack buys, so the branch that removes the BUTTON must not also remove the
-       PRICE LIST. `read_credit_packs` reads no tenant state and no provider state — the
-       catalogue is the same for everyone and is as true on a bank-transfer deployment as
-       on a card one. */
-    return (
-      <div className="space-y-4">
-        <p className="text-body text-ink-muted">
-          We cannot take card or UPI payment on this account yet. To add credit, transfer
-          the amount to us by bank — talk to us for the details — and
-          the credit appears here once the payment lands. The packs below are what each
-          amount buys.
-        </p>
-        {packs.isLoading && <Skeleton rows={4} />}
-        {packs.error && (
-          <ProblemNotice error={packs.error} onRetry={() => void packs.refetch()} />
-        )}
-        {packs.data && (
-          <PackChooser
-            packs={packs.data.packs}
-            labels={labels}
-            payable={false}
-            disabled
-            busy={false}
-            statusFor={() => "idle"}
-            onSelect={() => undefined}
-          />
-        )}
-      </div>
-    );
-  }
-
-  /**
-   * Will a click on these controls end in a payment window?
-   *
-   * A RENDERING HINT and never the check — the intent route asks the same selector
-   * server-side and remains the authority (D-75), so a stale `true` costs a reference
-   * panel instead of a checkout and can never cost a payment. What it decides is the
-   * BUTTON LABEL, and that is worth deciding: "Pay" on a deployment that can only mint a
-   * reference is a promise the click cannot keep, and "Get payment details" on one that
-   * opens a card form is the opposite mistake.
-   */
+  /* BANK TRANSFER ONLY: card and UPI are not on for this account. Not an error and not an
+     empty state — and the prices still render, because nobody can decide what to transfer
+     without knowing what it buys. The server's authored reason is not shown: a client
+     cannot act on "no_webhook_secret", and naming our missing secret leaks internals. */
+  const bankOnly = !capability.data.online_payments_available;
+  /** A RENDERING HINT for the button's words; the intent route is the authority (D-75). */
   const payable = capability.data.provider_orders_available;
   const busy = intent.isPending || stage.at === "opening" || stage.at === "open";
   const order = intent.data ?? null;
-  /** The state of the control that started the current intent, and idle on every other. */
-  const intentStatus = (control: string): FeedbackStatus =>
-    pending === control ? intentFeedback.status : "idle";
+  const card = packs.data;
+  const selected = card ? selection(card.packs, choice, amount) : null;
+  const continueStatus: FeedbackStatus =
+    stage.at === "opening" || stage.at === "open" || stage.at === "verifying"
+      ? "pending"
+      : intentFeedback.status;
   const payNowStatus: FeedbackStatus =
     stage.at === "opening" || stage.at === "open" || stage.at === "verifying"
       ? "pending"
@@ -238,220 +171,179 @@ export function TopUp({ session }: { session: Session }) {
         ? "error"
         : confirmFeedback.status;
 
+  const choose = (next: string) => {
+    setChoice(next);
+    // A changed choice withdraws an order prepared for the old one, unless money moved.
+    if (order && (stage.at === "idle" || stage.at === "failed" || stage.at === "blocked")) {
+      intent.reset();
+      setStage({ at: "idle" });
+    }
+  };
+
+  const proceed = () => {
+    if (!selected || busy) return;
+    setStage({ at: "idle" });
+    // A pack posts its id, never an amount, so the catalogue is the price.
+    intent.mutate(
+      selected.kind === "pack" ? { packId: selected.pack.pack_id } : { amountInr: selected.amount },
+      { onSuccess: onIntent },
+    );
+  };
+
   return (
-    <div className="space-y-4">
-      <RestrictionNote reason={write.reason} />
+    <div className="flex min-h-full flex-col">
+      <div className="flex-1 space-y-5">
+        <RestrictionNote reason={write.reason} />
 
-      {/* THE OUTCOME OF THE LAST PAYMENT, above the controls that would start another —
-          UX-DOCTRINE §4. A client who has just paid must not have to look past a rate
-          card to find out whether it worked. */}
-      {stage.at === "verified" && (
-        <NoticeBox tone="ok" title="Payment received">
-          {creditLanded ? (
-            <p role="status">The credit has been added to your balance.</p>
-          ) : (
-            <p>Your balance updates when the payment provider confirms it, usually within a minute.</p>
-          )}
-        </NoticeBox>
-      )}
-
-      {stage.at === "unverified" && (
-        <div className="space-y-2">
-          {/* The server owns this wording — it is a compliance-shaped refusal about
-              money, and a paraphrase would be a second implementation of it. */}
-          <ProblemNotice error={confirm.error} />
-          <NoticeBox tone="warn" title="What happens next">
-            <p>
-              We could not verify this payment here. If the money has left your account, the
-              credit is added when the provider confirms it. Do not pay again. Send us the
-              reference below if your balance does not move.
-            </p>
+        {/* THE OUTCOME OF THE LAST PAYMENT, above the controls that would start another. */}
+        {stage.at === "verified" && (
+          <NoticeBox tone="ok" title="Payment received">
+            {creditLanded ? (
+              <p role="status">The credit has been added to your balance.</p>
+            ) : (
+              <p>Your balance updates when the payment is confirmed, usually within a minute.</p>
+            )}
           </NoticeBox>
-        </div>
-      )}
-
-      {stage.at === "failed" && <ProblemNotice error={PAYMENT_FAILED} />}
-      {stage.at === "blocked" && <ProblemNotice error={stage.problem} />}
-
-      {intent.error && <ProblemNotice error={intent.error} />}
-
-      {/* The pack rate card — the productized way to add credit. A bigger pack buys a
-          cheaper minute on both voice qualities (D-547); the rates and the talk times are
-          the server's own figures, and the pack a client picks freezes its two rates on
-          the credit it opens. */}
-      {packs.isLoading && <Skeleton rows={4} />}
-      {packs.error && <ProblemNotice error={packs.error} onRetry={() => void packs.refetch()} />}
-      {packs.data && (
-        <>
-          <PackChooser
-            packs={packs.data.packs}
-            labels={labels}
-            payable={payable}
-            disabled={!write.allowed}
-            busy={busy}
-            statusFor={intentStatus}
-            onSelect={(packId) => {
-              setPending(packId);
-              setStage({ at: "idle" });
-              intent.mutate({ packId }, { onSuccess: onIntent });
-            }}
-          />
-          {/* ONE LINE UNDER THE PRICES: a pack quotes TWO rates and which one prices a
-              call depends on the voice the agent that took it speaks with, and the price
-              you buy at is fixed on the purchase. `WhatCallsCost` argues both properly on
-              the same screen. Only rendered with the names, for `labels`' reason above. */}
-          {labels && (
-            <p className="text-body text-ink-muted">
-              {/* The client sets the voice themselves, never "tell us":
-                  `PATCH /v1/agents/{agent_id}/voice` carries `agents:write` for `owner` and
-                  `staff` (D-586), with the picker on their own agent screen
-                  (`app/c/[slug]/agents/panels/delivery.tsx`). Word for word the same as
-                  `WhatCallsCost`, because two wordings of one rule is how a client comes to
-                  believe the more generous one. */}
-              Every pack buys both voice qualities, and which one prices a call is set per
-              agent — you choose that on each agent&rsquo;s own screen. A bigger pack makes
-              each minute cheaper, and the rates on the pack you buy stay with that credit
-              until you have spent it.
-            </p>
-          )}
-        </>
-      )}
-
-      {/* An "other amount" for a client who wants a figure that is not a pack. Same route,
-          and it is NOT rateless: a free amount takes the rates of the largest pack whose
-          price it reaches (plan §0 Q3), so somebody typing ₹4,999 is not punished for
-          missing a rung by a rupee. */}
-      <form
-        className="flex flex-wrap items-end gap-x-3 gap-y-2"
-        noValidate
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (amount === "" || busy) return;
-          setPending(CUSTOM);
-          setStage({ at: "idle" });
-          intent.mutate({ amountInr: amount }, { onSuccess: onIntent });
-        }}
-      >
-        <MoneyInput
-          label="Other amount"
-          hint={`${formatINR(String(MIN_TOPUP_INR))} to ${formatINR(String(MAX_TOPUP_INR))}`}
-          value={amount}
-          onChange={setAmount}
-          min={String(MIN_TOPUP_INR)}
-          max={String(MAX_TOPUP_INR)}
-          disabled={!write.allowed}
-          className="min-w-0 flex-1 basis-56"
-        />
-        <ActionButton
-          type="submit"
-          variant="secondary"
-          status={intentStatus(CUSTOM)}
-          successLabel={payable ? "Ready to pay" : "Details ready"}
-          disabled={!write.allowed || amount === "" || (busy && pending !== CUSTOM)}
-        >
-          {payable ? "Pay this amount" : "Get payment details"}
-        </ActionButton>
-        {/* WHAT THIS AMOUNT BUYS AT, BEFORE THE BUTTON. A free amount is priced by the
-            server at the largest pack it reaches, and a client who cannot see that before
-            paying discovers their rates afterwards — on a purchase whose terms are then
-            frozen and cannot be corrected. It is a full-width row of the same form so it
-            sits under the field on a phone rather than beside it. */}
-        {packs.data && labels && (
-          <p
-            role="status"
-            aria-label="What this amount buys"
-            className="w-full text-body text-brand-strong"
-          >
-            <AmountRates packs={packs.data.packs} labels={labels} amount={amount} />
-          </p>
         )}
-      </form>
-
-      {packs.data?.credit_expiry_months ? (
-        <p className="text-body text-ink-muted">
-          Credit you buy now expires {packs.data.credit_expiry_months} months after you buy it.
-          Credit you already hold keeps the terms it was bought on.
-        </p>
-      ) : null}
-
-      {order && (
-        <div className="rounded-md border border-line px-4 py-3 text-body text-ink-muted">
-          {/* The amount the SERVER priced, as it sent it — this is the figure a bank
-              transfer has to match to the paisa, and the figure the provider's window is
-              opened with. */}
-          <p className="font-semibold text-ink">
-            {formatINR(order.amount_inr)}
-            {stage.at === "verified" ? " — paid." : " — nothing has been charged yet."}
-          </p>
-          {order.provider_order_id === null ? (
-            <p className="mt-1">
-              We cannot take card or UPI payment on this account yet. Transfer{" "}
-              <strong className="font-semibold text-ink">{formatINR(order.amount_inr)}</strong>{" "}
-              to us by bank transfer quoting the reference below, or send this reference to us,
-              and the credit is added once the payment lands. Your
-              balance above will not change until then.
-            </p>
-          ) : stage.at === "verified" ? (
-            <p className="mt-1">
-              Quote the references below if you need to ask us about this payment.
-            </p>
-          ) : (
-            <>
-              <p className="mt-1">
-                A payment for{" "}
-                <strong className="font-semibold text-ink">{formatINR(order.amount_inr)}</strong>{" "}
-                is ready. The payment window opens on this page; your balance changes once
-                the payment is confirmed.
+        {stage.at === "unverified" && (
+          <div className="space-y-2">
+            {/* The server owns this wording: a compliance-shaped refusal about money. */}
+            <ProblemNotice error={confirm.error} />
+            <NoticeBox tone="warn" title="Do not pay again">
+              <p>
+                We could not confirm this payment here. If the money has left your account,
+                the credit is added when the payment is confirmed. Send us the reference
+                below if your balance does not move.
               </p>
-              {/* Reopening uses the SAME order rather than starting a new intent, which is
-                  the whole reason a dismissal keeps the panel: a client who closed the
-                  window by accident should not end up with two orders against one
-                  top-up. */}
-              <ActionButton
-                status={payNowStatus}
-                pendingLabel={
-                  stage.at === "opening"
-                    ? "Opening the payment window"
-                    : stage.at === "open"
-                      ? "Payment window is open"
-                      : "Confirming your payment"
-                }
-                successLabel="Paid"
-                // Unverified means the money may have moved: the notice above says not to pay again.
-                disabled={!write.allowed || stage.at === "unverified"}
-                onClick={() =>
-                  startCheckout({ ...order, provider_order_id: order.provider_order_id as string })
-                }
-                className="mt-3"
-              >
-                Pay {formatINR(order.amount_inr)} now
-              </ActionButton>
-            </>
-          )}
-          <p className="mt-2 text-meta text-ink-faint">
-            ref <MonoValue>{order.receipt}</MonoValue>
-          </p>
-          {order.provider_order_id !== null && (
-            <p className="text-meta text-ink-faint">
-              order <MonoValue>{order.provider_order_id}</MonoValue>
+            </NoticeBox>
+          </div>
+        )}
+        {stage.at === "failed" && <ProblemNotice error={PAYMENT_FAILED} />}
+        {stage.at === "blocked" && <ProblemNotice error={stage.problem} />}
+        {intent.error && <ProblemNotice error={intent.error} />}
+
+        {order && (
+          <OrderPanel
+            order={order}
+            paid={stage.at === "verified"}
+            payNow={
+              order.provider_order_id === null || stage.at === "verified" ? null : (
+                /* Reopens the SAME order, so a window closed by accident never becomes
+                   two orders for one top-up. */
+                <ActionButton
+                  status={payNowStatus}
+                  pendingLabel={
+                    stage.at === "opening"
+                      ? "Opening the payment window"
+                      : stage.at === "open"
+                        ? "Payment window is open"
+                        : "Confirming your payment"
+                  }
+                  successLabel="Paid"
+                  // Unverified means the money may have moved: the notice says not to pay again.
+                  disabled={!write.allowed || stage.at === "unverified"}
+                  onClick={() =>
+                    startCheckout({ ...order, provider_order_id: order.provider_order_id as string })
+                  }
+                >
+                  Pay {formatINR(order.amount_inr)} now
+                </ActionButton>
+              )
+            }
+          />
+        )}
+
+        {bankOnly && (
+          <div
+            role="note"
+            className="flex gap-3 rounded-card border border-line bg-surface-muted px-4 py-3 text-body"
+          >
+            <Landmark aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-muted" />
+            <p className="text-ink-muted">
+              <span className="font-medium text-ink">Pay by bank transfer.</span> Card and
+              UPI payment isn&rsquo;t on for your account yet. Talk to us for our bank
+              details; the credit appears here once the transfer lands.
             </p>
-          )}
+          </div>
+        )}
+
+        {packs.isLoading && <PickerSkeleton />}
+        {packs.error && <ProblemNotice error={packs.error} onRetry={() => void packs.refetch()} />}
+        {card && (
+          <PackPicker
+            card={card}
+            labels={labels}
+            choice={choice}
+            onChoose={choose}
+            amount={amount}
+            onAmount={setAmount}
+            disabled={!write.allowed || busy}
+            selected={selected}
+          />
+        )}
+      </div>
+
+      {/* ONE BUTTON, pinned to the bottom of the drawer so it is in reach on a phone
+          whatever was scrolled. Not offered where card and UPI are off: the bank transfer
+          needs no order from us. */}
+      {card && !bankOnly && (
+        <div className="sticky bottom-0 -mx-4 -mb-4 mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-line bg-surface px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))] sm:-mx-5 sm:px-5 sm:pb-3">
+          <p className="min-w-0 text-body text-ink-muted" aria-live="polite">
+            {selected ? (
+              <>
+                You pay{" "}
+                <strong className="font-semibold tabular-nums text-ink">
+                  {formatAmountINR(selected.amount)}
+                </strong>
+              </>
+            ) : (
+              "Choose an amount"
+            )}
+          </p>
+          <ActionButton
+            status={continueStatus}
+            successLabel={payable ? "Ready to pay" : "Details ready"}
+            disabled={!write.allowed || selected === null || busy}
+            onClick={proceed}
+          >
+            {payable ? "Continue" : "Get payment details"}
+          </ActionButton>
         </div>
       )}
     </div>
   );
 }
 
-/** The custom-amount row's spinner key, distinct from any pack id the catalogue can hold. */
+/** The value of `choice` that means "Other amount", distinct from any pack id. */
 const CUSTOM = "__custom__";
 
+type Selection =
+  | { kind: "pack"; pack: CreditPack; amount: string }
+  | { kind: "custom"; pack: CreditPack; amount: string };
+
 /**
- * Where a payment attempt has got to.
- *
- * `blocked` (Checkout would not load) is separate from `failed` (Checkout ran and the
- * payment did not go through) because they are different sentences with different ways
- * out — one is about this browser, the other is about a card.
+ * What the reader has chosen, and the pack whose rates it buys at — or `null` while the
+ * choice is incomplete. A free amount takes the rates of the largest pack it reaches (the
+ * server's rule, `billing/service.py::lot_rates_for_amount`), and states nothing until it
+ * is an amount the server would accept, so a half-typed figure never flickers a rate.
  */
+function selection(packs: CreditPack[], choice: string, amount: string): Selection | null {
+  if (choice === CUSTOM) {
+    if (amount === "") return null;
+    if (
+      compareMoney(amount, String(MIN_TOPUP_INR)) < 0 ||
+      compareMoney(amount, String(MAX_TOPUP_INR)) > 0
+    ) {
+      return null;
+    }
+    const pack = packForAmount(packs, amount);
+    return pack ? { kind: "custom", pack, amount } : null;
+  }
+  const pack = packs.find((candidate) => candidate.pack_id === choice);
+  return pack ? { kind: "pack", pack, amount: pack.amount_inr } : null;
+}
+
+/** Where a payment attempt has got to. `blocked` (Checkout would not load) is not `failed`. */
 type Stage =
   | { at: "idle" }
   | { at: "opening" }
@@ -472,279 +364,281 @@ function whileOpening(next: Stage): (current: Stage) => Stage {
   return (current) => (current.at === "opening" ? next : current);
 }
 
-/**
- * The authored "it did not go through" sentence, built once.
- *
- * `paymentFailedProblem()` takes no arguments and produces the same sentence every time,
- * so a fresh object per render would hand `ProblemNotice` a new identity to re-render on
- * and nothing else. The vendor's own description is deliberately not in it — see
- * `lib/razorpayCheckout.ts` for why a third party's string is not shown to a client.
- */
+/** Built once: the same sentence every time, without the vendor's own description. */
 const PAYMENT_FAILED: ApiProblem = paymentFailedProblem();
 
 /**
- * THE PACK CHOOSER — "how much calling do I need?", answered in that order.
- *
- * ## What this replaced, and why a table was the wrong shape
- *
- * It was a six-column table: You pay / Credits / Free / Effective rate / Talk time / the
- * button, one row per pack, borrowed wholesale from the competitor the founder had
- * benchmarked. Two things were wrong with it and only one of them is taste.
- *
- * The taste half: it was somebody else's table, and it looked it.
- *
- * The half that matters: **a table answers "what do these six packs cost?" and nobody
- * arrives with that question.** They arrive with "how much calling do I need, and what
- * does that come to?" — and a table makes the reader do the division themselves, across
- * six columns, on a phone, before they can act. ₹4.6296/min is the unit an accountant
- * thinks in; "about 10,800 minutes" is the unit somebody running a phone line thinks in.
- * Both are here. The talk time leads and the rupees follow.
- *
- * ## TWO RATES AND TWO TALK TIMES, AND THE "EXTRA CREDIT" COLUMN IS GONE (D-547)
- *
- * A pack no longer grants bonus credits; a bigger pack buys a CHEAPER MINUTE, on each of
- * the two voice qualities, and the rates it quotes are frozen on the purchase. So the card
- * carries a pair of everything and the bonus line was DELETED rather than emptied —
- * `bonus_pct` and `bonus_credits` are still on the wire at zero for one release (plan §10)
- * and rendering "no bonus credit" off them would keep a retired idea on the screen a client
- * buys from. What replaced it is the fact that actually differs between the rungs.
- *
- * The two qualities are named by the SERVER (`CreditPacksOut.*_tier_label`). Without those
- * names this renders no rate and no talk time at all: two unnamed rupee figures side by
- * side are worse than none, because a reader assigns the cheaper one to whichever voice
- * they had in mind, and no client-facing surface may fall back to the vendor's word.
- *
- * ## What was chosen, and what was rejected
- *
- * - **Cards, not rows.** A row's cells are only legible beside their header, which is why
- *   the table needed `min-w-[36rem]` and a sideways scroll on the phone this is read on.
- *   A card carries its own labels, so it reads at 320px and wraps instead of scrolling.
- * - **The recommendation is CARRIED by the card**, not bolted on: the best-value pack has
- *   the brand border, the tinted ground and a full-width band across its top.
- * - **A minutes matcher instead of a "compare" toggle.** REJECTED: a slider (invents
- *   precision the reader does not have and is a poor touch target), and a per-card "how
- *   many minutes is this?" hover (unreachable on a phone, invisible to a screen reader).
- *   What the reader can actually answer is roughly how many minutes a month they call, and
- *   from that the pack follows — so that is the one input, it is optional, and the panel
- *   is complete without it. **It matches on the DEARER quality's minutes**, which is the
- *   one direction that cannot mislead: a pack that covers a month of Studio calling covers
- *   it on Clear too, and the reverse recommendation would fall short for anybody who picks
- *   the dearer voice after buying.
- *
- * ## The rules this stayed inside
- *
- * Every figure is the SERVER's, rendered from its digits — `formatINR` for amounts,
- * `formatRupeeRate` for the rates (a rate is not a rupee amount and must not be rounded
- * like one), `formatWhole` for the credit counts. No money is put through `Number` here
- * (hard rule 7 reaches the browser). Nothing is hardcoded about how many packs exist or
- * what they cost: the catalogue is whatever `GET /v1/billing/topups/packs` sent, in the
- * order it sent it.
- *
- * The accessible name of every buy control still carries its AMOUNT, because a grid of
- * buttons all reading "Pay" is a list of identical controls in a screen reader and the
- * price is the only thing that tells them apart.
+ * The order the server priced: the amount as it sent it (the figure a bank transfer must
+ * match to the paisa), how to pay, and the references to quote.
  */
-function PackChooser({
-  packs,
-  labels,
-  payable,
-  disabled,
-  busy,
-  statusFor,
-  onSelect,
+function OrderPanel({
+  order,
+  paid,
+  payNow,
 }: {
-  packs: CreditPack[];
-  /** What a client calls each quality, from the card. Absent = no names, so no prices. */
-  labels: TierLabels | undefined;
-  payable: boolean;
-  disabled: boolean;
-  /** A payment is under way: every pack but the one that started it holds. */
-  busy: boolean;
-  statusFor: (packId: string) => FeedbackStatus;
-  onSelect: (packId: string) => void;
+  order: TopUpIntent;
+  paid: boolean;
+  payNow: ReactNode;
 }) {
-  const [monthly, setMonthly] = useState("");
-  // `useId` rather than a literal: this panel renders on two tabs of one hub, and two
-  // inputs sharing an id would make the second label point at the first field.
-  const fieldId = useId();
-  const wanted = wantedMinutes(monthly);
-  const match = wanted === null ? null : suggestPack(packs, wanted);
-
   return (
-    <div className="space-y-3">
-      {/* Not a `<form>`: there is nothing to submit and no request behind it. The answer
-          is a rendering of the catalogue already on screen, so an Enter key that appeared
-          to "search" would be a promise of a round trip that never happens. */}
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
-        <label htmlFor={fieldId} className="text-body text-ink">
-          Roughly how many minutes do you call in a month?
-        </label>
-        <input
-          id={fieldId}
-          inputMode="numeric"
-          value={monthly}
-          onChange={(event) => setMonthly(event.target.value)}
-          placeholder="600"
-          className={`${FIELD} mt-0 w-24 tabular-nums`}
-        />
-        <span className="text-body text-ink-muted">minutes</span>
-      </div>
-
-      {/* The live region EXISTS before it has anything to say — a `role="status"` element
-          inserted at the moment of the update is not reliably announced, because assistive
-          technology subscribes to the region rather than to the insertion. */}
-      <p
-        role="status"
-        /* NAMED, because this panel now holds a second live region — the one under the
-           free-amount field — and two unnamed status regions are two controls a screen
-           reader (and a test) cannot tell apart. */
-        aria-label="Which pack covers your month"
-        className="min-h-5 text-body text-brand-strong"
-      >
-        {monthly.trim() !== "" && wanted === null
-          ? "Enter the number of minutes as digits — 600, say."
-          : match
-            ? matchSentence(match, wanted as number, labels)
-            : ""}
+    <div className="settings-enter rounded-card border border-line px-4 py-3.5 text-body text-ink-muted">
+      <p className="font-semibold text-ink">
+        {formatINR(order.amount_inr)}
+        {paid ? " — paid." : " — nothing has been charged yet."}
       </p>
-
-      {/* A LIST, because that is what it is: a screen reader announces how many packs
-          there are before the reader commits to walking them. */}
-      <ul aria-label="Prepaid credit packs" className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        {packs.map((pack) => {
-          const covers = match !== null && match.pack.pack_id === pack.pack_id;
-          return (
-            <li
-              key={pack.pack_id}
-              className={`flex flex-col rounded-card border p-4 ${
-                pack.best_value ? "border-brand" : "border-line"
-              } ${covers ? "ring-2 ring-brand" : ""}`}
-            >
-              {pack.best_value && (
-                <p className="mb-1 text-meta font-semibold text-brand-strong dark:text-brand-bright">
-                  Best value
-                </p>
-              )}
-              {covers && (
-                <p className="mb-1 text-meta font-semibold text-brand-strong">
-                  Covers your month
-                </p>
-              )}
-              <p className="text-figure tabular-nums text-ink">
-                {formatINR(pack.amount_inr)}
-              </p>
-              <p className="text-body text-ink-muted">
-                {formatWhole(pack.total_credits)} credits of calling
-              </p>
-              {labels && (
-                /* THE PAIR, one row per quality: what a minute costs on it and how long
-                   the credits last at that price. A `<dl>` rather than two sentences
-                   because it is two labelled values and a screen reader reads it as
-                   such. Both figures are the server's — the minutes are ITS floor of the
-                   division, not one taken here. */
-                <dl className="mt-3 space-y-1 text-body">
-                  {VOICE_TIERS.map((tier) => (
-                    <div key={tier} className="flex items-baseline justify-between gap-2">
-                      <dt className="text-ink-muted">{labels[tier]}</dt>
-                      <dd className="tabular-nums text-ink">
-                        <strong className="font-semibold">
-                          {formatRupeeRate(packRate(pack, tier))}
-                        </strong>
-                        /min · {formatCount(packMinutes(pack, tier))} min
-                      </dd>
-                    </div>
-                  ))}
-                </dl>
-              )}
-              {/* `mt-auto` on the WRAPPER so every button sits on the same line whatever
-                  the card above it says — a grid whose actions are at four different
-                  heights reads as four unrelated things. */}
-              <div className="mt-auto pt-4">
-                {/* THE AMOUNT IS IN THE VISIBLE LABEL, which is why there is no
-                    `aria-label` here any more and why removing it is not a regression of
-                    the property the table had. The table's cells carried the price and the
-                    button said only "Pay", so the accessible name had to be repaired with
-                    an `aria-label` — six identically-named controls in a screen reader's
-                    list otherwise. A card's button has room for the price itself, so the
-                    name is now the same string a sighted reader sees, which also keeps
-                    WCAG 2.5.3 (Label in Name) honest for voice control: "click Pay fifty
-                    thousand" hits the right one. An `aria-label` fixed at the amount while
-                    the visible text said "Working…" would break exactly that. */}
-                <ActionButton
-                  variant={pack.best_value ? "primary" : "secondary"}
-                  status={statusFor(pack.pack_id)}
-                  successLabel={payable ? "Ready to pay" : "Details ready"}
-                  disabled={disabled || (busy && statusFor(pack.pack_id) !== "pending")}
-                  onClick={() => onSelect(pack.pack_id)}
-                  className="w-full"
-                >
-                  {payable ? `Pay ${formatINR(pack.amount_inr)}` : `Select ${formatINR(pack.amount_inr)}`}
-                </ActionButton>
-              </div>
-            </li>
-          );
-        })}
-      </ul>
+      {order.provider_order_id === null ? (
+        <p className="mt-1">
+          Card and UPI payment isn&rsquo;t on for your account yet. Transfer{" "}
+          <strong className="font-semibold text-ink">{formatINR(order.amount_inr)}</strong> to
+          us by bank transfer quoting the reference below, and the credit is added once the
+          payment lands. Your balance will not change until then.
+        </p>
+      ) : paid ? (
+        <p className="mt-1">Quote the references below if you need to ask us about this payment.</p>
+      ) : (
+        <>
+          <p className="mt-1">
+            The payment window opens on this page; your balance changes once the payment is
+            confirmed.
+          </p>
+          <div className="mt-3">{payNow}</div>
+        </>
+      )}
+      <p className="mt-2 text-meta text-ink-faint">
+        ref <MonoValue>{order.receipt}</MonoValue>
+      </p>
+      {order.provider_order_id !== null && (
+        <p className="text-meta text-ink-faint">
+          order <MonoValue>{order.provider_order_id}</MonoValue>
+        </p>
+      )}
     </div>
   );
 }
 
 /**
- * WHAT A TYPED AMOUNT BUYS AT, in words, before the payment button.
+ * THE PACK PICKER — "how much calling do I need?", answered in that order.
  *
- * A free amount is priced by the server at the largest pack it reaches, and the smallest
- * pack's rates below the first rung (`billing/service.py::lot_rates_for_amount`). Those
- * rates are FROZEN on the purchase the moment it lands, so a client who only learns them
- * from the wallet afterwards has bought terms they never saw. This says them first.
+ * - **A minutes field instead of a compare table.** What a reader can answer is roughly
+ *   how many minutes a month they call; the pack follows. Rejected: a slider (invents
+ *   precision, poor touch target) and a per-card hover (unreachable on a phone). The field
+ *   is optional and the picker is complete without it. **It matches on the DEARER
+ *   quality's minutes**, the one direction that cannot mislead: a pack that covers a month
+ *   of Studio calling covers it on Clear too, and the voice is chosen per agent, later.
+ * - **Radio cards, not a button per card.** One selection and one button at the bottom: a
+ *   grid of six "Pay" buttons was six competing primary actions.
+ * - **The rate is stated once, for the selection.** Every pack has its own pair of rates
+ *   (a bigger pack buys a cheaper minute, D-547); repeating both on all six cards was the
+ *   noise the founder named. The card carries what a reader compares — the amount and the
+ *   minutes — and the line under the grid carries the price of the one they chose.
  *
- * It states no rate until the amount is a figure the server would accept — a half-typed
- * "34" is not an amount, and quoting the smallest pack's rates against it would flicker a
- * different answer with every keystroke. Nothing is computed: the rates are the catalogue's
- * own digits and the pack is chosen by comparing them.
+ * The catalogue is rendered as sent: no pack count or price is assumed here.
  */
-function AmountRates({
-  packs,
+function PackPicker({
+  card,
   labels,
+  choice,
+  onChoose,
   amount,
+  onAmount,
+  disabled,
+  selected,
 }: {
-  packs: CreditPack[];
-  labels: TierLabels;
+  card: CreditPacks;
+  labels: TierLabels | undefined;
+  choice: string;
+  onChoose: (choice: string) => void;
   amount: string;
+  onAmount: (amount: string) => void;
+  disabled: boolean;
+  selected: Selection | null;
 }) {
-  const typed = amount.trim();
-  if (typed === "") return null;
-  if (compareMoney(typed, String(MIN_TOPUP_INR)) < 0 || compareMoney(typed, String(MAX_TOPUP_INR)) > 0) {
-    return null;
-  }
-  const pack = packForAmount(packs, typed);
-  if (pack === undefined) return null;
+  const [monthly, setMonthly] = useState("");
+  const fieldId = useId();
+  const hintId = useId();
+  const name = useId();
+  const wanted = wantedMinutes(monthly);
+  const match = wanted === null ? null : suggestPack(card.packs, wanted);
+  const lapse = card.credit_expiry_months ? lapseDateFromToday(card.credit_expiry_months) : null;
+
+  return (
+    <div className="space-y-5">
+      {/* Not a `<form>`: nothing is submitted. The answer is a rendering of the catalogue
+          already on screen. */}
+      <div>
+        <label htmlFor={fieldId} className="block text-body font-medium text-ink">
+          Minutes you call in a month
+        </label>
+        <span id={hintId} className={FIELD_HINT}>
+          Optional — we&rsquo;ll pick the pack that covers it.
+        </span>
+        <div className={`${FIELD_GROUP} mt-2 w-full max-w-56`}>
+          <input
+            id={fieldId}
+            aria-describedby={hintId}
+            inputMode="numeric"
+            autoComplete="off"
+            value={monthly}
+            placeholder="600"
+            onChange={(event) => {
+              const next = event.target.value;
+              setMonthly(next);
+              const minutes = wantedMinutes(next);
+              const found = minutes === null ? null : suggestPack(card.packs, minutes);
+              if (found) onChoose(found.pack.pack_id);
+            }}
+            className={`${FIELD_GROUP_INPUT} pl-3 tabular-nums`}
+          />
+          <span aria-hidden className="flex shrink-0 items-center pr-3 text-meta text-ink-muted">
+            min a month
+          </span>
+        </div>
+        {/* The live region EXISTS before it has anything to say: one inserted at the moment
+            of the update is not reliably announced. */}
+        <p
+          role="status"
+          aria-label="Which pack covers your month"
+          className="answer-reveal mt-1.5 min-h-5 text-meta text-brand-strong dark:text-brand-bright"
+          key={match ? `${match.pack.pack_id}-${match.short}` : monthly.trim() === "" ? "empty" : "bad"}
+        >
+          {monthly.trim() !== "" && wanted === null
+            ? "Enter the minutes as digits, like 600."
+            : match && wanted !== null
+              ? matchSentence(match, wanted)
+              : ""}
+        </p>
+      </div>
+
+      <fieldset className="min-w-0" disabled={disabled}>
+        <legend className="text-body font-medium text-ink">Amount to add</legend>
+        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {card.packs.map((pack) => {
+            const fits = match !== null && match.pack.pack_id === pack.pack_id;
+            return (
+              <ChoiceCard
+                key={pack.pack_id}
+                name={name}
+                value={pack.pack_id}
+                checked={choice === pack.pack_id}
+                disabled={disabled}
+                onChange={(on) => on && onChoose(pack.pack_id)}
+              >
+                <span className="flex items-baseline justify-between gap-2">
+                  <span className="text-heading tabular-nums text-ink">
+                    {formatAmountINR(pack.amount_inr)}
+                  </span>
+                  {fits ? (
+                    <span className="text-meta font-semibold text-brand-strong dark:text-brand-bright">
+                      Fits your month
+                    </span>
+                  ) : pack.best_value ? (
+                    <span className="text-meta font-semibold text-brand-strong dark:text-brand-bright">
+                      Best value
+                    </span>
+                  ) : null}
+                </span>
+                <span className="mt-0.5 block text-meta tabular-nums text-ink-muted">
+                  {labels
+                    ? VOICE_TIERS.map(
+                        (tier) => `${formatCount(packMinutes(pack, tier))} min ${labels[tier]}`,
+                      ).join(" · ")
+                    : `${formatWhole(pack.total_credits)} credits of calling`}
+                </span>
+              </ChoiceCard>
+            );
+          })}
+          <ChoiceCard
+            name={name}
+            value={CUSTOM}
+            checked={choice === CUSTOM}
+            disabled={disabled}
+            onChange={(on) => on && onChoose(CUSTOM)}
+            label="Other amount"
+            hint={`${formatAmountINR(String(MIN_TOPUP_INR))} to ${formatAmountINR(String(MAX_TOPUP_INR))}`}
+          />
+        </div>
+      </fieldset>
+
+      {choice === CUSTOM && (
+        <MoneyInput
+          label="Other amount"
+          value={amount}
+          onChange={onAmount}
+          min={String(MIN_TOPUP_INR)}
+          max={String(MAX_TOPUP_INR)}
+          disabled={disabled}
+          className="settings-enter"
+        />
+      )}
+
+      {/* THE RATE, ONCE, for what is chosen — before the button, because the rates a
+          purchase freezes are fixed the moment it lands (D-547). Named for both qualities
+          or not printed at all. */}
+      <div className="space-y-1.5 text-body text-ink-muted">
+        <p role="status" aria-label="What this amount buys" className="text-ink">
+          {selected && labels ? <RatesSentence selected={selected} labels={labels} /> : null}
+        </p>
+        {labels && (
+          /* The client sets the voice themselves (D-586): `PATCH /v1/agents/{id}/voice` is
+             on `owner` and `staff`, with the picker on their own agent screen. */
+          <p>
+            Every pack buys both voice qualities, and the rate a call uses is set per agent —
+            you choose that on each agent&rsquo;s own screen.
+          </p>
+        )}
+        {lapse && (
+          <p>
+            Credit you buy now lasts {card.credit_expiry_months} months, until {lapse}. Credit
+            you already hold keeps the terms it was bought on.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RatesSentence({ selected, labels }: { selected: Selection; labels: TierLabels }) {
   return (
     <>
-      {formatINR(typed)} buys calling at{" "}
+      {formatAmountINR(selected.amount)} buys calling at{" "}
       {VOICE_TIERS.map((tier, index) => (
         <span key={tier}>
           {index > 0 ? " and " : ""}
           <strong className="font-semibold tabular-nums">
-            {formatRupeeRate(packRate(pack, tier))}
-          </strong>
-          /min on {labels[tier]}
+            {formatRateINR(packRate(selected.pack, tier))}/min
+          </strong>{" "}
+          on {labels[tier]}
         </span>
       ))}
-      {" — the "}
-      {formatINR(pack.amount_inr)} pack&rsquo;s rates. They stay with this credit until you
-      have spent it.
+      {selected.kind === "custom" ? (
+        <> — the {formatAmountINR(selected.pack.amount_inr)} pack&rsquo;s rates.</>
+      ) : (
+        "."
+      )}{" "}
+      <span className="text-ink-muted">They stay with this credit until it is spent.</span>
     </>
   );
 }
 
+/** Skeleton in the picker's own shape: a field, then a grid of cards. */
+function PickerSkeleton() {
+  return (
+    <div className="space-y-4" aria-busy="true">
+      <Skeleton rows={1} label="Loading credit packs" />
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2" aria-hidden>
+        {Array.from({ length: 6 }, (_, index) => (
+          <div key={index} className="h-[4.25rem] animate-pulse rounded-card bg-ink/[0.05] motion-reduce:animate-none" />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /**
- * The minutes a reader typed, or `null` if they have not typed a usable number.
- *
- * Digits only, and deliberately not `parseInt`: `parseInt("600 or so")` is 600, which
- * would answer a question the reader did not ask. A count of minutes is not money, so
- * `Number` is the right instrument here and hard rule 7 is not in play — but the guard
- * still refuses anything that is not a plain positive integer, and caps it so a pasted
- * essay of digits cannot produce an absurd sentence.
+ * The minutes a reader typed, or `null` if they have not typed a usable number. Digits
+ * only, deliberately not `parseInt` (`parseInt("600 or so")` is 600). A count of minutes is
+ * not money, so `Number` is right here; capped so a pasted essay of digits cannot produce
+ * an absurd sentence.
  */
 function wantedMinutes(raw: string): number | null {
   const trimmed = raw.trim();
@@ -753,52 +647,20 @@ function wantedMinutes(raw: string): number | null {
   return minutes > 0 ? minutes : null;
 }
 
-/**
- * The sentence the matcher speaks, and the reason it names BOTH figures.
- *
- * A pack's talk time is now a pair, and which one applies is decided later, on a different
- * screen, by whoever picks each agent's voice. So the recommendation is made on the DEARER
- * quality (see `suggestPack`) and the sentence says both numbers: "₹5,000 covers it — about
- * 714 minutes on Studio and 1,000 on Clear" is a fact a reader can act on, while a single
- * figure would be a promise that holds for only one of the two choices in front of them.
- *
- * Without the server's names for the qualities it says only what it can: the pack, and that
- * it covers the month whichever voice they choose.
- */
-function matchSentence(
-  match: { pack: CreditPack; short: boolean },
-  wanted: number,
-  labels: TierLabels | undefined,
-): string {
-  const amount = formatINR(match.pack.amount_inr);
-  const dear = formatCount(packMinutes(match.pack, "studio"));
-  const cheap = formatCount(packMinutes(match.pack, "clear"));
-  const spread = labels
-    ? ` — about ${dear} minutes on ${labels.studio} and ${cheap} on ${labels.clear}`
-    : "";
+/** The sentence the matcher speaks. The card it selected shows the minutes themselves. */
+function matchSentence(match: { pack: CreditPack; short: boolean }, wanted: number): string {
+  const amount = formatAmountINR(match.pack.amount_inr);
   if (match.short) {
-    return `About ${formatCount(wanted)} minutes a month is more than one pack. The largest is ${amount}${spread} — add credit more than once, or turn on auto-recharge so it tops itself up.`;
+    return `${formatCount(wanted)} minutes a month is more than one pack. The largest is ${amount} — add credit more than once, or turn on auto top-up.`;
   }
-  return `About ${formatCount(wanted)} minutes a month? ${amount} covers it whichever voice you choose${spread}.`;
+  return `${amount} covers ${formatCount(wanted)} minutes a month on either voice.`;
 }
 
 /**
  * The smallest pack whose talk time covers a month — or, when nothing does, the largest
- * one and a flag saying so.
- *
- * **MATCHED ON THE DEARER QUALITY**, which is the change D-547 forced and the only
- * direction that cannot mislead: a pack that covers a month of Studio calling covers the
- * same month on Clear, while matching on the cheaper voice would recommend a pack that
- * falls short for anybody who picks the dearer one after buying — and the voice is chosen
- * per agent, later, on a screen this one does not control. The old single
- * `talk_time_minutes` is deprecated on the wire and holds the CHEAPER figure, so reading it
- * would have made exactly that mistake silently.
- *
- * The catalogue is sorted here rather than assumed to arrive in order: nothing in
- * `CreditPacksOut` promises an ordering, and a chooser that silently depends on one would
- * recommend the wrong pack the day the server sorts by anything else. Both figures are the
- * server's own floor of its own division, so this compares two numbers it sent and computes
- * no price.
+ * and a flag saying so. Matched on the DEARER quality (see `PackPicker`); sorted here
+ * because nothing in `CreditPacksOut` promises an order. Both figures are the server's own
+ * floor of its own division, so this compares two numbers it sent and prices nothing.
  */
 function suggestPack(
   packs: CreditPack[],

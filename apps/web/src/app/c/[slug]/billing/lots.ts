@@ -394,3 +394,51 @@ export function formatWhole(value: string): string {
   if (Number.isNaN(count)) return value;
   return `${value.startsWith("-") ? "-" : ""}${count.toLocaleString("en-IN")}`;
 }
+
+/** A calendar date in India, as a deadline reads: "14 Oct 2027". `null` when unparseable. */
+export function formatISTDate(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const at = new Date(value);
+  if (Number.isNaN(at.getTime())) return null;
+  return at.toLocaleDateString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+/**
+ * The open lot that lapses first, or `null` when no open lot carries an expiry (D-840 off,
+ * or every lot predates it). Compared as instants, never by position: the queue is in SPEND
+ * order, and a pack bought later on a shorter term could lapse first.
+ */
+export function firstLapse(lots: WalletLots | undefined): WalletLot | null {
+  let first: WalletLot | null = null;
+  let firstAt = Infinity;
+  for (const lot of lots?.lots ?? []) {
+    const at = lot.expires_at ? new Date(lot.expires_at).getTime() : NaN;
+    if (Number.isNaN(at) || at >= firstAt) continue;
+    first = lot;
+    firstAt = at;
+  }
+  return first;
+}
+
+/**
+ * The day credit bought now lapses, for the line before the payment button: today's date in
+ * India moved on `months`, clamped to that month's last day (31 Jan + 1 month is the end of
+ * February, as a person counts it). The server stamps the real `expires_at` when the payment
+ * lands; this names the day so nobody pays without having seen it.
+ */
+export function lapseDateFromToday(months: number, now: Date = new Date()): string | null {
+  const [year, month, day] = now
+    .toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" })
+    .split("-")
+    .map(Number);
+  if (!year || !month || !day) return null;
+  const target = month - 1 + months;
+  const lastDay = new Date(Date.UTC(year, target + 1, 0)).getUTCDate();
+  // 06:30 UTC is noon in India, so no zone conversion can move it onto another day.
+  return formatISTDate(new Date(Date.UTC(year, target, Math.min(day, lastDay), 6, 30)).toISOString());
+}
