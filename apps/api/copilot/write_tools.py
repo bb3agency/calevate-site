@@ -1823,7 +1823,7 @@ async def confirm(
             actor=principal,
             tenant_id=actor.tenant_id,
             object_type=proposal.tool.object_type,
-            object_id=proposal.object_id or None,
+            object_id=executed.object_id or proposal.object_id or None,
             ip=ip,
             # Ids, names and counts (hard rule 6). `via` is what separates this row from
             # the identical act performed by a click — the ledger reads the same for both,
@@ -2070,7 +2070,7 @@ async def approve(
         actor=principal,
         tenant_id=actor.tenant_id,
         object_type=tool.object_type,
-        object_id=plan.object_id or None,
+        object_id=executed.object_id or plan.object_id or None,
         ip=ip,
         summary={"via": "copilot", "tool": tool.name, "approval": True, **executed.audit_summary},
     )

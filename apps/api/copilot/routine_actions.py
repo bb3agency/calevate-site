@@ -155,7 +155,7 @@ async def _plan_create(session: AsyncSession, actor: ToolActor, args: Mapping[st
     if not name or not instruction:
         raise WriteRefusedError("`name` and `instruction` need words")
     return Plan(
-        object_id="new",
+        object_id="",
         title="Set up a routine",
         summary=f"“{name}”, {_when(mask, minute)}. {_RUNS_ASK}",
         current=None,
