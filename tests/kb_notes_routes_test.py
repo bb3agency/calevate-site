@@ -117,6 +117,10 @@ async def test_past_the_cap_the_most_recently_changed_notes_are_the_ones_listed(
             {"t": tenant_id},
         )
         notes = await store.list_notes(session)
+        # Rolled back, not committed: approved, active text sources with no chunks are a
+        # state publishing never leaves, and every later knowledge sweep in the suite would
+        # try to publish them and fail (`kb_render_refused`).
+        await session.rollback()
     assert len(notes) == 200
     assert notes[0].name == "Zoo timings"
     assert [n.changed_at for n in notes] == sorted((n.changed_at for n in notes), reverse=True)
