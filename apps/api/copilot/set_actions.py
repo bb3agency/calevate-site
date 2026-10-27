@@ -31,6 +31,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.billing.display import display_decimal, display_inr
 from apps.api.campaigns import controls as campaign_controls
 from apps.api.copilot import lens_args, plans
 from apps.api.copilot.actions import ToolActor, WriteRefusedError, parse_args
@@ -155,7 +156,8 @@ async def dial_estimate(
     return plans.Estimate(
         inr=total,
         note=(
-            f"At most: {calls} answered call(s) of about {per_call:.1f} min at ₹{rate}/min. "
+            f"At most: {calls} answered call(s) of about {display_decimal(per_call)} min "
+            f"at {display_inr(rate)}/min. "
             "Calls nobody answers cost less."
         ),
     )

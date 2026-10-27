@@ -694,7 +694,7 @@ async def test_the_low_credit_line_runs_at_once_and_undoes() -> None:
     line = await _one(tenant_id, "SELECT low_balance_alert_inr FROM organizations")
     assert Decimal(str(line[0])) == Decimal("750")
     settings = await _read("billing_settings", tenant_id)
-    assert "Low-credit warning below ₹750.00" in settings
+    assert "Low-credit warning below ₹750" in settings
     assert (await _undo(token, slug, receipt.action_id)).status_code == 200
     assert (await _one(tenant_id, "SELECT low_balance_alert_inr FROM organizations"))[0] is None
     staff_view = await _read("billing_settings", tenant_id, role="staff")

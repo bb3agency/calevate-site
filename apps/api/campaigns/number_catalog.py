@@ -44,6 +44,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents import service as agents_service
 from apps.api.agents.models import NUMBER_DIRECTIONS, series_for_e164
 from apps.api.agents.service import InboundRouting
+from apps.api.billing.display import display_inr
 from apps.api.billing.number_rental import collect_number_rental, is_prepaid, ist_date
 from apps.api.billing.service import get_balance
 from apps.api.billing.trials import trial_billing_active
@@ -204,7 +205,7 @@ async def assert_can_afford(session: AsyncSession, *, tenant_id: UUID, amount: D
     raise ProblemError.business_rule(
         NO_CREDIT_RULE,
         f"There is not enough credit on this account to cover this number's first month "
-        f"(₹{amount}).",
+        f"({display_inr(amount)}).",
         remediation="Top up, then come back and buy the number. Nothing has been charged.",
     )
 

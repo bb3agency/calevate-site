@@ -58,12 +58,12 @@ from arq import Retry
 from calevate_shared.backoff import ladder_delay_s
 from sqlalchemy import text
 
+from apps.api.billing.display import display_inr
 from apps.api.billing.rates import PREPAID_TIERS
 from apps.api.billing.service import (
     WALLET_LEVEL_EMPTY,
     WALLET_LEVEL_LOW,
     plan_tier_of,
-    to_paise,
 )
 from apps.api.billing.trials import trial_billing_active
 from apps.api.billing.wallet import TierMinutes, tier_minutes
@@ -148,7 +148,7 @@ def compose(
     "self_serve", no reason string, and no VENDOR name — a client reads "Clear" and
     "Studio". The reader is a small-business owner, not an operator.
     """
-    money = f"₹{to_paise(balance_inr)}"
+    money = display_inr(balance_inr)
     lines: list[str] = []
     if level == WALLET_LEVEL_EMPTY:
         lines += [

@@ -32,6 +32,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.billing.display import display_inr
 from apps.api.billing.service import low_balance_line
 from apps.api.core.logging import get_logger
 from apps.api.crm.schemas import AttentionKind
@@ -711,7 +712,7 @@ async def low_credit(session: AsyncSession) -> AttentionSource:
         detail=(
             "Top up so your agents keep answering and calling."
             if empty
-            else f"Below ₹{line:.0f}. Top up before your calls stop."
+            else f"Below {display_inr(line)}. Top up before your calls stop."
         ),
         rule="no_credits" if empty else "low_balance",
         occurred_at=row[1],

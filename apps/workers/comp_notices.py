@@ -31,6 +31,7 @@ from sqlalchemy import text
 from apps.api.announcements import service as announcements
 from apps.api.announcements.schemas import AnnouncementIn
 from apps.api.billing.comp_notices import COMP_NOTICE_JOB
+from apps.api.billing.display import display_inr
 from apps.api.billing.service import get_balance, to_paise
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
@@ -48,6 +49,12 @@ NOTICE_DAYS: Final = 14
 
 
 def _inr(value: Decimal) -> str:
+    """Client-facing: the one-decimal display rule."""
+    return display_inr(value)
+
+
+def _inr_exact(value: Decimal) -> str:
+    """For the operators' email, which records the exact grant."""
     return f"₹{to_paise(value)}"
 
 
@@ -101,9 +108,9 @@ def superadmin_email(
     reason: str,
 ) -> tuple[str, str]:
     if kind == "grant" and amount is not None:
-        what = f"{_inr(amount)} of credit granted"
+        what = f"{_inr_exact(amount)} of credit granted"
     else:
-        what = "made a paid account" + (f" with {_inr(amount)} of credit" if amount else "")
+        what = "made a paid account" + (f" with {_inr_exact(amount)} of credit" if amount else "")
     return (
         f"Calevate: {business} {what}",
         f"{business} (/{slug}): {what}, with no payment, by {actor}.\n\n"

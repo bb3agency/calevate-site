@@ -32,6 +32,7 @@ from uuid import UUID
 
 from sqlalchemy import text
 
+from apps.api.billing.display import display_inr
 from apps.api.billing.platform_fee import (
     REMINDER_BEFORE,
     FeeCharge,
@@ -40,7 +41,6 @@ from apps.api.billing.platform_fee import (
     issue_charge,
     list_charges,
 )
-from apps.api.billing.service import to_paise
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.core.transport import get_transport
@@ -81,7 +81,7 @@ _SUBJECT: Final[dict[Notice, str]] = {
 def compose(notice: Notice, *, charge: FeeCharge, slug: str) -> str:
     """The email body, in a business owner's words. Incoming calls are always named as
     unaffected, because that is the first thing an owner worries about."""
-    amount = f"₹{to_paise(charge.amount_inr):,}"
+    amount = display_inr(charge.amount_inr)
     pause = ist_moment(charge.grace_ends_at)
     if notice == "issued":
         opening = (

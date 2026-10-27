@@ -321,7 +321,7 @@ async def test_the_notices_reach_the_super_admins_first_then_the_client_once(
     first_run = recipients[: len(recipients) // 2]
     assert first_run[-1] == "owner@example.com", "the client's email goes last"
     client_mail = next(m for m in mailbox.sent if m["to"] == "owner@example.com")
-    assert "₹1500.00" in client_mail["body"] and "no payment was taken" in client_mail["body"]
+    assert "₹1,500" in client_mail["body"] and "no payment was taken" in client_mail["body"]
     for vendor in ("ThinnestAI", "Gemini", "Sarvam", "Azure", "Cartesia"):
         assert vendor not in client_mail["body"]
     async with untenanted_session() as session:
@@ -382,7 +382,7 @@ def test_the_notice_job_is_registered() -> None:
 
 def test_the_dashboard_lines_name_the_gift() -> None:
     assert comp_notices.notice_text(kind="grant", amount=Decimal("500")) == (
-        "We added ₹500.00 of calling credit to your account. It's on us."
+        "We added ₹500 of calling credit to your account. It's on us."
     )
     assert "paid account" in comp_notices.notice_text(kind="paid", amount=None)
 
