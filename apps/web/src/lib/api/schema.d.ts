@@ -6161,6 +6161,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/calls/views": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** My saved views of the call log */
+        get: operations["get_call_views_v1_calls_views_get"];
+        put?: never;
+        /** Save the call log's current filters under a name */
+        post: operations["create_call_view_v1_calls_views_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/calls/views/{view_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete one of my saved views of the call log */
+        delete: operations["delete_call_view_v1_calls_views__view_id__delete"];
+        options?: never;
+        head?: never;
+        /** Rename a saved view of the call log, or re-pin its filters */
+        patch: operations["patch_call_view_v1_calls_views__view_id__patch"];
+        trace?: never;
+    };
     "/v1/calls/{call_id}": {
         parameters: {
             query?: never;
@@ -8020,6 +8056,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/exports/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Download an export Pip prepared — once, within ten minutes, audit-logged */
+        post: operations["download_prepared_export_v1_exports_download_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/first-run": {
         parameters: {
             query?: never;
@@ -9534,6 +9587,26 @@ export interface paths {
          *     exactly as it left, so a client who did not rotate does not have to re-paste.
          */
         post: operations["enable_lead_source_v1_lead_sources__webhook_id__enable_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lead-sources/{webhook_id}/mapping": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Change which form fields a lead source reads
+         * @description Replaces the field mapping: which field of the form carries the phone, the name, consent and any other detail. The secret, the address and the agent are unchanged, and leads already received keep what they were saved with. Refused with `mapping_has_no_phone` when no rule says where the phone number is.
+         */
+        put: operations["put_lead_source_mapping_v1_lead_sources__webhook_id__mapping_put"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -15318,6 +15391,51 @@ export interface components {
             /** Plan Days */
             plan_days: number | null;
         };
+        /** CallSavedViewIn */
+        CallSavedViewIn: {
+            filters?: components["schemas"]["CallViewFilters"];
+            /** Name */
+            name: string;
+        };
+        /** CallSavedViewListOut */
+        CallSavedViewListOut: {
+            /** Items */
+            items: components["schemas"]["CallSavedViewOut"][];
+        };
+        /**
+         * CallSavedViewOut
+         * @description One saved view of the Calls screen, private to its author like a leads view. A
+         *     rolling `when` comes back with the days it covers today.
+         */
+        CallSavedViewOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            filters: components["schemas"]["CallViewFilters"];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * CallSavedViewUpdateIn
+         * @description Rename or re-pin; an omitted field is left alone.
+         */
+        CallSavedViewUpdateIn: {
+            filters?: components["schemas"]["CallViewFilters"] | null;
+            /** Name */
+            name?: string | null;
+        };
         /**
          * CallScript
          * @description A whole agent script, structured — or a raw escape hatch, never both at once.
@@ -15550,6 +15668,33 @@ export interface components {
             variance_inr: string;
             /** Vendor Inr */
             vendor_inr: string;
+        };
+        /**
+         * CallViewFilters
+         * @description What a saved view of the Calls screen narrows the log to: the call lens
+         *     (`CallLensIn`) with its days as a `ViewDaysIn`, so a rolling range stays rolling.
+         */
+        CallViewFilters: {
+            /** Agent Id */
+            agent_id?: string | null;
+            /** Callback Open */
+            callback_open?: boolean | null;
+            /** Campaign Id */
+            campaign_id?: string | null;
+            /** Direction */
+            direction?: ("inbound" | "outbound") | null;
+            /** Follow Up */
+            follow_up?: ("done" | "not_done") | null;
+            /** Outcome */
+            outcome?: ("call_back_booked" | "needs_you" | "answered" | "transferred" | "hung_up_early" | "missed") | null;
+            /** Status */
+            status?: string | null;
+            /**
+             * Test Calls
+             * @default true
+             */
+            test_calls: boolean;
+            when?: components["schemas"]["ViewDaysIn"] | null;
         };
         /** CallbackChangeOut */
         CallbackChangeOut: {
@@ -17358,6 +17503,8 @@ export interface components {
             applied: boolean;
             /** Detail */
             detail: string;
+            /** Download Ticket */
+            download_ticket?: string | null;
             /** Object Id */
             object_id: string;
             /** Object Type */
@@ -19947,6 +20094,11 @@ export interface components {
             agent_id: string;
             experiment: components["schemas"]["ExperimentOut"] | null;
             rules: components["schemas"]["ExperimentRulesOut"];
+        };
+        /** ExportDownloadIn */
+        ExportDownloadIn: {
+            /** Ticket */
+            ticket: string;
         };
         /** ExtractionField */
         ExtractionField: {
@@ -22964,6 +23116,25 @@ export interface components {
             items: components["schemas"]["LeadSourceOut"][];
             /** Secret Header */
             secret_header: string;
+        };
+        /** LeadSourceMappingIn */
+        LeadSourceMappingIn: {
+            /** Mapping */
+            mapping: {
+                [key: string]: string;
+            };
+        };
+        /** LeadSourceMappingOut */
+        LeadSourceMappingOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Mapping */
+            mapping: {
+                [key: string]: string;
+            };
         };
         /**
          * LeadSourceOut
@@ -27402,12 +27573,29 @@ export interface components {
              * @default false
              */
             assigned_to_me: boolean;
+            /** Callback Open */
+            callback_open?: boolean | null;
+            /** Captured */
+            captured?: components["schemas"]["CapturedFieldFilterIn"][];
+            created?: components["schemas"]["ViewDaysIn"] | null;
+            /** Direction */
+            direction?: ("inbound" | "outbound") | null;
             /** Fields */
             fields?: {
                 [key: string]: string[];
             };
+            /** Follow Up */
+            follow_up?: ("done" | "not_done") | null;
+            last_call?: components["schemas"]["ViewDaysIn"] | null;
+            /** Last Outcome */
+            last_outcome?: ("call_back_booked" | "needs_you" | "answered" | "transferred" | "hung_up_early" | "missed") | null;
             /** Status */
             status?: ("new" | "contacted" | "interested" | "hot" | "won" | "lost") | null;
+            /**
+             * Test Calls
+             * @default true
+             */
+            test_calls: boolean;
         };
         /** SavedViewIn */
         SavedViewIn: {
@@ -31739,6 +31927,24 @@ export interface components {
             summary: string | null;
             /** Version */
             version: number;
+        };
+        /**
+         * ViewDaysIn
+         * @description A saved view's range of India days: fixed (`from_day`..`to_day`, both included), or
+         *     `last_days` counted back from the day the view is read, so a view saved as "the last 7
+         *     days" still means the last 7 days next month.
+         *
+         *     `last_days` wins: a rolling range is stored without `from_day`/`to_day`, and a read
+         *     answers it with the days it means today (`crm.saved_views`), so the screen can show and
+         *     apply concrete days and send the same object back unchanged.
+         */
+        ViewDaysIn: {
+            /** From Day */
+            from_day?: string | null;
+            /** Last Days */
+            last_days?: number | null;
+            /** To Day */
+            to_day?: string | null;
         };
         /**
          * Voice
@@ -43696,6 +43902,132 @@ export interface operations {
             };
         };
     };
+    get_call_views_v1_calls_views_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallSavedViewListOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    create_call_view_v1_calls_views_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CallSavedViewIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallSavedViewOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    delete_call_view_v1_calls_views__view_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                view_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    patch_call_view_v1_calls_views__view_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                view_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CallSavedViewUpdateIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallSavedViewOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     get_call_v1_calls__call_id__get: {
         parameters: {
             query?: never;
@@ -46820,6 +47152,37 @@ export interface operations {
             };
         };
     };
+    download_prepared_export_v1_exports_download_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExportDownloadIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     read_first_run_v1_first_run_get: {
         parameters: {
             query?: never;
@@ -49879,6 +50242,41 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    put_lead_source_mapping_v1_lead_sources__webhook_id__mapping_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                webhook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeadSourceMappingIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadSourceMappingOut"];
+                };
             };
             /** @description RFC-9457 problem+json */
             default: {
