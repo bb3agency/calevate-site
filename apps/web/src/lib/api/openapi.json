@@ -407,6 +407,18 @@
           "malformed": {
             "title": "Malformed",
             "type": "integer"
+          },
+          "plan_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Id"
           }
         },
         "required": [
@@ -435,8 +447,20 @@
       },
       "AddLeadsIn": {
         "additionalProperties": false,
-        "description": "Either named leads (a selection) or a filter. Exactly one.",
+        "description": "Exactly one of: named leads (a selection), the campaign picker's `filter`, or the\nLeads screen's `lens` (D-893 F2, the same definition the Leads table, its exports and\nPip read).",
         "properties": {
+          "expected_count": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Count"
+          },
           "filter": {
             "anyOf": [
               {
@@ -463,6 +487,16 @@
               }
             ],
             "title": "Lead Ids"
+          },
+          "lens": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LeadLensIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "title": "AddLeadsIn",
@@ -72043,7 +72077,7 @@
     },
     "/v1/campaigns/{campaign_id}/contacts/from-leads": {
       "post": {
-        "description": "The numbers are read from the leads on the server (`controls.add_leads`). A filter\nmatching more than `controls.MAX_LEADS_PER_ADD` is refused rather than cut short, so\n\"add these leads\" never silently means \"add some of them\".",
+        "description": "The numbers are read from the leads on the server (`controls.add_leads`). A filter\nmatching more than `controls.MAX_LEADS_PER_ADD` is refused rather than cut short, so\n\"add these leads\" never silently means \"add some of them\". A `lens` that large runs\ninstead as the approved `campaign_add_leads` plan Pip makes (D-893 F3), because the\nperson confirmed that whole count on the Leads screen.",
         "operationId": "add_contacts_from_leads_v1_campaigns__campaign_id__contacts_from_leads_post",
         "parameters": [
           {

@@ -6513,7 +6513,9 @@ export interface paths {
          * Add your CRM leads to a campaign, picked by id or by a filter
          * @description The numbers are read from the leads on the server (`controls.add_leads`). A filter
          *     matching more than `controls.MAX_LEADS_PER_ADD` is refused rather than cut short, so
-         *     "add these leads" never silently means "add some of them".
+         *     "add these leads" never silently means "add some of them". A `lens` that large runs
+         *     instead as the approved `campaign_add_leads` plan Pip makes (D-893 F3), because the
+         *     person confirmed that whole count on the Leads screen.
          */
         post: operations["add_contacts_from_leads_v1_campaigns__campaign_id__contacts_from_leads_post"];
         delete?: never;
@@ -12387,6 +12389,8 @@ export interface components {
             foreign: number;
             /** Malformed */
             malformed: number;
+            /** Plan Id */
+            plan_id?: string | null;
         };
         /** AddHostedVoiceIn */
         AddHostedVoiceIn: {
@@ -12395,12 +12399,17 @@ export interface components {
         };
         /**
          * AddLeadsIn
-         * @description Either named leads (a selection) or a filter. Exactly one.
+         * @description Exactly one of: named leads (a selection), the campaign picker's `filter`, or the
+         *     Leads screen's `lens` (D-893 F2, the same definition the Leads table, its exports and
+         *     Pip read).
          */
         AddLeadsIn: {
+            /** Expected Count */
+            expected_count?: number | null;
             filter?: components["schemas"]["LeadFilterIn"] | null;
             /** Lead Ids */
             lead_ids?: string[] | null;
+            lens?: components["schemas"]["LeadLensIn"] | null;
         };
         /** AddNumbersIn */
         AddNumbersIn: {

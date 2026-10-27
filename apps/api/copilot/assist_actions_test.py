@@ -26,6 +26,7 @@ from apps.api.copilot.actions import WriteRefusedError
 from apps.api.copilot.agent_setup_actions import AGENT_SETUP_ACTIONS
 from apps.api.copilot.agent_tool_actions import AGENT_TOOL_ACTIONS
 from apps.api.copilot.call_actions import CALL_ACTIONS
+from apps.api.copilot.campaign_actions import CAMPAIGN_ACTIONS
 from apps.api.copilot.fact_actions import FACT_ACTIONS
 from apps.api.copilot.knowledge_actions import KNOWLEDGE_ACTIONS
 from apps.api.copilot.question_actions import TRAINING_ACTIONS
@@ -79,6 +80,7 @@ def test_each_is_on_its_buttons_permission_and_only_the_form_filler_skips_the_cl
         + len(TRAINING_ACTIONS)
         + len(SET_ACTIONS)
         + len(CALL_ACTIONS)
+        + len(CAMPAIGN_ACTIONS)
     )
     assert write_tools.WRITE_TOOLS[-count - after : -after] == assist_actions.ASSIST_ACTIONS
 

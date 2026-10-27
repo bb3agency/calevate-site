@@ -17,6 +17,7 @@ tool) still binds; where this file adds to it, this file wins for D-893 work.
 | How many people one instruction may touch | **No fixed number.** Sized to the job and the conversation; the card always shows the count and the estimate. A dialling job runs as a campaign so the line limit, pacing, calling hours and retries apply. |
 | Areas | **All 26** (list in §4), each with page UI and a Pip action. |
 | Never | Taking a payment; accepting legal documents or the no-cold-calls pledge; KYC or identity documents; deleting the account or erasing its data. |
+| A daily limit on calls per agent | **None.** No per-agent daily call limit (founder, 27 Oct 2026): "We should not limit any agent with n no. of calls per day". |
 | Repeating jobs | **Yes, with approval.** Pip creates a routine after one confirm; each run prepares its plan and asks before calling anyone. |
 | Guided questions | **Pip drafts, owner confirms.** A checklist, most-asked first; Pip pre-fills a draft where its sources allow; one tap keeps it, or the owner edits, types or speaks. |
 | Training tab | **Checklist first, rest folded.** |
@@ -147,7 +148,7 @@ tests at each layer → docs. No orphan route, job, column, setting or component
 | L1 Calls & call-backs | 1 call a lead now · 2 call back about an earlier call with its context · 3 book/move/cancel call-backs, single and bulk · 4 retry unanswered/failed calls · 5 follow-up done/not done · 6 WhatsApp a lead · 7 translate a call |
 | L2 Leads & DNC & exports | 8 status/owner/name, single and bulk by any lens · 9 saved views · 10 do-not-call add/remove/restore · exports of leads and calls |
 | L3 Campaigns | 11 create/edit/schedule/repeat/pause/resume/stop/delete · 12 contacts from a lens or CSV, remove contacts · 13 retry policy |
-| L4 Agents | 14 create/edit/publish/pause/archive/restore · 15 script changes · 16 voice, speaking style, call-handling and hand-over numbers, daily cap, AI model · 17 in-call actions · 19 lead fields |
+| L4 Agents | 14 create/edit/publish/pause/archive/restore · 15 script changes · 16 voice, speaking style, call-handling and hand-over numbers, AI model · 17 in-call actions · 19 lead fields |
 | L5 Knowledge & training | 18 practice tests · 20 facts teach/edit/delete/pin · 21 guided questions · 22 files and links · the Training tab redesign |
 | L6 Account | 23 numbers buy/release/assign/forwarding/call lines · 24 team · 25 profile, hours, line-protection phone, lead sources and calling rules · integrations · billing settings |
 | L7 Reports & routines | 26 questions and summaries over calls, leads and spend · routines from chat (create/edit/pause/delete, each run asks) |

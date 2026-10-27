@@ -416,8 +416,8 @@ CAMPAIGN_ADD_LEADS: Final = plans.set_action_tool(
     where="on the campaign's own screen",
     description=(
         "Add leads to a draft or scheduled campaign's call list, chosen by `lens` (the "
-        "filters from `leads_search`) or the `lead_ids` ticked on screen. A CSV is uploaded "
-        "on the campaign screen instead. The person approves one plan."
+        "filters from `leads_search`) or the `lead_ids` ticked on screen. A pasted or "
+        "attached list: `campaign_contacts_add`. The person approves one plan."
     ),
     properties={
         "campaign_id": {"type": "string", "description": "From `campaigns_list`."},

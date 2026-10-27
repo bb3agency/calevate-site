@@ -106,6 +106,8 @@ _REVIEWED_IMMEDIATE: dict[str, str] = {
         "a saved test reaches no caller and spends nothing until a run is asked for; Undo "
         "deletes it"
     ),
+    # D-893 L3: `controls.update_draft` refuses anything but a draft, and a draft dials nobody.
+    "campaign_edit": "a draft's settings; Undo restores the prior ones under a CAS",
 }
 
 
