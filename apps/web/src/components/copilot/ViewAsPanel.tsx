@@ -74,6 +74,7 @@ export function ViewAsPanel({
       role="dialog"
       aria-labelledby={labelledBy}
       data-testid="copilot-view-as-panel"
+      data-copilot-side={placement === "side" || undefined}
       className={panelFrame(placement)}
     >
       <div className="flex items-start justify-between gap-2 border-b border-line px-4 py-3">

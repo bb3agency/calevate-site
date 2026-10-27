@@ -8,6 +8,7 @@ import {
   headlineOf,
   isFixable,
   languageOf,
+  lastRunLine,
   nextStepOf,
   progressOf,
   triesLine,
@@ -18,7 +19,7 @@ import type { TestConversations, TestResult, TestRun } from "@/lib/api/script";
 import { useAssistantRequests, type AssistantRequest } from "@/lib/copilot/launcher";
 
 import { expectNoA11yViolations } from "./a11y";
-import { problem, renderClientPage } from "./harness";
+import { noReply, problem, renderClientPage } from "./harness";
 
 /**
  * The practice tests (D-828), from the founder's screenshot of 19 Oct 2026: "0 of 13" after
@@ -187,12 +188,13 @@ describe("the practice tests in Training", () => {
     expect(await screen.findByRole("heading", { name: "Right every time on 1 of your 2 tests." })).toBeTruthy();
     expect(screen.getByRole("list", { name: "Your score" }).textContent).toBe("1 right every time1 needs a fix");
     // The rule we failed is ours: in "On our side", never under what the owner fixes.
-    const attention = screen.getByRole("heading", { name: /Your agent is missing an answer/ }).closest("section");
+    const attention = screen.getByRole("heading", { name: /Missing an answer/ }).closest("section");
     expect(attention?.textContent).toContain("Asked on a real call: Delivery");
     expect(attention?.textContent).not.toContain("Asks not to be called again");
-    expect(screen.getByText(/1 test failed on a rule we keep for every agent/)).toBeTruthy();
-    expect(screen.getByText(/some answers used textbook words \(2 tests\)/)).toBeTruthy();
-    expect(screen.getByText(/do not count against your agent/)).toBeTruthy();
+    // Our side is one line; what we found waits behind "Show details".
+    expect(screen.getByText("This is ours to fix and does not count against your agent.")).toBeTruthy();
+    expect(screen.getByText("Failed a rule we keep for every agent: 1 test")).toBeTruthy();
+    expect(screen.getByText("Used textbook words: 2 tests")).toBeTruthy();
     expect(screen.queryByText(/contact us/i)).toBeNull();
     // The sandbox's hand-over reply is for the owner to read, with the languages shown.
     const read = screen.getByRole("heading", { name: /Read these yourself/ }).closest("section");
@@ -315,7 +317,35 @@ describe("the practice tests in Training", () => {
 
   it("shows the fixes being worked out, and why they could not be", async () => {
     await page(tests(run({ improving: true })));
-    expect(await screen.findByText(/Working out fixes for 1 test/)).toBeTruthy();
+    // A moving bar named for what it is doing, not a sentence; no actions while it runs.
+    expect(await screen.findByRole("progressbar", { name: "Working out a fix for 1 test" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Test again" })).toBeNull();
+  });
+
+  it("shows one state when an older fix waits and the newest round came back empty", async () => {
+    const improvement = {
+      base: "live" as const,
+      edits: [{ id: "e1", op: "set_step" as const, label: "Step 2", before: "Ask.", after: "Ask again.", because: null, why: "" }],
+      facts: [],
+      for_keys: [],
+      disclosure: null,
+      created_at: "2026-10-19T10:00:00Z",
+      tested: false,
+    };
+    await page(
+      tests(
+        run({
+          improvement,
+          improve_stop: "failed",
+          improve_note: "Suggestions could not be worked out, because the AI's answer came back incomplete.",
+        }),
+      ),
+      { "/v1/agents/agent-1/script": noReply() },
+    );
+    expect(await screen.findByText("Fixes are ready below. Keep the ones you want, then test again.")).toBeTruthy();
+    expect(screen.getByText("Pip could not suggest new fixes on the last try, so these are from before.")).toBeTruthy();
+    // The failed round is said once, quietly: never as a warning beside the waiting fixes.
+    expect(screen.queryByText(/came back incomplete/)).toBeNull();
   });
 
   it("says why suggestions could not be made", async () => {
@@ -364,8 +394,9 @@ describe("the practice tests in Training", () => {
     const row = (await screen.findByText("Asked on a real call: Delivery")).closest("details");
     expect(row?.open).toBe(false);
     expect(row?.querySelector("summary")?.textContent).toContain("It made up a delivery charge.");
-    expect(row?.querySelector("summary")?.textContent).toContain("Wrong all 3 times");
-    expect(row?.textContent).toContain("A good answer: Says delivery is free above ₹500.");
+    // One status per row: "Needs a fix" says it; "Wrong all 3 times" would say it again.
+    expect(row?.querySelector("summary")?.textContent).not.toContain("Wrong all 3 times");
+    expect(row?.textContent).toContain("A good answerSays delivery is free above ₹500.");
   });
 
   it("tests a changed script first, and shows the same tests over time", async () => {
@@ -378,7 +409,7 @@ describe("the practice tests in Training", () => {
       set_version: 2,
     });
     await page(tests(run({ is_current: false }), { history: [entry("run-2", 1), entry("run-1", 0)] }));
-    expect(await screen.findByText(/The script has changed since this test/)).toBeTruthy();
+    expect(await screen.findByText(/The script changed since this test/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Test again" }).className).toContain("bg-brand-strong");
     expect(screen.queryByRole("button", { name: "Let Pip suggest fixes" })).toBeNull();
     const overTime = screen.getByRole("list", { name: "These tests over time" });
@@ -403,9 +434,19 @@ describe("test copy", () => {
     expect(languageOf("…")).toBeNull();
   });
 
+  it("scores a run of only rules and our side by what was right, never 0 of 0", () => {
+    const HOURS_RULE = result({ key: "probe_ai", title: "Says it is an AI", probe: "ai", source: "standard", counted: false });
+    const onlyRules = run({ results: [HOURS_RULE, STOP] });
+    expect(headlineOf(onlyRules).title).toBe("Right every time on its one test.");
+    expect(headlineOf(onlyRules).tone).toBe("ok");
+    expect(lastRunLine(countsOf(onlyRules.results), true)).toBe("Last run: all 1 right, fixes waiting.");
+    expect(lastRunLine(countsOf([STOP]), false)).toBe("Last run: nothing to score.");
+  });
+
   it("counts the owner's score without the rules or our side", () => {
     expect(countsOf([PRICE, STOP, PERSON, HOURS, FLAKY])).toEqual({
       passed: 1,
+      works: 1,
       failing: 2,
       unreliable: 1,
       unchecked: 1,
@@ -418,7 +459,8 @@ describe("test copy", () => {
 
   it("says how often a test was right, and which are worth a fix", () => {
     expect(triesLine(FLAKY)).toBe("Right 2 of 3 times");
-    expect(triesLine(PRICE)).toBe("Wrong all 3 times");
+    // Wrong (or right) every time is the status's to say, not a second line's.
+    expect(triesLine(PRICE)).toBeNull();
     expect(triesLine({ passes: 1, judged_tries: 1 })).toBeNull();
     expect(isFixable(PRICE)).toBe(true);
     expect(isFixable(FLAKY)).toBe(false);

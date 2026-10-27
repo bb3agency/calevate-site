@@ -166,6 +166,19 @@
  */
 @custom-variant touch (@media (pointer: coarse));
 
+/*
+ * Pip's side panel sits BESIDE the page from `lg`, not over it. Over it, the panel hid the
+ * right third of whatever the person had just asked Pip about, and a sentence there read as
+ * cut off. The shell column (the header and `<main>`, whose parent is the one element
+ * holding `#main-content`) gives up the panel's width; below `lg` the panel is a sheet over
+ * the page, because a phone or tablet has no room for both.
+ */
+@media (min-width: 64rem) {
+  body:has(> [data-copilot-side]) div:has(> #main-content) {
+    padding-right: min(26rem, 100vw);
+  }
+}
+
 .dark {
   --app: #020617;
   --surface: #0f172a;

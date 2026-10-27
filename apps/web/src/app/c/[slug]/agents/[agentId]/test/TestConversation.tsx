@@ -35,10 +35,16 @@ export function TriesAndConversation({ tries }: { tries: TestTry[] }) {
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <p className="text-meta font-medium text-ink">The conversation</p>
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+        <p className="text-meta font-medium text-ink-muted">The conversation</p>
+        {/* The tries as one segmented strip (the console's segmented look), each with a
+            dot for its verdict, said in words to a screen reader. */}
         {tries.length > 1 && (
-          <div role="group" aria-label="Tries" className="flex flex-wrap gap-1.5">
+          <div
+            role="group"
+            aria-label="Tries"
+            className="inline-flex rounded-[10px] bg-ink/[0.05] p-[3px] shadow-[inset_0_0_0_1px_var(--line)]"
+          >
             {tries.map((t, index) => {
               const word = lookup(TRY_WORD, t.verdict) ?? TRY_WORD.unjudged;
               const selected = index === shown;
@@ -48,8 +54,8 @@ export function TriesAndConversation({ tries }: { tries: TestTry[] }) {
                   type="button"
                   aria-pressed={selected}
                   onClick={() => setShown(index)}
-                  className={`press inline-flex touch:min-h-11 items-center gap-1.5 rounded-md border px-2.5 py-1 text-meta focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand ${
-                    selected ? "border-ink bg-ink/[0.04] font-medium text-ink" : "border-line text-ink-muted hover:text-ink"
+                  className={`press inline-flex min-h-8 touch:min-h-11 items-center gap-1.5 rounded-[7px] px-3 text-meta focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand ${
+                    selected ? "bg-surface font-medium text-ink shadow-card ring-1 ring-ink/[0.06]" : "text-ink-muted hover:text-ink"
                   }`}
                 >
                   <span aria-hidden className={`size-1.5 rounded-full ${word.dot}`} />

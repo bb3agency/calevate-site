@@ -297,6 +297,7 @@ export function CopilotPanel({
       animate={{ opacity: 1, transform: "translateX(0px) translateY(0px)" }}
       exit={enterFrom(placement, reduced === true)}
       transition={{ duration: 0.2, ease: [0.23, 1, 0.32, 1] }}
+      data-copilot-side={placement === "side" || undefined}
       className={panelFrame(placement)}
     >
       {/* ONE HEADER FOR BOTH REALMS: ink title, muted subtitle, no tinted band. The admin

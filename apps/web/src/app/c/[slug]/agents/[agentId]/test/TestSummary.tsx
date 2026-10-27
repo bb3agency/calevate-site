@@ -27,6 +27,7 @@ import {
   headlineOf,
   nextStepOf,
   progressOf,
+  scoreOf,
   setLine,
   type Headline,
   type NextStep,
@@ -194,14 +195,18 @@ export function Standing({ run, data }: { run: TestRun; data: TestConversations 
     <section aria-labelledby="tests-summary-heading" className="space-y-4">
       <div className="space-y-1">
         <div className="flex items-start gap-2.5">
-          <span aria-hidden className={`mt-2.5 h-2 w-2 shrink-0 rounded-full ${HEADLINE_DOT[headline.tone]}`} />
-          <h4 id="tests-summary-heading" className="text-title text-ink [text-wrap:pretty]">
+          <span aria-hidden className={`mt-2 h-2 w-2 shrink-0 rounded-full ${HEADLINE_DOT[headline.tone]}`} />
+          <h4 id="tests-summary-heading" className="min-w-0 text-heading text-ink [text-wrap:pretty]">
             {headline.title}
           </h4>
           <HowItWorks data={data} />
         </div>
         {headline.detail && <p className="pl-[18px] text-body text-ink">{headline.detail}</p>}
-        <p className="pl-[18px] text-meta text-ink-muted">{setLine(run)}</p>
+        {/* Which tests these are: when they ran, and (in the run's own words) where they came from. */}
+        <p className="pl-[18px] text-meta text-ink-muted">
+          {setLine(run)}
+          {run.note ? ` ${run.note}` : ""}
+        </p>
       </div>
       <ScoreStrip counts={counts} />
       {points && <RunProgress points={points} />}
@@ -221,7 +226,11 @@ const SCORE_PARTS = [
  * legend under it names each colour with its count, so colour is never the only cue.
  */
 function ScoreStrip({ counts }: { counts: RunCounts }) {
-  const sizes = { passed: counts.passed, unreliable: counts.unreliable, notRight: counts.failing - counts.unreliable };
+  const sizes = {
+    passed: scoreOf(counts).right,
+    unreliable: counts.unreliable,
+    notRight: counts.failing - counts.unreliable,
+  };
   const segments = SCORE_PARTS.flatMap((part) => Array.from({ length: sizes[part.key] }, () => part.tone));
   if (segments.length === 0) return null;
   return (
@@ -245,8 +254,14 @@ function ScoreStrip({ counts }: { counts: RunCounts }) {
   );
 }
 
-/** The same tests on earlier runs, oldest first, so progress reads down the list. */
-function RunProgress({ points }: { points: RunPoint[] }) {
+/**
+ * The same tests on earlier runs, oldest first, so progress reads down the list. A run that
+ * scored nothing of the owner's (every test a rule we keep, or ours) has no bar to draw and
+ * is left out rather than shown as "0 of 0".
+ */
+function RunProgress({ points: all }: { points: RunPoint[] }) {
+  const points = all.filter((point) => point.judged > 0);
+  if (points.length < 2) return null;
   return (
     <div className="space-y-1.5 pl-[18px]">
       <p className="text-meta font-medium text-ink">These tests over time</p>
@@ -297,7 +312,13 @@ export interface NextStepProps {
   onUndo: (version: number) => void;
 }
 
-/** What to do next: one sentence and one primary action, with "Test again" beside it. */
+/**
+ * What to do next: ONE state, the latest. The sentence and its primary action come from
+ * `nextStepOf`; "Test again" is always beside it, quieter. While Pip works out fixes the
+ * block is a progress state and nothing else. A suggestion round that came back with nothing
+ * says so once: as the block's notice when no fixes wait, or as one quiet line under the
+ * waiting ones (they are from an earlier round, and they are still the thing to do).
+ */
 export function NextStepBlock(props: NextStepProps) {
   const { run, data, canRun, fixable, improving, restoring, unchanged } = props;
   const counts = countsOf(run.results);
@@ -316,20 +337,28 @@ export function NextStepBlock(props: NextStepProps) {
   const firstSetting = settings[0]?.setting ?? null;
   const waiting = data.waiting_tests ?? 0;
   const retestPrimary = step === "retest";
+  const stopNote = run.improve_note && !improving ? run.improve_note : null;
+  const earlierFixes = stopNote !== null && props.hasProposal;
 
   return (
-    <section aria-labelledby="tests-next-heading" className="space-y-3 border-t border-line pt-4">
+    <section aria-labelledby="tests-next-heading" className="space-y-3 border-t border-line pt-5">
       <h4 id="tests-next-heading" className="text-heading text-ink">
         What to do next
       </h4>
       {improving ? (
-        <p role="status" aria-live="polite" className="text-body text-ink">
-          <span className="text-shimmer">Working out fixes for {plural(fixable, "test", "tests")}…</span>{" "}
-          <span className="text-meta text-ink-muted">Up to two minutes. You can leave; they wait here.</span>
-        </p>
+        <WorkingOnFixes count={fixable} />
       ) : (
         <>
-          <p className="max-w-prose text-body text-ink [text-wrap:pretty]">{sentenceOf(step, run, fixable, settings.length)}</p>
+          <div className="space-y-1">
+            <p className="max-w-prose text-body text-ink [text-wrap:pretty]">
+              {sentenceOf(step, run, fixable, settings.length, props.showingReview)}
+            </p>
+            {earlierFixes && (
+              <p className="max-w-prose text-meta text-ink-muted">
+                {ASSISTANT_NAME} could not suggest new fixes on the last try, so these are from before.
+              </p>
+            )}
+          </div>
           <div className="flex flex-wrap items-center gap-2">
             {step === "undo" && broke !== null && (
               <ActionButton
@@ -344,7 +373,7 @@ export function NextStepBlock(props: NextStepProps) {
             )}
             {step === "review" && !props.showingReview && (
               <button type="button" className={PRIMARY_BUTTON_SM} onClick={props.onReopen}>
-                Open the suggested fixes
+                Review the fixes
               </button>
             )}
             {/* Offered whenever a test can be fixed, not only when fixing is the next step:
@@ -406,29 +435,57 @@ export function NextStepBlock(props: NextStepProps) {
           <p className="text-meta text-ink-muted">Put it live from the Script tab, then test again.</p>
         </NoticeBox>
       )}
-      {run.improve_note && !improving && <NoticeBox tone="warn" title={run.improve_note} />}
-      {run.note && <p className="text-meta text-ink-muted">{run.note}</p>}
+      {stopNote && !props.hasProposal && (
+        <NoticeBox
+          tone={run.improve_stop === "failed" || run.improve_stop === "budget" ? "warn" : "neutral"}
+          title={stopNote}
+        />
+      )}
     </section>
   );
 }
 
-function sentenceOf(step: NextStep, run: TestRun, fixable: number, settings: number): string {
+/**
+ * Pip at work: a moving bar rather than a sentence, so it reads as in progress at a glance.
+ * The fixes arrive in place (the screen polls), so the line under it says the person need
+ * not wait here.
+ */
+function WorkingOnFixes({ count }: { count: number }) {
+  return (
+    <div role="status" aria-live="polite" className="flex items-start gap-3 rounded-card border border-line p-4">
+      <PipMark size={20} className="mt-0.5 shrink-0" />
+      <div className="min-w-0 flex-1 space-y-2">
+        <ProgressBar
+          value={null}
+          label={`Working out ${count === 1 ? "a fix" : "fixes"} for ${plural(count, "test", "tests")}`}
+          pendingLabel="About 2 min"
+        />
+        <p className="text-meta text-ink-muted">You can leave this page. The fixes wait here for you.</p>
+      </div>
+    </div>
+  );
+}
+
+function sentenceOf(step: NextStep, run: TestRun, fixable: number, settings: number, showingReview: boolean): string {
   switch (step) {
     case "undo":
       return `A change since the last test broke ${
         run.comparison?.broken === 1 ? "a test that was right" : "tests that were right"
-      }. Undo puts the earlier script in your draft; callers keep the current one until you put it live.`;
+      }. Undo puts the earlier script in your draft.`;
     case "review":
-      return "Suggested fixes are waiting. Keep the ones you want, then test again.";
+      return showingReview
+        ? "Fixes are ready below. Keep the ones you want, then test again."
+        : "Fixes are ready. Keep the ones you want, then test again.";
     case "retest":
-      return "The script has changed since this test. Test again to see what callers hear now.";
+      return "The script changed since this test. Test again to see what callers hear now.";
     case "fix":
-      return `${plural(fixable, "test goes", "tests go")} wrong because of the script or a missing answer. ${ASSISTANT_NAME} can suggest changes; nothing changes until you keep them.`;
+      return `${ASSISTANT_NAME} can suggest fixes for ${plural(fixable, "test", "tests")}. Nothing changes until you keep one.`;
     case "setting":
       return `${plural(settings, "test waits", "tests wait")} on a setting. Change it, then test again.`;
     case "hold":
-      return "What is left is right most of the time, so it is not worth changing the script for. Test again after your next change to see if it holds.";
+      return "What is left is right most of the time, so the script is best left alone. Test again after your next change.";
     case "done":
       return "Nothing to fix. Test again after you change the script or teach it something new.";
   }
 }
+

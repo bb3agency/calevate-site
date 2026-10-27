@@ -444,7 +444,7 @@ export function kindLabel(change: Change): string {
  * is there now stays muted. Four lines is enough to judge most changes; longer text opens
  * in full on request.
  */
-function Quote({ tone, text }: { tone: "before" | "after"; text: string }) {
+export function Quote({ tone, text }: { tone: "before" | "after"; text: string }) {
   const after = tone === "after";
   return (
     <div

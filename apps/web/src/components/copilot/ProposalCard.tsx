@@ -1,11 +1,13 @@
 "use client";
 
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { ArrowRight, Check, Download, ShieldAlert } from "lucide-react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
-import { NOTICE_BAR, ProblemNotice, SECONDARY_BUTTON } from "@/components/ui";
+import { NOTICE_BAR, ProblemNotice, SECONDARY_BUTTON, SECONDARY_BUTTON_SM } from "@/components/ui";
+import { handoffFor } from "@/lib/copilot/handoff";
 import { ApiProblem, TransportProblem, type Session } from "@/lib/api/client";
 import { useConfirmProposal, type CopilotConfirmOut } from "@/lib/api/copilot";
 import { useDownloadPreparedExport } from "@/lib/api/exports";
@@ -204,7 +206,7 @@ function SingleProposalCard({
       className={`border-l-2 ${NOTICE_BAR.neutral} py-1 pl-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand`}
     >
       {decided ? (
-        <Outcome outcome={outcome} session={session} onDismiss={onDismiss} />
+        <Outcome outcome={outcome} session={session} realm={realm} />
       ) : (
         <>
           <p className="flex items-center gap-1.5 text-meta font-semibold text-ink-muted">
@@ -343,31 +345,42 @@ function SingleProposalCard({
 function Outcome({
   outcome,
   session,
-  onDismiss,
+  realm,
 }: {
   outcome: CopilotConfirmOut;
   session: Session;
-  onDismiss: () => void;
+  realm: "client" | "admin";
 }) {
+  // A result that lands elsewhere (fixes on the Training tab) gets the way there. The card
+  // offers no "Close": it is a record in the conversation, and a button that only removed
+  // it told the person nothing about what to do next.
+  const handoff =
+    realm === "client" && outcome.applied ? handoffFor(outcome.tool, session.orgSlug, outcome.object_id) : null;
+  const download = outcome.download_ticket ?? null;
   return (
     <>
       <p className="flex items-center gap-1.5 text-meta font-semibold text-ink-muted">
         <Check aria-hidden className="h-3.5 w-3.5" />
         {outcome.applied ? "Done" : "Nothing to change"}
       </p>
-      <p className="mt-1 whitespace-pre-line text-xs text-ink">{outcome.detail}</p>
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        {outcome.download_ticket && (
-          <PreparedDownload
-            session={session}
-            ticket={outcome.download_ticket}
-            basename={outcome.tool === "calls_export" ? "calls" : "leads"}
-          />
-        )}
-        <button type="button" onClick={onDismiss} className={SECONDARY_BUTTON}>
-          Close
-        </button>
-      </div>
+      <p className="mt-1 whitespace-pre-line break-words text-xs text-ink [overflow-wrap:anywhere]">{outcome.detail}</p>
+      {(handoff || download) && (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          {download && (
+            <PreparedDownload
+              session={session}
+              ticket={download}
+              basename={outcome.tool === "calls_export" ? "calls" : "leads"}
+            />
+          )}
+          {handoff && (
+            <Link href={handoff.path} className={SECONDARY_BUTTON_SM}>
+              {handoff.label}
+              <ArrowRight aria-hidden className="h-3.5 w-3.5" />
+            </Link>
+          )}
+        </div>
+      )}
     </>
   );
 }

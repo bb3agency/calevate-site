@@ -43,16 +43,16 @@ export type FixGroup = "script" | "knowledge" | "setting";
 
 export const FIX_GROUP: Record<FixGroup, { title: string; hint: string }> = {
   script: {
-    title: "The script needs a change",
-    hint: "Pip can suggest the words; nothing changes until you keep them.",
+    title: "Fix in the script",
+    hint: "Pip can suggest the words. Nothing changes until you keep them.",
   },
   knowledge: {
-    title: "Your agent is missing an answer",
-    hint: "Teach the right answer in Training, or let Pip suggest it.",
+    title: "Missing an answer",
+    hint: "Teach the right answer, or let Pip suggest it.",
   },
   setting: {
-    title: "A setting decides these",
-    hint: "Nothing in the script changes these. Change the setting, then test again.",
+    title: "Fix in a setting",
+    hint: "The script cannot change these. Change the setting, then test again.",
   },
 };
 
@@ -138,15 +138,6 @@ export const CHANGE: Record<TestChange, string | null> = {
   still: "Still not right",
   same: null,
   new: "New test",
-};
-
-/** What the owner does about a test, by who can fix it (D-823), in one line. */
-export const WHAT_TO_DO: Record<TestOwner, string> = {
-  script: "Change the script, or let Pip suggest the change.",
-  knowledge: "Teach the right answer above, or let Pip suggest it.",
-  setting: "Change the setting below. Nothing in the script fixes this.",
-  platform: "This is ours to fix and we have been told. It does not count against your agent.",
-  test: "You marked this test wrong, so it is left out of the score and the fixes.",
 };
 
 /** A test right on most tries: Pip leaves it alone, so a fix never breaks what works. */
@@ -236,6 +227,8 @@ export function isFixable(result: ResultFacts & Pick<TestResult, "passes" | "jud
 export interface RunCounts {
   /** In the owner's score and right on every try. */
   passed: number;
+  /** Right on every try, in the score or not: the rules every agent keeps count here too. */
+  works: number;
   /** In the owner's score and not right every time, or waiting on a setting. */
   failing: number;
   /** Of `failing`, right on some tries. */
@@ -249,12 +242,22 @@ export interface RunCounts {
 
 /** The owner's counts. Rule checks, our side and tests marked wrong are counted in none. */
 export function countsOf(results: readonly ResultFacts[]): RunCounts {
-  const out: RunCounts = { passed: 0, failing: 0, unreliable: 0, unchecked: 0, ours: 0, total: results.length };
+  const out: RunCounts = {
+    passed: 0,
+    works: 0,
+    failing: 0,
+    unreliable: 0,
+    unchecked: 0,
+    ours: 0,
+    total: results.length,
+  };
   for (const result of results) {
     const place = standingOf(result);
     const scored = result.counted ?? !result.probe;
-    if (place === "works" && scored) out.passed += 1;
-    else if (place === "broken" || place === "setting") out.failing += 1;
+    if (place === "works") {
+      out.works += 1;
+      if (scored) out.passed += 1;
+    } else if (place === "broken" || place === "setting") out.failing += 1;
     else if (place === "unreliable") {
       out.failing += 1;
       out.unreliable += 1;
@@ -264,14 +267,35 @@ export function countsOf(results: readonly ResultFacts[]): RunCounts {
   return out;
 }
 
-/** "Right 2 of 3 times", or null for a test with one try or none judged. */
+/**
+ * The score the owner reads: right every time, out of the tests their script decides. A run
+ * that held none of those (every test a rule we keep, or ours to fix) scores every test that
+ * was right, so a run that went well never reads "0 of 0".
+ */
+export function scoreOf(counts: RunCounts): { right: number; of: number } {
+  const scored = counts.passed + counts.failing;
+  return scored > 0 ? { right: counts.passed, of: scored } : { right: counts.works, of: counts.works };
+}
+
+/** The closed "Practice callers" row's line for a finished run. */
+export function lastRunLine(counts: RunCounts, fixesWaiting: boolean): string {
+  const { right, of } = scoreOf(counts);
+  const score = of === 0 ? "nothing to score" : right === of ? `all ${of} right` : `${right} of ${of} right`;
+  const extra = [
+    counts.unchecked > 0 ? `${counts.unchecked} to read` : null,
+    fixesWaiting ? "fixes waiting" : null,
+  ].filter((part): part is string => part !== null);
+  return `Last run: ${[score, ...extra].join(", ")}.`;
+}
+
+/**
+ * "Right 2 of 3 times" for a test right on some tries and not others, else null. Right or
+ * wrong on every try, the row's status already says it, and saying it twice was noise.
+ */
 export function triesLine(result: Pick<TestResult, "passes" | "judged_tries">): string | null {
   const judged = result.judged_tries ?? 0;
-  if (judged < 2) return null;
   const passes = result.passes ?? 0;
-  if (passes === judged) return `Right all ${judged} times`;
-  if (passes === 0) return `Wrong all ${judged} times`;
-  return `Right ${passes} of ${judged} times`;
+  return judged >= 2 && passes > 0 && passes < judged ? `Right ${passes} of ${judged} times` : null;
 }
 
 export interface Headline {
@@ -310,6 +334,13 @@ export function headlineOf(run: Pick<TestRun, "comparison" | "results" | "create
   }
   const scored = counts.passed + counts.failing;
   if (scored === 0) {
+    if (counts.works > 0) {
+      return {
+        title: counts.works === 1 ? "Right every time on its one test." : `Right every time on all ${counts.works} tests.`,
+        detail: counts.unchecked > 0 ? "Read the answers we could not judge below." : null,
+        tone: "ok",
+      };
+    }
     return {
       title: "Nothing here for your script to fix.",
       detail: counts.unchecked > 0 ? "Read the answers below yourself." : null,
@@ -338,17 +369,27 @@ export function setLine(run: Pick<TestRun, "set_version" | "trials" | "created_a
   return `Ran ${formatIST(run.created_at)}${version}${tries}.`;
 }
 
-/** The note for everything ours: rules we failed and how replies sounded. Null when none. */
-export function oursNote(run: Pick<TestRun, "results" | "sounds">): string | null {
+/**
+ * Everything ours, as one line and the details behind it: rules we failed and how replies
+ * sounded. Null when there is none. The line says the one thing the owner needs (it is not
+ * theirs to fix and does not count); the details wait behind a disclosure.
+ */
+export function oursNote(run: Pick<TestRun, "results" | "sounds">): { line: string; details: string[] } | null {
   const counts = countsOf(run.results);
-  const sounds = (run.sounds ?? []).slice(0, 3).map((s) => `${SOUND[s.kind]} (${plural(s.tests, "test", "tests")})`);
+  const sounds = (run.sounds ?? []).slice(0, 3);
   if (counts.ours === 0 && sounds.length === 0) return null;
-  const parts = [
-    counts.ours > 0 ? `${plural(counts.ours, "test", "tests")} failed on a rule we keep for every agent` : null,
-    sounds.length > 0 ? `some answers ${sounds.join(", ")}` : null,
+  const line =
+    counts.ours > 0
+      ? `${counts.ours === 1 ? "This is" : "These are"} ours to fix and ${counts.ours === 1 ? "does" : "do"} not count against your agent.`
+      : "Some answers did not sound right. That is ours to fix and does not count against your agent.";
+  const details = [
+    counts.ours > 0 ? `Failed a rule we keep for every agent: ${plural(counts.ours, "test", "tests")}` : null,
+    ...sounds.map((sound) => {
+      const said = SOUND[sound.kind];
+      return `${said.charAt(0).toUpperCase()}${said.slice(1)}: ${plural(sound.tests, "test", "tests")}`;
+    }),
   ].filter((part): part is string => part !== null);
-  const said = parts.join(", and ");
-  return `${said.charAt(0).toUpperCase()}${said.slice(1)}. We are fixing these, and they do not count against your agent.`;
+  return { line, details };
 }
 
 const SCRIPTS: readonly { name: string; pattern: RegExp }[] = [

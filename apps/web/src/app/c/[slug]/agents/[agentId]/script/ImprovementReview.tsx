@@ -19,6 +19,7 @@
 import { useState } from "react";
 
 import { ActionButton, useActionFeedback, useAsyncAction } from "@/components/arc/feedback";
+import { HowItWorks } from "@/components/console/howItWorks";
 import {
   FIELD,
   NoticeBox,
@@ -40,6 +41,8 @@ import {
   type TestRun,
 } from "@/lib/api/script";
 import { useAddFact, useEditFact } from "@/lib/api/teach";
+
+import { Quote } from "./ProposalReview";
 
 /** The kept edit ids, in the order they were suggested. */
 export function keptEdits(improvement: Improvement, kept: ReadonlySet<string>): string[] {
@@ -186,16 +189,8 @@ export function ImprovementReview({
         <h4 id="improve-heading" className="text-heading text-ink">
           Suggested fixes
         </h4>
-        <p className="mt-1 text-meta text-ink-muted">
-          Each one is a small change you keep or leave. Untick anything you do not want. Script changes go into your
-          draft; callers hear them only after you put them live.
-          {improvement.base === "live" ? " Made from the script callers hear now." : ""}
-        </p>
-        {!improvement.tested && (
-          <p className="mt-1 text-meta text-ink-muted">
-            Not tested yet. To check them, put the ones you keep live and test again.
-          </p>
-        )}
+        <p className="mt-0.5 text-meta text-ink-muted">Untick any you do not want, then keep the rest.</p>
+        {/* A disclosure about which model answered is required (D-127 G-6), so it stays visible. */}
         {improvement.disclosure && <p className="mt-1 text-meta text-ink-muted">{improvement.disclosure}</p>}
       </div>
 
@@ -277,6 +272,15 @@ export function ImprovementReview({
       {factMissingAnswer && (
         <p className="text-meta text-ink-muted">Type the answer for each fact you keep, or untick it.</p>
       )}
+      <HowItWorks
+        className="mt-0"
+        items={[
+          "Each fix is one small change. Script changes go into your draft; callers hear them only after you put them live.",
+          ...(improvement.base === "live" ? ["Made from the script callers hear now."] : []),
+          ...(improvement.tested ? [] : ["Not tested yet. Put the ones you keep live, then test again to check them."]),
+          ...(facts.length > 0 ? ["Facts you keep are live for every agent at once."] : []),
+        ]}
+      />
     </section>
   );
 }
@@ -292,26 +296,28 @@ function EditRow({
   testTitle?: string;
   onToggle: (on: boolean) => void;
 }) {
+  const id = `edit-${edit.id}`;
+  // The Script tab's change review, row for row: a tick box, the change's name, why, then
+  // what is there now and what is suggested as two quoted sides. Unticked fades, so what will
+  // be kept reads at a glance.
   return (
-    <li className="py-3">
-      <label className="flex cursor-pointer items-start gap-3">
-        <input type="checkbox" className="mt-1" checked={kept} onChange={(e) => onToggle(e.target.checked)} />
-        <span className="min-w-0 flex-1 space-y-1">
-          <span className="block text-body font-medium text-ink">{edit.label}</span>
-          {edit.why && <span className="block text-meta text-ink">{edit.why}</span>}
-          {testTitle && <span className="block text-meta text-ink-muted">For the test: {testTitle}</span>}
-          {edit.before && (
-            <span className="block whitespace-pre-wrap break-words text-meta text-ink-muted line-through">
-              <span className="sr-only">Now: </span>
-              {edit.before}
-            </span>
-          )}
-          <span className="block whitespace-pre-wrap break-words text-body text-ink">
-            <span className="sr-only">Suggested: </span>
-            {edit.after}
-          </span>
-        </span>
-      </label>
+    <li className={`flex items-start gap-3 py-3 transition-opacity duration-150 ${kept ? "" : "opacity-55"}`}>
+      <input
+        id={`${id}-keep`}
+        type="checkbox"
+        className="mt-1 h-4 w-4 shrink-0 cursor-pointer accent-[var(--brand-strong)] touch:h-5 touch:w-5"
+        checked={kept}
+        onChange={(e) => onToggle(e.target.checked)}
+      />
+      <div className="min-w-0 flex-1 space-y-1.5">
+        <label htmlFor={`${id}-keep`} className="block cursor-pointer text-body font-medium text-ink [overflow-wrap:anywhere]">
+          {edit.label}
+        </label>
+        {edit.why && <p className="text-meta text-ink [overflow-wrap:anywhere]">{edit.why}</p>}
+        {edit.before && <Quote tone="before" text={edit.before} />}
+        <Quote tone="after" text={edit.after} />
+        {testTitle && <p className="text-meta text-ink-muted [overflow-wrap:anywhere]">Fixes: {testTitle}</p>}
+      </div>
     </li>
   );
 }
@@ -335,7 +341,7 @@ function FactRow({
       <div className="flex items-start gap-3">
         <input
           type="checkbox"
-          className="mt-1"
+          className="mt-1 h-4 w-4 shrink-0 cursor-pointer accent-[var(--brand-strong)] touch:h-5 touch:w-5"
           aria-labelledby={`${id}-label`}
           checked={keep}
           onChange={(e) => onChange({ keep: e.target.checked })}
@@ -345,7 +351,7 @@ function FactRow({
             {fact.action === "fix" ? "Correct a pinned fact" : "Pin a fact"}: {fact.question}
           </p>
           {fact.why && <p className="text-meta text-ink">{fact.why}</p>}
-          {testTitle && <p className="text-meta text-ink-muted">For the test: {testTitle}</p>}
+          {testTitle && <p className="text-meta text-ink-muted [overflow-wrap:anywhere]">Fixes: {testTitle}</p>}
           <label className="block">
             <span className="sr-only">Answer</span>
             <textarea

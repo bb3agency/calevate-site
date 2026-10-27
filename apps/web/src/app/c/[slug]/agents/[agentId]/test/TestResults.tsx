@@ -3,15 +3,17 @@
 /**
  * The tests of a finished run, grouped by what fixes them rather than by verdict: the script,
  * a missing answer, or a setting (D-823's owners). Each group says in one line what to do,
- * and each test closes to one scannable row (its name, verdict and the judge's reason) and
- * opens to the actions and the conversation.
+ * and each test closes to one scannable row (its name, ONE status and the judge's reason)
+ * and opens to what went wrong, what a good answer does, the actions and the conversation.
  *
  * Then what needs no action from the owner: tests to read themselves, the ones right every
- * time (folded), our side (a note outside the score, D-828) and tests marked wrong.
+ * time (folded), our side (one line, details on demand, D-828) and tests marked wrong. Inside
+ * those groups the heading already says the status, so a row does not say it again.
  */
 
 import Link from "next/link";
 
+import { TEXT_ACTION_SM } from "@/components/console/section";
 import { InfoTip } from "@/components/console/infoTip";
 import { StatusPill } from "@/components/console/statusPill";
 import { PipMark } from "@/components/illustration/pip";
@@ -27,7 +29,6 @@ import {
   MOSTLY_RIGHT,
   SETTING_LINK,
   STANDING,
-  WHAT_TO_DO,
   fixGroups,
   isFailing,
   isFixable,
@@ -60,6 +61,8 @@ export interface RowActions {
   links: ResultLinks;
 }
 
+const count = (n: number) => `${n} ${n === 1 ? "test" : "tests"}`;
+
 export function Results({ run, actions }: { run: TestRun; actions: RowActions }) {
   const by = (place: string) => run.results.filter((r) => standingOf(r) === place);
   const groups = fixGroups(run.results);
@@ -73,18 +76,14 @@ export function Results({ run, actions }: { run: TestRun; actions: RowActions })
     <div className="space-y-8">
       {groups.map(({ group, rows }) => (
         <section key={group} aria-labelledby={`tests-${group}-heading`}>
-          <h5 id={`tests-${group}-heading`} className="text-heading text-ink">
-            {FIX_GROUP[group].title} <span className="font-normal text-ink-muted">{rows.length}</span>
-          </h5>
+          <GroupHeading id={`tests-${group}-heading`} title={FIX_GROUP[group].title} n={rows.length} />
           <p className="mt-0.5 max-w-prose text-meta text-ink-muted">{FIX_GROUP[group].hint}</p>
-          <ResultList rows={rows} actions={actions} />
+          <ResultList rows={rows} actions={actions} showStatus />
         </section>
       ))}
       {read.length > 0 && (
         <section aria-labelledby="tests-read-heading">
-          <h5 id="tests-read-heading" className="text-heading text-ink">
-            Read these yourself <span className="font-normal text-ink-muted">{read.length}</span>
-          </h5>
+          <GroupHeading id="tests-read-heading" title="Read these yourself" n={read.length} />
           <p className="mt-0.5 max-w-prose text-meta text-ink-muted">
             A test chat cannot show these, so nobody judged them. Open one to read what your agent said.
           </p>
@@ -95,20 +94,22 @@ export function Results({ run, actions }: { run: TestRun; actions: RowActions })
         <Folded title="Right every time" rows={works} actions={quiet} open={groups.length === 0 && read.length === 0} />
       )}
       {note && (
-        <section aria-labelledby="tests-ours-heading" className="border-l-2 border-chart-neutral pl-3">
-          <h5 id="tests-ours-heading" className="text-meta font-semibold text-ink">
-            On our side
-          </h5>
-          <p className="mt-1 max-w-prose text-meta text-ink-muted">{note}</p>
-          {ours.length > 0 && (
-            <details className="group/fold mt-1">
-              <summary className="flex touch:min-h-11 cursor-pointer list-none items-center gap-1.5 text-meta font-medium text-ink [&::-webkit-details-marker]:hidden">
-                <Chevron className="group-open/fold:rotate-90" />
-                See {ours.length === 1 ? "the test" : `the ${ours.length} tests`}
-              </summary>
-              <ResultList rows={ours} actions={quiet} />
-            </details>
-          )}
+        <section aria-labelledby="tests-ours-heading" className="space-y-1">
+          <GroupHeading id="tests-ours-heading" title="On our side" n={ours.length} />
+          <p className="max-w-prose text-meta text-ink-muted">{note.line}</p>
+          <details className="group/fold">
+            <summary className={`${TEXT_ACTION_SM} -mx-2 cursor-pointer list-none [&::-webkit-details-marker]:hidden`}>
+              <Chevron className="group-open/fold:rotate-90" />
+              <span className="group-open/fold:hidden">Show details</span>
+              <span className="hidden group-open/fold:inline">Hide details</span>
+            </summary>
+            <ul className="mt-1 space-y-1 border-l-2 border-line pl-3 text-meta text-ink-muted">
+              {note.details.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+            {ours.length > 0 && <ResultList rows={ours} actions={quiet} />}
+          </details>
         </section>
       )}
       {wrong.length > 0 && <Folded title="Marked wrong" rows={wrong} actions={quiet} open={false} />}
@@ -116,11 +117,21 @@ export function Results({ run, actions }: { run: TestRun; actions: RowActions })
   );
 }
 
-function ResultList({ rows, actions }: { rows: TestResult[]; actions: RowActions }) {
+/** A group's name and how many tests it holds, as a quiet count rather than a bare digit. */
+function GroupHeading({ id, title, n }: { id: string; title: string; n: number }) {
+  return (
+    <h5 id={id} className="flex flex-wrap items-baseline gap-x-2 text-heading text-ink">
+      {title}
+      {n > 0 && <span className="text-meta font-normal text-ink-muted">{count(n)}</span>}
+    </h5>
+  );
+}
+
+function ResultList({ rows, actions, showStatus = false }: { rows: TestResult[]; actions: RowActions; showStatus?: boolean }) {
   return (
     <ul className="mt-2 divide-y divide-line border-y border-line">
       {rows.map((r) => (
-        <ResultRow key={r.key} result={r} actions={actions} />
+        <ResultRow key={r.key} result={r} actions={actions} showStatus={showStatus} />
       ))}
     </ul>
   );
@@ -129,9 +140,10 @@ function ResultList({ rows, actions }: { rows: TestResult[]; actions: RowActions
 function Folded({ title, rows, actions, open }: { title: string; rows: TestResult[]; actions: RowActions; open: boolean }) {
   return (
     <details open={open} className="group/fold">
-      <summary className="flex touch:min-h-11 cursor-pointer list-none items-center gap-2 text-heading text-ink [&::-webkit-details-marker]:hidden">
-        <Chevron className="group-open/fold:rotate-90" />
-        {title} <span className="font-normal text-ink-muted">{rows.length}</span>
+      <summary className="flex touch:min-h-11 cursor-pointer list-none items-baseline gap-2 rounded-sm text-heading text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand [&::-webkit-details-marker]:hidden">
+        <Chevron className="translate-y-0.5 group-open/fold:rotate-90" />
+        {title}
+        <span className="text-meta font-normal text-ink-muted">{count(rows.length)}</span>
       </summary>
       <ResultList rows={rows} actions={actions} />
     </details>
@@ -155,14 +167,15 @@ const CHANGE_TONE: Record<string, string> = {
   broken: "font-medium text-danger",
 };
 
+
 /**
- * One test. Closed, it is one scannable row: its name; its verdict, how often it was right
- * and what changed since the last test; and, for a test that needs the owner, the judge's
- * reason, so the problem reads without opening anything. Open, the reason in full, what a
- * good answer does, the actions as buttons, then the conversation. Native `details`, so it
- * opens by keyboard and needs no script.
+ * One test. Closed, it is one scannable row: its name; its status (only where the group does
+ * not already say it), what changed since the last test and where it came from; and, for a
+ * test that needs the owner, the judge's reason in two lines. Open: what went wrong and what a
+ * good answer does as two labelled lines, the actions, then the conversation. Native
+ * `details`, so it opens by keyboard and needs no script.
  */
-function ResultRow({ result, actions }: { result: TestResult; actions: RowActions }) {
+function ResultRow({ result, actions, showStatus }: { result: TestResult; actions: RowActions; showStatus: boolean }) {
   const place = standingOf(result);
   const look = STANDING[place];
   const change = result.change ? CHANGE[result.change] : null;
@@ -170,75 +183,75 @@ function ResultRow({ result, actions }: { result: TestResult; actions: RowAction
   const tag = result.probe ? PROBE_TAG : (lookup(TAG, result.source) ?? null);
   const attention = isFailing(result);
   const fixable = attention && isFixable(result);
-  const todo =
-    place === "unreliable" && !isFixable(result)
-      ? MOSTLY_RIGHT
-      : owner && place !== "works" && place !== "check"
-        ? WHAT_TO_DO[owner]
-        : undefined;
   const setting = owner === "setting" ? result.setting : null;
   const tries =
     result.tries && result.tries.length > 0
       ? result.tries
       : [{ verdict: result.verdict, reason: result.reason, turns: result.turns }];
   const howOften = triesLine(result);
-  const meta = [tag, howOften].filter((part): part is string => Boolean(part));
   const canFix = fixable && actions.canFix;
   const openScript = attention && result.fix === "script_step";
   const canMarkWrong = attention && actions.canMarkWrong;
+  // Pip leaves a mostly-right test alone; the row says why there is no "suggest a fix" on it.
+  const leftAlone = place === "unreliable" && !isFixable(result);
 
   return (
     <li>
       <details className="group/row">
-        <summary className="flex touch:min-h-11 cursor-pointer list-none items-start gap-3 py-3 [&::-webkit-details-marker]:hidden">
+        <summary className="flex touch:min-h-11 cursor-pointer list-none items-start gap-3 rounded-sm py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand [&::-webkit-details-marker]:hidden">
           <span className="min-w-0 flex-1 space-y-1">
             <span className="block text-body font-medium text-ink [overflow-wrap:anywhere]">{result.title}</span>
-            <span className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-meta text-ink-muted">
-              <StatusPill tone={look.tone}>{look.label}</StatusPill>
-              {change && (
-                <span className={lookup(CHANGE_TONE, result.change ?? "") ?? ""}>
-                  {change}
-                </span>
-              )}
-              {meta.map((part) => (
-                <span key={part}>
-                  {part}
-                </span>
-              ))}
+            <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-meta text-ink-muted">
+              {showStatus && <StatusPill tone={look.tone}>{look.label}</StatusPill>}
+              {howOften && <span>{howOften}</span>}
+              {change && <span className={lookup(CHANGE_TONE, result.change ?? "") ?? ""}>{change}</span>}
+              {tag && <span>{tag}</span>}
             </span>
             {attention && result.reason && (
-              <span className="line-clamp-2 block text-meta text-ink group-open/row:hidden">{result.reason}</span>
+              <span className="line-clamp-2 block text-meta text-ink [overflow-wrap:anywhere] group-open/row:hidden">
+                {result.reason}
+              </span>
             )}
           </span>
           <Chevron className="mt-1.5 group-open/row:rotate-90" />
         </summary>
 
-        <div className="space-y-4 pb-5">
-          {(result.reason || result.expect || todo) && (
-            <div className="space-y-1.5">
+        <div className="min-w-0 space-y-4 pb-5">
+          {(result.reason || (result.expect && attention) || setting) && (
+            <dl className="max-w-prose space-y-2.5 text-body">
               {result.reason && (
-                <p className="flex flex-wrap items-center gap-x-1.5 text-body font-medium text-ink">
-                  <span>{result.reason}</span>
-                  {result.limit && (
-                    <InfoTip label="what a test cannot show">
-                      <p>{result.limit}</p>
-                    </InfoTip>
-                  )}
-                </p>
+                <div>
+                  <dt className="text-meta font-medium text-ink-muted">{attention ? "What went wrong" : "Why"}</dt>
+                  <dd className="text-ink [overflow-wrap:anywhere]">
+                    {result.reason}
+                    {result.limit && (
+                      <span className="ml-1 inline-flex align-middle">
+                        <InfoTip label="what a test cannot show">
+                          <p>{result.limit}</p>
+                        </InfoTip>
+                      </span>
+                    )}
+                  </dd>
+                </div>
               )}
               {result.expect && attention && (
-                <p className="max-w-prose text-meta text-ink">
-                  <span className="font-medium">A good answer: </span>
-                  {result.expect}
-                </p>
+                <div className="border-l-2 border-brand pl-3">
+                  <dt className="text-meta font-medium text-ink-muted">A good answer</dt>
+                  <dd className="text-ink [overflow-wrap:anywhere]">{result.expect}</dd>
+                </div>
               )}
-              {setting && setting.reason !== result.reason && <p className="text-meta text-ink">{setting.reason}</p>}
-              {todo && <p className="max-w-prose text-meta text-ink-muted">{todo}</p>}
-            </div>
+              {setting && setting.reason !== result.reason && (
+                <div>
+                  <dt className="text-meta font-medium text-ink-muted">The setting</dt>
+                  <dd className="text-ink">{setting.reason}</dd>
+                </div>
+              )}
+            </dl>
           )}
+          {leftAlone && <p className="max-w-prose text-meta text-ink-muted">{MOSTLY_RIGHT}</p>}
 
           {(setting || canFix || openScript || canMarkWrong) && (
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
               {setting && (
                 <Link href={actions.links[setting.area]} className={SECONDARY_BUTTON_SM}>
                   {SETTING_LINK[setting.area].label}
@@ -251,7 +264,7 @@ function ResultRow({ result, actions }: { result: TestResult; actions: RowAction
                 </button>
               )}
               {openScript && (
-                <Link href={actions.links.script} className={SECONDARY_BUTTON_SM}>
+                <Link href={actions.links.script} className={TEXT_ACTION_SM}>
                   Open the script
                 </Link>
               )}
@@ -273,7 +286,7 @@ function ResultRow({ result, actions }: { result: TestResult; actions: RowAction
 
 /**
  * Quieter than the row's buttons (it overrides the judge rather than fixing the agent), so it
- * keeps its link look and carries the action's state in its words rather than as a filled
+ * is a muted text action and carries the action's state in its words rather than as a filled
  * `ActionButton`. The name stays "This test is wrong"; the state is spoken beside it.
  */
 function MarkWrongButton({
@@ -296,8 +309,8 @@ function MarkWrongButton({
         }}
       >
         This test is wrong
-        {busy ? <span aria-hidden className="ml-1 no-underline">(marking…)</span> : null}
-        {status === "error" ? <span aria-hidden className="ml-1 text-danger no-underline">(try again)</span> : null}
+        {busy ? <span aria-hidden className="ml-1">(marking…)</span> : null}
+        {status === "error" ? <span aria-hidden className="ml-1 text-danger">(try again)</span> : null}
       </button>
       <span role="status" className="sr-only">
         {status === "success" ? "Marked" : status === "error" ? "Did not work" : ""}
@@ -306,6 +319,5 @@ function MarkWrongButton({
   );
 }
 
-
 const MARK_WRONG =
-  "press ml-1 inline-flex touch:min-h-11 items-center rounded-sm text-meta font-medium text-ink-muted underline underline-offset-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand";
+  "press inline-flex min-h-8 touch:min-h-11 items-center rounded-md px-2 text-meta font-medium text-ink-muted hover:bg-ink/[0.04] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand";

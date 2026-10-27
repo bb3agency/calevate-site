@@ -38,10 +38,11 @@ import { useKnows, useTestCases } from "@/lib/api/teach";
 import { QUESTION_PARAM } from "@/lib/api/teachQuestions";
 import { activeTrial, useWallet } from "@/lib/api/wallet";
 import { CopilotSurfaceScope, useCopilotSurface } from "@/lib/copilot/registry";
+import { PRACTICE_CALLERS_ANCHOR } from "@/lib/copilot/handoff";
 import { asText } from "@/lib/copilot/types";
 
 import { TeachBox } from "../../../knowledge/TeachBox";
-import { countsOf } from "../test/testCopy";
+import { countsOf, lastRunLine } from "../test/testCopy";
 import { TestSection } from "../test/TestSection";
 import { KnownFactsPanel } from "./knownFacts";
 import { TryIt } from "./tryIt";
@@ -245,26 +246,24 @@ function PracticeCallers({ agent, slug }: { agent: Agent; slug: string }) {
   // "Not run yet" is a claim about the agent, so it waits for the read that can make it.
   if (!tests.data) {
     fact = tests.error ? "The last run could not be read." : "Checking the last run…";
-  } else if (busy) fact = "Running now.";
+  } else if (busy) fact = latest?.improving === true ? "Working out fixes." : "Running now.";
   else if (latest?.status === "failed") fact = "The last test did not finish.";
-  else if (latest?.status === "done") {
-    const counts = countsOf(latest.results);
-    fact = `Last run: ${counts.passed} of ${counts.passed + counts.failing} right${
-      counts.unchecked > 0 ? `, ${counts.unchecked} to read` : ""
-    }.${waiting ? " Fixes are waiting." : ""}`;
-  }
+  else if (latest?.status === "done") fact = lastRunLine(countsOf(latest.results), waiting);
   const shown = open ?? (busy || waiting);
 
   return (
-    <Disclosure
-      variant="card"
-      headingLevel={3}
-      title="Practice callers"
-      subtitle={fact}
-      defaultOpen={busy || waiting}
-      onToggle={setOpen}
-    >
-      <TestSection agent={agent} slug={slug} declare={shown} />
-    </Disclosure>
+    // The id is where Pip's hand-off after "Suggest fixes" lands (`copilot/handoff.ts`).
+    <div id={PRACTICE_CALLERS_ANCHOR} className="scroll-mt-4">
+      <Disclosure
+        variant="card"
+        headingLevel={3}
+        title="Practice callers"
+        subtitle={fact}
+        defaultOpen={busy || waiting}
+        onToggle={setOpen}
+      >
+        <TestSection agent={agent} slug={slug} declare={shown} />
+      </Disclosure>
+    </div>
   );
 }

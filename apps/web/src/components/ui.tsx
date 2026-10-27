@@ -369,7 +369,7 @@ export function Disclosure({
           {/* On a phone a closed panel is its title alone: the subtitle wrapped to three
               lines there and turned a stack of collapsed panels back into a wall of text. */}
           {subtitle && (
-            <span className="block text-xs text-ink-muted max-sm:hidden max-sm:group-open:block">{subtitle}</span>
+            <span className="block text-xs text-ink-muted max-sm:hidden max-sm:[details[open]>summary_&]:block">{subtitle}</span>
           )}
           {/* The status goes UNDER the title on a phone and beside it from `sm`: at 375px a
               title, a status and the affordance on one line squeezed the title to a word a
@@ -382,14 +382,18 @@ export function Disclosure({
           <span className="shrink-0 text-meta tabular-nums text-ink-muted max-sm:hidden">{status}</span>
         )}
         {/* The affordance, in words as well as a chevron: an icon alone is what GOV.UK's
-            research says people fail to notice. `group-open:` swaps the pair. */}
-        <span className="shrink-0 text-meta font-medium text-brand-strong">
-          <span className="group-open:hidden">{showLabel}</span>
-          <span className="hidden group-open:inline">{hideLabel}</span>
+            research says people fail to notice. Its OWN details' open state swaps the pair:
+            `group-open:` matches any open ancestor, so a disclosure nested in an open one
+            read "Hide" while closed. Muted ink,
+            not brand green: green is the console's colour for the one action on a screen,
+            and a stack of closed panels each wearing it read as a column of calls to act. */}
+        <span className="shrink-0 text-meta font-medium text-ink-muted [summary:hover_&]:text-ink">
+          <span className="[details[open]>summary_&]:hidden">{showLabel}</span>
+          <span className="hidden [details[open]>summary_&]:inline">{hideLabel}</span>
         </span>
         <ChevronDown
           aria-hidden
-          className="h-4 w-4 shrink-0 text-ink-faint transition-transform group-open:rotate-180"
+          className="h-4 w-4 shrink-0 text-ink-faint transition-transform [details[open]>summary>&]:rotate-180"
         />
       </summary>
       <div
