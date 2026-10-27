@@ -169,8 +169,10 @@ def test_a_long_realistic_script_fits_with_margin() -> None:
 #: on ("I will send it to 9876" on a Sri Estates test).
 #: RAISED both by 98 (founder, 27 Oct 2026): given fewer than ten digits the agent asks for the
 #: rest and waits, and takes the number down only once all ten are read back and confirmed.
-PER_CALL_MAX = 7_299
-PER_CALL_ONE_LANGUAGE_MAX = 6_424
+#: D-901 (27 Oct 2026) CUT both by 5: "open with a few words and a comma" replaced "the first
+#: shortest" and "more only if asked".
+PER_CALL_MAX = 7_294
+PER_CALL_ONE_LANGUAGE_MAX = 6_419
 
 
 def _platform_only(languages_extra: list[str]) -> AgentConfig:

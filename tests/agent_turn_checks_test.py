@@ -198,7 +198,7 @@ def test_the_prompt_says_the_turn_and_voice_rules() -> None:
     block = VOICE_STYLE_GUIDANCE.lower()
     # Turn length, one question a turn and no brackets are ours again since D-856, so the
     # practice chat reads the rules a call follows.
-    assert "one or two short sentences, the first shortest, then wait" in block
+    assert "open with a few words and a comma; one or two short sentences, then wait" in block
     assert "lead with the answer" in block and "react only if it fits" in block
     assert "one question a turn" in block and "brackets" in block
     assert "never the caller's" in block

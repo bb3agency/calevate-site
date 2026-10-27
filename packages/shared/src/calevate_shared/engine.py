@@ -2863,12 +2863,14 @@ _REGISTER_BULLET: Final = (
 #:   usually produces the right pause"). Its `<speed>` tag is not offered: the model may write
 #:   no brackets, and a Clear voice is not Cartesia. The speed itself is the agent's own
 #:   setting (D-884).
-#: - "The first shortest": the engine voices a reply a sentence at a time, so a short first
-#:   sentence (the answer, or a reaction that fits) starts sounding sooner; the saving per turn
-#:   is an ESTIMATE (50-200 ms, integrator's latency notes of 27 Oct 2026), not measured.
+#: - "Open with a few words and a comma" (D-901): the voice starts on the first comma, dash
+#:   or semicolon once three words exist, else waits for the whole first sentence (ThinnestAI
+#:   email 27 Oct 2026, VENDOR-STATED). A comma, because dashes are forbidden below. It
+#:   replaced "the first shortest" and "more only if asked" at five characters fewer; "then
+#:   wait" still ends the turn. The time saved per turn is not measured.
 VOICE_STYLE_GUIDANCE: Final = (
     "--- HOW TO SPEAK ---\n"
-    "- One or two short sentences, the first shortest, then wait; more only if asked.\n"
+    "- Open with a few words and a comma; one or two short sentences, then wait.\n"
     '- Asked something? Lead with the answer, never "do you want to know". Told something? '
     "React only if it fits what they said, never the same way twice, often not at all; then "
     "ask the next thing.\n"

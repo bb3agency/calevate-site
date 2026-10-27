@@ -85,7 +85,7 @@ LEAN = "CALL_INSTRUCTIONS"
 #: chat reads too; two are turned round on purpose and say so.
 COVERAGE: dict[str, tuple[tuple[str, str], ...]] = {
     DEFAULT_CALL_RULES[0]: ((LEAN, "You are on a phone call, speaking out loud"),),
-    DEFAULT_CALL_RULES[1]: ((OURS, "One or two short sentences, the first shortest, then wait"),),
+    DEFAULT_CALL_RULES[1]: ((OURS, "one or two short sentences, then wait"),),
     DEFAULT_CALL_RULES[2]: ((LEAN, "never mention lists, links, buttons or images"),),
     DEFAULT_CALL_RULES[3]: ((SPEAKING, "titles and abbreviations in full"),),
     DEFAULT_CALL_RULES[4]: ((OURS, "No markdown, emoji, brackets"),),
