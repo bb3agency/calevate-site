@@ -12,6 +12,7 @@ import { sameLanguage, useBusinessSuggestions } from "@/lib/useVerticalExamples"
 import { chars, issuesFor, sectionDetail, type Issue, type Limits, type Section } from "./scriptModel";
 import { CleanedNote, usePlainText } from "./plainText";
 import { languageName, targetOptions, thenLabel } from "./sectionParts";
+import { SmallSteps } from "./SmallSteps";
 
 /**
  * ONE STEP, EDITED — in place under its card in the list, or beside the flow picture on a
@@ -21,7 +22,8 @@ import { languageName, targetOptions, thenLabel } from "./sectionParts";
  * WHAT IS ON SHOW AND WHAT IS FOLDED (D-825). The three things every step has are in view:
  * its name, what the agent does there (or the exact words), and an example line in the
  * callers' language. The options most steps never need (exact words, where the call goes
- * next, details to find out, moving and deleting) are under "More options". Its closed row
+ * next, details to find out, small steps (D-908), moving and deleting) are under "More
+ * options". Its closed row
  * says what they are set to, and it opens by itself when one of them needs fixing, so
  * nothing set or wrong is hidden. The letters count appears only near the limit.
  */
@@ -65,6 +67,8 @@ export function SectionEditor({
   const say = section.mode === "say";
   const routeErrors =
     section.branches.some((_, i) => errors(`branch-${i}`).length > 0) || errors("otherwise").length > 0;
+  const stepIssues = issuesFor(issues, section.id).filter((i) => i.field.startsWith("procedure"));
+  const counted = section.procedure.length > 0 ? "counting the example line and the small steps note" : "counting the example line";
 
   const setBranch = (i: number, patch: Partial<Section["branches"][number]>) =>
     onChange({ branches: section.branches.map((b, j) => (j === i ? { ...b, ...patch } : b)) });
@@ -115,8 +119,8 @@ export function SectionEditor({
         {nearLimit && (
           <p id={field("count")} className={`mt-1 text-meta tabular-nums ${over ? "text-danger" : "text-ink-muted"}`}>
             {over
-              ? `${formatCount(used - limits.detailMax)} letters over, counting the example line.`
-              : `${formatCount(limits.detailMax - used)} letters left, counting the example line.`}
+              ? `${formatCount(used - limits.detailMax)} letters over, ${counted}.`
+              : `${formatCount(limits.detailMax - used)} letters left, ${counted}.`}
           </p>
         )}
         <FieldErrors id={field("instruction-err")} issues={errors("instruction").filter((i) => !i.message.includes("too long"))} />
@@ -146,7 +150,7 @@ export function SectionEditor({
         headingLevel={4}
         title="More options"
         subtitle={optionsLine(section, sections, index, context)}
-        defaultOpen={routeErrors}
+        defaultOpen={routeErrors || stepIssues.length > 0}
         className="border-t border-line"
       >
         <div className="space-y-5 pb-2 pt-2">
@@ -175,6 +179,14 @@ export function SectionEditor({
               />
             </div>
           </fieldset>
+
+          <SmallSteps
+            id={field("procedure")}
+            steps={section.procedure}
+            limits={limits}
+            issues={stepIssues}
+            onChange={(procedure) => onChange({ procedure })}
+          />
 
           <CollectEditor
             id={field("collect")}
@@ -328,6 +340,9 @@ export function optionsLine(
       ? `${section.branches.length} other ${section.branches.length === 1 ? "way" : "ways"} out`
       : "",
     section.collect.length > 0 ? `finds out ${section.collect.join(", ")}` : "",
+    section.procedure.length > 0
+      ? `${section.procedure.length} small ${section.procedure.length === 1 ? "step" : "steps"}`
+      : "",
   ]
     .filter(Boolean)
     .join(" · ");

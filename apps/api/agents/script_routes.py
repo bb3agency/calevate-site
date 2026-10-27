@@ -32,9 +32,12 @@ from typing import Annotated, Any, Final, Literal, get_args
 from uuid import UUID
 
 from calevate_shared.call_script import (
+    MAX_PROCEDURE_STEPS,
     MAX_SCRIPT_STAGES,
     MAX_STAGE_BRANCHES,
     MAX_STAGE_COLLECT,
+    PROCEDURE_STEP_MAX,
+    PROCEDURE_WAIT_MAX,
     SCRIPT_SCHEMA_VERSION,
     SOUNDS_LIKE_MAX,
     SPECIAL_TARGETS,
@@ -113,6 +116,10 @@ class ScriptLimitsOut(BaseModel):
     sounds_like_max: int
     max_branches: int
     max_collect: int
+    #: A section's step-by-step list (D-908): how many steps, and each step's two texts.
+    max_procedure_steps: int
+    procedure_step_max: int
+    procedure_wait_max: int
     #: The engine's ceiling on the composed instructions, or null where there is none.
     instructions_limit: int | None
     #: Sections go to the engine's own step list (ThinnestAI) rather than the text.
@@ -338,6 +345,9 @@ def _limits() -> ScriptLimitsOut:
         sounds_like_max=SOUNDS_LIKE_MAX,
         max_branches=MAX_STAGE_BRANCHES,
         max_collect=MAX_STAGE_COLLECT,
+        max_procedure_steps=MAX_PROCEDURE_STEPS,
+        procedure_step_max=PROCEDURE_STEP_MAX,
+        procedure_wait_max=PROCEDURE_WAIT_MAX,
         instructions_limit=limits.prompt_chars,
         native_steps=limits.native_steps,
         special_targets=sorted(SPECIAL_TARGETS),

@@ -59,6 +59,7 @@ SCRIPT_SECTION_LABELS: Final[dict[str, str]] = {
     "[SPEAKING STYLE]": "Speaking style",
     "[CONVERSATION]": "Steps",
     "[TASK FLOW]": "Steps",
+    "[STEP BY STEP]": "Step-by-step lists",
     "[WHAT TO COLLECT]": "Details to collect",
     "[OBJECTIONS]": "Objections",
     "[POLICIES]": "Policies",

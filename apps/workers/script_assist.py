@@ -43,11 +43,14 @@ import httpx
 from calevate_shared.call_script import (
     END_OF_CALL,
     MAX_EXAMPLE_TURNS,
+    MAX_PROCEDURE_STEPS,
     MAX_PRONUNCIATIONS,
     MAX_SAMPLE_PHRASES,
     MAX_SCRIPT_FAQS,
     MAX_SCRIPT_OBJECTIONS,
     MAX_SCRIPT_STAGES,
+    PROCEDURE_STEP_MAX,
+    PROCEDURE_WAIT_MAX,
     SCRIPT_SCHEMA_VERSION,
     STAGE_DETAIL_MAX,
     CallScript,
@@ -55,9 +58,11 @@ from calevate_shared.call_script import (
     ExampleLine,
     FaqEntry,
     Objection,
+    ProcedureStep,
     Pronunciation,
     SpeakingStyle,
     StageBranch,
+    procedure_pointer,
 )
 from calevate_shared.engine import (
     SARVAM_DEFAULT_LLM,
@@ -143,6 +148,9 @@ _SYSTEM_INSTRUCTION = (
     "lead's name); for an agent that only answers calls leave outbound_purpose empty. "
     "Stages are 3 to 6, each with a short name, an English instruction, exit_when, and "
     "sounds_like: one short line in the call language showing how that stage sounds. "
+    "A stage's procedure lists, in order, small actions the caller does one by one on their "
+    "phone (each an English instruction with wait_for, what shows it is done); it is empty "
+    "for a stage with no such actions. "
     "2 to 5 objections the business really meets. 3 to 6 sample "
     "phrases. pronunciations only for names a voice might misread. code_mix is light, "
     "natural or heavy. business_line is one line under 200 characters on what the business "
@@ -159,7 +167,12 @@ CONVERT_INSTRUCTION = (
     "summarise, drop or add facts. Put who the agent is in identity, the purpose in goal, "
     "the greeting in opening_line, each step of the call in stages (at most 12, in call "
     "order), push-back handling in objections, facts in quick_facts and the close in "
-    "ending. Leave a field empty when the prompt says nothing for it. Do not write about "
+    "ending. When one step of the call is a numbered or ordered list of small actions the "
+    "caller does one by one (open this, tap that, type this), put that list in the stage's "
+    "procedure, one action per item in order, with wait_for saying what shows it is done "
+    "(empty when the caller just says so), and keep the stage's instruction to the purpose "
+    "of the step; a stage with no such list has an empty procedure. Leave a field empty when "
+    "the prompt says nothing for it. Do not write about "
     "being an AI, recording, call backs, transfers or do-not-call: the platform adds those. "
     "The words the agent will SAY (opening_line, sounds_like, sample_phrases, "
     "example_exchange) follow the spoken-style guide in the brief: where the owner's line "
@@ -233,6 +246,9 @@ def _instruction_fields(script: CallScript) -> list[tuple[str, str]]:
         if stage.mode == "guide":
             fields.append((f"stages.{i}.instruction", stage.instruction))
         fields += [(f"stages.{i}.branches.{j}.when", b.when) for j, b in enumerate(stage.branches)]
+        for j, step in enumerate(stage.procedure):
+            fields.append((f"stages.{i}.procedure.{j}.action", step.action))
+            fields.append((f"stages.{i}.procedure.{j}.wait_for", step.wait_for))
     return fields
 
 
@@ -416,7 +432,13 @@ _DRAFT_PROPERTIES: Final[dict[str, object]] = {
     "sample_phrases": {"type": "array", "items": _STR},
     "pronunciations": _array_of({"word": _STR, "say_as": _STR}),
     "stages": _array_of(
-        {"name": _STR, "instruction": _STR, "sounds_like": _STR, "exit_when": _STR}
+        {
+            "name": _STR,
+            "instruction": _STR,
+            "sounds_like": _STR,
+            "exit_when": _STR,
+            "procedure": _array_of({"action": _STR, "wait_for": _STR}),
+        }
     ),
     "objections": _array_of({"objection": _STR, "response": _STR}),
     "ending": _STR,
@@ -564,18 +586,31 @@ def _script_from_model_json(raw: dict[str, Any]) -> CallScript:
     rows = rows[:MAX_SCRIPT_STAGES]
     stages: list[ConversationStage] = []
     for i, row in enumerate(rows, 1):
-        # Instruction and "sounds like" share one 600-character step detail.
+        name = _text(row, "name", 80) or f"Section {i}"
+        procedure = [
+            ProcedureStep(
+                action=_text(step, "action", PROCEDURE_STEP_MAX),
+                wait_for=_text(step, "wait_for", PROCEDURE_WAIT_MAX),
+            )
+            for step in _rows(row, "procedure")[:MAX_PROCEDURE_STEPS]
+            if _text(step, "action", PROCEDURE_STEP_MAX)
+        ]
+        # Instruction, "sounds like" and the pointer to the step-by-step list share one
+        # 600-character step detail.
         sounds_like = _text(row, "sounds_like", 200)
         room = STAGE_DETAIL_MAX - (len(sounds_like) + 20 if sounds_like else 0)
+        if procedure:
+            room -= len(procedure_pointer(name)) + 1
         exit_when = _text(row, "exit_when", 300)
         target = f"s{i + 1}" if i < len(rows) else END_OF_CALL
         stages.append(
             ConversationStage(
                 id=f"s{i}",
-                name=_text(row, "name", 80) or f"Section {i}",
+                name=name,
                 instruction=_text(row, "instruction", room),
                 sounds_like=sounds_like,
                 branches=[StageBranch(when=exit_when, target=target)] if exit_when else [],
+                procedure=procedure,
             )
         )
     objections = [

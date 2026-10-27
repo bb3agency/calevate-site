@@ -154,3 +154,37 @@ def test_call_steps_written_into_the_legacy_steps_list_are_read_as_stages() -> N
     assert [s.id for s in edited.stages] == ["greet", "price"]
     assert edited.stages[0].instruction == "Say hello warmly."
     assert edited.steps == current.steps
+
+
+def test_a_numbered_list_in_a_step_is_converted_into_its_step_by_step_list() -> None:
+    """D-908: the convert asks for small actions in a stage's procedure, and the parser keeps
+    them in order, drops empty ones, and leaves the pointer room in the 600 characters."""
+    from apps.workers.script_assist import CONVERT_INSTRUCTION
+    from calevate_shared.call_script import STAGE_DETAIL_MAX, procedure_pointer
+
+    assert "procedure" in CONVERT_INSTRUCTION
+    stage_schema = _DRAFT_SCHEMA["properties"]["stages"]["items"]  # type: ignore[index]
+    assert "procedure" in stage_schema["required"]
+    script = _script_from_model_json(
+        {
+            "stages": [
+                {
+                    "name": "Install",
+                    "instruction": "x" * 700,
+                    "procedure": [
+                        {"action": "Open Chrome.", "wait_for": "it is open"},
+                        {"action": "  ", "wait_for": "ignored"},
+                        {"action": "Tap Add to Home screen.", "wait_for": ""},
+                    ],
+                },
+                {"name": "Close", "instruction": "Thank them.", "procedure": []},
+            ]
+        }
+    )
+    install, close = script.stages
+    assert [(p.action, p.wait_for) for p in install.procedure] == [
+        ("Open Chrome.", "it is open"),
+        ("Tap Add to Home screen.", ""),
+    ]
+    assert len(install.instruction) == STAGE_DETAIL_MAX - len(procedure_pointer("Install")) - 1
+    assert close.procedure == []

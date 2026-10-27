@@ -84,6 +84,7 @@ function sectionText(section: Section, names: Map<string, string>): string {
     section.branches.map((b) => [b.when.trim(), target(b.target)]),
     section.otherwise ? target(section.otherwise) : "",
     section.collect,
+    section.procedure.map((p) => [p.action.trim(), p.wait_for.trim()]),
   ]);
 }
 
