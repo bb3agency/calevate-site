@@ -775,7 +775,7 @@ async def ask_copilot(
         await _record()
         yield _error_event(refusal)
         return
-    except Exception:
+    except Exception as failure:
         # A PROVIDER THAT DIED MID-ANSWER IS SPEND, AND THIS ARM USED TO THROW IT AWAY.
         # It returned before the metering block, so a run that really had sent tokens to
         # Azure and then failed was money paid with no `usage_event` behind it — invisible
@@ -785,15 +785,7 @@ async def ask_copilot(
         # failure itself is still something an operator should see.
         log.exception("copilot_stream_failed", extra={"tenant_id": str(tenant_id)})
         await _record()
-        yield _error_event(
-            ProblemError(
-                kind="dependency",
-                code="copilot_interrupted",
-                title=f"{ASSISTANT_NAME} stopped part-way",
-                detail=f"{ASSISTANT_NAME} did not finish answering.",
-                remediation="Ask again — nothing on your screen was changed.",
-            )
-        )
+        yield _error_event(service.interrupted_problem(failure))
         return
     finally:
         # THE CLIENT WENT AWAY. A browser that navigates or closes the tab makes

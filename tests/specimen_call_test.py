@@ -216,6 +216,25 @@ def test_a_number_taken_in_small_groups_and_read_back_passes() -> None:
     assert _conversation_kinds(short) == ["partial_number"]
 
 
+def test_a_promise_to_act_on_four_digits_is_a_partial_number() -> None:
+    """Sri Estates, 27 Oct 2026: no thanks and no goodbye, but "I'll send it to 9876" acts
+    on four digits. The judge sent it to the script improver as the owner's to fix; it is a
+    platform rule."""
+    sri_estates = [
+        Ex(
+            "వేరే నంబర్ కి పంపండి.",
+            "ఏ నంబర్‌కి పంపాలో చెప్తారా? ఆ నంబర్‌ని నోట్ చేసుకుని టీమ్‌కి చెప్తాను.",
+        ),
+        Ex("నంబర్ 9876.", "సరే అండి, తొమ్మిది ఎనిమిది ఏడు ఆరు నంబర్‌కి పంపిస్తాను."),
+    ]
+    assert _conversation_kinds(sri_estates) == ["partial_number"]
+    asks_rest = [
+        sri_estates[0],
+        Ex("నంబర్ 9876.", "తొమ్మిది ఎనిమిది ఏడు ఆరు. మిగతా ఆరు అంకెలు చెప్తారా?"),
+    ]
+    assert _conversation_kinds(asks_rest) == []
+
+
 def test_asking_for_a_number_is_right_when_the_caller_wants_another_or_it_was_hidden() -> None:
     other = [Ex("Send it to a different number.", "Sure, what's the number?")]
     assert _conversation_kinds(other) == []

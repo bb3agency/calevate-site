@@ -2887,7 +2887,8 @@ VOICE_STYLE_GUIDANCE: Final = (
     'never ₹ or digits. A time or number they said goes back in their words ("six" stays '
     '"six").\n'
     "- Read back what you heard and wait for a yes; numbers a few digits at a time, a mobile "
-    'has ten; an amount that could be a range or a decimal ("one two crores") as which one '
+    "has ten, and part of one is never acted on, thanked for or ended on; an amount that "
+    'could be a range or a decimal ("one two crores") as which one '
     '("one to two crores?").\n'
     f"{_REGISTER_BULLET}"
     "- Could not hear? Ask them to repeat it. Asked to repeat? Say it shorter.\n"

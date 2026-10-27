@@ -141,6 +141,7 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "admin_ai_paused_platform_wide": "record",
     "meta_lead_retrieval_deferred": "record",
     "copilot_interrupted": "record",
+    "copilot_timed_out": "record",
     "copilot_confirm_unavailable": "record",
     "copilot_uploads_unavailable": "record",
     "copilot_attachments_unavailable": "record",
@@ -768,6 +769,9 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # (`REPEAT_WHILE_OPEN_S`) because one provider outage is otherwise one email at 4am and
     # silence for the rest of the day.
     "ai_provider_degraded": "page",
+    # The platform's Gemini assistant leg cannot serve (attestation, price or key missing),
+    # so Pip and the dashboard assists answer on a backup until an operator records it.
+    "assistant_gemini_unavailable": "attention",
     # The KEK cannot decrypt this deployment's credentials: no vendor call can be made.
     "platform_secret_unreadable": "page",
     # "Informational, and deliberately loud" — and the loud half stays, one rung down. It

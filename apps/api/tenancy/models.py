@@ -18,6 +18,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     Numeric,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -158,6 +159,10 @@ class Organization(PKMixin, TimestampMixin, Base):
             name="call_lines_range",
         ),
         CheckConstraint(
+            "caller_memory_attestation_version IS NULL OR caller_memory_attestation_version >= 1",
+            name="caller_memory_attestation_version",
+        ),
+        CheckConstraint(
             "low_balance_alert_inr IS NULL OR (low_balance_alert_inr >= 0 "
             f"AND low_balance_alert_inr <= {LOW_BALANCE_ALERT_MAX_INR})",
             name="low_balance_alert_range",
@@ -185,6 +190,8 @@ class Organization(PKMixin, TimestampMixin, Base):
     caller_memory_attested_by: Mapped[UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL")
     )
+    #: Which `agents/publishing.CALLER_MEMORY_ATTESTATIONS` statement was accepted.
+    caller_memory_attestation_version: Mapped[int | None] = mapped_column(SmallInteger)
     # Which motion this org belongs to (D-34/D-39/D-521). NOT a feature flag: it decides
     # whether credits gate dispatch and whether the self-serve screens render. The
     # server default moved `managed` -> `prepaid` with D-521 (migration `a8d3f61c04e7`);

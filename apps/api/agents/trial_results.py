@@ -106,7 +106,14 @@ def aggregate(tries: Sequence[dict[str, Any]]) -> dict[str, Any]:
     verdicts = [str(t.get("verdict") or "unjudged") for t in tries]
     judged = [v for v in verdicts if v != "unjudged"]
     passes = sum(1 for v in judged if v == "passed")
-    shown = next((t for t in tries if t.get("verdict") in _FAILING), first)
+    failing = [t for t in tries if t.get("verdict") in _FAILING]
+    # A try that broke a platform rule decides who owns the test even when an earlier try
+    # was put down to the script: a script edit cannot fix what the platform rule owns, and
+    # the improver would otherwise rewrite the script to chase it.
+    shown = next(
+        (t for t in failing if result_owner(t) == "platform"),
+        failing[0] if failing else first,
+    )
     sounds: dict[str, dict[str, Any]] = {}
     for t in tries:
         for note in t.get("sounds") or []:

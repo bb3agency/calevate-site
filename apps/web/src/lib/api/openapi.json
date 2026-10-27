@@ -9852,7 +9852,7 @@
             "type": "string"
           },
           "attestation": {
-            "default": "I confirm that these calls do not collect health, medical, financial, biometric or other sensitive personal data about callers, that my business is the Data Fiduciary for these callers, and that my own privacy notice tells them we keep a short note of what they ask about. I understand that my agents will say so at the start of every call, that notes are kept for 180 days, and that a caller may ask for theirs to be erased.",
+            "default": "I confirm that these calls do not collect health, medical, financial, biometric or other sensitive personal data about callers, that my business is the Data Fiduciary for these callers, and that my own privacy notice tells them we keep a short note of what they ask about. I understand that my agents will say so before ending each call, that notes are kept for 180 days, and that a caller may ask for theirs to be erased.",
             "title": "Attestation",
             "type": "string"
           },
@@ -9878,6 +9878,28 @@
               }
             ],
             "title": "Attested By Name"
+          },
+          "attested_statement": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attested Statement"
+          },
+          "attested_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attested Version"
           },
           "enabled": {
             "title": "Enabled",
@@ -24331,6 +24353,11 @@
             },
             "title": "For Keys",
             "type": "array"
+          },
+          "tested": {
+            "default": false,
+            "title": "Tested",
+            "type": "boolean"
           }
         },
         "required": [

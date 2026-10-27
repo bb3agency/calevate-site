@@ -15502,13 +15502,17 @@ export interface components {
             agent_id: string;
             /**
              * Attestation
-             * @default I confirm that these calls do not collect health, medical, financial, biometric or other sensitive personal data about callers, that my business is the Data Fiduciary for these callers, and that my own privacy notice tells them we keep a short note of what they ask about. I understand that my agents will say so at the start of every call, that notes are kept for 180 days, and that a caller may ask for theirs to be erased.
+             * @default I confirm that these calls do not collect health, medical, financial, biometric or other sensitive personal data about callers, that my business is the Data Fiduciary for these callers, and that my own privacy notice tells them we keep a short note of what they ask about. I understand that my agents will say so before ending each call, that notes are kept for 180 days, and that a caller may ask for theirs to be erased.
              */
             attestation: string;
             /** Attested At */
             attested_at?: string | null;
             /** Attested By Name */
             attested_by_name?: string | null;
+            /** Attested Statement */
+            attested_statement?: string | null;
+            /** Attested Version */
+            attested_version?: number | null;
             /** Enabled */
             enabled: boolean;
             /** Engine Synced */
@@ -21139,6 +21143,11 @@ export interface components {
             facts: components["schemas"]["ProposedFactOut"][];
             /** For Keys */
             for_keys: string[];
+            /**
+             * Tested
+             * @default false
+             */
+            tested: boolean;
         };
         /** InCallDataUseListOut */
         InCallDataUseListOut: {

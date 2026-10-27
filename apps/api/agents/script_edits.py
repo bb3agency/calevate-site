@@ -16,6 +16,7 @@ from and applies the kept edits to the owner's current copy, so the two cannot d
 
 from __future__ import annotations
 
+import re
 from dataclasses import asdict, dataclass
 from typing import Any, Final, Literal, get_args
 
@@ -27,7 +28,7 @@ from calevate_shared.call_script import (
     ConversationStage,
     Objection,
 )
-from calevate_shared.spoken_guard import english_problem, textbook_problem
+from calevate_shared.spoken_guard import english_problem, has_indic_letters, textbook_problem
 from pydantic import ValidationError
 
 from apps.api.agents.call_rules import said_line_problem
@@ -211,6 +212,53 @@ def apply_edit(script: CallScript, edit: ScriptEdit) -> CallScript:
     return _validated(script, {edit.part: edit.text})
 
 
+#: Where an instruction's sentences end: a full stop, "!", "?", a danda, or a semicolon.
+_SENTENCE_END: Final = re.compile(r"(?<=[.!?।])\s+|;\s*")
+#: Sentences of a step's instruction a suggested edit may change; every other one is kept.
+MAX_CHANGED_SENTENCES: Final = 1
+
+
+def sentences(text: str) -> list[str]:
+    return [s.strip() for s in _SENTENCE_END.split(" ".join(text.split())) if s.strip()]
+
+
+def _sentence_key(sentence: str) -> str:
+    return _norm(sentence).rstrip(".!?।; ")
+
+
+def _stage_of(edit: ScriptEdit, script: CallScript) -> ConversationStage | None:
+    if edit.op != "set_step":
+        return None
+    return next((s for s in script.stages if s.id == edit.step_id), None)
+
+
+def added_text(edit: ScriptEdit, script: CallScript) -> str:
+    """The words an edit adds: for a step, its sentences that are not already in the step's
+    instruction; for anything else, all of it."""
+    stage = _stage_of(edit, script)
+    if stage is None:
+        return edit.text
+    before = {_sentence_key(s) for s in sentences(stage.instruction)}
+    return " ".join(s for s in sentences(edit.text) if _sentence_key(s) not in before)
+
+
+def kept_problem(edit: ScriptEdit, script: CallScript, *, where: str) -> str | None:
+    """A suggested step that drops more of the step's own sentences than one fix changes
+    (founder, 27 Oct 2026: a suggestion for "Find out what they need" dropped the step's
+    price and site-visit rules), or None."""
+    stage = _stage_of(edit, script)
+    if stage is None:
+        return None
+    after = _norm(edit.text)
+    dropped = [s for s in sentences(stage.instruction) if _sentence_key(s) not in after]
+    if len(dropped) <= MAX_CHANGED_SENTENCES:
+        return None
+    return (
+        f"{where}: keeps only part of the step; keep every sentence of its current "
+        f"instruction word for word and change at most {MAX_CHANGED_SENTENCES}"
+    )
+
+
 def language_problem(
     edit: ScriptEdit, script: CallScript, language: str | None, *, where: str
 ) -> str | None:
@@ -218,18 +266,23 @@ def language_problem(
 
     The new words are an instruction (plain English) unless they are said: the opening line
     and a "say" step, which must not use a textbook word or break the call rules the tests
-    check (`call_rules.said_line_problem`, D-849). Only for the improver's answer:
+    check (`call_rules.said_line_problem`, D-849). For a step only the words the edit adds
+    are judged, and a step the owner wrote in the call language keeps that language (a fix
+    to it cannot be a minimal edit in English). Only for the improver's answer:
     `apply_edit` applies the owner's kept edits and never judges their language."""
     opening = edit.op == "set_part" and edit.part == "opening_line"
-    spoken = opening
-    if edit.op == "set_step":
-        stage = next((s for s in script.stages if s.id == edit.step_id), None)
-        spoken = stage is not None and stage.mode == "say"
+    stage = _stage_of(edit, script)
+    spoken = opening or (stage is not None and stage.mode == "say")
+    text = added_text(edit, script)
+    if not text:
+        return None
     if spoken:
-        return textbook_problem(where, edit.text, language) or said_line_problem(
-            where, edit.text, opening=opening
+        return textbook_problem(where, text, language) or said_line_problem(
+            where, text, opening=opening
         )
-    return english_problem(where, edit.text)
+    if stage is not None and has_indic_letters(stage.instruction):
+        return textbook_problem(where, text, language)
+    return english_problem(where, text)
 
 
 def apply_edits(
@@ -282,15 +335,19 @@ def describe(edit: ScriptEdit, base: CallScript) -> dict[str, str]:
 __all__ = [
     "EDIT_OPS",
     "EDIT_PARTS",
+    "MAX_CHANGED_SENTENCES",
     "MAX_EDITS",
     "PART_LABELS",
     "EditOp",
     "EditPart",
     "EditRejectedError",
     "ScriptEdit",
+    "added_text",
     "apply_edit",
     "apply_edits",
     "clip",
     "describe",
+    "kept_problem",
     "language_problem",
+    "sentences",
 ]

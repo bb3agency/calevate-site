@@ -232,6 +232,45 @@ TOTAL_BUDGET_S: Final = 90.0
 #: gone, which is the one case where it could not have finished anyway.
 FALLBACK_RESERVE_S: Final = STREAM_IDLE_S
 
+#: The standby's whole-request timeout. Its answer is one blocking completion, so the first
+#: byte IS the whole answer, and `STREAM_IDLE_S` (a gap between frames) is the wrong bound:
+#: on 27 Oct 2026 a client Pip question answered by Sarvam timed out at 15 s on Pip's full
+#: prompt. The SSE keep-alive holds the edge open meanwhile (`deadline_test.py`), and the
+#: question's own deadline still caps it (`_standby_timeout`).
+STANDBY_ANSWER_S: Final = 60.0
+
+#: Said when the question ran out of time: what happened, and what to do about it.
+TIMED_OUT_TITLE: Final = f"{ASSISTANT_NAME} took too long to answer"
+TIMED_OUT_DETAIL: Final = f"{ASSISTANT_NAME} did not finish in time. Nothing was changed."
+TIMED_OUT_REMEDIATION: Final = "Ask again, or ask for one thing at a time."
+
+
+def interrupted_problem(failure: BaseException) -> ProblemError:
+    """What the person is told when a run fails part-way: a timeout says it ran out of time
+    (they can ask a shorter question), anything else that it stopped."""
+    if isinstance(failure, TimeoutError | httpx.TimeoutException):
+        return ProblemError(
+            kind="dependency",
+            code="copilot_timed_out",
+            title=TIMED_OUT_TITLE,
+            detail=TIMED_OUT_DETAIL,
+            remediation=TIMED_OUT_REMEDIATION,
+        )
+    return ProblemError(
+        kind="dependency",
+        code="copilot_interrupted",
+        title=f"{ASSISTANT_NAME} stopped part-way",
+        detail=f"{ASSISTANT_NAME} did not finish answering.",
+        remediation="Ask again — nothing on your screen was changed.",
+    )
+
+
+def _standby_timeout(remaining_s: float) -> float:
+    """The standby's request timeout: `STANDBY_ANSWER_S`, or less when the question has
+    less left, never under `STREAM_IDLE_S` (a fallback with less room does not start)."""
+    return max(STREAM_IDLE_S, min(STANDBY_ANSWER_S, remaining_s))
+
+
 #: Said to the person when the loop runs out of turns. An authored sentence with an action
 #: in it, never a spinner that stops.
 EXHAUSTED_MESSAGE: Final = "I could not finish this in one go. Try asking for one thing at a time."
@@ -862,6 +901,7 @@ async def _answer_via_sarvam(
     *,
     live: str = "",
     realm: CopilotRealm = "client",
+    timeout_s: float = STANDBY_ANSWER_S,
 ) -> AsyncIterator[CopilotEvent]:
     """The disclosed fallback: one non-streamed answer, in prose, with NO tools.
 
@@ -903,7 +943,7 @@ async def _answer_via_sarvam(
                 *masked_messages(build_messages(payload, live, realm)),
                 {"role": "system", "content": _NO_TOOL_NOTE},
             ],
-            timeout_s=STREAM_IDLE_S,
+            timeout_s=timeout_s,
             temperature=0.2,
             # The same safety valve as the Azure turn. `max_tokens` is on Sarvam's own
             # client's fourteen-key request body (VERIFIED-VENDOR-SDK, `workers/chat.py::
@@ -2684,6 +2724,18 @@ async def _answer_stream(
     )
     if not capability.available:
         raise assist_unavailable(capability)
+    if capability.provider == SARVAM_PROVIDER:
+        # The standby answering FIRST means the usual model was never tried: a configuration
+        # gap, not an outage. Our own reason codes only (hard rule 6).
+        log.warning(
+            "copilot_standby_first",
+            extra={
+                "realm": realm,
+                "reason": capability.fallback_reason,
+                "detail": capability.operator_detail,
+                "allow_azure": allow_azure,
+            },
+        )
 
     # A QUESTION WITH A PDF (D-781) has a chain of its own, on Google only.
     if attached.pdfs:
@@ -2809,7 +2861,13 @@ async def _answer_stream(
     # making the budget total. A leg that starts with room for it still may not run past
     # the wall clock the whole question was promised.
     async with asyncio.timeout_at(deadline):
-        async for event in _answer_via_sarvam(payload, capability, live=live, realm=realm):
+        async for event in _answer_via_sarvam(
+            payload,
+            capability,
+            live=live,
+            realm=realm,
+            timeout_s=_standby_timeout(deadline - loop.time()),
+        ):
             yield event
 
 
@@ -2960,7 +3018,11 @@ __all__ = [
     "MAX_TURNS",
     "NO_ANSWER_MESSAGE",
     "READ_TOOL_BUDGET_S",
+    "STANDBY_ANSWER_S",
     "STREAM_IDLE_S",
+    "TIMED_OUT_DETAIL",
+    "TIMED_OUT_REMEDIATION",
+    "TIMED_OUT_TITLE",
     "TOTAL_BUDGET_S",
     "TRUNCATED_MESSAGE",
     "UNQUOTED_FILL_REASON",
@@ -2971,6 +3033,7 @@ __all__ = [
     "ToolContext",
     "chat_leg",
     "disclosure_for",
+    "interrupted_problem",
     "job_limits",
     "person_said",
     "refused_fill_turn",

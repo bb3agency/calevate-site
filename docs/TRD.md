@@ -241,8 +241,13 @@ Models (per-agent config, BYOK):
     things (*"your Azure endpoint URL, API key, and deployment name"*). Vestigial /
     classic-surface / required-but-unvalidated all survive the pages; **no value is
     invented here and none is in the code** — OPERATIONS §2 gate 16f.
-  - **Dashboard AI** (user-triggered, over the REDACTED copy) — same resource, same
-    region, same constants. Every rule D-127 wrote (G-1..G-7: redaction before the call,
+  - **Dashboard AI** (user-triggered, over the REDACTED copy) — **Gemini is the main
+    model** (founder, 27 Oct 2026, D-899): Pip and the dashboard assists run the platform's
+    Gemini leg (`copilot_fast_model` / `copilot_planning_model`, `agents/assist_leg.py`) for
+    every account whose own leg cannot serve, behind the Google dashboard data-use
+    attestation; this Azure resource is an optional rung used only when configured and
+    Gemini cannot serve; Sarvam is the disclosed last resort, and a Gemini leg that cannot
+    serve raises `assistant_gemini_unavailable`. Every rule D-127 wrote (G-1..G-7: redaction before the call,
     no raw PII, the disclosed Sarvam fallback) is unchanged and now binds Azure, except
     for Pip after the account owner turns it on (D-788): its primary model then receives
     what is typed, attached and read by its tools unmasked; the standby stays masked.
