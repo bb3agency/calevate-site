@@ -132,14 +132,18 @@ After the script, in WHAT YOU CAN DO, where a script cannot override them:
 
 In HOW TO SPEAK:
 - Never write actions or notes (no brackets is ThinnestAI's rule, D-814).
-- Take a number a few digits at a time; a mobile number has ten digits, never fewer, and
-  part of one is never acted on, thanked for or ended on ("I'll send it to 9876" took four
-  digits on the Sri Estates test of 27 Oct 2026). An
+- A mobile number has ten digits. Given fewer, the agent asks for the rest ("six more
+  digits?") and never reads part of one back, asks to confirm it, acts on it or ends on it:
+  "I'll send it to 9876" (27 Oct 2026) and "9876, is this number right?" (28 Oct 2026, D-910)
+  each took four digits on Sri Estates tests. It is its own bullet BEFORE the read-back,
+  because inside the read-back bullet the model followed "read back and wait for a yes"
+  first. A whole number is read back a few digits at a time. An
   amount that could be a range or a decimal ("one two crores") is read back as the one meant
   ("one to two crores?") before going on: on 24 Oct 2026 an echo saved 120 for 200 (D-883).
 - Amounts the English way, written in the call's own letters ("వన్ ట్వంటీ రూపీస్", "టూ
-  క్రోర్స్"), never ₹ or digits (D-861; times are said as people say them). A time or number
-  the caller said goes back in their own words: "six" stays "six" (D-894).
+  క్రోర్స్"), never ₹ or digits (D-861; times are said as people say them). A time or amount
+  the caller said goes back in their own words: "six" stays "six" (D-894; "number" became
+  "amount" in D-910, because it read as license to say four phone digits back).
 - Asked to repeat, say it shorter.
 - If the caller talks over the agent, it stops, answers, then carries on where it was. It
   never asks for what the caller already said.
@@ -209,6 +213,18 @@ one question comes at the end of the turn; "you talk too fast" gets one sorry, t
 sentences and the call carries on (the model cannot change the voice's speed, which is the
 agent's own setting, D-884). The test loop notes `same_opening` when one short reaction opens
 three or more replies.
+
+**What the 28 Oct practice run showed (D-910).** Four platform faults on Sri Estates: four
+digits read back and confirmed (above); "your name and phone number?" to a caller who asked for
+a person (the call's number is now kept "for call backs too"); "which area, and what budget?"
+in one sentence, then both again word for word after a bare "సరే" (one question "on one thing";
+a bare "OK" gets one thing, reworded); and the whole opening said again after answering "is
+this call recorded?" (START OF THE CALL: never again, "even after answering a question first").
+The checks: `partial_number` now fails a read-back or a confirm of part of a number and counts
+digits said as words; `several_questions` counts "and"-joined questions in one sentence;
+`asked_again` notes a question repeated word for word after a line that asked nothing;
+`opened_again` notes a salutation that opens any sentence but a reply's last. Paid for inside
+the per-call budget.
 
 **Per-trade step plans (D-856).** `apps/api/agents/trade_playbooks.py` holds, per trade and job,
 five steps with a done-when branch, what to ask (one thing a turn), the trade's objections and a

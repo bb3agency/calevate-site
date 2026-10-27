@@ -210,6 +210,10 @@ def test_a_guided_call_with_step_by_step_lists_fits_with_margin() -> None:
 #: they say they did" is paid for by "for the team to confirm", "announce or narrate", "ask
 #: them to repeat" and "offer a call back" without "instead". The screen switch's steps are
 #: composed only for an agent whose owner turns it on.
+#: D-910 (28 Oct 2026) left both where they were (7,289/6,414, each 5 under): the partial
+#: number as its own bullet with "six more digits?", "on one thing", the bare-"OK" rule and
+#: "for call backs too" are paid for by dropping "take it down only once all ten are read back
+#: and confirmed" and "thank for", and by shorter pace and talked-over clauses.
 PER_CALL_MAX = 7_294
 PER_CALL_ONE_LANGUAGE_MAX = 6_419
 

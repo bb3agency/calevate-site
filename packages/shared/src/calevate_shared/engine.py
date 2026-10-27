@@ -2870,31 +2870,41 @@ _REGISTER_BULLET: Final = (
 #:   email 27 Oct 2026, VENDOR-STATED). A comma, because dashes are forbidden below. It
 #:   replaced "the first shortest" and "more only if asked" at five characters fewer; "then
 #:   wait" still ends the turn. The time saved per turn is not measured.
+#: D-910, from the founder's Sri Estates practice run of 28 Oct 2026:
+#: - Given "నంబర్ 9876" the agent read the four digits back and asked "is this number
+#:   right?". The ten-digit rule then sat mid-sentence after "Read back what you heard and
+#:   wait for a yes", and the bullet before it said "a time or NUMBER they said goes back in
+#:   their words": two instructions to say the digits back, ahead of the one not to. The
+#:   partial-number rule is now its own bullet before the read-back, with the ask as an
+#:   example, and the say-back is narrowed to a time or amount.
+#: - "Which area, and what budget?" is one sentence with one "?", so "one question a turn"
+#:   read as kept; "on one thing" closes that. After the caller's bare "సరే" it asked both
+#:   again word for word; a bare "OK" now gets one thing, reworded.
 VOICE_STYLE_GUIDANCE: Final = (
     "--- HOW TO SPEAK ---\n"
     "- Open with a few words and a comma; one or two short sentences, then wait.\n"
     '- Asked something? Lead with the answer, never "do you want to know". Told something? '
     "React only if it fits what they said, never the same way twice, often not at all; then "
     "ask the next thing.\n"
-    "- One question a turn, at its end; each turn begun differently; choices for times "
-    '("morning or evening?"), never for counts or amounts. Never re-ask what they said or '
-    "repeat a sentence.\n"
+    "- One question a turn, on one thing, last; each turn begun differently; choices for "
+    'times ("morning or evening?"), never for counts or amounts. A bare "OK"? Ask one '
+    "thing, reworded. Never re-ask what they said or repeat a sentence.\n"
     "- Say only your own part, never the caller's. Half an answer? Offer your reading as a "
     'question with a way out ("one kg, or more?"); never finish it for them.\n'
     "- Unsure or not interested? Offer once, then close politely.\n"
-    "- Talked over? Stop, answer, then go on shorter. Told you are too fast? Sorry once, then "
-    "shorter sentences, and go on where you were.\n"
+    "- Talked over? Stop, answer, go on shorter. Told you are too fast? Sorry once, then "
+    "go on where you were, shorter.\n"
     '- Write for a voice: a comma where you breathe, "?" on every question. No markdown, '
     "emoji, brackets, dashes, slashes, ellipses, lists, links, actions or notes; never say the "
     "time now.\n"
     '- Amounts the English way in the call\'s letters ("వన్ ట్వంటీ రూపీస్", "టూ క్రోర్స్"), '
-    'never ₹ or digits. A time or number they said goes back in their words ("six" stays '
+    'never ₹ or digits. A time or amount they said goes back in their words ("six" stays '
     '"six").\n'
-    "- Read back what you heard and wait for a yes; numbers a few digits at a time. A mobile "
-    "has ten digits: given fewer, ask for the rest and wait, never act on, thank for or end "
-    "on part of one, and take it down only once all ten are read back and confirmed; an "
-    'amount that could be a range or a decimal ("one two crores") as which one '
-    '("one to two crores?").\n'
+    '- Under ten digits of a mobile? Ask for the rest ("six more digits?"); never read back, '
+    "confirm, act or end on part of one.\n"
+    "- Read back what you heard and wait for a yes, a mobile a few digits at a time; an "
+    'amount that could be a range or a decimal ("one two crores") as which one ("one to two '
+    'crores?").\n'
     f"{_REGISTER_BULLET}"
     "- Could not hear? Ask them to repeat. Asked to repeat? Say it shorter.\n"
     "- Never announce or narrate a search or a wait.\n"
@@ -3163,9 +3173,11 @@ def sends_our_call_rules(cfg: AgentConfig) -> bool:
 #: The number a call is on is already the lead's (`leads.phone_e164` comes from the call), so
 #: asking for it again is re-asking known data, and on an outbound call it asks the person we
 #: rang for the number we rang. After the client script, so a script that lists a phone number
-#: among the details to collect cannot bring the question back.
+#: among the details to collect cannot bring the question back. "For call backs too" (D-910):
+#: asked for a person, an agent offering the call back asked "your name and phone number?",
+#: reading the call back as a reason to collect one.
 CALL_NUMBER_RULE: Final = (
-    "- You have their number: never ask for it, only whether this one is fine."
+    "- You have their number, for call backs too: never ask for it, only whether this one is fine."
 )
 
 #: All three Sri Estates calls of 25 Oct 2026 ended with the name "Not mentioned" (D-888).
@@ -4383,10 +4395,15 @@ WHO_IS_CALLING_RULE: Final = (
 #: 23 Oct 2026). On that call the caller's "Hello" after a greeting that asked "can we talk
 #: now?" drew a second "నమస్కారం అండి", and "who is it?" drew the "can you talk now?" question
 #: again. A bare hello answers the opening, so the model moves to its next step.
+#: "Even after answering a question first" (D-910): a practice caller whose first words were
+#: "is this call recorded?" got the truthful yes and then the whole opening again. Whether the
+#: practice chat's history starts with the opening or with the caller's line is not
+#: documented (`api-reference/agents/test-chat.md` of the 19 Oct 2026 snapshot names no
+#: greeting), so the rule says what to do either way rather than relying on the history.
 OPENING_CONTINUES_RULE: Final = (
-    " Never greet again, repeat it or ask again if now is a good time. A reply of a word or "
-    'two ("hello", "yes", in any language) means go on with your next step: why you are '
-    "calling or your first question."
+    " Never greet, repeat it or ask if now suits again, even after answering a question "
+    'first. A word or two ("hello", "yes", in any language) means go on: why you are calling '
+    "or your first question."
 )
 
 

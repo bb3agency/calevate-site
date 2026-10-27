@@ -64,7 +64,7 @@ def test_anjalis_prompt_carries_every_fix_and_keeps_the_locked_text() -> None:
     assert VOICE_STYLE_GUIDANCE in prompt
     for clause in (
         "React only if it fits what they said",
-        "One question a turn, at its end;",
+        "One question a turn, on one thing, last;",
         "Told you are too fast? Sorry once",
         '("six" stays "six")',
     ):

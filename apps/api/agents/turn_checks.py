@@ -66,7 +66,7 @@ Kind = Literal[
     # The founder's comparison of 23 Oct 2026 (D-861): a long stretch with no breath mark.
     "no_breath",
     # The Sri Estates call of 23 Oct 2026 (D-864): a second greeting, or "can you talk now?"
-    # again, in the first reply after the opening.
+    # again, in the first reply after the opening; a salutation mid-reply later on (D-910).
     "opened_again",
     # D-865: an agent that remembers callers closed a call without its memory sentence.
     "memory_not_said",
@@ -74,6 +74,8 @@ Kind = Literal[
     "invented_source",
     # D-894: the same short reaction ("మంచిది అండి", "సరే అండి") before reply after reply.
     "same_opening",
+    # D-910: an unanswered question asked again word for word after the caller's "సరే".
+    "asked_again",
 ]
 
 #: How a reply SOUNDS (D-828): the words, numbers, punctuation, length and language of a
@@ -106,6 +108,7 @@ SOUND_KINDS: Final = frozenset(
         "memory_not_said",
         # HOW TO SPEAK decides how a turn opens, not the owner's script (D-894).
         "same_opening",
+        "asked_again",
     }
 )
 #: What breaks the caller's task whatever the words: the caller's part said for them, a
@@ -534,10 +537,53 @@ def _restates(question: str) -> bool:
     return bool(words) and words[0] in _RESTATES
 
 
+#: A joiner that adds a second question inside one sentence: "మీరు ఏ ఏరియాలో చూస్తున్నారు,
+#: అలాగే మీ బడ్జెట్ ఎంత?" has one "?" and asks two things (D-910). Only explicit "and"
+#: words, never a bare comma or "or": "పొద్దున వీలవుతుందా, సాయంత్రమా?" is one choice.
+_ALSO: Final = re.compile(r"(?:,\s*|\s+)(?:and also|and|also|అలాగే|మరియు|और|तथा)\s+", re.IGNORECASE)
+_EN_WH: Final = frozenset({"what", "which", "where", "when", "how", "who", "whom", "why"})
+#: Telugu question words. "ఏ" (which) only as a whole word: ఏరియా starts with the same letter.
+_TE_WH_EXACT: Final = frozenset({"ఏ", "ఏం"})
+_TE_WH_STEMS: Final = (
+    "ఎంత",
+    "ఎక్కడ",
+    "ఎప్పుడు",
+    "ఎలా",
+    "ఏమి",
+    "ఏంటి",
+    "ఎవరు",
+    "ఎవరి",
+    "ఎన్ని",
+    "ఏది",
+    "ఎందుకు",
+)
+_HI_WH: Final = frozenset(
+    {"क्या", "कौन", "कितना", "कितने", "कितनी", "कहाँ", "कहां", "कब", "कैसे", "क्यों", "कौनसा"}
+)
+
+
+def _asks_wh(clause: str) -> bool:
+    return any(
+        w in _EN_WH or w in _TE_WH_EXACT or w in _HI_WH or w.startswith(_TE_WH_STEMS)
+        for w in _words(clause)
+    )
+
+
+def _joined_questions(question: str) -> int:
+    """How many questions one "?" sentence asks: its "and"-joined parts that each carry a
+    question word, at least one."""
+    return max(1, sum(1 for clause in _ALSO.split(question) if _asks_wh(clause)))
+
+
 def _question_problems(parts: list[str]) -> list[TurnProblem]:
     found: list[TurnProblem] = []
     questions = [s for s in parts if _is_question(s)]
-    asked = [q for i, q in enumerate(questions) if i == 0 or not _restates(q)]
+    asked = [
+        q
+        for i, q in enumerate(questions)
+        if i == 0 or not _restates(q)
+        for _ in range(_joined_questions(q))
+    ]
     if any(_same_question(a, b) for i, a in enumerate(questions) for b in questions[i + 1 :]):
         found.append(
             TurnProblem(
@@ -894,14 +940,30 @@ _OTHER_NUMBER: Final = re.compile(
     r"(?:another|different|other|second)\s+number|వేరే|ఇంకో\s*(?:నంబర్|నెంబర్)|दूसरा|दूसरे",
     re.IGNORECASE,
 )
-_DIGIT_WORD: Final = re.compile(
-    r"\b(?:zero|oh|one|two|three|four|five|six|seven|eight|nine)\b", re.IGNORECASE
+#: One digit said as a word: English, English in Telugu letters (how our agents write it,
+#: D-861), Telugu and Hindi. A caller says "తొమ్మిది ఎనిమిది ఏడు ఆరు" as often as "9876".
+_DIGIT_WORDS: Final = frozenset(
+    {
+        *("zero", "oh", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"),
+        *("జీరో", "వన్", "టూ", "త్రీ", "ఫోర్", "ఫైవ్", "సిక్స్", "సెవెన్", "ఎయిట్", "నైన్"),
+        *("సున్నా", "ఒకటి", "రెండు", "మూడు", "నాలుగు", "ఐదు", "అయిదు", "ఆరు", "ఏడు", "ఎనిమిది"),
+        "తొమ్మిది",
+        *("शून्य", "एक", "दो", "तीन", "चार", "पांच", "पाँच", "छह", "सात", "आठ", "नौ"),
+    }
 )
 #: A mobile number in India has ten digits.
 MOBILE_DIGITS: Final = 10
-#: A reply asking for more of a number: a question, or "tell me / give the rest".
+#: A reply asking for the rest of a number in words. A bare "?" is not one: "is this number
+#: right?" after four digits is a question too (D-910).
 _ASKS_FOR_REST: Final = re.compile(
-    r"\?|ఇవ్వ|చెప్ప|మిగ|అంకెలు|tell|give|rest|remaining|digits|बताइए|बताएं|दीजिए|बाकी|अंक",
+    r"ఇవ్వ|చెప్ప|మిగ|అంకె|డిజిట్|పూర్తి|మొత్తం|tell|give|rest|remaining|digits|full|complete|"
+    r"बताइए|बताएं|दीजिए|बाकी|अंक|पूरा",
+    re.IGNORECASE,
+)
+#: A reply asking whether what it read back is right: what it does with a WHOLE number, and
+#: never with part of one.
+_CONFIRMS: Final = re.compile(
+    r"correct|\bright\?|is that it|కరెక్ట|సరైన|సరిగ్గా|సరేనా|ఓకేనా|ఇదేనా|सही|ठीक है\?",
     re.IGNORECASE,
 )
 #: What a reply says when it treats what it was given as complete.
@@ -961,6 +1023,35 @@ def opened_again(reply: str) -> str | None:
             "question."
         )
     return None
+
+
+#: A salutation said as a greeting. Narrower than `opens_with_greeting`: "హలో?" mid-call checks
+#: the line is alive, and "నమస్కారం" as a reply's LAST sentence is a goodbye.
+_SALUTATION: Final = re.compile(
+    r"^\W*(?:namaste|namaskar(?:am)?|good (?:morning|afternoon|evening)|నమస్కారం|నమస్కారాలు|"
+    r"నమస్తే|नमस्ते|नमस्कार)(?=[\s,.!?।]|$)",
+    re.IGNORECASE,
+)
+
+
+def greeted_midway(reply: str) -> str | None:
+    """Why a later reply starts the call over, or None: a salutation that opens any sentence
+    but the reply's last (D-910). On a practice run of 28 Oct 2026 the agent answered "is this
+    call recorded?" with "yes, it is recorded. నమస్కారం అండి, calling from ... can we talk
+    now?"."""
+    parts = sentences(reply)
+    if any(_SALUTATION.search(s) for s in parts[:-1]) and not _GOODBYE.search(reply):
+        return "It greeted the caller again mid-call and started its opening over."
+    return None
+
+
+def _asked_again(reply: str, previous_reply: str) -> str | None:
+    """The question of `reply` that repeats one of `previous_reply` word for word, or None."""
+    before = [s for s in sentences(previous_reply) if _is_question(s)]
+    return next(
+        (q for q in sentences(reply) if _is_question(q) and any(_same_reply(q, b) for b in before)),
+        None,
+    )
 
 
 #: A caller saying they have done something themselves, on their own screen: "done", "it's
@@ -1045,7 +1136,7 @@ def _asks_for_number(reply: str) -> bool:
 def _digit_count(text: str) -> int:
     """Digits a caller line gives towards a phone number. Fewer than three is a quantity or
     a time ("2 kg"), not part of a number."""
-    count = sum(ch.isdigit() for ch in text) + len(_DIGIT_WORD.findall(text))
+    count = sum(ch.isdigit() for ch in text) + sum(w in _DIGIT_WORDS for w in _words(text))
     return count if count >= 3 else 0
 
 
@@ -1176,7 +1267,7 @@ def conversation_problems(
             awaiting = _digit_count(said)
         if not reply.strip():
             continue
-        restarted = None if previous_reply else opened_again(reply)
+        restarted = (None if previous_reply else opened_again(reply)) or greeted_midway(reply)
         if restarted:
             found.setdefault("opened_again", TurnProblem("opened_again", restarted))
         recalled = _false_recall(reply, said_before)
@@ -1214,9 +1305,10 @@ def conversation_problems(
                     "its actions did it. It should say what happens next instead.",
                 ),
             )
-        # Part of a number is taken as all of it when the reply wraps up on it, or simply does
-        # not ask for the rest: "I'll send it to 9876" (Sri Estates, 27 Oct 2026) promises an
-        # action on four digits without a thank-you or a goodbye.
+        # Part of a number is taken as all of it when the reply wraps up on it, reads it back,
+        # asks whether it is right, or simply does not ask for the rest: "I'll send it to
+        # 9876" (27 Oct 2026) promised an action on four digits, and "తొమ్మిది ఎనిమిది ఏడు
+        # ఆరు. ఈ నంబర్ కరెక్టేనా?" (28 Oct 2026, D-910) asked to confirm them.
         if (
             awaiting is not None
             and 0 < awaiting < MOBILE_DIGITS
@@ -1224,6 +1316,8 @@ def conversation_problems(
                 _WRAPS_UP.search(reply)
                 or claims_done(reply)
                 or _GOODBYE.search(reply)
+                or _digit_count(reply)
+                or _CONFIRMS.search(reply)
                 or not _ASKS_FOR_REST.search(reply)
             )
         ):
@@ -1231,8 +1325,9 @@ def conversation_problems(
                 "partial_number",
                 TurnProblem(
                     "partial_number",
-                    f"It took {awaiting} digits as a whole phone number. A mobile number "
-                    "has ten; it should ask for the rest and read it back.",
+                    f"It was given {awaiting} digits of a phone number and treated them as "
+                    "the number. A mobile number has ten: it should say how many are missing "
+                    "and ask for them, never read part of one back or ask to confirm it.",
                 ),
             )
         if number_known and not caller_raised_number and _asks_for_number(reply):
@@ -1251,6 +1346,23 @@ def conversation_problems(
                 TurnProblem(
                     "goodbye_while_asking",
                     "It said goodbye while the caller was still talking or asking something.",
+                ),
+            )
+        # Only after a line that asked nothing ("సరే"): re-asking after answering the caller's
+        # own question is how a conversation gets back on track.
+        again = (
+            None
+            if _ASKS_REPEAT.search(said) or _CALLER_ASKS.search(said)
+            else _asked_again(reply, previous_reply)
+        )
+        if again:
+            found.setdefault(
+                "asked_again",
+                TurnProblem(
+                    "asked_again",
+                    f"After the caller said {_quoted(said)} it asked {_quoted(again)} again "
+                    "word for word. A question left unanswered is asked once more as one "
+                    "question, in new words.",
                 ),
             )
         if previous_reply and _ASKS_REPEAT.search(said) and _same_reply(reply, previous_reply):
@@ -1300,6 +1412,7 @@ __all__ = [
     "claims_said_before",
     "conversation_problems",
     "formal_swaps",
+    "greeted_midway",
     "memory_not_said",
     "opened_again",
     "sentences",
