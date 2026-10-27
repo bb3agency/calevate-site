@@ -712,10 +712,10 @@ describe("asking an unanswered question again, and the patient caller preset (D-
       [AGENT_PATH]: agent(),
       [`POST ${PATIENT_PATH}`]: applied,
     });
-    await screen.findByText("Patient caller");
+    await screen.findByText("Give callers time");
     expect(screen.getByText(/the agent gives them time/)).toBeTruthy();
     // How it works names the agent's own question and every value the preset sets.
-    await press("About Patient caller");
+    await press("About Give callers time");
     const tip = await screen.findByText(/^Asks "కనిపించిందా అండి\?"/);
     expect(tip.textContent).toBe('Asks "కనిపించిందా అండి?" after 20 s of quiet, up to 3 times.');
     expect(screen.getByText("Hangs up only after 2 min of silence.")).toBeTruthy();
@@ -733,7 +733,7 @@ describe("asking an unanswered question again, and the patient caller preset (D-
       "/v1/me": STAFF,
       [AGENT_PATH]: agent(),
     });
-    await screen.findByText("Patient caller");
+    await screen.findByText("Give callers time");
     expect(screen.queryByRole("button", { name: "Use for this agent" })).toBeNull();
     expect(screen.getByText("Not in use on this agent.")).toBeTruthy();
   });

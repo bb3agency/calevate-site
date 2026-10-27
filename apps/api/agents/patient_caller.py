@@ -1,4 +1,4 @@
-"""The "Patient caller" preset (D-907): call settings for a caller who is busy on their phone.
+"""The "Give callers time" preset (D-907): call settings for a caller who is busy on their phone.
 
 A caller following the agent's directions on their own phone (installing an app, finding a
 screen, typing a number) goes quiet for long stretches and is still on the line. The standard

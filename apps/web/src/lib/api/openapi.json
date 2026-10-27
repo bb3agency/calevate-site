@@ -35397,7 +35397,7 @@
       },
       "PatientCallerOut": {
         "additionalProperties": false,
-        "description": "The \"Patient caller\" preset (D-907) for this agent: what it sets and whether the\nsettings in force match it.",
+        "description": "The \"Give callers time\" preset (D-907) for this agent: what it sets and whether the\nsettings in force match it.",
         "properties": {
           "applied": {
             "title": "Applied",

@@ -25594,7 +25594,7 @@ export interface components {
         };
         /**
          * PatientCallerOut
-         * @description The "Patient caller" preset (D-907) for this agent: what it sets and whether the
+         * @description The "Give callers time" preset (D-907) for this agent: what it sets and whether the
          *     settings in force match it.
          */
         PatientCallerOut: {

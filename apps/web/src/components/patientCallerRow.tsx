@@ -46,7 +46,7 @@ export function PatientCallerRow({
   return (
     <div>
       <SettingRow
-        label="Patient caller"
+        label="Give callers time"
         hint="For callers following along on their phone: the agent gives them time."
         info={
           <>

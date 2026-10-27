@@ -324,7 +324,7 @@ function allAgentsChanges(changes: AgentCallHandlingIn): AllAgentsCallHandlingIn
 }
 
 /**
- * The "Patient caller" preset on one agent (D-907): its silence settings for a caller who
+ * The "Give callers time" preset on one agent (D-907): its silence settings for a caller who
  * follows along on their phone, and a longer longest call. The answer is the agent's call
  * settings; the account read (which agents have their own values) and the agent's call limit
  * read both move.

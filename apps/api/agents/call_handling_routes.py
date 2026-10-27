@@ -5,7 +5,7 @@
     GET   /v1/organization/call-handling                            the account's defaults
     PUT   /v1/organization/call-handling                            set them (owner)
     POST  /v1/organization/call-handling/all-agents                 one value on every agent
-    POST  /v1/agents/{agent_id}/call-handling/patient-caller        the "Patient caller" preset
+    POST  /v1/agents/{agent_id}/call-handling/patient-caller        the "Give callers time" preset
     GET   /v1/admin/tenants/{tid}/agents/{aid}/call-handling        the operator's view
     PATCH /v1/admin/tenants/{tid}/agents/{aid}/call-handling        the operator's door
     POST  /v1/admin/tenants/{tid}/agents/{aid}/call-handling/patient-caller   the same preset
@@ -171,7 +171,7 @@ def _bounds(own_turn_detection: TurnDetection | None = None) -> CallHandlingBoun
 
 
 class PatientCallerOut(BaseModel):
-    """The "Patient caller" preset (D-907) for this agent: what it sets and whether the
+    """The "Give callers time" preset (D-907) for this agent: what it sets and whether the
     settings in force match it."""
 
     model_config = ConfigDict(extra="forbid")
@@ -445,7 +445,7 @@ def _patient_out(preset: patient_caller.PatientCaller) -> PatientCallerOut:
 
 
 async def _agent_response(session: AsyncSession, state: AgentCallHandling) -> AgentCallHandlingOut:
-    """The agent's settings and its "Patient caller" preset, read in the same session."""
+    """The agent's settings and its "Give callers time" preset, read in the same session."""
     return _agent_out(state, await patient_caller.read_patient_caller(session, state))
 
 

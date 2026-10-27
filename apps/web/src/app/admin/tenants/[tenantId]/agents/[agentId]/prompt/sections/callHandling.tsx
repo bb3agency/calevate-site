@@ -48,7 +48,7 @@ export function CallHandlingPanel({
   const patient = useAdminApplyPatientCaller({ tenantId, agentId, slug });
   const patientFeedback = useActionFeedback(patient, {
     errorDisplay: "inline",
-    successToast: "Patient caller set on this agent",
+    successToast: "Callers now get time on this agent",
   });
 
   if (state.isLoading) return <Skeleton rows={2} />;

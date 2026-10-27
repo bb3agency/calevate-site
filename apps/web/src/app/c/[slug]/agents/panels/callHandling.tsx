@@ -12,7 +12,7 @@
  * second choice how many agents with their own value it changes. Waiting for hello has no
  * shared value, so it stays per agent; how long it waits (D-901) inherits like the pause, and
  * shows only while waiting is on and the platform offers it. How soon an unanswered question
- * is asked again (D-907) inherits the same way. "Patient caller" sets the silence rows and
+ * is asked again (D-907) inherits the same way. "Give callers time" sets the silence rows and
  * the longest call for a caller following along on their phone in one tap (D-907).
  *
  * The owner changes them (`org:manage`: switching the hang-up off is a decision about the
