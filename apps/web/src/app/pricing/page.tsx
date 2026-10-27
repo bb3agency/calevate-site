@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 
 import { publicPageMetadata } from "@/lib/seo/metadata";
 import { GST_STATUS_SENTENCE } from "@/lib/gstStatus";
-import { formatINR } from "@/components/ui";
+import { formatINR } from "@/lib/numberDisplay";
 
 import {
   cardFromRate,

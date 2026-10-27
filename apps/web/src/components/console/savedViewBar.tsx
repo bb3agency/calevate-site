@@ -116,9 +116,10 @@ export function SavedViewBar<V extends NamedView, B extends { name: string }>({
 
   return (
     <div className="space-y-2">
-      <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
-        <div className="min-w-0">
-          <label htmlFor={`${ids}-pick`} className={FIELD_LABEL}>
+      {/* The label sits beside the picker, not above it: one row for the whole bar. */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <label htmlFor={`${ids}-pick`} className="shrink-0 text-meta font-medium text-ink-muted">
             Saved view
           </label>
           <select
@@ -128,7 +129,7 @@ export function SavedViewBar<V extends NamedView, B extends { name: string }>({
             // an empty picker reads as "you have none", which we do not yet know.
             disabled={views === undefined}
             onChange={(e) => onApply(views?.find((v) => v.id === e.target.value))}
-            className={`${FIELD_INLINE} mt-1 block max-w-full`}
+            className={`${FIELD_INLINE} block max-w-full`}
           >
             <option value="">{views === undefined ? "Reading your views…" : allLabel}</option>
             {(views ?? []).map((view) => (

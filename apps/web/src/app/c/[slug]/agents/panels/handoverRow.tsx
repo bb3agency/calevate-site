@@ -1,8 +1,8 @@
 "use client";
 
-import { Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Trash2 } from "lucide-react";
 
-import { FIELD, FIELD_LABEL, SECONDARY_BUTTON_SM, ToggleSwitch, formatPhone } from "@/components/ui";
+import { FIELD, FIELD_LABEL, QUIET_ICON_BUTTON, ToggleSwitch, formatPhone } from "@/components/ui";
 import type { BusinessContact } from "@/lib/api/businessProfile";
 
 import type { HandoverDraft } from "./handover";
@@ -50,38 +50,41 @@ export function HandoverRow({
           </label>
         </div>
       </div>
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        <ToggleSwitch
-          checked={row.active}
-          onChange={(next) => onChange({ active: next })}
-          label="Available"
-          hint="Switch off while they are away — they keep their place in the order."
-        />
-        <button
-          type="button"
-          className={SECONDARY_BUTTON_SM}
-          disabled={index === 0}
-          onClick={() => onMove(index - 1)}
-        >
-          Move up
-        </button>
-        <button
-          type="button"
-          className={SECONDARY_BUTTON_SM}
-          disabled={last}
-          onClick={() => onMove(index + 1)}
-        >
-          Move down
-        </button>
-        <button
-          type="button"
-          className={SECONDARY_BUTTON_SM}
-          aria-label={`Remove ${name}`}
-          onClick={onRemove}
-        >
-          <Trash2 aria-hidden className="h-3.5 w-3.5" />
-          Remove
-        </button>
+      {/* One row: the switch, then the order and removal as quiet icons, so a list of five
+          people does not read as five toolbars. Why "Available" exists is in How it works. */}
+      <div className="mt-2 flex items-center justify-between gap-2 pl-6">
+        <ToggleSwitch checked={row.active} onChange={(next) => onChange({ active: next })} label="Available" />
+        <div className="flex items-center gap-0.5">
+          <button
+            type="button"
+            className={QUIET_ICON_BUTTON}
+            aria-label="Move up"
+            title="Move up"
+            disabled={index === 0}
+            onClick={() => onMove(index - 1)}
+          >
+            <ArrowUp aria-hidden className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            className={QUIET_ICON_BUTTON}
+            aria-label="Move down"
+            title="Move down"
+            disabled={last}
+            onClick={() => onMove(index + 1)}
+          >
+            <ArrowDown aria-hidden className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            className={QUIET_ICON_BUTTON}
+            aria-label={`Remove ${name}`}
+            title="Remove"
+            onClick={onRemove}
+          >
+            <Trash2 aria-hidden className="h-4 w-4" />
+          </button>
+        </div>
       </div>
     </li>
   );

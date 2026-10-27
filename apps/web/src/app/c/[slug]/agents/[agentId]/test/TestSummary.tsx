@@ -128,13 +128,13 @@ export function Running({ run, trials }: { run: TestRun | null; trials: number }
   const doneTries = run?.trials_done ?? 0;
   return (
     <section aria-labelledby="tests-running-heading" className="space-y-3" role="status" aria-live="polite">
-      <h4 id="tests-running-heading" className="text-title text-ink">
+      <h4 id="tests-running-heading" className="text-sm font-semibold text-ink">
         Testing your agent
       </h4>
       <ProgressBar
         value={run?.status === "running" ? doneTries : null}
         max={total}
-        label={run?.status === "running" ? `Try ${Math.min(doneTries + 1, total)} of ${total}` : "Starting"}
+        label={run?.status === "running" ? `Try ${Math.min(doneTries + 1, total)} of ${total}` : "Getting the callers ready"}
         pendingLabel="Starting"
         completeLabel="Finishing"
       />

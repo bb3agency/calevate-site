@@ -183,6 +183,23 @@ describe("DataTable", () => {
     { id: "2", who: "Ravi", seconds: 90, status: "completed" },
   ];
 
+  it("keeps a truncating title cell readable as a phone card, and lays a block cell out unlabelled", () => {
+    const withBlock: DataColumn<Call>[] = [
+      { id: "who", header: "Caller", className: "max-w-0 w-full", cell: (c) => c.who },
+      { id: "status", header: "Outcome", card: "block", cell: (c) => c.status },
+      { id: "seconds", header: "Length", cell: (c) => String(c.seconds) },
+    ];
+    render(<DataTable rows={rows} columns={withBlock} getRowId={(c) => c.id} label="Calls" />);
+    const title = screen.getByText("Asha").closest("td")!;
+    // `max-w-0` truncates inside a table and collapses a block to nothing: the card undoes it.
+    expect(title.className).toContain("max-sm:max-w-none");
+    const block = screen.getAllByText("in_progress")[0]!.closest("td")!;
+    expect(block.className).toContain("max-sm:block");
+    expect(block.className).not.toContain("before:content-[attr(data-label)]");
+    const field = screen.getByText("30").closest("td")!;
+    expect(field.className).toContain("before:content-[attr(data-label)]");
+  });
+
   it("sorts from its header, says which way, and notes when it holds only part of the list", () => {
     render(
       <DataTable rows={rows} columns={columns} getRowId={(c) => c.id} label="Calls" partialNote="Sorted within the 2 calls loaded." />,

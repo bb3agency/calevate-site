@@ -1,4 +1,5 @@
-import { ScrollRegion, formatINR } from "@/components/ui";
+import { ScrollRegion } from "@/components/ui";
+import { formatINR } from "@/lib/numberDisplay";
 import {
   ladderFalls,
   packMinutes,

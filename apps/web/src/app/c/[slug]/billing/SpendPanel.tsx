@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 
+import { CARD } from "@/components/console/dataTable";
 import { Metric } from "@/components/console/metric";
 import { Section } from "@/components/console/section";
 import {
@@ -151,8 +152,8 @@ function SpendBreakdown({ data, slug }: { data: Spend; slug: string }) {
           </div>
         ) : (
           <ScrollRegion label="Charge by agent">
-            <table className="w-full min-w-[560px] text-body">
-              <thead>
+            <table className={`w-full text-body sm:min-w-[560px] ${CARD.table}`}>
+              <thead className={CARD.head}>
                 <tr className="border-b border-line text-left text-meta text-ink-muted">
                   <th className="px-4 py-3 font-semibold sm:px-6">Agent</th>
                   <th className="px-4 py-3 text-right font-semibold sm:px-6">Calls</th>
@@ -160,7 +161,7 @@ function SpendBreakdown({ data, slug }: { data: Spend; slug: string }) {
                   <th className="px-4 py-3 text-right font-semibold sm:px-6">Charge</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-line">
+              <tbody className={`divide-y divide-line ${CARD.body}`}>
                 {data.by_agent.map((agent) => (
                   <AgentRow
                     key={agent.agent_id ?? "unattributed"}
@@ -195,8 +196,8 @@ function SpendBreakdown({ data, slug }: { data: Spend; slug: string }) {
           </div>
         ) : (
           <ScrollRegion label="Your costliest calls">
-            <table className="w-full min-w-[640px] text-body">
-              <thead>
+            <table className={`w-full text-body sm:min-w-[640px] ${CARD.table}`}>
+              <thead className={CARD.head}>
                 <tr className="border-b border-line text-left text-meta text-ink-muted">
                   <th className="px-4 py-3 font-semibold sm:px-6">When</th>
                   <th className="px-4 py-3 font-semibold sm:px-6">Agent</th>
@@ -205,7 +206,7 @@ function SpendBreakdown({ data, slug }: { data: Spend; slug: string }) {
                   <th className="px-4 py-3 text-right font-semibold sm:px-6">Charge</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-line">
+              <tbody className={`divide-y divide-line ${CARD.body}`}>
                 {data.top_calls.map((call) => (
                   <CallRow key={call.call_id} call={call} slug={slug} />
                 ))}
@@ -256,8 +257,8 @@ function Residual({ data }: { data: Spend }) {
 function AgentRow({ agent, slug }: { agent: AgentCharge; slug: string }) {
   const { href } = useClientRealm();
   return (
-    <tr>
-      <td className="px-4 py-3 sm:px-6">
+    <tr className={CARD.row}>
+      <td className={`px-4 py-3 sm:px-6 ${CARD.title}`}>
         {agent.agent_id ? (
           <Link
             href={href(`/c/${slug}/agents/${agent.agent_id}`)}
@@ -269,11 +270,11 @@ function AgentRow({ agent, slug }: { agent: AgentCharge; slug: string }) {
           <span className="text-ink-muted">Not attributed to an agent</span>
         )}
       </td>
-      <td className="px-4 py-3 text-right tabular-nums sm:px-6">{formatCount(agent.calls)}</td>
-      <td className="px-4 py-3 text-right tabular-nums text-ink-muted sm:px-6">
+      <td data-label="Calls" className={`px-4 py-3 text-right tabular-nums sm:px-6 ${CARD.field}`}>{formatCount(agent.calls)}</td>
+      <td data-label="Minutes" className={`px-4 py-3 text-right tabular-nums text-ink-muted sm:px-6 ${CARD.field}`}>
         {formatDecimal(agent.minutes)}
       </td>
-      <td className="px-4 py-3 text-right font-semibold tabular-nums sm:px-6">
+      <td data-label="Charge" className={`px-4 py-3 text-right font-semibold tabular-nums sm:px-6 ${CARD.field}`}>
         {formatINR(agent.charged_inr)}
       </td>
     </tr>
@@ -284,8 +285,8 @@ function AgentRow({ agent, slug }: { agent: AgentCharge; slug: string }) {
 function CallRow({ call, slug }: { call: CallCharge; slug: string }) {
   const { href } = useClientRealm();
   return (
-    <tr>
-      <td className="px-4 py-3 sm:px-6">
+    <tr className={CARD.row}>
+      <td className={`px-4 py-3 sm:px-6 ${CARD.title}`}>
         <Link
           href={href(`/c/${slug}/calls/${call.call_id}`)}
           className="font-medium text-ink underline underline-offset-2 hover:text-brand-strong"
@@ -295,10 +296,10 @@ function CallRow({ call, slug }: { call: CallCharge; slug: string }) {
           {formatIST(call.started_at)}
         </Link>
       </td>
-      <td className="px-4 py-3 text-ink-muted sm:px-6">{call.agent_name ?? "—"}</td>
-      <td className="px-4 py-3 text-ink-muted sm:px-6">{call.direction ?? "—"}</td>
-      <td className="px-4 py-3 text-right tabular-nums text-ink-muted sm:px-6">{formatDecimal(call.minutes)}</td>
-      <td className="px-4 py-3 text-right font-semibold tabular-nums sm:px-6">
+      <td data-label="Agent" className={`px-4 py-3 text-ink-muted sm:px-6 ${CARD.field}`}>{call.agent_name ?? "—"}</td>
+      <td data-label="Direction" className={`px-4 py-3 text-ink-muted sm:px-6 ${CARD.field}`}>{call.direction ?? "—"}</td>
+      <td data-label="Minutes" className={`px-4 py-3 text-right tabular-nums text-ink-muted sm:px-6 ${CARD.field}`}>{formatDecimal(call.minutes)}</td>
+      <td data-label="Charge" className={`px-4 py-3 text-right font-semibold tabular-nums sm:px-6 ${CARD.field}`}>
         {formatINR(call.charged_inr)}
       </td>
     </tr>

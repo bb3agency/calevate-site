@@ -66,7 +66,9 @@ export function ClientAssistantWorkspace({
     <div className="space-y-5 pb-12">
       <PageHeader description={`What ${ASSISTANT_NAME} is doing for you, what's waiting for you, and everything it did.`} />
       <RunningTask jobs={jobs.data?.jobs} />
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      {/* Three across at every width: three short figures stacked filled a phone's first
+          screen before the conversation began. */}
+      <div className="grid grid-cols-3 gap-1 sm:gap-3">
         <Tile label="Waiting for you" value={waiting} onOpen={() => setTab("approvals")} />
         <Tile label="Running now" value={running} onOpen={() => setTab("tasks")} />
         <Tile label="Routines on" value={routinesOn} onOpen={() => setTab("routines")} />
@@ -226,9 +228,9 @@ function Tile({
       onClick={onOpen}
       className="press min-w-0 rounded-md px-2 py-2 text-left hover:bg-ink/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
     >
-      <span className="block text-meta font-medium text-ink-muted">{label}</span>
+      <span className="block text-meta font-medium leading-snug text-ink-muted">{label}</span>
       <SkeletonSwap ready={value !== undefined} lines={1} lineHeight={34} barHeight={14}>
-        <span className="block text-[26px] font-semibold leading-tight tracking-tight tabular-nums text-ink">
+        <span className="block text-[22px] font-semibold leading-tight tracking-tight tabular-nums text-ink sm:text-[26px]">
           <FlashValue value={value === undefined ? null : String(value)}>
             {value ?? ""}
           </FlashValue>

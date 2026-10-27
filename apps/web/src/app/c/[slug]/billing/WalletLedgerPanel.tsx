@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from "react";
 import { Receipt } from "lucide-react";
 
+import { CARD } from "@/components/console/dataTable";
 import { EmptySketch } from "@/components/console/emptySketch";
 import { EmptyState } from "@/components/console/emptyState";
 import { Section } from "@/components/console/section";
@@ -127,11 +128,11 @@ export function WalletLedgerPanel({
               </p>
             ) : (
             <ScrollRegion label="Credit history">
-              <table className="relative w-full min-w-[34rem] border-collapse text-body">
+              <table className={`relative w-full border-collapse text-body sm:min-w-[34rem] ${CARD.table}`}>
                 <caption className="sr-only">
                   Your credit history, newest first — {ledger.data.entries.length} entries
                 </caption>
-                <thead>
+                <thead className={CARD.head}>
                   <tr className="border-b border-line text-left text-meta text-ink-muted">
                     <th scope="col" className="py-2 pr-3 font-semibold">
                       When
@@ -150,7 +151,7 @@ export function WalletLedgerPanel({
                     </th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className={CARD.body}>
                   {shown.map((entry) => (
                     <LedgerRow
                       key={entry.id}
@@ -201,11 +202,11 @@ function LedgerRow({
   const detailId = `${entry.id}-splits`;
   return (
     <>
-      <tr className="border-b border-line/60">
-        <td className="py-3 pr-3 whitespace-nowrap text-ink-muted">
+      <tr className={`border-b border-line/60 ${CARD.row} max-sm:px-0`}>
+        <td className={`py-3 pr-3 whitespace-nowrap text-ink-muted ${CARD.block} max-sm:pt-0 max-sm:text-meta`}>
           {formatIST(entry.occurred_at)}
         </td>
-        <td className="py-3 pr-3 text-ink">
+        <td className={`py-3 pr-3 text-ink ${CARD.title} max-sm:font-normal`}>
           {splits === undefined ? (
             walletEntryLabel(entry)
           ) : (
@@ -230,16 +231,17 @@ function LedgerRow({
           )}
         </td>
         <td
-          className={`py-3 pr-3 text-right font-medium tabular-nums ${
+          data-label="Amount"
+          className={`py-3 pr-3 text-right font-medium tabular-nums ${CARD.field} ${
             isCredit ? "text-brand-strong" : "text-ink"
           }`}
         >
           {formatINR(entry.delta_inr)}
         </td>
-        <td className="py-3 pr-3 text-right tabular-nums text-ink-muted">
+        <td data-label="Balance after" className={`py-3 pr-3 text-right tabular-nums text-ink-muted ${CARD.field}`}>
           {formatINR(entry.balance_after_inr)}
         </td>
-        <td className="py-3 text-right">
+        <td className={`py-3 text-right ${CARD.block} max-sm:empty:hidden`}>
           {entry.payment_ref !== null && (
             <button
               type="button"
@@ -260,8 +262,8 @@ function LedgerRow({
         /* The region EXISTS whether or not it is open, and is hidden with `hidden` rather
            than by not rendering it: `aria-controls` has to point at an element that is in
            the document, or a screen reader announces a control that governs nothing. */
-        <tr id={detailId} hidden={!open} className="border-b border-line/60 bg-surface-muted">
-          <td colSpan={5} className="px-3 py-3">
+        <tr id={detailId} hidden={!open} className={`border-b border-line/60 bg-surface-muted ${CARD.row}`}>
+          <td colSpan={5} className="px-3 py-3 max-sm:block max-sm:p-0">
             <ul className="space-y-1 text-meta text-ink-muted">
               {splits.map((split, index) => (
                 <li key={`${split.lot_id}-${index}`} className="tabular-nums">

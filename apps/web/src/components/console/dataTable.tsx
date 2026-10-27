@@ -50,6 +50,13 @@ export type DataColumn<T> = {
    * left edge: `left-0` for the first column, `left-12` for one after a 3rem column.
    */
   pin?: "left-0" | "left-12";
+  /**
+   * How the cell sits in a phone card. `field` (default): the column name on the left and
+   * the value on the right. `block`: the value alone at full width, left-aligned, for a
+   * cell that is a sentence or a row of actions, which beside a label reads as a ragged
+   * right-aligned column.
+   */
+  card?: "field" | "block";
   className?: string;
   /**
    * The raw value this cell shows. When it differs from the previous render for the
@@ -79,9 +86,30 @@ const PIN: Record<NonNullable<DataColumn<unknown>["pin"]>, string> = {
  */
 const CARD_TABLE = "max-sm:block";
 const CARD_ROW = "max-sm:block max-sm:px-3 max-sm:py-3";
-const CARD_TITLE = "max-sm:block max-sm:p-0 max-sm:pb-1 max-sm:text-left max-sm:font-medium";
+// `max-w-none w-auto`: a desktop title cell may use `max-w-0 w-full` to truncate inside the
+// table, and as a block that pair collapses it to nothing.
+const CARD_TITLE =
+  "max-sm:block max-sm:w-auto max-sm:max-w-none max-sm:p-0 max-sm:pb-1 max-sm:text-left max-sm:font-medium";
 const CARD_FIELD =
   "max-sm:flex max-sm:items-baseline max-sm:justify-between max-sm:gap-4 max-sm:p-0 max-sm:py-0.5 max-sm:text-right max-sm:before:shrink-0 max-sm:before:text-left max-sm:before:text-[12px] max-sm:before:text-ink-faint max-sm:before:content-[attr(data-label)]";
+const CARD_BLOCK = "max-sm:block max-sm:p-0 max-sm:pt-1.5 max-sm:text-left";
+
+/**
+ * The same phone-card layout for a table that cannot be a `DataTable` (one with a
+ * disclosure row, or a row header). Put `head` on the `<thead>`, `table`/`body` on the
+ * table and body, `row` on each `<tr>`, `title` on the cell that names the row, and on
+ * every other cell `field` with `data-label` set to its column's name (or `block` for a
+ * sentence or actions). One layout for every table a client reads on a phone.
+ */
+export const CARD = {
+  table: CARD_TABLE,
+  head: "max-sm:hidden",
+  body: CARD_TABLE,
+  row: CARD_ROW,
+  title: CARD_TITLE,
+  field: CARD_FIELD,
+  block: CARD_BLOCK,
+} as const;
 
 const collator = new Intl.Collator("en", { numeric: true, sensitivity: "base" });
 
@@ -451,7 +479,13 @@ export function DataTable<T>({
                       key={column.id}
                       data-label={column.header}
                       className={`px-3 py-3 align-middle ${column.align === "right" ? "text-right" : ""} ${
-                        column.hideBelow ? HIDE[column.hideBelow] : index === 0 ? CARD_TITLE : CARD_FIELD
+                        column.hideBelow
+                          ? HIDE[column.hideBelow]
+                          : index === 0
+                            ? CARD_TITLE
+                            : column.card === "block"
+                              ? CARD_BLOCK
+                              : CARD_FIELD
                       } ${column.pin ? PIN[column.pin] : ""} ${column.className ?? ""}`}
                     >
                       {column.flash ? (

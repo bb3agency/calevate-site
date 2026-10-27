@@ -145,21 +145,21 @@ export function UsageTab({
             </p>
           )}
 
-          {/* Minutes are the server's decimal strings, printed as sent — metered to the
-              same precision the invoice bills. The extra-charges figure carries its rate,
+          {/* Minutes arrive as the invoice's decimal strings and are shown under the display
+              rule (at most one decimal). The extra-charges figure carries its rate,
               so an owner can check how it was arrived at and what the next minute costs. */}
           <StatsBand
             label="This month so far"
             items={[
               {
                 label: "Minutes used",
-                value: data.minutes_used,
+                value: formatDecimal(data.minutes_used),
                 hint: data.included_minutes > 0 ? `${formatCount(data.included_minutes)} included` : "Pay as you go",
               },
               { label: "Calls", value: formatCount(data.calls), hint: "Billed calls this month" },
               {
                 label: "Extra minutes",
-                value: data.overage_minutes,
+                value: formatDecimal(data.overage_minutes),
                 hint: hasNonZeroDigit(data.overage_minutes) ? "Beyond your plan" : "None — you are within your plan",
               },
               {

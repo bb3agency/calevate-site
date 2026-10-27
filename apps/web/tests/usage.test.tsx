@@ -359,13 +359,16 @@ describe("the usage panel", () => {
     expect(container.textContent).toContain("₹7.1 per extra minute");
   });
 
-  it("prints the metered minutes exactly as sent, trailing zero and all", async () => {
-    // `minutes_used` is a decimal string too. `Number("120.50")` renders "120.5", and a
-    // client comparing the screen to the invoice finds two different figures.
+  it("prints the metered minutes under the display rule, never the raw string", async () => {
+    // A client screen shows at most one decimal (founder, 27 Oct 2026); the invoice keeps
+    // the exact figure. The minutes go through the shared formatter like every number.
     const { container } = await renderBillingHub(routes(), "Usage");
 
-    await screen.findByText("Minutes used");
-    expect(container.textContent).toContain("120.50");
+    const label = await screen.findByText("Minutes used");
+    const tile = label.parentElement?.textContent ?? "";
+    expect(tile).toContain("120.5");
+    expect(tile).not.toContain("120.50");
+    expect(container.textContent).toContain("Minutes used");
   });
 
   it("explains a missing permission instead of answering with an error", async () => {

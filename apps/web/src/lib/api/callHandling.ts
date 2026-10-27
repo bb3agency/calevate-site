@@ -73,10 +73,11 @@ export function pauseLabel(ms: number): string {
   return preset ? `${preset.label} (${formatPause(ms)})` : formatPause(ms);
 }
 
-/** Where a value in force comes from, in the owner's words. */
+/** Where a value in force comes from, in the words of the "Just this agent / All my agents"
+ * choice that set it, so the hint and the choice name the same two things. */
 export function sourceLabel(source: CallHandlingSource): string {
-  if (source === "agent") return "Only this agent";
-  if (source === "organization") return "Same for all your agents";
+  if (source === "agent") return "Just this agent";
+  if (source === "organization") return "All my agents";
   return "Calevate default";
 }
 
@@ -482,7 +483,7 @@ export function agentOverridesSummary(data: OrganizationCallHandling): string {
 export function rowSource(sources: readonly CallHandlingSource[]): string {
   const first = sources[0];
   if (first !== undefined && sources.every((s) => s === first)) return sourceLabel(first);
-  return sources.includes("agent") ? "Partly only this agent" : "Partly the same for all your agents";
+  return sources.includes("agent") ? "Some just for this agent" : "Some for all my agents";
 }
 
 /** Per row, how many agents other than this one keep a value of their own, which "All my

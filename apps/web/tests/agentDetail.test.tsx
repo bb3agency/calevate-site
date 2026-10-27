@@ -465,7 +465,7 @@ describe("which script callers are actually hearing", () => {
     );
 
     // The header says it, and no banner claims anything is waiting.
-    await screen.findByText(/Not on the calling system yet/);
+    await screen.findByText(/Not taking or making calls yet/);
     expect(container.textContent).not.toContain("what callers hear right now");
     expect(container.textContent).not.toContain("Changes waiting to go live");
   });

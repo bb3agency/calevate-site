@@ -61,7 +61,7 @@ export function liveState(agent: Agent, onTrial = false): LiveState {
       label: "Being set up",
       tone: "neutral",
       detail:
-        "Not on the calling system yet, so it cannot take or make calls, or be tried in the chat. Get it ready to try it, or switch it on.",
+        "Not taking or making calls yet. Get it ready to try it in the chat, or switch it on.",
     };
   }
   /* Published and switched off: the server's "Ready, not taking calls" (D-838). Readied to
@@ -86,7 +86,7 @@ export function liveState(agent: Agent, onTrial = false): LiveState {
     return {
       label: "Live",
       tone: "ok",
-      detail: "On the calling system and working right now.",
+      detail: "Taking and making calls now.",
     };
   }
   /* Fails VISIBLE and claims nothing: a status this build has never seen keeps its own

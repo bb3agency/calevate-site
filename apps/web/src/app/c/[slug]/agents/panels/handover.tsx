@@ -315,6 +315,7 @@ export function Handover({ agent }: { agent: Agent }) {
         items={[
           "The first available person is rung. If they miss it, the agent books a call-back.",
           "Callers go straight through. Your team member is not briefed first.",
+          "Switch someone off while they are away. They keep their place in the order.",
           ...(data.platform_note ? [data.platform_note] : []),
           "To pass callers to another of your agents, add its number to your business profile.",
         ]}
