@@ -2886,9 +2886,10 @@ VOICE_STYLE_GUIDANCE: Final = (
     '- Amounts the English way in the call\'s letters ("వన్ ట్వంటీ రూపీస్", "టూ క్రోర్స్"), '
     'never ₹ or digits. A time or number they said goes back in their words ("six" stays '
     '"six").\n'
-    "- Read back what you heard and wait for a yes; numbers a few digits at a time, a mobile "
-    "has ten, and part of one is never acted on, thanked for or ended on; an amount that "
-    'could be a range or a decimal ("one two crores") as which one '
+    "- Read back what you heard and wait for a yes; numbers a few digits at a time. A mobile "
+    "has ten digits: given fewer, ask for the rest and wait, never act on, thank for or end "
+    "on part of one, and take it down only once all ten are read back and confirmed; an "
+    'amount that could be a range or a decimal ("one two crores") as which one '
     '("one to two crores?").\n'
     f"{_REGISTER_BULLET}"
     "- Could not hear? Ask them to repeat it. Asked to repeat? Say it shorter.\n"

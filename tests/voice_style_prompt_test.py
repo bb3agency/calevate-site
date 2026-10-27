@@ -134,7 +134,10 @@ def test_the_style_layer_answers_the_founders_calls_of_27_oct_2026() -> None:
     assert "A time or number they said goes back in their words" in amounts
     assert '("six" stays "six")' in amounts
     # Numbers taken from the caller are still read back a few digits at a time.
-    assert "numbers a few digits at a time, a mobile has ten" in bullet("- Read back")
+    assert "numbers a few digits at a time. A mobile has ten digits" in bullet("- Read back")
+    # Given fewer than ten digits the agent asks for the rest and waits (founder, 27 Oct 2026).
+    assert "given fewer, ask for the rest and wait" in bullet("- Read back")
+    assert "take it down only once all ten are read back and confirmed" in bullet("- Read back")
     # "Never say the time" is about the clock, so it cannot read as "never say a time".
     assert "never say the time now." in VOICE_STYLE_GUIDANCE
 

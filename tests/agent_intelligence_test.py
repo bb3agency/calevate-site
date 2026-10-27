@@ -278,7 +278,9 @@ def test_a_full_v2_prompt_fits_the_engine_and_the_guide_budget() -> None:
     # sentence (7,276 before). The founder's 27 Oct Telugu examples quote a caller's time
     # back in their words, a longer exchange than the one they replaced (7,530 before).
     # Part of a number is never acted on, thanked for or ended on (27 Oct 2026, 7,550 before).
-    assert len(prompt) <= 7_610
+    # Fewer than ten digits: ask for the rest, wait, take it down only once all ten are confirmed
+    # (founder, 27 Oct 2026, 7,610 before).
+    assert len(prompt) <= 7_708
 
 
 # --- script v2 (item 4) ---------------------------------------------------------------------

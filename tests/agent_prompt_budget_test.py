@@ -167,8 +167,10 @@ def test_a_long_realistic_script_fits_with_margin() -> None:
 #: "Saturday evening six" and its answer said back in those words replaced a shorter pair.
 #: RAISED both by 60 (27 Oct 2026): part of a number is never acted on, thanked for or ended
 #: on ("I will send it to 9876" on a Sri Estates test).
-PER_CALL_MAX = 7_201
-PER_CALL_ONE_LANGUAGE_MAX = 6_326
+#: RAISED both by 98 (founder, 27 Oct 2026): given fewer than ten digits the agent asks for the
+#: rest and waits, and takes the number down only once all ten are read back and confirmed.
+PER_CALL_MAX = 7_299
+PER_CALL_ONE_LANGUAGE_MAX = 6_424
 
 
 def _platform_only(languages_extra: list[str]) -> AgentConfig:
