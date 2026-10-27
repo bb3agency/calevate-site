@@ -200,6 +200,14 @@ AMBIENCE_VOLUME_MAX_PCT = 100
 OPENING_WAIT_MIN_MS = 500
 OPENING_WAIT_MAX_MS = 10_000
 OPENING_WAIT_STEP_MS = 100
+#: How long the agent waits, after a question of its own has had no answer, before asking it
+#: again (D-907): ThinnestAI's `voice.reaskAfterSeconds`, `0` never, otherwise 1.5 to 10 s to
+#: one decimal (thinnest-findings/mirror/snapshots/2026-10-19/pages/api-reference/agents/
+#: update-agent.md:1452-1460), in milliseconds on whole tenths.
+REASK_NEVER = 0
+REASK_AFTER_MIN_MS = 1500
+REASK_AFTER_MAX_MS = 10_000
+REASK_AFTER_STEP_MS = 100
 #: `voice.turnDetection`'s values (`calevate_shared.engine.TurnDetection`), spelled here for
 #: the CHECK on `agents.turn_detection`.
 TURN_DETECTIONS: tuple[str, ...] = ("timer", "ear", "smart")
@@ -322,6 +330,12 @@ def call_setting_checks(prefix: str = "") -> tuple[CheckConstraint, ...]:
             f"AND {p}opening_wait_ms <= {OPENING_WAIT_MAX_MS} "
             f"AND {p}opening_wait_ms % {OPENING_WAIT_STEP_MS} = 0)",
             name=f"{p}opening_wait_range",
+        ),
+        CheckConstraint(
+            f"{p}reask_after_ms IS NULL OR {p}reask_after_ms = {REASK_NEVER} OR "
+            f"({p}reask_after_ms >= {REASK_AFTER_MIN_MS} AND {p}reask_after_ms <= "
+            f"{REASK_AFTER_MAX_MS} AND {p}reask_after_ms % {REASK_AFTER_STEP_MS} = 0)",
+            name=f"{p}reask_after_range",
         ),
     )
 
@@ -598,6 +612,9 @@ class Agent(PKMixin, TimestampMixin, Base):
     # How long an opening that waits for the person's hello waits through silence (D-901).
     # NULL inherits the account's, then the console's `thinnest_opening_wait_ms`.
     opening_wait_ms: Mapped[int | None] = mapped_column(Integer)
+    # How long the agent waits before asking an unanswered question again (D-907); 0 is
+    # never. NULL inherits the account's, then `call_handling.REASK_AFTER_DEFAULT_MS`.
+    reask_after_ms: Mapped[int | None] = mapped_column(Integer)
     # An operator's turn detection for this agent alone (D-901), over the console's
     # `thinnest_turn_detection`; NULL follows the console. Never offered to clients.
     turn_detection: Mapped[str | None] = mapped_column(Text)

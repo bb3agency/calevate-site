@@ -613,6 +613,8 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     # whether its finished calls stay connected, and billed, until the caller hangs up.
     ("GET", "/v1/agents/{agent_id}/call-handling", {}, {}),
     ("PATCH", "/v1/agents/{agent_id}/call-handling", {"end_call_on_finish": False}, {}),
+    # D-907. Would change a neighbour's agent's silences and raise its longest call.
+    ("POST", "/v1/agents/{agent_id}/call-handling/patient-caller", {}, {}),
     ("GET", "/v1/callbacks/{callback_id}", {}, {}),
     ("DELETE", "/v1/callbacks/{callback_id}", {}, {}),
     ("PATCH", "/v1/callbacks/{callback_id}", {"at": _TOMORROW_NOON_IST}, {}),

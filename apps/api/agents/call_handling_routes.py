@@ -5,8 +5,10 @@
     GET   /v1/organization/call-handling                            the account's defaults
     PUT   /v1/organization/call-handling                            set them (owner)
     POST  /v1/organization/call-handling/all-agents                 one value on every agent
+    POST  /v1/agents/{agent_id}/call-handling/patient-caller        the "Patient caller" preset
     GET   /v1/admin/tenants/{tid}/agents/{aid}/call-handling        the operator's view
     PATCH /v1/admin/tenants/{tid}/agents/{aid}/call-handling        the operator's door
+    POST  /v1/admin/tenants/{tid}/agents/{aid}/call-handling/patient-caller   the same preset
     GET   /v1/admin/organizations/{org_id}/call-handling            the operator's view
     PUT   /v1/admin/organizations/{org_id}/call-handling            the operator's door
 
@@ -29,13 +31,14 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents import call_handling
+from apps.api.agents import call_handling, patient_caller
 from apps.api.agents.call_handling import (
     AMBIENCE_VOLUME_DEFAULT_PCT,
     END_AFTER_SILENCE_DEFAULT_S,
     END_CALL_ON_FINISH_DEFAULT,
     NUDGE_AFTER_DEFAULT_S,
     NUDGE_COUNT_DEFAULT,
+    REASK_AFTER_DEFAULT_MS,
     TURN_SILENCE_DEFAULT_MS,
     AgentCallHandling,
     CallSettings,
@@ -57,6 +60,9 @@ from apps.api.agents.models import (
     OPENING_WAIT_MAX_MS,
     OPENING_WAIT_MIN_MS,
     OPENING_WAIT_STEP_MS,
+    REASK_AFTER_MAX_MS,
+    REASK_AFTER_MIN_MS,
+    REASK_AFTER_STEP_MS,
     TURN_SILENCE_MAX_MS,
     TURN_SILENCE_MIN_MS,
 )
@@ -121,6 +127,12 @@ class CallHandlingBoundsOut(BaseModel):
     opening_wait_max_ms: int
     opening_wait_step_ms: int
     platform_opening_wait_ms: int | None
+    #: How long before an unanswered question is asked again (D-907); `reask_after_ms` 0 is
+    #: never.
+    reask_after_min_ms: int
+    reask_after_max_ms: int
+    reask_after_step_ms: int
+    platform_reask_after_ms: int
 
 
 def _bounds(own_turn_detection: TurnDetection | None = None) -> CallHandlingBoundsOut:
@@ -151,7 +163,30 @@ def _bounds(own_turn_detection: TurnDetection | None = None) -> CallHandlingBoun
         opening_wait_max_ms=OPENING_WAIT_MAX_MS,
         opening_wait_step_ms=OPENING_WAIT_STEP_MS,
         platform_opening_wait_ms=call_handling.platform_settings().opening_wait_ms,
+        reask_after_min_ms=REASK_AFTER_MIN_MS,
+        reask_after_max_ms=REASK_AFTER_MAX_MS,
+        reask_after_step_ms=REASK_AFTER_STEP_MS,
+        platform_reask_after_ms=REASK_AFTER_DEFAULT_MS,
     )
+
+
+class PatientCallerOut(BaseModel):
+    """The "Patient caller" preset (D-907) for this agent: what it sets and whether the
+    settings in force match it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: The settings in force match the preset (its question aside, which is the owner's).
+    applied: bool
+    nudge_after_seconds: int
+    nudge_count: int
+    #: The question in the agent's main language; "" is the standard one.
+    nudge_phrase: str
+    end_after_silence_seconds: int
+    #: 0: an unanswered question is not asked again on a timer.
+    reask_after_ms: int
+    #: The longest call the preset raises the agent's to, in seconds; a longer one is kept.
+    call_cap_s: int
 
 
 class AgentCallHandlingOut(BaseModel):
@@ -199,6 +234,10 @@ class AgentCallHandlingOut(BaseModel):
     opening_wait_ms: int | None
     opening_wait_ms_effective: int | None
     opening_wait_ms_source: SettingSource
+    #: Milliseconds before an unanswered question is asked again; 0 is never (D-907).
+    reask_after_ms: int | None
+    reask_after_ms_effective: int
+    reask_after_ms_source: SettingSource
     #: The opening waits for the person who picked up to speak (D-871). The agent's own,
     #: never inherited.
     opening_waits_for_caller: bool
@@ -213,7 +252,9 @@ class AgentCallHandlingOut(BaseModel):
     organization_ambience: Ambience | None
     organization_ambience_volume_pct: int | None
     organization_opening_wait_ms: int | None
+    organization_reask_after_ms: int | None
     bounds: CallHandlingBoundsOut
+    patient_caller: PatientCallerOut
 
 
 class AgentCallHandlingIn(BaseModel):
@@ -236,6 +277,7 @@ class AgentCallHandlingIn(BaseModel):
     ambience: Ambience | None = Field(default=None)
     ambience_volume_pct: int | None = Field(default=None)
     opening_wait_ms: int | None = Field(default=None)
+    reask_after_ms: int | None = Field(default=None)
 
 
 class AgentOwnCallHandlingOut(BaseModel):
@@ -255,6 +297,7 @@ class AgentOwnCallHandlingOut(BaseModel):
     ambience: Ambience | None
     ambience_volume_pct: int | None
     opening_wait_ms: int | None
+    reask_after_ms: int | None
 
 
 class OrganizationCallHandlingOut(BaseModel):
@@ -281,6 +324,8 @@ class OrganizationCallHandlingOut(BaseModel):
     ambience_volume_pct_effective: int
     opening_wait_ms: int | None
     opening_wait_ms_effective: int | None
+    reask_after_ms: int | None
+    reask_after_ms_effective: int
     #: The agents that set any value of their own, which these defaults do not reach for
     #: that value; at most `call_handling.AGENTS_WITH_OWN_MAX`, by name.
     agents_with_own: list[AgentOwnCallHandlingOut]
@@ -308,6 +353,7 @@ class OrganizationCallHandlingIn(BaseModel):
     ambience: Ambience | None = Field(default=None)
     ambience_volume_pct: int | None = Field(default=None)
     opening_wait_ms: int | None = Field(default=None)
+    reask_after_ms: int | None = Field(default=None)
 
 
 class AllAgentsCallHandlingIn(BaseModel):
@@ -328,6 +374,7 @@ class AllAgentsCallHandlingIn(BaseModel):
     ambience: Ambience | None = Field(default=None)
     ambience_volume_pct: int | None = Field(default=None)
     opening_wait_ms: int | None = Field(default=None)
+    reask_after_ms: int | None = Field(default=None)
 
 
 class AllAgentsCallHandlingOut(BaseModel):
@@ -365,6 +412,7 @@ def _effective(values: CallSettings) -> dict[str, object]:
         "ambience_effective": _ambience(values.ambience) or "off",
         "ambience_volume_pct_effective": values.ambience_volume_pct,
         "opening_wait_ms_effective": values.opening_wait_ms,
+        "reask_after_ms_effective": values.reask_after_ms,
     }
 
 
@@ -380,10 +428,30 @@ def _own(values: CallSettings, prefix: str = "") -> dict[str, object]:
         f"{prefix}ambience": _ambience(values.ambience),
         f"{prefix}ambience_volume_pct": values.ambience_volume_pct,
         f"{prefix}opening_wait_ms": values.opening_wait_ms,
+        f"{prefix}reask_after_ms": values.reask_after_ms,
     }
 
 
-def _agent_out(state: AgentCallHandling) -> AgentCallHandlingOut:
+def _patient_out(preset: patient_caller.PatientCaller) -> PatientCallerOut:
+    return PatientCallerOut(
+        applied=preset.applied,
+        nudge_after_seconds=patient_caller.NUDGE_AFTER_S,
+        nudge_count=patient_caller.NUDGE_COUNT,
+        nudge_phrase=preset.nudge_phrase,
+        end_after_silence_seconds=patient_caller.END_AFTER_SILENCE_S,
+        reask_after_ms=patient_caller.REASK_AFTER_MS,
+        call_cap_s=preset.call_cap_s,
+    )
+
+
+async def _agent_response(session: AsyncSession, state: AgentCallHandling) -> AgentCallHandlingOut:
+    """The agent's settings and its "Patient caller" preset, read in the same session."""
+    return _agent_out(state, await patient_caller.read_patient_caller(session, state))
+
+
+def _agent_out(
+    state: AgentCallHandling, preset: patient_caller.PatientCaller
+) -> AgentCallHandlingOut:
     sources = state.resolved.sources
     return AgentCallHandlingOut.model_validate(
         {
@@ -401,6 +469,7 @@ def _agent_out(state: AgentCallHandling) -> AgentCallHandlingOut:
             "opening_waits_for_caller": state.opening_waits_for_caller,
             **_own(state.organization, "organization_"),
             "bounds": _bounds(state.turn_detection),
+            "patient_caller": _patient_out(preset),
         }
     )
 
@@ -478,10 +547,14 @@ _AGENT_DESCRIPTION = (
     "inherits like the settings below; it may be set only while "
     "`bounds.opening_wait_available`, and an effective null is four seconds "
     "(`opening_wait_unavailable` otherwise).\n\n"
+    "`reask_after_ms` is how long the agent waits, after a question it asked has had no "
+    f"answer, before asking it again: {REASK_AFTER_MIN_MS}-{REASK_AFTER_MAX_MS} in steps of "
+    f"{REASK_AFTER_STEP_MS}, or 0 for never.\n\n"
     "Each other setting resolves agent, then the account default, then Calevate's "
     f"(`bounds.platform_turn_silence_ms`, {TURN_SILENCE_DEFAULT_MS} ms on most agents, hang-up "
     f"on, ask once after {NUDGE_AFTER_DEFAULT_S} s, "
-    f"hang up after {END_AFTER_SILENCE_DEFAULT_S} s, standard lines, no sound); `*_source` "
+    f"hang up after {END_AFTER_SILENCE_DEFAULT_S} s, standard lines, no sound, ask again "
+    f"after {REASK_AFTER_DEFAULT_MS / 1000:g} s); `*_source` "
     "names the level in force.\n\n"
     "A change reaches a live agent straight after the save and applies from its next call; "
     "a call in progress finishes as it started. Out-of-range values are refused with "
@@ -505,7 +578,9 @@ _ORG_DESCRIPTION = (
 async def get_agent_call_handling(
     agent_id: UUID, session: Session, _: AgentReader
 ) -> AgentCallHandlingOut:
-    return _agent_out(await call_handling.read_agent_call_handling(session, agent_id))
+    return await _agent_response(
+        session, await call_handling.read_agent_call_handling(session, agent_id)
+    )
 
 
 @router.patch(
@@ -537,7 +612,68 @@ async def set_agent_call_handling(
         ip=client_request_ip(request),
         summary=_audit_summary(changes, moved),
     )
-    return _agent_out(state)
+    return await _agent_response(session, state)
+
+
+_PATIENT_DESCRIPTION = (
+    "One tap for a caller who follows the agent along on their own phone and goes quiet for "
+    "long stretches: on this agent alone, ask whether they are still there after "
+    f"{patient_caller.NUDGE_AFTER_S} s, up to {patient_caller.NUDGE_COUNT} times, in the "
+    "agent's main language (`patient_caller.nudge_phrase` on the read), hang up after "
+    f"{patient_caller.END_AFTER_SILENCE_S} s of silence, never repeat an unanswered question on "
+    "a timer, and raise the longest call to `patient_caller.call_cap_s` (a longer one is "
+    "kept). Each is an ordinary setting afterwards. Applies from the next call."
+)
+
+
+async def _apply_patient_caller(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    agent_id: UUID,
+    request: Request,
+    principal: Principal,
+    action: str,
+) -> AgentCallHandlingOut:
+    result = await patient_caller.apply_patient_caller(
+        session, tenant_id=tenant_id, agent_id=agent_id
+    )
+    await write_audit(
+        session,
+        action=action,
+        actor=principal,
+        tenant_id=tenant_id,
+        object_type="agent",
+        object_id=str(agent_id),
+        ip=client_request_ip(request),
+        summary={
+            "changed": list(result.moved),
+            "cap_before_s": result.call_cap_before_s,
+            "cap_after_s": result.call_cap_after_s,
+        },
+    )
+    return await _agent_response(session, result.state)
+
+
+@router.post(
+    "/v1/agents/{agent_id}/call-handling/patient-caller",
+    response_model=AgentCallHandlingOut,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Set an agent up for a caller who follows along on their phone",
+    description=_PATIENT_DESCRIPTION,
+)
+async def apply_patient_caller(
+    agent_id: UUID, session: Session, request: Request, principal: Owner
+) -> AgentCallHandlingOut:
+    assert principal.tenant_id is not None  # client realm; `requires()` resolves it
+    return await _apply_patient_caller(
+        session,
+        tenant_id=principal.tenant_id,
+        agent_id=agent_id,
+        request=request,
+        principal=principal,
+        action="agent.patient_caller_applied",
+    )
 
 
 @router.get(
@@ -637,10 +773,11 @@ async def admin_get_agent_call_handling(
 ) -> AgentCallHandlingOut:
     async with tenant_session(tenant_id) as scoped:
         state = await call_handling.read_agent_call_handling(scoped, agent_id)
+        out = await _agent_response(scoped, state)
         await record_admin_tenant_read(
             scoped, request=request, principal=principal, tenant_id=tenant_id
         )
-    return _agent_out(state)
+    return out
 
 
 @admin_router.patch(
@@ -672,7 +809,30 @@ async def admin_set_agent_call_handling(
             ip=client_request_ip(request),
             summary=_audit_summary(changes, moved),
         )
-    return _agent_out(state)
+        out = await _agent_response(scoped, state)
+    return out
+
+
+@admin_router.post(
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/call-handling/patient-caller",
+    response_model=AgentCallHandlingOut,
+    openapi_extra=permission_meta("agents:write"),
+    summary="Set one client agent up for a caller who follows along on their phone",
+    description=_PATIENT_DESCRIPTION,
+)
+async def admin_apply_patient_caller(
+    tenant_id: UUID, agent_id: UUID, request: Request, principal: AgentOperator
+) -> AgentCallHandlingOut:
+    async with tenant_session(tenant_id) as scoped:
+        out = await _apply_patient_caller(
+            scoped,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            request=request,
+            principal=principal,
+            action="admin.agent_patient_caller_applied",
+        )
+    return out
 
 
 @admin_router.get(
@@ -829,6 +989,7 @@ __all__ = [
     "AllAgentsCallHandlingOut",
     "OrganizationCallHandlingIn",
     "OrganizationCallHandlingOut",
+    "PatientCallerOut",
     "admin_router",
     "router",
 ]

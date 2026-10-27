@@ -3930,6 +3930,10 @@ class AgentConfig(BaseModel):
     nudge_count: int = Field(default=1, exclude=True)
     nudge_phrase: str | None = Field(default=None, exclude=True)
     end_after_silence_seconds: int | None = Field(default=20, exclude=True)
+    #: Milliseconds before an unanswered question of the agent's is asked again, 0 never
+    #: (D-907), resolved like the settings above. Whole tenths, 1,500 to 10,000, or 0.
+    #: Excluded from every dump for `detect_machines`' reason.
+    reask_after_ms: int = Field(default=5000, ge=0, le=10_000, multiple_of=100, exclude=True)
     #: Lines the agent says while it looks something up; () leaves the engine's own (F3).
     filler_lines: tuple[str, ...] = Field(default=(), exclude=True)
     #: Background office sound: None (off), "office" or "office-quiet", at this volume in

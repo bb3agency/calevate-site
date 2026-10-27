@@ -10,6 +10,7 @@ import type { AgentCallHandling, OrganizationCallHandling } from "@/lib/api/call
 
 import {
   CALL_HANDLING_BOUNDS,
+  PATIENT_CALLER,
   VOICE_EFFECTIVE_DEFAULTS,
   VOICE_ORGANIZATION_NONE,
   VOICE_OWN_NONE,
@@ -99,6 +100,7 @@ function agent(over: Partial<AgentCallHandling> = {}): AgentCallHandling {
     ...VOICE_SOURCES_PLATFORM,
     ...VOICE_ORGANIZATION_NONE,
     bounds: BOUNDS,
+    patient_caller: PATIENT_CALLER,
     ...over,
   };
 }
@@ -656,5 +658,83 @@ describe("a client's call handling defaults, from the operator console", () => {
     });
     await screen.findByText("No such client.");
     expect(screen.queryByRole("button", { name: "Change" })).toBeNull();
+  });
+});
+
+describe("asking an unanswered question again, and the patient caller preset (D-907)", () => {
+  const PATIENT_PATH = `${AGENT_PATH}/patient-caller`;
+
+  it("sets 'never' for this agent and reads the wait in seconds", async () => {
+    const { calls } = await renderClientPage(<AgentCallHandlingRows agentId="agent-1" />, {
+      "/v1/me": OWNER,
+      [ORG_PATH]: organization(),
+      [AGENT_PATH]: agent(),
+      [`PATCH ${AGENT_PATH}`]: agent({
+        reask_after_ms: 0,
+        reask_after_ms_effective: 0,
+        reask_after_ms_source: "agent",
+      }),
+    });
+    await screen.findByText("Ask an unanswered question again");
+    expect(screen.getByText("After 5 s")).toBeTruthy();
+    const changes = screen.getAllByRole("button", { name: "Change" });
+    await act(async () => {
+      fireEvent.click(changes[changes.length - 1]);
+    });
+    await toggle("Use the Calevate default: After 5 s");
+    const slider = screen.getByLabelText("Wait before asking again") as HTMLInputElement;
+    expect([slider.min, slider.max, slider.step]).toEqual(["1500", "10000", "100"]);
+    await pick("Never");
+    expect(screen.queryByLabelText("Wait before asking again")).toBeNull();
+    await press("Save");
+    await waitFor(() => expect(calls.some((c) => c.method === "PATCH")).toBe(true));
+    expect(JSON.parse(calls.find((c) => c.method === "PATCH")?.body ?? "{}")).toEqual({
+      reask_after_ms: 0,
+    });
+    await screen.findByText("Never");
+  });
+
+  it("applies the preset in one tap, says what it does, and then reads as in use", async () => {
+    const applied = agent({
+      nudge_after_seconds: 20,
+      nudge_after_seconds_effective: 20,
+      nudge_count: 3,
+      nudge_count_effective: 3,
+      end_after_silence_seconds: 120,
+      end_after_silence_seconds_effective: 120,
+      reask_after_ms: 0,
+      reask_after_ms_effective: 0,
+      patient_caller: { ...PATIENT_CALLER, applied: true },
+    });
+    const { calls, container } = await renderClientPage(rows(), {
+      "/v1/me": OWNER,
+      [ORG_PATH]: organization(),
+      [AGENT_PATH]: agent(),
+      [`POST ${PATIENT_PATH}`]: applied,
+    });
+    await screen.findByText("Patient caller");
+    expect(screen.getByText(/the agent gives them time/)).toBeTruthy();
+    // How it works names the agent's own question and every value the preset sets.
+    await press("About Patient caller");
+    const tip = await screen.findByText(/^Asks "కనిపించిందా అండి\?"/);
+    expect(tip.textContent).toBe('Asks "కనిపించిందా అండి?" after 20 s of quiet, up to 3 times.');
+    expect(screen.getByText("Hangs up only after 2 min of silence.")).toBeTruthy();
+    expect(screen.getByText("Lets a call run for at least 15 min.")).toBeTruthy();
+    await press("Use for this agent");
+    await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.url.endsWith(PATIENT_PATH))).toBe(true));
+    await screen.findByText("In use");
+    expect(screen.queryByRole("button", { name: "Use for this agent" })).toBeNull();
+    expect(screen.getByText("Asks after 20 s, 3 times · hangs up after 2 min of silence")).toBeTruthy();
+    expect(container.textContent).not.toMatch(/thinnest|cartesia|sarvam/i);
+  });
+
+  it("offers no preset to someone who cannot change the agent's settings", async () => {
+    await renderClientPage(<AgentCallHandlingRows agentId="agent-1" />, {
+      "/v1/me": STAFF,
+      [AGENT_PATH]: agent(),
+    });
+    await screen.findByText("Patient caller");
+    expect(screen.queryByRole("button", { name: "Use for this agent" })).toBeNull();
+    expect(screen.getByText("Not in use on this agent.")).toBeTruthy();
   });
 });

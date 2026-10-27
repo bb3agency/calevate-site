@@ -2,7 +2,8 @@
 
 /**
  * ONE ACCOUNT'S CALL HANDLING DEFAULTS as editable rows: the pause before replying, hanging up
- * when finished, what agents do when the caller goes quiet, the lines said while looking
+ * when finished, what agents do when the caller goes quiet, how soon an unanswered question
+ * is asked again, the lines said while looking
  * something up, and a background sound. "Calevate default" saves `null`.
  *
  * The operator's screen (`/admin/tenants/[tenantId]/call-handling`). A client sets the same
@@ -18,7 +19,7 @@ import { useState, type ReactNode } from "react";
 import type { UseMutationResult } from "@tanstack/react-query";
 
 import { type FeedbackStatus } from "@/components/arc/feedback";
-import { HangUpRow, PauseRow } from "@/components/callHandlingRows";
+import { HangUpRow, PauseRow, ReaskRow } from "@/components/callHandlingRows";
 import {
   BackgroundSoundRow,
   FillerLinesRow,
@@ -29,6 +30,7 @@ import {
   agentOverrides,
   pauseLabel,
   platformVoice,
+  reaskLabel,
   type AgentOverride,
   type DefaultsRow,
   type OrganizationCallHandling,
@@ -175,6 +177,22 @@ export function CallHandlingDefaultsRows({
             ambience_volume_pct: data.ambience_volume_pct_effective,
           }}
           onSave={(next, done) => send("sound", next, done)}
+        />
+        <ReaskRow
+          idPrefix={idPrefix}
+          effective={data.reask_after_ms_effective}
+          source={data.reask_after_ms === null ? "platform" : "organization"}
+          sourceHint={hint("reask", data.reask_after_ms)}
+          own={data.reask_after_ms}
+          inheritLabel={`Calevate default: ${reaskLabel(data.bounds.platform_reask_after_ms)}`}
+          minMs={data.bounds.reask_after_min_ms}
+          maxMs={data.bounds.reask_after_max_ms}
+          stepMs={data.bounds.reask_after_step_ms}
+          seedMs={data.bounds.platform_reask_after_ms}
+          canChange={canChange}
+          status={rowStatus("reask")}
+          error={error("reask")}
+          onSave={(next, done) => send("reask", { reask_after_ms: next }, done)}
         />
       </SettingRows>
       {unlisted > 0 && (

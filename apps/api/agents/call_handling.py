@@ -10,6 +10,9 @@
 - **If the caller goes quiet** (F3, F9, 12 Oct 2026): ask "are you still there?" after some
   seconds (or never), how many times, in the client's own words or the platform's; and hang
   up after some seconds of silence.
+- **Asking an unanswered question again** (D-907): after a question the agent asked has had no
+  answer, how long it waits before asking it once more, or never. A caller following along on
+  their phone is busy, not deaf, and a question repeated at 5 s talks over them.
 - **Lines the agent says while it looks something up** (F3): the client's own, or the
   platform's.
 - **Background sound** (F3): none, or an office, at a volume.
@@ -25,9 +28,10 @@ on `organizations` inherits the platform constant here. The resolution is this m
 nobody else's, so the publish path (`service._to_config`), the screens and the copilot read
 one answer.
 
-Three settings need a value that is a CHOICE distinct from inheriting, so they spell it:
-`nudge_after_seconds` 0 is "never ask", `nudge_phrase` '' and `filler_lines` [] are "the
-platform's own", and `ambience` 'off' is no sound. NULL is always "inherit".
+Four settings need a value that is a CHOICE distinct from inheriting, so they spell it:
+`nudge_after_seconds` and `reask_after_ms` 0 are "never ask", `nudge_phrase` '' and
+`filler_lines` [] are "the platform's own", and `ambience` 'off' is no sound. NULL is always
+"inherit".
 
 Milliseconds as a bounded integer, not seconds as NUMERIC: the pause is a duration with a
 vendor floor of 0.2 s and no stated step, never money and never summed, so an integer holds
@@ -76,6 +80,10 @@ from apps.api.agents.models import (
     OPENING_WAIT_MAX_MS,
     OPENING_WAIT_MIN_MS,
     OPENING_WAIT_STEP_MS,
+    REASK_AFTER_MAX_MS,
+    REASK_AFTER_MIN_MS,
+    REASK_AFTER_STEP_MS,
+    REASK_NEVER,
     TURN_SILENCE_MAX_MS,
     TURN_SILENCE_MIN_MS,
     is_published,
@@ -99,6 +107,9 @@ END_CALL_ON_FINISH_DEFAULT: Final = True
 NUDGE_AFTER_DEFAULT_S: Final = 8
 NUDGE_COUNT_DEFAULT: Final = 1
 END_AFTER_SILENCE_DEFAULT_S: Final = 20
+#: An unanswered question is asked again after 5 s rather than the platform's 2.5 s (founder,
+#: 20 Oct 2026, D-835): the value every agent was sent before it became a setting (D-907).
+REASK_AFTER_DEFAULT_MS: Final = 5000
 #: Off, and 15% once switched on: the vendor's own default volume (0.15).
 AMBIENCE_DEFAULT: Final = "off"
 AMBIENCE_VOLUME_DEFAULT_PCT: Final = 15
@@ -140,6 +151,8 @@ class CallSettings:
     #: Milliseconds of silence before an opening that waits for hello plays anyway. Resolved,
     #: None is "not sent" (the console has no wait).
     opening_wait_ms: int | None = None
+    #: Milliseconds before an unanswered question of the agent's is asked again; 0 is never.
+    reask_after_ms: int | None = None
 
 
 #: The fields, in column order. Spelled out (not read off the dataclass) because they reach
@@ -155,6 +168,7 @@ SETTING_FIELDS: Final[tuple[str, ...]] = (
     "ambience",
     "ambience_volume_pct",
     "opening_wait_ms",
+    "reask_after_ms",
 )
 #: The same fields on `organizations`, the account defaults, in the same order. Spelled out for
 #: `SETTING_FIELDS`' reason.
@@ -169,6 +183,7 @@ ORG_SETTING_FIELDS: Final[tuple[str, ...]] = (
     "default_ambience",
     "default_ambience_volume_pct",
     "default_opening_wait_ms",
+    "default_reask_after_ms",
 )
 #: The fields a PATCH may name. A field left out is untouched; null inherits.
 AGENT_FIELDS: Final = SETTING_FIELDS
@@ -186,6 +201,7 @@ PLATFORM_SETTINGS: Final = CallSettings(
     ambience_volume_pct=AMBIENCE_VOLUME_DEFAULT_PCT,
     # The console's, filled in by `platform_settings`.
     opening_wait_ms=None,
+    reask_after_ms=REASK_AFTER_DEFAULT_MS,
 )
 
 
@@ -406,6 +422,20 @@ def refuse_invalid_settings(values: CallSettings) -> None:
             f"Choose {AMBIENCE_VOLUME_MIN_PCT}-{AMBIENCE_VOLUME_MAX_PCT}%.",
         )
     refuse_opening_wait(values.opening_wait_ms)
+    reask = values.reask_after_ms
+    if (
+        reask is not None
+        and reask != REASK_NEVER
+        and (not _in(reask, REASK_AFTER_MIN_MS, REASK_AFTER_MAX_MS) or reask % REASK_AFTER_STEP_MS)
+    ):
+        low, high = REASK_AFTER_MIN_MS / 1000, REASK_AFTER_MAX_MS / 1000
+        raise _refuse(
+            "reask_after_ms",
+            "Time before asking again is out of range",
+            f"The agent can ask an unanswered question again after {low:g} to {high:g} "
+            "seconds, in tenths of a second, or never.",
+            f"Choose {low:g}-{high:g} seconds, or never.",
+        )
 
 
 def refuse_opening_wait(ms: int | None) -> None:
@@ -599,6 +629,7 @@ def settings_from_row(row: Sequence[object]) -> CallSettings:
         ambience=_str_or_none(row[7]),
         ambience_volume_pct=_int_or_none(row[8]),
         opening_wait_ms=_int_or_none(row[9]),
+        reask_after_ms=_int_or_none(row[10]),
     )
 
 

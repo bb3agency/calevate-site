@@ -146,6 +146,21 @@ export const CALL_HANDLING_BOUNDS = {
   opening_wait_max_ms: 10000,
   opening_wait_step_ms: 100,
   platform_opening_wait_ms: null as number | null,
+  reask_after_min_ms: 1500,
+  reask_after_max_ms: 10000,
+  reask_after_step_ms: 100,
+  platform_reask_after_ms: 5000,
+};
+
+/** The "Patient caller" preset on a Telugu agent, not in use (D-907). */
+export const PATIENT_CALLER = {
+  applied: false,
+  nudge_after_seconds: 20,
+  nudge_count: 3,
+  nudge_phrase: "కనిపించిందా అండి?",
+  end_after_silence_seconds: 120,
+  reask_after_ms: 0,
+  call_cap_s: 900,
 };
 
 /** The voice settings of one level, none chosen. */
@@ -158,6 +173,7 @@ export const VOICE_OWN_NONE = {
   ambience: null,
   ambience_volume_pct: null,
   opening_wait_ms: null as number | null,
+  reask_after_ms: null as number | null,
 };
 
 /** Calevate's voice settings in force. */
@@ -170,6 +186,7 @@ export const VOICE_EFFECTIVE_DEFAULTS = {
   ambience_effective: "off" as const,
   ambience_volume_pct_effective: 15,
   opening_wait_ms_effective: null as number | null,
+  reask_after_ms_effective: 5000,
 };
 
 /** Every voice setting coming from Calevate. */
@@ -182,6 +199,7 @@ export const VOICE_SOURCES_PLATFORM = {
   ambience_source: "platform" as const,
   ambience_volume_pct_source: "platform" as const,
   opening_wait_ms_source: "platform" as const,
+  reask_after_ms_source: "platform" as const,
 };
 
 /** An account that has chosen no voice setting. */
@@ -194,6 +212,7 @@ export const VOICE_ORGANIZATION_NONE = {
   organization_ambience: null,
   organization_ambience_volume_pct: null,
   organization_opening_wait_ms: null as number | null,
+  organization_reask_after_ms: null as number | null,
 };
 
 /** One agent's pause before replying and hang-up (D-751), all on Calevate's defaults. */
@@ -215,6 +234,7 @@ export function agentCallHandling(agentId = "agent-1") {
     ...VOICE_SOURCES_PLATFORM,
     ...VOICE_ORGANIZATION_NONE,
     bounds: CALL_HANDLING_BOUNDS,
+    patient_caller: PATIENT_CALLER,
   };
 }
 
