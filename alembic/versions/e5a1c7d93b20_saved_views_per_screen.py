@@ -49,7 +49,12 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.execute("SET LOCAL lock_timeout = '3s'")
+    # The table is FORCE-RLS and a migration has no tenant set, so without the bracket the
+    # DELETE would match zero rows and the unique constraint below would then fail on a
+    # name saved on both screens. FORCE is back before the transaction commits.
+    op.execute("ALTER TABLE lead_saved_views NO FORCE ROW LEVEL SECURITY")
     op.execute("DELETE FROM lead_saved_views WHERE screen <> 'leads'")
+    op.execute("ALTER TABLE lead_saved_views FORCE ROW LEVEL SECURITY")
     op.drop_constraint(
         op.f("uq_lead_saved_views_tenant_user_screen_name"), "lead_saved_views", type_="unique"
     )
