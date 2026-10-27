@@ -53,7 +53,6 @@ from uuid import UUID
 import httpx
 from arq import Retry
 from calevate_shared.backoff import jittered_delay_s
-from calevate_shared.engine import azure_openai_base_url
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -67,13 +66,13 @@ from apps.api.core import provider_health
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
-from apps.api.core.settings import get_settings
 from apps.api.crm.assist import ASSIST_FEATURE_COPILOT_MEMORY
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.workers import chat
-from apps.workers.extraction import AZURE_PROVIDER, azure_credentials
+from apps.workers.background_leg import BackgroundLeg, background_leg
+from apps.workers.extraction import azure_credentials
 from apps.workers.set_aside import (
     REFUSED_INPUT_SET_ASIDE,
     RefusalStreak,
@@ -257,8 +256,31 @@ def _facts_of(content: str | None) -> list[str]:
     return facts
 
 
+#: Gemini's answer shape. Its OpenAI-compatible surface is driven by `json_schema` on every
+#: other Gemini assist here (`business_copy`, `teach_questions`, `script_assist`); Azure keeps
+#: the `json_object` it has always been sent.
+_GEMINI_FORMAT: Final[dict[str, Any]] = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "copilot_memory_facts",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {"facts": {"type": "array", "items": {"type": "string"}}},
+            "required": ["facts"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+
 async def _distil_group(
-    session: AsyncSession, *, tenant_id: UUID, user_id: UUID, route: str | None, leg: chat.ChatLeg
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    user_id: UUID,
+    route: str | None,
+    distil: BackgroundLeg,
 ) -> int:
     """One conversation → semantic rows. Returns how many landed.
 
@@ -280,6 +302,7 @@ async def _distil_group(
     ids = [UUID(str(row[0])) for row in episodes]
     record = "\n---\n".join(str(row[1]) for row in episodes)
 
+    leg = distil.leg
     async with provider_health.watch("memory", chat.provider_of(leg), model=leg.wire_model):
         outcome = await chat.complete(
             leg,
@@ -289,7 +312,7 @@ async def _distil_group(
             ],
             timeout_s=DISTILL_TIMEOUT_S,
             temperature=0,
-            response_format={"type": "json_object"},
+            response_format=_GEMINI_FORMAT if distil.is_gemini else {"type": "json_object"},
             max_tokens=DISTILL_MAX_TOKENS,
         )
     if outcome.finish_reason == "length":
@@ -329,13 +352,9 @@ async def _distil_group(
             tokens_in=outcome.usage.prompt_tokens,
             tokens_out=outcome.usage.output_tokens,
             cached_tokens_in=outcome.usage.cached_tokens_in,
-            # THE SETTING, NOT `leg.wire_model`, and getting this wrong would have been an
-            # unfixable row on an append-only ledger. On Azure you deploy a model under an
-            # id you choose and call THAT id (D-410/D-417), so `wire_model` is a DEPLOYMENT
-            # name — `rates.llm_inr_per_ktok` publishes no price for it and would raise.
-            # `meter_assist` reads the same live setting for the same reason: the model
-            # behind Azure's deployment is an operator switch, not a per-run fact.
-            model=get_settings().azure_openai_model,
+            # `_distil_leg` says what the leg is priced as; on Azure that is the setting,
+            # never the deployment id the call was addressed to.
+            model=distil.meter_model,
             feature=ASSIST_FEATURE_COPILOT_MEMORY,
         )
     else:
@@ -360,21 +379,15 @@ async def distil_copilot_memories(ctx: dict[str, Any]) -> str:
     read, the pool, a missing credential), because retrying that is the only thing that
     could help.
     """
-    credentials = azure_credentials()
-    if credentials is None:
+    distil = background_leg(azure_credentials())
+    if distil is None:
         # Tolerant boot (BACKEND-PATTERNS §2): a deployment with no language credential
         # runs every other queue. Not an alert — it is a configuration state an operator
-        # already sees at `/healthz/ready`, and alerting hourly on it is how an alert
+        # already sees at `/healthz/ready` (and, for a Gemini key that cannot serve, in
+        # `assistant_gemini_unavailable`), and alerting hourly on it is how an alert
         # becomes noise.
-        log.info("copilot_distil_no_provider", extra={"provider": AZURE_PROVIDER})
+        log.info("copilot_distil_no_provider")
         return "no_provider"
-    resource, api_key, deployment = credentials
-    leg = chat.ChatLeg(
-        url=f"{azure_openai_base_url(resource)}/chat/completions",
-        api_key=api_key,
-        wire_model=deployment,
-        dialect="openai",
-    )
 
     try:
         async with untenanted_session() as session:
@@ -451,7 +464,7 @@ async def distil_copilot_memories(ctx: dict[str, Any]) -> str:
                             tenant_id=tenant_id,
                             user_id=UUID(str(group[0])),
                             route=route,
-                            leg=leg,
+                            distil=distil,
                         )
                 except httpx.HTTPStatusError as failure:
                     if not chat.refused_this_input(failure):

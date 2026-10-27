@@ -27,6 +27,7 @@ from apps.api.engine.thinnest import (
     GREETING_MAX_CHARS,
     INSTRUCTIONS_MAX_CHARS,
     KB_TEXT_MAX_CHARS,
+    PLATFORM_AGENT_FIELDS,
     PLATFORM_VOICE_VALUES,
     PURPOSE_MAX_CHARS,
 )
@@ -119,10 +120,13 @@ THINNEST_LIMITS: Final = HostedAgentLimits(
 _LIMITS_BY_ENGINE: Final[dict[str, HostedAgentLimits]] = {"thinnest": THINNEST_LIMITS}
 
 #: The call-behaviour values every agent of an engine is published with that only a deploy
-#: can change (`thinnest.PLATFORM_VOICE_VALUES`): filler timing, interruptions, re-ask. Part
+#: can change (`thinnest.PLATFORM_VOICE_VALUES` and `PLATFORM_AGENT_FIELDS`): filler timing,
+#: interruptions, wording temperature, cross-channel recall, the vocabulary rule. Part
 #: of `agents/live_apply.platform_prompt_revision`, so a change reaches every live agent by
 #: the worker-start republish instead of surfacing as drift on each one.
-PLATFORM_AGENT_VALUES: Final[dict[str, dict[str, Any]]] = {"thinnest": PLATFORM_VOICE_VALUES}
+PLATFORM_AGENT_VALUES: Final[dict[str, dict[str, Any]]] = {
+    "thinnest": {**PLATFORM_VOICE_VALUES, **PLATFORM_AGENT_FIELDS}
+}
 
 
 def hosted_agent_limits(engine: VoiceEngine) -> HostedAgentLimits:

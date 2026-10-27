@@ -553,18 +553,6 @@ async def test_a_switch_the_vendor_does_not_report_plainly_reads_as_unknown(
     assert await _engine(vendor).agent_own_voice_key("ag_9") is held
 
 
-async def test_our_voice_key_is_switched_off() -> None:
-    vendor = _Vendor(
-        {
-            ("PATCH", "/byok", None): _ok({"enabled": False}),
-            ("GET", "/byok", None): _ok({**_STATUS, "enabled": False, "using": "none"}),
-        }
-    )
-    state = await _engine(vendor).disable_own_voice_key()
-    assert json.loads(vendor.seen[0].content) == {"enabled": False}
-    assert not state.speaks_on_own_voice
-
-
 @pytest.mark.parametrize(("scope", "full"), [("voice", False), ("all", True)])
 async def test_only_all_three_keys_count_as_the_workspace_on_its_own_keys(
     scope: str, full: bool

@@ -31,6 +31,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.campaigns import controls as campaign_controls
 from apps.api.campaigns import scheduling
 from apps.api.campaigns import service as campaigns_service
+from apps.api.campaigns.routes import (
+    MAX_CONTACT_CUSTOM_FIELDS,
+    MAX_CONTACT_CUSTOM_KEY_LEN,
+    MAX_CONTACT_CUSTOM_VALUE_LEN,
+)
+from apps.api.compliance.service import INDIA_E164_PREFIX
 from apps.api.copilot.actions import (
     DOES_IT,
     PROPOSES_ONLY,
@@ -47,6 +53,7 @@ from apps.api.copilot.actions import (
 )
 from apps.api.copilot.agent_setup_actions import screen_guide_hint
 from apps.api.copilot.sanitize import strip_invisible
+from apps.api.copilot.set_actions import DialConsent
 from apps.api.core.errors import ProblemError
 from apps.api.db.ownership import assert_visible
 from apps.api.ingest.service import normalize_phone
@@ -253,9 +260,14 @@ async def _execute_edit(
         if parsed.agent_id is not None
         else ""
     )
+    saved = (
+        "Saved. It is still a draft and calls nobody until it is launched."
+        if written
+        else "Nothing changed: it already reads that way."
+    )
     return Executed(
         applied=bool(written),
-        detail=f"Saved. It is still a draft and calls nobody until it is launched.{hint}",
+        detail=f"{saved}{hint}",
         audit_summary={"fields": written},
     )
 
@@ -601,11 +613,42 @@ CAMPAIGN_DELETE: Final = ActionTool(
 # =========================================================================================
 
 
+class _Column(BaseModel):
+    """One of the list's own columns for this person (D-905). Pairs rather than an object
+    because strict tool schemas have no free-form map; the bounds are the upload's."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    column: Annotated[str, Field(min_length=1, max_length=MAX_CONTACT_CUSTOM_KEY_LEN)]
+    value: Annotated[str, Field(max_length=MAX_CONTACT_CUSTOM_VALUE_LEN)]
+
+
 class _Contact(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     phone: Annotated[str, Field(max_length=40)]
     name: Annotated[str, Field(max_length=120)] | None = None
+    columns: Annotated[list[_Column], Field(max_length=MAX_CONTACT_CUSTOM_FIELDS)] | None = None
+
+    def row(self) -> dict[str, Any]:
+        """The upload's row: the columns first, so one named `phone` or `name` cannot
+        replace the validated fields (`campaigns.routes.add_contacts` does the same)."""
+        custom = {c.column: c.value for c in self.columns or ()}
+        return {**custom, "phone": self.phone, "name": self.name}
+
+
+def _usable(contacts: list[_Contact]) -> list[_Contact]:
+    """What `campaigns.service.add_contacts` will keep of a list, so the card's count is
+    the count added: a callable +91 number, once."""
+    seen: set[str] = set()
+    kept: list[_Contact] = []
+    for contact in contacts:
+        phone = normalize_phone(contact.phone)
+        if phone is None or not phone.startswith(INDIA_E164_PREFIX) or phone in seen:
+            continue
+        seen.add(phone)
+        kept.append(contact)
+    return kept
 
 
 class _AddArgs(BaseModel):
@@ -628,7 +671,7 @@ async def _plan_add(session: AsyncSession, actor: ToolActor, args: Mapping[str, 
     del actor
     parsed = parse_args(_AddArgs, args)
     name = await _pre_launch(session, parsed.campaign_id, verb="added")
-    usable = [c for c in parsed.contacts if normalize_phone(c.phone) is not None]
+    usable = _usable(parsed.contacts)
     if not usable:
         raise WriteRefusedError("none of those is a phone number that can be called")
     shown = ", ".join(strip_invisible(c.name or "unnamed") for c in usable[:5])
@@ -661,7 +704,7 @@ async def _execute_add(
         session,
         tenant_id=actor.tenant_id,
         campaign_id=parsed.campaign_id,
-        contacts=[{"phone": c.phone, "name": c.name} for c in parsed.contacts],
+        contacts=[c.row() for c in parsed.contacts],
     )
     skipped = sum(int(v) for k, v in result.items() if k != "added")
     return Executed(
@@ -681,9 +724,9 @@ CAMPAIGN_CONTACTS_ADD: Final = ActionTool(
     where="on the campaign's own screen",
     schema=action_schema(
         "campaign_contacts_add",
-        "Propose adding people from a list the person pasted or attached (up to 100) to a "
-        "draft or scheduled campaign. Leads already in the account: `campaign_add_leads`."
-        + PROPOSES_ONLY,
+        "Propose adding people from a list the person pasted or attached (up to 100), each "
+        "with the list's other columns, to a draft or scheduled campaign. Leads already in "
+        "the account: `campaign_add_leads`." + PROPOSES_ONLY,
         {
             "campaign_id": _ID,
             "contacts": {
@@ -693,8 +736,25 @@ CAMPAIGN_CONTACTS_ADD: Final = ActionTool(
                     "properties": {
                         "phone": {"type": "string"},
                         "name": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+                        "columns": {
+                            "anyOf": [
+                                {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "column": {"type": "string"},
+                                            "value": {"type": "string"},
+                                        },
+                                        "required": ["column", "value"],
+                                        "additionalProperties": False,
+                                    },
+                                },
+                                {"type": "null"},
+                            ]
+                        },
                     },
-                    "required": ["phone", "name"],
+                    "required": ["phone", "name", "columns"],
                     "additionalProperties": False,
                 },
             },
@@ -809,6 +869,108 @@ CAMPAIGN_CONTACTS_REMOVE: Final = ActionTool(
     ),
     plan=_plan_remove,
     execute=_execute_remove,
+)
+
+
+# =========================================================================================
+# campaign_consent_set (confirm)
+# =========================================================================================
+
+_CONSENT_WORDS: Final[dict[str, str]] = {
+    "existing_customer": "they are existing customers",
+    "inbound_enquiry": "they enquired with the business themselves",
+    "web_form_optin": "they agreed on a web form",
+    "offline_form_optin": "they agreed on a paper or in-person form",
+}
+
+
+class _ConsentArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    campaign_id: UUID
+    source: DialConsent
+    collected_on: date
+
+
+def _collected_at(day: date) -> datetime:
+    """The start of that day in IST (D-709): a date the person names is an Indian day."""
+    return datetime.combine(day, time(0), IST)
+
+
+async def _plan_consent(session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]) -> Plan:
+    """The person's own statement about their list; the launch gate checks it
+    (`campaigns.service.launch_blockers`). A card, never immediate: it is what unlocks
+    dialling, so it is theirs to make."""
+    del actor
+    parsed = parse_args(_ConsentArgs, args)
+    name, status = await _campaign(session, parsed.campaign_id)
+    if status not in ("draft", "scheduled"):
+        raise WriteRefusedError(
+            f"“{name}” is {status}; where a list's permission came from is said before it starts"
+        )
+    if _collected_at(parsed.collected_on) > datetime.now(UTC):
+        raise WriteRefusedError("the date the permission was collected cannot be in the future")
+    when = f"{parsed.collected_on.day} {parsed.collected_on:%B %Y}"
+    return Plan(
+        object_id=str(parsed.campaign_id),
+        title=f"Record where “{name}”'s list came from",
+        summary=(
+            f"Record for “{name}” that {_CONSENT_WORDS[parsed.source]}, and that this "
+            f"permission was collected on {when}. Calevate checks this before the campaign "
+            "can start; say it only if it is true."
+        ),
+        current=None,
+        proposed=f"{_CONSENT_WORDS[parsed.source]}, collected {when}",
+        cost=None,
+        reversal="You can record it again before the campaign starts.",
+        args={
+            "campaign_id": str(parsed.campaign_id),
+            "source": parsed.source,
+            "collected_on": parsed.collected_on.isoformat(),
+        },
+    )
+
+
+async def _execute_consent(
+    session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
+) -> Executed:
+    """`campaigns.service.declare_consent_provenance` — `POST
+    /v1/campaigns/{id}/consent-provenance`'s call; this action's audit row is the route's."""
+    parsed = parse_args(_ConsentArgs, args)
+    await campaigns_service.declare_consent_provenance(
+        session,
+        tenant_id=actor.tenant_id,
+        campaign_id=parsed.campaign_id,
+        consent_source=parsed.source,
+        consent_collected_at=_collected_at(parsed.collected_on),
+    )
+    return Executed(
+        applied=True,
+        detail="Recorded. The campaign's launch check reads it now.",
+        audit_summary={"from": "pip", "source": parsed.source},
+    )
+
+
+CAMPAIGN_CONSENT_SET: Final = ActionTool(
+    name="campaign_consent_set",
+    tier="confirm",
+    undo=None,
+    permission="leads:dispatch",
+    object_type="campaign",
+    audit_action="campaign.consent_provenance_declared",
+    where="on the campaign's own screen",
+    schema=action_schema(
+        "campaign_consent_set",
+        "Propose recording where a draft campaign's list got permission to be called, and "
+        "the date, as the person says it (ask; never guess). Needed before launch." + PROPOSES_ONLY,
+        {
+            "campaign_id": _ID,
+            "source": {"type": "string", "enum": list(_CONSENT_WORDS)},
+            "collected_on": {"type": "string", "description": "YYYY-MM-DD"},
+        },
+    ),
+    plan=_plan_consent,
+    execute=_execute_consent,
 )
 
 

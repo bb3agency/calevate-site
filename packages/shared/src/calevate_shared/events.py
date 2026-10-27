@@ -262,6 +262,15 @@ class TurnTiming(BaseModel):
     #: When the model was asked. Negative when it was asked before the turn was decided
     #: (early answers).
     model_asked_ms: int | None = None
+    #: The moments the split is made from. Under the end-of-turn check only: the recogniser
+    #: called the pause, the final words arrived, the check gave its verdict.
+    pause_called_ms: int | None = None
+    final_words_ms: int | None = None
+    check_decided_ms: int | None = None
+    #: The turn was decided and an answer wanted, on every turn mode.
+    turn_decided_ms: int | None = None
+    #: The first words of the answer left the model (a filler is not the answer).
+    answer_text_ms: int | None = None
 
 
 class CallTimeline(BaseModel):

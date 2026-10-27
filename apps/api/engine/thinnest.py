@@ -230,7 +230,10 @@ def _catalogue_model(model_id: str, label: str, row: dict[str, Any]) -> Catalogu
     return CatalogueModel(
         model_id=model_id,
         label=label,
-        call_capable=row.get("voice") is True,
+        # A model billed on `usage` (a realtime model, its own flat rate a minute, no voice
+        # plan; `PublicModel.billing`, snapshots/2026-10-28/openapi.json) has no band we
+        # price, so it is never offered for calls.
+        call_capable=row.get("voice") is True and row.get("billing", "plan") == "plan",
         plan_allows=row.get("available") is True,
         voice_only_byok=row.get("voiceOnlyByok") is True,
         console_latency_ms=_MODEL_CONSOLE_LATENCY_MS.get(label),
@@ -337,6 +340,47 @@ PLATFORM_VOICE_VALUES: Final[dict[str, Any]] = {
     "thinkingDelayMs": 2000,
     "thinkingRepeatMs": 2500,
     "endPhrases": [],
+}
+#: How adventurous the wording is, 0-2, vendor default 0.3 (`temperature` on Create and
+#: Update Agent, thinnest-findings/mirror/snapshots/2026-10-28/openapi.json). Stated at that
+#: same 0.3 so a change of the vendor's default, or a console edit, cannot change how every
+#: agent words its replies; whether it reaches our own Gemini key is not documented (a
+#: question in THINNEST-INTEGRATION.md).
+AGENT_TEMPERATURE: Final = 0.3
+#: The Ear-only backchannel settings beside `acknowledgements` (same openapi.json,
+#: `AgentVoiceInput`), sent only under `ear`. `backchannelDetection` (default on) is what
+#: tells a caller's "haan ji" from an interruption, which `interruptWords` 2 relies on (D-862),
+#: so it is stated rather than left to a default; both word lists are `[]`, the vendor's own
+#: judgement and a short acknowledgement in the caller's language (null and `[]` mean the
+#: same, so either reads back as in step).
+EAR_VOICE_VALUES: Final[dict[str, Any]] = {
+    "backchannelDetection": True,
+    "backchannelWords": [],
+    "acknowledgementWords": [],
+}
+#: `PATCH /agents/{id}/tools` `recall` and `verifyByCode` (same openapi.json,
+#: `UpdateAgentBuiltInToolsRequest`; `concepts.md:97-119` of the same snapshot). `verified`
+#: ("Never, unless they signed in") uses nothing a caller said on another channel: a phone
+#: caller cannot sign in, and a caller id can be faked, so the vendor default `two_tier` would
+#: have the agent offer to confirm an identity and read cross-channel history to a voice on
+#: the phone. `verifyByCode` false: a code goes out on WhatsApp, a channel our agents never
+#: message on (`send_whatsapp` off).
+CUSTOMER_RECALL: Final = "verified"
+VERIFY_BY_CODE: Final = False
+#: `voice.vocabulary`, the recogniser's custom vocabulary: at most 50 terms of 1-64 characters,
+#: `[]` none (same openapi.json, `AgentVoiceInput.vocabulary`). We send the business's own name
+#: (`_vocabulary`), the one proper noun every caller of an agent may say.
+VOCABULARY_TERM_MAX_CHARS: Final = 64
+#: Which of our values fills `voice.vocabulary`, named in the platform revision so a change of
+#: the rule republishes every live agent (`hosted_platform.PLATFORM_AGENT_VALUES`).
+VOCABULARY_SOURCE: Final = "business_name"
+#: Every fixed agent value beyond `PLATFORM_VOICE_VALUES` that only a deploy changes.
+PLATFORM_AGENT_FIELDS: Final[dict[str, Any]] = {
+    "temperature": AGENT_TEMPERATURE,
+    "recall": CUSTOMER_RECALL,
+    "verifyByCode": VERIFY_BY_CODE,
+    "vocabulary": VOCABULARY_SOURCE,
+    **EAR_VOICE_VALUES,
 }
 CALL_VARIABLES_MAX: Final = 20
 #: Our calling window as Place Call's `callingHours` (`start`/`end` "HH:MM"; an Indian number
@@ -782,6 +826,11 @@ def parse_timeline(value: Any) -> CallTimeline | None:
                 model_first_sentence_ms=_step_ms(split.get("modelFirstSentenceMs")),
                 voice_ms=_step_ms(split.get("voiceMs")),
                 model_asked_ms=_step_ms(row.get("modelAskedMs")),
+                pause_called_ms=_step_ms(row.get("earPausedMs")),
+                final_words_ms=_step_ms(row.get("transcriptMs")),
+                check_decided_ms=_step_ms(row.get("judgeDecidedMs")),
+                turn_decided_ms=_step_ms(row.get("turnDecidedMs")),
+                answer_text_ms=_step_ms(row.get("answerTextMs")),
             )
         )
     turns.sort(key=lambda t: t.turn)
@@ -841,6 +890,11 @@ def parse_billing(value: Any, *, hangup: str | None = None) -> CallBilling | Non
         return None
     keys = value.get("keys")
     if keys not in _CALL_KEYS:
+        return None
+    if value.get("billedOn", "plan") != "plan":
+        # `usage` is a realtime model's flat per-minute charge, with no plan or rate
+        # (`CallBilling.billedOn`, snapshots/2026-10-28/openapi.json); no agent of ours runs
+        # on one, so it is no billing we can read, like an unknown `keys`.
         return None
     plan = value.get("voicePlan")
     currency = value.get("currency")
@@ -1333,6 +1387,14 @@ def _knowledge_on_calls(cfg: AgentConfig) -> bool:
     return cfg.facts_in_knowledge or cfg.knowledge_tool is not None
 
 
+def _vocabulary(cfg: AgentConfig) -> list[str]:
+    """`voice.vocabulary` for `cfg`: the business's name, so the recogniser hears it as
+    spelled; `[]` when there is none or it is longer than a term may be (a longer one is a 400,
+    and cutting it would teach the recogniser a word nobody says)."""
+    name = " ".join(cfg.business.split())
+    return [name] if 0 < len(name) <= VOCABULARY_TERM_MAX_CHARS else []
+
+
 def _tools_drift(wanted: dict[str, Any], held: dict[str, Any]) -> list[str]:
     """Which of `built_in_tools_body`'s settings the vendor does NOT hold, by our names.
 
@@ -1355,6 +1417,11 @@ def _tools_drift(wanted: dict[str, Any], held: dict[str, Any]) -> list[str]:
     # list-built-in-tools, `AgentBuiltInTools`, read 27 Oct 2026): absent is drift too.
     if held.get(KNOWLEDGE_ON_CALLS_FIELD) is not wanted[KNOWLEDGE_ON_CALLS_FIELD]:
         drifted.append(KNOWLEDGE_ON_CALLS_FIELD)
+    # Both required in every answer too (`AgentBuiltInTools`, snapshots/2026-10-28/openapi.json).
+    if held.get("recall") != wanted["recall"]:
+        drifted.append("recall")
+    if held.get("verifyByCode") is not wanted["verifyByCode"]:
+        drifted.append("verifyByCode")
     want, have = wanted["handOver"], held.get("handOver")
     have = have if isinstance(have, dict) else {}
     if want["mode"] == "call":
@@ -1425,7 +1492,14 @@ _SETTING_KEYS: Final[dict[str, tuple[str, ...]]] = {
     "opening_waits_for_caller": ("voice.openingWaitsForCaller",),
     "opening_wait": (_OPENING_WAIT_KEY,),
     "speaking_speed": ("voice.speakingSpeed",),
-    "turn_silence": ("voice.turnSilenceSeconds", "voice.turnDetection", "voice.acknowledgements"),
+    "turn_silence": (
+        "voice.turnSilenceSeconds",
+        "voice.turnDetection",
+        "voice.acknowledgements",
+        *(f"voice.{name}" for name in EAR_VOICE_VALUES),
+    ),
+    "vocabulary": ("voice.vocabulary",),
+    "temperature": ("temperature",),
     "early_answers": ("voice.earlyAnswers",),
     "do_not_call_tool": ("voice.recordDoNotCall",),
     "ring_seconds": ("voice.ringSeconds",),
@@ -1453,6 +1527,11 @@ _SETTING_KEYS: Final[dict[str, tuple[str, ...]]] = {
     "call_instructions": (f"voice.{CALL_INSTRUCTIONS_FIELD}",),
 }
 _LANGUAGE_KEYS: Final = frozenset({"language", "voice.language"})
+#: Word lists where the vendor reads `null` and `[]` alike as none (`AgentVoiceInput`,
+#: snapshots/2026-10-28/openapi.json), so either answer is in step with a `[]` we sent.
+_NULL_IS_EMPTY_KEYS: Final = frozenset(
+    {"voice.vocabulary", "voice.backchannelWords", "voice.acknowledgementWords"}
+)
 
 
 def _same_language(wanted: Any, held: Any) -> bool:
@@ -1582,6 +1661,10 @@ def _settings_drift(wanted: dict[str, Any], held: dict[str, Any]) -> list[str]:
                 same = _same_surfaces(want, have)
             elif key in ("voice.thinkingLines", "voice.endPhrases"):
                 same = _same_words(want, have, ordered=True)
+            elif key in _NULL_IS_EMPTY_KEYS:
+                same = _same_words(want, [] if have is None else have, ordered=False)
+            elif key == "temperature":
+                same = _same_hundredths(want, have)
             elif key in ("voice.nudgePhrase", f"voice.{CALL_INSTRUCTIONS_FIELD}"):
                 same = present and (have or None) == want
             elif key == "voice.ambienceVolume":
@@ -2221,7 +2304,12 @@ class ThinnestEngine:
             "turnDetection": cfg.turn_detection,
             # An Ear-only field, so sent only under `ear` (update-agent.md:1548-1553, 19 Oct
             # 2026 snapshot; vendor default on).
-            **({"acknowledgements": cfg.acknowledgements} if cfg.turn_detection == "ear" else {}),
+            **(
+                {"acknowledgements": cfg.acknowledgements, **EAR_VOICE_VALUES}
+                if cfg.turn_detection == "ear"
+                else {}
+            ),
+            "vocabulary": _vocabulary(cfg),
             # The console's switch (D-852), always stated so a console change reads as drift.
             # On (the vendor default) a run discarded because the caller kept talking is
             # billed to our Google key and left out of `usage`; off, a reply starts only once
@@ -2321,6 +2409,7 @@ class ThinnestEngine:
             # snapshots/2026-10-13/pages/api-reference/agents/update-agent.md:839-845,
             # create-agent.md:760-768). Always stated, so a console edit reads as drift.
             "maxReplyTokens": cfg.max_reply_tokens,
+            "temperature": AGENT_TEMPERATURE,
         }
         if cfg.engine_own_rules:
             # The vendor's lead, hand-over and call-back sentences left out; the prompt
@@ -2373,7 +2462,8 @@ class ThinnestEngine:
         phone and the line the agent says first; otherwise it is off and `handOver` is
         cleared, so a number entered in the vendor console cannot receive our callers
         (snapshots/2026-10-08/pages/api-reference/tools/update-built-in-tools.md:553-637).
-        `knowledgeOnCalls` is stated on every publish (`_knowledge_on_calls`).
+        `knowledgeOnCalls` is stated on every publish (`_knowledge_on_calls`), and so are
+        `recall` and `verifyByCode` (`CUSTOMER_RECALL`, `VERIFY_BY_CODE`).
 
         `handOver.agents`, passing a live call to another of the client's agents, is sent
         empty: the product offers no agent-to-agent hand-off. The empty list also clears one
@@ -2392,6 +2482,8 @@ class ThinnestEngine:
                 "schedule_callback": False,
                 "escalate_to_human": handoff is not None,
             },
+            "recall": CUSTOMER_RECALL,
+            "verifyByCode": VERIFY_BY_CODE,
             KNOWLEDGE_ON_CALLS_FIELD: _knowledge_on_calls(cfg),
             "handOver": (
                 {
@@ -3018,6 +3110,8 @@ class ThinnestEngine:
             drifted.append("hand_over")
         if KNOWLEDGE_ON_CALLS_FIELD in tool_drift:
             drifted.append("knowledge_on_calls")
+        if {"recall", "verifyByCode"} & set(tool_drift):
+            drifted.append("customer_recall")
         if cfg.engine_byok_voice_id:
             # A Studio voice's settings live on their own route (`GET` returns each, null
             # while unset; bring-your-own-keys.md:390-392).
@@ -3079,7 +3173,7 @@ class ThinnestEngine:
             body[OWN_RULES_FIELD] = _own_rules_wanted(wanted)
         if body:
             await self._write_agent("PATCH", f"/agents/{raw}", "/agents/{ref}", workspace, body)
-        if {"built_in_tools", "hand_over", "knowledge_on_calls"} & set(drifted):
+        if {"built_in_tools", "hand_over", "knowledge_on_calls", "customer_recall"} & set(drifted):
             await self._apply_built_in_tools(raw, workspace, cfg)
         if "voice_tuning" in drifted:
             await self._apply_own_key_voice(raw, workspace, cfg)
@@ -3791,23 +3885,6 @@ class ThinnestEngine:
             raise _bad_response("The voice platform did not describe the cloned voice.")
         return clone
 
-    async def list_voice_clones(self) -> list[VoiceClone]:
-        """Every clone of the workspace the caller opened with `in_workspace`, from
-        `GET /voice-clones` (snapshots/2026-10-07b/pages/api-reference/voice-clones/
-        list-voice-clones.md:7). Refuses rather than answering a partial list."""
-        rows, reason, _ = await self._walk(
-            "/voice-clones", route="/voice-clones", workspace=workspace_of(None)
-        )
-        if reason is not None:
-            raise ProblemError(
-                kind="dependency",
-                code="engine_listing_incomplete",
-                title="The voice platform's clone list could not be read in full",
-                detail="We could not confirm which voices this workspace has cloned.",
-                remediation="Try again. If it keeps failing, contact us.",
-            )
-        return [clone for row in rows if (clone := self._clone(row)) is not None]
-
     async def find_voice_clone(self, voice_id: str) -> VoiceClone | None:
         """The clone whose `voiceId` is `voice_id`, from `GET /voice-clones`, or None
         (snapshots/2026-10-07b/pages/api-reference/voice-clones/list-voice-clones.md:7)."""
@@ -4009,19 +4086,6 @@ class ThinnestEngine:
         )
         if own_model:
             await self._put_own_model(raw, workspace, own_model, own_voice=own_voice)
-
-    async def disable_own_voice_key(self) -> OwnVoiceKeyState:
-        """`PATCH /byok {enabled: false}`, then the state as read back. Every agent on
-        `byok: workspace` returns to the platform's own voices at their next call
-        (bring-your-own-keys.md:186-198)."""
-        await self._request(
-            "PATCH",
-            "/byok",
-            route="/byok",
-            workspace=workspace_of(None),
-            json={"enabled": False},
-        )
-        return await self.own_key_state()
 
     async def agent_own_voice_key(self, ref: EngineAgentRef) -> bool | None:
         """The agent's `byok` as `GET /agents/{id}` holds it, as ours; None when unreported."""

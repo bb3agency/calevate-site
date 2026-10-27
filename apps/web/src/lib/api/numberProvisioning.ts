@@ -40,6 +40,7 @@ import {
 import { agentKeys } from "./agents";
 import { agreementsKey } from "./agreements";
 import { apiRequest, type Session } from "./client";
+import { goLiveKey } from "./goLive";
 import type { components } from "./schema";
 
 /** THE ONE PLACE A ROUTE IS SPELLED — `router = APIRouter(prefix="/v1/numbers")`. */
@@ -182,6 +183,13 @@ export function usePurchaseNumber(
       void client.invalidateQueries({ queryKey: ["campaign-numbers", session.orgSlug] });
       void client.invalidateQueries({ queryKey: numberKeys.available(session.orgSlug) });
       void client.invalidateQueries({ queryKey: ["wallet", session.orgSlug] });
+      // The same set `usePurchaseOwnNumber` refreshes: the phone-number page's status, the
+      // agents' number counts, the outbound readiness and the go-live guide's number step.
+      void client.invalidateQueries({ queryKey: ["own-numbers", session.orgSlug] });
+      void client.invalidateQueries({ queryKey: agentKeys.all(session.orgSlug) });
+      void client.invalidateQueries({ queryKey: agentKeys.allDetails(session.orgSlug) });
+      void client.invalidateQueries({ queryKey: agreementsKey(session.orgSlug) });
+      void client.invalidateQueries({ queryKey: goLiveKey(session.orgSlug) });
     },
   });
 }

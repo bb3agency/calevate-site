@@ -507,6 +507,44 @@ async def test_a_dial_plan_whose_launch_is_refused_places_no_call_and_says_why(
     assert pip == 0
 
 
+async def test_a_dial_plan_dates_the_list_by_its_oldest_lead(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The consent-age check reads one date for the whole list, so a fresh lead must not
+    make an old one pass it."""
+    tenant_id, _slug, token = await _make_tenant()
+    old, fresh = await _leads(tenant_id, 2)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE leads SET created_at = now() - interval '400 days' WHERE id = :i"),
+            {"i": old},
+        )
+    seen: dict[str, Any] = {}
+
+    class _StopError(Exception):
+        pass
+
+    async def capture(*_: Any, **kwargs: Any) -> UUID:
+        seen.update(kwargs)
+        raise _StopError
+
+    monkeypatch.setattr("apps.api.campaigns.service.create_campaign", capture)
+    async with tenant_session(tenant_id) as session:
+        with pytest.raises(_StopError):
+            await set_actions._dial(
+                session,
+                _actor(tenant_id, _user_of(token)),
+                {
+                    "agent_id": str(await _agent(tenant_id)),
+                    "classification": "service",
+                    "consent_source": "inbound_enquiry",
+                },
+                "two leads",
+                [old, fresh],
+            )
+    assert datetime.now(UTC) - seen["consent_collected_at"] > timedelta(days=399)
+
+
 # --- the routes ------------------------------------------------------------------------
 
 

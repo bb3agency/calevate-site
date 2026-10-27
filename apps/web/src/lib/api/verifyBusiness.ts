@@ -16,9 +16,11 @@ import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tan
 
 import { agreementsKey } from "./agreements";
 import { apiRequest, apiUpload, type Session, type UploadProgress } from "./client";
+import { goLiveKey } from "./goLive";
 import { openProtectedFile } from "./protectedFile";
 import { KYC_PATH, type KycRecord } from "./kyc";
 import { ownNumberKeys } from "./ownNumbers";
+import { readinessKeys } from "./readiness";
 import type { components } from "./schema";
 
 type Schemas = components["schemas"];
@@ -103,6 +105,11 @@ function invalidate(client: Client, session: Session): void {
   invalidateOutboundGates(client, session);
   // Buying a number waits on a verified business too (`purchase_readiness`).
   void client.invalidateQueries({ queryKey: ownNumberKeys.status(session.orgSlug) });
+  // The go-live guide's "verify your business" step and the readiness checklist read the
+  // same record; neither is on the live stream (`live/topics.STATIC_FAMILIES`) and the
+  // guide only polls once a check is already in review.
+  void client.invalidateQueries({ queryKey: goLiveKey(session.orgSlug) });
+  void client.invalidateQueries({ queryKey: readinessKeys.all(session.orgSlug) });
 }
 
 export function useSaveBusinessDetails(session: Session) {

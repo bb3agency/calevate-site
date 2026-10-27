@@ -32202,8 +32202,14 @@ export interface components {
             answer_estimated: boolean;
             /** Answer Ms */
             answer_ms: number | null;
+            /** Answer Text Ms */
+            answer_text_ms?: number | null;
+            /** Check Decided Ms */
+            check_decided_ms?: number | null;
             /** Ear Check Ms */
             ear_check_ms: number | null;
+            /** Final Words Ms */
+            final_words_ms?: number | null;
             /** First Sound Kind */
             first_sound_kind: ("answer" | "filler" | "other") | null;
             /** First Sound Ms */
@@ -32212,10 +32218,14 @@ export interface components {
             model_asked_ms: number | null;
             /** Model First Sentence Ms */
             model_first_sentence_ms: number | null;
+            /** Pause Called Ms */
+            pause_called_ms?: number | null;
             /** Recogniser Ms */
             recogniser_ms: number | null;
             /** Turn */
             turn: number;
+            /** Turn Decided Ms */
+            turn_decided_ms?: number | null;
             /** Voice Ms */
             voice_ms: number | null;
             /** Wait Before Decision Ms */

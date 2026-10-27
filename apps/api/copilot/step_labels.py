@@ -180,6 +180,7 @@ STEP_LABELS: Final[dict[str, StepLabel]] = {
     "campaign_contacts_remove": _l(
         "Preparing the people to take off", "Prepared the people to take off"
     ),
+    "campaign_consent_set": _l("Preparing the list's permission", "Prepared the list's permission"),
     "open_screen": _l("Opening the screen", "Opened the screen"),
     "run_in_background": _l("Starting a background task", "Started a background task"),
     # Operator reads and actions (admin realm).

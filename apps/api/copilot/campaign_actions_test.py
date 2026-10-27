@@ -5,7 +5,7 @@ the button refuses."""
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, get_args
 from uuid import UUID
 
 import pytest
@@ -260,14 +260,25 @@ async def test_contacts_from_a_list_are_counted_on_the_card_and_added_on_confirm
         {
             "campaign_id": str(campaign_id),
             "contacts": [
-                {"phone": "98000 00011", "name": "Asha"},
+                {
+                    "phone": "98000 00011",
+                    "name": "Asha",
+                    "columns": [
+                        {"column": "Village", "value": "Kondapur"},
+                        {"column": "phone", "value": "+919999999999"},
+                    ],
+                },
                 {"phone": "+919800000012", "name": None},
                 {"phone": "not a number", "name": "Ravi"},
+                # Twice in the list and a number outside India: neither is counted.
+                {"phone": "+919800000012", "name": "Again"},
+                {"phone": "+14155550100", "name": "Abroad"},
             ],
         },
     )
     assert proposal.title.startswith("Add 2 people")
     assert "Ravi" not in proposal.summary
+    assert "Abroad" not in proposal.summary
     await _confirm(tenant_id, _user_of(token), proposal.token)
     count = (
         await _row(
@@ -277,6 +288,15 @@ async def test_contacts_from_a_list_are_counted_on_the_card_and_added_on_confirm
         )
     )[0]
     assert count == 2
+    # The list's own columns reach the contact (D-905), and a column named `phone` does
+    # not replace the number.
+    asha = await _row(
+        tenant_id,
+        "SELECT phone_e164, custom FROM campaign_contacts WHERE campaign_id = :i AND name = 'Asha'",
+        i=campaign_id,
+    )
+    assert asha[0] == "+919800000011"
+    assert asha[1] == {"Village": "Kondapur"}
     assert ("campaign.contacts_added", "campaign", str(campaign_id)) in await _audit(tenant_id)
 
     running = await _make_campaign(tenant_id)
@@ -317,6 +337,74 @@ async def test_contacts_are_taken_off_by_name_or_number_exactly_as_the_card_list
             token,
             "campaign_contacts_remove",
             {"campaign_id": str(campaign_id), "who": ["Nobody here"]},
+        )
+
+
+async def test_a_list_s_permission_is_recorded_on_confirm_and_clears_the_launch_blocker() -> None:
+    """A campaign Pip made can launch: the person says where the list's permission came
+    from, on a card, and the launch check stops naming it missing."""
+    from apps.api.campaigns import service as campaigns_service
+    from apps.api.copilot.campaign_actions import _CONSENT_WORDS, CAMPAIGN_CONSENT_SET
+    from apps.api.copilot.set_actions import DialConsent
+
+    assert CAMPAIGN_CONSENT_SET.tier == "confirm"
+    assert CAMPAIGN_CONSENT_SET.permission == "leads:dispatch"
+    assert areas.AREA_OF["campaign_consent_set"] == "campaigns"
+    assert set(_CONSENT_WORDS) == set(get_args(DialConsent))
+    tenant_id, _slug, token = await _make_tenant()
+    campaign_id = await _make_campaign(tenant_id, status="draft")
+
+    async def rules() -> set[str]:
+        async with tenant_session(tenant_id) as session:
+            blockers = await campaigns_service.launch_blockers(
+                session, tenant_id=tenant_id, campaign_id=campaign_id
+            )
+        return {b.rule for b in blockers}
+
+    assert "consent_provenance_missing" in await rules()
+    with pytest.raises(write_tools.WriteRefusedError):
+        await _propose(
+            tenant_id,
+            token,
+            "campaign_consent_set",
+            {
+                "campaign_id": str(campaign_id),
+                "source": "inbound_enquiry",
+                "collected_on": "2999-01-01",
+            },
+        )
+    proposal = await _propose(
+        tenant_id,
+        token,
+        "campaign_consent_set",
+        {
+            "campaign_id": str(campaign_id),
+            "source": "inbound_enquiry",
+            "collected_on": "2026-10-01",
+        },
+    )
+    assert "1 October 2026" in proposal.summary
+    await _confirm(tenant_id, _user_of(token), proposal.token)
+    assert "consent_provenance_missing" not in await rules()
+    stored = await _row(
+        tenant_id, "SELECT consent_source FROM campaigns WHERE id = :i", i=campaign_id
+    )
+    assert stored[0] == "inbound_enquiry"
+    assert ("campaign.consent_provenance_declared", "campaign", str(campaign_id)) in await _audit(
+        tenant_id
+    )
+
+    running = await _make_campaign(tenant_id)
+    with pytest.raises(write_tools.WriteRefusedError):
+        await _propose(
+            tenant_id,
+            token,
+            "campaign_consent_set",
+            {
+                "campaign_id": str(running),
+                "source": "inbound_enquiry",
+                "collected_on": "2026-10-01",
+            },
         )
 
 

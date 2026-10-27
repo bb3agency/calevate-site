@@ -409,6 +409,7 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
         "people from a pasted or attached list; leads: campaign_add_leads",
     ),
     AreaEntry("campaign_contacts_remove", "campaigns", "take people off before they are called"),
+    AreaEntry("campaign_consent_set", "campaigns", "where the list's permission came from"),
     # D-893 L7: the person's routines.
     AreaEntry("routines_list", "routines", "their routines with ids"),
     AreaEntry("routine_create", "routines", "set up a repeating job"),

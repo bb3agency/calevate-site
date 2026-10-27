@@ -659,14 +659,16 @@ async def _dial(
     lead_ids: Sequence[UUID],
 ) -> plans.DialStart:
     """A `pip` campaign over the frozen leads, launched through the launch gate. The
-    contacts' consent date is the newest lead's creation: the list existed by then."""
+    contacts' consent date is the OLDEST lead's creation, not the newest: the launch gate's
+    consent-age check reads this one date for the whole list, so one fresh lead must not
+    make a list of old ones pass it."""
     from apps.api.campaigns import service as campaigns_service
     from apps.api.compliance.audit import write_audit
 
     parsed = _DialChange.model_validate(change)
     collected = (
         await session.execute(
-            text("SELECT max(created_at) FROM leads WHERE id = ANY(:ids)"), {"ids": list(lead_ids)}
+            text("SELECT min(created_at) FROM leads WHERE id = ANY(:ids)"), {"ids": list(lead_ids)}
         )
     ).scalar_one_or_none() or datetime.now(UTC) - timedelta(minutes=1)
     campaign_id = await campaigns_service.create_campaign(

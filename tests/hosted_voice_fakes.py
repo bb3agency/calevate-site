@@ -113,7 +113,6 @@ class HostingEngine(FakeEngine):
         self.workspace_keys: dict[str, OwnVoiceKeyState] = {}
         self.enabled = 0
         self.enabled_in: list[str | None] = []
-        self.disabled = 0
         self.previews: list[str] = []
         self.preview_tunings: list[ByokVoiceTuning | None] = []
         #: The line and language each preview was asked to speak.
@@ -237,12 +236,6 @@ class HostingEngine(FakeEngine):
         self.enabled_in.append(current_workspace())
         state = await self.own_key_state()
         self._set_state(READY_KEY.model_copy(update={"voice_provider": state.voice_provider}))
-        return await self.own_key_state()
-
-    async def disable_own_voice_key(self) -> OwnVoiceKeyState:
-        self.disabled += 1
-        state = await self.own_key_state()
-        self._set_state(state.model_copy(update={"enabled": False, "using": "none"}))
         return await self.own_key_state()
 
 

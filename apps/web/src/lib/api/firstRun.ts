@@ -99,6 +99,8 @@ export function useRenameAgent(session: Session) {
   const client = useQueryClient();
   return useFirstRunWrite<{ name: string }>(session, "/name", "PUT", () => {
     void client.invalidateQueries({ queryKey: agentKeys.all(session.orgSlug) });
+    // The agent's own page caches its name under the detail key, a different family.
+    void client.invalidateQueries({ queryKey: agentKeys.allDetails(session.orgSlug) });
   });
 }
 
