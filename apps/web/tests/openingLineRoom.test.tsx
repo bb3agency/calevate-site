@@ -1,7 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { CallerContinuity } from "@/app/c/[slug]/agents/panels/callerContinuity";
 import { roomLabel } from "@/app/c/[slug]/agents/panels/openingLineFix";
 import { OpeningNotices } from "@/app/c/[slug]/agents/panels/openingNotices";
 import { OpeningEditor, type ScriptExamples } from "@/app/c/[slug]/agents/[agentId]/script/ScriptSections";
@@ -74,8 +73,8 @@ const NO_ROOM = problem(422, {
   type: "https://calevate.tech/problems/opening_line_too_long_for_notice",
   title: "Shorten the opening line to switch this on",
   detail:
-    "Remembering callers adds a sentence your agent says at the start of every call, before its opening line, telling callers it keeps a short note. With it, what the agent says first would be 239 characters, and at most 200 can be spoken there. Nothing was changed.",
-  remediation: "Shorten the agent's opening line by at least 39 characters, then switch this on again.",
+    "Saying that it is an AI assistant adds a sentence your agent says at the start of every call, with its opening line. With it, what the agent says first would be 215 characters, and at most 200 can be spoken there. Nothing was changed.",
+  remediation: "Shorten the agent's opening line by at least 15 characters, then switch this on again.",
   kind: "business_rule",
   retryable: false,
 });
@@ -113,45 +112,6 @@ describe("the opening line's room (D-846)", () => {
     expect(box.getAttribute("aria-describedby")).toContain(meter.parentElement?.id ?? "missing");
   });
 
-  it("refused for want of room, the memory switch offers the line to shorten, saves it, and switches on", async () => {
-    let tries = 0;
-    const { calls } = await renderClientPage(<CallerContinuity agent={agent()} />, {
-      "/v1/me": OWNER,
-      "PATCH /v1/agents/agent-1/caller-memory": () =>
-        tries++ === 0
-          ? NO_ROOM
-          : {
-              agent_id: "agent-1",
-              enabled: true,
-              opening_line: "Oka chinna note gurtu pettukuntanu.",
-              engine_synced: true,
-              unchanged: false,
-              attested_at: null,
-              attested_by_name: null,
-            },
-      "PUT /v1/agents/agent-1/script/opening-line": { opening_line: "Namaskaram", version: 7 },
-    });
-
-    fireEvent.click(screen.getByRole("switch", { name: /Remember callers/ }));
-    expect(await screen.findByText(/Remembering callers adds a sentence/)).toBeTruthy();
-    const box = screen.getByLabelText("Opening line") as HTMLTextAreaElement;
-    expect(box.value).toBe(LONG);
-    expect(screen.getByText("39 characters too long")).toBeTruthy();
-    const save = screen.getByRole("button", { name: "Save and switch on" }) as HTMLButtonElement;
-    expect(save.disabled).toBe(true);
-
-    fireEvent.change(box, { target: { value: "Namaskaram" } });
-    expect(screen.getByText("131 characters left")).toBeTruthy();
-    fireEvent.click(save);
-
-    await waitFor(() => expect(tries).toBe(2));
-    const put = calls.find((c: ApiCall) => c.method === "PUT");
-    expect(JSON.parse(put?.body ?? "{}")).toEqual({ opening_line: "Namaskaram" });
-    const patches = calls.filter((c: ApiCall) => c.method === "PATCH");
-    expect(patches.map((c) => JSON.parse(c.body ?? "{}").enabled)).toEqual([true, true]);
-    expect(calls.indexOf(put!)).toBeLessThan(calls.indexOf(patches[1]));
-  });
-
   it("offers Pip to shorten it, prefilled with the room and never sent", async () => {
     const asked: AssistantRequest[] = [];
     function Listener() {
@@ -159,14 +119,16 @@ describe("the opening line's room (D-846)", () => {
       return null;
     }
     render(<Listener />);
-    const { calls } = await renderClientPage(<CallerContinuity agent={agent()} />, {
+    const { calls } = await renderClientPage(<OpeningNotices agent={agent()} />, {
       "/v1/me": OWNER,
-      "PATCH /v1/agents/agent-1/caller-memory": NO_ROOM,
+      "PATCH /v1/agents/agent-1/disclosure": NO_ROOM,
     });
-    fireEvent.click(screen.getByRole("switch", { name: /Remember callers/ }));
+    const aiSwitch = screen.getByRole("switch", { name: /Say it is an AI assistant/ }) as HTMLInputElement;
+    await waitFor(() => expect(aiSwitch.disabled).toBe(false));
+    fireEvent.click(aiSwitch);
     fireEvent.click(await screen.findByRole("button", { name: /Ask Pip to shorten it/ }));
     expect(asked.map((a) => a.prompt)).toEqual([
-      "Shorten the opening line of Raghava Organics receptionist to at most 141 characters, in the same language, keeping what it says.",
+      "Shorten the opening line of Raghava Organics receptionist to at most 165 characters, in the same language, keeping what it says.",
     ]);
     expect(calls.some((c) => c.method === "PUT")).toBe(false);
   });

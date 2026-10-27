@@ -899,6 +899,11 @@ _DIGIT_WORD: Final = re.compile(
 )
 #: A mobile number in India has ten digits.
 MOBILE_DIGITS: Final = 10
+#: A reply asking for more of a number: a question, or "tell me / give the rest".
+_ASKS_FOR_REST: Final = re.compile(
+    r"\?|ఇవ్వ|చెప్ప|మిగ|అంకెలు|tell|give|rest|remaining|digits|बताइए|बताएं|दीजिए|बाकी|अंक",
+    re.IGNORECASE,
+)
 #: What a reply says when it treats what it was given as complete.
 _WRAPS_UP: Final = re.compile(
     r"thank|thanks|anything else|ధన్యవాద|థాంక్స్|థ్యాంక్స్|ఇంకేమైనా|ఇంకా ఏమైనా|धन्यवाद|"
@@ -1184,10 +1189,18 @@ def conversation_problems(
                     "its actions did it. It should say what happens next instead.",
                 ),
             )
+        # Part of a number is taken as all of it when the reply wraps up on it, or simply does
+        # not ask for the rest: "I'll send it to 9876" (Sri Estates, 27 Oct 2026) promises an
+        # action on four digits without a thank-you or a goodbye.
         if (
             awaiting is not None
             and 0 < awaiting < MOBILE_DIGITS
-            and (_WRAPS_UP.search(reply) or claims_done(reply) or _GOODBYE.search(reply))
+            and (
+                _WRAPS_UP.search(reply)
+                or claims_done(reply)
+                or _GOODBYE.search(reply)
+                or not _ASKS_FOR_REST.search(reply)
+            )
         ):
             found.setdefault(
                 "partial_number",

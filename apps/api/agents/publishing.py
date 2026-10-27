@@ -511,6 +511,8 @@ class CallerMemoryResult:
     #: not ask you this time" explicable. The audit ledger is the durable record of the
     #: act; this is the one a client can read.
     attested_by_name: str | None
+    #: The `CALLER_MEMORY_ATTESTATIONS` version this business accepted; `None` when nobody has.
+    attested_version: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1493,14 +1495,33 @@ async def set_disclosure_posture(
 #: attestation belongs". This is that instrument, and the proxy stays above it as the belt:
 #: a clinic is refused whatever it attests, because the vertical is a RECORD and an
 #: attestation is a CLAIM.
-CALLER_MEMORY_ATTESTATION = (
-    "I confirm that these calls do not collect health, medical, financial, biometric or "
-    "other sensitive personal data about callers, that my business is the Data Fiduciary "
-    "for these callers, and that my own privacy notice tells them we keep a short note of "
-    "what they ask about. I understand that my agents will say so at the start of every "
-    "call, that notes are kept for 180 days, and that a caller may ask for theirs to be "
-    "erased."
-)
+#:
+#: VERSIONED like the outbound pledge: an account keeps the version it accepted
+#: (`organizations.caller_memory_attestation_version`), and a new acceptance records the
+#: current one. A changed word is a new version; a published version is never edited.
+#: Version 2 (founder, 27 Oct 2026): the agent says the memory sentence as it says goodbye
+#: (D-865, `engine.MEMORY_GOODBYE_RULE`), so "at the start of every call" became "before
+#: ending each call".
+CALLER_MEMORY_ATTESTATIONS: dict[int, str] = {
+    1: (
+        "I confirm that these calls do not collect health, medical, financial, biometric or "
+        "other sensitive personal data about callers, that my business is the Data Fiduciary "
+        "for these callers, and that my own privacy notice tells them we keep a short note of "
+        "what they ask about. I understand that my agents will say so at the start of every "
+        "call, that notes are kept for 180 days, and that a caller may ask for theirs to be "
+        "erased."
+    ),
+    2: (
+        "I confirm that these calls do not collect health, medical, financial, biometric or "
+        "other sensitive personal data about callers, that my business is the Data Fiduciary "
+        "for these callers, and that my own privacy notice tells them we keep a short note of "
+        "what they ask about. I understand that my agents will say so before ending each "
+        "call, that notes are kept for 180 days, and that a caller may ask for theirs to be "
+        "erased."
+    ),
+}
+CALLER_MEMORY_ATTESTATION_VERSION = max(CALLER_MEMORY_ATTESTATIONS)
+CALLER_MEMORY_ATTESTATION = CALLER_MEMORY_ATTESTATIONS[CALLER_MEMORY_ATTESTATION_VERSION]
 
 
 async def set_caller_memory(
@@ -1553,7 +1574,7 @@ async def set_caller_memory(
                     # has attested yet, or the person who did has left and the FK went to
                     # NULL. An inner join would drop the whole agent row for either, which
                     # is a 404 on a switch because somebody was offboarded.
-                    "u.name "
+                    "u.name, o.caller_memory_attestation_version "
                     "FROM agents a JOIN organizations o ON o.id = a.tenant_id "
                     "LEFT JOIN users u ON u.id = o.caller_memory_attested_by "
                     "WHERE a.id = :aid AND a.deleted_at IS NULL FOR UPDATE OF a"
@@ -1567,6 +1588,7 @@ async def set_caller_memory(
         vertical = None if row[8] is None else str(row[8])
         attested_at: datetime | None = row[9]
         attested_by_name: str | None = None if row[10] is None else str(row[10])
+        attested_version: int | None = None if row[11] is None else int(row[11])
 
         if enabled and spdi_refuses_memory(vertical):
             raise ProblemError.business_rule(
@@ -1604,10 +1626,15 @@ async def set_caller_memory(
                 await session.execute(
                     text(
                         "UPDATE organizations SET caller_memory_attested_at = now(), "
-                        "caller_memory_attested_by = :by, updated_at = now() "
+                        "caller_memory_attested_by = :by, "
+                        "caller_memory_attestation_version = :version, updated_at = now() "
                         "WHERE id = :tid AND caller_memory_attested_at IS NULL"
                     ),
-                    {"by": attested_by, "tid": tenant_id},
+                    {
+                        "by": attested_by,
+                        "tid": tenant_id,
+                        "version": CALLER_MEMORY_ATTESTATION_VERSION,
+                    },
                 )
                 # RE-READ RATHER THAN STAMPED FROM PYTHON: the UPDATE is guarded on
                 # `IS NULL`, so a concurrent request may have won it, and the value the
@@ -1616,7 +1643,8 @@ async def set_caller_memory(
                 attested = (
                     await session.execute(
                         text(
-                            "SELECT o.caller_memory_attested_at, u.name "
+                            "SELECT o.caller_memory_attested_at, u.name, "
+                            "o.caller_memory_attestation_version "
                             "FROM organizations o "
                             "LEFT JOIN users u ON u.id = o.caller_memory_attested_by "
                             "WHERE o.id = :tid"
@@ -1626,6 +1654,7 @@ async def set_caller_memory(
                 ).one()
                 attested_at = attested[0]
                 attested_by_name = None if attested[1] is None else str(attested[1])
+                attested_version = None if attested[2] is None else int(attested[2])
             await session.execute(
                 text(
                     "UPDATE agents SET caller_memory_enabled = :on, updated_at = now() "
@@ -1658,6 +1687,7 @@ async def set_caller_memory(
         unchanged=current == enabled,
         attested_at=attested_at,
         attested_by_name=attested_by_name,
+        attested_version=attested_version,
     )
 
 

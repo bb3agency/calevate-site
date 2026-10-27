@@ -572,6 +572,9 @@ class ImprovementOut(BaseModel):
     #: Set when a fallback model wrote it (D-127 G-6): show it.
     disclosure: str | None
     created_at: datetime
+    #: False: no suggestion has been tried on the agent yet. "Test again" after putting kept
+    #: ones live is what checks them.
+    tested: bool = False
 
 
 class TestScoreOut(BaseModel):
@@ -848,6 +851,7 @@ def _improvement_out(raw: dict[str, Any] | None) -> ImprovementOut | None:
         for_keys=[str(k) for k in raw.get("for_keys") or []],
         disclosure=raw.get("disclosure"),
         created_at=raw["created_at"],
+        tested=bool(raw.get("tested")),
     )
 
 

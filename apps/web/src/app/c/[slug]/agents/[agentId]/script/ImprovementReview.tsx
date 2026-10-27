@@ -87,7 +87,9 @@ export function ImprovementReview({
   const [facts, setFacts] = useState(() =>
     improvement.facts.map((fact) => ({ fact, keep: fact.answer.trim() !== "", answer: fact.answer })),
   );
-  const [done, setDone] = useState<null | { where: "draft" | "live"; skipped: string | null }>(null);
+  const [done, setDone] = useState<null | { where: "draft" | "live"; skipped: string | null; facts: boolean }>(
+    null,
+  );
   const [pressed, setPressed] = useState<"draft" | "live">("draft");
 
   const titles = new Map(run.results.map((r) => [r.key, r.title]));
@@ -138,7 +140,7 @@ export function ImprovementReview({
       await saveFacts();
     }
     await settle.mutateAsync({ runId: run.id });
-    setDone({ where: goLive ? "live" : "draft", skipped });
+    setDone({ where: goLive ? "live" : "draft", skipped, facts: keptFacts.length > 0 });
   };
   const keep = useAsyncAction((goLive: boolean) => keepChain(goLive), { errorDisplay: "inline" });
   const saving = keep.status === "pending";
@@ -170,6 +172,7 @@ export function ImprovementReview({
           {done.where === "live"
             ? "Callers hear the changes from the next call. Facts you kept are live for every agent."
             : "The changes are in your draft. Put it live from the script, then test again."}
+          {done.where === "draft" && done.facts && " Facts you kept are already live for every agent."}
         </p>
         {done.skipped && <p className="mt-1">{done.skipped}</p>}
       </NoticeBox>
@@ -188,6 +191,11 @@ export function ImprovementReview({
           draft; callers hear them only after you put them live.
           {improvement.base === "live" ? " Made from the script callers hear now." : ""}
         </p>
+        {!improvement.tested && (
+          <p className="mt-1 text-meta text-ink-muted">
+            Not tested yet. To check them, put the ones you keep live and test again.
+          </p>
+        )}
         {improvement.disclosure && <p className="mt-1 text-meta text-ink-muted">{improvement.disclosure}</p>}
       </div>
 

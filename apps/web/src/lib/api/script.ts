@@ -664,6 +664,8 @@ export interface Improvement {
   for_keys: string[];
   disclosure: string | null;
   created_at: string;
+  /** False: no suggestion has been tried on the agent yet; "Test again" after putting kept ones live checks them. */
+  tested?: boolean;
 }
 
 /** The owner's score: only tests their script or knowledge decides. */

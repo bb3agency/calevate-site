@@ -30,7 +30,12 @@ from datetime import UTC, datetime
 
 import pytest
 from apps.api.agents import lifecycle as agent_lifecycle
-from apps.api.agents.publishing import CALLER_MEMORY_ATTESTATION, set_caller_memory
+from apps.api.agents.publishing import (
+    CALLER_MEMORY_ATTESTATION,
+    CALLER_MEMORY_ATTESTATION_VERSION,
+    CALLER_MEMORY_ATTESTATIONS,
+    set_caller_memory,
+)
 from apps.api.agents.service import _load_agent, posture_of
 from apps.api.compliance import caller_memory
 from apps.api.core.errors import ProblemError
@@ -133,6 +138,43 @@ async def test_the_account_attests_once_and_a_second_agent_is_not_asked_again() 
         tenant_id=tenant_id, agent_id=second_agent, enabled=True, attested_by=None
     )
     assert again.enabled is True
+
+
+def test_the_current_statement_says_the_note_is_mentioned_before_the_call_ends() -> None:
+    """Founder, 27 Oct 2026: the agent says the memory sentence as it says goodbye (D-865),
+    so the statement says "before ending each call". Version 1 is kept word for word for
+    the accounts that accepted it."""
+    assert CALLER_MEMORY_ATTESTATION_VERSION == 2
+    assert CALLER_MEMORY_ATTESTATIONS[2] == CALLER_MEMORY_ATTESTATION
+    assert "before ending each call" in CALLER_MEMORY_ATTESTATION
+    assert "start of every call" not in CALLER_MEMORY_ATTESTATION
+    assert "will say so at the start of every call" in CALLER_MEMORY_ATTESTATIONS[1]
+
+
+async def test_a_new_acceptance_records_the_current_version_and_an_old_one_keeps_its_own() -> None:
+    tenant_id, agent_id, owner = await _tenant()
+    result = await set_caller_memory(
+        tenant_id=tenant_id, agent_id=agent_id, enabled=True, attested_by=owner
+    )
+    assert result.attested_version == CALLER_MEMORY_ATTESTATION_VERSION
+
+    # An account that accepted version 1 before the change, as the migration marks it.
+    other, other_agent, other_owner = await _tenant()
+    async with tenant_session(other) as session:
+        await session.execute(
+            text(
+                "UPDATE organizations SET caller_memory_attested_at = now(), "
+                "caller_memory_attested_by = :by, caller_memory_attestation_version = 1 "
+                "WHERE id = :tid"
+            ),
+            {"by": other_owner, "tid": other},
+        )
+        await session.commit()
+    kept = await set_caller_memory(
+        tenant_id=other, agent_id=other_agent, enabled=True, attested_by=None
+    )
+    assert kept.enabled is True
+    assert kept.attested_version == 1
 
 
 async def test_a_clinic_cannot_attest_its_way_past_the_refusal() -> None:

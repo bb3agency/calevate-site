@@ -82,6 +82,7 @@ from apps.api.agents.models import (
 )
 from apps.api.agents.publishing import (
     CALLER_MEMORY_ATTESTATION,
+    CALLER_MEMORY_ATTESTATIONS,
     audit_action_for,
     set_caller_memory,
     set_disclosure_posture,
@@ -1197,6 +1198,10 @@ class CallerMemoryOut(BaseModel):
     #: The statement a client confirms to switch this on, so the screen renders the same
     #: words the refusal does.
     attestation: str = CALLER_MEMORY_ATTESTATION
+    #: The version of that statement this business accepted, and its words: an account keeps
+    #: the statement it agreed to after the current one changes. Null until accepted.
+    attested_version: int | None = None
+    attested_statement: str | None = None
 
 
 @router.patch(
@@ -1286,6 +1291,12 @@ async def set_caller_memory_route(
         engine_synced=result.engine_synced,
         attested_at=result.attested_at,
         attested_by_name=result.attested_by_name,
+        attested_version=result.attested_version,
+        attested_statement=(
+            CALLER_MEMORY_ATTESTATIONS.get(result.attested_version)
+            if result.attested_version is not None
+            else None
+        ),
     )
 
 

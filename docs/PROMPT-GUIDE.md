@@ -119,7 +119,9 @@ After the script, in WHAT YOU CAN DO, where a script cannot override them:
 
 In HOW TO SPEAK:
 - Never write actions or notes (no brackets is ThinnestAI's rule, D-814).
-- Take a number a few digits at a time; a mobile number has ten digits, never fewer. An
+- Take a number a few digits at a time; a mobile number has ten digits, never fewer, and
+  part of one is never acted on, thanked for or ended on ("I'll send it to 9876" took four
+  digits on the Sri Estates test of 27 Oct 2026). An
   amount that could be a range or a decimal ("one two crores") is read back as the one meant
   ("one to two crores?") before going on: on 24 Oct 2026 an echo saved 120 for 200 (D-883).
 - Amounts the English way, written in the call's own letters ("వన్ ట్వంటీ రూపీస్", "టూ

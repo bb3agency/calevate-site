@@ -40,7 +40,7 @@ import { useSetCallerMemory, type Agent } from "@/lib/api/agents";
 import { useActAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 
-import { NOTICE_NEEDS_ROOM, OpeningLineFix, problemCode } from "./openingLineFix";
+import { problemCode } from "./openingLineFix";
 
 /** The refusal code the API uses when this account has not confirmed what its calls hold. */
 const NEEDS_ATTESTATION = "caller_memory_attestation_required";
@@ -54,7 +54,7 @@ function remediation(error: unknown): string | null {
 export function CallerContinuity({ agent }: { agent: Agent }) {
   const session = useClientSession();
   const setCallerMemory = useSetCallerMemory(session, agent.id);
-  // Every refusal here has its own place on the screen (the notice, the opening-line fix,
+  // Every refusal here has its own place on the screen (the notice and
   // the attestation), so none is toasted.
   const memoryFeedback = useActionFeedback(setCallerMemory, { errorDisplay: "inline" });
   // Which control sent the last request: the confirm button shows its own state only for
@@ -84,11 +84,6 @@ export function CallerContinuity({ agent }: { agent: Agent }) {
 
   const needsAttestation = problemCode(setCallerMemory.error) === NEEDS_ATTESTATION;
   const statement = needsAttestation ? remediation(setCallerMemory.error) : null;
-  // The memory sentence shares the greeting with the opening line, which left it no room: the
-  // fix is offered here, where the switch was refused, rather than on the script page.
-  const room = agent.greeting_budget?.opening_room_with_caller_memory;
-  const needsRoom =
-    problemCode(setCallerMemory.error) === NOTICE_NEEDS_ROOM && room !== undefined;
 
   return (
     <section>
@@ -110,17 +105,8 @@ export function CallerContinuity({ agent }: { agent: Agent }) {
         they ask for.
       </p>
 
-      {setCallerMemory.error && !needsAttestation && !needsRoom && (
+      {setCallerMemory.error && !needsAttestation && (
         <ProblemNotice error={setCallerMemory.error} />
-      )}
-      {needsRoom && (
-        <OpeningLineFix
-          agent={agent}
-          error={setCallerMemory.error}
-          room={room}
-          retrying={setCallerMemory.isPending}
-          retry={() => setCallerMemory.mutate({ enabled: true, accept: readStatement })}
-        />
       )}
 
       <div className="mt-4">

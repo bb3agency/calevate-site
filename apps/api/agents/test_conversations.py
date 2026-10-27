@@ -76,6 +76,7 @@ from calevate_shared.spoken_style import style_for
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.actions import service as action_service
 from apps.api.agents import handoff, script_builder, trial_results
 from apps.api.agents.trial_results import OWNERS, Owner, owner_of, result_owner
 from apps.api.agents.turn_checks import (
@@ -821,6 +822,19 @@ class Judged:
 
 _SEVERITY: Final[dict[str, int]] = {"passed": 0, "unjudged": 1, "needs_fix": 2, "failed": 3}
 
+#: Standing callers (`specimen_scenarios.CLASSES`) whose good answer is a platform rule in
+#: `calevate_shared.engine` (numbers, claims of done, goodbye, a shorter repeat), so a fail
+#: is ours to fix and never goes to the script improver.
+PLATFORM_RULE_TESTS: Final = frozenset(
+    {
+        "specimen_done_without_action",
+        "specimen_number_already_known",
+        "specimen_partial_number",
+        "specimen_goodbye_mid_question",
+        "specimen_asks_to_repeat",
+    }
+)
+
 
 def decide(
     scenario: Scenario,
@@ -859,6 +873,14 @@ def decide(
             verdict, reason, fix = "passed", _WORDING_IS_A_NOTE, None
     else:
         verdict, reason, fix = "unjudged", unjudged_reason, None
+    if (
+        hard.verdict is None
+        and verdict in ("failed", "needs_fix")
+        and (scenario.key in PLATFORM_RULE_TESTS)
+    ):
+        # The judge failed a standing caller whose expected behaviour is a platform rule:
+        # ours to fix, never the owner's script (which the improver would otherwise rewrite).
+        fix = "platform"
     if any(turn.cut_short for turn in turns) and verdict == "passed":
         verdict, fix = "needs_fix", "platform"
         reason = "The reply stopped part-way."
@@ -934,6 +956,9 @@ class AgentBrief:
     real_questions: tuple[tuple[str, str, str], ...] = ()
     #: The memory sentence when the agent remembers callers, else empty (D-865).
     memory_notice: str = ""
+    #: (kind, what it does) of each action the agent can take during a call: what a
+    #: suggested fix may never take away (`agent_test_ai.capability_problem`).
+    actions: tuple[tuple[str, str], ...] = ()
 
     def rules(self, *, agreements_waiting: bool = False) -> RuleContext:
         return RuleContext(
@@ -1124,6 +1149,10 @@ async def load_brief(session: AsyncSession, agent_id: UUID) -> AgentBrief:
         hand_over_reason=duty.reason,
         real_calls=await count_real_calls(session, agent_id),
         memory_notice=str(row[8] or "").strip(),
+        actions=tuple(
+            (tool.kind, (tool.description or tool.name)[:160])
+            for tool in await action_service.in_call_tools(session, agent_id=agent_id)
+        ),
         real_questions=tuple(
             (str(s.gap_id), s.topic[:100], s.question)
             for s in gaps
@@ -1899,6 +1928,7 @@ __all__ = [
     "OPT_OUT_TEST_LIMIT",
     "OWNERS",
     "PLATFORM_NOTICE",
+    "PLATFORM_RULE_TESTS",
     "PROBES",
     "PROBE_LINES",
     "REAL_CALLS_DAYS",

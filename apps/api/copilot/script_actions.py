@@ -359,8 +359,9 @@ async def _plan_tests_fix(session: AsyncSession, actor: ToolActor, args: Mapping
         object_id=str(parsed.agent_id),
         title="Suggest fixes for failed tests",
         summary=(
-            f"{ASSISTANT_NAME} works out changes to “{name}”'s script and facts that fix "
-            f"{count}. They wait in the agent's Training tab, where you keep the ones you want."
+            f"{ASSISTANT_NAME} suggests changes to “{name}”'s script and facts for {count}. "
+            "They wait in the agent's Training tab, where you keep the ones you want. They "
+            "are not tested until you put them live and test again."
         ),
         current=None,
         proposed="; ".join(t for t in titles if t) or count,
@@ -397,7 +398,7 @@ async def _execute_tests_fix(
     return Executed(
         applied=True,
         detail=(
-            f"{ASSISTANT_NAME} is working out the fixes; it takes up to two minutes. Review "
+            f"{ASSISTANT_NAME} is working out suggestions; it takes up to two minutes. Review "
             f"them in “{name}”'s Training tab: nothing changes until you keep one."
         ),
         audit_summary={

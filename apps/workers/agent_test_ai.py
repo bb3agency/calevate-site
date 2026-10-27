@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import hashlib
 import random
+import re
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from typing import Any, Final
@@ -41,10 +42,13 @@ from apps.api.agents.script_edits import (
     MAX_EDITS,
     EditRejectedError,
     ScriptEdit,
+    added_text,
     apply_edit,
     clip,
     describe,
+    kept_problem,
     language_problem,
+    sentences,
 )
 from apps.api.agents.test_conversations import (
     CATEGORIES,
@@ -153,6 +157,10 @@ def brief_text(brief: AgentBrief, *, history: bool = True, script: bool = True) 
     lines.append(_HAND_OVER.get(brief.hand_over, _HAND_OVER["off"]))
     lines.append(
         "It may offer a call back." if brief.call_backs else "It may NOT offer a call back."
+    )
+    lines += _section(
+        "Actions it takes during a call (kind: what it does)",
+        [f"{kind}: {what}" for kind, what in brief.actions],
     )
     if history:
         lines += _section(
@@ -560,12 +568,19 @@ async def judge_conversations(
 
 IMPROVE_INSTRUCTION: Final = (
     "You fix the call script of a small Indian business's AI phone agent, from the tests it "
-    "failed. You are given the agent's facts, its current script (steps with their ids, "
-    "objection lines and parts), and each failed test with why it failed.\n"
+    "failed. You are given the agent's facts, the actions it takes during a call, its "
+    "current script (steps with their ids, objection lines and parts), and each failed test "
+    "with a good answer and why it failed.\n"
+    "Each fix makes the agent give THAT good answer. Never remove, forbid or refuse "
+    "something the agent can do (its actions, taking a caller's number, call backs, "
+    "hand-over) and never contradict the good answer: if the good answer has the agent do "
+    "something, the fix helps it do that well.\n"
     "Return JSON with two lists.\n"
     "edits: the smallest changes that fix these tests, at most one per failed test. Each "
     "edit is one of:\n"
-    "- set_step: the step `step_id` (an id given) gets `text` as its new instruction.\n"
+    "- set_step: the step `step_id` (an id given) gets `text` as its new instruction: its "
+    "current instruction with the fewest words changed, every other sentence kept word for "
+    "word, in the language it is written in.\n"
     "- add_step: a new step named `name` with the instruction `text`, placed after the "
     "step `step_id` (empty: at the end). Only when no existing step can hold the fix; a "
     f"script has at most {MAX_SCRIPT_STAGES} steps.\n"
@@ -574,9 +589,12 @@ IMPROVE_INSTRUCTION: Final = (
     "- set_part: the script part `part` (opening_line, ending, identity, goal, "
     "business_line or outbound_purpose) becomes `text`.\n"
     "Give every field; a field the edit does not use is an empty string. because: the key "
-    "of the test it fixes. why: one plain-English sentence for the owner. Instructions (a "
+    "of the test it fixes. why: one plain-English sentence for the owner on what the change "
+    "asks the agent to do; it is a suggestion nobody has tested, so never say it fixed, "
+    "restricted or stopped anything. New instructions (a "
     "step's, an objection's answer, every part but opening_line) are in plain English "
-    "letters, never the call language's script; the opening_line is said, so it is "
+    "letters, never the call language's script, except words added to a step already "
+    "written in the call language, which keep its language; the opening_line is said, so it is "
     "in the call language as people speak it, "
     "with the English words they use, never textbook words. Keep a step's instruction under "
     "500 characters.\n"
@@ -586,7 +604,10 @@ IMPROVE_INSTRUCTION: Final = (
     "already in the facts given, otherwise empty: the owner fills it in), because, why.\n"
     f"Every instruction and spoken line keeps these rules: {writer_rules()} "
     f"{OPENING_LINE_RULE} Do not write about being an AI, recording, call backs, transfers "
-    "or do-not-call: the platform handles those. When "
+    "or do-not-call: the platform handles those, and its rules already cover how a number "
+    "is taken (a few digits at a time, all ten read back), never claiming something was done "
+    "and never saying goodbye while the caller asks; a test that failed on one of those is "
+    "ours to fix, so leave it out. When "
     "nothing in the script or the facts would fix a test, leave it out: empty lists are an "
     "honest answer.\n"
     "Return ONLY JSON."
@@ -642,7 +663,8 @@ MAX_FACTS: Final = 10
 def failure_text(result: dict[str, Any]) -> str:
     """One failed conversation for the improver."""
     out = [f"[{result.get('key')}] {result.get('title')} ({result.get('verdict')})"]
-    out.append(f"Why: {result.get('reason') or ''}")
+    out.append(f"A good answer: {result.get('expect') or '(not given)'}")
+    out.append(f"Why it failed: {result.get('reason') or ''}")
     if result.get("fix"):
         out.append(f"Kind of fix: {result['fix']}")
     if result.get("step_id"):
@@ -725,6 +747,138 @@ def _facts(raw: Any, *, keys: set[str], fact_ids: set[str]) -> list[dict[str, An
     return facts[:MAX_FACTS]
 
 
+#: A sentence that refuses or forbids doing something: "never accept", "tell them you cannot
+#: do that", "do not send".
+_REFUSES: Final = re.compile(
+    r"\b(?:never|not|no longer|cannot|can't|can not|don't|do not|won't|must not|refuse|"
+    r"decline|unable to)\b\W+(?:\w+\W+){0,3}?(?:accept|take|taking|collect|note|confirm|"
+    r"send|share|use|offer|book|arrange|transfer|connect|hand|give|do that|do this|help|"
+    r"handle|record|save|call)",
+    re.IGNORECASE,
+)
+#: What the agent can always do: take a caller's number (the platform's read-back rule).
+_NUMBERS: Final = re.compile(r"number|digits|phone|mobile", re.IGNORECASE)
+#: Words naming each kind of in-call action, for the capability check.
+_ACTION_WORDS: Final[dict[str, re.Pattern[str]]] = {
+    "whatsapp": re.compile(r"whats\s?app|send|message|details|brochure", re.IGNORECASE),
+    "payment_link": re.compile(r"payment|link|send|pay", re.IGNORECASE),
+    "calendar": re.compile(r"book|appointment|slot|visit|schedule", re.IGNORECASE),
+}
+_CALL_BACK: Final = re.compile(r"call(?:ing)?\s?back|callback", re.IGNORECASE)
+_HAND_OVER_WORDS: Final = re.compile(
+    r"person|human|transfer|hand(?:ing)?\s?over|connect|manager|team member", re.IGNORECASE
+)
+#: A `why` that reports an effect nobody has tested, or a restriction (founder, 27 Oct 2026:
+#: "I have restricted the agent to only handling property enquiries").
+_CLAIMED_EFFECT: Final = re.compile(
+    r"\b(?:restrict\w*|forbid\w*|forbade|block(?:ed|s)?|disabl\w*|no longer)\b", re.IGNORECASE
+)
+_CONTENT_WORD: Final = re.compile(r"[a-z]{4,}")
+_NOT_CONTENT: Final = frozenset(
+    {
+        "agent",
+        "caller",
+        "callers",
+        "call",
+        "calls",
+        "that",
+        "this",
+        "with",
+        "they",
+        "them",
+        "their",
+        "what",
+        "when",
+        "then",
+        "than",
+        "have",
+        "from",
+        "your",
+        "will",
+        "only",
+        "just",
+        "each",
+        "more",
+        "about",
+        "before",
+        "after",
+        "never",
+        "always",
+        "into",
+    }
+)
+
+
+#: A refusal that only limits HOW ("not until all ten are read back", "never on part of a
+#: number") rather than WHETHER, unless it also reaches every case ("partial or full").
+_ONLY_HOW: Final = re.compile(
+    r"\b(?:until|before|unless|part of|fewer|less than|only after)\b", re.IGNORECASE
+)
+_EVERY_CASE: Final = re.compile(r"\b(?:full|any|every|at all|anything)\b", re.IGNORECASE)
+
+
+def _refuses(sentence: str) -> bool:
+    """Does `sentence` refuse or forbid an act outright?"""
+    if not _REFUSES.search(sentence):
+        return False
+    return not _ONLY_HOW.search(sentence) or bool(_EVERY_CASE.search(sentence))
+
+
+def _content(text: str) -> set[str]:
+    return {
+        word.rstrip("s") for word in _CONTENT_WORD.findall(text.lower()) if word not in _NOT_CONTENT
+    }
+
+
+def _capabilities(brief: AgentBrief) -> list[tuple[str, re.Pattern[str]]]:
+    """What the agent can do that a suggested fix may never take away, each with the words
+    that name it."""
+    out: list[tuple[str, re.Pattern[str]]] = [("taking a caller's number", _NUMBERS)]
+    for kind, what in brief.actions:
+        words = _ACTION_WORDS.get(kind)
+        if words is not None:
+            out.append((f"its {kind} action ({what[:60]})", words))
+    if brief.call_backs:
+        out.append(("call backs", _CALL_BACK))
+    if brief.hand_over != "off":
+        out.append(("hand-over to a person", _HAND_OVER_WORDS))
+    return out
+
+
+def grounding_problem(
+    edit: ScriptEdit,
+    script: CallScript,
+    *,
+    brief: AgentBrief,
+    good_answer: str,
+    where: str,
+) -> str | None:
+    """Why a suggested edit is not a fix the owner may be offered, or None: it drops the
+    step's own sentences, refuses something the agent can do, contradicts the test's good
+    answer, or claims an effect. The founder's 27 Oct 2026 suggestion did all four: "tell
+    them you cannot do that ... Never accept or confirm partial or full phone numbers" for a
+    test whose good answer takes the number, on an agent that sends WhatsApp follow-ups."""
+    kept = kept_problem(edit, script, where=where)
+    if kept is not None:
+        return kept
+    if _CLAIMED_EFFECT.search(edit.why):
+        return (
+            f"{where}: `why` says what the change asks the agent to do; it is untested, so it "
+            "never says it restricted, blocked or stopped anything"
+        )
+    added = sentences(added_text(edit, script))
+    refusals = [s for s in added if _refuses(s)]
+    for sentence in refusals:
+        for name, words in _capabilities(brief):
+            if words.search(sentence):
+                return f"{where}: refuses {name}, which this agent does; never take it away"
+    affirmed = _content(" ".join(s for s in sentences(good_answer) if not _refuses(s)))
+    for sentence in refusals:
+        if _content(sentence) & affirmed:
+            return f"{where}: forbids what the test's good answer has the agent do"
+    return None
+
+
 def proposal_from_model(
     raw: dict[str, Any],
     *,
@@ -733,6 +887,8 @@ def proposal_from_model(
     fact_ids: set[str],
     language: str | None = None,
     send_back_language: bool = False,
+    brief: AgentBrief | None = None,
+    good_answers: dict[str, str] | None = None,
 ) -> dict[str, Any] | None:
     """The improver's answer as the proposal the owner reviews, one entry per edit.
 
@@ -779,6 +935,17 @@ def proposal_from_model(
             if worded is not None:
                 wording.append(worded)
                 raise EditRejectedError("text", "language")
+            if brief is not None:
+                ungrounded = grounding_problem(
+                    edit,
+                    script,
+                    brief=brief,
+                    good_answer=(good_answers or {}).get(edit.because or "", ""),
+                    where=f"edits.{index}",
+                )
+                if ungrounded is not None:
+                    wording.append(ungrounded)
+                    raise EditRejectedError("text", "ungrounded")
             script = apply_edit(script, edit)
         except EditRejectedError as refused:
             log.info(
@@ -787,7 +954,7 @@ def proposal_from_model(
             )
             problems.append(
                 wording[-1]
-                if refused.rule == "language"
+                if refused.rule in ("language", "ungrounded")
                 else f"edits.{index}.{refused.field}: {refused.rule}"
             )
             continue
@@ -815,6 +982,7 @@ async def propose_improvement(
     """Small script edits and facts to pin, with their reasons, for these failed tests."""
     keys = {str(r.get("key")) for r in failures}
     fact_ids = {fid for fid, _q, _a in brief.pinned_facts}
+    good_answers = {str(r.get("key")): str(r.get("expect") or "") for r in failures}
     parse = _send_back_once(
         lambda raw, send_back: proposal_from_model(
             raw,
@@ -823,6 +991,8 @@ async def propose_improvement(
             fact_ids=fact_ids,
             language=brief.language,
             send_back_language=send_back,
+            brief=brief,
+            good_answers=good_answers,
         )
     )
 
@@ -861,6 +1031,9 @@ def improvement_record(
         "disclosure": answer.capability.disclosure,
         "input_hash": request_hash,
         "created_at": datetime.now(UTC).isoformat(),
+        # The test chat reaches only the live agent, so no suggestion is re-run before it
+        # is offered; "Test again" after putting kept ones live is what checks them.
+        "tested": False,
     }
 
 
