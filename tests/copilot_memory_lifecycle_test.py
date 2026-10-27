@@ -390,6 +390,53 @@ async def test_a_tenant_with_no_language_credential_is_a_no_op(
     assert await copilot_memory.distil_copilot_memories({}) == "no_provider"
 
 
+async def test_gemini_distils_first_and_azure_is_not_required(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Gemini is the main model (D-899): when its leg serves the dashboard the job runs on
+    it with no Azure configured, asks it for the schema-shaped answer, and meters the
+    Gemini model rather than the Azure setting."""
+    from apps.api.agents import assist_leg
+    from apps.api.core.settings import get_settings
+    from apps.workers.extraction import GOOGLE_PROVIDER, TenantModelLeg
+
+    tenant_id, user_id = await _tenant_with_user()
+    marker = await _quiet_conversation(tenant_id, user_id)
+    serving = TenantModelLeg(
+        model="gemini-test-flash",
+        provider=GOOGLE_PROVIDER,
+        serves_dashboard=True,
+        blocked_reason=None,
+        account_chose_model=False,
+    )
+    monkeypatch.setattr(assist_leg, "google_assist_leg", lambda: serving)
+    monkeypatch.setattr(get_settings(), "gemini_api_key", "test-gemini-key")
+    monkeypatch.setattr(copilot_memory, "azure_credentials", lambda: None)
+    seen: list[tuple[Any, Any]] = []
+    provider = _StubProvider(["The clinic opens at nine."])
+
+    async def complete(leg: Any, messages: Any, **kwargs: Any) -> chat.ChatOutcome:
+        seen.append((leg, kwargs.get("response_format")))
+        return await provider.complete(leg, messages, **kwargs)
+
+    metered: list[str] = []
+
+    async def meter(*_: Any, **kwargs: Any) -> None:
+        metered.append(str(kwargs["model"]))
+
+    monkeypatch.setattr(copilot_memory.chat, "complete", complete)
+    monkeypatch.setattr(copilot_memory, "record_ai_assist_usage", meter)
+
+    assert await copilot_memory.distil_copilot_memories({}) != "no_provider"
+
+    assert provider.calls_for(marker) == 1
+    legs = [leg for leg, _format in seen]
+    assert all(leg.dialect == "google" and leg.wire_model == "gemini-test-flash" for leg in legs)
+    assert all(fmt["type"] == "json_schema" for _leg, fmt in seen)
+    assert set(metered) == {"gemini-test-flash"}
+    assert await _count(tenant_id, kind=memory.KIND_SEMANTIC) == 1
+
+
 async def test_the_tick_is_bounded_across_tenants(stub_provider: Any) -> None:
     """`MAX_GROUPS_PER_TENANT` is what stops one busy account owning the whole budget."""
     tenant_id, user_id = await _tenant_with_user()

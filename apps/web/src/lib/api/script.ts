@@ -28,6 +28,7 @@ import {
 import { agentKeys } from "./agents";
 import { apiRequest, type Session } from "./client";
 import { publishingKeys } from "./publishing";
+import { readinessKeys } from "./readiness";
 import type { components } from "./schema";
 
 /** One `{{ }}` merge field the author declared. Mirrors `ScriptVariable`. */
@@ -370,6 +371,11 @@ function invalidateScript(client: ReturnType<typeof useQueryClient>, session: Se
     client.invalidateQueries({ queryKey: scriptKeys.one(session.orgSlug, agentId) }),
     client.invalidateQueries({ queryKey: versionsKey(session.orgSlug, agentId) }),
     client.invalidateQueries({ queryKey: agentKeys.one(session.orgSlug, agentId) }),
+    // The roster carries the applied script's opening line (`useReplaceOpeningLine` says
+    // why), and the tests and readiness read whether the agent can be tried.
+    client.invalidateQueries({ queryKey: agentKeys.all(session.orgSlug) }),
+    client.invalidateQueries({ queryKey: agentKeys.tests(session.orgSlug, agentId) }),
+    client.invalidateQueries({ queryKey: readinessKeys.all(session.orgSlug) }),
     client.invalidateQueries({ queryKey: publishingKeys.pending(session.orgSlug, agentId) }),
   ]);
 }

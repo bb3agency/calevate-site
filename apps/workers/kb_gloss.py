@@ -53,18 +53,19 @@ The DERIVED rebuild below (`MAX_REKEY_ROWS_PER_TENANT`) is not in that list and 
 spend control: it buys no model call. It bounds statements, which is a different currency
 with a different right answer.
 
-WHICH LEG, AND WHY NOT SARVAM. Azure, through `workers/chat.py` — the ONE
-OpenAI-compatible client in this tree — on the credentials `extraction.azure_credentials()`
-already decides once. Sarvam does translation on the speech leg and was the obvious
+WHICH LEG, AND WHY NOT SARVAM. `background_leg`: Gemini first, the platform's main model
+(D-899), and Azure only when it is configured, through `workers/chat.py` — the ONE
+OpenAI-compatible client in this tree. Sarvam does translation on the speech leg and was the obvious
 alternative; it is refused on a LICENCE fact rather than on quality. **Sarvam ToS v2.0
 (eff. 29 July 2026) s.17.5** permits Sarvam to use Inputs and Outputs to train its models,
 and **s.6.2** makes a signed order form or enterprise agreement the only instrument that
 displaces it — we have none (CLAUDE.md, evidence class VENDOR-PUBLISHED, read by the
 founder at `www.sarvam.ai` on 27 Aug 2026 and relayed; `sarvam.ai` is egress-blocked from
 this container so it was not re-read here). The input on this leg is a client's own
-business knowledge, in bulk, for every client we have. Azure is retained on an enterprise
-DPA with modified abuse monitoring, which is the difference that decides it. This is not a
-new vendor and not a new credential: it is the leg `copilot_memory.py` already runs on.
+business knowledge, in bulk, for every client we have. Gemini is used only once its
+data-use attestation is recorded, and Azure is retained on an enterprise DPA with modified
+abuse monitoring, which is the difference that decides it. This is the leg
+`copilot_memory.py` runs on.
 
 IDEMPOTENCY IS `kb_documents.gloss_state`, AND IT IS WHY THAT COLUMN EXISTS. `gloss IS
 NULL` cannot distinguish "nobody has looked at this" from "looked at, English, owes
@@ -90,7 +91,6 @@ from uuid import UUID
 import httpx
 from arq import Retry
 from calevate_shared.backoff import jittered_delay_s
-from calevate_shared.engine import azure_openai_base_url
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -99,13 +99,13 @@ from apps.api.core import provider_health
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
-from apps.api.core.settings import get_settings
 from apps.api.crm.assist import ASSIST_FEATURE_KB_GLOSS
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.kb.gloss import GLOSS_NOT_NEEDED, GLOSS_PENDING, GLOSS_READY, needs_gloss
 from apps.api.kb.service import refresh_projection_keys
 from apps.workers import chat
-from apps.workers.extraction import AZURE_PROVIDER, azure_credentials
+from apps.workers.background_leg import background_leg
+from apps.workers.extraction import azure_credentials
 from apps.workers.set_aside import (
     REFUSED_INPUT_SET_ASIDE,
     RefusalStreak,
@@ -377,22 +377,15 @@ async def write_knowledge_glosses(ctx: dict[str, Any]) -> str:
     DOES reach the retry ladder is a tick-wide failure — the worklist read — because
     retrying that is the only thing that could help.
     """
-    credentials = azure_credentials()
-    if credentials is None:
+    chosen = background_leg(azure_credentials())
+    if chosen is None:
         # Tolerant boot (BACKEND-PATTERNS §2): a deployment with no language credential runs
         # every other queue. Not an alert — it is a configuration state an operator already
         # sees at `/healthz/ready`, and alerting twice an hour on it is how an alert becomes
         # noise.
-        log.info("kb_gloss_no_provider", extra={"provider": AZURE_PROVIDER})
+        log.info("kb_gloss_no_provider")
         return "no_provider"
-    resource, api_key, deployment = credentials
-    leg = chat.ChatLeg(
-        url=f"{azure_openai_base_url(resource)}/chat/completions",
-        api_key=api_key,
-        wire_model=deployment,
-        dialect="openai",
-    )
-    model = get_settings().azure_openai_model
+    leg, model = chosen.leg, chosen.meter_model
 
     try:
         tenants = await tenants_holding_knowledge()

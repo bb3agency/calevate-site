@@ -60,6 +60,18 @@ describe("reading a CSV", () => {
     expect(row.vars).toEqual({ "Village name": "Kondapur" });
   });
 
+  it("takes the column that holds phone numbers, not the first header that says number", () => {
+    const [row] = entries("Contact name,Registration number,Number of acres,Phone\nRamu,RK-2231,4,9876543210");
+    expect(row.phone).toBe("9876543210");
+    expect(row.name).toBe("Ramu");
+    expect(row.vars).toEqual({ "Registration number": "RK-2231", "Number of acres": "4" });
+  });
+
+  it("prefers a column headed phone when another column's cells also read as numbers", () => {
+    const [row] = entries("Customer number,Phone\n9123456780,9876543210");
+    expect(row.phone).toBe("9876543210");
+  });
+
   it("reads a file with no header as phone, then name", () => {
     const [row] = entries("9876543210,Priya,ignored");
     expect([row.phone, row.name, row.vars]).toEqual(["9876543210", "Priya", {}]);

@@ -444,8 +444,11 @@ def test_the_operator_half_still_exists_and_still_names_the_variables() -> None:
         AssistCapability(available=False, reason=NO_CREDENTIAL_REASON), audience="operator"
     )
 
-    assert "AZURE_OPENAI_RESOURCE" in (problem.remediation or "")
-    assert "Sarvam API key" in (problem.remediation or "")
+    # Gemini is the main model (D-899), so its remedy is named first.
+    remediation = problem.remediation or ""
+    assert remediation.index("GEMINI_API_KEY") < remediation.index("AZURE_OPENAI_RESOURCE")
+    assert "Dashboard data use" in remediation
+    assert "Sarvam API key" in remediation
 
 
 def test_every_refusal_logs_the_operator_remediation_and_no_secret(

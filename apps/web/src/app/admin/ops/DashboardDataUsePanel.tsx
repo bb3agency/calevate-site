@@ -118,10 +118,13 @@ export function DashboardDataUsePanel({
     <Section title="Dashboard AI data-use">
       <div className="space-y-4">
         <p className="text-body text-ink-muted">
-          Pip, the in-app AI assistant, prefers the provider a client&apos;s own agents run on.
-          Whether it may is a question about that vendor&apos;s terms for our account, which
-          no page reachable from here can answer — so you read it in the vendor&apos;s own
-          console and record it here. This covers Pip only. What callers say on calls that
+          Gemini is the main model for Pip and every dashboard assist (reading photos,
+          summaries, suggestions, drafts); Azure is used only if it is configured, and the
+          standby answers last. Until Google is recorded here as not training on our data,
+          all of those answer on a backup or stop. Whether a provider may is a question about
+          that vendor&apos;s terms for our account, which no page reachable from here can
+          answer — so you read it in the vendor&apos;s own console and record it here, with
+          the fields below. What callers say on calls that
           answer on our own model has its own attestation, In-call data use, which is the
           one our own model needs.
         </p>

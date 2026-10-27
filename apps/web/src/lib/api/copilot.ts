@@ -95,10 +95,13 @@ const INVALIDATES: Record<string, readonly (readonly string[])[]> = {
   agent_test_add: [["agent-test-cases"], ["script-tests"]],
   dnc_add: DNC_DEPENDENT_KEYS,
   dnc_remove: DNC_DEPENDENT_KEYS,
-  campaign_pause: [["campaign"], ["campaigns"], ["dashboard"]],
+  campaign_pause: [["campaign"], ["campaigns"], ["attention"], ["dashboard"]],
   // D-893: plans refresh these once they finish (`lib/copilot/plans.refreshAfterPlan`).
   leads_bulk_update: [["leads"], ["lead"], ["lead-facets"], ["dashboard"]],
-  campaign_add_leads: [["campaign"], ["campaigns"]],
+  // The launch check names a missing consent provenance.
+  campaign_consent_set: [["campaign"], ["campaign-check"]],
+  // As `useAddContacts`: the launch check counts the contacts.
+  campaign_add_leads: [["campaign"], ["campaigns"], ["campaign-check"], ["attention"]],
   callbacks_book_bulk: [["callbacks"], ["leads"], ["calls-log"]],
   calls_place_bulk: [["campaigns"], ["campaign"], ["calls-log"], ["dashboard"]],
   callback_book: [["callbacks"], ["leads"], ["calls-log"]],
