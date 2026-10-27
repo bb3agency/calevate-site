@@ -777,6 +777,27 @@ class EndpointChoices:
     include_raw_transcript: bool
 
 
+#: The emailed-code verb for switching call content on for an existing endpoint, beside the
+#: create's `create_endpoint`: the console edit and Pip's `crm_endpoint_edit` ask for it.
+ENDPOINT_OPT_IN_VERB: Final = "endpoint_opt_in"
+
+
+def opens_call_content(
+    before: EndpointChoices,
+    *,
+    include_recording_url: bool,
+    include_transcript: bool,
+    include_raw_transcript: bool,
+) -> bool:
+    """Does this change switch ON a recording link or a transcript the endpoint was not sent?
+    Switching one off, or changing only the events, sends nothing new."""
+    return (
+        (include_recording_url and not before.include_recording_url)
+        or (include_transcript and not before.include_transcript)
+        or (include_raw_transcript and not before.include_raw_transcript)
+    )
+
+
 async def read_endpoint_choices(session: AsyncSession, endpoint_id: UUID) -> EndpointChoices:
     row = (
         await session.execute(
@@ -1693,6 +1714,7 @@ __all__ = [
     "DEFAULT_WORKSHEET",
     "DELIVERABLE_KINDS",
     "DELIVERY_HEADER",
+    "ENDPOINT_OPT_IN_VERB",
     "EVENT_HEADER",
     "EVENT_TYPES",
     "INBOUND_REFUSAL_ALERTS",
@@ -1719,6 +1741,7 @@ __all__ = [
     "enqueue_events",
     "lead_payload",
     "load_endpoint",
+    "opens_call_content",
     "parse_spreadsheet_ref",
     "record_delivery",
     "recording_ready_dedupe_key",

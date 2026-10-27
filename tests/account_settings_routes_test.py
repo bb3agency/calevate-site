@@ -65,20 +65,50 @@ async def test_an_endpoint_edit_changes_events_and_opt_ins_and_is_audited() -> N
     tenant_id, slug, token = await _make_tenant()
     async with _client() as http:
         endpoint_id = await _endpoint(http, slug, token)
+        change = {"events": ["lead.created", "call.completed"], "include_transcript": True}
+        uncoded = await http.patch(
+            f"/v1/integrations/endpoints/{endpoint_id}", json=change, headers=_headers(slug, token)
+        )
+        unchanged = await http.get("/v1/integrations/endpoints", headers=_headers(slug, token))
         edited = await http.patch(
             f"/v1/integrations/endpoints/{endpoint_id}",
-            json={
-                "events": ["lead.created", "call.completed"],
-                "include_transcript": True,
-            },
-            headers=_headers(slug, token),
+            json=change,
+            headers=_headers(slug, token, "endpoint_opt_in"),
         )
+    # Switching a transcript on starts call content leaving the account: the emailed code.
+    assert uncoded.status_code == 403, uncoded.text
+    assert _code(uncoded) == "step_up_required"
+    assert unchanged.json()[0]["include_transcript"] is False, "a refusal rolls the edit back"
     assert edited.status_code == 200, edited.text
     body = edited.json()
     assert sorted(body["events"]) == ["call.completed", "lead.created"]
     assert body["include_transcript"] is True
     assert body["url"] == "https://crm.example.com/hooks/calevate"
     assert "integration_endpoint.updated" in await _audit_actions(tenant_id)
+
+
+async def test_events_and_switching_off_need_no_code() -> None:
+    _tenant_id, slug, token = await _make_tenant()
+    async with _client() as http:
+        endpoint_id = await _endpoint(http, slug, token)
+        url = f"/v1/integrations/endpoints/{endpoint_id}"
+        opened = await http.patch(
+            url,
+            json={"events": ["call.completed"], "include_transcript": True},
+            headers=_headers(slug, token, "endpoint_opt_in"),
+        )
+        events_only = await http.patch(
+            url,
+            json={"events": ["call.completed", "lead.created"], "include_transcript": True},
+            headers=_headers(slug, token),
+        )
+        closed = await http.patch(
+            url, json={"events": ["call.completed"]}, headers=_headers(slug, token)
+        )
+    assert opened.status_code == 200, opened.text
+    assert events_only.status_code == 200, events_only.text
+    assert closed.status_code == 200, closed.text
+    assert closed.json()["include_transcript"] is False
 
 
 async def test_an_endpoint_edit_refuses_the_address_and_the_lone_raw_switch() -> None:

@@ -177,10 +177,13 @@ def test_each_code_gated_tool_names_the_string_its_button_sends() -> None:
         "team_invite",
         "team_member_role",
         "crm_endpoint_create",
+        "crm_endpoint_edit",
     }
     assert _code_of("forwarding_line_add", {}) == "add_forwarded_number:{org}"
     assert _code_of("forwarding_line_test", {}) == "forwarding_test:{org}"
     assert _code_of("crm_endpoint_create", {}) == "create_endpoint:{org}"
+    assert _code_of("crm_endpoint_edit", {"opens": True}) == "endpoint_opt_in:{org}"
+    assert _code_of("crm_endpoint_edit", {"opens": False}) is None
     owner_invite = {"email": " A@B.in ", "role": "owner"}
     assert _code_of("team_invite", owner_invite) == "invite_owner:{org}:a@b.in"
     assert _code_of("team_invite", {"email": "a@b.in", "role": "staff"}) is None
@@ -576,7 +579,22 @@ async def test_an_endpoint_is_edited_rekeyed_and_switched_off() -> None:
     }
     proposal = await _propose(tenant_id, token, "crm_endpoint_edit", edit)
     assert "the transcript" in proposal.proposed
-    await _confirm(tenant_id, _user_of(token), proposal.token)
+    # Switching a transcript on asks for the console edit's emailed code.
+    assert proposal.confirm_action == "endpoint_opt_in:{org}"
+    asked: list[str] = []
+
+    async def code_typed(template: str) -> None:
+        asked.append(template)
+
+    async with tenant_session(tenant_id) as session:
+        await write_tools.confirm(
+            session,
+            proposal.token,
+            principal=_principal(tenant_id, _user_of(token)),
+            ip=None,
+            code_check=code_typed,
+        )
+    assert asked == ["endpoint_opt_in:{org}"]
     row = await _one(
         tenant_id,
         "SELECT events, include_transcript FROM outbound_webhooks WHERE id = :i",
@@ -606,6 +624,37 @@ async def test_an_endpoint_is_edited_rekeyed_and_switched_off() -> None:
             "crm_endpoint_act",
             {"endpoint_id": str(endpoint_id), "action": "switch_off"},
         )
+
+
+async def test_an_uncoded_endpoint_edit_is_refused_once_an_opt_in_was_switched_off() -> None:
+    tenant_id, _slug, token = await _make_tenant()
+    endpoint_id = await _endpoint(tenant_id)
+    await _one(
+        tenant_id,
+        "UPDATE outbound_webhooks SET events = ARRAY['call.completed'], "
+        "include_transcript = true WHERE id = :i RETURNING id",
+        i=endpoint_id,
+    )
+    edit = {
+        "endpoint_id": str(endpoint_id),
+        "events": ["call.completed", "lead.created"],
+        "include_recording_url": False,
+        "include_transcript": True,
+        "include_raw_transcript": False,
+    }
+    proposal = await _propose(tenant_id, token, "crm_endpoint_edit", edit)
+    assert proposal.confirm_action is None, "already sent the transcript: no code"
+    await _one(
+        tenant_id,
+        "UPDATE outbound_webhooks SET include_transcript = false WHERE id = :i RETURNING id",
+        i=endpoint_id,
+    )
+    with pytest.raises(write_tools.WriteRefusedError):
+        await _confirm(tenant_id, _user_of(token), proposal.token)
+    row = await _one(
+        tenant_id, "SELECT include_transcript FROM outbound_webhooks WHERE id = :i", i=endpoint_id
+    )
+    assert row[0] is False
 
 
 async def test_a_delivery_resend_is_scoped_to_the_account_and_needs_a_failure() -> None:

@@ -1843,6 +1843,17 @@ CRM_ENDPOINT_CREATE: Final = ActionTool(
 
 class _EndpointEditArgs(_EndpointExtras):
     endpoint_id: UUID
+    #: Set by the plan from the stored row, never taken from the model: whether this edit
+    #: switches call content on, which is what asks for the emailed code.
+    opens: bool = False
+
+
+def _endpoint_opt_in_code(args: Mapping[str, Any]) -> str | None:
+    """The console edit's code (`integrations/routes.update_endpoint`), only when the plan
+    found a recording link or transcript being switched on."""
+    from apps.api.integrations.service import ENDPOINT_OPT_IN_VERB
+
+    return f"{ENDPOINT_OPT_IN_VERB}:{{org}}" if args.get("opens") else None
 
 
 async def _plan_endpoint_edit(
@@ -1851,6 +1862,7 @@ async def _plan_endpoint_edit(
     from apps.api.integrations.service import (
         assert_raw_transcript_opt_in,
         assert_recording_ready_opt_in,
+        opens_call_content,
         read_endpoint_choices,
     )
 
@@ -1882,7 +1894,13 @@ async def _plan_endpoint_edit(
         reversal="Change it again on the Integrations screen; what was sent cannot be recalled.",
         args={
             "endpoint_id": str(parsed.endpoint_id),
-            **parsed.model_dump(mode="json", exclude={"endpoint_id"}),
+            **parsed.model_dump(mode="json", exclude={"endpoint_id", "opens"}),
+            "opens": opens_call_content(
+                before,
+                include_recording_url=parsed.include_recording_url,
+                include_transcript=parsed.include_transcript,
+                include_raw_transcript=parsed.include_raw_transcript,
+            ),
         },
     )
 
@@ -1892,10 +1910,10 @@ async def _execute_endpoint_edit(
 ) -> Executed:
     """`integrations.service.update_endpoint` — `PATCH /v1/integrations/endpoints/{id}`'s
     call."""
-    from apps.api.integrations.service import update_endpoint
+    from apps.api.integrations.service import opens_call_content, update_endpoint
 
     parsed = parse_args(_EndpointEditArgs, args)
-    await update_endpoint(
+    before = await update_endpoint(
         session,
         endpoint_id=parsed.endpoint_id,
         events=list(parsed.events),
@@ -1904,6 +1922,17 @@ async def _execute_endpoint_edit(
         include_raw_transcript=parsed.include_raw_transcript,
         role=actor.role,
     )
+    # The code was asked for on what the plan saw. Someone switching an opt-in off since
+    # would let this click switch it on uncoded, so a changed answer refuses (rolled back).
+    if not parsed.opens and opens_call_content(
+        before,
+        include_recording_url=parsed.include_recording_url,
+        include_transcript=parsed.include_transcript,
+        include_raw_transcript=parsed.include_raw_transcript,
+    ):
+        raise WriteRefusedError(
+            "that endpoint's settings changed since this was proposed; ask me again"
+        )
     return Executed(
         applied=True,
         detail="Saved.",
@@ -1915,6 +1944,7 @@ CRM_ENDPOINT_EDIT: Final = ActionTool(
     name="crm_endpoint_edit",
     tier="confirm",
     undo=None,
+    action_code=_endpoint_opt_in_code,
     permission="org:manage",
     object_type="outbound_webhook",
     audit_action="integration_endpoint.updated",

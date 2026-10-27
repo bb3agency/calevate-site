@@ -292,15 +292,22 @@ export type EndpointChange = Schemas["UpdateEndpointIn"];
 /**
  * `PATCH /v1/integrations/endpoints/{id}` — new events and opt-ins for an active endpoint.
  * The address cannot change here: a new destination is a new endpoint, behind its code.
+ * Switching a recording link or transcript ON asks for the emailed code; the server decides
+ * from the stored row, so the confirmation is always sent and the code asked only when needed.
  */
 export function useUpdateEndpoint(session: Session) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ endpointId, change }: { endpointId: string; change: EndpointChange }) =>
-      apiRequest<Endpoint>(session, `/v1/integrations/endpoints/${endpointId}`, {
-        method: "PATCH",
-        body: change,
-      }),
+    mutationFn: ({ endpointId, change }: { endpointId: string; change: EndpointChange }) => {
+      const confirmAction = accountAction(session, "endpoint_opt_in");
+      return withAccountCode(confirmAction, "Sending call recordings or transcripts.", () =>
+        apiRequest<Endpoint>(session, `/v1/integrations/endpoints/${endpointId}`, {
+          method: "PATCH",
+          body: change,
+          confirmAction,
+        }),
+      );
+    },
     onSuccess: () => void client.invalidateQueries({ queryKey: ["endpoints", session.orgSlug] }),
   });
 }

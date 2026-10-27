@@ -8625,7 +8625,7 @@ export interface paths {
         head?: never;
         /**
          * Change which events an endpoint receives and what each carries
-         * @description Replace an active endpoint's events and its recording-link and transcript opt-ins. The address is not changeable: add a new destination to send somewhere else. Refused with `endpoint_inactive` for a switched-off endpoint, `sheets_endpoint_events_only` when a Google Sheets destination is asked to carry a recording or transcript, and with the create route's opt-in refusals.
+         * @description Replace an active endpoint's events and its recording-link and transcript opt-ins. The address is not changeable: add a new destination to send somewhere else. Switching on the recording link or a transcript asks for the emailed code (`X-Confirm-Action: endpoint_opt_in:<org>`). Refused with `endpoint_inactive` for a switched-off endpoint, `sheets_endpoint_events_only` when a Google Sheets destination is asked to carry a recording or transcript, and with the create route's opt-in refusals.
          */
         patch: operations["update_endpoint_v1_integrations_endpoints__endpoint_id__patch"];
         trace?: never;
@@ -47596,7 +47596,9 @@ export interface operations {
     update_endpoint_v1_integrations_endpoints__endpoint_id__patch: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Confirm-Action"?: string | null;
+            };
             path: {
                 endpoint_id: string;
             };

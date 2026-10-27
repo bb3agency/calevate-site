@@ -565,6 +565,7 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("GET", "/v1/agents/{agent_id}/engine-state", {}, {}),
     ("GET", "/v1/agents/{agent_id}/experiment", {}, {}),
     ("GET", "/v1/agents/{agent_id}/extraction-schema", {}, {}),
+    ("GET", "/v1/agents/{agent_id}/known-facts", {}, {}),
     ("PUT", "/v1/agents/{agent_id}/extraction-schema", {"fields": []}, {}),
     ("GET", "/v1/agents/{agent_id}/lead-suggestions", {}, {}),
     ("POST", "/v1/agents/{agent_id}/lead-suggestions/check", {}, {}),

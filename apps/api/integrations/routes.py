@@ -48,7 +48,11 @@ from apps.api.core.rbac import permission_meta
 from apps.api.core.stepup import ClientActionCode, client_confirmation
 from apps.api.db.base import uuid7
 from apps.api.integrations import service
-from apps.api.integrations.service import EVENT_TYPES
+from apps.api.integrations.service import (
+    ENDPOINT_OPT_IN_VERB,
+    EVENT_TYPES,
+    opens_call_content,
+)
 
 # The API asking the delivery path whether it can deliver. Imported rather than
 # re-derived from settings so there is ONE answer: a config surface that decided for
@@ -490,7 +494,9 @@ class UpdateEndpointIn(Strict):
     description=(
         "Replace an active endpoint's events and its recording-link and transcript "
         "opt-ins. The address is not changeable: add a new destination to send somewhere "
-        "else. Refused with `endpoint_inactive` for a switched-off endpoint, "
+        "else. Switching on the recording link or a transcript asks for the emailed code "
+        "(`X-Confirm-Action: endpoint_opt_in:<org>`). "
+        "Refused with `endpoint_inactive` for a switched-off endpoint, "
         "`sheets_endpoint_events_only` when a Google Sheets destination is asked to carry "
         "a recording or transcript, and with the create route's opt-in refusals."
     ),
@@ -501,9 +507,14 @@ async def update_endpoint(
     session: Session,
     request: Request,
     principal: EndpointOwner,
+    code: ClientActionCode,
+    x_confirm_action: ConfirmAction = None,
 ) -> EndpointOut:
-    """No emailed code, unlike the create: the destination was approved with one and stays
-    the same, and the raw-transcript opt-in still needs `calls:read_raw`."""
+    """Events and switching an opt-in off need no code: the destination was approved with one
+    and stays the same. Switching the recording link or a transcript ON starts call content
+    leaving the account, so it asks for the emailed code as the create does (founder, 27 Oct
+    2026). The check runs after the update, inside the same transaction, because only the
+    locked row says what was off; a refusal rolls the update back."""
     assert principal.tenant_id is not None
     before = await service.update_endpoint(
         session,
@@ -514,6 +525,13 @@ async def update_endpoint(
         include_raw_transcript=payload.include_raw_transcript,
         role=principal.role,
     )
+    if opens_call_content(
+        before,
+        include_recording_url=payload.include_recording_url,
+        include_transcript=payload.include_transcript,
+        include_raw_transcript=payload.include_raw_transcript,
+    ):
+        await code.require(x_confirm_action, client_confirmation(request, ENDPOINT_OPT_IN_VERB))
     await write_audit(
         session,
         action=ENDPOINT_UPDATED,
