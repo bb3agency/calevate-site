@@ -306,7 +306,7 @@ function routes(over: Record<string, unknown> = {}) {
       recent: [],
       on_duty_member_id: null,
       unavailable_reason: "disabled",
-      remediation: "Handing calls to a person is switched off for this agent.",
+      remediation: "Transfer to a person is off for this agent. Turn it on to use it.",
       published: true,
     },
     // The voices the Voice section offers, and the lane rules: both read on this screen, and
@@ -1961,7 +1961,7 @@ describe("a deleted agent offers nothing to tweak (the founder's screenshot)", (
     await screen.findByText("Reception");
     expect(screen.getAllByText("Deleted").length).toBeGreaterThan(0);
     expect(card("What it writes down")).toBeTruthy();
-    expect(card("What it is").textContent).toContain("Bring it back first");
+    expect(card("What it is").textContent).toContain("Bring it back to change");
   });
 });
 
@@ -2180,7 +2180,7 @@ describe("changing what an agent is", () => {
     expect(
       within(panel).queryByRole("button", { name: /Save changes/ }),
     ).toBeNull();
-    expect(panel.textContent).toContain("Bring it back first");
+    expect(panel.textContent).toContain("Bring it back to change");
   });
 });
 

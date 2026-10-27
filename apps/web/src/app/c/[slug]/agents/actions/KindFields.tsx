@@ -537,11 +537,9 @@ export function KindFields({
         </label>
       ) : null}
       <p className={FIELD_HINT}>
-        Found by the caller&rsquo;s number, so the agent can greet them by name. It never reads
-        anyone else&rsquo;s record. On calls your agent places, it is looked up before the phone
-        rings; on calls that come in, the agent looks it up straight after its greeting. People
-        who have called before are already remembered by your agent&rsquo;s caller memory, with
-        no wait at all.
+        Found by the caller&rsquo;s number so the agent can greet them by name. It never reads
+        anyone else&rsquo;s record. Looked up before the phone rings on outgoing calls, and just
+        after the greeting on incoming ones.
       </p>
     </div>
   );

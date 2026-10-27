@@ -47,7 +47,7 @@ import { useEffect, useState } from "react";
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { EmptySketch } from "@/components/console/emptySketch";
 import { EmptyState } from "@/components/console/emptyState";
-import { InfoTip } from "@/components/console/infoTip";
+import { HowItWorks } from "@/components/console/howItWorks";
 import {
   FIELD,
   FIELD_LABEL,
@@ -164,40 +164,31 @@ export function Handover({ agent }: { agent: Agent }) {
     })),
   };
 
+  /*
+   * A warning only when the owner has something to do. "Off" restates the switch, and
+   * "outside hours" or "this agent cannot transfer" ask nothing of them, so those are a
+   * quiet line at most. The two that need action: on with nobody switched on (judged on
+   * the DRAFT, so it clears the moment someone is added) and hours the server cannot read.
+   */
+  const nobodyChosen = enabled && !rows.some((row) => row.active);
+  const needsHours = enabled && !nobodyChosen && data.unavailable_reason === "hours_unknown";
+  const quietNote =
+    data.unavailable_reason === "platform_cannot_transfer" ||
+    (enabled && !nobodyChosen && data.unavailable_reason === "outside_hours")
+      ? data.remediation
+      : null;
+  const onDuty = data.members.find((member) => member.id === data.on_duty_member_id)?.label;
+
   return (
     <section>
-      <div className="flex items-center gap-1">
-        <h3 className="text-heading text-ink">Putting a caller through to a person</h3>
-        <InfoTip label="Putting a caller through">
-          <p>
-            When someone asks to speak to a person, your agent rings the first person on this
-            list who is available and connects the caller to them. The second person is rung
-            when the first is switched off or outside their hours, not when they miss the call.
-          </p>
-        </InfoTip>
-      </div>
+      <h3 className="text-heading text-ink">Transfer to a person</h3>
       <p className="mt-1 text-sm text-ink-muted">
-        Choose who this agent may put callers through to. Names and numbers are kept in your{" "}
+        Choose who takes the call, from your{" "}
         <Link href={contactsHref} className="font-medium text-brand-strong hover:underline">
           business profile
         </Link>
         .
-        {" "}To pass callers to another of your agents — sales to support, say — add that
-        agent&rsquo;s phone number to your business profile and choose it here.
       </p>
-
-      <ul className="mt-3 list-disc space-y-1 pl-5 text-xs text-ink-muted">
-        <li>
-          The person taking the call is not told anything before they pick up — the caller is
-          put straight through. What was said is on this page and on the call the moment it
-          ends.
-        </li>
-        <li>
-          If nobody answers, we do not try the next person on the same call: the agent offers
-          your caller a call-back instead, and books it for the next time we are allowed to
-          ring them.
-        </li>
-      </ul>
 
       {write.reason && (
         <div className="mt-4">
@@ -213,27 +204,27 @@ export function Handover({ agent }: { agent: Agent }) {
               setDirty(true);
               setEnabled(next);
             }}
-            label="Let this agent put callers through"
-            hint="Off means callers who ask for a person are offered a call-back instead."
+            label="Let callers reach your team"
+            hint="When off, callers who ask for a person get a call-back."
           />
         </div>
 
-        {data.unavailable_reason ? (
-          <div className={`mt-4 ${NOTICE_BASE} ${NOTICE_BAR.warn}`}>
-            <p className="font-medium">Nobody is available to take a call right now.</p>
-            {data.remediation && <p className="text-ink-muted">{data.remediation}</p>}
-          </div>
-        ) : (
-          <p className={`mt-4 ${NOTICE_BASE} ${NOTICE_BAR.ok}`}>
-            A caller asking for a person right now would reach{" "}
-            <strong>
-              {data.members.find((member) => member.id === data.on_duty_member_id)?.label ??
-                "the first person on this list"}
-            </strong>
-            .
+        {nobodyChosen && (
+          <p role="status" className={`mt-4 ${NOTICE_BASE} ${NOTICE_BAR.warn}`}>
+            Nobody is chosen to take calls. Add someone below, or callers get a call-back.
           </p>
         )}
-        {data.platform_note && <p className="mt-2 text-sm text-ink-muted">{data.platform_note}</p>}
+        {needsHours && data.remediation && (
+          <p role="status" className={`mt-4 ${NOTICE_BASE} ${NOTICE_BAR.warn}`}>
+            {data.remediation}
+          </p>
+        )}
+        {quietNote && <p className="mt-3 text-sm text-ink-muted">{quietNote}</p>}
+        {enabled && !dirty && onDuty && (
+          <p className="mt-3 text-sm text-ink-muted">
+            Right now, callers reach <strong className="font-medium text-ink">{onDuty}</strong>.
+          </p>
+        )}
 
         {profile.data.contacts.length === 0 ? (
           <EmptyState illustration={<EmptySketch kind="numbers" />}
@@ -319,6 +310,15 @@ export function Handover({ agent }: { agent: Agent }) {
       </fieldset>
 
       {save.error && <ProblemNotice error={save.error} />}
+
+      <HowItWorks
+        items={[
+          "The first available person is rung. If they miss it, the agent books a call-back.",
+          "Callers go straight through. Your team member is not briefed first.",
+          ...(data.platform_note ? [data.platform_note] : []),
+          "To pass callers to another of your agents, add its number to your business profile.",
+        ]}
+      />
 
       {data.recent.length > 0 && (
         <div className="mt-5">

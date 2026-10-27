@@ -200,31 +200,20 @@ HANDOFF_SPOKEN_TEMPLATES: Final[dict[str, str]] = {
 #: Why nobody is on duty. Each value is a sentence a CLIENT is shown and an operator
 #: metric label, so the set is closed and each member has an authored remediation below.
 _UNAVAILABLE_REASONS: Final[dict[str, str]] = {
-    "disabled": (
-        "Handing calls to a person is switched off for this agent. Turn it on to start "
-        "sending callers to your team."
-    ),
-    "no_members": (
-        "Nobody is on this agent's handover list, so there is no one to put a caller "
-        "through to. Add the people who can take a call."
-    ),
+    "disabled": "Transfer to a person is off for this agent. Turn it on to use it.",
+    "no_members": "Nobody is chosen to take calls. Add someone from your team.",
     "none_active": (
-        "Everyone on the handover list is switched off. Switch at least one person back "
-        "on, or callers asking for a person will be offered a call-back instead."
+        "Everyone on the list is switched off. Switch someone back on, or callers get "
+        "a call-back."
     ),
     "hours_unknown": (
-        "We do not know when your business is open, so we will not ring anyone's mobile. "
-        "Record your opening hours — or give each person on the list their own hours — "
-        "and handovers will start working."
+        "Add your opening hours so we know when to ring your team. Until then, nobody "
+        "is rung."
     ),
-    "outside_hours": (
-        "Nobody on the handover list is available right now, so callers asking for a "
-        "person are offered a call-back instead."
-    ),
+    "outside_hours": "Nobody is available right now, so callers get a call-back.",
     PLATFORM_CANNOT_TRANSFER: (
-        "The voice platform this agent runs on cannot put a caller through to a person "
-        "yet, so your handover list is saved and not in use — callers asking for a person "
-        "are told plainly and offered a call-back instead. Nothing needs changing here."
+        "Transfers are not available yet. Callers who ask for a person are told so and "
+        "get a call-back. Nothing to change here."
     ),
 }
 

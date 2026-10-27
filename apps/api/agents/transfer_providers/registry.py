@@ -26,9 +26,9 @@ PLATFORM_CANNOT_TRANSFER: Final = "platform_cannot_transfer"
 #: channels/voice.md:483-492). Client copy, so no vendor is named (D-679).
 CARRIER_LIMITED_TRANSFER_NOTES: Final[dict[str, str]] = {
     "thinnest": (
-        "A caller is put through live on numbers rented through Calevate. On a number "
-        "brought from another phone company that cannot transfer, the voice platform marks "
-        "the request instead and tells the caller somebody will follow up."
+        "Live transfer works on numbers rented through Calevate. Where a number from "
+        "another phone company cannot transfer, we note the request and tell the caller "
+        "your team will follow up."
     ),
 }
 

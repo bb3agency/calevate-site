@@ -38,14 +38,14 @@ vi.mock("next/navigation", () => ({
  * 1. **Implying the person answering is briefed first.** They are not. The voice platform
  *    places the transfer on its own carrier account and nothing plays a message to the
  *    called party — so a screen that said "your team hears why the call is coming" would
- *    have a shop owner tell their customers so. The panel says the opposite, without a
- *    click, and this file pins the sentence.
+ *    have a shop owner tell their customers so. The panel says the opposite under "How it
+ *    works", and this file pins the sentence.
  * 2. **Implying the list is tried in turn during the call.** The platform allows one
  *    handover per conversation. The order decides who is CHOSEN before the call; a
  *    handover nobody answers becomes a call-back, not a second ring.
- * 3. **Saying "working" when nobody is on duty.** The verdict is the server's, with the
- *    server's own remediation, because a screen that composed its own could disagree with
- *    the publish about the same agent.
+ * 3. **Warning when nothing needs doing, or staying quiet when it does.** A warning shows
+ *    only when transfer is on and nobody is chosen, or the server says the opening hours
+ *    are missing; the switch itself says when it is off.
  * 4. **Saving half an edit.** The whole list goes in one PUT; a re-order and a removal
  *    land together or not at all.
  */
@@ -237,29 +237,23 @@ function handoff(over: Partial<HandoffOut> = {}): HandoffOut {
   };
 }
 
+/** The panel's own heading: the card title paints before the query resolves. */
+const panelHeading = () =>
+  screen.findByRole("heading", { level: 3, name: "Transfer to a person" });
+
+const WARNING = "Nobody is chosen to take calls.";
+
 describe("what the handover panel promises about the person answering", () => {
   it("says plainly that nobody is briefed before they pick up", async () => {
     const { container } = await renderClientPage(
       page,
       routes({ [HANDOFF_PATH]: handoff() }),
     );
-    // The panel's own heading, NOT the Card title above it: the title paints immediately
-    // and the panel is a skeleton until the query resolves, so awaiting the title would
-    // read `textContent` off the loading state — which is how three of these first passed
-    // against a panel that had not rendered.
-    // The panel's own heading, NOT the Card title above it: the title paints immediately
-    // and the panel is a skeleton until the query resolves, so awaiting the title would
-    // read `textContent` off the loading state — which is how three of these first passed
-    // against a panel that had not rendered.
-    await screen.findByRole("heading", {
-      level: 3,
-      name: /Putting a caller through to a person/,
-    });
-    // THE SENTENCE THAT MUST NOT DISAPPEAR. If a future edit removes it, a client is left
-    // to assume the founder's original request was built.
-    expect(container.textContent).toContain(
-      "not told anything before they pick up",
-    );
+    await panelHeading();
+    // THE SENTENCE THAT MUST NOT DISAPPEAR, now under "How it works". If a future edit
+    // removes it, a client is left to assume the founder's original request was built.
+    expect(screen.getAllByRole("heading", { level: 4, name: "How it works" }).length).toBeGreaterThan(0);
+    expect(container.textContent).toContain("Your team member is not briefed first.");
   });
 
   it("says a missed handover becomes a call-back rather than a second ring", async () => {
@@ -267,20 +261,9 @@ describe("what the handover panel promises about the person answering", () => {
       page,
       routes({ [HANDOFF_PATH]: handoff() }),
     );
-    // The panel's own heading, NOT the Card title above it: the title paints immediately
-    // and the panel is a skeleton until the query resolves, so awaiting the title would
-    // read `textContent` off the loading state — which is how three of these first passed
-    // against a panel that had not rendered.
-    // The panel's own heading, NOT the Card title above it: the title paints immediately
-    // and the panel is a skeleton until the query resolves, so awaiting the title would
-    // read `textContent` off the loading state — which is how three of these first passed
-    // against a panel that had not rendered.
-    await screen.findByRole("heading", {
-      level: 3,
-      name: /Putting a caller through to a person/,
-    });
+    await panelHeading();
     expect(container.textContent).toContain(
-      "we do not try the next person on the same call",
+      "If they miss it, the agent books a call-back.",
     );
   });
 
@@ -289,39 +272,100 @@ describe("what the handover panel promises about the person answering", () => {
       page,
       routes({ [HANDOFF_PATH]: handoff() }),
     );
-    // The panel's own heading, NOT the Card title above it: the title paints immediately
-    // and the panel is a skeleton until the query resolves, so awaiting the title would
-    // read `textContent` off the loading state — which is how three of these first passed
-    // against a panel that had not rendered.
-    // The panel's own heading, NOT the Card title above it: the title paints immediately
-    // and the panel is a skeleton until the query resolves, so awaiting the title would
-    // read `textContent` off the loading state — which is how three of these first passed
-    // against a panel that had not rendered.
-    await screen.findByRole("heading", {
-      level: 3,
-      name: /Putting a caller through to a person/,
-    });
-    expect(container.textContent).toContain("Ravi");
+    await panelHeading();
+    expect(container.textContent).toContain("Right now, callers reach Ravi");
   });
 
-  it("prints the server's own reason and remedy when nobody is on duty", async () => {
-    // FIVE CAUSES, and the screen must not collapse them: the fix for "we do not know your
-    // opening hours" and the fix for "it is eleven at night" are different actions.
+  it("states where live transfer works when the server says it depends on the number", async () => {
+    const note = "Live transfer works on numbers rented through Calevate.";
+    const { container } = await renderClientPage(
+      page,
+      routes({ [HANDOFF_PATH]: handoff({ platform_note: note }) }),
+    );
+    await panelHeading();
+    expect(container.textContent).toContain(note);
+  });
+
+  it("prints the server's remedy when the opening hours are missing", async () => {
+    // The fix for "we do not know your opening hours" is an action, so it is a warning.
     const { container } = await renderClientPage(
       page,
       routes({
         [HANDOFF_PATH]: handoff({
           on_duty_member_id: null,
           unavailable_reason: "hours_unknown",
-          remediation:
-            "We do not know when your business is open, so we will not ring anyone.",
+          remediation: "Add your opening hours so we know when to ring your team.",
         }),
       }),
     );
-    await screen.findByText("Nobody is available to take a call right now.");
-    expect(container.textContent).toContain("we will not ring anyone");
+    await panelHeading();
+    expect(container.textContent).toContain("Add your opening hours");
+  });
+});
+
+describe("the hand-over warning appears only when the owner has something to do", () => {
+  it("warns when transfer is on and nobody is chosen", async () => {
+    const { container } = await renderClientPage(
+      page,
+      routes({
+        [HANDOFF_PATH]: handoff({
+          members: [],
+          on_duty_member_id: null,
+          unavailable_reason: "no_members",
+          remediation: "Nobody is chosen to take calls. Add someone from your team.",
+        }),
+      }),
+    );
+    await panelHeading();
+    expect(container.textContent).toContain(WARNING);
   });
 
+  it("warns when transfer is on and everyone chosen is switched off", async () => {
+    const { container } = await renderClientPage(
+      page,
+      routes({
+        [HANDOFF_PATH]: handoff({
+          members: [member({ active: false, on_duty: false })],
+          on_duty_member_id: null,
+          unavailable_reason: "none_active",
+          remediation: "Everyone on the list is switched off.",
+        }),
+      }),
+    );
+    await panelHeading();
+    expect(container.textContent).toContain(WARNING);
+  });
+
+  it("shows no warning when transfer is off, even with nobody chosen", async () => {
+    const { container } = await renderClientPage(
+      page,
+      routes({
+        [HANDOFF_PATH]: handoff({
+          enabled: false,
+          members: [],
+          on_duty_member_id: null,
+          unavailable_reason: "disabled",
+          remediation: "Transfer to a person is off for this agent. Turn it on to use it.",
+        }),
+      }),
+    );
+    await panelHeading();
+    expect(container.textContent).not.toContain(WARNING);
+    // The switch already says it is off; no box restates it.
+    expect(container.textContent).not.toContain("Transfer to a person is off");
+  });
+
+  it("shows no warning when transfer is on and someone is chosen", async () => {
+    const { container } = await renderClientPage(
+      page,
+      routes({ [HANDOFF_PATH]: handoff() }),
+    );
+    await panelHeading();
+    expect(container.textContent).not.toContain(WARNING);
+  });
+});
+
+describe("recent handovers and saving the list", () => {
   it("tells a client the second recording exists and is kept on the same terms", async () => {
     // A client answering a deletion request has to know a call produced TWO recordings,
     // and what to do about it. The "what to do" half changed with the founder's decision
@@ -364,18 +408,7 @@ describe("what the handover panel promises about the person answering", () => {
       page,
       routes({ [HANDOFF_PATH]: handoff() }),
     );
-    // The panel's own heading, NOT the Card title above it: the title paints immediately
-    // and the panel is a skeleton until the query resolves, so awaiting the title would
-    // read `textContent` off the loading state — which is how three of these first passed
-    // against a panel that had not rendered.
-    // The panel's own heading, NOT the Card title above it: the title paints immediately
-    // and the panel is a skeleton until the query resolves, so awaiting the title would
-    // read `textContent` off the loading state — which is how three of these first passed
-    // against a panel that had not rendered.
-    await screen.findByRole("heading", {
-      level: 3,
-      name: /Putting a caller through to a person/,
-    });
+    await panelHeading();
 
     // The editor fails closed until `/v1/me` has said this session holds `org:manage`.
     const moveUp = screen.getAllByRole("button", { name: "Move up" })[1];

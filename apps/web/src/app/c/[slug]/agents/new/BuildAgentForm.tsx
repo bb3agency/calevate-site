@@ -85,20 +85,17 @@ export function ComplianceFloor() {
       </p>
       <ul className="mt-2 space-y-1.5 text-sm text-ink-muted">
         <li>
-          It starts every call with its greeting only. It does not volunteer that it is an
-          AI assistant or that the call is being recorded unless you switch that
-          announcement on; an announcement you switch on is said just before the greeting,
-          never instead of it. Both sentences are already written for you in the language
-          you chose.
+          It starts every call with its greeting only. It says it is an AI assistant, or that
+          the call is being recorded, only if you switch that announcement on — just before
+          the greeting.
         </li>
         <li>
-          You can switch either announcement on later, per agent, on the agent&apos;s own
-          screen — the two are separate obligations and are separately switchable.
+          You can switch either announcement on later, on the agent&apos;s own screen. Both
+          sentences are already written in your language.
         </li>
         <li>
-          Whatever those switches say, it always answers honestly when a caller asks
-          whether it is an AI or whether the call is recorded. That one cannot be switched
-          off by you, by us, or by anything written in its script.
+          If a caller asks whether it is an AI or whether the call is recorded, it always
+          answers honestly. This cannot be switched off by you, by us, or by its script.
         </li>
       </ul>
     </section>

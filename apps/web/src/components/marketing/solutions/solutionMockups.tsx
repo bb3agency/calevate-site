@@ -123,9 +123,9 @@ export function AnsweringMock() {
           <CardTitle>Handover</CardTitle>
           <span className="flex items-start gap-3 rounded-lg border border-line px-3 py-2.5">
             <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-              <span className="text-[12px] font-semibold text-ink">Let this agent put callers through</span>
+              <span className="text-[12px] font-semibold text-ink">Let callers reach your team</span>
               <span className="text-[11px] leading-snug text-ink-muted">
-                Off means callers who ask for a person are offered a call-back instead.
+                When off, callers who ask for a person get a call-back.
               </span>
             </span>
             <Toggle on={false} />

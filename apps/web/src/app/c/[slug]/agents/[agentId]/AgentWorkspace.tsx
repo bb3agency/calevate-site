@@ -128,8 +128,8 @@ function AgentDetail({ agent, slug }: { agent: Agent; slug: string }) {
       <div className="space-y-8">
         <AgentHeader agent={agent} slug={slug} />
         <p className="max-w-prose text-sm text-ink-muted">
-          Its script and settings are kept exactly as they were, as the record of what it did,
-          and cannot be changed while it is deleted. It comes back switched off.
+          Its script and settings are kept as a record and cannot be changed while it is
+          deleted. It comes back switched off.
         </p>
         <ExtractionList agent={agent} leadsHref={leadsLink} />
         <section aria-labelledby="deleted-identity-heading">

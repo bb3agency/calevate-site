@@ -167,9 +167,8 @@ export function ScriptBuilder({
     return (
       <NoticeBox tone="warn" title="This agent is deleted">
         <p className="mt-1">
-          Its script is kept exactly as it was and cannot be edited while the agent is deleted.
-          Bring the agent back from its own screen; it returns switched off, and the builder
-          opens again.
+          Its script is kept as a record. Bring the agent back from its own screen to edit
+          it; it returns switched off.
         </p>
       </NoticeBox>
     );

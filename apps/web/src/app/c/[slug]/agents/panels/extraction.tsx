@@ -19,7 +19,7 @@ import {
   formatISTStamp,
 } from "@/components/ui";
 import { useFormValidation } from "@/components/formValidation";
-import { InfoTip } from "@/components/console/infoTip";
+import { HowItWorks } from "@/components/console/howItWorks";
 import { isDeleted } from "@/lib/agentState";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useSetExtractionSchema, type Agent } from "@/lib/api/agents";
@@ -259,27 +259,17 @@ function ExtractionEditor({ agent, leadsHref }: { agent: Agent; leadsHref: React
 
   return (
     <section>
-      <div className="flex items-center gap-1">
-        <h3 className="text-heading text-ink">What it writes down</h3>
-        <InfoTip label="What it writes down">
-          <p>
-            The agent fills these in from the conversation — it never reads a form aloud, so
-            a caller who answers early is not asked twice.
-          </p>
-          <p>
-            A variable marked Required is what the agent is told to capture on every call; a
-            call that ends without one still becomes a lead, with that column left empty.
-            The optional reason is fed to the AI so it fills the column more accurately —
-            leave it blank to use just the name.
-          </p>
-        </InfoTip>
-      </div>
+      <h3 className="text-heading text-ink">What it writes down</h3>
       <p className="mt-1 text-sm text-ink-muted">These are the columns in your {leadsHref} table.</p>
-      <p className="mt-1 text-xs text-ink-muted">
-        Every call also writes down the caller&apos;s name, what they want, a preferred time,
-        another number, the language and any notes. Those are fixed and listed under Settings,
-        Lead details.
-      </p>
+      <HowItWorks
+        className="mt-2"
+        items={[
+          "The agent fills these in from the conversation. It never reads out a form.",
+          "Required ones are asked on every call. A call without one still becomes a lead.",
+          "The optional reason helps the agent fill the column more accurately.",
+          "Name, need, preferred time, another number, language and notes are always written down (Settings, Lead details).",
+        ]}
+      />
 
       <RestrictionNote reason={write.reason} />
       {save.error && (
@@ -375,10 +365,8 @@ function ExtractionEditor({ agent, leadsHref }: { agent: Agent; leadsHref: React
         </div>
 
         <p className="text-xs text-ink-muted">
-          Changes are saved here and take effect on the next call — there is no test run and
-          no waiting. Renaming or removing a variable stops it showing as a column on leads
-          captured before the change — their saved values are kept, just no longer shown
-          under that name. That is why an existing variable&apos;s id cannot be changed here.
+          Changes take effect on the next call. Renaming or removing one hides its column on
+          older leads; their values are kept.
         </p>
       </form>
     </section>
@@ -455,8 +443,8 @@ function ArchivedExtractionList({
         <p className="mt-2 text-sm text-ink-muted">This agent captured no extra columns.</p>
       )}
       <p className="mt-2 text-xs text-ink-muted">
-        This agent is deleted, so its columns in your {leadsHref} table are kept exactly as
-        they were — part of the record of what it did. Bring it back first to change them.
+        This agent is deleted, so its columns in your {leadsHref} table are kept as a
+        record. Bring it back to change them.
       </p>
     </section>
   );
