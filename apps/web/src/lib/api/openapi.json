@@ -407,18 +407,6 @@
           "malformed": {
             "title": "Malformed",
             "type": "integer"
-          },
-          "plan_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Plan Id"
           }
         },
         "required": [
@@ -490,6 +478,48 @@
           }
         },
         "title": "AddLeadsIn",
+        "type": "object"
+      },
+      "AddLeadsOut": {
+        "additionalProperties": false,
+        "description": "`from-leads` only: a pasted CSV is always added in the request, so the plain\ncontacts response carries no plan.",
+        "properties": {
+          "added": {
+            "title": "Added",
+            "type": "integer"
+          },
+          "duplicate": {
+            "title": "Duplicate",
+            "type": "integer"
+          },
+          "foreign": {
+            "default": 0,
+            "title": "Foreign",
+            "type": "integer"
+          },
+          "malformed": {
+            "title": "Malformed",
+            "type": "integer"
+          },
+          "plan_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Id"
+          }
+        },
+        "required": [
+          "added",
+          "malformed",
+          "duplicate"
+        ],
+        "title": "AddLeadsOut",
         "type": "object"
       },
       "AddNumbersIn": {
@@ -73190,7 +73220,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AddContactsOut"
+                  "$ref": "#/components/schemas/AddLeadsOut"
                 }
               }
             },

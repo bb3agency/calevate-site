@@ -12575,8 +12575,6 @@ export interface components {
             foreign: number;
             /** Malformed */
             malformed: number;
-            /** Plan Id */
-            plan_id?: string | null;
         };
         /** AddHostedVoiceIn */
         AddHostedVoiceIn: {
@@ -12594,6 +12592,26 @@ export interface components {
             /** Lead Ids */
             lead_ids?: string[] | null;
             lens?: components["schemas"]["LeadLensIn"] | null;
+        };
+        /**
+         * AddLeadsOut
+         * @description `from-leads` only: a pasted CSV is always added in the request, so the plain
+         *     contacts response carries no plan.
+         */
+        AddLeadsOut: {
+            /** Added */
+            added: number;
+            /** Duplicate */
+            duplicate: number;
+            /**
+             * Foreign
+             * @default 0
+             */
+            foreign: number;
+            /** Malformed */
+            malformed: number;
+            /** Plan Id */
+            plan_id?: string | null;
         };
         /** AddNumbersIn */
         AddNumbersIn: {
@@ -44739,7 +44757,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AddContactsOut"];
+                    "application/json": components["schemas"]["AddLeadsOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

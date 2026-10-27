@@ -297,6 +297,12 @@ class AddContactsOut(Strict):
     # Well-formed but non-Indian (+91) numbers, dropped at upload under the India-only
     # freeze (LEGAL-OPS-PLAYBOOK §14/§18) rather than stored as un-dialable contacts.
     foreign: int = 0
+
+
+class AddLeadsOut(AddContactsOut):
+    """`from-leads` only: a pasted CSV is always added in the request, so the plain
+    contacts response carries no plan."""
+
     #: Set when a `lens` matched more than one request adds: the leads are added by an
     #: approved plan in the background (D-893 F3) and the counts above are all zero.
     plan_id: UUID | None = None
@@ -1368,7 +1374,7 @@ async def _add_leads_as_plan(
     principal: Principal,
     campaign_id: UUID,
     chosen: LeadLensIn,
-) -> AddContactsOut:
+) -> AddLeadsOut:
     """The `campaign_add_leads` plan Pip makes, built and approved in this request, as
     `crm/routes._bulk_as_plan` does for a large leads change."""
     from apps.api.copilot import plans
@@ -1405,12 +1411,12 @@ async def _add_leads_as_plan(
             "excluded": approved.excluded_count,
         },
     )
-    return AddContactsOut(added=0, malformed=0, duplicate=0, plan_id=approved.id)
+    return AddLeadsOut(added=0, malformed=0, duplicate=0, plan_id=approved.id)
 
 
 @router.post(
     "/{campaign_id}/contacts/from-leads",
-    response_model=AddContactsOut,
+    response_model=AddLeadsOut,
     openapi_extra=permission_meta("leads:dispatch"),
     summary="Add your CRM leads to a campaign, picked by id or by the leads lens",
 )
@@ -1420,7 +1426,7 @@ async def add_contacts_from_leads(
     session: Session,
     request: Request,
     principal: Principal = Depends(requires("leads:dispatch")),
-) -> AddContactsOut:
+) -> AddLeadsOut:
     """The numbers are read from the leads on the server (`controls.add_leads`). A lens
     matching more than `controls.MAX_LEADS_PER_ADD` runs as the approved
     `campaign_add_leads` plan Pip makes (D-893 F3) rather than being cut short, because the
@@ -1456,7 +1462,7 @@ async def add_contacts_from_leads(
                 remediation="Check the leads and add them again.",
             )
         if not lead_ids:
-            return AddContactsOut(added=0, malformed=0, duplicate=0)
+            return AddLeadsOut(added=0, malformed=0, duplicate=0)
         if len(lead_ids) > controls.MAX_LEADS_PER_ADD:
             return await _add_leads_as_plan(session, request, principal, campaign_id, payload.lens)
     assert lead_ids is not None
@@ -1476,7 +1482,7 @@ async def add_contacts_from_leads(
             **{key: int(value) for key, value in result.items()},
         },
     )
-    return AddContactsOut.model_validate({k: v for k, v in result.items() if k != "leads"})
+    return AddLeadsOut.model_validate({k: v for k, v in result.items() if k != "leads"})
 
 
 @router.post(
