@@ -2698,6 +2698,18 @@ const CLIENT_SCREENS: Screen[] = [
       // markup — the roster row, the duty pill, the spoken line and one attempt — and
       // the disabled state is a subset of it. An empty roster would leave the panel's
       // real controls unswept while still turning the test green.
+      // The Training tab's "What it knows by heart" card (D-896).
+      "/v1/agents/agent-1/known-facts": {
+        enabled: true,
+        applies: true,
+        by_heart: [{ text: "Red chilli powder is ₹120 for 250 g.", asks: 4 }],
+        looked_up: ["We deliver in Kukatpally."],
+        looked_up_total: 1,
+        used_chars: 90,
+        budget_chars: 6000,
+        calls_read: 12,
+        computed_at: "2026-10-27T01:00:00Z",
+      },
       "/v1/agents/agent-1/handoff": {
         agent_id: "agent-1",
         enabled: true,

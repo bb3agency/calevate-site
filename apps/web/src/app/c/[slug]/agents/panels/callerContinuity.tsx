@@ -35,7 +35,7 @@ import { useState } from "react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { ProblemNotice, RestrictionNote, ToggleSwitch } from "@/components/ui";
-import { InfoTip } from "@/components/console/infoTip";
+import { HowItWorks } from "@/components/console/howItWorks";
 import { useSetCallerMemory, type Agent } from "@/lib/api/agents";
 import { useActAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
@@ -92,19 +92,7 @@ export function CallerContinuity({ agent }: { agent: Agent }) {
 
   return (
     <section>
-      <div className="flex items-center gap-1">
-        <h3 className="text-heading text-ink">
-          Remembering callers, and calling them back
-        </h3>
-        <InfoTip label="Remembering callers">
-          <p>
-            Two things, always on or off together, for this agent. It remembers the people it has
-            spoken to, so someone who rings again is greeted with what they asked about last
-            time. And when a caller asks to be rung back at a particular time, that call is
-            booked for exactly then and goes out already knowing the conversation.
-          </p>
-        </InfoTip>
-      </div>
+      <h3 className="text-heading text-ink">Remembering callers</h3>
       <p className="mt-1 text-body text-ink-muted">
         Greets returning callers with what they asked last time, and books the call-backs
         they ask for.
@@ -133,40 +121,23 @@ export function CallerContinuity({ agent }: { agent: Agent }) {
             setCallerMemory.mutate({ enabled: next, accept: readStatement });
           }}
         />
-        <p className="mt-2 text-xs text-ink-muted">
-          Off unless you switch it on.
+        <p className="mt-2 flex items-start gap-2 text-xs text-ink-muted">
+          <ShieldCheck aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>
+            {agent.caller_memory_enabled ? "This agent tells" : "When on, the agent tells"}{" "}
+            callers, as it says goodbye, that a short note is kept. Notes are charged like
+            other assistant work and stop at your spending limit.
+          </span>
         </p>
 
-        {agent.caller_memory_enabled ? (
-          <p className="mt-3 flex items-start gap-2 text-xs text-ink-muted">
-            <ShieldCheck aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            <span>
-              This agent now says, as it says goodbye, that a short note is kept.
-              That sentence cannot be switched off on its own — it appears with the call notices on{" "}
-              <strong>Overview</strong>, and it goes away when this goes off.
-            </span>
-          </p>
-        ) : null}
-
-        <ul className="mt-3 space-y-1 text-xs text-ink-muted">
-          <li>
-            Kept: what the caller wanted, what happened, and anything they said they
-            prefer — the language they like, when they prefer to be called, who they
-            usually deal with.
-          </li>
-          <li>
-            Never kept: health details, amounts of money, or anything quoted in their own
-            words.
-          </li>
-          <li>
-            Used only for that person&apos;s own future calls with you, never shared, and
-            deleted after 180 days — or sooner if they ask.
-          </li>
-          <li>
-            Writing these notes is charged to your account like any other assistant work,
-            so your spending limit stops it along with everything else.
-          </li>
-        </ul>
+        <HowItWorks
+          items={[
+            "Kept: what they wanted, what happened, and preferences like language, call time or contact.",
+            "Never kept: health details, amounts of money, or their exact words.",
+            "Used only for that person's calls with you, never shared. Deleted after 180 days, or sooner if asked.",
+            "The goodbye sentence goes with this switch; it cannot be turned off on its own.",
+          ]}
+        />
       </div>
 
       {/* THE ATTESTATION, rendered ONLY from the server's own refusal — see the module

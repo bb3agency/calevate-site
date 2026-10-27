@@ -117,8 +117,8 @@ export function AgentModel({ agent, slug }: { agent: AgentWithLlm; slug: string 
       readOnly={
         isDeleted(agent) ? (
           <p className="text-body text-ink-muted">
-            This agent is deleted, so its model is kept as it was, as part of the record of
-            what it did. Bring it back first if you want to change it.
+            This agent is deleted, so its model is kept as a record. Bring it back to
+            change it.
           </p>
         ) : undefined
       }

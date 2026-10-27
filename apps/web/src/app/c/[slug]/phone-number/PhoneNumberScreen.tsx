@@ -109,25 +109,23 @@ export function PhoneNumberScreen() {
                   leave it silent for good. */}
               {ours.some((number) => !number.held && !number.answerable && !number.agent_id) && (
                 <p className="text-body text-ink-muted">
-                  A number with no agent on it cannot take calls. Choose its agent on its card
-                  below. Forward only once it says <em>Ready to answer</em>, or callers reach
-                  silence.
+                  A number with no agent on it cannot take calls. Choose its agent on its card below.
+                  Forward calls only once it says <em>Ready to answer</em>.
                 </p>
               )}
               {ours.some((number) => !number.held && !number.answerable && outboundOnly(number)) && (
                 <p className="text-body text-ink-muted">
                   A number on an agent that only makes calls places calls but does not answer
-                  them. To have it answer, choose an agent that answers calls on its card below,
-                  or set that agent&apos;s <em>What it does</em> to <em>Answer calls</em> or{" "}
-                  <em>Both</em>. Forward only once it says <em>Ready to answer</em>, or callers
-                  reach silence.
+                  them. To have it answer, choose an agent
+                  that answers calls on its card below, or set that agent&apos;s{" "}
+                  <em>What it does</em> to <em>Answer calls</em> or <em>Both</em>.
                 </p>
               )}
               {ours.some(waiting) && (
                 <p className="text-body text-ink-muted">
-                  A number with an agent on it is not ready yet: we are still connecting it, and
-                  there is nothing for you to do. Forward only once it says{" "}
-                  <em>Ready to answer</em>, or callers reach silence.
+                  A number is not ready yet: we are still connecting it, nothing for you to
+                  do. Forward calls only
+                  once it says <em>Ready to answer</em>, or callers hear silence.
                 </p>
               )}
               {ours.map((number) => (

@@ -25,9 +25,8 @@ export function TrainingPanel({ agent }: { agent: Agent }) {
   return (
     <div>
       <p className="text-sm text-ink-muted">
-        {agent.name} answers from what your agents know — the opening hours, prices and
-        answers you have taught, shared by every one of your agents. Add to it or change it
-        in one place, and all your agents pick it up.
+        {agent.name} answers from what your agents know: hours, prices and answers you
+        taught. It is shared by every one of your agents, so one change reaches them all.
       </p>
       <Link
         href={href(`/c/${session.orgSlug}/knowledge`)}

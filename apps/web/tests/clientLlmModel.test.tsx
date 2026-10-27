@@ -598,7 +598,7 @@ describe("where one agent's model tier came from", () => {
 
     await screen.findByText(/^Follows your organisation default\./);
     expect(screen.queryByRole("radio", { name: /^Standard/ })).toBeNull();
-    expect(container.textContent).toContain("part of the record of what it did");
+    expect(container.textContent).toContain("kept as a record");
   });
 });
 

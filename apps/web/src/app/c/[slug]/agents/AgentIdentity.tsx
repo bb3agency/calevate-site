@@ -173,8 +173,8 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
   if (isDeleted(agent)) {
     return (
       <p className="text-sm text-ink-muted">
-        This agent is deleted, so its details are kept exactly as they were, as part
-        of the record of what it did. Bring it back first if you want to change them.
+        This agent is deleted, so its details are kept as a record. Bring it back to
+        change them.
       </p>
     );
   }
@@ -225,8 +225,7 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
             className={FIELD}
           />
           <span className={FIELD_HINT}>
-            Only you see this. It is how you tell your agents apart here and on your call
-            log. Callers never hear it.
+            Only you see this. Callers never hear it.
           </span>
         </label>
         {valid.error("name")}
@@ -236,9 +235,8 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
         <legend className={FIELD_LABEL}>What it does</legend>
         <DirectionPicker name={`direction-${agent.id}`} value={direction} onChange={setDirection} />
         <p className={FIELD_HINT}>
-          This is not just a label. If it is switched on, changing this takes effect on your
-          phone line: an agent that no longer answers calls stops picking up the numbers it
-          was answering.
+          If the agent is live, this changes your phone line: an agent that stops answering
+          calls stops picking up its numbers.
         </p>
       </fieldset>
 
@@ -265,11 +263,9 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
           ))}
         </select>
         <span className={FIELD_HINT}>
-          The language it greets callers in, and the one it falls back to when it cannot
-          tell which language a caller is speaking. Changing it rewrites what it can tell
-          callers at the start of a call (that it is an AI, that the call is recorded, that
-          it remembers callers) in the new language. Its opening line and script are not
-          translated; after saving you can swap in a ready-made opening line.
+          It greets callers in this language, and falls back to it when unsure. Changing it
+          rewrites the call notices (AI, recording, memory) in the new language; your
+          opening line and script are not translated.
         </span>
       </label>
 

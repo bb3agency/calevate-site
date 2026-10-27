@@ -252,7 +252,7 @@ describe("what the handover panel promises about the person answering", () => {
     await panelHeading();
     // THE SENTENCE THAT MUST NOT DISAPPEAR, now under "How it works". If a future edit
     // removes it, a client is left to assume the founder's original request was built.
-    screen.getByRole("heading", { level: 4, name: "How it works" });
+    expect(screen.getAllByRole("heading", { level: 4, name: "How it works" }).length).toBeGreaterThan(0);
     expect(container.textContent).toContain("Your team member is not briefed first.");
   });
 
