@@ -20,8 +20,9 @@ NEW tool or a NEW action is judged by it without anybody remembering to add a ca
    action's permission is in `MUTATING_PERMISSIONS`, so every one of them has a ruling in
    `VIEW_AS_MUTATIONS` BY CONSTRUCTION rather than by a check somebody remembered to write;
    a new action with a non-mutating permission — the shape that would slip through
-   silently — fails this file. ⚠ Since D-587 those permissions are mostly WRITABLE in a
-   view-as session, and what keeps the assistant shut to an operator is its OWN permission:
+   silently — fails this file unless `_REVIEWED_READ_PERMISSIONS` names it with its reason.
+   ⚠ Since D-587 those permissions are mostly WRITABLE in a view-as session, and what
+   keeps the assistant shut to an operator is its OWN permission:
    `copilot:use` is withheld because asking spends the client's allowance, and
    `actions.assistant_closed_to` asks that ruling from inside `plan_write`/`confirm`.
 2. **THE EGRESS STRIP IS A PROPERTY OF THE EVENT, NOT OF EACH PLANNER.** A person approves
@@ -123,6 +124,19 @@ def test_the_assistants_own_permission_is_never_writable_in_a_view_as_session() 
     assert "copilot:use" not in IMPERSONATION_PERMITTED_MUTATIONS
 
 
+#: Action permissions that are reads, each because the action's button route declares it.
+#: The action must carry its route's permission; a mutating stand-in would gate a read, which
+#: `rbac.MUTATING_PERMISSIONS` forbids.
+_REVIEWED_READ_PERMISSIONS: dict[str, str] = {
+    # D-893 L2: `leads_export` / `calls_export`, the Export buttons'
+    # `POST /v1/leads/export.csv` and `GET /v1/calls/export.csv`. In a view-as session
+    # the route lets the operator export and audits it under their own id
+    # (`tests/impersonation_audit_test.py`); Pip is closed to that session by
+    # `actions.assistant_closed_to`, which the next test drives over every action.
+    "calls:read_raw": "the export buttons' own route permission",
+}
+
+
 def test_every_action_permission_is_a_mutating_one_so_the_ruling_covers_it() -> None:
     """`may_act` reads the view-as ruling through `withheld_from_view_as`, which answers
     `None` for any permission that is NOT mutating — so an action declaring a read
@@ -137,7 +151,9 @@ def test_every_action_permission_is_a_mutating_one_so_the_ruling_covers_it() -> 
     which is the plausible mistake — a planner READS, so the read permission looks right.
     """
     for tool in WRITE_TOOLS:
-        assert tool.permission in MUTATING_PERMISSIONS, tool.name
+        assert (
+            tool.permission in MUTATING_PERMISSIONS or tool.permission in _REVIEWED_READ_PERMISSIONS
+        ), tool.name
 
 
 async def test_an_impersonating_operator_is_refused_every_action_in_the_registry() -> None:

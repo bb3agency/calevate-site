@@ -53,6 +53,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.display import display_inr
+from apps.api.billing.rates import MONEY_Q, ROUNDING
 from apps.api.copilot.actions import (
     DOES_IT,
     PROPOSES_ONLY,
@@ -1171,7 +1172,7 @@ async def _plan_source_agent(
         current=current,
         proposed=proposed,
         cost=None,
-        reversal="Undo puts the previous agent back.",
+        reversal="Choose the previous agent again at any time.",
         args={
             "lead_source_id": str(parsed.lead_source_id),
             "agent_id": None if parsed.agent_id is None else str(parsed.agent_id),
@@ -1197,54 +1198,22 @@ async def _execute_source_agent(
     )
 
 
-async def _capture_source_agent(
-    session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
-) -> dict[str, Any]:
-    del actor
-    _source, agent, _active = await _source_row(session, UUID(str(args["lead_source_id"])))
-    return {"agent_id": None if agent is None else str(agent)}
-
-
-async def _invert_source_agent(session: AsyncSession, actor: ToolActor, record: UndoRecord) -> str:
-    from apps.api.ingest.service import set_source_agent
-
-    del actor
-    source_id = UUID(str(record.args["lead_source_id"]))
-    row = (
-        await session.execute(
-            text("SELECT agent_id FROM inbound_webhooks WHERE id = :id FOR UPDATE"),
-            {"id": source_id},
-        )
-    ).first()
-    if row is None:
-        raise UndoRefusedError("that lead source no longer exists")
-    if (None if row[0] is None else str(row[0])) != record.result_state.get("agent_id"):
-        raise UndoRefusedError(
-            "that lead source's agent was changed since, so it was left as it is"
-        )
-    try:
-        await set_source_agent(
-            session,
-            webhook_id=source_id,
-            agent_id=_uuid_or_none(record.prior_state.get("agent_id")),
-        )
-    except ProblemError as exc:
-        raise UndoRefusedError("the previous agent can no longer take leads") from exc
-    return "The lead source is back on its previous agent."
-
-
+#: CONFIRM. Ingest refuses every lead from a source with no agent (`ingest_no_agent`), so
+#: pointing an agentless source at an agent starts speed-to-lead dialling: it reaches callers
+#: and spends credit, outside the immediate tier's bar (the same reason as
+#: `LEAD_SOURCE_SWITCH`).
 LEAD_SOURCE_EDIT: Final = ActionTool(
     name="lead_source_edit",
-    tier="immediate",
-    undo=Undo(capture=_capture_source_agent, invert=_invert_source_agent),
+    tier="confirm",
+    undo=None,
     permission="org:manage",
     object_type="inbound_webhook",
     audit_action="lead_source.agent_changed",
     where="on the Lead sources screen",
     schema=action_schema(
         "lead_source_edit",
-        "Choose which agent answers leads from one lead source (ids from "
-        "`integrations_status`)." + DOES_IT,
+        "Propose which agent answers leads from one lead source (ids from "
+        "`integrations_status`)." + PROPOSES_ONLY,
         {
             "lead_source_id": {"type": "string"},
             "agent_id": {"anyOf": [{"type": "string"}, {"type": "null"}]},
@@ -2280,7 +2249,7 @@ def _rupees(raw: str | None, *, field: str) -> Decimal | None:
         value = Decimal(str(raw).replace(",", "").replace("₹", "").strip())
     except InvalidOperation as exc:
         raise WriteRefusedError(f"`{field}` must be rupees in digits, like 2500") from exc
-    if value < 0 or value != value.quantize(Decimal("0.01")):
+    if value < 0 or value != value.quantize(MONEY_Q, rounding=ROUNDING):
         raise WriteRefusedError(f"`{field}` must be a positive amount with at most paise")
     return value
 

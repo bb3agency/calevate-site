@@ -1121,7 +1121,7 @@ CONSOLE_READ_TOOLS: Final[tuple[ReadTool, ...]] = (
         name="integrations_status",
         description=(
             "Lead sources, how new leads are called, leads held after hours, outbound "
-            "connections, Google Sheets connection and failed deliveries, with their ids."
+            "connections, Sheets connection and failed deliveries, with their ids."
         ),
         parameters=_object({}),
         permission="org:read",

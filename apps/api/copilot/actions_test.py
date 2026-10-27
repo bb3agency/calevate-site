@@ -98,7 +98,6 @@ _REVIEWED_IMMEDIATE: dict[str, str] = {
         "our record of how the client's own phone forwards; it dials nobody and the prior "
         "setting is restored exactly"
     ),
-    "lead_source_edit": "which agent a source names; the prior agent is the exact inverse",
     "low_balance_alert_set": "when a warning is sent; charges nothing, prior line restored",
     # D-893 L8: a heading, not an answer; the prior name is the exact inverse.
     "knowledge_rename": "renames a file, link or note; Undo restores the old name under a CAS",
