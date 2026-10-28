@@ -96,10 +96,8 @@ function Joined({ result }: { result: AcceptedInvitation }) {
         <NoticeBox tone="ok" title={`You joined ${result.slug} as ${role?.label ?? result.role}`}>
           {role && <p className="mt-1">{role.can}</p>}
         </NoticeBox>
-        <p>
-          You are signed in. Bookmark the dashboard — it is where you sign in from now on,
-          and the link you followed has been used up.
-        </p>
+        <p>You are signed in. This invite link is now used up.</p>
+        <p>Bookmark the dashboard to sign in next time.</p>
         <Link href={`/c/${result.slug}`} className={PRIMARY_BUTTON}>
           Open the dashboard
         </Link>
