@@ -92,7 +92,8 @@ describe("asking for the microphone", () => {
     renderButton();
     await pressSayIt();
     const dialog = screen.getByRole("dialog", { name: "Your microphone is blocked" });
-    expect(dialog.textContent).toContain("set Microphone to Allow, then press Try again.");
+    expect(dialog.textContent).toContain("Set Microphone to Allow.");
+    expect(dialog.textContent).toContain("Press Try again.");
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     });

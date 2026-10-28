@@ -48,7 +48,7 @@ const COPY: Record<
     follow: "Organisation default",
     follows: (label) =>
       `${label} now. Follows your organisation default when it changes.`,
-    note: "Takes effect on this agent's next call. Calls already running finish on the model they started on.",
+    note: "Applies from this agent's next call.",
   },
   organisation: {
     row: "Model your agents use",
@@ -56,7 +56,7 @@ const COPY: Record<
     follow: "Calevate's default",
     follows: (label) =>
       `${label} now. Follows Calevate's default when it changes.`,
-    note: "Takes effect on the next call. Calls already running finish on the model they started on.",
+    note: "Applies from the next call.",
   },
 };
 
@@ -170,7 +170,7 @@ function TierChoice({
           <ModelPicker
             name={name}
             legend={copy.legend}
-            hint="Figures are what a tier adds to every minute you are charged for."
+            hint="Each figure is added to every charged minute."
             choices={choices}
             value={selected}
             baselineSurcharge={baselineSurcharge}

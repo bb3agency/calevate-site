@@ -196,11 +196,11 @@ export function useResendInvitation(session: Session) {
 export const ROLE_COPY: Record<string, { label: string; can: string }> = {
   owner: {
     label: "Owner",
-    can: "Everything, including billing, full phone numbers in exports, launching campaigns, and managing this team.",
+    can: "Everything: billing, campaigns, team, full numbers.",
   },
   staff: {
     label: "Staff",
-    can: "Day-to-day work: leads, calls and agents. No billing, no team changes, and phone numbers stay masked.",
+    can: "Leads, calls and agents. No billing or team; numbers masked.",
   },
 };
 

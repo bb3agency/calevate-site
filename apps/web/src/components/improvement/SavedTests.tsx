@@ -98,7 +98,7 @@ export function SavedTests({
         />
       ) : data.cases.length === 0 ? (
         <p className="text-meta text-ink-muted">
-          None yet. Make one from a call where the agent went wrong, or write one below.
+          None yet. Make one from a call, or write one below.
         </p>
       ) : (
         <div className="space-y-3">
@@ -287,8 +287,8 @@ function CaseRow({
       <p className="text-meta text-ink-muted">Should: {testCase.expected}</p>
       {testCase.last_error === TOO_LONG ? (
         <p className="text-meta text-warn">
-          The agent was slow to reply, so the run stopped before the last line. Run it again,
-          or split it into two tests.
+          <span className="block">The agent was slow, so the run stopped early.</span>
+          <span className="block">Run it again, or split it into two tests.</span>
         </p>
       ) : testCase.last_error ? (
         <p className="text-meta text-warn">The last run did not finish. Run it again.</p>

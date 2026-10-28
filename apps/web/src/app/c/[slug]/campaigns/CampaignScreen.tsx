@@ -86,7 +86,7 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
     setAddingPeople(true);
     // After the panel has rendered, so the scroll lands on it rather than above it.
     window.setTimeout(() =>
-      document.getElementById(peopleSectionId(campaignId))?.scrollIntoView({ block: "start", behavior: "smooth" }),
+      document.getElementById(peopleSectionId(campaignId))?.scrollIntoView?.({ block: "start", behavior: "smooth" }),
     );
   };
   const write = useWriteAccess(session, "leads:dispatch", "start or run campaigns");

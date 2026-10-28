@@ -119,7 +119,7 @@ export function ExistingNumberGuide({
         {
           id: "number",
           title: "Which number do your callers know?",
-          hint: "Your callers keep dialling it. Calls reach your agent through your phone's call forwarding.",
+          hint: "Callers keep dialling it. Calls forward to your agent.",
           validate: () =>
             !looksLikeIndianNumber(number) ? "Enter your Indian business number, like 98765 43210." : null,
           content: (

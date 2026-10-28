@@ -118,7 +118,7 @@ describe("the wire mapping", () => {
   it("says the languages are where new agents start, not a change to existing ones (D-815)", () => {
     const hint = stepCopy("languages").hint;
     expect(hint).toContain("New agents start out replying in these");
-    expect(hint).toContain("agents you create from now on");
+    expect(hint).toContain("Agents you already have keep theirs");
   });
 });
 

@@ -591,8 +591,8 @@ type SoundChoice = "inherit" | Ambience;
 const SOUND_ORDER: readonly Ambience[] = ["off", "office-quiet", "office"];
 
 const SOUND_HINTS: Record<Ambience, string> = {
-  off: "Silence behind the agent's voice, so the line goes quiet between replies.",
-  "office-quiet": "A soft office sound behind the voice, so the line never drops to dead silence.",
+  off: "Silence behind the voice. Quiet between replies.",
+  "office-quiet": "A soft office sound, so the line is never dead.",
   office: "A fuller office sound behind the voice.",
 };
 

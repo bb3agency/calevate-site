@@ -112,7 +112,7 @@ export function VoiceButton({
         setError(
           name === "NotFoundError"
             ? "No microphone found on this device."
-            : "We could not use your microphone. Allow it in your browser, or type it.",
+            : "We couldn't use your microphone. Allow it, or type it.",
         );
       }
     } finally {
@@ -168,11 +168,15 @@ export function VoiceButton({
         <ModalDialog
           title={asking === "blocked" ? "Your microphone is blocked" : "Allow your microphone"}
           description={
-            <p>
-              {asking === "blocked"
-                ? "Turn it on for this site: click the icon at the left of the address bar, set Microphone to Allow, then press Try again."
-                : why}
-            </p>
+            asking === "blocked" ? (
+              <ol className="list-decimal space-y-1 pl-5">
+                <li>Tap the icon left of the address bar.</li>
+                <li>Set Microphone to Allow.</li>
+                <li>Press Try again.</li>
+              </ol>
+            ) : (
+              <p>{why}</p>
+            )
           }
           onClose={() => setAsking(null)}
           actions={

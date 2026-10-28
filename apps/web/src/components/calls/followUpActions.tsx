@@ -22,6 +22,7 @@
  * Calls and messages are never offered an Undo: they have already left.
  */
 
+import Link from "next/link";
 import { useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Clock, MessageCircle, PhoneOutgoing, Tag } from "lucide-react";
@@ -40,6 +41,7 @@ import { ModalDialog } from "@/components/modalDialog";
 import {
   FIELD,
   NoticeBox,
+  PRIMARY_BUTTON_SM,
   ProblemNotice,
   SECONDARY_BUTTON,
   Skeleton,
@@ -48,6 +50,7 @@ import {
 } from "@/components/ui";
 import { ApiProblem, type CallLeadResult, type Session } from "@/lib/api/client";
 import { useCancelCallback } from "@/lib/api/callbacks";
+import { useClientRealm } from "@/lib/api/session";
 import { useCallLead, useWriteAccess } from "@/lib/api/hooks";
 import {
   SWIPE_LEAD_STATUS,
@@ -168,7 +171,7 @@ export function useCallbackWhen(): { fields: ReactNode; check: () => string | nu
     tried && !day
       ? "Choose the day to call back."
       : tried && day && chosen === null
-        ? "There is no time left today between 9am and 9pm. Choose another day."
+        ? "No times left today. Pick another day."
         : null;
   const fields = (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -238,7 +241,7 @@ export function useFollowUpActions(
   session: Session,
   {
     dialerFor,
-    noDialerReason = "None of your agents places calls yet. Set one up to call out first.",
+    noDialerReason = "No agent makes calls yet. Set one up first.",
     scheduleAgentId,
   }: {
     /** The agent that places a call for this row, or null when none can. */
@@ -354,8 +357,8 @@ export function useFollowUpActions(
     successToast: (out) => (out.status === "scheduled" && out.requested_at ? `Call back booked for ${formatIST(out.requested_at)}` : null),
     successDescription: (out) =>
       out.rescheduled
-        ? "This moved the call back you had already booked for this person."
-        : "Your agent rings them then. The do-not-call and calling-hours checks still apply at that time.",
+        ? "Moved the call back already booked."
+        : "Do-not-call and calling-hours checks still apply.",
     undo: (out) => {
       if (out.callback_id) cancel.run(out.callback_id);
     },
@@ -369,7 +372,7 @@ export function useFollowUpActions(
   });
 
   // --- the actions ---
-  const leadless = "No lead was saved from this call, so there is no one to contact.";
+  const leadless = "No lead from this call, so no one to contact.";
   const forTarget = (target: FollowUpTarget) => {
     const dialer = dialerFor(target);
     const callBusy = callLead.isPending && callLead.variables?.leadId === target.leadId;
@@ -593,9 +596,10 @@ function CallDialog({
       onConfirm={onConfirm}
     >
       <p>
-        {dialer.name} rings {target.phone ? <span className="tabular-nums text-ink">{formatPhone(target.phone)}</span> : "them"} straight
-        away. The do-not-call, calling-hours and consent checks still apply, and can stop the call.
+        {dialer.name} rings {target.phone ? <span className="tabular-nums text-ink">{formatPhone(target.phone)}</span> : "them"} now.
       </p>
+      {/* Kept on screen, not behind a tap: these checks can stop the call the person asked for. */}
+      <p className="mt-1">Do-not-call, hours and consent checks still apply.</p>
       {blocked ? (
         <NoticeBox tone="warn" role="status">
           {result?.blocked_reason ?? "This call was not allowed."}
@@ -643,8 +647,8 @@ function MarkDialog({
         <>
           <span className="block break-words font-medium text-ink">{target.name}</span>
           {isCall
-            ? "A mark is for your team. It does not change how the call ended."
-            : "Choose where this lead stands. You can undo it straight after."}
+            ? "For your team. It doesn't change how the call ended."
+            : "Where does this lead stand? You can undo it."}
         </>
       }
       onClose={onClose}
@@ -710,7 +714,7 @@ function LaterDialog({
       description={
         <>
           <span className="block break-words font-medium text-ink">{target.name}</span>
-          Your agent rings them at the time you choose, between 9am and 9pm India time, within the next 30 days.
+          9am to 9pm India time, within 30 days.
         </>
       }
       onClose={onClose}
@@ -775,6 +779,7 @@ function WhatsAppDialog({
   onSend: (templateId: string, values: string[]) => void;
 }) {
   const options = useWhatsAppOptions(session, target.leadId ?? undefined);
+  const { href } = useClientRealm();
   const templates = options.data?.templates ?? [];
   const [templateId, setTemplateId] = useState<string | null>(null);
   const [values, setValues] = useState<Record<string, string[]>>({});
@@ -804,7 +809,10 @@ function WhatsAppDialog({
   else if (templates.length === 0)
     body = (
       <NoticeBox tone="neutral" role="status">
-        You have no approved WhatsApp messages yet, so there is nothing to send.
+        <p>No approved WhatsApp messages yet.</p>
+        <Link href={href(`/c/${session.orgSlug}/integrations`)} className={`${PRIMARY_BUTTON_SM} mt-2`}>
+          Add a message
+        </Link>
       </NoticeBox>
     );
   else
@@ -865,7 +873,7 @@ function WhatsAppDialog({
       description={
         <>
           <span className="block break-words font-medium text-ink">{target.name}</span>
-          Only your approved messages can be sent, from your own WhatsApp number.
+          Approved messages only, from your WhatsApp number.
         </>
       }
       onClose={onClose}

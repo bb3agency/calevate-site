@@ -35,7 +35,7 @@ export const OUTCOME_ORDER: readonly CallOutcome[] = [
 const OUTCOME_WORDS: Record<CallOutcome, { label: string; reason: string }> = {
   needs_you: {
     label: "Needs you",
-    reason: "The caller wanted something the agent could not finish. Someone from your team should follow up.",
+    reason: "The agent couldn't finish this. Someone should follow up.",
   },
   call_back_booked: {
     label: "Call back booked",
@@ -51,7 +51,7 @@ const OUTCOME_WORDS: Record<CallOutcome, { label: string; reason: string }> = {
   },
   hung_up_early: {
     label: "Hung up early",
-    reason: "The caller hung up in the first few seconds, before saying what they wanted.",
+    reason: "The caller hung up before saying what they wanted.",
   },
   missed: {
     label: "Missed",
@@ -109,12 +109,12 @@ export function outcomeReason(
   },
 ): string {
   if (call.outcome_tag === "needs_you" && call.callback_requested && !call.callback) {
-    return "The caller asked to be called back, and no call back was booked.";
+    return "They asked for a call back. None is booked.";
   }
   // A next step is the reason the call needs a person whenever there is one (D-887): "could
   // not finish" was wrong for a call that agreed a site visit someone has to confirm.
   if (call.outcome_tag === "needs_you" && call.next_step?.trim()) {
-    return "The call left something for your team to do. The next step is below.";
+    return "Something is left to do. See the next step below.";
   }
   const words = lookup(OUTCOME_WORDS, call.outcome_tag);
   if (words) return words.reason;

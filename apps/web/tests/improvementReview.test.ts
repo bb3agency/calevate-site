@@ -32,11 +32,12 @@ describe("improvement review", () => {
 
   it("names an edit that no longer fits instead of dropping it silently", () => {
     expect(skippedNote([], improvement())).toBeNull();
-    expect(skippedNote(["e1"], improvement())).toBe(
-      "One change no longer fits your script, so it was left out: Step “Price”. The part it changed was removed or edited since.",
-    );
-    expect(skippedNote(["e1", "e2"], improvement())).toMatch(
-      /^2 changes no longer fit your script, so they were left out: .* The parts they changed were removed/,
-    );
+    expect(skippedNote(["e1"], improvement())).toEqual({
+      line: "One change no longer fits, so it was left out.",
+      why: "Step “Price”. The part it changed was removed or edited since.",
+    });
+    const two = skippedNote(["e1", "e2"], improvement());
+    expect(two?.line).toBe("2 changes no longer fit, so they were left out.");
+    expect(two?.why).toMatch(/^Step “Price”; .* The parts they changed were removed/);
   });
 });

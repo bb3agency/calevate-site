@@ -69,13 +69,13 @@ function NoCallYet({ agent, slug, onTrial }: { agent: Agent; slug: string; onTri
   let line: string;
   let move: { href: string; label: string } | null = null;
   if (onTrial) {
-    line = "Press Get it ready at the top of this page, then come back to give it a test call.";
+    line = "Press Get it ready above, then test it here.";
   } else if (!isAnsweringNow(agent)) {
-    line = "Switch it on with Taking calls at the top of this page, then come back to ring it.";
+    line = "Switch on Taking calls above, then ring it.";
   } else if (agent.direction === "outbound") {
-    line = "The calls it makes go out through your campaigns. Try it in the chat.";
+    line = "Its calls go out through campaigns. Try the chat.";
   } else {
-    line = "Give it a phone number, then ring that number from your own phone.";
+    line = "Give it a phone number, then ring it.";
     move = { href: href(`/c/${slug}/phone-number`), label: "Get a number" };
   }
   return (
@@ -117,7 +117,7 @@ function RingYourNumber({ slug }: { slug: string }) {
   const { href } = useClientRealm();
   return (
     <PracticeFrame
-      description="Ring your number from any phone. This agent answers it the way your callers hear it."
+      description="Ring your number from any phone. It answers."
       action={
         <Link href={href(`/c/${slug}/phone-number`)} className={SECONDARY_BUTTON}>
           See your number
@@ -230,7 +230,7 @@ function TrialTestCall({
 
   return (
     <PracticeFrame
-      description={`${agent.name} rings the number you type, from a shared trial number, and talks to you as it would to a caller.`}
+      description={`${agent.name} rings you from a shared trial number.`}
     >
       {body}
     </PracticeFrame>

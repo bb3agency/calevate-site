@@ -574,9 +574,8 @@ describe("a held number (D-860)", () => {
       <PhoneNumberPage />,
       routes(status(), { "/v1/campaigns/numbers": [heldNumber] }),
     );
-    expect(
-      await screen.findByText("Calls stopped. Released on Saturday, 7 November unless you top up."),
-    ).toBeTruthy();
+    expect(await screen.findByText("Calls stopped. Top up to keep this number.")).toBeTruthy();
+    expect(screen.getByText("Released on Saturday, 7 November.")).toBeTruthy();
     expect(screen.getByText("Calls stopped")).toBeTruthy();
     const topUp = screen.getAllByRole("link", { name: "Add credit" });
     expect(topUp.some((link) => link.getAttribute("href") === CREDITS_HREF)).toBe(true);
@@ -590,7 +589,8 @@ describe("a held number (D-860)", () => {
       <PhoneNumberPage />,
       routes(status(), { "/v1/campaigns/numbers": [{ ...heldNumber, release_at: null }] }),
     );
-    expect(await screen.findByText("Calls stopped. Released soon unless you top up.")).toBeTruthy();
+    expect(await screen.findByText("Calls stopped. Top up to keep this number.")).toBeTruthy();
+    expect(screen.getByText("Released soon.")).toBeTruthy();
   });
 });
 

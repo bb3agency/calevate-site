@@ -222,13 +222,13 @@ describe("one agent's call handling", () => {
     await act(async () => {
       fireEvent.click(hangUp);
     });
-    expect(screen.getByText("The call stays connected, and charged, until the caller hangs up.")).toBeTruthy();
+    expect(screen.getByText("The call stays on, and charged, until the caller hangs up.")).toBeTruthy();
     await press("Save");
     await waitFor(() => expect(calls.some((c) => c.method === "PATCH")).toBe(true));
     expect(JSON.parse(calls.find((c) => c.method === "PATCH")?.body ?? "{}")).toEqual({
       end_call_on_finish: false,
     });
-    await screen.findByText(/Finished calls stay connected, and charged/);
+    await screen.findByText(/Calls stay on, and charged/);
   });
 
   it("switches waiting for the person's hello on, with its one plain line", async () => {
@@ -241,7 +241,7 @@ describe("one agent's call handling", () => {
     await screen.findByText("Wait for them to say hello");
     // Off, the row's line says what off does, never what on would.
     expect(screen.getByText("Your agent speaks as soon as the call connects.")).toBeTruthy();
-    expect(screen.queryByText(/Your agent speaks right after the first words of the person who picks up/)).toBeNull();
+    expect(screen.queryByText(/Your agent speaks after their hello/)).toBeNull();
     const changes = screen.getAllByRole("button", { name: "Change" });
     await act(async () => {
       fireEvent.click(changes[2]);
@@ -269,7 +269,7 @@ describe("one agent's call handling", () => {
       [AGENT_PATH]: agent({ opening_waits_for_caller: true }),
     });
     await screen.findByText("Wait for them to say hello");
-    expect(screen.getByText(/or after 4 s if they stay silent/)).toBeTruthy();
+    expect(screen.getByText(/after their hello, or after 4 s\./)).toBeTruthy();
     expect(screen.queryByText("How long to wait for hello")).toBeNull();
   });
 
@@ -296,7 +296,7 @@ describe("one agent's call handling", () => {
       }),
     });
     await screen.findByText("How long to wait for hello");
-    expect(screen.getByText(/or after 1.5 s if they stay silent/)).toBeTruthy();
+    expect(screen.getByText(/after their hello, or after 1.5 s\./)).toBeTruthy();
     expect(screen.getByText(/If nobody speaks, your agent opens after this\. Calevate default\./)).toBeTruthy();
     const changes = screen.getAllByRole("button", { name: "Change" });
     await act(async () => {
@@ -392,7 +392,7 @@ describe("one agent's call handling", () => {
       [ORG_PATH]: organization(),
       [AGENT_PATH]: agent({ turn_silence_applies: false }),
     });
-    await screen.findByText("This agent hears when the caller has finished, so it waits for no pause.");
+    await screen.findByText("This agent hears when callers finish. No pause needed.");
     expect(screen.getByText("Not used")).toBeTruthy();
     expect(screen.queryByText("Unhurried (0.7 s)")).toBeNull();
     // The pause's row offers no Change: its first button is the hang-up's.
@@ -409,7 +409,7 @@ describe("one agent's call handling", () => {
       [AGENT_PATH]: agent({ opening_waits_for_caller: true }),
     });
     await screen.findByText("Wait for them to say hello");
-    expect(screen.getByText(/Your agent speaks right after the first words of the person who picks up/)).toBeTruthy();
+    expect(screen.getByText(/Your agent speaks after their hello/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Change" })).toBeNull();
   });
 });
@@ -713,7 +713,7 @@ describe("asking an unanswered question again, and the patient caller preset (D-
       [`POST ${PATIENT_PATH}`]: applied,
     });
     await screen.findByText("Give callers time");
-    expect(screen.getByText(/the agent gives them time/)).toBeTruthy();
+    expect(screen.getByText(/For callers who follow along on their phone/)).toBeTruthy();
     // How it works names the agent's own question and every value the preset sets.
     await press("About Give callers time");
     const tip = await screen.findByText(/^Asks "కనిపించిందా అండి\?"/);

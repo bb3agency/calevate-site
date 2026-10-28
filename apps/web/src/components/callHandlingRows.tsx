@@ -46,7 +46,7 @@ import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 
 /** One sentence for both rows, because it is one promise. */
 export const CALL_HANDLING_NEXT_CALL =
-  "Applies from the next call. A call already in progress finishes as it started.";
+  "Applies from the next call. Live calls are unchanged.";
 
 /** The editor's column: narrow enough that a choice and its hint read as one unit. */
 export const CALL_HANDLING_EDITOR = "max-w-md space-y-4";
@@ -221,7 +221,7 @@ function clamp(value: number, min: number, max: number): number {
 const PAUSE_STEP_MS = 50;
 
 /** The pause row's line on an agent that does not wait for silence. */
-export const PAUSE_NOT_USED = "This agent hears when the caller has finished, so it waits for no pause.";
+export const PAUSE_NOT_USED = "This agent hears when callers finish. No pause needed.";
 
 export function PauseRow({
   idPrefix,
@@ -434,7 +434,7 @@ export function HangUpRow({
       />
       {!effective && (
         <p data-notice="neutral" className="flex items-center gap-1 pb-3 text-meta text-ink-muted">
-          Finished calls stay connected, and charged, until the caller hangs up.
+          Calls stay on, and charged, until the caller hangs up.
           <InfoTip label="Calls left connected">
             <p>{HANG_UP_INFO}</p>
           </InfoTip>
@@ -462,7 +462,7 @@ export function HangUpRow({
                 hint={
                   form.on
                     ? "The agent puts the phone down when it has finished."
-                    : "The call stays connected, and charged, until the caller hangs up."
+                    : "The call stays on, and charged, until the caller hangs up."
                 }
                 checked={form.on}
                 onChange={(on) => setForm((f) => ({ ...f, on }))}
@@ -499,8 +499,7 @@ export function HangUpRow({
 /** The row's one plain line (D-871), with the silence it waits through (D-901). */
 export function openingWaitsLine(waitMs: number = STANDARD_OPENING_WAIT_MS): string {
   return (
-    "Your agent speaks right after the first words of the person who picks up, or after " +
-    `${formatPause(waitMs)} if they stay silent.`
+    `Your agent speaks after their hello, or after ${formatPause(waitMs)}.`
   );
 }
 const OPENING_SPEAKS_LINE = "Your agent speaks as soon as the call connects.";

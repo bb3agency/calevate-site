@@ -288,7 +288,7 @@ describe("following a test call on the card (D-885)", () => {
     expect(await says("Your phone is ringing.")).toContain("Ringing");
 
     await next();
-    expect(await says("You are talking to your agent.")).toContain("Connected");
+    expect(await says("You're talking to your agent.")).toContain("Connected");
     expect(screen.getByRole("timer").textContent).toMatch(/^1:0\d$/);
     expect(screen.queryByRole("link", { name: "Open this call" })).toBeNull();
 

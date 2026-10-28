@@ -57,6 +57,7 @@ import type { LeadSuggestionsApi } from "@/lib/api/leadSuggestions";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { lookup } from "@/lib/lookup";
 import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
+import { Why } from "@/components/why";
 import type { VerticalExamples } from "@/lib/verticalExamples";
 
 import { LeadSuggestions } from "./LeadSuggestions";
@@ -102,7 +103,7 @@ export function LeadDetailsView({
   return (
     <div className="max-w-3xl space-y-10">
       <p className="max-w-prose text-body text-ink-muted [text-wrap:pretty]">
-        Every call becomes a lead, with these details as its columns in Leads.
+        Every call becomes a lead. These are its columns.
       </p>
       {writeReason && <RestrictionNote reason={writeReason} />}
 
@@ -122,7 +123,7 @@ function CoreFields({ fields }: { fields: LeadField[] }) {
   return (
     <Section
       title="Always captured"
-      description="On every call, with the caller's phone number. These can't be changed or removed."
+      description="On every call, with their number. Can't be changed."
     >
       <ul className="grid grid-cols-2 gap-x-4 gap-y-3 sm:gap-x-8">
         {fields.map((field) => (
@@ -144,26 +145,30 @@ function CoreFields({ fields }: { fields: LeadField[] }) {
 function Origin({ data, your }: { data: LeadFields; your: string }) {
   if (data.has_standard_set) {
     return (
-      <>
-        Started from the standard details for {data.business_type_label.toLowerCase()}{" "}
-        businesses. Change them any time.
-      </>
+      <>Standard details for {data.business_type_label.toLowerCase()}. Change them any time.</>
     );
   }
   if (data.draft?.status === "done" && !data.draft.reviewed) {
-    return <>Drafted once from {your} business details. Keep the ones that fit; no agent has them yet.</>;
+    return (
+      <>
+        Drafted from {your} business details. Keep what fits.{" "}
+        <Why inline>No agent has them until they are kept.</Why>
+      </>
+    );
   }
   if (data.draft?.status === "done") {
     const when = data.draft.completed_at ? ` on ${formatISTStamp(data.draft.completed_at)}` : "";
     return (
       <>
-        Drafted once from {your} business details{when}.{" "}
-        {your === "your" ? "They're yours" : "They're the client's"} to change: add, rename,
-        reorder or remove any of them. They won&apos;t be drafted again.
+        Drafted from {your} business details{when}.{" "}
+        <Why inline>
+          {your === "your" ? "They're yours" : "They're the client's"} to change: add, rename, reorder or
+          remove any of them. They won&apos;t be drafted again.
+        </Why>
       </>
     );
   }
-  return <>What {your} business needs to know about each caller, on top of the details above.</>;
+  return <>What {your} business needs to know about each caller.</>;
 }
 
 function BusinessFields({
@@ -194,8 +199,7 @@ function BusinessFields({
       )}
       {agents.length === 0 ? (
         <p className="text-sm text-ink-muted">
-          {audience === "client" ? "You have" : "This client has"} no agents yet. The details
-          set here are given to each agent as it is created.
+          {audience === "client" ? "You have" : "This client has"} no agents yet. New agents get these.
         </p>
       ) : (
         <AgentFields data={data} canWrite={canWrite} writes={writes} eg={eg} audience={audience} />
@@ -208,8 +212,7 @@ function Drafting() {
   return (
     <div className="space-y-3">
       <p role="status" aria-live="polite" className="text-sm text-ink-muted">
-        Drafting from the business details. This usually takes under a minute; the page
-        updates on its own.
+        Drafting your details. About a minute.
       </p>
       <Skeleton rows={4} label="Drafting the business details" />
     </div>
@@ -237,11 +240,13 @@ function DraftOffer({
         {failed ? "The details could not be drafted last time." : "Nothing here yet."}
       </p>
       <p className="mt-1 max-w-prose text-sm text-ink-muted [text-wrap:pretty]">
-        {audience === "client" ? ASSISTANT_NAME : "Calevate"} can draft these once from the
-        business details — what {audience === "client" ? "you sell" : "it sells"}, the questions
-        callers ask and what your agents already know. You keep the ones that fit before any agent gets
-        them, and they are not drafted again. For the best draft, fill in the business profile
-        first.
+        {audience === "client" ? ASSISTANT_NAME : "Calevate"} can draft these for you.{" "}
+        <Why inline label="How it works">
+          From the business details: what {audience === "client" ? "you sell" : "it sells"}, the
+          questions callers ask and what your agents already know. You keep the ones that fit before
+          any agent gets them, and they are not drafted again. For the best draft, fill in the business
+          profile first.
+        </Why>
       </p>
       {draft?.error && (
         <div className="mt-3">
@@ -297,8 +302,9 @@ function DraftReview({
         </h3>
         <p className="mt-1 text-sm text-ink-muted">
           {owner
-            ? "Untick what you do not want. What you keep goes to every agent without details of its own."
-            : "Waiting for the account owner to keep the ones that fit."}
+            ? "Untick what you don't want."
+            : "Waiting for the owner to keep the ones that fit."}{" "}
+          {owner ? <Why inline>What you keep goes to every agent without details of its own.</Why> : null}
         </p>
       </div>
       <ul className="divide-y divide-line border-y border-line">
@@ -491,16 +497,11 @@ function AgentEditor({
       })}
     >
       {many && (
-        <p className="text-xs text-ink-muted">
-          Each agent keeps its own list. These are the details {agent.name} writes down.
-        </p>
+        <p className="text-xs text-ink-muted">Each agent has its own list. This is {agent.name}&apos;s.</p>
       )}
       <LeadSuggestions api={suggestions} canWrite={canWrite} dirty={dirty} audience={audience} />
       {rows.length === 0 ? (
-        <p className="text-sm text-ink-muted">
-          No business details yet. Calls still become leads with everything under Always
-          captured.
-        </p>
+        <p className="text-sm text-ink-muted">No business details yet. Calls still become leads.</p>
       ) : (
         <ul className="divide-y divide-line border-y border-line">
           {rows.map((row, index) => (
@@ -564,8 +565,7 @@ function AgentEditor({
       </div>
 
       <p className="max-w-prose text-xs text-ink-muted [text-wrap:pretty]">
-        Renaming or removing a detail deletes nothing: older leads and calls keep their
-        answers under the old name.
+        Renaming or removing a detail keeps old answers.
         {fresh.length > 0 && canWrite && (
           <>
             {" "}

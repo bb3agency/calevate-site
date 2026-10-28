@@ -8,11 +8,11 @@ import type { Session } from "@/lib/api/client";
 import { lookup } from "@/lib/lookup";
 
 const FAILURE: Record<string, string> = {
-  voice_unreadable: "We could not hear that recording. Try again somewhere quieter, or type it.",
+  voice_unreadable: "We couldn't hear that. Try somewhere quieter, or type it.",
   nothing_heard: "We did not hear any words. Try recording again, or type it.",
   upload_missing: "That recording went missing. Record it again.",
   /* Set by the worker sweep `interrupted_work.py` when a run stopped part way. */
-  interrupted: "That stopped before we finished listening. Record it again, or type it.",
+  interrupted: "That stopped early. Record it again, or type it.",
 };
 
 export interface VoiceWords {

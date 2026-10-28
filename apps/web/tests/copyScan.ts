@@ -191,6 +191,12 @@ export interface CopyScanOptions {
    * text costs nothing; the wire-name guards keep the closed walk.
    */
   readonly wide?: boolean;
+  /**
+   * Take a `"…" + "…"` chain or a template as ONE string (each substitution read as
+   * `12`) rather than one string per literal piece. A length guard needs this: a long
+   * sentence written as three short pieces is still one long line on the screen.
+   */
+  readonly chains?: boolean;
 }
 
 /** A sentence-shaped literal: three or more words and no path or markup shape. */
@@ -249,6 +255,8 @@ export interface CopyString {
   readonly file: string;
   readonly line: number;
   readonly text: string;
+  /** Character offset of the string in its file, so a guard can ask what encloses it. */
+  readonly start: number;
 }
 
 /** Every `.ts`/`.tsx` under a directory, or the file itself when handed one. */
@@ -276,6 +284,30 @@ function literals(node: ts.Expression): ts.Node[] {
     return [node.head, ...node.templateSpans.map((span) => span.literal)];
   }
   return [];
+}
+
+/** A `+` chain or template as the text it renders, each substitution read as `12`. */
+function chainText(node: ts.Expression): string {
+  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
+  if (ts.isParenthesizedExpression(node)) return chainText(node.expression);
+  if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+    return chainText(node.left) + chainText(node.right);
+  }
+  if (ts.isTemplateExpression(node)) {
+    return node.head.text + node.templateSpans.map((span) => "12" + span.literal.text).join("");
+  }
+  return "12";
+}
+
+/** The outermost `+` chain or template a literal is part of, or the literal itself. */
+function outerChain(node: ts.Node): ts.Node {
+  let at = node;
+  for (let up = node.parent; up; up = up.parent) {
+    if (ts.isBinaryExpression(up) && up.operatorToken.kind === ts.SyntaxKind.PlusToken) at = up;
+    else if (ts.isTemplateExpression(up) || ts.isParenthesizedExpression(up)) at = up;
+    else if (!ts.isTemplateSpan(up)) break;
+  }
+  return at;
 }
 
 /** Every string one file puts in front of a person. */
@@ -307,7 +339,17 @@ export function copyIn(file: string, options: CopyScanOptions = {}): CopyString[
       file: relative,
       line: source.getLineAndCharacterOfPosition(node.getStart()).line + 1,
       text,
+      start,
     });
+  };
+  /** Every literal of an expression, or with `chains` the expression as one string. */
+  const takeAll = (expression: ts.Expression): void => {
+    const parts = literals(expression);
+    if (options.chains && parts.length > 0) {
+      take(expression, chainText(expression));
+      return;
+    }
+    for (const literal of parts) take(literal, (literal as ts.LiteralLikeNode).text);
   };
 
   const visit = (node: ts.Node): void => {
@@ -321,9 +363,7 @@ export function copyIn(file: string, options: CopyScanOptions = {}): CopyString[
       node.parent &&
       (ts.isJsxElement(node.parent) || ts.isJsxFragment(node.parent))
     ) {
-      for (const literal of literals(node.expression)) {
-        take(literal, (literal as ts.LiteralLikeNode).text);
-      }
+      takeAll(node.expression);
     }
 
     if (
@@ -331,17 +371,13 @@ export function copyIn(file: string, options: CopyScanOptions = {}): CopyString[
       (ts.isIdentifier(node.name) || ts.isStringLiteral(node.name)) &&
       COPY_KEYS.has(node.name.text)
     ) {
-      for (const literal of literals(node.initializer)) {
-        take(literal, (literal as ts.LiteralLikeNode).text);
-      }
+      takeAll(node.initializer);
     }
 
     if (ts.isJsxAttribute(node) && COPY_ATTRS.has(node.name.getText()) && node.initializer) {
       if (ts.isStringLiteral(node.initializer)) take(node.initializer, node.initializer.text);
       else if (ts.isJsxExpression(node.initializer) && node.initializer.expression) {
-        for (const literal of literals(node.initializer.expression)) {
-          take(literal, (literal as ts.LiteralLikeNode).text);
-        }
+        takeAll(node.initializer.expression);
       }
     }
 
@@ -354,9 +390,7 @@ export function copyIn(file: string, options: CopyScanOptions = {}): CopyString[
       ) {
         if (ts.isStringLiteral(node.initializer)) take(node.initializer, node.initializer.text);
         else if (ts.isJsxExpression(node.initializer) && node.initializer.expression) {
-          for (const literal of literals(node.initializer.expression)) {
-            take(literal, (literal as ts.LiteralLikeNode).text);
-          }
+          takeAll(node.initializer.expression);
         }
       }
       if (
@@ -365,10 +399,12 @@ export function copyIn(file: string, options: CopyScanOptions = {}): CopyString[
           ts.isTemplateHead(node) ||
           ts.isTemplateMiddle(node) ||
           ts.isTemplateTail(node)) &&
-        readsAsProse((node as ts.LiteralLikeNode).text) &&
         !isNonCopyContext(node)
       ) {
-        take(node, (node as ts.LiteralLikeNode).text);
+        const whole = options.chains ? outerChain(node) : node;
+        const text =
+          whole === node ? (node as ts.LiteralLikeNode).text : chainText(whole as ts.Expression);
+        if (readsAsProse(text)) take(whole, text);
       }
     }
 

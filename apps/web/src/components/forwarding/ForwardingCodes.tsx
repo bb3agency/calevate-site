@@ -101,17 +101,15 @@ export function ForwardingCodes({
       ? (catalogue.data.carriers.find((g) => g.carrier === carrier) ?? catalogue.data.provider)
       : catalogue.data.provider;
   const number = formatPhone(calevateNumber);
-  const when =
-    mode === "all_calls"
-      ? "every call"
-      : `calls you don't answer within ${seconds} seconds, calls while you are busy, and calls when your phone is off`;
+  const when = mode === "all_calls" ? "every call" : `unanswered after ${seconds}s, busy, or phone off`;
 
   if (guide.method === "ask_provider") {
     return (
       <div className="space-y-2">
         <p className="text-body text-ink">
-          Ask your phone provider to enable call divert to <span className="font-mono tabular-nums">{number}</span> for {when}.
+          Ask your provider to divert calls to <span className="font-mono tabular-nums">{number}</span>.
         </p>
+        <p className="text-meta text-ink-muted">Which calls: {when}.</p>
         <p className="text-meta text-ink-muted">Office phone systems set this in the system itself.</p>
       </div>
     );
@@ -122,10 +120,11 @@ export function ForwardingCodes({
     <div className="space-y-4">
       {guide.method === "app" ? (
         <div className="space-y-1">
+          <p className="text-body text-ink">{CARRIER_LABEL[carrier]} sets this in its app or phone settings.</p>
           <p className="text-body text-ink">
-            {CARRIER_LABEL[carrier]} sets forwarding in its app or your phone&apos;s settings. Forward {when} to{" "}
-            <span className="font-mono tabular-nums">{number}</span>.
+            Forward to <span className="font-mono tabular-nums">{number}</span>.
           </p>
+          <p className="text-meta text-ink-muted">Which calls: {when}.</p>
           {guide.app_path && <p className="text-meta text-ink-muted">{guide.app_path}</p>}
         </div>
       ) : (

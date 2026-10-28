@@ -19,6 +19,8 @@ import { CONSENT_COPY, lapsedOn } from "@/app/c/[slug]/messaging-consent/copy";
 import { PERFORMANCE_COPY, periodHeadline } from "@/app/c/[slug]/performance/copy";
 import { QUALITY_COPY, monthEnding, tricky, verdictLine } from "@/app/c/[slug]/quality/copy";
 
+import { SHORT_LINE } from "./shortCopy";
+
 /**
  * "Buttons, not paragraphs" for the legal, consent and insight screens: every line these
  * screens show by default is short enough to read at a glance on a 375px phone, in a
@@ -33,7 +35,7 @@ import { QUALITY_COPY, monthEnding, tricky, verdictLine } from "@/app/c/[slug]/q
  * Keys ending in `Why` or `Tip` are shown only behind a tap ("Why?", an ⓘ), so they get a
  * looser budget: a short paragraph, not a page.
  */
-const LINE = 60;
+const LINE = SHORT_LINE;
 const BEHIND_A_TAP = 200;
 
 const SCREENS: Record<string, Record<string, string>> = {

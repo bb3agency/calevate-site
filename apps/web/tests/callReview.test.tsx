@@ -126,7 +126,7 @@ describe("the verdict", () => {
     );
     const heading = await screen.findByRole("heading", { name: "Needs you" });
     expect(heading.className).toContain("text-warn");
-    expect(screen.getByText("The caller asked to be called back, and no call back was booked.")).toBeTruthy();
+    expect(screen.getByText("They asked for a call back. None is booked.")).toBeTruthy();
   });
 
   it("states the server's refusal as a sentence, not a dead button", async () => {
@@ -171,7 +171,7 @@ describe("the verdict", () => {
       ),
     );
     expect(await screen.findByRole("heading", { name: "Needs you" })).toBeTruthy();
-    expect(screen.getByText("The call left something for your team to do. The next step is below.")).toBeTruthy();
+    expect(screen.getByText("Something is left to do. See the next step below.")).toBeTruthy();
     expect(screen.queryByText(/could not finish/)).toBeNull();
     expect(screen.getByText("Confirm the site visit for tomorrow morning.")).toBeTruthy();
   });

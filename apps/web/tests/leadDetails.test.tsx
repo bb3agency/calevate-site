@@ -136,7 +136,7 @@ describe("the lead details screen", () => {
       "POST /v1/lead-fields/draft/review": { fields_kept: 1, agents_changed: 1 },
     });
     await screen.findByRole("heading", { name: "2 drafted details" });
-    expect(screen.getByText(/no agent has them yet/)).toBeTruthy();
+    expect(screen.getAllByText(/Keep what fits\./).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("checkbox", { name: /Kilos/ }));
     fireEvent.click(screen.getByRole("button", { name: "Add 1 of 2 to my agents" }));
     await waitFor(() => {
@@ -164,7 +164,9 @@ describe("the lead details screen", () => {
         ],
       }),
     });
-    await screen.findByText(/Drafted once from your business details/);
+    await screen.findByText(/Drafted from your business details/);
+    // The reason is behind its "Why?", one tap away.
+    fireEvent.click(screen.getAllByRole("button", { name: /Why\?/ })[0]!);
     expect(screen.getByText(/won't be drafted again/)).toBeTruthy();
     expect(screen.getByText("Produce")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^Let Pip draft them/ })).toBeNull();
@@ -300,7 +302,7 @@ describe("how calls end (D-836)", () => {
       "/v1/call-outcomes": callOutcomes({ agents: [STARTING_AGENT] }),
     });
     await screen.findByRole("heading", { name: "How calls end" });
-    expect(screen.getByText(/being written from your business details/)).toBeTruthy();
+    expect(screen.getByText(/Writing yours now/)).toBeTruthy();
     expect(screen.getByDisplayValue("Wants to buy or book")).toBeTruthy();
     // How far it moves the lead, in the owner's words, never Won or Lost.
     const moves = screen.getAllByRole("combobox", { name: "Moves the lead to" })[0] as HTMLSelectElement;
@@ -357,7 +359,7 @@ describe("write them for me (D-841)", () => {
       "POST /v1/agents/a1/call-outcomes/draft": { ...STARTING_AGENT, draft: "queued" },
     });
     await screen.findByRole("heading", { name: "How calls end" });
-    expect(screen.getByText(/could not be written/)).toBeTruthy();
+    expect(screen.getByText(/couldn't be written/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Write them for me" }));
     await waitFor(() => {
       expect(

@@ -21,12 +21,12 @@ const SOURCES: { value: DraftParam["source"]; label: string; hint: string }[] = 
   {
     value: "ai",
     label: "The agent works it out",
-    hint: "Your agent asks the caller for it, or takes it from what they have said.",
+    hint: "Your agent asks, or takes it from what they said.",
   },
   {
     value: "lead_var",
     label: "From the lead",
-    hint: "Filled in from this call, or from what your agent captured about this caller before.",
+    hint: "From this call, or what was captured before.",
   },
   { value: "static", label: "A fixed value", hint: "The same value is sent every time." },
 ];

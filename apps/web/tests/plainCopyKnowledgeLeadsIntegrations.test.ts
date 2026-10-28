@@ -1,10 +1,9 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
-
 import { describe, expect, it } from "vitest";
 
 import { uploadState } from "@/app/c/[slug]/knowledge/uploadCopy";
 import type { KbUpload } from "@/lib/api/kb";
+
+import { SHORT_LINE, defaultCopyUnder, longLines, type Hidden } from "./shortCopy";
 
 /**
  * "BUTTONS, NOT PARAGRAPHS" for the knowledge, lead-sources and integrations screens.
@@ -12,15 +11,24 @@ import type { KbUpload } from "@/lib/api/kb";
  * Their readers are small-business owners, often on a phone and often reading English as
  * a second language, so every line a screen shows BY DEFAULT is short. An explanation is
  * allowed to be longer only behind a tap: an `InfoTip` (ⓘ), a section's `info`, a
- * checklist row's `info`. Those are stripped before the scan, so moving a sentence behind
- * a tap is the way to pass, and adding a paragraph back to the default view fails here.
+ * checklist row's `info`. Those are left out of the walk (`shortCopy.ts`), so moving a
+ * sentence behind a tap is the way to pass, and adding a paragraph back to the default view
+ * fails here.
  *
- * Pip's own context (`copilot.ts`) is never shown and is skipped.
+ * Pip's own context (`copilot.ts`) is never shown and is skipped, and so is a request
+ * prefilled in Pip's ask box (`*_REQUEST`), which the person edits before sending.
  */
 
-const LIMIT = 60;
-const ROOT = join(__dirname, "..", "src", "app", "c", "[slug]");
+const LIMIT = SHORT_LINE;
+const ROOT = "src/app/c/[slug]/";
 const AREAS = ["knowledge", "lead-sources", "integrations"];
+
+const HIDDEN: Hidden = {
+  elements: new Set(["InfoTip"]),
+  attrs: /^info$/,
+  props: new Set(["info"]),
+  constants: /_REQUEST$/,
+};
 
 /**
  * Lines that stay longer on purpose, each with its reason. A setup step that names the
@@ -28,11 +36,6 @@ const AREAS = ["knowledge", "lead-sources", "integrations"];
  * never by dropping them.
  */
 const ALLOWED: { file: string; startsWith: string; why: string }[] = [
-  {
-    file: "knowledge/TeachBox.tsx",
-    startsWith: "Read the photo or file I attach",
-    why: "READ_FILE_REQUEST, the words prefilled in Pip's own ask box, which the person edits",
-  },
   {
     file: "integrations/whatsapp/KeyGuides.tsx",
     startsWith: "Generate a token with business management",
@@ -55,54 +58,15 @@ const ALLOWED: { file: string; startsWith: string; why: string }[] = [
   },
 ];
 
-function files(dir: string): string[] {
-  return readdirSync(dir).flatMap((name) => {
-    const path = join(dir, name);
-    return statSync(path).isDirectory() ? files(path) : /\.tsx?$/.test(name) ? [path] : [];
-  });
-}
-
-/** Comments, and everything that only appears behind a tap, removed. */
-function defaultViewSource(source: string): string {
-  return source
-    .replace(/\r\n/g, "\n")
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/(^|[^:"'`])\/\/.*$/gm, "$1")
-    .replace(/<InfoTip\b[\s\S]*?<\/InfoTip>/g, "")
-    .replace(/\binfo=\{[\s\S]*?\}\s*(?=\n|\/?>)/g, "")
-    .replace(/\binfo=("[^"]*")/g, "")
-    .replace(/\binfo:\s*"[^"]*"/g, "");
-}
-
-/** Visible-copy candidates: JSX text, and string literals that read as a sentence. */
-function sentences(source: string): string[] {
-  const out: string[] = [];
-  for (const match of source.matchAll(/>([^<>{}]+)</g)) {
-    const text = match[1]!.replace(/\s+/g, " ").trim();
-    if (/[A-Za-z]{2,} [A-Za-z]/.test(text) && !/[;=]|=>/.test(text)) out.push(text);
-  }
-  for (const match of source.matchAll(/"((?:[^"\\\n]|\\.)*)"|`([^`]*)`/g)) {
-    const text = (match[1] ?? match[2] ?? "").replace(/\$\{[^}]*\}/g, "12").replace(/\s+/g, " ").trim();
-    // Copy starts like a sentence; class lists, paths and keys do not.
-    if (/^[A-Z0-9₹“"'(]/.test(text) && / [a-z]/.test(text)) out.push(text);
-  }
-  return out;
-}
-
 describe("default copy on the knowledge, lead-sources and integrations screens", () => {
   for (const area of AREAS) {
     it(`keeps every default line on ${area} to ${LIMIT} characters or fewer`, () => {
-      const long: string[] = [];
-      for (const path of files(join(ROOT, area))) {
-        if (path.endsWith("copilot.ts")) continue;
-        const file = relative(ROOT, path).replace(/\\/g, "/");
-        for (const text of sentences(defaultViewSource(readFileSync(path, "utf8")))) {
-          if (text.length <= LIMIT) continue;
-          if (ALLOWED.some((a) => a.file === file && text.startsWith(a.startsWith))) continue;
-          long.push(`${file}: (${text.length}) ${text}`);
-        }
-      }
-      expect(long).toEqual([]);
+      const copy = defaultCopyUnder([ROOT + area], HIDDEN).filter((c) => !c.file.endsWith("copilot.ts"));
+      expect(copy.length, area).toBeGreaterThan(0);
+      const allowed = (file: string, text: string) =>
+        ALLOWED.some((a) => ROOT + a.file === file && text.startsWith(a.startsWith));
+      const long = copy.filter((c) => !allowed(c.file, c.text));
+      expect(longLines(long)).toEqual([]);
     });
   }
 

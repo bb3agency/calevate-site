@@ -35,7 +35,7 @@ export const LINE_KIND_CHOICE: Record<LineKind, { label: string; hint: string }>
 export const MODE_COPY: Record<ForwardingMode, { title: string; line: string }> = {
   conditional: {
     title: "Your phone rings first",
-    line: "Your agent answers calls you miss, calls while you are busy, and calls when your phone is off.",
+    line: "Missed, busy and switched-off calls go to your agent.",
   },
   all_calls: {
     title: "Your agent answers every call",
@@ -69,26 +69,29 @@ export const STATUS_COPY: Record<ForwardedLine["status"], { text: string; tone: 
 
 export const CALLER_ID_COPY: Record<NonNullable<ForwardedLine["caller_id_finding"]>, string> = {
   caller_shown: "Your agent sees the caller's own number.",
+  business_number_shown: "Your agent sees your number, so it asks for theirs.",
+  other_number_shown: "Your agent saw a different number.",
+};
+
+/** The reason behind a finding, opened under "Why?" beside it. */
+export const FINDING_WHY: Partial<Record<string, string>> = {
   business_number_shown:
     "Your network shows your number instead of the caller's, so your agent asks callers for a number to call back on.",
-  other_number_shown:
-    "A call reached your agent from a different number. If nobody else rang you just then, your network shows another number.",
+  other_number_shown: "If nobody else rang you just then, your network shows another number.",
+  one_arrived: "Your line may take one call at a time.",
 };
 
 export const CONCURRENCY_COPY: Record<NonNullable<ForwardedLine["concurrency_finding"]>, string> = {
   both_arrived: "Two calls at the same time both reached your agent.",
-  one_arrived: "Only one of two calls at the same time reached your agent. Your line may take one call at a time.",
+  one_arrived: "Only one of two calls at once got through.",
   not_tested: "Two calls at the same time were not tested.",
 };
 
 export const OUTCOME_COPY: Record<NonNullable<ForwardingTest["outcome"]>, { text: string; tone: NoticeTone }> = {
   arrived: { text: "The test call reached your agent.", tone: "ok" },
-  not_arrived: { text: "The test call did not reach your agent. Check the forward is switched on.", tone: "stop" },
-  answered_on_phone: {
-    text: "The test call was answered on your phone, so it was not forwarded. Let it ring next time.",
-    tone: "warn",
-  },
-  not_placed: { text: "We could not place the test call. Try again in a few minutes.", tone: "stop" },
+  not_arrived: { text: "It didn't reach your agent. Is the forward on?", tone: "stop" },
+  answered_on_phone: { text: "You answered it, so it wasn't forwarded. Let it ring.", tone: "warn" },
+  not_placed: { text: "We couldn't place the call. Try again soon.", tone: "stop" },
 };
 
 /** What to try during a test, because no carrier confirms these for India. */

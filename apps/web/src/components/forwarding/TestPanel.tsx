@@ -3,10 +3,11 @@
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { StatusPill } from "@/components/console/statusPill";
 import { NoticeBox, ProblemNotice, formatIST } from "@/components/ui";
+import { Why } from "@/components/why";
 import type { Session } from "@/lib/api/client";
 import { testRunning, useLineTests, useRunTest, type ForwardedLine } from "@/lib/api/forwarding";
 
-import { CALLER_ID_COPY, CONCURRENCY_COPY, OUTCOME_COPY, SELF_CHECKS } from "./copy";
+import { CALLER_ID_COPY, CONCURRENCY_COPY, FINDING_WHY, OUTCOME_COPY, SELF_CHECKS } from "./copy";
 
 /**
  * THE VERIFICATION CALL for one number: run it, watch it, read what it found.
@@ -41,7 +42,7 @@ export function TestPanel({
   return (
     <div className="space-y-3">
       <p className="text-body text-ink-muted">
-        We ring your number from our side. It should reach your agent. Don&apos;t answer it.
+        We ring your number. Don&apos;t answer it.
       </p>
       {!available && (
         <NoticeBox tone="neutral" title="Test calls are not available yet." role="status">
@@ -62,9 +63,11 @@ export function TestPanel({
             <span className="text-meta text-ink-muted">{formatIST(latest.settled_at ?? latest.created_at)}</span>
           </div>
           <p className="text-body text-ink">{outcome.text}</p>
-          {latest.caller_id_finding && <p className="text-body text-ink-muted">{CALLER_ID_COPY[latest.caller_id_finding]}</p>}
+          {latest.caller_id_finding && (
+            <Finding text={CALLER_ID_COPY[latest.caller_id_finding]} why={FINDING_WHY[latest.caller_id_finding]} />
+          )}
           {latest.concurrency_finding && latest.outcome === "arrived" && (
-            <p className="text-body text-ink-muted">{CONCURRENCY_COPY[latest.concurrency_finding]}</p>
+            <Finding text={CONCURRENCY_COPY[latest.concurrency_finding]} why={FINDING_WHY[latest.concurrency_finding]} />
           )}
         </div>
       )}
@@ -90,5 +93,20 @@ export function TestPanel({
         {latest ? "Test again" : "Test it now"}
       </ActionButton>
     </div>
+  );
+}
+
+/** One finding of the test: a short line, and its reason behind a tap when it has one. */
+function Finding({ text, why }: { text: string; why: string | undefined }) {
+  return (
+    <p className="text-body text-ink-muted">
+      {text}
+      {why ? (
+        <>
+          {" "}
+          <Why inline>{why}</Why>
+        </>
+      ) : null}
+    </p>
   );
 }

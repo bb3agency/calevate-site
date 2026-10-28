@@ -113,7 +113,7 @@ export function MakeCallTest({ callId, canWrite = true }: { callId: string; canW
             </div>
           ))}
           <span className={FIELD_HINT}>
-            Phone numbers and names are already hidden. Keep the lines where it went wrong.
+            Names and numbers are hidden. Keep where it went wrong.
           </span>
         </fieldset>
         <div>

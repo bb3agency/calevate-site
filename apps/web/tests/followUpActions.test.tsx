@@ -135,7 +135,7 @@ describe("the actions that reach a person", () => {
     fireEvent.click(await screen.findByRole("button", { name: /More actions for Ramesh Kumar/ }));
     const item = await screen.findByRole("menuitem", { name: "Call back" });
     expect(item.getAttribute("aria-disabled")).toBe("true");
-    expect(item.textContent).toContain("None of your agents places calls yet");
+    expect(item.textContent).toContain("No agent makes calls yet");
   });
 
   it("shows a refused call back later as the reason, and keeps the dialog open", async () => {

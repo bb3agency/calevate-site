@@ -288,7 +288,7 @@ function ConnectFlow({
           )}
           {choice === "business_app" && <li>The WhatsApp Business app, updated.</li>}
           {isExisting && <li>Admin access to your provider&rsquo;s WhatsApp account.</li>}
-          <li>A card for Meta. Meta charges you for each message; Calevate adds nothing.</li>
+          <li>A card for Meta, which bills per message. We add nothing.</li>
         </ul>
       </div>
 
@@ -300,8 +300,8 @@ function ConnectFlow({
           {isExisting && <li>Pick your WhatsApp account, if Meta offers it.</li>}
           <li>Back here, we set up your number and messages.</li>
           <li>
-            In WhatsApp Manager, add your card so Meta can bill you. Meta reviews messages in up to{" "}
-            {TEMPLATE_REVIEW_HOURS} hours.
+            In WhatsApp Manager, add your card so Meta can bill you.
+            <span className="block text-ink-muted">Meta reviews messages in up to {TEMPLATE_REVIEW_HOURS} hours.</span>
           </li>
         </ol>
       </div>

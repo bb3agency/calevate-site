@@ -35,17 +35,17 @@ const STATES: Record<TestCall["status"], State> = {
   queued: {
     label: "Calling",
     tone: "neutral",
-    sentence: "Placing the call. Your phone should ring in a few seconds.",
+    sentence: "Placing the call. Your phone rings in a moment.",
   },
   ringing: {
     label: "Ringing",
     tone: "neutral",
-    sentence: "Your phone is ringing. Pick up to talk to your agent.",
+    sentence: "Your phone is ringing. Pick up to talk.",
   },
   in_progress: {
     label: "Connected",
     tone: "ok",
-    sentence: "You are talking to your agent. Hang up whenever you like.",
+    sentence: "You're talking to your agent.",
   },
   completed: {
     label: "Ended",
@@ -55,22 +55,22 @@ const STATES: Record<TestCall["status"], State> = {
   no_answer: {
     label: "Not answered",
     tone: "warn",
-    sentence: "Nobody picked up. Check the number and that the phone is on, then call again.",
+    sentence: "Nobody picked up. Check the number, then call again.",
   },
   busy: {
     label: "Line busy",
     tone: "warn",
-    sentence: "The phone was busy or the call was declined. Try again in a minute.",
+    sentence: "Busy or declined. Try again in a minute.",
   },
   voicemail: {
     label: "Went to voicemail",
     tone: "warn",
-    sentence: "The call reached voicemail, so your agent did not get to talk. Call again and pick up.",
+    sentence: "It went to voicemail. Call again and pick up.",
   },
   failed: {
     label: "Did not go through",
     tone: "stop",
-    sentence: "The call could not be connected. Check the number and try again.",
+    sentence: "It didn't connect. Check the number and try again.",
   },
 };
 
@@ -105,18 +105,21 @@ function LiveClock({ since }: { since: string }) {
   );
 }
 
-/** Where the call rings from, said once it is known; the number never breaks across lines. */
+/**
+ * Where the call rings from, said once it is known, on its own line under the state so each
+ * stays one short line; the number never breaks across lines.
+ */
 function FromLine({ number, paid, live }: { number: string | null | undefined; paid: boolean; live: boolean }) {
   const verb = live ? "It rings" : "It rang";
   if (number) {
     return (
-      <>
-        {` ${verb} from `}
+      <span className="block text-meta text-ink-muted">
+        {`${verb} from `}
         <span className="whitespace-nowrap">{formatPhone(number)}</span>.
-      </>
+      </span>
     );
   }
-  return paid ? <>{` ${verb} from your agent's own number.`}</> : null;
+  return paid ? <span className="block text-meta text-ink-muted">{`${verb} from your agent's own number.`}</span> : null;
 }
 
 /**

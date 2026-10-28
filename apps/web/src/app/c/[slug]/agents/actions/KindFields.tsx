@@ -17,6 +17,7 @@ import type { FormValidation } from "@/components/formValidation";
 import { TEXT_ACTION } from "@/components/console/section";
 import { FIELD, FIELD_HINT, FIELD_LABEL, ProblemNotice, Skeleton } from "@/components/ui";
 import { SheetChooser } from "@/components/sheetChooser";
+import { Why } from "@/components/why";
 import { useCredentials, type ActionTool } from "@/lib/api/actions";
 import type { Session } from "@/lib/api/client";
 import { LANGUAGE_LABELS, PURPOSE_LABELS, useWhatsApp, useWhatsAppTemplates } from "@/lib/api/whatsapp";
@@ -289,13 +290,18 @@ export function KindFields({
           {valid.error("url")}
           {kind === "caller_lookup" ? (
             <span className={FIELD_HINT}>
-              We call it with the caller&rsquo;s number as <code>?phone=</code>. Return only
-              what the agent needs, such as their name.
+              <span className="block">
+                We send the caller&rsquo;s number as <code>?phone=</code>.
+              </span>
+              <span className="block">Return only what the agent needs.</span>
             </span>
           ) : (
             <span className={FIELD_HINT}>
-              Must answer within a few seconds. Anything that looks like a phone number, email
-              or card number in the answer is hidden from the agent.
+              Must answer in a few seconds.{" "}
+              <Why inline label="What it sees">
+                Anything that looks like a phone number, email or card number in the answer is hidden
+                from the agent.
+              </Why>
             </span>
           )}
         </div>
@@ -314,7 +320,7 @@ export function KindFields({
           label={provider === "aisensy" ? "Campaign name" : "Template name"}
           value={draft.template}
           onChange={set("template")}
-          hint="An approved template. Messages are always sent as a template."
+          hint="Must be an approved template."
         />
         {provider !== "aisensy" ? (
           <Field label="Template language" value={draft.language} onChange={set("language")} />
@@ -385,8 +391,8 @@ export function KindFields({
           </div>
         ) : (
           <p className={FIELD_HINT}>
-            Each value below becomes a column with the same heading. One row per call; later
-            answers on the same call update that row.
+            Each value below is a column. One row per call.{" "}
+            <Why inline>Later answers on the same call update that row.</Why>
           </p>
         )}
       </div>
@@ -476,11 +482,11 @@ export function KindFields({
           label="Template blanks, in order"
           value={draft.msg_body_values}
           onChange={set("msg_body_values")}
-          hint="Any of link, amount, description, separated by commas — for example: amount, link."
+          hint="Any of: link, amount, description. E.g. amount, link"
         />
         <p className={FIELD_HINT}>
-          Links are created on your own Razorpay account and paid to you. Not available during a
-          free trial.
+          <span className="block">Paid into your own Razorpay account.</span>
+          <span className="block">Not available on a free trial.</span>
         </p>
       </div>
     );
@@ -499,10 +505,11 @@ export function KindFields({
           </label>
         ) : null}
         <p className={FIELD_HINT}>
-          The caller&rsquo;s number is added for you and finds an existing record. Name each value
-          below after the field it fills —{" "}
-          {provider === "zoho" ? "for example Last_Name or Email" : "for example firstname or email"}.
-          Saved in the background, so the call carries on.
+          <span className="block">The caller&rsquo;s number finds their record.</span>
+          <span className="block">
+            Name each value after its field, e.g. {provider === "zoho" ? "Last_Name" : "firstname"}.{" "}
+            <Why inline>Saved in the background, so the call carries on.</Why>
+          </span>
         </p>
       </div>
     );
@@ -519,7 +526,7 @@ export function KindFields({
             label="Columns the agent may read"
             value={draft.return_headers}
             onChange={set("return_headers")}
-            hint="Column headings, separated by commas — for example Name, Last visit."
+            hint="Column headings, comma-separated. E.g. Name, Last visit"
           />
         </div>
       </div>
@@ -537,9 +544,11 @@ export function KindFields({
         </label>
       ) : null}
       <p className={FIELD_HINT}>
-        Found by the caller&rsquo;s number so the agent can greet them by name. It never reads
-        anyone else&rsquo;s record. Looked up before the phone rings on outgoing calls, and just
-        after the greeting on incoming ones.
+        Found by their number, so the agent can greet them.{" "}
+        <Why inline>
+          It never reads anyone else&rsquo;s record. Looked up before the phone rings on outgoing
+          calls, and just after the greeting on incoming ones.
+        </Why>
       </p>
     </div>
   );
@@ -583,7 +592,7 @@ function MetaTemplateFields({
             label="Template name"
             value={draft.template}
             onChange={set("template")}
-            hint="An approved template. Messages are always sent as a template."
+            hint="Must be an approved template."
           />
           <Field label="Template language" value={draft.language} onChange={set("language")} />
           {!connected ? (
@@ -642,7 +651,7 @@ function MetaTemplateFields({
           Fill its blanks in this order below: {chosen.variables.map((v, i) => `${i + 1} ${v.label}`).join(" · ")}.
         </p>
       ) : (
-        <p className={FIELD_HINT}>Only messages Meta has approved are listed. Add your own on Integrations.</p>
+        <p className={FIELD_HINT}>Only approved messages are listed. Add more on Integrations.</p>
       )}
       <button type="button" className={TEXT_ACTION} onClick={() => setTyping(true)}>
         Type a template name instead

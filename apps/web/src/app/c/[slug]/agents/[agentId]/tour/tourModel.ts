@@ -56,25 +56,25 @@ export const TOUR_STEPS: readonly TourStep[] = [
   {
     id: "script",
     title: "Read its script",
-    body: `Everything it says on a call, from the first words to the goodbye. Open ${AGENT_TABS.script} to change any line.`,
+    body: `Everything it says on a call. Open ${AGENT_TABS.script} to change a line.`,
     target: agentTab("script"),
   },
   {
     id: "pip",
     title: `Ask ${ASSISTANT_NAME} to change it`,
-    body: "Say what should change in your own words. You check every change before callers hear it.",
+    body: "Say what to change. You check it before callers hear it.",
     target: pipLauncher,
   },
   {
     id: "try",
     title: "Try it before callers do",
-    body: "Chat with it, or hear it on a real phone call, exactly as a caller would.",
+    body: "Chat with it, or hear it on a real call.",
     target: (doc) => doc.querySelector<HTMLElement>(`[data-tour="${TRY_IT_ANCHOR}"]`),
   },
   {
     id: "teach",
     title: "Teach it facts",
-    body: `Prices, hours, how bookings work. Add them in ${AGENT_TABS.training}, and it answers from them when a caller asks.`,
+    body: `Prices, hours, bookings. Add them in ${AGENT_TABS.training}.`,
     target: agentTab("training"),
   },
   {

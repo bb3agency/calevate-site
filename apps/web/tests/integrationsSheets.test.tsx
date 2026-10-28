@@ -311,7 +311,7 @@ describe("the event catalogue", () => {
     const dialog = await choose("webhook");
     expect(dialog.querySelectorAll('input[type="checkbox"]')).toHaveLength(1);
     expect(dialog.textContent).toContain("call.transferred");
-    expect(dialog.textContent).toContain("cannot subscribe to yet");
+    expect(dialog.textContent).toContain("cannot subscribe to it yet");
   });
 });
 

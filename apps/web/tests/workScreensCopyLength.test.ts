@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { copyUnder } from "./copyScan";
+import { SHORT_LINE, defaultCopyUnder, longLines } from "./shortCopy";
 
 /**
  * BUTTONS, NOT PARAGRAPHS — on the leads, calls and call-backs screens (founder, Oct 2026).
@@ -11,8 +11,9 @@ import { copyUnder } from "./copyScan";
  * "short" half: no string these screens put in front of a person runs past about 60
  * characters, so a paragraph cannot creep back in one edit at a time.
  *
- * It reads the same AST walk every copy guard uses (`copyScan.ts`), so comments, class
- * names and wire values are not counted.
+ * It reads the same walk every copy guard uses (`shortCopy.ts`), so comments, class names
+ * and wire values are not counted. Nothing is treated as behind a tap here: every string
+ * these screens hold is measured.
  */
 
 const SCREENS = [
@@ -22,7 +23,7 @@ const SCREENS = [
 ];
 
 /** About one line on a 375px phone at body size. */
-const MAX = 60;
+const MAX = SHORT_LINE;
 
 /** Strings no person reads on the screen, each with the reason. */
 const EXEMPT: ReadonlyArray<{ text: RegExp; reason: string }> = [
@@ -36,9 +37,7 @@ const EXEMPT: ReadonlyArray<{ text: RegExp; reason: string }> = [
 const EXEMPT_FILES = ["src/app/c/[slug]/leads/leadsCopilotSurface.ts"];
 
 describe("the leads, calls and call-backs screens speak in short lines", () => {
-  const strings = copyUnder(SCREENS, EXEMPT_FILES)
-    .map((found) => ({ ...found, text: found.text.replace(/\s+/g, " ").trim() }))
-    .filter((found) => found.text.length > 0);
+  const strings = defaultCopyUnder(SCREENS, {}, { chains: true }, EXEMPT_FILES);
 
   it("reads the screens at all", () => {
     // A walk that found nothing would pass the rule below on an empty list.
@@ -47,9 +46,6 @@ describe("the leads, calls and call-backs screens speak in short lines", () => {
   });
 
   it(`keeps every visible line to about ${MAX} characters`, () => {
-    const long = strings.filter(
-      (found) => found.text.length > MAX && !EXEMPT.some((rule) => rule.text.test(found.text)),
-    );
-    expect(long.map((found) => `${found.file}:${found.line} (${found.text.length}) ${found.text}`)).toEqual([]);
+    expect(longLines(strings, (text) => EXEMPT.some((rule) => rule.text.test(text)))).toEqual([]);
   });
 });

@@ -127,7 +127,7 @@ export function OpeningLineFix({
         />
       </div>
       <p className="text-xs text-ink-muted">
-        Saving puts the shorter line live straight away. The rest of the script stays as it is.
+        Goes live at once. The rest of the script stays.
       </p>
     </div>
   );

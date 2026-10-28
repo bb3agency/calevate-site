@@ -28,6 +28,7 @@ import {
   progressFixture,
 } from "./campaignFixtures";
 import { renderClientPage } from "./harness";
+import { SHORT_LINE } from "./shortCopy";
 
 /**
  * BUTTONS, NOT PARAGRAPHS (founder, 28 Oct 2026): every line a client reads by default on
@@ -38,7 +39,7 @@ import { renderClientPage } from "./harness";
  * the list and of one campaign in its main states. ~60 characters is about 8 words, which
  * is one line on a 375px phone at body size.
  */
-const MAX = 60;
+const MAX = SHORT_LINE;
 
 const tooLong = (lines: string[]) => lines.filter((line) => line.length > MAX);
 

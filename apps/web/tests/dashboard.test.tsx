@@ -661,9 +661,9 @@ describe("a held number (D-860)", () => {
 
   it("leads with calls stopped and the IST release day, with credit the one action", async () => {
     await renderClientPage(page, routes({ "/v1/campaigns/numbers": [held("2026-11-06T18:30:00Z")] }));
-    expect(
-      await screen.findByText("Calls stopped. Released on Saturday, 7 November unless you top up."),
-    ).toBeTruthy();
+    expect(await screen.findByText("Calls stopped. Top up to keep your number.")).toBeTruthy();
+    expect(screen.getByText("Released on Saturday, 7 November.")).toBeTruthy();
+    expect(screen.getByText("Once released, we can't get it back.")).toBeTruthy();
     const links = screen.getAllByRole("link", { name: "Add credit" });
     expect(links.some((link) => link.getAttribute("href")?.endsWith("/billing?tab=credits"))).toBe(true);
   });
@@ -678,11 +678,8 @@ describe("a held number (D-860)", () => {
         ],
       }),
     );
-    expect(
-      await screen.findByText(
-        "Calls stopped. The first of your numbers is released on Saturday, 7 November unless you top up.",
-      ),
-    ).toBeTruthy();
+    expect(await screen.findByText("Calls stopped. Top up to keep your numbers.")).toBeTruthy();
+    expect(screen.getByText("The first is released on Saturday, 7 November.")).toBeTruthy();
   });
 
   it("says it could not check, rather than nothing, when the numbers do not load", async () => {

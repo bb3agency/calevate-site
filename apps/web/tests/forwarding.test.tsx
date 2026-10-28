@@ -43,8 +43,8 @@ describe("Settings > Phone numbers", () => {
     expect(await screen.findByText("+91 98123 45678")).toBeTruthy();
     expect(screen.getByText("Rings 20 seconds first, then your agent answers")).toBeTruthy();
     // The line's finding, and the settled test's when its history has loaded: one or both.
-    expect(screen.getAllByText(/shows your number instead of the caller's/).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/Only one of two calls at the same time/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Your agent sees your number, so it asks for theirs/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Only one of two calls at once got through/).length).toBeGreaterThan(0);
     expect(screen.getByText("No calls in three days")).toBeTruthy();
     // The fix is a button, not a sentence: it jumps to the line's test.
     expect(screen.getByRole("link", { name: "Test now" }).getAttribute("href")).toMatch(/^#test-/);
@@ -99,7 +99,7 @@ describe("Settings > Phone numbers", () => {
       <PhoneNumbersSettingsPage />,
       settingsRoutes({ "/v1/forwarding": { ...WITH_LINE, lines: [landline] } }),
     );
-    expect(await screen.findByText(/Ask your phone provider to enable call divert/)).toBeTruthy();
+    expect(await screen.findByText(/Ask your provider to divert calls to/)).toBeTruthy();
   });
 
   it("runs the test with the account confirmation", async () => {

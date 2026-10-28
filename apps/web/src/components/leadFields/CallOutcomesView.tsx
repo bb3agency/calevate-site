@@ -81,18 +81,18 @@ export function outcomesProblem(rows: readonly OutcomeRow[], max: number): strin
 /** Where the agent's list came from, in one sentence. */
 export function originLine(agent: Pick<CallOutcomesAgent, "starting" | "draft">): string {
   if (agent.draft === "queued" || agent.draft === "running") {
-    return "Outcomes for this agent are being written from your business details. Until then calls are read with the general ones below.";
+    return "Writing yours now. Until then, the general ones apply.";
   }
   if (agent.starting && agent.draft === "skipped") {
-    return "These are general outcomes: ones for your business were not written because AI help was paused or this month's allowance was used up. Edit them to fit.";
+    return "General outcomes. AI help was paused or used up.";
   }
   if (agent.starting && agent.draft === "failed") {
-    return "These are general outcomes: ones for your business could not be written. Ask again, or edit them to fit.";
+    return "General outcomes. Yours couldn't be written.";
   }
   if (agent.starting) {
-    return "These are general outcomes. Ones for your business are written when the agent is published, or after its next call.";
+    return "General outcomes for now. Yours come when it goes live.";
   }
-  return "Written for your business. Edit them freely; changes apply from the next call.";
+  return "Written for your business. Changes apply next call.";
 }
 
 /** The mutation behind "Write them for me". */
@@ -126,7 +126,8 @@ export function CallOutcomesView({
   return (
     <Section
       title="How calls end"
-      description="Besides Missed, Hung up early, Call back booked, Transferred and Needs you, which are decided from what happened on the call, each agent sorts its calls into outcomes of your business. Each one moves the lead up to the stage you choose; it never marks a lead won or lost."
+      description="How each agent sorts your calls."
+      info="Besides Missed, Hung up early, Call back booked, Transferred and Needs you, which are decided from what happened on the call, each agent sorts its calls into outcomes of your business. Each one moves the lead up to the stage you choose; it never marks a lead won or lost."
     >
       {!agent ? (
         <p className="text-sm text-ink-muted">No agents yet. Outcomes appear here once you create one.</p>
@@ -216,9 +217,7 @@ function OutcomesEditor({
         </div>
       )}
       {rows.length === 0 ? (
-        <p className="text-sm text-ink-muted">
-          No outcomes of your own. Calls are still sorted by what happened on them.
-        </p>
+        <p className="text-sm text-ink-muted">No outcomes of your own. Calls still get sorted.</p>
       ) : (
         <ul className="divide-y divide-line border-y border-line">
           {rows.map((row, index) => {

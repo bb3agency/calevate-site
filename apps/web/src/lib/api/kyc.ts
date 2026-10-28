@@ -85,22 +85,22 @@ export interface KycStatusCopy {
 export const KYC_STATUS_COPY: Record<KycStatus, KycStatusCopy> = {
   not_started: {
     label: "Not started",
-    headline: "Your business has not been verified yet.",
-    next: "Start with your business details below, then the certificate and the owner's ID.",
+    headline: "Your business is not verified yet.",
+    next: "Start with your business details below.",
     tone: "neutral",
     operator: "not_started — opened, nothing checked yet",
   },
   submitted: {
     label: "Submitted",
-    headline: "We have your details and owe you a review.",
-    next: "Nothing for you to do — we will come back to you, or ask if something is missing.",
+    headline: "We have your details. We'll review them.",
+    next: "Nothing to do. We'll ask if anything is missing.",
     tone: "neutral",
     operator: "submitted — the client has sent their documents",
   },
   in_review: {
     label: "In review",
-    headline: "We are checking your business details now.",
-    next: "Nothing for you to do. Outgoing calls open as soon as this clears.",
+    headline: "We're checking your details now.",
+    next: "Nothing to do. Outgoing calls open once it clears.",
     tone: "neutral",
     operator: "in_review — with us, being checked",
   },
@@ -113,8 +113,8 @@ export const KYC_STATUS_COPY: Record<KycStatus, KycStatusCopy> = {
   },
   rejected: {
     label: "Rejected",
-    headline: "We could not verify your business from what we were sent.",
-    next: "Correct what our note names in the steps below and send it again.",
+    headline: "We couldn't verify your business.",
+    next: "Fix what our note says below, then send again.",
     tone: "stop",
     operator: "rejected — refused; must say why",
   },
@@ -163,7 +163,7 @@ export interface DocumentKindSpec {
 export const DOCUMENT_KINDS: Record<KycDocumentKind, DocumentKindSpec> = {
   cin: {
     label: "CIN",
-    hint: "Corporate Identity Number — on the certificate of incorporation of a company.",
+    hint: "Company number, on the incorporation certificate.",
     placeholder: "U74999KA2020PTC131234",
   },
   llpin: {
@@ -173,17 +173,17 @@ export const DOCUMENT_KINDS: Record<KycDocumentKind, DocumentKindSpec> = {
   },
   gstin: {
     label: "GSTIN",
-    hint: "The GST registration number, on the registration certificate.",
+    hint: "GST number, on the registration certificate.",
     placeholder: "29ABCDE1234F1Z5",
   },
   udyam: {
     label: "Udyam registration",
-    hint: "The MSME registration number, for a small business registered on Udyam.",
+    hint: "MSME number, for a business on Udyam.",
     placeholder: "UDYAM-KA-03-0001234",
   },
   shop_establishment: {
     label: "Shops & Establishments",
-    hint: "The state registration a shop or small establishment trades under.",
+    hint: "The state registration a shop trades under.",
     placeholder: "Registration number as printed",
   },
   trade_licence: {

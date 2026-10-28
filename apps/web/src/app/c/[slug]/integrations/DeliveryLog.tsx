@@ -217,9 +217,8 @@ export function DeliveryLog({
               </p>
               {payload.data.truncated && (
                 <p className="mt-2 text-xs text-warn">
-                  Only the first part of this body is kept — it was{" "}
-                  {payload.data.original_bytes.toLocaleString("en-IN")} bytes when we
-                  sent it, and what you see below is where our copy stops.
+                  Only the first part of this body is kept. The full body was{" "}
+                  {payload.data.original_bytes.toLocaleString("en-IN")} bytes.
                 </p>
               )}
               {/* Focusable for the same reason every `ScrollRegion` is, on the other

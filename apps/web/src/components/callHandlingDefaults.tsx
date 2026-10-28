@@ -197,8 +197,8 @@ export function CallHandlingDefaultsRows({
       </SettingRows>
       {unlisted > 0 && (
         <p className="text-meta text-ink-muted">
-          {unlisted === 1 ? "1 more agent has" : `${unlisted} more agents have`} settings of their
-          own that are not listed here. Open each agent to see them.
+          {unlisted === 1 ? "1 more agent has" : `${unlisted} more agents have`} their own settings.
+          Open each agent to see them.
         </p>
       )}
     </div>

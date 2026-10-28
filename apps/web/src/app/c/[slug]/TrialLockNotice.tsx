@@ -14,17 +14,17 @@ export const TRIAL_LOCK_COPY = {
   },
   campaigns: {
     title: "Campaigns open once you add credit",
-    body: "Until then, try your agents with test calls from your dashboard.",
+    body: "Try your agents with test calls for now.",
     info: "Add credit and verify your business to call your leads.",
   },
   kyc: {
     title: "Business verification opens once you add credit",
-    body: "You can accept the no-cold-calls promise below and place test calls now.",
+    body: "Accept the no-cold-calls promise below. Test calls work now.",
     info: "Verifying your business comes next, after you add credit.",
   },
   agents: {
     title: "Your agents can place test calls during the trial",
-    body: "An agent that only answers calls needs your own number, which comes after the trial.",
+    body: "Answering calls needs your own number, after the trial.",
     info: "Your own number comes after you add credit and verify your business. Until then, set an agent to place calls and try it from your dashboard.",
   },
 } as const;

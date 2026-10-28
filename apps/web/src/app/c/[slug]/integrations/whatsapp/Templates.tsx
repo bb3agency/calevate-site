@@ -290,7 +290,7 @@ function TemplateForm({
           aria-describedby={`${bodyId}-hint`}
         />
         <span id={`${bodyId}-hint`} className={FIELD_HINT}>
-          A blank like {"{{1}}"} is filled on each message, for example with the customer&rsquo;s name. {body.length}/1024
+          A blank like {"{{1}}"} is filled on each message, e.g. a name. {body.length}/1024
         </span>
         <button type="button" className={`${TEXT_ACTION} mt-1`} onClick={insertBlank}>
           Insert a blank

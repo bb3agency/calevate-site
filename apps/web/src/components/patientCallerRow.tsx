@@ -47,7 +47,7 @@ export function PatientCallerRow({
     <div>
       <SettingRow
         label="Give callers time"
-        hint="For callers following along on their phone: the agent gives them time."
+        hint="For callers who follow along on their phone."
         info={
           <>
             <ul className="list-disc space-y-1 pl-4">

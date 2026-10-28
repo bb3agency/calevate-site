@@ -11,12 +11,14 @@ import { ATTENTION, FIRST, GO_LIVE, HOME, NEW_AGENT, SETUP, TRIAL } from "@/app/
 import { Why } from "@/components/why";
 import { STEPS } from "@/lib/api/businessProfile";
 
+import { SHORT_LINE } from "./shortCopy";
+
 /**
  * "BUTTONS, NOT PARAGRAPHS" (founder, Oct 2026): every line the home, attention, go-live,
  * setup and first-agent screens show by default is one short line. About 60 characters is
  * the ceiling; a longer explanation belongs behind a "Why?" tap, which is not checked here.
  */
-const MAX = 60;
+const MAX = SHORT_LINE;
 
 /** Every string a copy table holds, with each function called on worst-case-ish values. */
 function linesOf(value: unknown, path: string): [string, string][] {

@@ -20,6 +20,7 @@ import { useState } from "react";
 
 import { ActionButton, useActionFeedback, useAsyncAction } from "@/components/arc/feedback";
 import { HowItWorks } from "@/components/console/howItWorks";
+import { Why } from "@/components/why";
 import {
   FIELD,
   NoticeBox,
@@ -49,12 +50,22 @@ export function keptEdits(improvement: Improvement, kept: ReadonlySet<string>): 
   return improvement.edits.filter((edit) => kept.has(edit.id)).map((edit) => edit.id);
 }
 
-/** What happened to the kept edits, in the owner's words, when some no longer fit. */
-export function skippedNote(skipped: readonly string[], improvement: Improvement): string | null {
+/**
+ * What happened to the kept edits when some no longer fit: a short line, and which ones and
+ * why behind a tap.
+ */
+export function skippedNote(
+  skipped: readonly string[],
+  improvement: Improvement,
+): { line: string; why: string } | null {
   if (skipped.length === 0) return null;
+  const one = skipped.length === 1;
   const labels = improvement.edits.filter((e) => skipped.includes(e.id)).map((e) => e.label);
-  const which = labels.length > 0 ? `: ${labels.join("; ")}` : "";
-  return `${skipped.length === 1 ? "One change no longer fits" : `${skipped.length} changes no longer fit`} your script, so ${skipped.length === 1 ? "it was" : "they were"} left out${which}. ${skipped.length === 1 ? "The part it changed was" : "The parts they changed were"} removed or edited since.`;
+  const which = labels.length > 0 ? `${labels.join("; ")}. ` : "";
+  return {
+    line: one ? "One change no longer fits, so it was left out." : `${skipped.length} changes no longer fit, so they were left out.`,
+    why: `${which}${one ? "The part it changed was" : "The parts they changed were"} removed or edited since.`,
+  };
 }
 
 export function ImprovementReview({
@@ -90,7 +101,7 @@ export function ImprovementReview({
   const [facts, setFacts] = useState(() =>
     improvement.facts.map((fact) => ({ fact, keep: fact.answer.trim() !== "", answer: fact.answer })),
   );
-  const [done, setDone] = useState<null | { where: "draft" | "live"; skipped: string | null; facts: boolean }>(
+  const [done, setDone] = useState<null | { where: "draft" | "live"; skipped: ReturnType<typeof skippedNote>; facts: boolean }>(
     null,
   );
   const [pressed, setPressed] = useState<"draft" | "live">("draft");
@@ -125,7 +136,7 @@ export function ImprovementReview({
 
   const keepChain = async (goLive: boolean) => {
     if (!working) return;
-    let skipped: string | null = null;
+    let skipped: ReturnType<typeof skippedNote> = null;
     if (keptIds.length > 0) {
       const applied = await apply.mutateAsync({ runId: run.id, script: working, edits: keptIds });
       skipped = skippedNote(applied.skipped, improvement);
@@ -173,11 +184,15 @@ export function ImprovementReview({
       >
         <p>
           {done.where === "live"
-            ? "Callers hear the changes from the next call. Facts you kept are live for every agent."
-            : "The changes are in your draft. Put it live from the script, then test again."}
-          {done.where === "draft" && done.facts && " Facts you kept are already live for every agent."}
+            ? "Callers hear them from the next call."
+            : "Saved to your draft. Put it live, then test again."}
         </p>
-        {done.skipped && <p className="mt-1">{done.skipped}</p>}
+        {done.facts && <p className="mt-1">Facts you kept are live for every agent.</p>}
+        {done.skipped && (
+          <p className="mt-1">
+            {done.skipped.line} <Why inline label="Which?">{done.skipped.why}</Why>
+          </p>
+        )}
       </NoticeBox>
     );
   }
@@ -195,10 +210,7 @@ export function ImprovementReview({
       </div>
 
       {nothing ? (
-        <p className="text-body text-ink-muted">
-          No change to the script or your facts would fix these tests. Each result below says why it failed and who can
-          fix it.
-        </p>
+        <p className="text-body text-ink-muted">No change here would fix these. See each result below.</p>
       ) : (
         <>
           {improvement.edits.length > 0 && (

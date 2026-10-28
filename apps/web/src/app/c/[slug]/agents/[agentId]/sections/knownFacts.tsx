@@ -46,7 +46,7 @@ function Split({ data }: { data: KnownFacts }) {
   if (!data.enabled) {
     return (
       <p className="text-meta text-ink-muted">
-        This agent looks up every fact when a caller asks, which can add a short pause.
+        Looks up every fact when asked. May add a short pause.
       </p>
     );
   }
@@ -57,9 +57,9 @@ function Split({ data }: { data: KnownFacts }) {
       <p className="text-meta text-ink-muted">
         {data.by_heart.length === 0
           ? data.computed_at === null
-            ? "It is still learning which facts callers ask about most. Check back after its next calls."
-            : "No fact is asked about often enough yet, so it looks each one up when asked."
-          : `Knows ${formatCountOf(data.by_heart.length, "fact")} by heart, the ones callers ask about most, and answers them at once.`}
+            ? "Still learning what callers ask most. Check back soon."
+            : "Nothing asked often yet. It looks each fact up."
+          : `Knows ${formatCountOf(data.by_heart.length, "fact")} by heart. Answers them at once.`}
       </p>
       {shown.length > 0 && (
         <ul className="divide-y divide-line border-y border-line">

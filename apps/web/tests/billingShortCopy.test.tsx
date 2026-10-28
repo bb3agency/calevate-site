@@ -15,6 +15,7 @@ import {
   renderBillingHub,
 } from "./billingHub";
 import { prepaidWallet, walletLots } from "./fixtures/sharedReads";
+import { SHORT_LINE } from "./shortCopy";
 
 /**
  * "Buttons, not paragraphs": the billing screens' DEFAULT view carries no line longer than
@@ -26,7 +27,7 @@ import { prepaidWallet, walletLots } from "./fixtures/sharedReads";
  * its summary), screen-reader-only text and the server's own prose (fixture strings here
  * are kept short) are not lines. The bound is 60 characters.
  */
-const MAX = 60;
+const MAX = SHORT_LINE;
 const BLOCKS = "p, li, h1, h2, h3, h4, dt, dd, th, td, button, label, summary, legend, a, caption";
 
 function hiddenByClosedDetails(el: Element): boolean {

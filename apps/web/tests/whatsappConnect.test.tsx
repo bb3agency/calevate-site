@@ -125,7 +125,7 @@ describe("Integrations > WhatsApp", () => {
     expect(await screen.findByText("I'm new to WhatsApp Business")).toBeTruthy();
     expect(screen.queryByText("I use the WhatsApp Business app and want to keep it")).toBeNull();
     fireEvent.click(screen.getByText("I'm new to WhatsApp Business"));
-    expect(screen.getByText(/Meta charges you for each message; Calevate adds nothing/)).toBeTruthy();
+    expect(screen.getByText(/A card for Meta, which bills per message. We add nothing./)).toBeTruthy();
     expect(screen.getByRole("link", { name: "See Meta’s prices" }).getAttribute("href")).toContain(
       "developers.facebook.com",
     );

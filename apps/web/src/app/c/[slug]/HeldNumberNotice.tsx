@@ -31,23 +31,22 @@ export function HeldNumberNotice({
     .sort();
   const first = formatISTDay(days[0]);
   const plural = held.length > 1;
-  const title = first
-    ? `Calls stopped. ${plural ? "The first of your numbers is released" : "Released"} on ${first} unless you top up.`
-    : "Calls stopped. Your number will be released soon unless you top up.";
+  const when = first ? `${plural ? "The first is released" : "Released"} on ${first}.` : "Released soon.";
   return (
     <NoticeBox
       tone="stop"
       role="alert"
-      title={title}
+      title={`Calls stopped. Top up to keep your ${plural ? "numbers" : "number"}.`}
       action={
         <Link href={topUpHref} className={TEXT_ACTION}>
           Add credit
         </Link>
       }
     >
-      {plural ? "Nobody answers these numbers" : "Nobody answers this number"} and no rent is
-      charged meanwhile. Once a number is released it goes back to the phone company and we
-      cannot get it back.
+      <p>{when}</p>
+      <p>Nobody answers {plural ? "them" : "it"}, and no rent is charged.</p>
+      {/* Kept on screen, not behind a tap: a released number is lost for good. */}
+      <p>Once released, we can&apos;t get it back.</p>
     </NoticeBox>
   );
 }
@@ -60,12 +59,14 @@ export function HeldNumberLine({ number, topUpHref }: { number: CampaignNumber; 
     <NoticeBox
       tone="stop"
       role="status"
-      title={day ? `Calls stopped. Released on ${day} unless you top up.` : "Calls stopped. Released soon unless you top up."}
+      title="Calls stopped. Top up to keep this number."
       action={
         <Link href={topUpHref} className={TEXT_ACTION}>
           Add credit
         </Link>
       }
-    />
+    >
+      {day ? `Released on ${day}.` : "Released soon."}
+    </NoticeBox>
   );
 }

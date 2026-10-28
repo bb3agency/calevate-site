@@ -61,8 +61,8 @@ export function EventChoices({
       ))}
       {unknown.length > 0 && (
         <p className="text-meta text-ink-faint">
-          This account can also receive {unknown.join(", ")}, which this version of the
-          console cannot subscribe to yet. Tell us and we will set it up.
+          <span className="block">This account can also receive {unknown.join(", ")}.</span>
+          <span className="block">We cannot subscribe to it yet. Tell us to set it up.</span>
         </p>
       )}
     </fieldset>
