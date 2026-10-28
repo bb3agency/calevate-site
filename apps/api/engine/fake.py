@@ -74,6 +74,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.engine.capabilities import (
     require_call_compliance_floor,
     require_capability,
+    require_kb_text,
     require_speech_leg,
 )
 from apps.api.engine.document import engine_document
@@ -257,6 +258,10 @@ DEFAULT_FAKE_CAPABILITIES = EngineCapabilities(
     agent_hosting="control_plane",
     campaigns=False,
     knowledge_base=True,
+    # This engine keeps the whole source, document included, so a text-less PDF is a
+    # document it can hold; a test that needs the text-only shape copies this profile
+    # with `kb_text_only=True`.
+    kb_text_only=False,
     number_series=frozenset({"standard"}),
     # Hosted-agent shape again: the caller ID is a per-call field and inbound routing is an API
     # call, so the default fake is what exercises both halves of D-420 offline.
@@ -313,6 +318,7 @@ DICTATED_SPEECH_CAPABILITIES = EngineCapabilities(
     agent_hosting="control_plane",
     campaigns=False,
     knowledge_base=False,
+    kb_text_only=False,
     number_series=frozenset(),
     # Unchanged from the default, deliberately: this fixture's axis is SPEECH. Giving it a
     # telephony difference too would stop any clause it fails from saying which one it
@@ -380,6 +386,7 @@ EXTERNAL_DEPLOYMENT_CAPABILITIES = EngineCapabilities(
     agent_hosting="external_deployment",
     campaigns=False,
     knowledge_base=True,
+    kb_text_only=False,
     number_series=frozenset(),
     # False for `CARTESIA_CAPABILITIES`' reason and not as a second axis: there is no agent
     # record here whose script could be overridden.
@@ -1110,6 +1117,7 @@ class FakeEngine:
         # Accepting and ignoring it is what keeps the fake a fair stand-in: a fake that
         # REQUIRED it would make the parameter look load-bearing everywhere.
         require_capability("knowledge_base", engine=self)
+        require_kb_text(source.text, engine=self)
         attached = self._kb.get(ref, [])
         # Re-attaching the SAME source replaces it. Appending a second copy would make
         # the fake engine the one place where a duplicate is normal, and the duplicate

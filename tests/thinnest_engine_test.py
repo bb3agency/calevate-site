@@ -835,6 +835,24 @@ async def test_failed_knowledge_indexing_is_not_reported_as_attached() -> None:
     assert raised.value.code == "engine_kb_ingest_failed"
 
 
+@pytest.mark.parametrize("blank", ["", "  \n\n  "])
+async def test_knowledge_with_no_text_is_refused_before_any_request(blank: str) -> None:
+    """A PDF whose words are not sent arrives as its file and no text. The vendor indexes
+    text only, so posting it would be a blank document under the client's file name."""
+    from calevate_shared.engine import KBSourceRef
+
+    handler, seen = _recorder({})
+    engine = _engine(handler)
+    assert engine.capabilities.kb_text_only
+    with pytest.raises(ProblemError) as raised:
+        await engine.attach_kb(
+            "ag_1",
+            KBSourceRef(kb_id="k", title="Menu", text=blank, document=b"%PDF-1.4\n%%EOF\n"),
+        )
+    assert raised.value.code == "engine_kb_text_empty"
+    assert not [r for r in seen if r.url.path.endswith("/knowledge")]
+
+
 async def test_the_engine_catalogue_reads_the_models() -> None:
     """Models only since D-687: the voices a client may pick are the operator's curated
     list (`agents/hosted_voices.py`), never the live vendor catalogue."""

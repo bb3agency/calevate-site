@@ -35,6 +35,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Final
@@ -778,6 +779,43 @@ async def _chunks_of(session: AsyncSession, source_id: UUID) -> list[str]:
     return [str(chunk) for chunk in rows]
 
 
+def _withheld_from_engine(
+    engine: VoiceEngine, text_sent: str, *, source_id: UUID, agent_id: UUID | None = None
+) -> bool:
+    """Is this source NOT attached, because the engine could hold nothing of it?
+
+    On a text-only knowledge base (`EngineCapabilities.kb_text_only`) a PDF or link whose
+    words are not sent (`extracted_text_reaches_agents` off, or never read) has no text,
+    and attaching it would post a blank document named after the client's file. Such a
+    source is skipped, not failed: the publish goes on, and a copy an agent already holds
+    is withdrawn as a stale one is, so turning the switch off takes the words back off
+    the agents. When its text is sent again the next publish or catch-up attaches it.
+    Every path that hands a source to `attach_kb` asks this, so they cannot disagree.
+    """
+    if engine.capabilities.kb_can_hold(text_sent):
+        return False
+    log.info(
+        "kb_source_withheld_no_text",
+        extra={"source_id": str(source_id), "agent_id": str(agent_id) if agent_id else None},
+    )
+    return True
+
+
+async def _withheld_sources(
+    session: AsyncSession, engine: VoiceEngine, source_ids: Iterable[UUID]
+) -> set[UUID]:
+    """The sources among `source_ids` the engine could hold nothing of, by the same rule
+    as `_withheld_from_engine`. Not logged per source: the catch-up asks on every pass,
+    and a settled agent must not log the same PDF every sweep."""
+    if not engine.capabilities.kb_text_only:
+        return set()  # every source is holdable; no reads
+    return {
+        source_id
+        for source_id in source_ids
+        if not engine.capabilities.kb_can_hold("\n\n".join(await _chunks_of(session, source_id)))
+    }
+
+
 def _engine_name() -> str:
     """WHICH vendor account holds the object this claim names — recorded, never keyed on.
 
@@ -1509,11 +1547,12 @@ async def _restore_withdrawn(
     account for (`kb_engine_out_of_sync`). Neither quietly stacks two versions.
     """
     for source_id, chunks in withdrawn:
+        sent = "\n\n".join(chunks)
+        if _withheld_from_engine(engine, sent, source_id=source_id):
+            continue
         try:
             await engine.attach_kb(
-                engine_ref,
-                KBSourceRef(kb_id=str(source_id), title=name, text="\n\n".join(chunks)),
-                agent=agent,
+                engine_ref, KBSourceRef(kb_id=str(source_id), title=name, text=sent), agent=agent
             )
         except Exception:
             # Nothing left to try: the engine is refusing both directions. ERROR, because
@@ -1839,11 +1878,15 @@ class _Payload:
     source_url: str | None
     digest: str
 
+    @property
+    def text(self) -> str:
+        return "\n\n".join(self.chunks)
+
     def ref(self, source_id: UUID, name: str) -> KBSourceRef:
         return KBSourceRef(
             kb_id=str(source_id),
             title=name,
-            text="\n\n".join(self.chunks),
+            text=self.text,
             document=self.document,
             content_sha256=self.digest,
             source_url=self.source_url,
@@ -1858,8 +1901,9 @@ class _Rollover:
     config: AgentConfig
     #: The vendor's listing read before the attach, or None when it could not be read.
     attached_now: list[str] | None
-    #: The handle the agent holds for this source once the rollover completes.
-    attached_ref: str
+    #: The handle the agent holds for this source once the rollover completes, or None
+    #: when the engine could hold nothing of it (`_withheld_from_engine`).
+    attached_ref: str | None
     #: The handle THIS publish minted, or None when the re-upload guard matched.
     minted: str | None
     withdraw: list[tuple[UUID, str]]
@@ -1908,7 +1952,13 @@ async def _attach_to_agent(
         and (attached_now is None or own_handle in attached_now)
     )
     minted: str | None = None
-    if unchanged and own_handle is not None:
+    attached_ref: str | None
+    if _withheld_from_engine(engine, payload.text, source_id=source_id, agent_id=agent_id):
+        # Nothing attached; a copy this agent holds of it comes down with the superseded ones.
+        if own_handle is not None:
+            withdraw.append((source_id, own_handle))
+        attached_ref = None
+    elif unchanged and own_handle is not None:
         log.info(
             "kb_upload_skipped_unchanged",
             extra={"source_id": str(source_id), "agent_id": str(target.agent_id)},
@@ -2169,7 +2219,8 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
         extra={
             "source_id": str(source_id),
             "version": version,
-            "vendor_agents": len(completed),
+            "vendor_agents": sum(1 for done in completed if done.attached_ref is not None),
+            "withheld": sum(1 for done in completed if done.attached_ref is None),
             "agents": refreshed,
             "indexed": indexed.ingested if indexed else None,
         },
@@ -2395,7 +2446,9 @@ async def converge_agent_knowledge(
     WHAT IT TOUCHES, AND WHAT IT NEVER DOES. It attaches a live source that has NO claim on
     this agent, withdraws a copy WE recorded of a version that is no longer live, and
     replaces a live copy whose recorded digest is older than the source's current one (a
-    re-publish of the same source that could not complete on this agent): the current copy
+    re-publish of the same source that could not complete on this agent). A live source the
+    engine could hold nothing of (`_withheld_sources`) is treated as archived: never
+    attached, and a copy of it withdrawn. On a replacement the current copy
     is attached first and the old one withdrawn after, and if the withdrawal fails the new
     copy comes down again so the agent never holds two. It never deletes a vendor object our
     rows do not name and never re-uploads a recorded copy the vendor stopped listing — those
@@ -2442,11 +2495,24 @@ async def converge_agent_knowledge(
             {"tid": tenant_id},
         )
     ).all()
+    # A live source the engine could hold nothing of is neither attached nor kept: a copy
+    # this agent holds of it is withdrawn with the archived ones (`_withheld_from_engine`).
+    withheld = await _withheld_sources(session, engine, [UUID(str(row[0])) for row in live])
     missing = [
-        (UUID(str(row[0])), str(row[1])) for row in live if UUID(str(row[0])) not in held_ids
+        (UUID(str(row[0])), str(row[1]))
+        for row in live
+        if UUID(str(row[0])) not in held_ids and UUID(str(row[0])) not in withheld
     ]
-    replace = [(UUID(str(row[0])), str(row[1])) for row in live if UUID(str(row[0])) in outdated]
-    stale = [(UUID(str(row[0])), str(row[1])) for row in held if not row[2]]
+    replace = [
+        (UUID(str(row[0])), str(row[1]))
+        for row in live
+        if UUID(str(row[0])) in outdated and UUID(str(row[0])) not in withheld
+    ]
+    stale = [
+        (UUID(str(row[0])), str(row[1]))
+        for row in held
+        if not row[2] or UUID(str(row[0])) in withheld
+    ]
     if not missing and not stale and not replace:
         # Settled, and decided from our own rows: no vendor call on the common path.
         return CatchUp()
@@ -2532,6 +2598,7 @@ async def converge_agent_knowledge(
             "attached": attached,
             "replaced": replaced,
             "withdrawn": withdrawn,
+            "withheld": len(withheld),
         },
     )
     return CatchUp(attached=attached, replaced=replaced, withdrawn=withdrawn)
