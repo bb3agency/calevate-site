@@ -65,12 +65,30 @@ Exit code 2 means a guard refused. The message names which one. The two that mat
 
 ## 3. Dry run against the real bucket
 
+The bucket's own app token cannot do this: an R2 **Object Read & Write** token reads and
+writes objects only, and reading or editing bucket configuration needs an **Admin** token
+(developers.cloudflare.com/r2/api/tokens, read 28 Oct 2026). Create a short-lived Admin
+Read & Write token, use it in this shell only, and delete it when step 4 is done.
+
 ```sh
-export AWS_ACCESS_KEY_ID=...        # from the secrets manager, this shell only
+export AWS_ACCESS_KEY_ID=...        # the short-lived Admin token, this shell only
 export AWS_SECRET_ACCESS_KEY=...
 uv run python infra/object-lifecycle/apply_lifecycle.py \
   --endpoint "$OBJECT_STORE_ENDPOINT" \
   --bucket "$OBJECT_STORE_BUCKET" \
+  --max-tenant-ttl-days "$MAX_TTL"
+```
+
+On the VPS, which has no host Python, run the same script in the api image with `infra/`
+mounted. Leave out `--env-file`, so only the exported Admin token reaches it:
+
+```sh
+cd /var/www/calevate
+IMG=$(docker inspect --format '{{.Config.Image}}' \
+  "$(docker ps -q -f label=com.docker.compose.project=calevate -f label=com.docker.compose.service=api | head -n1)")
+docker run --rm -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY \
+  -v "$PWD/infra:/infra:ro" --entrypoint python "$IMG" \
+  /infra/object-lifecycle/apply_lifecycle.py --endpoint "<endpoint>" --bucket "<bucket>" \
   --max-tenant-ttl-days "$MAX_TTL"
 ```
 

@@ -66,9 +66,13 @@ python infra/object-lifecycle/apply_lifecycle.py \
 ```
 
 (`--max-tenant-ttl-days` is required by the script for the main bucket's recording floor and
-has no effect on this policy, which has no `recordings/` rule.) Run it with the main account
-credentials in `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`, not the uploads token, which
-cannot change bucket configuration.
+has no effect on this policy, which has no `recordings/` rule.) Neither the uploads token
+nor the main bucket's token can run it: both are Object Read & Write, which cannot edit
+bucket configuration (developers.cloudflare.com/r2/api/tokens, read 28 Oct 2026). Use a
+short-lived **Admin Read & Write** token in that shell only, and delete it after. Or enter
+the two rules in the dashboard instead (bucket → Settings → Object Lifecycle Rules → Add
+rule): prefix `copilot-uploads/`, delete after 30 days; same prefix, abort incomplete
+multipart uploads after 1 day.
 
 ## 5. The nginx change
 
