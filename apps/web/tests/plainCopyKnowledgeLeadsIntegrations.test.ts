@@ -107,7 +107,9 @@ describe("default copy on the knowledge, lead-sources and integrations screens",
   }
 
   it("says every file and link state in one short line", () => {
-    const base = {
+    const base: KbUpload = {
+      source_id: "s1",
+      version: 1,
       id: "u1",
       name: "Price list",
       filename: "price.docx",
@@ -120,7 +122,7 @@ describe("default copy on the knowledge, lead-sources and integrations screens",
       reaches_agents: true,
       read_state: null,
       read_detail: null,
-    } as unknown as KbUpload;
+    };
     const variants: Partial<KbUpload>[] = [
       { is_live: true },
       { ingest_status: "error" },
@@ -139,9 +141,9 @@ describe("default copy on the knowledge, lead-sources and integrations screens",
       { source_kind: "pdf", read_state: "failed" },
       { source_kind: "pdf", read_state: "read", reaches_agents: false },
       { source_kind: "url", read_state: "read", reaches_agents: false },
-    ] as Partial<KbUpload>[];
+    ];
     for (const variant of variants) {
-      const state = uploadState({ ...base, ...variant } as KbUpload);
+      const state = uploadState({ ...base, ...variant });
       expect(state.label.length, state.label).toBeLessThanOrEqual(30);
       expect(state.meaning.length, state.meaning).toBeLessThanOrEqual(LIMIT);
     }

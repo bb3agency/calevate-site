@@ -102,12 +102,13 @@ describe("what a client reads is written for a person", () => {
     const seen = copyUnder(CLIENT_REALM).map((entry) => entry.text);
     expect(seen.length, "the copy scan found almost nothing — has the realm moved?")
       .toBeGreaterThan(500);
-    // Three sentences from three different screens, in three different shapes: JSX text,
-    // a `+`-joined string in a child expression, and a copy table's `text:`.
+    // Three lines from three different screens, in three different shapes: JSX text and
+    // two copy tables (`text:`, `title:`). Short client copy no longer splits a sentence
+    // across `+`, so that shape has no live sample here.
     const all = seen.join("\n");
     expect(all).toContain("People calling you still get through");
-    expect(all).toContain("Your calling credit has run out");
-    expect(all).toContain("nobody on them agreed to hear from you");
+    expect(all).toContain("Publish your agent first.");
+    expect(all).toContain("Still settling");
   });
 
   it("never shows a client one of our rule names", () => {
