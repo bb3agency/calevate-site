@@ -4,8 +4,21 @@ Prepared 29 Oct 2026 at commit `1746978e` (tag `checkpoint-pre-rename-2026-10-29
 `git grep -i calevate` over the tracked tree on that commit. Nothing here has been changed
 yet; this is the map to work from once the name and the registration details are known.
 
-**The size of it:** 7,253 mentions in 1,631 files. Most are internal names nobody outside
-sees. The work splits into four kinds, each changed differently (§2).
+**The size of it:** 7,774 occurrences in 1,632 files, 590 distinct internal names. The work
+splits into four kinds, each changed differently (§2).
+
+**Pre-launch (founder, 29 Oct 2026): nothing is live and nothing has been signed with anyone,**
+so everything is renamed, internal names included. Renaming them now is a one-off with test
+data only; after launch each one carries the production risks listed in §2C.
+
+**The detail lives beside this file, in `docs/rebrand/`:**
+
+| File | What it holds |
+|---|---|
+| `INVENTORY.md` + `inventory.tsv` | every occurrence, file and line, by kind and area; every distinct internal name; every image. Regenerate with `scripts/rebrand_inventory.sh` on the day |
+| `VISIBLE-TEXT-AND-LEGAL.md` | every string a person reads, every image with the name in it, every legal clause and field |
+| `DATA-AND-INTEGRATIONS.md` | names stored in the database, Redis and storage, and names sent to or created at outside services |
+| `INFRA-DEPLOY-ENV.md` | build, deploy, CI, the VPS and the local machine, with a cutover runbook |
 
 ---
 
@@ -43,7 +56,7 @@ the whole exercise twice.
 | Legal pages: Terms, Privacy, DPA, Acceptable use, Sub-processors, Refunds, Grievance, Cookies | `apps/web/src/lib/legal/*.ts` + `placeholders.ts` values | a **material** revision of every blocking document (§4) |
 | WhatsApp templates submitted into each client's own WhatsApp account | `apps/api/whatsapp/templates.py`: names `calevate_booking_confirmed`, `calevate_details_you_asked_for`, `calevate_payment_link`, `calevate_call_back_time` | new names mean Meta re-approves them in every connected account; the old ones keep working meanwhile |
 | Text we send to the voice platform that a person may read | `apps/api/engine/thinnest_customer_data.py:54` do-not-call reason "Calevate do-not-call list" | |
-| What agents SAY on calls | **nothing** | checked: no "Calevate" in the prompt layers, notices, spoken style or call script. Callers hear the client's business name only (D-679) |
+| What agents SAY on calls | **two lines** | `TRIAL_LINE_MESSAGE` (`apps/api/campaigns/engine_numbers.py:710-713`) is spoken to anyone who rings the shared trial number back and names the brand: the trial-line agent must be republished after the change. The maintenance prompt (`apps/workers/maintenance.py:256`) names "the Calevate platform" to the model, which could repeat it. Nothing else: the prompt layers, notices, spoken style and call script carry the client's business name only (D-679) |
 
 ### B. The domain (must change, and I make it one setting first)
 
@@ -68,14 +81,24 @@ the new domain can both be served during the switch. nginx already takes `ROOT_D
 | Sign-in cookies `__Host-calevate_admin_session`, `_client_session`, `_google_signin` | 4 names | **renaming signs every user out once** |
 | Browser storage keys `calevate.*` / `calevate:*` | 9 keys | users lose small remembered choices once |
 | Redis keys and job names `calevate:*` | many | in-flight jobs and locks keyed by name |
-| Keys we put on every call at the voice platform: `calevate_call_id`, `calevate_lead_id`, `calevate_forwarding_leg`, idempotency prefixes `calevate-call-`, `calevate-customer-`, `calevate-fwd-` (`engine/thinnest.py:2761,2771,3395,3405`, `thinnest_customers.py:203`) | — | **calls in flight are matched by these; renaming needs a period where both are read** |
+| Keys we put on every call at the voice platform: `calevate_call_id`, `calevate_lead_id`, `calevate_forwarding_leg`, idempotency prefixes `calevate-call-`, `calevate-customer-`, `calevate-fwd-` (`engine/thinnest.py:2761,2771,3395,3405`, `thinnest_customers.py:203`) | — | the three metadata keys are written and never read back (calls match on `reference`), so they rename freely; the **idempotency prefixes** can double-place a call or double-rent a number if a retry crosses the deploy, so drain retries first |
+| Cryptographic labels: password pepper, emailed-code key, OTP/email-token/session hash domains, caller-memory key (`authn/hashing.py:153`, `authn/codes.py:74`, `otp.py:76`, `tokens.py:79`, `sessions.py:151`, `compliance/caller_ref.py:102`) | — | **NEVER rename.** Every stored password, invite and session stops matching, and caller memory is orphaned beyond the reach of erasure. Details in `docs/rebrand/DATA-AND-INTEGRATIONS.md` |
 | R2 bucket names `calevate-call-recordings`, `calevate-db-backups` | settings + docs | a bucket cannot be renamed; it means a new bucket and copying every recording |
 | GitHub repository name | — | GitHub redirects the old URL; update the VPS `git remote` |
 
-None of these is visible to a client or a caller. Renaming them buys nothing a customer can
-notice and carries the production risks in the right-hand column, so my recommendation is to
-leave them and rename only §2A, §2B and the docs. If you still want "literally everywhere",
-it is a separate, planned change after the visible switch, with its own maintenance window.
+None of these is visible to a client or a caller. **Decision: rename them too, before launch**
+(founder, 29 Oct 2026, "literally from everywhere"; nothing is live). The right-hand column is
+then the list of things to do carefully rather than reasons to skip: sign-outs and lost browser
+choices only touch test users; the database, server account, paths, units and Docker volumes
+are renamed in one maintenance window with a `pg_dump` first; R2 buckets are new buckets with
+the few test objects copied; voice-platform keys are renamed once no test call is in flight.
+
+Two internal names reach people and must change regardless:
+- **The password rule refuses the brand as a password** (`calevate2026!`,
+  `apps/api/authn/policy.py:144,219`); it must refuse the new name instead.
+- **The reply-to and published mailbox `calevate.voice@gmail.com`**
+  (`config.py:1353` `notifications_reply_to`, `placeholders.ts:223`): a new mailbox under the
+  new name.
 
 ### D. Docs and tests
 
@@ -112,15 +135,15 @@ it is a separate, planned change after the visible switch, with its own maintena
 
 ## 4. The legal side of changing the entity
 
-- **Every client's contract names the supplier.** Terms, DPA and Privacy are blocking
-  documents, so a new legal entity there is a material revision: every client accepts again.
-  Live agents keep taking calls meanwhile (D-926); going live, test copies and outbound wait
-  for the acceptance.
-- **Existing clients contracted with, and prepaid credit to, the old Udyam enterprise.** Moving
-  them to the new one is a transfer of contracts (and of any unused credit). Ask the lawyer
-  how to do it for a sole proprietorship moving to the new enterprise: a notice and fresh
-  acceptance may be enough, or it may need an assignment clause.
-- **Invoices** start a new number series under the new entity; past invoices stay as issued.
+- **Nothing is signed and nobody is live (29 Oct 2026),** so there is no contract to transfer
+  and no client to re-ask. The documents are revised in place to the new entity before launch.
+  The test accounts that accepted earlier versions simply accept the new version, which the
+  product already asks for (a material revision).
+- **The documents name the supplier, its Udyam number, its city and its GST position;** the
+  Terms' courts and arbitration clause names the city. All of it changes with the entity.
+- **Have the lawyer read the revised set once** before launch, since the entity is the party
+  every promise is made by.
+- **Invoices**: none issued to a real client yet, so the new entity starts the only series.
 - **GST**: confirm the status for the new enterprise before the first invoice.
 - **Sub-processors**: no company changes, so no 30-day notice is owed for the rename itself.
 - **Data**: the processing does not change, but the controller-side contact details in the
@@ -137,6 +160,7 @@ it is a separate, planned change after the visible switch, with its own maintena
    (§2A) and the docs (§2D), with the old domain still serving.
 5. Umesh sets up §3: new domain, Cloudflare, Resend, mailboxes, OAuth and Meta, Razorpay.
 6. Deploy serving both domains; switch the console settings to the new domain.
-7. Old domain redirects to the new one; clients get an email; the new legal versions ask
-   every client to accept.
-8. After 12 months, and only then, consider letting `calevate.tech` lapse.
+7. The internal names (§2C, `docs/rebrand/INFRA-DEPLOY-ENV.md` and
+   `DATA-AND-INTEGRATIONS.md`) in one maintenance window, backups first.
+8. Old domain redirects to the new one. Keep `calevate.tech` registered for at least 12 months
+   (links, webhooks, OAuth registrations and anyone who saw the old name).
