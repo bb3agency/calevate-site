@@ -334,7 +334,7 @@ export function TopUp({ session }: { session: Session }) {
 export const TOPUP_COPY = {
   bankTitle: "Pay by bank transfer",
   bankOff: "Card and UPI payment isn't on yet.",
-  bankDetails: "We'll share our bank details with you.",
+  bankDetails: "Ask us for our bank details.",
 } as const;
 
 /** The value of `choice` that means "Other amount", distinct from any pack id. */
