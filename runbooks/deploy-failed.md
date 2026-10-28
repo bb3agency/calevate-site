@@ -7,8 +7,8 @@ workflow is red.
 because the recovery for a failed build and a failed container swap are not the same
 procedure and doing the wrong one is how a red deploy becomes an outage.
 
-> **Never executed.** Nothing in this repo has been deployed to anything. This procedure
-> is written from the script, line by line, and has not been walked on a real host.
+> Production deploys through `scripts/vps-deploy.sh`. This failure procedure is written
+> from the script, line by line; no walk-through of a real failed deploy is recorded here.
 
 The first fact you need in every case: **the script aborts at the failing step and runs
 nothing after it.** There is no partial continuation and no automatic rollback.

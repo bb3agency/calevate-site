@@ -24,7 +24,9 @@ getting either wrong is expensive to undo.
 
 Nothing below can be improvised, and each is somebody else's to provide:
 
-- [ ] Root or sudo on a VPS running **Ubuntu 24.04 LTS**, sized by DEPLOYMENT §2b.
+- [ ] Root or sudo on a VPS running **Ubuntu 24.04 LTS**, sized by DEPLOYMENT §2b. (The
+      current production host was upgraded to 26.04, which ships no Python 3.12; see
+      DEPLOYMENT §1 and `runbooks/backup-setup-vps.md` Phase 2.)
       The STARTER profile is **1 vCPU / 4 GB / 50 GB** and is what a launch and the first
       client need; §2a's ≥4 vCPU is the PRODUCTION profile, for 250 concurrent in-flight
       deliveries, and Hostinger resizes in place when §2b's trigger fires. On the starter,
@@ -51,9 +53,8 @@ Nothing below can be improvised, and each is somebody else's to provide:
 - [ ] **A ThinnestAI full-access API key** (`ta_live_…`, ThinnestAI **Settings → API
       keys**; a Build key cannot place calls). It goes into `/var/www/calevate/.env` as
       `THINNEST_API_KEY` and nowhere else (DEPLOYMENT §12).
-- [ ] A **non-Cloudflare** offsite target for the nightly dump — B2, S3 or a Hetzner
-      Storage Box. The edge and the WAL archive are already the same vendor; this copy is
-      the one that survives a Cloudflare account event.
+- [ ] ~~A non-Cloudflare offsite target for the nightly dump~~ — not used: production keeps
+      one backup chain on R2 (D-927).
 - [ ] A secrets manager holding, generated there and never typed from memory:
       `PLATFORM_KEK`, the two Postgres role passwords, `AUDIT_CHAIN_SECRET`,
       `IDEMPOTENCY_SCOPE_SECRET`, `IMPERSONATION_GRANT_SECRET`.
@@ -499,8 +500,8 @@ weeks later:
 ## 11. Backups — and what you actually have on day one
 
 Install `infra/backup/` per its README: the wal-g WAL archiving drop-in (which needs a
-PostgreSQL **restart**, because `archive_mode` is not reloadable), the nightly base backup,
-the nightly offsite dump to the non-Cloudflare target, and the 15-minute health timer.
+PostgreSQL **restart**, because `archive_mode` is not reloadable), the nightly base backup
+and the 15-minute health timer (no offsite dump, D-927; `runbooks/backup-setup-vps.md`).
 
 **Then run the drill.** `runbooks/backup-restore-drill.md`, and commit its evidence to
 `docs/evidence/`.

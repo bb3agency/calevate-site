@@ -3,8 +3,9 @@
 **You were paged because an erasure worked and is still not finished.**
 
 Our Postgres rows are gone. Our object-storage bytes are gone. The certificate was issued.
-And a vendor that handled the calls still holds its own copy, because it publishes no way
-for us to delete one person's records.
+And a vendor that handled the calls still holds its own copy: either one that publishes no
+way for us to delete one person's records (the speech and language legs), or the voice
+platform, whose deletions code asks for and has not yet seen confirmed.
 
 This runbook is the manual half of that obligation. It is short on purpose: the work is
 one email and one command, and the reason it needs a runbook at all is that an obligation
@@ -19,7 +20,7 @@ Each task names a processor by ROLE. What each role holds, and what to ask for:
 | Processor | Vendor | Holds | The ids quoted |
 | --- | --- | --- | --- |
 | `telephony` | The carrier our own call runtime used, removed by D-763 (named in its decision row, ROADMAP §6) | The caller's and the called number, its call detail records and the call audio, for calls placed on that runtime. Opened only for erased calls that carry a carrier call id, which ThinnestAI calls never do. | The carrier's own call ids (`calls.carrier_call_id`, the `CallUUID`). |
-| `voice_engine` | The hosted voice platform that ran the call (ThinnestAI) | Its copy of the person's calls, conversations and recordings. Code asks for every deletion and closes the task itself (D-798, §6): each call's content is deleted (`DELETE /calls/{id}/content`) in whichever workspace holds it, and where the tenant has its own workspace the person's contact is erased there too (`DELETE /contacts/{id}`, D-691). The task is `confirmed` once ThinnestAI has confirmed every call and, for a contact, sent `contact.erased`. In our developer workspace the contact is shared with other businesses and is not erased; the task says `contact-not-asked`. A contact shown as `<id>=held` is waiting, by design, for our own copy of a connected call's recording inside the 90-day floor (D-810): the nightly retention sweep asks again and the contact is erased once the copy lands, the floor passes or the call ends unconnected (a booked dial the platform confirms it cancelled before ringing is closed as never connected at once, D-811). Such a task, and one whose call content deletion waits on the same rule (D-803), does not page `processor_erasure_overdue` while every call it still waits on is inside its floor; it pages once any one of its calls is ready and still not deleted, or a held call's floor date has passed (D-811, D-812; `list --all` shows the date); do not erase the contact by hand while it is held, because that deletes the only copy of a recording the floor keeps. | The vendor's call ids and the contact it deleted; for a tenant task, its agent ids and knowledge-base handles. |
+| `voice_engine` | The hosted voice platform that ran the call (ThinnestAI) | Its copy of the person's calls, conversations and recordings. Code asks for every deletion and closes the task itself (D-798, §6): each call's content is deleted (`DELETE /calls/{id}/content`) in whichever workspace holds it, and where the tenant has its own workspace the person's contact is erased there too (`DELETE /contacts/{id}`, D-691). The task is `confirmed` once ThinnestAI has confirmed every call and, for a contact, sent `contact.erased`. In our developer workspace the contact is shared with other businesses and is not erased; the task says `contact-not-asked`. A contact shown as `<id>=held` is waiting, by design, for our own copy of a connected call's recording inside the 90-day floor (D-810): the nightly retention sweep asks again and the contact is erased once the copy lands, the floor passes or the call ends unconnected (a booked dial the platform confirms it cancelled before ringing is closed as never connected at once, D-811). Such a task, and one whose call content deletion waits on the same rule (D-803), does not page `processor_erasure_overdue` while every call it still waits on is inside its floor; it pages once any one of its calls is ready and still not deleted, or a held call's floor date has passed (D-811, D-812; `list --all` shows the date); do not erase the contact by hand while it is held, because that deletes the only copy of a recording the floor keeps. A TENANT erasure's `voice_engine` task is settled by code too (D-922, §7 below): `erase_tenant_at_engine` deletes the account's agents, the contacts its calls created in our developer workspace and its own customer workspace, and confirms the task. | The vendor's call ids and the contact it deleted; for a tenant task on ThinnestAI, the account's raw agent ids (on another engine, its agent ids and knowledge-base handles). |
 | `speech`, `llm` | Sarvam; Azure OpenAI / OpenAI / Google | Call audio sent to our own runtime before D-763 and the transcripts the post-call extraction pass reads (speech); conversation turns and prompts (language). Opened on TENANT erasures only — a per-subject task could never be closed, since neither keys its records on an id we hold. | None. The request is "delete what you hold for this customer of ours". |
 
 `docs/evidence/subprocessor-erasure-reach.md` is the evidence file for the speech and language
@@ -157,3 +158,46 @@ a client's workspace is provisioned (`sync_engine_retention`) and read back hour
 not a full key; with a 400, a number above the plan's window (the plan changed; the next run
 reads the new window); `engine_bad_response` means the platform answered with
 another number, which is a question for their support.
+
+## 7. ThinnestAI: a closed account's agents, contacts and workspace (D-922)
+
+A tenant erasure on ThinnestAI opens its `voice_engine` task with `vendor_reference`
+`engine-erasure-owed` and queues `erase_tenant_at_engine` in the same transaction
+(`compliance/engine_tenant_erasure.py`). After commit the job (`workers/engine_tenant_erasure.py`):
+
+1. looks up, by the numbers the erasure read before clearing them, the contacts this
+   account's calls created in our developer workspace, leaving out any number another
+   client's call there also reached, and records them on the task as held;
+2. deletes nothing while one of the account's calls inside the 90-day floor has no
+   recording copy of ours (log line `engine_tenant_erasure_held`; the same rule as §1);
+3. deletes every agent of the account, in whichever workspace holds it (knowledge goes with
+   the agent);
+4. erases each recorded contact;
+5. deletes the account's own customer workspace (the platform erases its contents 30 days
+   later), never our developer workspace (`engine_tenant_erasure_workspace_refused`, a
+   provisioning defect, if a row ever names it);
+6. confirms the task once 3-5 are done.
+
+A 404 or 410 counts as done, so a repeat is harmless. The nightly retention sweep queues the
+job again for every tenant task still owed.
+
+**A tenant task that stays open.** Read its `vendor_reference` and the latest
+`engine_tenant_erased` / `engine_tenant_erasure_*` log lines for the tenant:
+
+* log `engine_tenant_erasure_held` with `calls_waiting` above 0: waiting on our recording copy or the
+  floor, by design. Nothing to do.
+* log `engine_tenant_erasure_workspace_holds_numbers`: the workspace still rents a number
+  (409). It is deleted on the first nightly run after the account's number hold ends and
+  the offboarding releases the number (`runbooks/number-holds.md`). Do not release the
+  number by hand to hurry this.
+* `contacts-not-looked-up` (with `engine_tenant_erasure_failed`): the contact lookup failed
+  for good, and the numbers it needed are already erased here, so code cannot repeat it.
+  The agents and workspace are still deleted; code never confirms this task. Ask ThinnestAI
+  support to find and erase this account's contacts in our developer workspace, then record
+  the answer by hand (§3).
+* `engine_tenant_erasure_failed` without that: a request failed after its retries. Read the
+  `engine_error` lines for the tenant (a 503 or 429 clears on the next nightly run;
+  `engine_key_not_full` needs a full key).
+
+A tenant task opened before D-922 carries no `vendor_reference`; code does not settle it,
+and it stays with the operator as in §3.

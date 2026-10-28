@@ -106,7 +106,9 @@ Method & evidence:
     alarm code to its runbook, and `first-deploy.md` and `thinnest-first-live-call.md` are
     the two checklists that turn the build into a running service (D-678), and
     `thinnest-studio-voices.md` turns Studio on per client and moves production off the old
-    developer-workspace switch (D-717).
+    developer-workspace switch (D-717). `agent-workspace-move.md` covers a paying client's
+    agents moving into its own workspace (D-859), `number-holds.md` a stopped client's held
+    number (D-860), and `object-lifecycle.md` the R2 lifecycle rules.
 
 Engineering companions:
 12. **CLAUDE.md** — operating manual for Claude Code in the repo (hard rules, commands,
@@ -118,19 +120,27 @@ Engineering companions:
 
 ## What still blocks a client going live
 
-Production runs `ENGINE=thinnest` (deployed 7 Oct 2026, D-678); `ENGINE=fake`, the default in
-`calevate_shared.config`, is what local development and the test suite run against. What
-stands between that and a client's calls is outside the code:
+Production runs `ENGINE=thinnest` (since 7 Oct 2026, D-678) on the VPS, deployed by hand
+(`docs/DEPLOYMENT.md` §4d); `ENGINE=fake`, the default in `calevate_shared.config`, is what
+local development and the test suite run against. What stands between that and a paying
+client's calls is outside the code (`docs/PRODUCTION-READINESS.md` §A, §C, §E):
 
-1. **The first live call checklist**, `runbooks/thinnest-first-live-call.md`, and the open
-   questions to ThinnestAI behind it (OPERATIONS §2, the T-series gates).
-2. **The plan cap.** ThinnestAI's pay-as-you-go plan holds 3 customer workspaces, one per
-   client (D-693, OPERATIONS §2 gate T-8); a fourth client needs a higher plan.
-3. **Outbound eligibility per client.** Outbound needs a verified KYC record and an accepted
-   no-cold-calls pledge, not DLT (D-692). Inbound is never gated.
-4. **Automatic deploys.** The host is a Hostinger India VPS (D-180), deployed by hand with
-   `scripts/vps-deploy.sh`; `docs/DEPLOYMENT.md` §4d and `runbooks/first-deploy.md` list
-   what stands before CD is switched on, and `infra/README.md` §5 what a human must do.
+1. **ThinnestAI's signed DPA and sub-processor list** (OPERATIONS §2 gate T-5; the training
+   exclusion is in writing since 23 Oct 2026, the DPA is not), then the first-live-call
+   checklist, `runbooks/thinnest-first-live-call.md`, and the Telugu ear test (T-6).
+2. **Backups.** The continuous backups have never run on the VPS (DEPLOYMENT §7); the hand
+   `pg_dump` before a migration is the only copy.
+3. **Online payment.** Razorpay's live keys and the attended first payment (gate 44); until
+   then credit reaches a client through a super admin's grant (D-890).
+4. **Outbound eligibility per client.** Outbound needs a verified KYC record and an accepted
+   no-cold-calls pledge, not DLT (D-692; counsel's view is OPERATIONS §2 K-3). Inbound is
+   never gated.
+
+ThinnestAI's plan limits no longer block: our pay-as-you-go account holds 100 customer
+workspaces, 20 concurrent calls and the Studio band (VENDOR-STATED 23 Oct 2026,
+`docs/vendor/thinnest-replies-2026-10-12.md` §28; gates T-8, T-36). Each customer workspace
+holds 2 agents until ThinnestAI raises it on request. Automatic deploys stay off until
+`docs/DEPLOYMENT.md` §4d's last items.
 
 ## One-line summary of the stack
 
@@ -139,17 +149,20 @@ text-to-speech and recording (D-678; `ENGINE` accepts `thinnest` and `fake`, D-7
 voice rungs, Clear (ThinnestAI's own stack) and Studio (Cartesia on our key through
 ThinnestAI's voice-only BYOK), with one ThinnestAI customer workspace per client
 (D-687/D-688/D-693/D-727) · we copy each recording to R2 · Sarvam for the first post-call
-extraction pass, which reads the raw transcript · Azure OpenAI in East US 2 for the
-dashboard assistant (D-410/D-449) · FastAPI + Next.js/TS · Postgres 16 + RLS + pgvector
+extraction pass, which reads the raw transcript · our Gemini key for the in-call model when
+the own-model switch is on (D-764/D-834) and first for the dashboard assistant, Azure OpenAI
+in East US 2 only where configured, then the Sarvam standby (D-899) · FastAPI + Next.js/TS · Postgres 16 + RLS + pgvector
 (`kb_chunks`, D-502 — an extension, not a deployable) · Redis/ARQ · first-party auth in two
 realms (D-165/D-170/D-177) · a Hostinger India VPS (D-25/D-180) · Sentry/OTel
-(LLM tracing is a named gap, D-49) · setup-fee + retainer + overage pricing plus the D-34
-prepaid self-serve tier. The per-minute cost model is TRD §10; quote it from there rather
+(LLM tracing is a named gap, D-49) · one pricing model: prepaid credit in packs at one
+per-minute card, Clear ₹4.50 and Studio ₹6.00 (D-707/D-728), credit bought from 27 Oct 2026
+lapsing 12 months after it is added once the account has accepted the Terms that say so
+(D-897/D-900), and a 7-day, 15-minute free trial for every new account (D-853). The per-minute cost model is TRD §10; quote it from there rather
 than from a summary.
 
 Two claims this product does NOT make, because the code cannot back them: an India-resident
-data plane (the host is in India, but the R2 buckets are `apac`, the voice and model vendors
-process outside India, and DEPLOYMENT §0 says so; LEGAL-SURFACE F-1), and India residency for
+data plane (the host is in India, but the R2 buckets are `apac`, the model vendors process
+outside India, and DEPLOYMENT §0 says so; LEGAL-SURFACE F-1), and India residency for
 the language leg (D-449 withdrew it; the Azure region is attested in the portal, OPERATIONS
 §2 gates 20/20c). Sarvam, which reads the raw transcript for the first extraction pass, is
 an Indian company whose privacy policy permits processing outside India and whose ToS s.17.5

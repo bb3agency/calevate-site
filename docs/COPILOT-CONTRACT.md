@@ -447,6 +447,20 @@ one moved; `agent_script_suggest` is its tool.
   and `DELETE /v1/agents/{id}/script/proposal/{proposal_id}` (`org:manage`, after keeping or
   to discard). Tests: `apps/api/copilot/script_actions_test.py`; tool choice: the
   `c-script-*` cases in `tests/fixtures/copilot_tool_choice.json`.
+* **A suggestion nobody asked Pip for: a new file (D-923).** A fourth stored mode,
+  `knowledge` (`script_proposals.KNOWLEDGE_MODE`), is never a `mode` Pip's tool takes. When a
+  file added to the knowledge after onboarding goes live, `kb_ingest.ingest_kb_source` queues
+  `suggest_scripts_from_document` once per upload (`queue_document_suggestions`); the job skips
+  an onboarding document (its words already wrote the first script) and a web link, and calls
+  `request_knowledge_proposal` for every agent, one transaction each. That records an EDIT of
+  the agent's current script, written by the same `draft_script_proposal` job from the file's
+  words read as onboarding reads them (redacted, fenced, at most three files sharing one word
+  budget, `KNOWLEDGE_CHANGE`). A waiting `knowledge` suggestion is merged with the new file's; a
+  suggestion the owner asked Pip for is never replaced; a script written as one piece is
+  skipped. The Script page's review says "From your new file: “…”. Your own lines stay."
+  (`PipProposal.tsx`), and quick facts are a row in every suggestion's review
+  (`script/scriptDiff.ts`). A PDF still shapes the suggestion while `kb_send_extracted_files` is
+  off. Removing the file does not undo a change already kept.
 * **`agent_tests_fix`** is the Test section's "Improve my agent" / "Suggest a fix for this",
   moved the same way: confirm tier, `org:manage`, audit `agent.tests_improvement`,
   arguments `agent_id` and `test_keys` (null for every failure; keys from the screen's
@@ -463,7 +477,7 @@ Every AI request a person makes on a client screen is now asked of Pip. The scre
 
 | Tool | Tier, permission, audit | Executor (the old button's function) | Review |
 |---|---|---|---|
-| `knowledge_teach` | confirm, `kb:write` (curation switch included), `kb_teaching.start` | `teach/teaching.start_teaching` (text); Pip passes the words of a photo or file the person attached | the teach box on Knowledge base, through `GET /v1/kb/teach/open` |
+| `knowledge_teach` | confirm, `kb:write` (curation switch included), `kb_teaching.start` | `teach/teaching.start_teaching` (text); Pip passes the words of a photo or file the person attached | the teach box on What your agents know (D-874), through `GET /v1/kb/teach/open` |
 | `lead_fields_draft` | confirm, `org:manage`, `lead_fields.draft_requested` | `agents/lead_fields.request_draft` (absorbed cost, no allowance gate, as before) | Lead details: `POST /v1/lead-fields/draft/review {keep}` writes the kept fields onto agents with none |
 | `call_summarise_again` | confirm, `org:manage`, `call.ai_assist`, `external_spend` | `crm/resummarise.second_reading`: redacted transcript, allowance gate, metering under `resummarise` | the confirmation itself; nothing is stored |
 | `business_copy_refresh` (D-827) | confirm, `org:manage`, `organization.business_copy_refresh_requested` | `tenancy/business_copy.queue_generation` after `require_ai_assist`; the worker meters by tokens under `business_copy` | none: the examples replace only the AI's earlier ones, and the Business profile screen shows when they were refreshed |
@@ -590,7 +604,12 @@ reviewed. No model is called, so nothing is metered and no allowance is checked.
   agent", not a door of its own.
   `agent_edit` and `agent_edit_live` take `opening_line`, applied through
   `script_builder.replace_opening_line` (D-846's budget) and checked against the language's
-  spoken-style list; the Undo puts the previous line back. `knowledge_facts_pin`
+  spoken-style list; the Undo puts the previous line back. On an agent that both answers and
+  places calls they also take `outbound_opening_line`, the opening of calls it places, with
+  the same checks and Undo (D-920; refused for an agent of one direction). The brief step
+  also takes up to three files, each an ordinary knowledge upload recorded on the run
+  (`POST`/`DELETE /v1/first-run/documents`), whose redacted, fenced words the question and
+  script writers read (D-918). `knowledge_facts_pin`
   (`fact_actions.py`, confirm, `kb:write`) pins up to three question and answer pairs on one
   card through `teach/pinned.add_pinned`.
 * **Screens learn of an immediate action as it lands.** `useCopilotConversation` refreshes
@@ -610,7 +629,7 @@ lived in a route body it moved into a service both doors call.
 | `agent_script_put_live` | confirm, `org:manage`, `agent.script_published` | `agents/script_publish.put_draft_live`, bound to the draft's `saved_at` and the version the card read |
 | `agent_script_discard` | confirm, `org:manage`, `agent.changes_undone` | `publishing.undo_staged` |
 | `agent_script_version_restore` | confirm, `org:manage`, `agent.script_version_restored` | `script_builder.restore_into_draft` |
-| `agent_settings_set` | confirm, `agents:write` (owner settings also need `org:manage`, checked inside), `agent.settings_set` | `voice_tuning.set_voice_tuning`, `call_handling.set_agent_call_handling`, `publishing.set_call_cap`, `llm_tiers.resolve_agent_tier` + `lifecycle.update_agent`, `publishing.set_caller_memory` |
+| `agent_settings_set` | confirm, `agents:write` (owner settings also need `org:manage`, checked inside), `agent.settings_set` | `voice_tuning.set_voice_tuning`, `call_handling.set_agent_call_handling` (or, with `scope` `all_agents`, the "All my agents" choice: `call_handling.set_call_handling_for_all_agents`, D-898), `publishing.set_call_cap`, `llm_tiers.resolve_agent_tier` + `lifecycle.update_agent`, `publishing.set_caller_memory` |
 | `agent_handover_set` | confirm, `org:manage`, `agent.handoff.replace` | `handoff.replace_handoff` |
 | `agent_action_set` / `_switch` / `_remove` | confirm, `org:manage`, `action_tool.saved` / `.switched` / `.deleted` | `actions/agent_tools` (each re-syncs a live agent's actions) |
 | `lead_fields_keep_draft` | confirm, `org:manage`, `lead_fields.draft_reviewed` | `agents/lead_fields_writes.keep_draft` |

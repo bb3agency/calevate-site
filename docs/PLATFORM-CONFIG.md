@@ -149,9 +149,11 @@ it came out at 8, not 6, for a mechanical reason this table does not cover**:
 no default, so a process whose environment lacks them cannot construct `Settings()` and
 therefore cannot boot far enough to look anything up. The console does manage them and
 renders them read-only when the environment supplies them. `.env.example` carries those 8;
-`tests/env_example_bootstrap_floor_test.py` proves both halves, and DEV-SETUP §4 is the
-current census of what is on each side of the line (55 console-managed today, 37
-core-config + 18 credentials, counted from `managed_fields()` rather than remembered).
+`tests/env_example_bootstrap_floor_test.py` proves both halves. The census of what is
+console-managed is `managed_fields()` itself, and every managed setting has exactly one entry
+(section, label, one-line description) in `apps/api/ops/config_catalog.FIELD_META`, which
+`tests/ops_config_catalog_test.py` holds exhaustive in both directions; read those, not a count
+in prose. This section names the settings whose behaviour needs more than the catalogue's line.
 
 **Env-only by decision, beside the bootstrap set.** Some keys could technically live in the
 store and are kept out of it on purpose: `apps/api/core/settings.ENV_ONLY_REASONS` names
@@ -177,7 +179,26 @@ Clear on scope `llm` and Studio on `llm_voice`, refused until it is ready) and
 offerable on the own-model leg: key, attested price, and no Google access limit, so a 2.5 value is refused). D-769 (14 Oct 2026) adds `thinnest_reply_length` (applies to live agents,
 default 300, bounds 100-800: the reply ceiling every agent without its own is published with
 as ThinnestAI `maxReplyTokens`; a reply that reaches it is cut off; an operator sets one
-agent's own on the admin agent page, which clients never see). D-847 (21 Oct 2026) adds `thinnest_own_rules` (applies to live agents, typed step-up, default off: every agent sends ThinnestAI `ownRules: true` and our prompt carries the hand-over rule it stops adding; OPERATIONS gate T-31) and `thinnest_test_chat_call_mode` (live, default off: practice tests ask Test Chat's call mode; gate T-32). D-850 (21 Oct 2026) adds `thinnest_call_instructions` (applies to live agents, typed step-up, default off: every agent sends our call rules, `calevate_shared.engine.CALL_INSTRUCTIONS`, as ThinnestAI `voice.callInstructions` in place of its default call rules, and `null` when off; gate T-33). D-852 (21 Oct 2026) adds `thinnest_early_answers` (applies to live agents, default on, the vendor default: every agent states ThinnestAI `voice.earlyAnswers`; on, a reply may start before the caller has finished and a discarded run is billed to our Google key but missing from `usage`; off, replies wait for the caller to finish; gate T-34). D-770 (14 Oct 2026) added `reply_time_target_ms`; D-896 (27 Oct 2026) replaces it with `reply_time_typical_target_ms` and `reply_time_slow_target_ms` (live, defaults 1600 and 2200, bounds 100-10000; the migration retires a stored row of the old key): how long a caller should usually wait for a reply, and the longest a slow reply should take; the admin Voice response time screen counts a call over target when its p90 reply time exceeds the slow one. D-896 also adds `hot_facts_enabled` (applies to live agents, default on) and `hot_facts_max_chars` (applies to live agents, default 6000, bounds 0-12000): each agent carries the facts its callers ask most in its instructions, up to the smaller of the ceiling and the room its script leaves. D-687's `thinnest_studio_workspace_id` is removed; each agent
+agent's own on the admin agent page, which clients never see). D-847 (21 Oct 2026) adds `thinnest_own_rules` (applies to live agents, typed step-up, default off: every agent sends ThinnestAI `ownRules: true` and our prompt carries the hand-over rule it stops adding; OPERATIONS gate T-31) and `thinnest_test_chat_call_mode` (live, default off: practice tests ask Test Chat's call mode; gate T-32). D-850 (21 Oct 2026) adds `thinnest_call_instructions` (applies to live agents, typed step-up, default off: every agent sends our call rules, `calevate_shared.engine.CALL_INSTRUCTIONS`, as ThinnestAI `voice.callInstructions` in place of its default call rules, and `null` when off; gate T-33). D-852 (21 Oct 2026) adds `thinnest_early_answers` (applies to live agents, default on, the vendor default: every agent states ThinnestAI `voice.earlyAnswers`; on, a reply may start before the caller has finished and a discarded run is billed to our Google key but missing from `usage`; off, replies wait for the caller to finish; gate T-34). The call-handling settings below are
+stamped on every agent at publish, so each applies to live agents (`FIELD_APPLIES` in
+`apps/api/core/platform_config.py`): `thinnest_turn_detection` (D-849, `timer` default, `ear` or `smart`,
+sent as `voice.turnDetection`; the console calls them Silence and Ear); `thinnest_timer_turn_silence_ms`
+(D-901/D-903, default 400, 200..3000: the pause of an agent an operator put on the timer on its
+own, used only when neither the agent nor its account sets one, `agents/call_handling.
+platform_turn_silence_ms`). The pause is used under Ear as well as the timer (ThinnestAI's reply of
+28 Oct 2026, `docs/vendor/thinnest-replies-2026-10-12.md` §39, D-924), and the client's pause row
+is shown and editable in every mode; `thinnest_opening_wait_ms` (D-901, optional, 500..10000 on
+whole tenths, sent as `voice.openingWaitSeconds` to an agent that waits for hello and has no wait of
+its own; unset, nothing is sent and ThinnestAI's own 4 s applies); `thinnest_acknowledgements`
+(default on, the vendor default: under Ear the agent says a short "haan ji" while a caller explains,
+spoken in its voice and billed as voice characters on Studio, §25.0); `thinnest_interrupt_words`
+(D-862, default 2 against ThinnestAI's 3, 1..6: the words a caller must say to stop the agent).
+`thinnest_in_call_default_model` (optional; applies to live agents: saving it moves every live
+Clear agent with no model of its own onto it, and the settings sweep `agents/engine_settings.py`
+repairs one left behind) is the in-call model such an agent is published with; empty keeps
+ThinnestAI's own. `webhook_base_url` is the voice runtime's public origin ThinnestAI posts signed
+call events to; outside `APP_ENV=local` a non-public value fails readiness
+(`core/settings.is_public_callback_base`). D-770 (14 Oct 2026) added `reply_time_target_ms`; D-896 (27 Oct 2026) replaces it with `reply_time_typical_target_ms` and `reply_time_slow_target_ms` (live, defaults 1600 and 2200, bounds 100-10000; the migration retires a stored row of the old key): how long a caller should usually wait for a reply, and the longest a slow reply should take; the admin Voice response time screen counts a call over target when its p90 reply time exceeds the slow one. D-896 also adds `hot_facts_enabled` (applies to live agents, default on) and `hot_facts_max_chars` (applies to live agents, default 6000, bounds 0-12000): each agent carries the facts its callers ask most in its instructions, up to the smaller of the ceiling and the room its script leaves. D-687's `thinnest_studio_workspace_id` is removed; each agent
 says whether it speaks on our voice key (its `byok`). Since D-693 every client has its own
 ThinnestAI customer workspace, and two settings support that, both applying live:
 `thinnest_customer_plan` (`payg` default, `pro`, `scale` or `enterprise`) is the plan our

@@ -44,8 +44,7 @@ it is the exact window a restore could not reach past.
 ## 2. Ask the host what it thinks happened
 
 ```sh
-systemctl status calevate-backup-health.timer calevate-basebackup.timer \
-                 calevate-dump-offsite.timer
+systemctl status calevate-backup-health.timer calevate-basebackup.timer
 journalctl -t calevate.alert -t calevate.backup --since '-3h' --no-pager
 ```
 

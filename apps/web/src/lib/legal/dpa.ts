@@ -1006,8 +1006,9 @@ export const DPA: LegalDocument = {
                   "and then routed to a dead-letter queue rather than lost silently.",
                 "Per-client rate and spend ceilings, plus a global switch that halts all " +
                   "outbound dialling at once.",
-                "Continuous write-ahead-log archiving plus an encrypted offsite dump, both " +
-                  "retained 35 days. The restore procedure is documented and includes " +
+                "Continuous write-ahead-log archiving plus a nightly encrypted base backup, " +
+                  "held with our object-storage provider and retained 35 days. The restore " +
+                  "procedure is documented and includes " +
                   "replaying erasures that completed after the recovery point.",
                 "Static analysis, type checking, dependency and secret scanning, and a test " +
                   "suite including cross-tenant isolation tests, run on every change. " +

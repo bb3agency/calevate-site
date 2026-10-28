@@ -55,13 +55,34 @@ Trigger: Sri opens Admin → New Client: one screen, one "Create and invite" (D-
    `/c` junction while `GET /v1/first-run` says `due`) a new owner, signed up or invited, goes
    to `/c/{slug}/agents/first`; the dashboard, the Agents screen and the wizard's last screen
    link there while the account has no agent. Four steps beside a card that fills in:
-   **Its job** (answer my calls, call new leads instantly, call my list; all open on a trial)
-   and its languages; **Tell it about you** (one brief, pre-filled from the trade, typed or
-   spoken in up to three 30-second pieces whose audio is deleted once heard; or Pip's chat
-   instead), then up to three follow-up questions from a fixed set whose answers go into the
-   business profile, then the build, ticked step by step (a woman's Studio voice, or Clear
-   with the reason when Studio cannot be used or has none; the name "Anjali" (D-858); the
-   script written from the brief and applied as version one; the greeting; the AI notice);
+   **Its job** is a multi-select (answer my calls, call new leads instantly, run calling
+   campaigns; `PUT /v1/first-run/job` takes `jobs`, one to three, D-863) and ONE agent does
+   every job picked (inbound, outbound or `both`, `starters.direction_of_jobs`), with its
+   languages; **Tell it about you** (one brief, pre-filled from the trade, typed or spoken
+   in up to three 30-second pieces whose audio is deleted once heard; or Pip's chat
+   instead), and beside it up to three files (`first_run/models.MAX_DOCUMENTS`, D-918).
+   Each file is an ordinary knowledge upload (`POST /v1/kb/uploads`, same formats, limits,
+   review and OCR metering, and known to every agent, D-689); `POST`/`DELETE
+   /v1/first-run/documents` only record which uploads are the run's documents
+   (`first_runs.document_ids`), and the screen shows each as reading, read or failed, and
+   whether a PDF reaches calls while `kb_send_extracted_files` is off. Then two to four
+   follow-up questions WRITTEN by our AI for this business (D-863;
+   `first_run/questions.written_questions` drops any item that is not plain English, carries
+   a link, runs long or asks about a profile section already filled, and falls back to the
+   fixed questions when none survive); answers that map to the profile are saved there and
+   every answer is kept beside its question for the script writer (`first_runs.answers`).
+   The question and script writers read the documents' words through
+   `workers/first_run.documents_block`: redacted (D-127 G-1/G-2), cut to 5,000 characters
+   shared across the files, fenced and labelled as data. A document still being read is
+   waited for up to 60 s and then left out and named on the build step, with "Try another
+   file"; a failure reading them never fails the build. The build is a list of its four real
+   steps (`first_run/models.BUILD_STEPS`): the voice (a woman's Studio voice, or Clear with
+   the reason when Studio cannot be used or has none) and the name ("Anjali", D-858); the
+   script written from the brief, answers and documents and applied as version one; the
+   greeting; the AI notice. The card shows the name, voice
+   and tier with a sample button, the opening line, the jobs, what it knows and what it
+   notes down; the opening line is edited in place there and on Hear it through `PUT
+   /v1/agents/{id}/script/opening-line` (the opening-room ceiling, D-846; notices untouched).
    **Hear it** (three honest lines,
    each outstanding agreement, the no-cold-calls pledge and "this number is mine" as separate
    ticks, the number, and the call shown as it happens through the trial test line); then
@@ -170,6 +191,9 @@ fingerprint so a client credential cannot be looked up as an admin one. There is
 **Three ways into the client realm (D-34 — both motions supported):**
 1. **Self-serve signup** — `POST /v1/auth/signup` creates the organization (name + slug
    validated against `reserved_slugs`) and its retention policies, starts its free trial
+   (`billing/trials.start_new_account_trial` in the birth transaction, for signups and
+   operator-created accounts alike; console `self_serve_trial_days` /
+   `self_serve_trial_free_minutes`, defaults 7 days and 15 minutes, D-853)
    and makes the caller the owner (no agent: the owner makes the first one, D-853), with
    `plan_tier='self_serve'|'trial'`. **Read the caveat, because it is the one thing in this
    list that does not work end to end**: that route requires a caller who already holds a
@@ -253,10 +277,13 @@ caller dials the client's number → ThinnestAI answers with the published agent
    `worker/engine_lookups.py`, D-716). It is verified with the v2 webhook signature and
    answered within 0.8 s with up to 20 short variables from our CRM for that tenant, or none.
 2. **Opening.** The agent's `greeting` is its first words, verbatim: the script's opening
-   line, then the notices switched on (`compose_first_utterance`, D-669, D-708, D-861). The
-   notices and the opening line are separate things: the two switches decide only whether
-   the AI disclosure and the recording notice are said after the opening line, never
-   whether the opening line is said. A new agent volunteers neither notice (both toggles
+   line, then the notices switched on (`compose_first_utterance` through
+   `join_first_words`, D-669, D-708, D-861). Where the AI sentence introduces the agent
+   (Telugu and Hindi, D-865) and its switch is on, the order is the language's salutation,
+   "I am {name} from {business}, an AI assistant", the opening line with any greeting at its
+   start dropped, then the other notices. The notices and the opening line are separate
+   things: the two switches decide only whether the AI disclosure and the recording notice
+   are said, never whether the opening line is said. A new agent volunteers neither notice (both toggles
    default OFF since D-669); a client switches either on per agent (D-163). With both
    notices off the greeting is the opening line alone; an outbound call's `purpose` is the
    same words with the call's `{{variables}}` filled in. The instructions are
@@ -276,7 +303,11 @@ caller dials the client's number → ThinnestAI answers with the published agent
 4. **After the hangup.** ThinnestAI posts signed `call.completed` and `call.analysed` to
    voice-runtime `/hooks/v1/engine/thinnest`, which verifies the HMAC against the agent's
    sealed secret, dedupes in the inbox, acks under 500 ms and queues the sealed body for
-   the worker (hard rule 3). The worker writes the call row and the transcript (redacted as
+   the worker (hard rule 3). A delivery is the call's record only when it is content-final
+   (`workers/engine_delivery.py`, D-848); otherwise the worker reads Get Call, and an
+   answered call with talk time but no turns waits on the retry ladder, then settles with
+   the alarm `engine_call_answered_without_transcript`. The worker writes the call row and
+   the transcript (redacted as
    on every engine), runs our extraction, CRM and leads, meters the minutes at the
    operator-attested rate in 30-second pulses (hard rule 7), debits the wallet at the
    client rung the publish stamped, and fans out the client webhooks.
@@ -391,8 +422,25 @@ lives at real addresses: `/c/{slug}/campaigns` (paged list, status filter, searc
   picked by stage, source and date; the server reads the numbers.
 - **Results.** Each person's outcome is read from the contact and its last call (connected,
   no answer, busy, voicemail, failed, do not call, calling, not called), with tries used and
-  the next try. The totals are pickup rate, average connected call, outcome tags,
-  sentiment, leads and hot leads, opt-outs and the credit the calls took.
+  the next try. A call-back booked on a campaign call belongs to that campaign (D-905).
+  The breakdowns count PEOPLE, not calls (D-913, `campaigns/results._LATEST_ANSWERED_SQL`):
+  each campaign contact once, by their latest answered call, for the agent's own outcomes,
+  outcome tags, sentiment and each choice field (read through that call's lead, so an
+  owner's correction counts), plus `people_answered`; opt-outs count people. Calls,
+  connected calls, talk time, average call and the credit spent stay totals over every
+  call, call-backs included. A contact's dial outcome stays its own, so an unanswered
+  call-back does not turn a reached person into "No answer".
+- **Call-backs follow their campaign (D-914).** While the campaign is paused, for any
+  reason, the tick marks its waiting call-backs held
+  (`callbacks.service.hold_for_paused_campaigns`, rule `campaign_paused`, "On hold while its
+  campaign is paused…"); they are never claimed or expired while held. Once it runs again,
+  `release_resumed` makes each due at the first moment at or after its promised time that
+  the campaign's calling hours allow, and the two-hour grace counts from there
+  (`scheduled_callbacks.grace_from`); the dial gate still checks DNC, credit and the halt.
+  Stopping the campaign calls its waiting call-backs off in the same transaction
+  (`controls.stop_campaign`, "Its campaign was stopped.", audit `callbacks.called_off`), and
+  the tick does the same for a campaign cancelled by any other path. Call-backs outside any
+  campaign are untouched; the Call-backs page shows "On hold".
 - **Retries.** 1–5 tries per person and the gap before each, chosen per campaign.
 - **Automatic pauses say why.** A paused campaign carries `pause_reason`: a person,
   maintenance, the healer, a complaint spike, out of credit, or the spending cap. The
@@ -429,6 +477,33 @@ page. An agent's outcomes are drafted ONCE by AI from the business details and i
 (`workers/business_outcomes_draft`, queued at publish or by its first call after D-836, on the
 AI allowance or absorbed for a trial) and edited by the owner on Settings, Lead details; until
 then the neutral starting set is offered.
+**A failed reading is read again (D-841).** A provider failure in the extraction is
+stored as `call_extractions.errors._model` so the call, lead and metering still land;
+`workers/extraction_reread` then reads that call again from the transcript we stored, at
+most `REREAD_MAX_ATTEMPTS` (3) times, 30 minutes apart, within 24 hours of the call, each
+attempt claimed by CAS on `call_extractions.reread_attempts`. It re-runs only the
+extraction, summary, outcomes, lead and hot alert (no recording copy, transcript write,
+metering or `call.completed`); a changed outcome sends the client's CRM `call.updated`. A
+reading whose re-reads are spent leaves `postcall_pipeline_stalled` and is named by
+`extraction_reread_exhausted` instead (D-857).
+
+**The call's timeline is fetched separately (D-902, D-924).** For a call with answered
+turns the pipeline queues `fetch_call_timeline` (`workers/call_timeline.py`) a minute
+later, as its own job so waiting never holds back the transcript, lead or minutes. The
+platform answers "no timeline" alike for one not written yet and one that will never come,
+so an empty answer is retried on a ladder, never stored, until the call's final report has
+landed; after that the first empty answer is final and `calls.engine_timeline` stays NULL.
+Operators see the per-turn split ("Where the wait goes", step medians by turn detection);
+clients see the typical wait for an answer and how many replies looked up their
+information.
+
+**Tell my team (D-904).** When a call's outcome or a choice value matches an agent's
+`team_alert_rules`, or the agent tells the team during the call where the rule allows it,
+`team_alerts/service.py` queues one `team_alerts` row per (call, address) through the
+outbox; `workers/team_alerts.py` sends it by email, or on WhatsApp through the client's own
+connection, retries on the hot-lead ladder and alarms when the ladder is spent. The row's
+`sent` status is the dedupe. Each address is verified once by an emailed code.
+
 `embed_if_resolved(call corpus)` is M3, NOT in the shipped pipeline
 (`apps/workers/pipeline.py` stops at outbound sync).
 Retry budget: **3 attempts** — one number, `WORKER_MAX_TRIES` in
@@ -479,12 +554,12 @@ path refuses the only rows it exists for).
 reason.** They were removed rather than left as a flow nobody walks — a promised step
 that does not exist is read by the next reader as a step somebody forgot to call.
 
-- **"uploads doc / submits URL" and "parse".** Neither exists: `kb.service.submit_source`
-  chunks the pasted body and nothing else. A submission naming `kind="url"` or `"file"`
-  is now REFUSED by name (`kb_kind_unsupported`) instead of being accepted with its `uri`
-  written to a column nothing reads. What closes it is TRD §6's offline ingestion worker —
-  a URL fetcher with its own SSRF design, plus a document parser. **Externally blocked**:
-  LlamaParse is the named parser candidate and no vendor account has been opened.
+- **"uploads doc / submits URL" and "parse" on the text route.** `kb.service.submit_source`
+  chunks the pasted body and nothing else, and a submission naming `kind="url"` or
+  `"file"` is REFUSED by name (`kb_kind_unsupported`). Files and links have their own path:
+  `POST /v1/kb/uploads` stores the bytes and `ingest_kb_source` (`workers/kb_ingest.py`,
+  D-534) reads them through the conversion lane (`calevate_shared.document_ingest`,
+  `workers/document_text.py`, `workers/document_ocr.py`) before publishing.
 - **"embeddings".** D-28 moved retrieval to a managed API service and D-33 keeps v1's
   in-call retrieval on the ENGINE's built-in knowledge base, so there is no embedding step
   of ours to run — `attach_kb` hands the text over and the engine indexes it. Closes (as a
@@ -530,6 +605,29 @@ and de-duplicates nothing. The publisher keys on a SHA-256 of the rendered docum
 beside the handle, so a double-clicked Publish, a retry after a timeout and a rollback onto
 the version already live cost nothing instead of stacking a second billed copy that the
 first handle could never name again.
+
+**A file is never refused for its symbols (D-925).** Before the coverage check,
+`kb/pdf_render._drawable` writes an arrow the font lacks as `->`, `<-` or `<->` (so a step
+order survives) and leaves out any other symbol, punctuation mark, format character or
+variation selector the font cannot draw (emoji, menu glyphs, box drawing), in the body and
+the source name. Letters, digits and vowel signs of a script the font lacks are still
+refused, because leaving them out would lose words. The client is never asked to edit
+their own file for a symbol.
+
+**A file added after onboarding suggests a script change for every agent (D-923).** Once
+an upload is live, `ingest_kb_source` queues `suggest_scripts_from_document` once per upload
+(`agents/script_proposals.SUGGEST_JOB`, deduped on the upload id). The job skips an
+onboarding document (its words already wrote the first script, D-918) and a web link, and
+otherwise asks `request_knowledge_proposal` for a `knowledge` proposal on every agent of the
+client (`agents.script_proposal`, §12). The proposal is an EDIT of the agent's current
+script, written from the file's words read the way onboarding reads them
+(`workers/first_run.documents_block`: redacted, fenced, 5,000 characters shared by at most
+three files), asking for quick facts, and for step, objection and opening-line changes only
+where the file changes them. A waiting `knowledge` suggestion from another file is merged
+with this one (newest three files kept); a suggestion the owner asked Pip for is never
+replaced; an agent whose script is written as one piece is skipped. The Script page names
+the file, and quick facts are a row in every suggestion review (`scriptDiff.ts`). A PDF shapes the suggestion even while `kb_send_extracted_files` is off. Removing the
+file later does not undo a script change already kept.
 
 ## 8. Billing Cycle
 
@@ -618,6 +716,24 @@ ported per client wish.
   processor-erasure task is opened only for an erased call that carries a carrier call id,
   which a ThinnestAI call never does: such rows come only from test calls placed on our own
   runtime before D-763 (`runbooks/processor-erasure.md`).
+- **A tenant erasure also deletes the account at ThinnestAI, by code (D-922).** Before it
+  clears the call rows, the erasure reads the numbers its calls in our shared developer
+  workspace reached, then opens the `voice_engine` task and queues `erase_tenant_at_engine`
+  on the outbox in the same transaction (`compliance/engine_tenant_erasure.py`). The job
+  (`workers/engine_tenant_erasure.py`) records on the task the developer-workspace contacts
+  only this account's calls reached (a number another client's call there also reached is
+  left alone); waits, deleting nothing, while a call inside the 90-day floor has no
+  recording copy of ours (D-810's rule); deletes every agent of the account in whichever
+  workspace its handle names (its knowledge goes with it); erases the recorded contacts;
+  and deletes the account's own customer workspace (the platform erases its contents 30
+  days later). A 404 or 410 counts as done. A workspace still renting a number answers 409,
+  so the task stays owed until the number hold (D-860) releases it, and the nightly
+  retention sweep queues the job again (`retention._release_tenant_engine_erasures`). The
+  developer workspace itself is refused before any request. Once all three are done the
+  task is confirmed and the proof's engine status reads
+  `agents_contacts_and_workspace_deletion_requested`. Still manual: a contact lookup that
+  fails for good, and releasing numbers, which stays with the closure and its hold. On an
+  engine without deletion the written request stays.
 
 ## 10. Number Provisioning & DLT Roles (reference)
 
@@ -851,6 +967,10 @@ with its remediation; a refusal or crash in the job is stored as the suggestion'
 shown with Dismiss; a request still `drafting` after ten minutes reads as failed
 (`script_proposals.DRAFTING_STALE_AFTER`). A suggestion that no longer fits (the script was
 switched between steps and hand-writing since) offers Dismiss only.
+
+A fourth mode, `knowledge`, is never asked of Pip: it is queued by us when a file added to
+the knowledge goes live (D-923, §7) and takes steps 4 and 5 unchanged, with the file's name
+on the review. A waiting suggestion the owner asked Pip for is never replaced by one.
 
 Owner surfaces: client — Pip's panel and `/c/<slug>/agents/<id>/script`.
 

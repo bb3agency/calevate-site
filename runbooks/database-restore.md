@@ -33,7 +33,7 @@ postmortem.
    post-date its target), not from a backup (same target), not from the audit chain in the
    restored copy. So: **do not reclaim disk by deleting it, and do not let the disk alarm
    talk you into it.** If space is genuinely the problem, `pg_dump` the preserved cluster's
-   `deletion_requests` and `dnc_list` tables to a file on the offsite target FIRST, verify
+   `deletion_requests` and `dnc_list` tables to a file off this host FIRST, verify
    the file reads back, and only then reclaim. Delete the preserved directory when §8 is
    recorded as done in the incident record, and not before.
 2. **Restore to a new directory, and where you can, to a different port or host.** A
@@ -55,8 +55,9 @@ postmortem.
 | Symptom | Go to | Chain |
 |---|---|---|
 | Corruption, bad migration, bad deploy — "put the cluster back to just before 14:32" | §1 onwards | A (wal-g PITR) |
-| "Someone dropped `leads` on Tuesday, everything since is fine" | §10 | B (offsite dump) |
-| VPS is gone / Cloudflare account is gone | §11 | B first, then A if reachable |
+| "Someone dropped `leads` on Tuesday, everything since is fine" | §1 onwards, to a scratch host, then copy the table back (§10 needs chain B, not installed, D-927) | A |
+| VPS is gone | §11 | A |
+| Cloudflare account is gone | — | **no backup survives it (D-927)** |
 
 Choosing wrong is recoverable but expensive. If a single object was lost and the rest of
 the database has three days of good work in it, **do not** whole-cluster PITR to Tuesday —
@@ -370,6 +371,9 @@ curl -fsS https://api.calevate.tech/healthz && curl -fsS http://127.0.0.1:8100/h
 Clear the big red switch if you set it (§1), and only then.
 
 ## 10. Restoring one table from last night's dump (chain B)
+
+> **Not available in production (D-927): chain B is not installed.** Restore to a scratch
+> host by point-in-time recovery (§1 onwards) and copy the table across instead.
 
 For "someone dropped `leads` on Tuesday" — no cluster restore, no lost days.
 

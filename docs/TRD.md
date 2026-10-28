@@ -292,8 +292,10 @@ Models (per-agent config, BYOK):
 - Voices on ThinnestAI (D-687, D-688): **Clear** is ThinnestAI's own stack end to end, in
   the band the console setting `thinnest_clear_voice_band` names (Studio by default, D-792, or Premium);
   **Studio** is Cartesia on our key through ThinnestAI's voice-only BYOK (`scope: "voice"`),
-  with ThinnestAI's STT, LLM and telephony. Every agent states `byok` (`off` for Clear,
-  `workspace` for Studio). Detail: THINNEST-INTEGRATION §4a; prices: §10.0 and BRD §6.
+  with ThinnestAI's STT, LLM and telephony. Every agent names its `byok` scope outright
+  (`off` for Clear, `voice` for Studio; `llm` and `llm_voice` once our own model is switched
+  on, D-764/D-834), never the `workspace` default (`engine/thinnest._byok_value`). Detail:
+  THINNEST-INTEGRATION §4a-§4b; prices: §10.0 and BRD §6.
 - Telephony on ThinnestAI: its own numbers and carrier carry every call. A client buys
   numbers in its own business name, in its own ThinnestAI customer workspace, once its KYC is
   verified and its business details are approved (D-693). Outbound needs a verified KYC
@@ -312,9 +314,8 @@ future second adapter cheap to add (BRD R-02).
 
 ## 4. Latency Budget (the governing constraint)
 
-> **WHAT IS MEASURED NOW (D-770, 14 Oct 2026).** ThinnestAI hosts the whole call and reports
-> no per-stage timings, so the stage budget below cannot be checked against anything and
-> its code is gone: `LatencyBudget`, the per-stage constants and `GET /v1/ops/engine-latency`
+> **WHAT IS MEASURED NOW (D-770, 14 Oct 2026; D-902, 27 Oct 2026).** ThinnestAI hosts the
+> whole call. The stage budget below is not checked against anything and its code is gone: `LatencyBudget`, the per-stage constants and `GET /v1/ops/engine-latency`
 > were removed with the Pipecat loop that fed them (D-763), and `call_engine_latency` has no
 > writer (it stays until its drop migration, hard rule 8). What the platform DOES report,
 > once per call, is `quality` on `call.completed`, `call.analysed` and Get Call:
@@ -324,13 +325,22 @@ future second adapter cheap to add (BRD R-02).
 > and rescues; and a live `call.problem` of kind `slow_reply` when a reply takes more than
 > 5 s to start (VERIFIED-VENDOR-DOCS, `thinnest-findings/mirror/snapshots/2026-10-13/pages/
 > api-reference/calls/get-call.md:300-307,327-335,984-1080`). We store it on
-> `calls.engine_quality` (D-736) and `call_engine_signals`.
+> `calls.engine_quality` (D-736) and `call_engine_signals`. Since 27 Oct 2026 `quality` also
+> carries `answerMs` (caller falls silent → the first word of the actual answer; a filler or
+> acknowledgement does not end it), which is THE reply time everywhere (D-902), and
+> `responseMs` is shown as the first sound. Per-turn stage timings now exist too: Get Call
+> Timeline (`VoiceEngine.get_call_timeline`, kept on `calls.engine_timeline` by
+> `workers/call_timeline`) splits each turn into the wait before the decision, the
+> recogniser, Ear's check, the model's first sentence and the voice (D-902, D-911); a call's
+> timeline is final once Get Call's `quality.turns` is set (D-924). THINNEST-INTEGRATION
+> Status (D-901, D-902, D-903, D-924) holds the vendor's reading of each stage.
 >
 > **The targets are `reply_time_typical_target_ms` and `reply_time_slow_target_ms`**
 > (console settings, defaults **1,600 ms** and **2,200 ms**, the founder's targets of 27 Oct
 > 2026, D-896, replacing the 500 ms goal of 27 Aug 2026 that the model's ~1 s first word alone
 > cannot meet). The typical figure is judged against the first; a call is over target when its
-> own p90 `responseMs` exceeds the second (more than one reply in ten waited longer). Every
+> own p90 `answerMs` exceeds the second (more than one reply in ten waited longer); a call
+> with no `answerMs` is not measured, never zero. Every
 > figure is also split by the voice settings each call ran on (`calls.voice_settings`). The
 > admin **Voice response time** screen (`/admin/ops/reply-times`, `GET /v1/ops/reply-times`,
 > `apps/api/ops/reply_times.py`) reports it across every client: per window (1/7/30/90
@@ -339,7 +349,7 @@ future second adapter cheap to add (BRD R-02).
 > slow-reply problems, model errors, rescues, interruptions and long silences, broken down
 > by client, agent, Clear/Studio rung and IST day, with the slowest calls listed. The
 > healer counts a call as slow when its p90 reply passes 2.5 s or it raised `slow_reply`.
-> `responseMs` is measured inside the platform, not in the caller's ear, so it is still not
+> `answerMs` is measured inside the platform, not in the caller's ear, so it is still not
 > the stopwatch figure gate 4 asks for.
 >
 > Everything from here to §5 is the **Bolna/Pipecat-era stage budget**, kept as the record
@@ -621,6 +631,9 @@ class VoiceEngine(Protocol):
         # OWN document as `raw_document: bytes` — the archive below has no other source,
         # and bytes rather than a dict because a dict would hand a worker the vendor's
         # field names, which is the leak an import contract cannot see (hard rule 2)
+    async def get_call_timeline(self, call_id: str) -> CallTimeline | None   # per-turn
+        # timings (D-902): None when the engine holds none for the call; the caller decides
+        # when None is final (on ThinnestAI, once Get Call's quality.turns is set, D-924)
     async def list_executions(self, *, since: datetime) -> ExecutionListing  # backs the
         # reconciliation poller (D-31: guarantee of record, not a safety net). Returns the
         # snapshots AND whether they are all of them: a bare list cannot distinguish "a
@@ -954,9 +967,9 @@ scorecard — D-31]:
   `changelog/may-2026.md:105-109`). Gate 9 therefore tests a DECISION, not a measurement
   (D-415): the residency bullet above.
 
-The ThinnestAI integration surface documented in v1.0 of this section was retired by
-D-31 (vendor due diligence failed: no verifiable customers, no SLA, unresponsive);
-it remains in git history. Its adapter was never built.
+The ThinnestAI surface in v1.0 of this section was retired by D-31 (vendor due diligence
+failed then); D-678 (6 Oct 2026) reversed that, and ThinnestAI is the engine in production.
+Its current mapping onto this protocol is THINNEST-INTEGRATION §2.
 
 ## 6. RAG Subsystem (per-client knowledge) — REVISED per D-28, **SETTLED BY D-502**
 
@@ -966,6 +979,17 @@ answers from all of it: each agent's T0 block and knowledge documents are compil
 tenant's live sources, retrieval is scoped by tenant, and on an engine whose knowledge base
 is per vendor agent (ThinnestAI) each source is pushed to every one of the client's agents
 and kept in step on every version, withdrawal, new agent and archived agent.
+
+**What a ThinnestAI call answers from.** The business facts leave the instructions and are one
+knowledge document per agent (`agents/engine_facts.py`, the 6 Oct 2026 cost decision); the
+facts callers ask most come back into the instructions as `[KNOWN FACTS]`, chosen per agent
+from caller demand, knowledge gaps and the script within `hot_facts_max_chars`
+(`agents/hot_facts.py`, D-896), which is the T0 tier below on this engine. Everything else is
+a knowledge search inside ThinnestAI's pipeline, stated on at every publish
+(`knowledgeOnCalls`, `engine/thinnest._knowledge_on_calls`, D-903). The engine takes text
+only: a source with no text to send (a PDF or link while `kb_send_extracted_files` is off,
+D-868) is not attached, and a copy an agent holds of it is withdrawn
+(`kb/service._withheld_from_engine`, D-911). THINNEST-INTEGRATION §4 has the detail.
 
 **THE BAKE-OFF HAS RUN AND THE STORE IS DECIDED, AND THE FINDING THAT MATTERS IS THAT THE
 TWO PATHS GET DIFFERENT ANSWERS** (`docs/evidence/kb-retrieval-bakeoff.md`, 31 Aug 2026;
@@ -1330,25 +1354,34 @@ default every pass has run on), so a vendor default change cannot move its cost.
 On ThinnestAI the engine's signed webhooks (`call.completed`, `call.analysed`; verified in
 voice-runtime by `signed_intake.py` and deduped on the event id, D-690) are HINTS, the
 authenticated Get Execution (`engine/thinnest.get_execution`, `GET /calls/{id}`) is the TRUTH,
-and `pipeline.reconcile_executions` walks the call list for anything a webhook missed:
+and `pipeline.reconcile_executions` walks the call list for anything a webhook missed.
+A delivery stands as the call's record only when it is final in content
+(`workers/engine_delivery.py`: `call.analysed`, with turns on an answered call); a
+`call.completed` is a hint and Get Call is read instead, and an answered call settled
+without its transcript is re-driven (D-848, D-850; THINNEST-INTEGRATION §3 step 3):
 webhook(execution status) → **authenticate per §5** (HMAC where the engine signs; an unsigned
 engine gets source-IP allowlist + execution-id dedupe, payload treated as a HINT) →
 authenticated Get Execution is the TRUTH → persist CallEvent + turns → enqueue:
 1. fetch/persist recording to our storage (presigned; engine copy is not our system of record).
    ThinnestAI's `recording.url` is a signed link that expires, so `engine/recording_source.py`
-   copies it within the vendor's documented retention.
+   copies it within the vendor's documented retention. The per-turn timings are fetched
+   by their own job a minute later (`workers/call_timeline`, D-902, D-924).
 2. PII redaction pass on transcript (Aadhaar/PAN/card/OTP patterns + LLM assist) →
    redacted transcript is the default view; raw restricted by role
 3. extraction (per §7) → upsert Lead
 4. usage metering → usage_events rows (see §9)
-5. notifications: hot-lead rules → client email/WhatsApp
+5. notifications: hot-lead rules → client email/WhatsApp; the business's own team told
+   on the outcomes or choice answers the owner picked (`team_alerts.queue_after_call`, D-904)
 6. campaign-contact resolution (close or re-queue on the FLOWS §5 retry ladder)
-7. outbound CRM sync (`call.completed` through the outbox, D-23) — summary, never transcript
+7. outbound CRM sync (`call.completed` through the outbox, D-23) — summary, never transcript;
+   then the client's after-call actions (D-700)
 *Planned, NOT in the shipped pipeline:* embeddings for resolved calls (KB corpus) — M3
-per ROADMAP; `apps/workers/pipeline.py` ends at step 7.
+per ROADMAP.
 Retry budget is **3 attempts** — `WORKER_MAX_TRIES` in `apps/api/core/queue.py`,
 the one number the ARQ worker and the delivery worker's exhaustion check both read.
-Outbound deliveries back off **30s then 120s**; a failed recording copy waits 30s.
+A client webhook delivery follows its own persisted schedule, 8 attempts over about a day
+(`integrations/service.WEBHOOK_RETRY_SCHEDULE`, WEBHOOKS §1.5); a Google Sheets append
+backs off **30s then 120s**; a failed recording copy waits 30s.
 Only transport failures, 5xx, 408, 425 and 429 are retried; any other 4xx stops on the
 first attempt as `rejected {code}`. A worker earns a retry only by raising `arq.Retry`
 — a plain `raise` is terminal on the first attempt under arq 0.28.

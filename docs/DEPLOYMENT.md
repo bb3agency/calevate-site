@@ -19,14 +19,13 @@ somebody quotes one of them: co-location is not a *requirement* of this stack, a
 founder bought it anyway. What that buys is one leg of the residency question and not the
 question — the R2 buckets are hinted `apac`, i.e. deliberately placed in Asia-Pacific and
 deliberately NOT in India, because R2 has no India jurisdiction to place them in (D-450;
-`AWS_REGION=auto` is the signature scope and never said anything about placement, which
-is what this line used to cite), Bolna **documents its whole platform as US-hosted by
-default** (*"By default, Bolna processes calls on infrastructure in the US (AWS us-east-1)"*,
-`bolna-findings/mirror/pages/concepts/security.md:29` — which is broader and better sourced
-than the recording-URL observation this line used to carry, and their India option is
-Enterprise-gated and foreclosed by our BYOK posture, D-415), and
-Resend and Sentry are operated outside India, so **an Indian host does not make the data
-plane India-resident and nothing here may claim it does** (D-180, LEGAL-SURFACE F-1).
+`AWS_REGION=auto` is the signature scope and says nothing about placement). ThinnestAI,
+which hosts the call, states processing and storage in India (VENDOR-STATED, its email of
+7 Oct 2026, OPERATIONS §2 gate T-5; no signed DPA yet), but the language legs do not: the
+dashboard model is our Gemini key (D-899), as is the in-call model once the own-model switch
+is on (D-834), Sarvam permits processing outside India, and Resend and Sentry are operated
+outside India. So **an Indian host does not make the data plane India-resident and nothing
+here may claim it does** (D-180, LEGAL-SURFACE F-1).
 
 Everything below that reasons from a EUROPEAN VPS — chiefly the ~150 ms worked example in
 the amendment — was an argument about the host D-25 assumed, not about the one being
@@ -67,6 +66,15 @@ Edge: **Cloudflare proxied (orange), Full (strict)** (D-27).
 One dedicated VPS (do not share with client production sites — isolation), **Ubuntu 24.04
 LTS** (D-472). Sizing is §2b — the STARTER is 1 vCPU / 4 GB and scales up in place.
 
+> **Production is Ubuntu 26.04.1 LTS** (Hostinger srv1929611, upgraded in place from 24.04
+> before 7 Oct 2026; confirmed by `lsb_release -ds` on 29 Oct 2026). Two consequences of the
+> upgrade the reasons below do not cover: 26.04 ships **no `python3.12`**, so the backup
+> relay's venv runs a uv-installed 3.12 in `/opt/calevate-python` (§2, D-188 note); and on
+> 7 Oct 2026 the host PostgreSQL 16 was the 24.04 package with no 26.04 candidate, so it
+> received **no security updates** — moving it to the PGDG apt repository is a planned
+> maintenance (not re-checked since).
+> A new host should still be built on 24.04 for the reasons below.
+
 > **Why 24.04 and not 22.04**, which this line used to say. Three reasons, in the order
 > they would cost. **(1) Python.** `requires-python = ">=3.12,<3.13"`; 24.04 ships 3.12,
 > 22.04 ships 3.10. §2's "Python is NOT needed on the host" is false — D-188 found
@@ -95,7 +103,8 @@ Host: PostgreSQL 16 · pm2 (web) · certbot · GitHub Actions runner
            (with the pgvector EXTENSION — required since D-502, not contingency: two
             migrations refuse without it. `apt install postgresql-16-pgvector`, then
             `CREATE EXTENSION vector` as a superuser in the app database.)
-Object storage: Cloudflare R2 (recordings, raw payloads, exports) — location hint `apac`
+Object storage: Cloudflare R2 (recordings, raw payloads, exports) — location hint `apac`;
+                main bucket `calevate-call-recordings` (in use, read off the VPS 28 Oct 2026)
 ```
 
 - Python services (api, voice-runtime, workers) run in Compose — one image, three
@@ -199,7 +208,11 @@ below**, jq, `systemd-timesyncd`
 > So: **the host needs Python 3.12 and `uv sync --all-packages` in the deploy root IF the
 > backup alert relay is to reach anybody** — which OPERATIONS §8's "backups verified"
 > requires — and otherwise does not. `runbooks/first-deploy.md` states it as a step rather
-> than leaving it to be discovered. The alternative (a container-based relay) is rejected
+> than leaving it to be discovered. **The interpreter lives in `/opt/calevate-python`**
+> (`UV_PYTHON_INSTALL_DIR` in the `calevate` profile, then `uv python install 3.12` and
+> `uv sync --frozen --all-packages`): the host's Ubuntu 26.04 ships no `python3.12`, and uv's
+> default location under `/home/calevate/.local` is one `postgres` cannot enter, so the relay
+> exits 78 (found on production, 29 Oct 2026; `runbooks/backup-setup-vps.md` Phase 2). The alternative (a container-based relay) is rejected
 > for now and named rather than assumed away: `alert-to-app.sh` runs on the DATABASE host
 > as the `postgres` user, deliberately outside the compose project, and giving that user
 > docker socket access to send an email would be a privilege trade far worse than the
@@ -876,24 +889,29 @@ That is not coupling — it is the truth about what its process contains, and st
 one table is what makes it reviewable. A shared image does not change this; the header of
 `Dockerfile` argues why one image is right anyway.
 
-### 4d. What a human must do before the first real deploy
+### 4d. What a human must do before automatic deploys
 
-Stated here with pass conditions, the way §7 does for the backup drill, because **none of
-this has been run**: no image has been built, no container started, no nginx config
-loaded, no migration applied on a VPS.
+Stated here with pass conditions, the way §7 does for the backup drill. Steps 1–4 are done:
+production has been deployed by hand with `scripts/vps-deploy.sh` since 22 Sep 2026. Steps
+5–7 have not been run.
 
 1. **Pin the images by digest.** ✅ Done: the uv `COPY --from=` line and both
    `python:3.12-slim-bookworm` `FROM` lines name a `sha256:` (`Dockerfile`), and the
    weekly `docker` block in `.github/dependabot.yml` brings base-image fixes as pull
    requests. *Pass condition*: no image reference in `Dockerfile` is a bare tag.
-2. **Build the image once, by hand, and time it.** *Pass condition*: `docker compose -f
-   compose.prod.yml build api` succeeds on the target host without an OOM, with 2GB swap
-   present.
-3. **First deploy attended, with `--dry-run` first.** *Pass condition*: the dry run's plan
-   matches what you expected from the diff; the real run reaches the summary banner.
-4. **`nginx -t` the rendered config** — never done, no nginx existed where it was written
-   (`infra/nginx/README.md` §4). *Pass condition*: `nginx -t` passes and the four
-   hostnames answer through Cloudflare.
+2. **Build the image once, by hand, and time it.** ✅ Done by the hand deploys on the
+   VPS; the web build can starve the API on this starter host, so
+   `vps-deploy.sh` builds it niced and `runbooks/first-deploy.md` "Deploying an update" has
+   the out-of-memory recovery. *Pass condition*: `docker compose -f compose.prod.yml build
+   api` succeeds on the target host without an OOM.
+3. **First deploy attended, with `--dry-run` first.** ✅ Done (22 Sep 2026 at `fc2987e0`,
+   then 7 Oct 2026 at `e341b634` and every hand deploy since). *Pass condition*: the dry
+   run's plan matches what you expected from the diff; the real run reaches the summary
+   banner.
+4. **`nginx -t` the rendered config.** ✅ Done on the VPS: the script aborts with the
+   `sudo install` lines when `infra/nginx/` changed, and a sudo-capable login installs
+   them, runs `nginx -t` and reloads (`calevate` has no sudo, §11). *Pass condition*:
+   `nginx -t` passes and the four hostnames answer through Cloudflare.
 5. **Measure the swap gap** (§4b) for api and voice-runtime, and write the numbers into
    §4b. *Pass condition*: a number replaces "a few seconds".
 6. **Enable CD last.** Register the runner and set the Secrets/Variables per §3a, then
@@ -906,11 +924,25 @@ loaded, no migration applied on a VPS.
    with the detached-checkout message until `git checkout main` is run on the box. Nothing
    about this has been executed and the script's own tests cannot execute it.
 
-> **Current state (7 Oct 2026).** Production runs on the Hostinger VPS: deployed by hand with `scripts/vps-deploy.sh` (22 Sep 2026 at `fc2987e0`, then 7 Oct 2026 at `e341b634`). Automatic deploys are still off (`VPS_DEPLOY_ENABLED` unset; every GitHub Deploy run is skipped), and no Actions runner is installed, which §2b and the runbook §0a advise on this starter host. The step-by-step for the next deploy, including the nginx install that needs a sudo-capable login because `calevate` has none, is in `runbooks/first-deploy.md` "Deploying an update".
+> **Current state (28 Oct 2026).** Production runs on the Hostinger VPS, repository at
+> `/var/www/calevate`, deploy account `calevate`, deployed by hand from the `production`
+> branch (kept equal to `main`; its latest commit is `8dcdccae`, 28 Oct 2026). Automatic
+> deploys are still off (`VPS_DEPLOY_ENABLED` unset; every GitHub Deploy run is skipped), and
+> no Actions runner is installed, which §2b and the runbook §0a advise on this starter host.
+> A deploy is:
+>
+> ```
+> # only when the release ships a migration, as a sudo-capable login, first:
+> sudo -u postgres pg_dump -Fc -d calevate -f /var/backups/calevate/pre-<short sha>-$(date +%F-%H%M).dump
+> cd /var/www/calevate && sudo -u calevate scripts/vps-deploy.sh --expected-sha <full sha> api voice-runtime workers web
+> ```
+>
+> `--expected-sha` refuses any commit but the one named. The full step-by-step, including the
+> four nginx exports (§9.4a) and the nginx install that needs a sudo-capable login, is in
+> `runbooks/first-deploy.md` "Deploying an update".
 
-Until step 6, **this repo has a deploy mechanism and no automatic deploys**, which is the
-correct state for something nobody has run yet. Step 7 is the one people skip; the first
-rollback should not be the first time anybody has seen one.
+Until step 6, **this repo has a deploy mechanism and no automatic deploys**. Step 7 is the
+one people skip; the first rollback should not be the first time anybody has seen one.
 
 ## 5. nginx + TLS + Cloudflare (raghava config, four adaptations)
 
@@ -1163,13 +1195,15 @@ ranges so the raw IP serves nothing; MX/TXT/DKIM independent of proxy status.
 
 D-26 (host PG) breaks OPERATIONS §5's RPO 15min if we only do nightly dumps.
 
-> **STATUS (Aug 2026): the mechanism now exists in the repo and has been applied to
-> nothing.** It lives in **`infra/backup/`** — read `infra/backup/README.md` before this
-> section, because that file is the authority on what it does and, more importantly, on
-> what has never been run. This section previously described the design as if it were
-> deployed; it was not built at all until now, which meant the RPO below was **unmet** and
-> nobody would have discovered that until a restore. Everything in `infra/backup/` is
-> reviewed-but-unapplied: §9 step 9 is where it becomes real.
+> **STATUS (28 Oct 2026): the mechanism exists in the repo and the continuous backups have
+> never run on the VPS.** It lives in **`infra/backup/`** — read `infra/backup/README.md`
+> before this section; that file is the authority on what it does and what has never been
+> run. On the VPS on 10 Oct 2026 `systemctl list-timers 'calevate-*'` listed only
+> `calevate-hygiene.timer`: the base-backup timer is not installed, wal-g has never run, and
+> the wal-g backup bucket is being created on 29 Oct 2026 (one chain on R2, no offsite
+> bucket, D-927) (`runbooks/backup-setup-vps.md`). The only database copies that exist are
+> the `pg_dump` files taken by hand into `/var/backups/calevate` before a migration ships
+> (§4d). So the RPO below is **unmet**, and §9 step 9 is where it becomes real.
 
 What is in the repo, and where:
 
@@ -1236,15 +1270,15 @@ and the backups together, which is exactly the scenario backups exist for. There
   bucket — a token that can write backups must not be able to read recordings, and the
   recordings lifecycle policy (`infra/object-lifecycle/policy.json`) must not be able to
   expire a backup.
-- **The nightly `pg_dump` + Redis RDB offsite copy MUST land on a different provider and a
-  different credential** (Backblaze B2, S3, or a Hetzner Storage Box — any non-Cloudflare
-  target). This is the one that survives a Cloudflare-account event, and `dump-offsite.sh`
-  will not work without one being configured.
+- ~~The nightly `pg_dump` + Redis RDB offsite copy on a different provider~~ — **not
+  installed: the founder chose one chain on R2 (D-927, 29 Oct 2026) and accepted that a
+  Cloudflare-account event loses every backup.** `dump-offsite.sh` stays in the tree,
+  uninstalled.
 - Additionally: **an R2 bucket lock on the backup prefix (30 days)** so a stolen write token
   cannot destroy the archive it can write to. Bucket locks take precedence over lifecycle
   rules and indefinite locks cannot be removed — never use `--retention-indefinite`.
-- Restore drills alternate sources: prove the R2 PITR path one quarter, the offsite dump the
-  next. A backup nobody has restored from is a hypothesis, not a backup.
+- Restore drills prove the R2 PITR path every quarter (the only chain, D-927). A backup
+  nobody has restored from is a hypothesis, not a backup.
 
 **The largest unverified assumption**, called out here because it can invalidate chain A:
 **wal-g has never been run against R2 by us.** R2's multipart implementation has a
@@ -1653,9 +1687,8 @@ Jan 2026) → place `/etc/wal-g/walg.json` from the template with real values fr
 secrets manager → `wal-g backup-list` (this is the first moment anyone learns whether
 wal-g and R2 actually agree — **budget for it failing**) → confirm `SHOW data_checksums`
 is `on` → install the archiving drop-in and **restart** PostgreSQL (`archive_mode` and
-`wal_level` need one) → first `backup-push --verify` by hand, watched → install the three
-systemd timers → configure the offsite `rclone.conf` and the age recipients, with the age
-identity generated off-host → apply the R2 bucket lock (30 days, never indefinite) →
+`wal_level` need one) → first `backup-push --verify` by hand, watched → install the
+base-backup and health timers (no offsite dump, D-927) → apply the R2 bucket lock (30 days, never indefinite) →
 **run `runbooks/backup-restore-drill.md` end to end.** Until that drill has passed once,
 "backups verified" on the OPERATIONS §8 pre-launch checklist cannot be ticked, because
 what exists is a backup system we believe in rather than one anyone has recovered from.
@@ -1748,7 +1781,7 @@ facts cite `thinnest-findings/mirror/pages/` (VERIFIED-VENDOR-DOCS).
 | `ENGINE_INTAKE_KEK_RETIRED` | api, workers, voice-runtime | the VPS `.env`, only during a rotation | the previous intake key, used only to open what it sealed. Equal to `ENGINE_INTAKE_KEK` is refused (`retired_key_equals_active`). |
 | `WEBHOOK_BASE_URL` | api, voice-runtime | ops console (needs republish) | ThinnestAI sends `call.completed` and `call.analysed` to `<WEBHOOK_BASE_URL>/hooks/v1/engine/thinnest` and refuses an address inside its own network (`api-reference/webhooks.md:59-62`). Under `ENGINE=thinnest`, `/healthz/ready` names it when it is not a public `https://` origin. |
 | `THINNEST_BYOK_ENABLED` | api | ops console (needs republish; step-up with the typed confirmation), default `false` | Set to `true` only AFTER all three legs (speech-to-text, language model, voice) are configured with a model each in the ThinnestAI console at **Settings → Your keys** (`/settings/byok`; workspace-wide; since the 7 Oct 2026 snapshot also documented as an API, `snapshots/2026-10-07/pages/api-reference/bring-your-own-keys.md:85-152`, which we do not drive because BYOK calls are not on sale, D-681). On, per-agent catalogue voices and models are locked and every minute is metered at the `platform` rate (the ₹1/min BYOK rate) instead of a voice tier. Republish every agent after changing it. This is full (`scope: all`) BYOK on the developer workspace, NOT Studio: the Studio rung's voice-only BYOK is our Cartesia key switched on in each Studio client's own workspace, with the developer workspace's switch off (D-717). |
-| `THINNEST_CLEAR_VOICE_BAND` | api, workers | ops console, added by D-688 (8 Oct 2026), default `studio` (D-792) | The ThinnestAI voice band sold as Clear: `studio` (Studio catalogue voices and our clones, listed only on Pro and above, `snapshots/2026-10-07b/pages/api-reference/voices/list-voices.md:7`) or `premium` (any plan). Needs republish: an agent already published keeps billing at its band until republished. Attest the band's per-minute rate before offering it. Replaces D-687's `THINNEST_STUDIO_WORKSPACE_ID`, which is removed: Studio agents now share the developer workspace and run on our Cartesia key per agent (`byok: workspace`), switched on once with Voices, "Enable Studio voices" (`docs/THINNEST-INTEGRATION.md` §4a). |
+| `THINNEST_CLEAR_VOICE_BAND` | api, workers | ops console, added by D-688 (8 Oct 2026), default `studio` (D-792) | The ThinnestAI voice band sold as Clear: `studio` (Studio catalogue voices and our admin's clones; the docs list them on Pro and above, `snapshots/2026-10-07b/pages/api-reference/voices/list-voices.md:7`, and ThinnestAI switched the band and up to 25 clones on for our pay-as-you-go account, VENDOR-STATED 23 Oct 2026, `docs/vendor/thinnest-replies-2026-10-12.md` §28) or `premium` (any plan). Needs republish: an agent already published keeps billing at its band until republished. Attest the band's per-minute rate before offering it (Studio band ₹2.50/min, Premium ₹2.00/min, VENDOR-PUBLISHED in ThinnestAI's console, founder-relayed 24 Oct 2026, D-878). The Studio rung is separate: our Cartesia key, switched on in the developer workspace for trial agents and in each paying Studio client's own workspace (D-727, `docs/THINNEST-INTEGRATION.md` §4a). |
 | `THINNEST_OWN_MODEL` | api, workers | ops console (applies to live agents; typed step-up confirmation), added by D-764 (13 Oct 2026), default `false` | Agents answer on our Gemini model through our Google key: Clear on ThinnestAI scope `llm`, Studio on `llm_voice`. Saving it on is refused until `GEMINI_API_KEY` is installed, the default model is priced, the Google data-use attestation exists and the `byok_llm_voice` minute is attested; `runbooks/thinnest-own-model.md`. |
 | `THINNEST_OWN_MODEL_DEFAULT` | api, workers | ops console (applies to live agents), added by D-764, default `gemini-3.1-flash-lite` (D-817) | The Gemini model an agent with none of its own answers with while `THINNEST_OWN_MODEL` is on; must be offerable on the own-model leg (key installed, price attested, no Google access limit: a 2.5 model is refused). |
 | `THINNEST_REPLY_LENGTH` | api, workers | ops console (applies to live agents), added by D-769 (14 Oct 2026), default 300 | The reply ceiling, in tokens (100-800), every agent with none of its own is published with as ThinnestAI `maxReplyTokens`; a reply that reaches it is cut off there (`snapshots/2026-10-13/pages/api-reference/agents/update-agent.md:839-845`). 300 is the vendor's own default. An operator sets one agent's own on the admin agent page (Call handling, "Reply length"). |
@@ -1756,8 +1789,15 @@ facts cite `thinnest-findings/mirror/pages/` (VERIFIED-VENDOR-DOCS).
 | `THINNEST_TEST_CHAT_CALL_MODE` | api, workers | ops console (live), added by D-847 (21 Oct 2026), default off | Practice tests and the register eval ask Test Chat's call mode (`mode: "call"`). In the live openapi.json since 21 Oct 2026: OPERATIONS gate T-32 is met. |
 | `THINNEST_CALL_INSTRUCTIONS` | api, workers | ops console (applies to live agents, typed step-up), added by D-850 (21 Oct 2026), default off | Every agent is published with our call rules as ThinnestAI `voice.callInstructions`, replacing its default call rules (off: `null`, the defaults). Flip only per OPERATIONS gate T-33. |
 | `THINNEST_EARLY_ANSWERS` | api, workers | ops console (applies to live agents), added by D-852 (21 Oct 2026), default on (the vendor default) | Every agent is published with ThinnestAI `voice.earlyAnswers`. On, replies start before the caller has finished, and a run discarded because they kept talking is billed to our Google key but not counted in the call's `usage`, so metered own-model cost is a lower bound; off, a reply waits for the caller to finish. The founder decides per OPERATIONS gate T-34. |
-| `REPLY_TIME_TARGET_MS` | api | ops console (applies live), added by D-770 (14 Oct 2026), default 500 | How long a caller should wait for the agent to start answering, in milliseconds (100-10000). The admin Voice response time screen counts a call over target when its p90 reply time (ThinnestAI `quality.responseMs`, `snapshots/2026-10-13/pages/api-reference/calls/get-call.md:327-335`) exceeds it. 500 is the founder's end-to-end goal of 27 Aug 2026. |
-| `THINNEST_CUSTOMER_PLAN` | api, workers | ops console (applies live), added by D-693 (9 Oct 2026), default `payg` | The ThinnestAI plan our account is on: `payg`, `pro`, `scale` or `enterprise`. Every client gets its own customer workspace, and the plan caps how many we may hold — 3, 100, 1,000, 10,000, a deleted one counting until it is erased (`snapshots/2026-10-08/pages/api-reference/customers.md:191-200`). Read for the ops headroom and the `engine_workspace_plan_limit` alarm; the vendor's 402 enforces the cap. Set it after the plan changes (OPERATIONS §2 gate T-8). |
+| `THINNEST_TURN_DETECTION` | api, workers | ops console (applies to live agents), added by D-849, default `timer` | How every agent decides the caller has finished (`voice.turnDetection`): `timer`, or `ear`, real-time recognition that waits through a pause mid-sentence. |
+| `THINNEST_TIMER_TURN_SILENCE_MS` | api, workers | ops console (applies to live agents), added by D-901, default 400 (200-3000) | The pause after the caller's last words before the agent answers, for an agent on the timer that sets none of its own. 400 is the top of ThinnestAI's 0.35-0.4 s starting point (VENDOR-STATED, email of 27 Oct 2026). Since ThinnestAI's 28 Oct reply the pause is also used under Ear (D-924). |
+| `THINNEST_OPENING_WAIT_MS` | api, workers | ops console (applies to live agents), added by D-901, default unset | How long an opening that waits for the person's hello waits through silence before it plays (`voice.openingWaitSeconds`, 0.5-10 s on whole tenths). Unset, the field is never sent and the vendor's 4 s applies. |
+| `THINNEST_ACKNOWLEDGEMENTS` | api, workers | ops console (applies to live agents), default on | Under `ear` only: the agent says a short acknowledgement while a caller explains, spoken on our Cartesia key on Studio (VENDOR-STATED, §25.0). |
+| `THINNEST_INTERRUPT_WORDS` | api, workers | ops console (applies to live agents), added by D-862, default 2 (1-6; vendor default 3) | Words a caller must say over the agent to stop it (`voice.interruptWords`). At 3 a one- or two-word Telugu answer never stopped the agent. |
+| `KB_SEND_EXTRACTED_FILES` | api, workers | ops console, added by D-893 L8, default off | Sends the words we read out of a client's PDFs and web pages to ThinnestAI as knowledge text. Off (the founder's choice while ThinnestAI's answer on knowledge files is awaited, D-868), a PDF goes as its file and a link sends nothing; saving it re-sends every live PDF and link. |
+| `HOT_FACTS_ENABLED` / `HOT_FACTS_MAX_CHARS` | api, workers | ops console (applies to live agents), added by D-896, default on / 6000 | Puts the facts an agent's callers ask most into its instructions, chosen per agent from evidence (`agents/hot_facts.py`), so those answers need no knowledge search mid-call; the character bound caps what every reply re-reads. |
+| `REPLY_TIME_TYPICAL_TARGET_MS` / `REPLY_TIME_SLOW_TARGET_MS` | api | ops console (applies live), added by D-896, defaults 1600 / 2200 | How long a caller should wait from the end of their speech to the first word of the actual answer (D-902; a filler line does not end it): the typical wait (median) and the slow one (p90). The admin Voice response time screen judges calls against them. They replace D-770's single 500 ms target, which the model alone cannot meet (`docs/evidence/latency-research-2026-10-27.md`). |
+| `THINNEST_CUSTOMER_PLAN` | api, workers | ops console (applies live), added by D-693 (9 Oct 2026), default `payg` | The ThinnestAI plan our account is on: `payg`, `pro`, `scale` or `enterprise`. Every client gets its own customer workspace, and the plan caps how many we may hold — 3, 100, 1,000, 10,000 by the docs, a deleted one counting until it is erased (`snapshots/2026-10-08/pages/api-reference/customers.md:191-200`). Our pay-as-you-go account was raised to 100 (VENDOR-STATED 23 Oct 2026, replies §28; OPERATIONS T-8), while `engine/thinnest_customers.py` still reads `payg` as 3, so the ops headroom and the `engine_workspace_plan_limit` alarm understate it until that table follows the raise; the vendor's 402 is what enforces the cap. Each customer workspace holds 2 agents on pay as you go, raised per workspace on request (§28, T-36). |
 | `THINNEST_DEVELOPER_WORKSPACE_ID` | api, workers | ops console (applies live), added by D-693, optional | Our own ThinnestAI workspace's id, `org_…` (`GET /workspace`, `api-reference/workspace/get-workspace.md:327-351`). Never accepted as a client's workspace; provisioning also reads it from the API (gate T-16). |
 | `TRIAL_CALLER_NUMBER` | api | ops console (applies live), added by D-697 (9 Oct 2026), optional | The shared +91 number every free-trial test call rings from, held in our developer workspace and recorded against no client. Unset, trial calling is shown as not available yet (OPERATIONS §2 gate T-22). |
 | `TRIAL_DAILY_CALL_CAP` | api | ops console (applies live), added by D-697, default 10 | Test calls one trial account may place per IST day. |
@@ -1765,7 +1805,7 @@ facts cite `thinnest-findings/mirror/pages/` (VERIFIED-VENDOR-DOCS).
 | `TRIAL_CALL_MAX_SECONDS` | api | ops console (applies live), added by D-697, default 180 | The per-call `maxCallSeconds` sent on a test call, 60..1200 (`snapshots/2026-10-08/pages/api-reference/calls/place-call.md:1122-1126`). |
 | `SELF_SERVE_TRIAL_DAYS` | api | ops console (applies live), added by D-703, default 7 (D-853) | Days of free trial every new account starts with, signed up or invited. An operator's trial for a client replaces it. |
 | `SELF_SERVE_TRIAL_FREE_MINUTES` | api | ops console (applies live), added by D-703, default 15 (D-853) | Free test-call minutes every new account starts with. |
-| `THINNEST_MAX_CONCURRENT_CALLS` | api, workers | ops console (applies live), default `5` | The ThinnestAI workspace's simultaneous calls, inbound and outbound together (`snapshots/2026-10-07/pages/api-reference/calls/place-call.md:454-460`). 5 is the pay-as-you-go ceiling (FOUNDER-RELAYED, 7 Oct 2026); set it to the raised figure when ThinnestAI confirms one by email. `INBOUND_RESERVE_RATIO` of it is kept for callers (3 outbound of 5 at the default 0.3), every dial counts our live outbound calls under one lock and is refused with `carrier_lines_busy` when the pool is full, and a `429` holds all dials off for the vendor's `Retry-After` (at least 60 s, at most 15 min). |
+| `THINNEST_MAX_CONCURRENT_CALLS` | api, workers | ops console (applies live), default `5` | The ThinnestAI workspace's simultaneous calls, inbound and outbound together (`snapshots/2026-10-07/pages/api-reference/calls/place-call.md:454-460`). 5 was the pay-as-you-go ceiling (FOUNDER-RELAYED, 7 Oct 2026); ThinnestAI raised our account to 20 (VENDOR-STATED 23 Oct 2026, replies §28, gate T-7), so this may be set to 20 and never above the granted figure. `INBOUND_RESERVE_RATIO` of it is kept for callers (3 outbound of 5 at the default 0.3), every dial counts our live outbound calls under one lock and is refused with `carrier_lines_busy` when the pool is full, and a `429` holds all dials off for the vendor's `Retry-After` (at least 60 s, at most 15 min). |
 | `ENGINE_ACTIONS_BASE_URL` | api | ops console (needs republish), no default | The API's public `https://` origin (e.g. `https://api.calevate.tech`). Under `ENGINE=thinnest` each agent's in-call actions (opt-out, call-back, call-back cancel, handoff) are ThinnestAI custom actions calling `<ENGINE_ACTIONS_BASE_URL>/v1/worker/engine-actions/thinnest/<tool>`; the vendor accepts `https://` only (`snapshots/2026-10-07/pages/api-reference/actions/create-action.md:174-181`). Publish refuses with `engine_actions_url_not_public` while it is unset or not public, and the drift sweep raises `engine_actions_unreachable` when the vendor's test call does not reach it. Not `WEBHOOK_BASE_URL`, which is voice-runtime's host. `/healthz/ready` on api and workers names it under `ENGINE=thinnest` outside `local` while it is unset or not public (D-682). |
 
 Per-agent webhook signing secrets are not configuration: `POST /webhooks` returns each one

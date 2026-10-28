@@ -230,6 +230,21 @@ names the job, with the reasoning behind an ⓘ. Sentences that carry a legal or
 obligation, and every server-owned wording, are not rewritten. They keep their words and
 may only change presentation.
 
+**Buttons, not paragraphs, on client screens (founder, 28 Oct 2026).** A client is a small
+business owner who acts rather than reads; a screen that is correct but takes reading work
+fails them. So on every client-realm screen:
+- One short line per item, in plain words (no "judge", "probe", "script version").
+- Each problem has a visible button that does the next thing ("Fix it", "Hear it", "Test
+  again"), never a sentence telling the owner what to do.
+- The explanation sits behind a tap ("Why?", or the row's info control: `components/console/
+  settingRow.tsx` takes one short `hint` and puts anything longer in `info`), never shown by
+  default.
+- A status is a chip or an icon with a number, not a sentence.
+The worked example is the Training tab: a practice test's card shows a server-made short name
+of six words or fewer and keeps the full name behind "Why?" (D-917). The exceptions are §3's
+and §8's: a compliance control's qualifying sentence, an error or refusal, and server-owned
+wording stay visible in their own words. Admin screens are not bound by this rule.
+
 ---
 
 ## §4 Action hierarchy

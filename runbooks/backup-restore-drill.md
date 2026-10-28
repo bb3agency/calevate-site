@@ -20,6 +20,10 @@ failure — write down where the time went, because that is your real RTO.
 
 ## 0. Alternate the source — this is the point of doing it quarterly
 
+> **Production runs chain A only (D-927).** Every quarter's drill is chain A until an offsite
+> chain is installed; the even-quarter row below applies only then. The drill therefore does
+> not prove recovery with Cloudflare unavailable, which is the risk D-927 accepts.
+
 DEPLOYMENT §7: *"Restore drills alternate sources: prove the R2 PITR path one quarter, the
 offsite dump the next."*
 

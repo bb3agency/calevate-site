@@ -137,12 +137,19 @@ the copilot previously had no ceiling on paid output at all).
 
 ## 3. Three constraints from THIS codebase
 
-**① The Gemini leg cannot stream tool calls.** `chat.py` records it as VERIFIED-LIVE: the
-compat endpoint `generativelanguage.googleapis.com/v1beta/openai/chat/completions` answers,
-the native `:generateContent` surface 404'd, and the leg runs **non-streamed only** because
-Gemini's streamed tool-call deltas carry a `None` `index` that breaks accumulation. So an
-agent loop on a client's own Gemini key is non-streamed; Azure streams with tools. **This
-is an open product decision** (§5), not a thing to paper over.
+**① Gemini is the main leg, and it streams tool calls (D-694, D-899).** Pip answers on our
+Gemini first (`agents/assist_leg.account_assist_leg`: an account whose own leg cannot serve
+is handed the platform's Gemini leg before Azure), then Azure only where it is configured,
+then the Sarvam standby, which answers in prose with no tools. The Gemini compat endpoint's
+streamed tool-call deltas carry no `index`; `chat.stream` reads an index-less delta on that
+dialect as a whole call, so both tool-capable legs stream (how Gemini shapes a streamed tool
+call is not on Google's page: OPERATIONS §2 gate 61). A Gemini leg that cannot serve raises
+`assistant_gemini_unavailable` naming what to record. The standby's answer is one blocking
+completion, so its timeout is the whole request, `copilot/service.STANDBY_ANSWER_S` (60 s,
+inside the question's own deadline), not the 15 s gap between stream frames that cut a
+Sarvam answer on 27 Oct 2026; the standby answering first logs `copilot_standby_first` with
+the reason, and a timeout ends in `copilot_timed_out` ("Pip took too long to answer",
+nothing was changed, ask again or ask one thing at a time).
 
 **② Tenancy and permissions are already solved.** Use `tenant_session` + the existing
 `requires()` machinery. Nothing new is needed and nothing new should be invented.
@@ -173,7 +180,7 @@ more, and the ledger will show it. No new billing path — hard rule 7 stands.
 | **2** | **Live business state block** — calls today/7d, leads waiting by status, campaign counts, outbound blocker RULE NAMES, IST clock. Carries no tenant-authored string at all (integers and closed-set rule names only), so there is nothing to sanitize; ceiling proven under 800 bytes by construction, not estimated. Degrades to `<unavailable part=…/>`, never to zeros. | **built** |
 | **3** | **Write tools that PROPOSE** — `lead_set_status`, `dnc_add`, `campaign_pause`. A proposal is a signed 5-minute JWT and no table; forgery, replay, cross-tenant and cross-actor each refused. Confirm executes through the SAME gated service function a click uses and writes an `audit_log` row. **The console half shipped separately and later** — `components/copilot/ProposalCard.tsx` reads the `proposal` frame, renders the server's own `title`/`summary`/`current`→`proposed` verbatim, and posts the token back through the typed client. Until it existed the feature was DEAD ON ARRIVAL: the server emitted a frame nothing rendered and exposed a door nothing knocked on. | **built** |
 | **4** | **Memory** — `copilot_memories` (RLS in the same migration), hybrid recall with recency STRUCTURALLY guaranteed a seat, semantic distillation in an hourly ARQ job on a cheap model, wired into retention AND every erasure path. | **built** |
-| 5 | Loop + the streaming decision (Azure-streamed vs Gemini-non-streamed) | **open** |
+| 5 | The streaming decision: both tool-capable legs stream since D-694, and Gemini leads since D-899 (§3 ①) | **closed** |
 
 Phases 1-4 were built in parallel by four agents against this document as the shared
 specification, then reconciled into one loop by hand. Three corrections the build made to

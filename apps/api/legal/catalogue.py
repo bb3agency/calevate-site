@@ -902,6 +902,16 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "NOT MATERIAL: the processor deletes more, and nothing the client agreed to "
                 "moves.",
             ),
+            # D-927.
+            Revision(
+                "18",
+                False,
+                "D-927: Annex B.5 says backups are continuous WAL archiving plus a nightly "
+                "encrypted base backup held with the object-storage provider, where it said an "
+                "encrypted offsite dump. NOT MATERIAL, the founder's call (29 Oct 2026): the "
+                "offsite dump never ran, and B.5 already said backup and recovery are designed "
+                "rather than proven.",
+            ),
         ),
         effective_date="2026-09-02",
     ),

@@ -1,8 +1,10 @@
 # Backup setup on the VPS — step by step
 
 This turns `infra/backup/README.md` §8 into commands for the production VPS. Read that
-README for the design (two chains, why each exists, retention, DPDP). Nothing here has been
-run yet. On 10 Oct 2026 the VPS had only `calevate-hygiene.timer`; no backup timer existed,
+README for the design (retention, DPDP, and the risk §3 records). **Production keeps ONE
+chain, wal-g to Cloudflare R2 (D-927, founder 29 Oct 2026).** The offsite dump is not set
+up: skip Phase 0 items 2 and 4 and Phase 6, and install only the units Phase 8 names.
+Nothing here has been run yet. On 10 Oct 2026 the VPS had only `calevate-hygiene.timer`; no backup timer existed,
 so the only backups were manual `pg_dump`s.
 
 **What you end up with**
@@ -11,7 +13,6 @@ so the only backups were manual `pg_dump`s.
 |---|---|---|
 | WAL archiving | continuous, at least every 5 min | every database change is pushed to the R2 backup bucket (point-in-time restore) |
 | `calevate-basebackup.timer` | 02:30 nightly | full encrypted base backup to R2, verified page by page; prunes past 35 days |
-| `calevate-dump-offsite.timer` | 03:30 nightly | `pg_dump` encrypted with age, copied to a NON-Cloudflare provider; prunes past 35 days |
 | `calevate-backup-health.timer` | every 15 min | four checks plus the timers themselves; on success pings an external dead man |
 
 **Rules while doing this:** run as `d_user`, one block at a time, read each result before the
@@ -28,16 +29,11 @@ secrets on your own machine. If a command's output surprises you, stop.
    created. Then R2 → Manage API tokens → Create token: **Object Read & Write, this bucket
    only**. Note the Access Key ID, Secret Access Key and your account id (in the R2
    endpoint URL) in your password manager.
-2. **Offsite provider, NOT Cloudflare.** Backblaze B2 (create a private bucket, e.g.
-   `calevate-dr`, and an application key restricted to that bucket) or a Hetzner Storage Box.
-   Save the key in your password manager.
+2. ~~Offsite provider~~ — **skip (D-927).** No offsite copy is kept.
 3. **wal-g encryption key** (on your machine): `openssl rand -base64 32` — exactly 32 bytes,
    wal-g's libsodium key. Save it in the password manager AND one offline copy. Losing it
    loses every R2 backup.
-4. **age key pair for the offsite dump** (on your machine, not the VPS): install `age`, run
-   `age-keygen -o calevate-backup.agekey`. The file's comment line shows the PUBLIC key
-   (`age1…`) — that goes to the VPS. The private key stays in the password manager plus one
-   offline copy, **never on the VPS**, so a compromised VPS cannot read the offsite copy.
+4. ~~age key pair for the offsite dump~~ — **skip (D-927).**
 5. **External dead man**: a Healthchecks.io check, **period 15 minutes, grace 1 hour**,
    notifying the same email as `ALERTS_EMAIL`. Its ping URL is a credential.
 
@@ -69,7 +65,7 @@ Send me the output. Points to read:
 ## Phase 2 — install the tools
 
 ```sh
-sudo apt-get update && sudo apt-get install -y jq age rclone
+sudo apt-get update && sudo apt-get install -y jq
 ```
 
 **wal-g** — list the latest release's assets, pick the PostgreSQL build for this Ubuntu
@@ -92,16 +88,26 @@ tar -xzf "$A" && sudo install -o root -g root -m 0755 wal-g-pg-* /usr/local/bin/
 
 **Host Python for backup alerts.** The alert relay (`scripts/backup/app-python.sh`) runs the
 app's alert code on the host. The services run in Docker, so the host has no venv, and
-without one every backup alarm goes only to the journal (DEPLOYMENT, D-188). As `calevate`:
+without one every backup alarm goes only to the journal (DEPLOYMENT, D-188). The host runs
+Ubuntu 26.04, which ships no `python3.12`, so uv installs Python 3.12 itself — into
+`/opt/calevate-python`, NOT uv's default under `/home/calevate/.local`, which postgres cannot
+enter: there the relay exits 78 and every alarm reaches nobody (found on production, 29 Oct
+2026). As `d_user`, then as `calevate`:
 
 ```sh
+sudo install -d -o calevate -g calevate -m 0755 /opt/calevate-python
 sudo -iu calevate
+echo 'export UV_PYTHON_INSTALL_DIR=/opt/calevate-python' >> ~/.profile && . ~/.profile
 cd /var/www/calevate && command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
-~/.local/bin/uv sync --frozen --all-packages && ls -l .venv/bin/python
+~/.local/bin/uv python install 3.12
+rm -rf .venv && ~/.local/bin/uv sync --frozen --all-packages
+readlink -f .venv/bin/python        # must be under /opt/calevate-python
 exit
 ```
 
-Then postgres must be able to execute that interpreter: `sudo -u postgres /var/www/calevate/.venv/bin/python -c "print('ok')"`.
+The profile line keeps any later rebuild of `.venv` on that interpreter (a `uv sync` reuses an
+existing compatible `.venv`; the deploy never runs one on the host). Then postgres must be
+able to execute it: `sudo -u postgres /var/www/calevate/.venv/bin/python -c "print('ok')"`.
 
 ---
 
@@ -155,30 +161,16 @@ with R2 multipart), stop it with Ctrl-C and send me what it printed.
 
 ---
 
-## Phase 6 — offsite dump
+## Phase 6 — offsite dump: skipped (D-927)
 
-```sh
-sudo install -d -o root -g postgres -m 0750 /etc/calevate
-sudo rclone config --config /etc/calevate/rclone.conf
-```
-
-In the rclone wizard create a remote named exactly **`calevate-offsite`** for B2 (or SFTP for
-a Storage Box) with the Phase 0 key. The unit expects `calevate-offsite:calevate-dr`, so the
-bucket/folder is `calevate-dr` — if you named it differently, tell me and I'll change
-`OFFSITE_REMOTE`. Then:
-
-```sh
-sudo chown root:postgres /etc/calevate/rclone.conf && sudo chmod 0640 /etc/calevate/rclone.conf
-sudo -u postgres rclone --config /etc/calevate/rclone.conf lsd calevate-offsite:
-sudo editor /etc/calevate/backup-recipients.txt     # paste the age PUBLIC key line (age1…) only
-sudo chown root:postgres /etc/calevate/backup-recipients.txt && sudo chmod 0640 /etc/calevate/backup-recipients.txt
-```
+Production keeps one chain. Nothing to do here; `infra/backup/README.md` §3 records the risk.
 
 ---
 
 ## Phase 7 — where backup alarms go
 
 ```sh
+sudo install -d -o root -g postgres -m 0750 /etc/calevate
 sudo install -o root -g postgres -m 0640 /dev/null /etc/calevate/alerts.env
 sudo editor /etc/calevate/alerts.env
 ```
@@ -202,17 +194,17 @@ now lives in two places (console and this file) — rotate both together.
 
 ```sh
 cd /var/www/calevate
-sudo install -o root -g root -m 0644 infra/backup/systemd/* /etc/systemd/system/
+sudo install -o root -g root -m 0644 infra/backup/systemd/calevate-backup-alert@.service infra/backup/systemd/calevate-basebackup.service infra/backup/systemd/calevate-basebackup.timer infra/backup/systemd/calevate-backup-health.service infra/backup/systemd/calevate-backup-health.timer /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemd-analyze verify /etc/systemd/system/calevate-basebackup.service /etc/systemd/system/calevate-dump-offsite.service /etc/systemd/system/calevate-backup-health.service
-sudo systemctl enable --now calevate-basebackup.timer calevate-dump-offsite.timer calevate-backup-health.timer
+sudo systemd-analyze verify /etc/systemd/system/calevate-basebackup.service /etc/systemd/system/calevate-backup-health.service
+sudo systemctl enable --now calevate-basebackup.timer calevate-backup-health.timer
 systemctl list-timers 'calevate-*' --all
 ```
 
-Run each once by hand and read the result:
+The offsite units (`calevate-dump-offsite.*`) are NOT installed (D-927), and the health
+check does not expect them. Run the health check once by hand and read the result:
 
 ```sh
-sudo systemctl start calevate-dump-offsite.service; systemctl status --no-pager calevate-dump-offsite.service | tail -n 15
 sudo systemctl start calevate-backup-health.service; journalctl -u calevate-backup-health.service --since -5min --no-pager | tail -n 30
 t=$(systemctl show -p LastTriggerUSec --value calevate-basebackup.timer); echo "$t"; date -u -d "$t"
 ```
@@ -234,7 +226,7 @@ pruning never fights the lock.
 
 Until a restore has worked once, these are backups we believe in, not backups we have.
 Follow `runbooks/backup-restore-drill.md` on a scratch machine: restore last night's base
-backup plus WAL to a point in time, and decrypt one offsite dump with the age private key.
+backup plus WAL to a point in time.
 
 ## Afterwards
 

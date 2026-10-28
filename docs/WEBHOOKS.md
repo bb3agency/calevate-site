@@ -213,6 +213,19 @@ Four rules that matter:
   set to receive. Subscribing to `call.recording_ready` requires
   `include_recording_url: true` in the same request, or it is refused with
   `422 recording_ready_requires_recording_url`: the event exists to carry that link.
+  Registering an endpoint asks for a code entered for that act (D-730), because it starts
+  the account's lead data leaving Calevate: `POST /v1/auth/client/step-up` emails a code,
+  `POST /v1/auth/client/step-up/verify` takes it with `"action": "create_endpoint:<account
+  slug>"`, and the create is sent again with `X-Confirm-Action` naming the same action.
+  Without it the answer is `reauthentication_required`, whose `remediation` names the
+  action.
+- `PATCH /v1/integrations/endpoints/{id}` replaces an active endpoint's `events` and its
+  three opt-ins. The address cannot be changed: a new destination is a new endpoint.
+  Changing events or switching an opt-in off needs no code; switching the recording link
+  or a transcript ON asks for a code the same way, for the action `endpoint_opt_in:<account
+  slug>`. Refused with `endpoint_inactive` for a deactivated endpoint and
+  `sheets_endpoint_events_only` when a Google Sheets destination is asked to carry a
+  recording or transcript.
 
 **Where an endpoint may live.** Your URL must resolve to an address on the public
 internet and listen on port **80 or 443**. We resolve the hostname and refuse anything
@@ -323,7 +336,9 @@ Each lead source carries a mapping from your field names to ours, e.g.
 `{"phone": "phone_number", "name": "full_name"}` (ours → yours). When a mapping is
 configured, **only mapped fields survive** into the lead; unmapped keys are dropped —
 unknown data from an external party does not land in a lead row. With no mapping, your
-payload is taken as-is and we look for `phone` / `phone_number` and `name`.
+payload is taken as-is and we look for `phone` / `phone_number` and `name`. The mapping
+can be replaced later (`PUT /v1/lead-sources/{id}/mapping`, checked as at creation); leads
+already received keep what they were saved with.
 
 The phone is normalized to E.164. Bare 10-digit Indian mobiles (starting 6–9) get
 `+91`; anything we cannot confidently normalize is rejected with 422

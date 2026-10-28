@@ -239,6 +239,20 @@ next thing" and "each turn begun differently". New SOUND checks: `offered_number
 `picked_for_them`, `promised_pace`; `opened_again` also judges every reply against the
 opening's own question when a real call's greeting is given (`conversation_problems(opening=)`).
 
+**Two opening lines (D-920).** An agent that both answers and places calls (`both`) has two
+openings: its greeting for calls it answers and `CallScript.outbound_opening_line`, compiled
+under `[OPENING ON CALLS YOU PLACE]` and read back by `call_script.outbound_opening_of`. Every
+dial through `dispatch_call` (lead calls, campaigns, call-backs, test calls) takes its first
+words from one decision, `agents.service.dial_first_words`: a `both` agent speaks the notices
+its switches turn on, then its own placed-call line, else the language's starter line
+(`spoken_style.placed_call_opening`); an `inbound` agent's test call keeps its "calling you"
+line; an `outbound` agent keeps its greeting. START OF THE CALL for a `both` agent quotes both
+("on a call you answer …; on a call you place …"), then `OPENING_CONTINUES_RULE`, so the model
+is told its actual first words either way. The placed first words are held to the dial's
+300-character opening (`PURPOSE_MAX_CHARS`) at save and at publish. Why two lines rather than
+the greeting with a different reason: on 28 Oct 2026 a `both` agent rang the founder with
+"thanks for calling, what do you need?" and greeted again after his "Hello".
+
 **Per-trade step plans (D-856).** `apps/api/agents/trade_playbooks.py` holds, per trade and job,
 five steps with a done-when branch, what to ask (one thing a turn), the trade's objections and a
 spoken example line per step in Telugu, Hindi and English. Starters are built from it and the AI
@@ -269,6 +283,8 @@ NOT re-author `[STYLE]`; the template shows it only so the order is legible.
   already said, so after a bare "hello" it goes on to why it is calling or its first
   question, never greeting again or asking again whether now suits (D-864). Every word in
   the language's own letters but the business's and the agent's names (D-861).
+[OPENING ON CALLS YOU PLACE] (D-920, `both` agents only) the opening of every call the
+  agent places, never its answering greeting; see "Two opening lines" below.
 [TASK FLOW] the conversation goal as a loose state outline (greet → understand need →
   answer/qualify → capture <extraction hints> → book/next-step → wrap). Hints, not a
   rigid script — rigid scripts sound robotic and break on interruptions.
@@ -288,12 +304,12 @@ says prompts over 2,000 tokens add latency and cost, and Deepgram calls its cap 
 not a target (`docs/evidence/prompting-practices-2026-10.md` S3, S5). Retell puts a typical
 inbound support call's system prompt at 1,500 to 4,000 tokens
 (retellai.com/blog/best-llm-for-voice-ai-agents, 23 Sep 2026). So what a call reads of ours on
-every turn, the platform layers plus `CALL_INSTRUCTIONS`, is held to its D-856 size: 6,751
-characters for a three-language agent and 5,774 for one (`PER_CALL_MAX`,
-`PER_CALL_ONE_LANGUAGE_MAX` in `tests/agent_prompt_budget_test.py`; 7,227 and 6,250 before).
-A starter must leave room for the owner's script and pinned facts, and the reference v2 prompt
-is held at 6,802 characters (`tests/agent_intelligence_test.py`; the whole-prompt target is
-8,000). Prompt length is a cost and focus lever more than a latency one: ThinnestAI measures the
+every turn, the platform layers plus `CALL_INSTRUCTIONS`, is held to a ceiling that moves
+only with a named rule: 7,314 characters for a three-language agent and 6,439 for one
+(`PER_CALL_MAX`, `PER_CALL_ONE_LANGUAGE_MAX` in `tests/agent_prompt_budget_test.py`, whose
+comment lists what each rule since D-856 added or paid back). A starter must leave room for the
+owner's script and pinned facts, and the reference v2 prompt is held at 7,708 characters
+(`tests/agent_intelligence_test.py`; the whole-prompt target is 8,000). Prompt length is a cost and focus lever more than a latency one: ThinnestAI measures the
 model's first byte at about 0.9 s at 6k tokens and 1.2 s at 1k (VENDOR-STATED, 21 Oct 2026). The layers, in
 order: opening rules (role and fence framing), HOW TO SPEAK, LANGUAGES (extra languages
 only), SPOKEN REGISTER, BUSINESS FACTS, the notices, caller memory (off on ThinnestAI), the
@@ -315,12 +331,18 @@ invitation to trim guardrails.
   that way as very human-sounding on Cartesia. The register line says it, and
   every fixed line we write (notices, fillers, openings, examples, per-trade lines) follows
   it. Instructions to the model stay in English.
-- **Punctuation that breathes, taught by example (D-861).** The SPOKEN REGISTER section
-  quotes three short exchanges of ours per language: a comma after an opener ("ఓకే అండి,"),
-  one idea per sentence, "?" on every question, often two choices, an occasional "!", and
-  the caller's answer said back before the next question. The practice checks note a run of
-  more than 14 words with no comma or sentence end (`no_breath`) and a question without "?"
-  (`unmarked_question`); neither fails a test.
+- **Punctuation every few words (D-861, D-921).** The voice pauses only at a mark, so HOW TO
+  SPEAK says so and asks for a comma every few words, "?" on every question and a full stop on
+  the rest (`engine.VOICE_STYLE_GUIDANCE`); the Telugu and Hindi writing rules in
+  `spoken_style.json` say the same. The SPOKEN REGISTER section quotes three short exchanges of
+  ours per language: a comma after an opener ("ఓకే అండి,"), one idea per sentence, "?" on every
+  question, an occasional "!", and the caller's answer said back before the next question. The
+  practice checks note a run of more than `turn_checks.BREATH_MAX_WORDS` (10) words with no
+  comma or sentence end (`no_breath`) and a question without "?" (`unmarked_question`). Both are
+  SOUND kinds: a quality note and an alarm to us, never a failed test, because the platform
+  prompt decides them and the owner's script cannot (D-828). Ten is a choice, not a measured
+  threshold: 14 let a 12-word Telugu run through on the founder's call of 28 Oct 2026, which he
+  heard as unpunctuated, and 10 still passes a plain nine-word English sentence.
 - **A greeting is not a language switch (D-849).** "Hello", "OK" or a word or two keeps the
   language the agent greeted in; it switches when the caller says a sentence in another
   language or asks. On 21 Oct 2026 a Telugu agent answered a pickup "Hello" in English until
@@ -374,8 +396,19 @@ invitation to trim guardrails.
   settled by a source read here (arXiv:2512.02841 does not compare them), so the eval
   decides. A pack ships by setting its `review` to `founder_approved` and `ship` to the
   winning form in `spoken_style.json`; nothing else changes.
-- Proper nouns: spell client/staff/locality names phonetically in [T0 FACTS]
-  (pronunciation hints), e.g., "Dr. Sowmya (సౌమ్య)".
+- **The agent's language is always `auto` (founder, 19 Oct 2026).** Every agent is published
+  with ThinnestAI `language: auto` (`engine/thinnest._AUTO_LANGUAGE`) and follows the caller;
+  the opening is composed in the main language, so a call starts in it. ThinnestAI advises
+  pinning Telugu as the listening language; that is not built, because it breaks this rule, and
+  is with the founder (D-924).
+- **Names: how they are said, and what the recogniser listens for (D-924).** A client gives a
+  name's spoken form in the script builder under "Names and how to say them"; it compiles as
+  the pronunciation line ("Say these names exactly like this"). The same names reach the
+  recogniser: `engine/thinnest._vocabulary` sends `voice.vocabulary` as the business's name,
+  the script's pronunciation names (`call_script.pronounced_names_of`), then the agent's name,
+  deduplicated, each at most 64 characters, at most 50 terms, most-said first. ThinnestAI uses
+  it as saaras:v4 key terms under Ear only (VENDOR-STATED, email of 28 Oct 2026,
+  `docs/vendor/thinnest-replies-2026-10-12.md` §39). A name can also go in a pinned fact.
 - Numbers, times, addresses: read slowly, confirm back ("మీ నంబర్ 98… కరెక్టేనా?").
   Extraction accuracy depends on this confirm-back habit — it's in every task flow.
 

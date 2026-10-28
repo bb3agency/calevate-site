@@ -289,7 +289,24 @@ Client realm (`/c/<slug>/…`)
   or one of eight), `GET`/`PATCH /v1/agents/{agent_id}/voice-tuning` on `org:manage`,
   audited, live apply; **Hear it** (`POST …/voice-tuning/preview`) speaks a fixed sample in
   the agent's main language, 20 per account per IST day, at our cost. The voice model and
-  pronunciation dictionary stay operator-only ·
+  pronunciation dictionary stay operator-only. The Overview leads with the readiness gauge
+  (`AgentReadinessPanel`, D-870 as amended by D-873 and D-916: neither the opening notices nor
+  being live count against it). **Call handling** is set in one place, the agent's Settings
+  (D-898): each row (the pause before the agent replies, hang-up, quiet caller, filler lines,
+  background sound) shows its value and where it comes from ("Just this agent", "All my
+  agents" or "Calevate default", `lib/api/callHandling.sourceLabel`), with the explanation
+  behind the row's info control; its editor asks "Use this for": "Just this agent" (`PATCH
+  /v1/agents/{id}/call-handling`) or "All my agents" (`POST
+  /v1/organization/call-handling/all-agents`, `org:manage`, the account default set and every
+  agent's own value dropped in one transaction). The old account page
+  `/settings/call-handling` is a permanent redirect to the agents list, which opens the only
+  agent's Settings when there is one. The pause row is shown and editable whatever the turn
+  detection, because ThinnestAI uses the pause under Ear too (D-924). The Script tab's "How the
+  call opens" shows "When it answers" and "When it calls" for an agent that does both (D-920),
+  and reviews Pip's script suggestions there, including one nobody asked for: a file added to
+  the knowledge after onboarding gives every agent a suggestion that reads "From your new
+  file: …. Your own lines stay." (D-923, `script/PipProposal.tsx`; the mechanism is
+  COPILOT-CONTRACT §10) ·
   **`/lead-sources`** (`GET /v1/lead-sources/activity`, `POST /v1/lead-sources/{id}/test` —
   the §2b webhook-activity view and its no-call "test webhook", shipped — plus the Meta
   Lead Ads setup card, `POST /v1/lead-sources/{webhook_id}/meta/setup`, which prints what
@@ -311,7 +328,16 @@ Client realm (`/c/<slug>/…`)
   certificate, owner ID or DigiLocker, pledge), the DLT registration where one is on file,
   and what we hold in disclosures; the client cannot self-verify. `/verification` is a
   server redirect here that keeps the query) ·
-  `/calls`, `/campaigns`, `/knowledge`,
+  `/calls`, `/campaigns`,
+  **`/knowledge`**, titled "What your agents know" in every client-facing mention (D-874): one
+  Add area (a fact, a file, a link) and each item's status in words an owner reads, never
+  more than is true today. Word, Excel, CSV, text and photos are read and used by every
+  agent; a PDF or a link is read into a copy the owner and Pip can open and search, and its row
+  says whether the agents use it (`reaches_agents`; `knowledge/uploadCopy.ts`: "Agents don't
+  use PDFs yet. It still shapes their scripts."), because sending that text waits on
+  ThinnestAI (D-868). A file is never refused for a symbol the rendering font lacks: arrows are
+  spelled out (`->`, `<-`, `<->`) and other uncovered symbols left out; only letters of a
+  script the font lacks are still refused (D-925, `kb/pdf_render._drawable`),
   **`/usage`** (usage panel + the §2b client cap editor) ·
   **`/ai-assist`** ("AI help" — what the console's dashboard AI has used this month
   against the allowance the plan includes, and the ONE place in either realm where a

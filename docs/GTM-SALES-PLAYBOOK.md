@@ -1,6 +1,6 @@
 # Calevate — India GTM & Sales Playbook
 
-**Status:** working sales playbook for the founder. First version 30 Aug 2026.
+**Status:** working sales playbook for the founder. First version 30 Aug 2026; pricing, trial and outbound rules as of 28 Oct 2026.
 **Not a pricing contract and not legal advice.** Every product claim here is backed by a
 shipped surface (cited `file:line`); every number is either a real config value in this
 repo or is marked as *the buyer's own input*. Where a figure is per-deal, it says so rather
@@ -53,26 +53,28 @@ map cleanly onto capabilities we already ship (§3).
 
 ## 2. The GTM lever most founders miss: lead with **inbound**
 
-Our own compliance docs hand us a fast "yes":
+Our own compliance rules hand us a fast "yes":
 
-- **Inbound reception can go live *without* DLT Telemarketer registration** — it needs only
-  the client's number + the engine + the legal pages
-  (`docs/legal/LEGAL-OPS-PLAYBOOK.md`). We can be live in **days**.
-- **Outbound campaigns need the full PE–TM DLT chain**, which is a client-side **1–2 week**
-  onboarding (they register as Principal Entity and bind our Telemarketer ID). The campaign
-  launch gate literally blocks a dispatch until that chain is Active
-  (`apps/api/campaigns/service.py:283`).
+- **Inbound reception is never gated** — it needs only a number answered by the agent. A
+  client's own number is rented in its business name once its KYC is verified and its
+  business details are approved (D-693). We can be live in **days**.
+- **Outbound needs two things from the client, both in the dashboard**: a verified KYC
+  record (a PAN card reviewed by us, or DigiLocker) and an accepted no-cold-calls pledge
+  (D-692). The dial gate refuses every outbound call until both are in place
+  (`compliance/service.check_dispatch`). Promotional campaigns additionally need a DLT
+  Telemarketer registration Calevate does not hold yet, so they are not offered
+  (`compliance/registration.refuse_promotional_without_registration`).
 
 So the motion is:
 
 1. **Phase 1 — Inbound.** "Let me answer your missed calls this week." Fast to yes, fast to
    value, no compliance homework for the client.
 2. **Phase 2 — Outbound.** Once the leads table has earned their trust, upsell instant
-   speed-to-lead callback and bulk campaigns — and *then* walk them through the one-time DLT
-   setup, which now feels worth it because they've already seen results.
+   speed-to-lead callback and bulk campaigns — and *then* walk them through KYC and the
+   pledge, which now feel worth it because they've already seen results.
 
-Selling outbound first means asking for a two-week compliance setup **before** they've seen
-a single lead. Don't.
+Selling outbound first means asking for verification **before** they've seen a single lead.
+Don't.
 
 ---
 
@@ -91,6 +93,10 @@ Nothing in a pitch should claim a capability that isn't in the tree. These are:
 | Your dashboard reads it back as a funnel (Calls → Connected → Qualified) | `apps/api/crm/performance.py:3` |
 | Recording + transcript + AI summary + timestamped moments attached | `apps/workers/pipeline.py`, `moments.py` |
 | The agent always answers truthfully if asked "are you an AI / is this recorded?" | server-enforced `TRUTHFUL_ANSWER_DIRECTIVE`, `docs/SECURITY-COMPLIANCE.md §2.0` |
+| You can try it yourself in minutes: describe the business, add a price list or menu, hear the agent call you | "Meet your agent", `apps/api/first_run/` (D-855, D-918); every new account gets a 7-day, 15-minute free trial, `billing/trials.py:625` (D-853) |
+| Add a document later and every agent's script is offered the change, one tap to keep | `agents/script_proposals.py:248` `request_knowledge_proposal` (D-923); no file is refused for its symbols (D-925) |
+| A caller the agent cannot help reaches your own team with their name and number | `team_alerts/service.py`, the in-call `tell_the_team` action in `actions/in_call.py` (D-904) |
+| Close your account and your data is erased with us and with our call provider | `compliance/engine_tenant_erasure.py`, `workers/engine_tenant_erasure.py` (D-922) |
 
 ### The framing that makes it land: **the qualification layer**
 
@@ -125,13 +131,16 @@ Open with the buyer's pain in their words. Tech comes only if they ask.
 
 ## 5. How to convert — lower the risk of "yes"
 
-1. **Free / low-cost pilot on their real calls.** We ship a `trial` tier and prepaid credits
-   (`apps/api/billing/credit_packs.py`, `billing/ai_quota.py:202`). Point their number at
-   Calevate for 1–2 weeks, inbound-only, and **let the leads table fill up in front of
+1. **Free trial, then a pilot on their real calls.** Every new account gets a 7-day free
+   trial with 15 test-call minutes (D-853), enough to build an agent in "Meet your agent" and
+   hear it call them. A longer pilot is an operator's trial, set per client, which replaces
+   the automatic one. Once they have a number of their own (rented in their business name
+   after KYC), run inbound for 1–2 weeks and **let the leads table fill up in front of
    them.** A filling dashboard out-sells any slide.
 2. **Show, don't claim.** Play a real recording. Open the ROI calculator and enter *their*
-   numbers — telecallers at **₹18–25k/mo each** (`docs/BRD.md:22`) vs our **₹5/min**
-   (`credit_packs.py:4`). Because they typed the inputs, they can't argue with the output.
+   numbers — telecallers at **₹18–25k/mo each** (`docs/BRD.md:22`) vs our **₹4.50/min**
+   Clear and **₹6.00/min** Studio (`billing/credit_packs.PACK_CATALOGUE`). Because they typed
+   the inputs, they can't argue with the output.
 3. **Land small, expand.** Inbound first; outbound + campaigns as phase 2 (§2).
 4. **Quality process is the trust wedge.** Our real competitors are DIY self-serve platforms
    and no-code resellers (`docs/BRD.md:22`). Our edge: *India-native, managed for you,
@@ -142,24 +151,22 @@ Open with the buyer's pain in their words. Tech comes only if they ask.
 
 ## 6. Pricing — the one-pager to say out loud
 
-**Structure** (plans are config rows `{setup_fee, monthly_fee, included_min, overage_rate,
-hard_cap_min, hard_cap_spend}` — `docs/TRD.md:1131`):
+**One model for every client** (D-707, `docs/BRD.md` §6): no setup fee, no retainer.
 
-- **Setup fee** — funds the build of *their* agent (KB, script, extraction schema, testing).
-- **Monthly retainer** — covers the fixed base and includes a minutes bucket.
-- **Overage** — **₹6–8/min band** beyond the bucket (`docs/TRD.md:1507`).
-- **List / self-serve rate — ₹5.00/min**, 1 credit = ₹1 (`credit_packs.py:4,12`).
-- **Prepaid credits, no monthly floor** (`docs/TRD.md:859`) + a **hard spend cap** so the
-  client can never be surprised by a bill.
-
-> The exact setup fee and retainer are **set per deal** — the docs deliberately keep them as
-> config, not a fixed sticker (`docs/TRD.md:1510`). Anchor them against what the client
-> already spends on telecallers, and recover your build cost in the setup fee + retainer, not
-> in a scary per-minute headline (`docs/TRD.md:1522`).
+- **Prepaid credit in packs**, ₹2,000 to ₹50,000, 1 credit = ₹1.
+- **Two per-minute rates, the same on every pack** (D-728): **Clear ₹4.50/min**, **Studio
+  ₹6.00/min**, charged in 30-second steps at the rate of the voice the agent uses. The card
+  renders from `billing/credit_packs.PACK_CATALOGUE`; quote it from the pricing page, never
+  from memory.
+- **Credit bought in a pack lasts 12 months**, and the date it lapses is shown before payment
+  (D-897/D-900). Say so up front; it is in the Terms.
+- **An optional monthly platform fee** may be set for everyone in the ops console; if one is
+  set, say it beside the per-minute rate (BRD §6.1's rule).
+- A **spend cap** so the client is never surprised by a bill.
 
 **How to frame it:** one always-on agent that never sleeps, against a ₹20k telecaller who
-works one shift and takes leave. The retainer *is* the "salary"; the difference is it answers
-at midnight.
+works one shift and takes leave. Let the client's own call volume, times the per-minute
+rate, be the comparison; the difference is it answers at midnight.
 
 ---
 
@@ -168,11 +175,11 @@ at midnight.
 | They say | You say |
 |---|---|
 | "Will it actually sound natural in Telugu?" | "Let's not argue about it — I'll run it on your real calls for two weeks. You listen to the recordings and decide." (We do **not** quote a Telugu-accuracy number — it's still being tuned, D-36. The pilot *is* the proof.) |
-| "Is recording people even legal?" | "The agent tells the caller it's an AI and that the call is recorded, at the start — those notices are built in and can't be silently switched off, and it always answers honestly if a caller asks. It's built for Indian DPDP/TRAI rules." (`docs/SECURITY-COMPLIANCE.md §2`) |
+| "Is recording people even legal?" | "The agent can say it's an AI and that the call is recorded at the start of every call — you choose each notice per agent, and switching one off is recorded — and whatever you choose, it always answers honestly if a caller asks. It's built for Indian DPDP/TRAI rules." (D-163; `docs/SECURITY-COMPLIANCE.md §2`) |
 | "It's too expensive." | Open the ROI calculator with their numbers. Never defend the price in the abstract — let their own arithmetic answer. |
 | "I'll just hire another telecaller." | "For a receptionist workload, sure — but your closer's alternative isn't a cheaper closer. Let the AI qualify the whole list; your people spend their hours only on the warm ones." (`POSITIONING-QUALIFICATION-LAYER.md §2`) |
-| "What if it says something wrong?" | "Every client gets a per-client regression test suite — the agent is tested against real transcripts before it ever picks up, and re-tested when it changes. Resellers can't show you that." |
-| "Can it call my old leads too?" | "Yes — that's phase 2. It needs a one-time telecom registration (DLT) first, which takes about a week. Let's get inbound live now and turn that on once you've seen the leads come in." |
+| "What if it says something wrong?" | "Every agent has practice tests — simulated callers it must handle before it goes live, with a readiness score and a suggested fix for each miss — and it is re-tested when it changes. Resellers can't show you that." (D-844, D-870) |
+| "Can it call my old leads too?" | "Yes. Calling your own customers needs your business verified (a PAN card or DigiLocker) and a no-cold-calls pledge accepted in the dashboard. Let's get inbound live now and turn calling on once you've seen the leads come in." (D-692; promotional campaigns need a DLT registration Calevate does not hold yet, so they are not offered.) |
 
 ---
 
@@ -207,7 +214,7 @@ product's real first test, not a demo.
 
 ## 10. What this playbook deliberately does NOT do
 
-- **No price moved.** ₹5/min list rate and TRD §10 are untouched — this is a sales document.
+- **No price moved.** The card is `billing/credit_packs.PACK_CATALOGUE` and TRD §10; this is a sales document.
 - **No US / foreign motion.** India-only remains frozen (`LEGAL-OPS-PLAYBOOK.md`); the US
   path is a different telecom + legal machine we have not built (see the US-exposure analysis
   in `docs/legal/comet-legal-research.md` Part G).

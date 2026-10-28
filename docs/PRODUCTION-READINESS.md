@@ -31,73 +31,51 @@ Sections A and B are that split, and they are the whole point of the document.
 
 ## A. External blockers — nobody can code around these
 
-### A1. The voice engine account (blocks the most)
+### A1. The voice engine: ThinnestAI (the H gates that still block)
 
-**One missing thing — a Bolna account with credit — blocks every Bolna-facing gate in
-OPERATIONS §2 except the two human ones** (11, are the humans responsive; 12, commercials in
-writing). The gates it does not block are the ones that are not Bolna's: 15 (ours), 19
-(the Cartesia exit gate), 20/20b/20c (attestations in the Azure portal) — plus 14 and 14b,
-retired by D-410. OPERATIONS §2 holds the full pass criteria and is the roster of record;
-this is the dependency view, and it lists the H gates plus the S gates whose answers move
-money or a compliance surface.
+ThinnestAI hosts every call (D-678); the Bolna gates this section used to list went with the
+Bolna adapter (D-639) and are not repeated. OPERATIONS §2's T-series is the roster of
+record; this is the dependency view of the gates that still decide whether a client's call
+may go live. A gate present there and absent here is still open there.
 
-**It is deliberately not a copy of the table** — a second roster that has to be kept in
-step is the drift D-103/D-105 exist for — so a gate present there and absent here is
-still blocked, not still open.
-
-| Gate | Question it settles | Consequence of it staying open |
+| Gate | What is open | Consequence of it staying open |
 |---|---|---|
-| 1 H | Webhook trust: source allowlist, dedupe, whether a signature header exists | TRD §5's "unsigned engine" premise is unconfirmed. The receiver's IP-allowlist + execution-id design is built for it. |
-| 2 H | API-only provisioning, and `delete_agent`'s repeat-delete status | `agents/service.py::_reclaim_orphan` assumes a repeat delete answers 404. If it is 400, a compensation DLQs. |
-| 3 H | Telugu STT/TTS quality on our keys; is Sarvam TTS **v3** selectable | The whole Telugu-first positioning is unmeasured. |
-| 4 H | Real-call latency p50/p95, and whether `latency_data` agrees with a stopwatch | `calls.latency` was dropped rather than filled with numbers that are not the caller's experience; this gate chooses the storage shape. |
-| 5 H | Telugu turn-taking, barge-in, endpointing | An orchestration property BYOK models do not fix. |
-| 6 H | Webhook loss + **listing pagination** | `bolna._LISTING_PAGE_SIZES` currently GUESSES the page size from round numbers. |
-| 7 **H** *(raised from S by D-261)* | Post-call fidelity: cost breakdown, currency, time-to-`completed` | Metering and the 2-minute lead SLO both rest on it. |
-| 8 S | KB retrieval in Telugu, tool-call p95, **and `kb_list_carries_agent_linkage`** | This is the honest limit of the D-158 KB drift sweep: if the listing carries no agent linkage, the sweep is blind in both directions and reports `unreadable`. |
-| 10 H | Is one account for many end-clients permitted | Our entire tenancy model sits on this. |
-| 11 H | Are the humans responsive | Named as "the gate ThinnestAI failed". |
-| 12 H | Commercials in writing — above all the BYOK platform fee | Observed at ~₹1.76/min in the dashboard vs a ≤₹1.50 target; worth ₹5,200/month at 20k platform-min. A dashboard figure is not a commercial term. |
-| 13 S | Concurrency ceiling across engine, Sarvam and the SIP trunk | Effective ceiling is the MIN of three, and none is confirmed. |
-| 29 H *(new, D-425)* | Which key carries the two phone numbers on an execution, and the INBOUND polarity | `ExecutionSnapshot.from_e164`/`to_e164` can be NULL for ever on a payload shaped the way all three of the vendor's captured examples are — which silently disables the DNC opt-out subject, the DPDP erasure lookup on `calls`, and transcript phone redaction. If the polarity is inverted on inbound, the opt-out worker adds OUR OWN published number to DNC. |
-| 31 H *(new, D-425)* | `GET /user/me`: the `wallet` balance and the real `concurrency.max` | `balance-low` is a documented TERMINAL execution status, so an emptied wallet fails every dial as an anonymous `failed` with no cause and no halt. `PLATFORM_LINES_TOTAL = 10` is our typed-in belief about a number the vendor says scales with usage. |
-| 30 S · 32 S · 33 S · 34 S *(new)* | Does `GET /v2/agent/all` paginate · the `status` strings the LISTING endpoint really sends · `Retry-After` on a 429 and the webhook redelivery count · what `agent_status: "seeding"` means | Each sharpens something already working rather than blocking it; all four are answered by the same session that runs the H gates above. |
+| T-5 H | The signed DPA and ThinnestAI's own sub-processor list. The training exclusion for our developer workspace and every customer workspace is in writing (VENDOR-STATED 23 Oct 2026, `docs/vendor/thinnest-replies-2026-10-12.md` §28); the DPA is "being worked on". | **Blocks every client call on this engine.** |
+| T-6 H | Telugu on a real phone line, heard and recorded against the first-live-call runbook. | The founder's production test calls in Telugu (24-28 Oct 2026) have shaped the prompt rules (D-877, D-887, D-894, D-910, D-912, D-921), but the gate's recorded pass is not filed. |
+| T-35 H | The first paying client's agents move into its own customer workspace (D-859). Built and tested against the fake engine only. | The client's agents keep running from our developer workspace (they work) and hold its agent slots. |
+| T-15 H · T-20 H · T-29 H | Per-agent own-key `byok` inside a client workspace; business details approved per workspace through the API; our own model answering a real call (`thinnest_own_model`, off). | Each is VENDOR-DOCS-STATED and untested live; each is proven by the first client that needs it. |
+| T-8 / T-36 (answered) | Our pay-as-you-go account holds 100 customer workspaces and 100 developer-workspace agents, 2 agents per customer workspace raised on request, 20 concurrent calls, the Studio band and up to 25 clones (VENDOR-STATED, §28). | Not blocking. `engine/thinnest_customers.py` still reads `payg` as 3 workspaces, so the ops headroom understates the raise; `thinnest_max_concurrent_calls` defaults to 5 and an operator sets the granted 20. |
 
-**Also needed and separately external:** an Indian carrier SIP trunk (gate 13).
+Numbers are ThinnestAI's own, rented in the client's business name in its own workspace once
+KYC is verified and its business details are approved (D-693); no carrier SIP trunk of ours
+is needed.
 
-### A2. The model account — and the dated item here is GONE
+### A2. The model accounts
 
-**~~Dated and unavoidable — the Gemini retirement~~ REMOVED 19 Aug 2026 (D-410).** Both LLM
-surfaces moved to Azure OpenAI South India, and **D-449 (22 Aug 2026) moved the region to
-`eastus2` and withdrew the India warranty**. The Gemini model, `GEMINI_DEFAULT_LLM_RETIRES`,
-the CI test that turned red on 16 Sep 2026 and gates 14/14b/14c are all deleted, and BRD
-R-04 is closed. **Nothing in this document is now running against a vendor deadline.** What
-replaces it is not dated but is not optional either — two of these three decide whether the
-region claim in the client DPA is true, and neither is visible from the endpoint. **Read
-them post-D-449**: they are re-aimed at East US 2, none of them retires, and what they now
-protect is an accurate disclosure rather than an India guarantee — the guarantee is gone.
+Our Gemini key carries the in-call model when `thinnest_own_model` is on (D-764, D-834) and is
+the dashboard assistant's first leg (D-899, 27 Oct 2026); Azure OpenAI in East US 2 is used
+only where it is configured, then the Sarvam standby. Nothing here runs against a vendor
+deadline: `ModelLifecycle.retirement_stance` and `scripts/check_model_lifecycle.py` hold any
+announced retirement (BRD R-04). What is open:
 
 | Item | Status | Detail |
 |---|---|---|
-| Gate 20 — is the Azure resource actually in East US 2 (D-449; South India until 22 Aug 2026) | **BLOCKED** on an Azure subscription | `<resource>.openai.azure.com` names no region. The guard proves only that the code cannot construct an endpoint outside the declared posture; the resource's region is read once from the portal by a human and filed in `docs/evidence/`. Since D-449 the pinned region is the ONLY residency-shaped statement left, so an unread Location field means the posture asserts nothing. |
-| Gate 20c — is the deployment **Regional Standard, not Global** | **BLOCKED**, same subscription, and it is the one people get wrong | **Global is Azure's DEFAULT deployment type and processes worldwide.** A Global deployment passes every automated check in this repository and makes the region named in the DPA unenforceable. Regional costs roughly 5–10% more; that is the price of the posture — and since D-449 the premium buys an accurate sub-processor disclosure rather than an India warranty, so "it is in the US anyway" is not a reason to accept Global, which routes anywhere in the world. |
-| Gate 20b — does `gpt-4o-mini` have quota in East US 2 on this subscription | **BLOCKED**, same subscription | Availability in a region and quota in your subscription are different facts, and only the second makes a call succeed. The AVAILABILITY half is resolved by D-449 rather than by a portal reading — Microsoft's Standard (regional) matrix carries both allow-listed models in `eastus2` and did not carry `gpt-4o-mini` in `southindia` — so what is left here is quota and retirement. Also pilot gate 13's fourth concurrency leg. |
-| Gate 16f — does Bolna's `azure-openai` provider actually run a call against OUR Azure resource | **BLOCKED** on a Bolna account — but the FIELD NAMES are no longer an assumption | **The names are published and the ones we shipped were wrong (D-417).** Four flat entries: `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_MODEL`, `AZURE_OPENAI_API_BASE`, `AZURE_OPENAI_API_VERSION`, under *"All these keys **must** be added for the respective provider"* (`bolna-findings/mirror/pages/providers.md:40,96-102`), and the store is flat `{provider_name, provider_value}` (`api-reference/providers/add.md:55-68`) — so **four** `POST /providers` calls, not one. `Settings.bolna_llm_credential_name` moved from `AZURE` (which would have 401'd on the first turn of the first call) to `AZURE_OPENAI_API_KEY`; the wire provider string moved from `azure` to `azure-openai`. Still settle with `GET /providers`, four `POST /providers`, `GET` again — a documented name and a live account's actual name are different claims — and answer the one that stayed open: whether `AZURE_OPENAI_API_VERSION` is required on the v1 surface, where `providers.md:40` and `providers/llm-model/azure-openai.md:32` contradict each other. |
+| Gemini paid tier (OPERATIONS §2 gate 41) | **BLOCKED** on the founder | Decides the Google data-use terms the own-model switch and the assistant rest on; the own-model switch is refused until the data-use attestation exists (`runbooks/thinnest-own-model.md`). |
+| Gate 20 — is the Azure resource actually in East US 2 (D-449) | **BLOCKED** on an Azure subscription | `<resource>.openai.azure.com` names no region; the resource's region is read once from the portal by a human and filed in `docs/evidence/`. Only matters once Azure is configured. |
+| Gate 20c — is the deployment **Regional Standard, not Global** | **BLOCKED**, same subscription | **Global is Azure's DEFAULT deployment type and processes worldwide**, and passes every automated check in this repository. |
+| Gate 20b — `gpt-4o-mini` quota in East US 2 on this subscription | **BLOCKED**, same subscription | Availability in a region and quota in a subscription are different facts. |
 
-**Wrong answers**: a Global deployment, a resource in any other region (D-449 moved the
-region ONCE, in a decision row and a `Final` constant — a second region is a second
-posture), an OpenAI platform key in place of Azure — **not because of residency, which
-D-449 spent as a ground, but because Azure is what the enterprise DPA, the modified abuse
-monitoring and `check_model_lifecycle.py`'s deployment-level retirement control are
-attached to** — and falling back to `provider: "custom"`, which is the unverified
-credential path this migration exists to leave.
+**Wrong answers** for Azure, if it is configured: a Global deployment, a resource in any
+other region (D-449 is the one region), and an OpenAI platform key in place of Azure — Azure
+is what the enterprise DPA, the modified abuse monitoring and `check_model_lifecycle.py`'s
+deployment-level retirement control are attached to.
 
 ### A3. Compliance and commercial registrations
 
 | Item | Status | What closes it |
 |---|---|---|
-| DLT / PE-TM registration | **BLOCKED** | Registration as Telemarketer with clients as Principal Entities. Nothing outbound is lawful without it. |
-| Razorpay API secret | **BLOCKED** | No deployment has one, so `PaymentCapability.creates_orders` answers False with reason `no_api_secret`. **The code is built (D-98); a client still cannot pay.** |
+| Counsel's view on outbound without DLT (gate K-3) | **BLOCKED** on counsel | The product decision is D-692 (founder, 8 Oct 2026): outbound needs a verified KYC record and an accepted no-cold-calls pledge, not DLT, and the dial gate enforces exactly that; a DLT Telemarketer registration is needed only for promotional campaigns, which are refused until it is live (`compliance/registration.refuse_promotional_without_registration`, D-838). Counsel has not confirmed D-692 (OPERATIONS §2 K-3). |
+| Razorpay live keys | **BLOCKED** on the founder | `payments.payment_capability` needs `payment_provider=razorpay`, the live key id, key secret and webhook secret in the ops console and the webhook registered (`runbooks/topup-payments.md`); the attended ₹100 live payment and refund is gate 44. **The code is built (D-98); until then a client cannot pay online** and credit reaches a client only through a super admin's grant (D-890). |
 | WhatsApp BSP decision + WABA | **BLOCKED** | `CLOUD_API_CONFIRMED_AGAINST_LIVE_WABA = False` in `apps/workers/whatsapp_cloud.py`. No WABA, no phone number id. |
 | Archive `retention_policies` category | **BLOCKED** | A DPA commitment plus a documented enum change (SECURITY-COMPLIANCE §4). |
 | Extraction quality scoring (task #87) | **BLOCKED** | Needs a real model against real transcripts. Until then D-36 records Telugu extraction quality as UNMEASURED — which is why the homepage captions its demo as an illustration and why `moments.py` ships exactly ONE model kind rather than a taxonomy. |
@@ -130,103 +108,82 @@ This is the category that most resembles progress and is not.
 | Item | Status | What it needs |
 |---|---|---|
 | `infra/terraform/` | **NEVER RUN** | `terraform init` and `terraform validate` have never executed — `registry.terraform.io` was blocked by egress, so **no resource attribute has ever been checked against a real provider schema**. `terraform fmt -check` passes, which proves HCL syntax and nothing more. Its ONLY resource is the S3 lifecycle configuration. |
-| The object-lifecycle policy | **NEVER RUN** | `runbooks/object-lifecycle.md`, starting with the SQL that produces `--max-tenant-ttl-days`. Must not be guessed. |
+| The object-lifecycle policy | **NEVER RUN** | `runbooks/object-lifecycle.md`, starting with the SQL that produces `--max-tenant-ttl-days`. Must not be guessed. On R2 an Object Read & Write token cannot read or set lifecycle rules, so it is applied in the Cloudflare dashboard or with a short-lived R2 Admin token, running `apply_lifecycle.py` inside the api image on the VPS (runbook §3). |
 | Object store selection | **DECIDED: Cloudflare R2** | Read off the VPS `.env` on 28 Oct 2026: `OBJECT_STORE_ENDPOINT` is an `<account>.r2.cloudflarestorage.com` host and the main bucket is `calevate-call-recordings`, in use. The lifecycle grammar to satisfy is R2's. |
-| The deploy itself | **RUN, repeatedly, 9–10 Sep 2026** | ⚠ This row read "NEVER RUN — no host has ever run them" until 10 Sep 2026, which was the most misleading entry in the section about entries that resemble progress. `scripts/vps-deploy.sh` has now deployed this repository to the VPS several times, most recently `efca3ec`. **WHAT IS PROVEN, precisely:** the script resolves a plan from the diff against the deployed sha (`changed since <sha>: api voice-runtime workers web nginx`), runs a plan-scoped preflight, and refuses rather than proceeding when an input is missing. **The NGINX STEP ran for the first time on `efca3ec`** — earlier deploys did not touch `infra/nginx/`, so it was never in their plan; D-568's `in_call_tools` rate zone is what put it there. **THE PREFLIGHT PROVED ITSELF BEFORE THE STEP DID**: it aborted naming the four variables `render_nginx` substitutes (`ROOT_DOMAIN`, `TLS_LIVE_DIR`, `ORIGIN_CERT_PATH`, `ORIGIN_KEY_PATH`) as unset in that shell, which is correct — they are deliberately not in `.env` and not `Settings` fields (§9 step 4), so nothing but an export can supply them. Exported, the deploy completed. **WHAT IS STILL NOT PROVEN** and must not be read into this row: no migration failure, rollback, or restore has been exercised on that host; the backup units and the object-lifecycle policy below are still NEVER RUN; and a deploy completing is not the pre-launch checklist passing. |
+| The deploy itself | **RUN, by hand, since 22 Sep 2026** | `scripts/vps-deploy.sh` deploys this repository to the VPS from `/var/www/calevate` as the `calevate` account: `sudo -u calevate scripts/vps-deploy.sh --expected-sha <full sha> api voice-runtime workers web`, with a `pg_dump` into `/var/backups/calevate` first whenever a migration ships (DEPLOYMENT §4d, `runbooks/first-deploy.md` "Deploying an update"). The latest commit on `production` is `8dcdccae` (28 Oct 2026). **What is proven:** the script resolves a plan from the diff against the deployed sha, runs a plan-scoped preflight, refuses a commit other than `--expected-sha`, and stops with the `sudo install` lines when `infra/nginx/` changed, because `calevate` has no sudo. **What is not:** no migration failure, rollback or restore has been exercised on that host; automatic deploys are off (`VPS_DEPLOY_ENABLED` unset); and a deploy completing is not the pre-launch checklist passing. |
+| Continuous database backups | **NEVER RUN** | On 10 Oct 2026 only `calevate-hygiene.timer` was installed on the VPS: the base-backup and offsite-dump timers are absent, wal-g has never run, and the wal-g bucket `calevate-backups` and the offsite bucket are not created (`runbooks/backup-setup-vps.md`). The hand `pg_dump` files before a migration are the only copies. The restore drill (`runbooks/backup-restore-drill.md`) has never passed, so the 15-minute RPO is a design intent. |
+| Coverage ratchet on recent pushes | **NOT RUN** | The 20–28 Oct 2026 pushes ran targeted tests and the CI gates; `make coverage-ratchet` was not run locally before them (hard rule 10). Until a run prints a `COVERAGE RATCHET:` line on a migrated, seeded database and an empty Redis, coverage on the guarded surfaces since then is unmeasured. |
 
 ---
 
 ## D. Unverified vendor premises baked into shipped code
 
 These are not defects. They are marked assumptions (D-31/D-32's doctrine: a vendor
-behaviour is a gate or a marked assumption, never a silent premise). Listing them together
-because a reader should know how much of the adapter rests on a claim.
+behaviour is a gate or a marked assumption, never a silent premise). The Bolna premises this
+section used to list went with the Bolna adapter (D-639). On ThinnestAI the adapter's wire
+shapes are read from the live `openapi.json` and the docs mirrored at
+`thinnest-findings/mirror/snapshots/2026-10-28/` (D-911), so the premises left are the ones
+the docs do not settle and a live account has not yet shown:
 
-**THIS LIST USED TO OPEN "Bolna publishes no OpenAPI spec, so every payload shape in the
-adapter is a hand-maintained claim." That premise was false and it is retired (D-350):**
-the vendor publishes an OpenAPI 3.1 document in its own GitHub organisation, the adapter's
-shapes are read from it, and `docs/vendor/bolna/hosted-oas.md` holds the pin and checksum.
-Entries this list carried that were answered by simply reading it are struck rather than
-restated — a marked assumption that has been settled is no longer one. The ones still
-standing are marked as such:
-
-- ~~**Listing page size**~~ — published: `page_size` defaults 20, maximum 50.
-  `_LISTING_PAGE_SIZES`, the round-number heuristic, is DELETED (D-353).
-- ~~**Pagination shape**~~ — published: `page_number`/`page_size`/`has_more`, on a PER-AGENT
-  route. The old global `GET /executions` the adapter called does not exist (D-353).
-- ~~**`list_kb` agent linkage**~~ — answered, and the answer was that the linkage is on the
-  AGENT: a Bolna knowledge base object carries no agent field at all, so the old filter
-  matched nothing and every agent listed empty forever. `list_kb` now reads the agent's own
-  `vector_ids`, which is where it always lived (D-488, which reversed D-354's declaration
-  that the capability was absent).
-- **`DELETE /knowledgebase/{rag_id}`** — STILL an open question, and no longer moot: the
-  delete page says nothing about clearing the agent's dangling `vector_ids` while the
-  *dispositions* delete page in the same API explicitly promises to remove the link. A
-  dangling vector id after an erasure is a DPDP finding. (OPERATIONS §2 gate 43, gate 8)
-- **Repeat `delete_agent`** — STILL an assumption: assumed 404, folded into idempotent
-  success. The spec documents 200 and 400 for that route and says nothing about an agent
-  that is already gone. (gate 2)
-- **The cost UNIT** — a NEW marked assumption this list did not have, and the vendor
-  contradicts itself: the OAS says `total_cost` is "in cents", `execution-payload.md` says
-  "account currency". Their own precedence rule picks cents, which is what the adapter
-  already does — but that is two documents reconciled, not a server observed. (gate 7)
-- **Cartesia `DELETE /agents/{id}`** — INFERRED; Cartesia publishes no agent-delete
-  reference at all.
+- **VENDOR-STATED in email, not observed on our account** (`docs/vendor/thinnest-replies-2026-10-12.md`
+  §28): the raised pay-as-you-go limits (100 customer workspaces, 20 concurrent calls, the
+  Studio band and 25 clones), Scale's discounts reaching customer workspaces, and the
+  training exclusion. Each is proven by the observation §28.3 names.
+- **VENDOR-DOCS-STATED, untested live**: per-agent own-key `byok` in a client workspace
+  (OPERATIONS T-15), business details approved through the API (T-20), and our own model on
+  a real call, including whether an `llm_voice` minute is costed at ₹1.00 in `costMicro`
+  (T-29).
+- **Our cost per minute** reaches money only through an operator's attestation: the band
+  rates (D-878), the wallet top-up fee, the number rent (D-840,
+  `billing/cost_attestations.py`). An unattested fee leaves the minute unpriced and alarms
+  `engine_minute_rate_unattested`; the hourly charges sweep compares each call's `costMicro`
+  with the attested rate (BRD A-6).
+- **Knowledge files**: a PDF or a link reaches ThinnestAI as its file or as nothing while
+  `kb_send_extracted_files` is off; how ThinnestAI reads an uploaded file is the open
+  question of D-868 (replies §31).
 
 ---
 
-## E. Suggested order before the VPS deploy
+## E. Suggested order before the first paying client's calls
 
-Sequenced by dependency, not by size. Each step is either unblocked today or names the
-one thing it waits on.
+Production is deployed (§C), so this is the order for what stands between it and a client
+whose callers are answered. Each step is either unblocked today or names what it waits on.
 
-**Step 1 — things that need nobody (do now).**
-`terraform init && terraform validate` if egress now
-permits it; if it does not, that becomes an external blocker and should be recorded as one.
+**Step 1 — backups, because production already holds client data.** Install the
+base-backup and offsite timers, create the `calevate-backups` and offsite buckets, run the
+first wal-g push by hand, then the restore drill (`runbooks/backup-setup-vps.md`,
+`runbooks/backup-restore-drill.md`). The first hand-run `backup-push` is a watched test:
+wal-g against R2 is the largest open premise in the backup chain (DEPLOYMENT §7).
 
-**Step 2 — the two accounts, in this order.**
-An **Azure subscription with an Azure OpenAI resource in East US 2** (D-449) is the cheapest
-unblock in the whole document: it is one resource, one deployment and one static key, and
-it closes gates 20, 20b and 20c — the three that decide whether the residency claim in the
-client DPA is true. **It no longer starts any clock**: D-410 deleted the dated Gemini
-obligation along with the model. A **Bolna account** unblocks twelve gates and is the gate
-to everything voice.
+**Step 2 — the voice engine's paper.** ThinnestAI's signed DPA and sub-processor list (T-5)
+block every client call; then the Telugu ear test is recorded (T-6).
 
-**Step 3 — run the pilot.** ⚠ WITHDRAWN BY D-639 (26 Sep 2026): the Bolna adapter and its
-pilot harness are deleted, so this step no longer exists; the first real call is now
-the ThinnestAI first live call (`runbooks/thinnest-first-live-call.md`). The text below is the
-plan as it stood. The harness ran gates 1, 2 and 6. Gates 3, 4, 5 need real PSTN calls in Telugu.
-Gate 12 is a negotiation, not a test, and should open on the ₹1.50 number with the
-₹5,200/month and ₹15,600/month figures in hand.
+**Step 3 — money in.** Razorpay live keys and the attended ₹100 payment and refund
+(gate 44, `runbooks/topup-payments.md`).
 
-**Step 4 — the legal path, in parallel and on someone else's clock.**
-DLT/PE-TM registration. Nothing outbound is lawful before it, and it is the item most
-likely to be the true critical path — so it should start before anything technical needs
-it.
+**Step 4 — the object-lifecycle rules** on the R2 bucket, from the runbook's SQL and an Admin
+token (§C).
 
-**Step 5 — infrastructure, once the store is pinned.**
-Object store decision → lifecycle runbook → terraform validate → apply → first deploy.
+**Step 5 — the legal path, in parallel and on someone else's clock.** Counsel on D-692 (K-3);
+a DLT Telemarketer registration only if promotional campaigns are wanted.
 
-**Step 6 — what only a live client produces.**
-Gate 4's latency capture chooses the per-call latency storage shape. Task #87's extraction
-scoring needs real transcripts. Both are correctly sequenced last, and neither should be
-guessed at earlier.
+**Step 6 — what only a live client produces.** The first paying client's workspace move
+(T-35), real reply times against the 1.6 s / 2.2 s targets (D-896), and Telugu extraction
+quality on real transcripts (task #87).
 
 ---
 
 ## What is NOT on this list, and why
 
-The product surfaces are built. Onboarding, agents, campaigns with the compliance gate,
-CRM and extraction, knowledge base with approval and drift reconciliation, recordings with
-key moments, billing and invoicing, DPDP erasure with certificates, the ops console, the
-admin console and the marketing site are shipped and tested — 4,533 backend tests and 981
-web tests, thirteen executable guardrails, and a coverage ratchet at its floor on seven
-hard-rule surfaces.
+The product surfaces are built and running in production: onboarding ("Meet your agent",
+D-855/D-863/D-918), agents with practice tests and the readiness score, campaigns with the
+compliance gate, CRM and extraction, the knowledge base (including script suggestions from a
+file added later, D-923), recordings, prepaid credit lots with expiry stated at purchase
+(D-897/D-900), DPDP erasure that now reaches the voice platform by code (D-922), the ops and
+admin consoles, Pip in every client area (D-893) and the marketing site.
 
-The gap between that and a live client is almost entirely **accounts, registrations and
-one never-executed deploy** — not code. That is a good position to be in, and it is worth
-stating plainly so the remaining work is not mistaken for a larger engineering effort than
-it is.
+The gap between that and a paying client's live calls is almost entirely **vendor paper,
+payments, backups and registrations** — not code.
 
 ---
 ---

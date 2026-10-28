@@ -7,11 +7,13 @@ Version 1.0. From zero to a running local stack. Target machine: Linux/macOS/WSL
 Docker + Compose v2 · Python 3.12 + `uv` · Node 20 + `pnpm` · `terraform` (infra work
 only) · accounts/keys (none is needed for `ENGINE=fake`, the default): ThinnestAI for
 `ENGINE=thinnest` (D-678), Cartesia for the Studio rung (our key, sent to ThinnestAI as
-voice-only BYOK), Sarvam for the first post-call extraction pass, plus an **Azure
+voice-only BYOK), Sarvam for the first post-call extraction pass, a Google key for Gemini
+(`GEMINI_API_KEY`: the dashboard assistant's first leg, D-899, and the in-call model when
+`thinnest_own_model` is on, D-764), and, only if the Azure leg is wanted, an **Azure
 subscription with an Azure OpenAI resource created in East US 2 and a `gpt-4o-mini`
 deployment** (`AZURE_OPENAI_RESOURCE` + `AZURE_OPENAI_API_KEY` + `AZURE_OPENAI_DEPLOYMENT`
-— D-410, region per D-449), Cloudflare R2 or DO
-Spaces (local dev uses MinIO instead). Authentication is first-party and needs no vendor
+— D-410, region per D-449; the assistant uses Azure only where it is configured), and
+Cloudflare R2 (production's store; local dev uses MinIO instead). Authentication is first-party and needs no vendor
 account (D-165/D-170/D-177 — Clerk is deleted).
 
 > ⚠ **READ BEFORE YOU CREATE THE AZURE RESOURCE — TWO DROPDOWNS DECIDE THE RESIDENCY
@@ -53,8 +55,9 @@ account (D-165/D-170/D-177 — Clerk is deleted).
 > surface takes the key in `Authorization: Bearer`. Put it in the secrets manager, never in
 > a committed file, and never log it.
 >
-> Nothing is blocked meanwhile: with no Azure credential, `assist_capability()` answers
-> `no_credential` and the disclosed Sarvam fallback carries the dashboard assistant (OPERATIONS §2).
+> Nothing is blocked meanwhile: the dashboard assistant runs on Gemini first, and with no
+> Azure credential the Azure leg is skipped and the disclosed Sarvam standby follows
+> (D-899, OPERATIONS §2).
 
 ## 2. Bootstrap
 
@@ -237,22 +240,30 @@ the root `.env.example`, where it would fail the API's parity check instead.
 - Local reset: `make db-reset` (drop, migrate, seed).
 - `make guardrails` runs the RLS-coverage check against the migrated CI database — run it
   before opening a PR that adds a table, not after CI tells you.
-- There is no local vector table to inspect: `kb_chunks` + pgvector are the D-28
-  CONTINGENCY and are deliberately NOT created (see the migration's own note in
-  `alembic/versions/842ba923796d_…`). The shipped KB tables are `kb_sources`,
-  `kb_documents` and `kb_retrieval_logs`.
+- `kb_chunks` is a pgvector table in the same Postgres (D-502 reversed D-28's managed
+  store), so the local database needs the `pgvector` extension the compose image ships;
+  it serves the dashboard copilot and the CRM paths, while in-call retrieval is the
+  engine's own knowledge base. The other KB tables are `kb_sources`, `kb_documents` and
+  `kb_retrieval_logs`.
+- Test runs need a database migrated base→head **and seeded**, and an empty Redis:
+  `make db-reset` then `make redis-reset` (which flushes AND rewrites the snapshot;
+  `redis-cli flushdb` alone does not), before `make coverage-ratchet` (root CLAUDE.md hard
+  rule 10).
 
 ## 6. Repo Makefile targets
 
 `make up` / `make down` (compose infra) · `make dev` (all four services from ONE shell —
 plain `&` backgrounding, no honcho/process manager, so a crashed service dies quietly;
-use four terminals when you need to watch one) · `make check` (= lint + types + test +
-**guardrails** + eval-ci + **web-check** — the CI gate) · `make guardrails` (executable
-governance, §2, seven checks: `lint-imports`, env-parity, RLS coverage, ledger
-immutability, redaction exposure, OpenAPI freshness, wiring) · `make web-check`
-(frontend: typecheck + lint + vitest; `next build` is CI-only) ·
-`make lint` · `make types` (`mypy apps packages`, not `.`) ·
-`make test` · `make smoke` · `make db-reset` · `make eval CLIENT=<slug>` (regression
+use four terminals when you need to watch one) · `make dev-otp` (the same four services
+through `scripts/dev.py`, which brings the stack up, migrates, seeds and prints only the
+sign-in codes and failures) · `make check` (= lint-check + types + **coverage-ratchet** +
+**guardrails** + eval-ci + **web-check** — the CI gate) · `make coverage-ratchet` (the only
+invocation of the ratchet; read `make`'s own exit status) · `make guardrails` (executable
+governance, §2; the target's recipe is the list of checks, so read the Makefile rather than
+a count) · `make web-check` (frontend: typecheck + lint + vitest + browser axe; `next build`
+is CI-only) · `make lint` · `make types` (`mypy apps packages`, not `.`) ·
+`make test` · `make smoke` · `make db-reset` · `make redis-reset` · `make seed-dev` (local
+demo tenant and sign-in details) · `make eval CLIENT=<slug>` (regression
 harness core5) · `make gen-api` (OpenAPI → typed TS client) · `make conformance` (both
 engine adapters).
 

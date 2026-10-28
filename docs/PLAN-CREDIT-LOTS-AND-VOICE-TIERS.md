@@ -3,8 +3,10 @@
 > **On `ENGINE=thinnest` (production since 7 Oct 2026) the two rungs keep their names and
 > prices but not their vendors (D-687):** Clear is ThinnestAI's studio band and our admin's
 > clones, Studio is our Cartesia key through ThinnestAI's voice-only BYOK. The credit-lot
-> mechanics below are unchanged; the voice vendors and costs described here are
-> `ENGINE=pipecat`'s. See `docs/THINNEST-INTEGRATION.md` §4a and §5.
+> mechanics below are unchanged; the voice vendors, costs and floors described here are
+> `ENGINE=pipecat`'s (removed by D-763). Today's card is Clear ₹4.50 and Studio ₹6.00 on every
+> pack (D-728), and what changed in the lot model since 20 Oct 2026 is §12.4. See
+> `docs/THINNEST-INTEGRATION.md` §4a and §5.
 
 **Status: LANDED, WITH THREE THINGS OPEN AND NAMED (read §12 before believing anything is
 finished).** Every phase A–F and every frontend lane F1–F4 is COMMITTED on branch
@@ -26,7 +28,7 @@ The founder's decisions that fix the shape (7 Sep 2026): credits are sold in pac
 bigger pack means a **cheaper minute**, delivered as a **falling rate, not bonus credits**;
 the rate falls **faster for the Cartesia voice** than for Sarvam; the voice tier is chosen
 **per agent**; credits **never expire** *(superseded for credit bought from 27 Oct 2026: it
-lasts 12 months, D-840/D-897, Terms 6.1 revision 19)*; each purchase's terms are **frozen on that
+lasts 12 months once the account has accepted Terms 6.1 revision 19, D-840/D-897/D-900)*; each purchase's terms are **frozen on that
 purchase** and spent **oldest-first**; a **₹2,000 pack** exists with Cartesia at ₹8.00.
 
 ---
@@ -84,7 +86,7 @@ The maps found more already built than the conversation assumed. Read this befor
 ## 2. Domain model
 
 ### 2.1 Definitions
-- **Credit**: ₹1 of prepaid value. Bought from 27 Oct 2026, lapses 12 months after it is credited (D-897); bought before, never expires.
+- **Credit**: ₹1 of prepaid value. A pack bought from 27 Oct 2026 by an account that has accepted Terms revision 19 lapses 12 months after it is credited (D-897, D-900: `billing/credit_expiry.credit_expiry_months_for`, acceptance read when the money lands); credit bought before, credited before acceptance, or granted never expires.
 - **Pack**: a catalogue row — `pack_id`, `amount_inr`, `clear_inr_per_min`, `studio_inr_per_min`. Static, bounded (`check_list_bounds` already pins the two pack endpoints as bounded by `PACK_CATALOGUE` being static, `scripts/check_list_bounds.py:286-292`).
 - **Lot**: the credits one purchase (or grant, or migration) created, with the two rates frozen at creation. `credits_total`, `credits_remaining`, `clear_inr_per_min`, `studio_inr_per_min`, `source` (`topup` | `grant` | `bonus_legacy` | `migration` | `override`), `pack_id` (nullable), `override_of_pack_id` (nullable, Q6), `opened_at`.
 - **Voice tier**: `clear` | `studio`, a property of the AGENT (`agents.voice_tier`, derived from the chosen voice's provider — never stored separately from the voice, §4.3).
@@ -659,6 +661,16 @@ closing the socket stops the billing. Until an operator attests a figure, `voice
 refuses every Gnani voice and `reference_tts_price("gnani")` stays `None` for the paired
 reason D-632 records. Gnani's PUBLISHED ₹27.00 / 10,000 characters does not close it and
 was never meant to — a catalogue price is not an invoice (hard rule 7).
+
+### 12.4 Changed since 20 Oct 2026 (ENGINE=thinnest)
+
+| Change | Decision | Where |
+|---|---|---|
+| A pack lot carries `credit_lots.expires_at`, frozen at purchase; a daily job (08:11 IST) lapses it with one `adjustment` row and closes the lot, after one email 30 days before. Only `source = topup` lots get a term, and only when the account has accepted Terms revision 19 when the money lands. | D-840, D-897, D-900 | `billing/credit_expiry.py` (`TERMS_REVISION_STATING_EXPIRY = "19"`), `workers/credit_expiry.expire_credit_lots` |
+| The Studio floor on ThinnestAI is struck from live inputs (fleet speaking rate, today's USD/INR, attested fees) instead of frozen constants; the wallet top-up fee, the gateway fee and the number rent are operator attestations, and an unattested fee leaves the minute unpriced. The card stays ₹4.50 / ₹6.00. | D-840 | `billing/floor_inputs.py`, `billing/cost_attestations.py`, `rates.cost_floor_inr_per_min` |
+| An inbound call on an empty wallet is debited into overdraft, replacing the 8 Sep no-further-debt rule in §12.2's inbound row. | D-840 | `workers/pipeline.py` |
+| Credit added with no payment (a grant) is a super-admin-only action, typed twice above ₹50,000, and told to the client and every super admin; a grant never lapses. | D-890 | `billing:comp` in `core/rbac.SUPERADMIN_ONLY_PERMISSIONS`, `billing/service.MAX_GRANT_INR` |
+| ThinnestAI's band rates fell to Studio ₹2.50 and Premium ₹2.00 a minute (VENDOR-PUBLISHED in its console, founder-relayed 24 Oct 2026); they reach money only as attestations. | D-878 | ops console, Per-minute rates |
 
 ---
 

@@ -4471,6 +4471,101 @@ shortfall and can part `SUM(credits_remaining)` from the wallet balance, and a S
 an empty wallet falling back to the Sarvam list rate. **What is blocked outside this
 repository**: the Telugu voice ids, and OPERATIONS gates 51–54.
 
+## §78 — 20–28 Oct 2026: production on ThinnestAI, the first run, money terms switched on, and erasure at the vendor (D-840..D-925)
+
+Branch `claude/calevate-legal-ops-docs-rd2c4t`, pushed with `main` and `production` (kept
+equal); 744 commits after `3db529dc` up to `8dcdccae`, adding 41 migrations. The VPS is
+updated by hand from `production` (DEPLOYMENT §4d). The decision rows are ROADMAP §6 D-840 to
+D-925 (numbers 851, 892, 895 and 919 have no row); this entry names what each area built
+and where. The sections above stop at 7 Sep 2026; the work of 8 Sep–19 Oct is recorded only
+in the decision log.
+
+**Tests**: lanes ran targeted tests before merging (their session records, not re-run here).
+**Not run**: the full coverage ratchet on these pushes (PRODUCTION-READINESS §C).
+
+### Money and billing
+- Fees the meter uses are operator attestations, append-only (`platform_cost_attestations`,
+  `billing/cost_attestations.py`); the ThinnestAI Studio floor is struck from live inputs
+  (`billing/floor_inputs.py`); a console-rented number's rent is metered; inbound on an empty
+  wallet goes into overdraft (D-840).
+- Pack credit lasts 12 months, stated at purchase, with a lapse email 30 days ahead, only once
+  the account accepts Terms revision 19 (`billing/credit_expiry.py`,
+  `workers/credit_expiry.py`; D-840, D-897, D-900).
+- Credit with no payment and turning an account paid are super-admin-only (`billing:comp`,
+  D-890); deciding a KYC review and recording a number's handle take step-up (D-891).
+- ThinnestAI's band rates fell to Studio ₹2.50 and Premium ₹2.00 a minute, VENDOR-PUBLISHED in
+  its console, founder-relayed 24 Oct 2026 (D-878).
+
+### Trial, first run and going paid
+- Every new account starts a 7-day, 15-minute trial with no agent (`billing/trials.
+  start_new_account_trial`, D-853); a test call may come from any ready agent.
+- "Meet your agent" replaces the setup wizard: jobs (multi-select, one agent), a brief, up to
+  three files (`first_run/models.MAX_DOCUMENTS` = 3), AI-written follow-up questions, a build
+  showing its real steps, the opening line edited in place (`apps/api/first_run/`; D-854,
+  D-855, D-858, D-863, D-918).
+- A paying client's agents move from the developer workspace into its own (`go_live/moves`,
+  `agent_workspace_moves`; D-859, OPERATIONS T-35); a stopped client's number is held and not
+  renewed (`campaigns/number_holds.py`, D-860).
+
+### Calls and the agent's prompt
+- Founder test calls in Telugu (Sri Estates, Anjali, Rytu Khata) drove the prompt and turn
+  rules: greeting then notices, letters of the call's language, amounts and ranges read
+  back, one question at a time, punctuation every few words, who-and-why before the first
+  question, two opening lines for an agent that answers and calls (D-845, D-849, D-856,
+  D-861, D-864, D-865, D-877, D-883, D-887, D-888, D-894, D-910, D-912, D-920, D-921).
+- Call settings moved to the console and the agent's Settings: interrupt words (D-862),
+  opening wait (D-871, D-901), reply-time targets 1.6 s / 2.2 s measured to the first word of
+  the answer (D-896, D-902), the re-ask delay and a "Patient caller" preset (D-907), guided
+  steps (D-908), call handling in one place (D-898); hot facts in the instructions (D-896).
+- The adapter follows ThinnestAI's answers of 21–28 Oct and the 28 Oct live docs (`ownRules`,
+  Test Chat call mode, `voice.callInstructions`, early answers, speaking speed, vocabulary,
+  every exposed default stated and read back; D-842, D-847, D-850, D-852, D-884, D-903,
+  D-911, D-924). An answered call settles from its whole record (D-848); a ready agent's
+  edits reach the engine (D-876).
+
+### After the call, leads and campaigns
+- Failed readings are re-read, hot outcomes alert the owner, the client's CRM hears every move
+  (D-841); stalled-pipeline paging stops for spent re-reads (D-857); the language pass runs
+  with reasoning off (D-879); money ranges read as ranges (D-881); choice lists follow each
+  business (D-889).
+- Campaigns: a contact's list values reach the call, call-backs keep their campaign (D-905),
+  results count people not calls (D-913), pausing holds call-backs and stopping cancels them
+  (D-914). "Tell my team" hands a caller the agent cannot help to the business's own team
+  (D-904).
+
+### Client screens, Pip and the console
+- The practice tests screen, the readiness score and the Training tab (D-844, D-870, D-873,
+  D-909, D-916, D-917); the knowledge page "What your agents know" (D-874); Verify your
+  business as one page (D-875); live calls in the call log and on the test-call card (D-885,
+  D-886); analytics, announcements and the bell (D-869); the client screens rewritten as
+  short lines and buttons.
+- Pip works in every client area with one confirmation for actions over a set or that reach
+  callers or spend credit (D-893); Gemini is the assistant's first model, Azure only where
+  configured (D-899). The operator console shows each agent's prompt layer by layer (D-882).
+- No client or vertical is baked into product code (D-915).
+
+### Knowledge and erasure
+- A knowledge file added after onboarding queues a script suggestion for every agent,
+  keeping what the owner wrote (`agents/script_proposals.request_knowledge_proposal`, D-923).
+- A file is never refused for its symbols: arrows are spelled out, uncovered symbols are left
+  out, letters of an unsupported script are still refused (`kb/pdf_render._drawable`, D-925).
+- PDFs and links reach ThinnestAI as text only behind `kb_send_extracted_files`, off while
+  ThinnestAI's answer on knowledge files is awaited (D-868).
+- Erasing a client account deletes its agents, the contacts only its calls reached and its
+  own workspace at ThinnestAI by code, waiting while a call in the 90-day floor has no
+  recording copy of ours (`compliance/engine_tenant_erasure.py`,
+  `workers/engine_tenant_erasure.py`, D-922).
+
+### Vendor and infrastructure
+- ThinnestAI §28 (23 Oct 2026, VENDOR-STATED): our pay-as-you-go account holds 100 customer
+  workspaces and 100 developer-workspace agents (2 per customer workspace), 20 concurrent
+  calls, the Studio band and 25 clones; training exclusion in writing; the DPA still owed
+  (T-5). `engine/thinnest_customers.py` still reads `payg` as 3 workspaces.
+- Production object storage is Cloudflare R2, main bucket `calevate-call-recordings` (read off
+  the VPS 28 Oct 2026); lifecycle rules need an R2 Admin token or the dashboard
+  (`runbooks/object-lifecycle.md`, `8dcdccae`); they have never been applied, and the wal-g
+  bucket is not created.
+
 ## State of the system — what a future session inherits
 
 Written after the sweep above and deliberately separated into four states, because "built"

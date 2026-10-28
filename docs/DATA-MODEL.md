@@ -85,6 +85,18 @@ organizations(id, name, slug UNIQUE CHECK (slug ~ '^[a-z0-9-]{3,40}$') IMMUTABLE
   -- Calevate's line (`billing.service.LOW_BALANCE_INR`), 0 stops the low warning; the
   -- empty-wallet warning ignores it. Read only through `billing.service.low_balance_line`
   -- (the ledger's crossing, `Balance.is_low`, the wallet reads, the attention queue).
+  -- default_opening_wait_ms INT NULL (a9c4e1d7b352, D-901) and default_reask_after_ms INT
+  -- NULL (b7e2d5a9c813, D-907): the account's defaults for the two agent call settings of
+  -- the same names (§3), same CHECKs; NULL follows the console / Calevate's 5 s.
+  -- caller_memory_attestation_version SMALLINT NULL (f5cd440f4e1c, D-899/D-900): which
+  -- caller-memory statement the owner accepted (`agents/publishing.CALLER_MEMORY_ATTESTATIONS`);
+  -- acceptances before the revision were backfilled to 1, new ones record 2. NULL = never
+  -- accepted. An account still on 1 is asked to accept 2 and its caller memory pauses until
+  -- it does (D-900).
+  -- erasure_sweep_attempted_at, erasure_sweep_failures INT NOT NULL DEFAULT 0
+  -- (c7e4a9d2f513): each hourly attempt to file this account's erasure is stamped, so
+  -- `tenancy/closure.due_erasures` tries untried accounts first; three failures in a row
+  -- raise `closure_erasure_stuck`.
 reserved_slugs(slug PK)              -- admin, api, login, settings, app, www, ...
 users(id, clerk_user_id UNIQUE, email, name, phone, deactivated_at, email_verified_at)
   -- clerk_user_id: NOTHING WRITES OR READS IT since D-177. Kept one release under hard
@@ -227,7 +239,10 @@ agents(id, tenant_id, name, direction ENUM[inbound,outbound,both],
     -- `engine_agent_routes.engine_rate_key`.
   studio_voice_speed NUMERIC(3,2), studio_voice_volume NUMERIC(3,2),  -- f3b8d1c6a7e2, D-767.
   studio_voice_emotion TEXT, studio_voice_model TEXT, studio_voice_dictionary_id TEXT,
-    -- How a Studio voice (our own Cartesia key) sounds on this agent; set by operators only.
+    -- How a Studio voice (our own Cartesia key) sounds on this agent. The client sets speed,
+    -- volume and emotion on its own agents (D-843, `voice_tuning_routes.router`); the model
+    -- and dictionary stay with operators (`admin_router`). Speed also reaches a Clear voice
+    -- as ThinnestAI's `voice.speakingSpeed` (D-884, `agents/voice_tuning.py`).
     -- NULL is the provider's default. CHECKs: speed 0.6-1.5, volume 0.5-2.0, emotion one of
     -- eight, model one of five Sonic ids, dictionary id `^[A-Za-z0-9][A-Za-z0-9_-]{2,79}$`,
     -- and `sonic-2` with speed, volume and emotion NULL (ThinnestAI `byok-voice`). Sent only
@@ -274,6 +289,12 @@ agents(id, tenant_id, name, direction ENUM[inbound,outbound,both],
   disclosure_line TEXT NOT NULL,  -- LEGACY: the two sentences joined, whatever the
     -- toggles say. Still written, no longer read by the publish path — step 1 of a
     -- two-step deprecation (hard rule 8); step 2 drops it (D-163).
+  -- DEFAULT WORDING, NOT A SCHEMA CHANGE: `compliance/disclosure` holds the default
+  -- sentences for new agents. Migrations c3e8a1f5d702 (D-861: every word of a Telugu or
+  -- Hindi line in the language's own letters; the memory sentence reworded) and
+  -- f2b7c4e9d815 (D-865: the Telugu and Hindi AI sentence introduces the agent by name)
+  -- rewrote a stored line ONLY where it was exactly the previous default, left every edited
+  -- line alone, and queued one platform live-apply run so live agents were republished.
   status ENUM[draft,live,paused,archived], engine ENUM[fake,thinnest]
     -- `EngineName` is `thinnest` and `fake` since D-763 (`calevate_shared.config.
     -- SELECTABLE_ENGINES`, derived and never retyped; `agents/models.ENGINES`). The database
@@ -300,7 +321,62 @@ agents(id, tenant_id, name, direction ENUM[inbound,outbound,both],
     -- the in-call knowledge pack our own engine loaded, and when it was recorded. On
     -- ThinnestAI the client's knowledge reaches every agent as vendor knowledge documents
     -- (D-689, `engine_kb_routes`), so nothing derives a pack.
+  script_proposal JSONB,   -- D-820. The ONE script suggestion waiting on the Script page
+    -- (`agents/script_proposals.py`; a row column, not a table: it is replaced by the next
+    -- request and cleared by the review). `mode` is `change` | `whole` | `steps` (asked of
+    -- Pip) or `knowledge` (D-923: written by us when a file added to the knowledge goes
+    -- live, never nameable by a request); `status` drafting | ready | failed; `base_script`
+    -- fixed at request time; `documents`/`document_names` on a `knowledge` proposal. Every
+    -- write after the request is a CAS on its `id`. Never reaches a call by itself.
+  -- CALL SETTINGS ADDED 24-27 OCT 2026. Each is sent to ThinnestAI on every publish and
+  -- read back as drift (D-911); a NULL inherits the account's default, then the console's.
+  opening_waits_for_caller BOOL NOT NULL DEFAULT false,  -- f4b8c1d6a273, D-871. Sent as
+    -- `voice.openingWaitsForCaller`; backfilled true on agents that only place calls.
+  opening_wait_ms INT NULL,   -- a9c4e1d7b352, D-901. `voice.openingWaitSeconds`; CHECK
+    -- 500..10000 on whole tenths. NULL -> organizations.default_opening_wait_ms -> console
+    -- `thinnest_opening_wait_ms`.
+  turn_detection TEXT NULL,   -- a9c4e1d7b352, D-901. An operator's timer | ear | smart for
+    -- one agent over the console's `thinnest_turn_detection`; never offered to clients.
+  caller_has_screen BOOL NOT NULL DEFAULT false,  -- e7c2a9b4d158, D-906. The owner's switch:
+    -- the prompt lets the agent name on-screen labels, give one step a turn, spell a web
+    -- address.
+  reask_after_ms INT NULL,    -- b7e2d5a9c813, D-907. `voice.reaskAfterSeconds`; CHECK 0
+    -- (never) or 1500..10000 on whole tenths. NULL -> organizations.default_reask_after_ms
+    -- -> 5 s.
+  voice_settings JSONB NULL,  -- b3f9d2a7c41e, D-896. The call-handling settings the agent was
+    -- last published with (closed-set values and numbers, no caller text), copied onto each
+    -- new `calls.voice_settings`.
+  -- `language_primary`/`languages_extra` CHECKs admit the staged languages (ta, kn, ml, mr;
+  -- migration d6f1a8c3e925, D-855); which ones a client may pick is decided at run time by
+  -- `agents/languages.client_language_tags` and the console's
+  -- `staged_agent_languages_enabled`, not by the constraint.
   max_call_duration_s)                       -- the per-agent cost-runaway ceiling
+agent_hot_facts(id, tenant_id, agent_id FK agents UNIQUE, items JSONB array, digest,
+  budget_chars, used_chars >= 0, candidates, calls_read, computed_at, created_at, updated_at)
+  -- b3f9d2a7c41e, D-896. The facts one agent knows by heart, chosen from the client's live
+  -- knowledge by what its callers ask (`agents/hot_facts.py`). FORCEd tenant_isolation;
+  -- zero-rows proof `tests/hot_facts_test.py`.
+script_line_changes(id, tenant_id, agent_id FK agents CASCADE, target IN (draft, script),
+  stage_index >= 0, before_text, after_text, created_at, UNIQUE(agent_id, target, stage_index))
+  -- d7c2e9a4f6b1, D-894. Every script step the migration that took the stock Telugu
+  -- "సరే అండి," off changed or queued, so its downgrade restores exactly those steps.
+  -- FORCEd tenant_isolation.
+team_alert_contacts(id, tenant_id, channel IN (email, whatsapp) DEFAULT email,
+  address 3..254, whatsapp_credential_id NULL, whatsapp_template/_language/_number_id/
+  _values NULL (all set for whatsapp), is_default, verified_at, code_hash, code_expires_at,
+  code_sent_at, code_attempts >= 0, removed_at, created_at, updated_at)
+team_alert_rules(id, tenant_id, agent_id FK agents, contact_id NULL FK team_alert_contacts,
+  on_outcomes JSONB array, on_fields JSONB array, in_call BOOL DEFAULT false, ...)
+team_alerts(id, tenant_id, agent_id, call_id FK calls, contact_id, trigger IN (after_call,
+  in_call), reasons JSONB array, status IN (queued, sent, failed, cancelled) DEFAULT queued,
+  attempts >= 0, sent_at, ...)
+  -- c4e9a2f7d816, D-904 "Tell my team". The business's own team addresses (verified once by
+  -- an emailed code), one rule row per agent (which outcomes and choice values tell the
+  -- team, and whether the agent may tell it during the call), and one delivery row per
+  -- (call, address), which is also the idempotency key. All three FORCEd tenant_isolation;
+  -- zero-rows proof `tests/team_alerts_test.py`. The same migration widens
+  -- `agent_test_cases.caller_lines` to 1..20 lines (was 6) so a guided procedure can be a
+  -- saved test.
 prompt_versions(id, tenant_id, agent_id, version INT, body TEXT, compiled_t0_context TEXT,
   notes TEXT, created_by, published_at, UNIQUE(agent_id,version))   -- full history + rollback
   -- notes = operator-facing "why this version exists" ("rollback to v3", "new pricing").
@@ -313,6 +389,12 @@ extraction_schemas(id, tenant_id, agent_id, version INT, fields JSONB, published
   -- reader (`with_core`) and never stored, so no edit, template or draft can drop it. A
   -- stored field under a core key (an older agent's `need`/`preferred_time`) is shadowed
   -- by the core definition on read; its captured values stay under the same key.
+  -- A template correction never rewrites a schema or prompt version in place: a lead
+  -- records the version it was captured under. Migrations b3d7e2a9c461 (D-881, spoken
+  -- money ranges), c8e2f4a6b913 (D-887, BHK sizes to 5BHK+), c8e4a1f7b2d5 (D-888) and
+  -- d7c2e9a4f6b1 (D-894) queue `refresh_field_reason` / `refresh_example_lines` outbox jobs
+  -- that write a NEW version only where the agent still holds the old wording word for
+  -- word, and republish a live agent; anything an owner edited is left alone.
 lead_field_drafts(id, tenant_id UNIQUE, status ENUM[queued,running,done,failed],
   fields JSONB NULL, model, error_code, requested_by, requested_at, completed_at)
   -- A custom business's ONE AI draft of its business fields (D-715, migration
@@ -397,6 +479,20 @@ phone_numbers(id, tenant_id, agent_id, e164 UNIQUE, series ENUM[140,160,standard
   -- `<number>@<org_…>` (`calevate_shared/engine_scope.py`) for a number in the client's own
   -- customer workspace; an unscoped ref is a number held in our developer workspace
   -- ("held in the platform account", testing only, `engine_numbers.is_platform_held`).
+phone_number_holds(id, tenant_id, number_id FK phone_numbers, agent_id NULL,
+  reason IN (account_closed, wallet_negative), held_at DEFAULT now(), release_at NULL
+  (>= held_at), remind_at NULL, anchor_source NULL IN (vendor, recorded), detached_at,
+  start_notice_at, reminder_notice_at, release_notice_at, ended_at NULL,
+  end_reason NULL IN (resumed, released), created_at, updated_at)
+  -- D-860, migration e8c4b1d7a352. A stopped client's rented number (account closed, or
+  -- the wallet below zero for the console's `number_hold_after_negative_days`) is held:
+  -- nobody answers it, no rent is charged, and it is released before the voice platform's
+  -- next monthly renewal unless the client tops up or the account reopens.
+  -- `uq_phone_number_holds_open` keeps one open hold per number and is the insert's conflict
+  -- target; `release_at` stays NULL until the hold job has read the rent day; the three
+  -- `*_notice_at` stamps are when each email was queued. FORCEd tenant_isolation
+  -- (zero-rows proof `tests/number_holds_test.py`). Ids, instants and our codes only, so a
+  -- tenant erasure leaves the rows, as it leaves `phone_numbers`.
 engine_number_purchases(id, tenant_id → organizations RESTRICT, idempotency_key,
   vendor_number, workspace_id, agent_id NULL, direction ENUM[inbound,outbound,both],
   status ENUM[renting,recorded,refused,failed] DEFAULT 'renting', number_id NULL,
@@ -528,11 +624,31 @@ calls(id, tenant_id, agent_id, engine_call_id UNIQUE, direction, from_e164, to_e
 --   well as `queued` ones since migration b7e4c0a63f29 (D-663).
 -- calls.engine_quality JSONB (migration a5d1c7e93f28, D-736): the voice platform's per-call
 --   `quality`, as `CallQuality` (reply_ms_*/first_token_ms_* median/p90/max, turns, long
---   silences, interruptions, model errors, backup answers); numbers-or-null by CHECK.
+--   silences, interruptions, model errors, backup answers); numbers-or-null by CHECK. Since
+--   D-902 it also carries `answer_ms_*` (the wait for the first word of the actual answer,
+--   the reply time every screen leads with; NULL before 27 Oct 2026, never zero) and
+--   `knowledge_turns`, inside the same numbers-only CHECK.
+-- calls.engine_timeline JSONB NULL (migration d8f3a6c1e924, D-902): each turn's timings as
+--   the voice platform timed them (`calevate_shared.events.CallTimeline`: first sound,
+--   answer, and the split of the wait). Times only, no words. CHECK: an object holding a
+--   `turns` array. NULL until `workers/call_timeline.fetch_call_timeline` stores it, and on
+--   calls the platform timed nothing for; an empty timeline is never stored. Shown only to
+--   an operator (view-as); clients see the typical answer wait.
+-- calls.voice_settings JSONB NULL (migration b3f9d2a7c41e, D-896): `agents.voice_settings`
+--   copied when the call row is first written, so reply times split by turn detection.
+-- calls.not_placed_reason TEXT NULL IN (from_number_withdrawn, unstated) (migration
+--   b7e2d4f9a613, D-842): why a booked call never rang, mapped by the adapter from the
+--   vendor's `error` (`calevate_shared.events.NotPlacedReason`). The vendor's sentence is
+--   never stored.
+-- calls.paid_test_call BOOL NOT NULL DEFAULT false (migration b5d8f2a9c741, D-859): a test
+--   call a paying account placed to the owner's own phone; a partial index on
+--   (tenant_id, created_at) WHERE paid_test_call serves its daily cap.
 -- FUNCTION call_reply_scan(since) (migration d3f8b2c6a417, D-770): SECURITY INVOKER loop over
 --   live organizations that binds `app.tenant_id` per tenant and returns each completed call
 --   since `since` with its quality, `slow_reply` signal and metered voice tier; the admin
---   Voice response time report reads it from an `admin_session()`.
+--   Voice response time report reads it from an `admin_session()`. It also returns
+--   `voice_settings` (b3f9d2a7c41e) and `engine_timeline` (d8f3a6c1e924), each by drop and
+--   re-create because a changed return type cannot be `CREATE OR REPLACE`d.
 -- TABLE call_engine_latency (migration b7d3e91c4a05): NO LONGER WRITTEN OR READ (D-770; its
 --   only producer was the Pipecat loop, D-763); dropped in a later release (hard rule 8).
 -- INDEX ix_calls_tenant_started (tenant_id, started_at DESC NULLS LAST, id DESC)
@@ -552,6 +668,11 @@ call_extractions(id, tenant_id, call_id, schema_version INT, data JSONB,
                                     -- field none of whose choices fitted (the field stays
                                     -- null). Caller words: erased with `data` by all three
                                     -- retention/erasure sweeps. CHECK: object or NULL.
+  reread_attempts SMALLINT NOT NULL DEFAULT 0 (>= 0), reread_at NULL,
+                                    -- D-841, migration e1d84b3c7a20: a reading that came
+                                    -- back as a provider failure (`errors._model`) is read
+                                    -- again by `workers/extraction_reread`, a bounded number
+                                    -- of times within a day of the call.
   UNIQUE(tenant_id, call_id))       -- ONE extraction per call (migration d3b71c9a5e08)
   -- Both readers already assumed it: the CRM detail takes `ORDER BY created_at DESC
   -- LIMIT 1` and the retention eraser rewrites "the" extraction for a call. The pipeline
@@ -574,6 +695,10 @@ leads(id, tenant_id, agent_id, phone_e164, name, source ENUM[inbound_call,webhoo
 --   the export's larger LIMIT SPILLED — 8,224 kB external merge to disk → no sort at all.
 --   PARTIAL because `_lead_scope` opens with `deleted_at IS NULL` unconditionally.
 lead_events(id, tenant_id, lead_id, type ENUM[status_change,note,call,notification], payload JSONB, actor)
+lead_saved_views(..., screen TEXT NOT NULL DEFAULT 'leads' CHECK IN (leads, calls))
+  -- A named filter and column set private to one person (migration a7e2c40d9b53, FORCEd
+  -- tenant_isolation). Since e5a1c7d93b20 (D-893 L2) the Calls log saves views in the same
+  -- table; a name is unique per person PER SCREEN (`uq_lead_saved_views_tenant_user_screen_name`).
 ```
 
 ## 6. Campaigns & Ingest
@@ -813,6 +938,10 @@ caller_chunks(id, tenant_id, subject_kind ENUM[lead,call_turn,call_summary,calle
 --    re-bought for text the erasure had just destroyed. `scrubbed_at` is the tombstone and
 --    `ck_caller_chunks_forgotten_has_no_keys` makes "no vector AND no lexemes" a database
 --    constraint rather than a convention in a worker.
+--  * A `call_summary` row is projected from the REDACTED summary
+--    (`retrieval/call_projection.project_summary`); `calls.summary` itself is stored
+--    unredacted. Migration e5b1d9c3a7f2 deleted the live summary rows built from raw text so
+--    the sweep rebuilt them; tombstoned rows were kept, for the reason above.
 --  * `subject_ref` is `compliance/caller_ref`'s KEYED MAC of (tenant, E.164) under a
 --    PLATFORM_KEK-derived key — NOT export.subject_ref, which is unsalted over a ~10^9
 --    space and takes no tenant into the input. `subject_ref_kek_id` bounds the ring walk an
@@ -868,6 +997,13 @@ scheduled_callbacks(id, tenant_id, agent_id, source_call_id UUID NULL,
 -- gate's OWN client-facing sentence for the two that are refusals — so the client's screen
 -- says why a call they were promised did not happen, in the words the dial button would
 -- have shown them.
+-- grace_from TIMESTAMPTZ NULL (migration d4a7c3e91f26, D-914): a call-back belongs to the
+-- campaign of the call it was promised on. While that campaign is paused the tick holds it
+-- (`last_refusal_rule = campaign_paused`; no new status, the refusal pair says it); on
+-- resume `release_resumed` makes it due at the first moment the calling hours allow and
+-- the two-hour grace counts from `grace_from` instead of `requested_at`, which still never
+-- moves. NULL on every call-back never held. Stopping the campaign calls its waiting
+-- call-backs off (`controls.stop_campaign`, audit `callbacks.called_off`).
 kb_retrieval_logs(id, tenant_id, call_id, query, tier ENUM[t0,t1,t2,t3,t4],
   top_score REAL, latency_ms INT)   -- powers knowledge-gap reports
   -- `top_ids UUID[]` was specified here and is NOT in the shipped table. Its stated
@@ -1003,6 +1139,33 @@ platform_tts_prices(provider, effective_from, inr_per_1k_chars NUMERIC(12,6),
 --   correction is a NEW effective instant so a re-rendered month resolves the price its
 --   characters were metered at. `ops/model_pricing.tts_price_is_billable` is the ONE door
 --   that decides whether a voice tier may be offered at all.
+platform_cost_attestations(subject IN (thinnest_topup_fee, razorpay_topup_fee,
+  thinnest_number_month), effective_from, value NUMERIC(14,6) >= 0 (< 1 for the two fees),
+  attested_by NULL FK admin_users, source_note (>= 3 chars), expires_at NULL, created_at)
+  -- PK (subject, effective_from); D-840, migration d8a4c2e7f150, `billing/cost_attestations.py`.
+  -- The cost inputs that are not a per-minute price but still reach money: the voice
+  -- platform's wallet top-up fee (a fraction on every minute it bills), the gateway's fee on
+  -- a client top-up (counted in the cost floor) and the monthly rent of a number rented in
+  -- the voice platform's console. The 2.36% top-up fee that used to be a code constant is the
+  -- carried-over first row (`attested_by` NULL, effective from the epoch, VENDOR-STATED in
+  -- ThinnestAI's email of 12 Oct 2026); the gateway fee and the number rent are NOT seeded.
+  -- Platform-scoped (RLS_EXEMPT_TENANT_COLUMNS), APPEND-ONLY with the shared triggers,
+  -- ENABLE ALWAYS: an editable figure would re-price minutes and rentals already metered.
+platform_in_call_data_use(provider, attested_at, attested_by FK admin_users,
+  vendor_account_ref, paid_tier_confirmed BOOL, no_training_opt_in_confirmed BOOL,
+  source_note)   -- PK (provider, attested_at); D-839, migration a3d8f1c6e092
+  -- The operator's attestation about a provider's data-use terms for RAW CALLER SPEECH on our
+  -- own model, the shape of `platform_dashboard_data_use` (D-477) with its own statement and
+  -- step-up `attest_in_call_data_use:<provider>`; `own_model_readiness` reads this one only.
+  -- Platform-scoped (RLS_EXEMPT_TENANT_COLUMNS), APPEND-ONLY, ENABLE ALWAYS.
+copilot_consents.kind TEXT NOT NULL DEFAULT 'accepted' IN (accepted, withdrawn)
+  -- Same migration (D-839). The append-only consent table (D-788) records the owner turning
+  -- Pip off as a later `withdrawn` row; `copilot/consent.read_consent` judges the latest row.
+refund_intents gains failed_at NULL and refund_ref NULL (migration e5c1a9d3f720)
+  -- A refund attempt that failed definitively is kept with `failed_at` (excluded from the
+  -- refund ceiling) instead of being deleted, so the next attempt counts it and derives a new
+  -- `X-Refund-Idempotency` key; `refund_ref` is the gateway refund id the claim became, so a
+  -- `refund.failed` webhook fails exactly that claim. Tenant policy unchanged.
 plans(id, tenant_id, setup_fee, monthly_fee, included_min INT, overage_rate,
   overage_rate_second NUMERIC NULL, overage_rate_value NUMERIC NULL,
   hard_cap_min INT, hard_cap_spend NUMERIC,
@@ -1403,6 +1566,9 @@ kyc_documents(id, tenant_id → organizations RESTRICT, slot ENUM[business,owner
   -- files are purged on the review decision or after 30 days (untenanted SELECT arm
   -- `kyc_documents_owner_id_purge_read`); the business certificate is kept while the
   -- account is open. FORCEd §1 RLS.
+  -- purge_failures INT NOT NULL DEFAULT 0, purge_failed_at NULL (migration c7e4a9d2f513):
+  -- failed deletes are counted so `workers/kyc_owner_id_purge` tries never-failed files
+  -- first and raises `kyc_purge_stuck`, instead of a batch of failing rows starving the rest.
 outbound_pledge_acceptances(id, tenant_id → organizations RESTRICT, pledge_version INT > 0,
   text_sha256, accepted_by_user_id → users, ip, accepted_at, created_at)   -- INSERT-only
   -- D-692. The no-cold-calls pledge; the gate compares the latest row's version with
@@ -1608,6 +1774,10 @@ outbox_messages(id, queue, job, payload JSONB, status ENUM[pending,published,fai
   -- exclusivity moves onto the row. Claim predicate: `status = 'pending' AND
   -- (locked_until IS NULL OR locked_until <= now())`. A lapsed lease needs no reaper;
   -- status keeps its three values, so every existing reader stays correct.
+  -- consumed_at NULL (migration c8a4e2f7b913): written by the consumer once a run of the
+  -- message succeeded and checked before the next run, so a re-publish after a lost
+  -- `published` mark (arq dedupes a job id only within its `keep_result` window) does not
+  -- repeat the side effect. NULL = no run recorded.
 webhook_inbox_events(id, provider, event_key, payload_hash, status
   ENUM[processing,enqueued,processed,failed], event_name, duplicate_count INT NOT NULL
   DEFAULT 0, enqueued_at, processed_at, last_error,
@@ -1616,9 +1786,15 @@ webhook_inbox_events(id, provider, event_key, payload_hash, status
   -- It is the "deduplicated" column of the webhook activity view; without it a vendor
   -- retrying fifteen times looks like one quiet success.
 idempotency_records(id, scope_key, route, method, idempotency_key, request_hash,
-  status ENUM[processing,completed,failed], response_status, response_payload JSONB,
-  expires_at, UNIQUE(scope_key, route, method, idempotency_key))
+  status ENUM[processing,in_doubt,completed,failed], claim_nonce UUID NULL, response_status,
+  response_payload JSONB, expires_at, UNIQUE(scope_key, route, method, idempotency_key))
   -- scope_key = HMAC fingerprint of tenant/user (raw ids never stored); TTL ~24h
+  -- in_doubt (migration b3e7c9a15d24): committed by a holder about to start a side effect it
+  -- cannot take back (a real phone call); the lease re-claim never takes such a record, so
+  -- a retried key whose dial may have happened is never placed twice.
+  -- claim_nonce (migration a6d2f8c41e97): minted on every take; `complete_idempotency` and
+  -- `fail_idempotency` require it, so a holder whose lease lapsed cannot complete or reopen
+  -- its successor's claim. NULL only on rows claimed by the previous release.
 ```
 
 ## 9a. Global tables (deliberately NOT tenant-RLS'd — every exception listed)
@@ -1758,6 +1934,54 @@ copilot_plan_targets(id, tenant_id, plan_id FK copilot_plans CASCADE, target_id,
   -- (check_erasure_coverage) because a row holds an id and a status, never PII.
 campaigns.kind IN (standard, pip) DEFAULT standard
   -- pip: the campaign a dialling plan (calls_place_bulk) created and launched.
+```
+
+## 9e. "Meet your agent", and going live after the first payment (D-855, D-859, D-863, D-918)
+
+```
+first_runs(id, tenant_id UNIQUE, jobs TEXT[] DEFAULT '{}' (one to three starter jobs, each
+  once), job TEXT NULL (DEPRECATED), language_primary, languages_extra TEXT[], brief NULL
+  (<= 4000 chars), questions JSONB array, answers JSONB, questions_status DEFAULT idle,
+  questions_disclosure, questions_brief_hash, question_runs >= 0, build_status DEFAULT idle,
+  build_steps JSONB object, build_disclosure, build_runs >= 0, build_requested_at,
+  document_ids UUID[] DEFAULT '{}', agent_id NULL, finished_at, dismissed_at,
+  created_at, updated_at)
+  -- Migration f8d2a6c4b1e7 (D-855). A new owner's first run: the jobs and languages chosen,
+  -- the brief in their own words, the follow-up questions our AI wrote for the business
+  -- (stored whole, each answer beside its question for the script writer, a7d3e9c2f416,
+  -- D-863), the build's progress step by step, the agent it built, and when the owner
+  -- finished or put it aside. It is also the first-run marker the sign-in junction reads.
+  -- `question_runs`/`build_runs` bound how often the model is asked.
+  -- `job` -> `jobs` is hard rule 8's two-step deprecation: nothing writes `job` since
+  -- a7d3e9c2f416, and the column and its CHECK go in a later release. The backfill that
+  -- copied `job` into `jobs` ran under FORCEd RLS and matched no rows, so cdd375802099
+  -- re-runs it inside a NO FORCE / FORCE bracket.
+  -- `document_ids` (e6b2d9f4a718, D-918): which ordinary knowledge uploads (`kb_uploads`,
+  -- at most `first_run/models.MAX_DOCUMENTS` = 3) are this run's documents, so the question
+  -- and script writers can read their words. An id array, not a join table: every read
+  -- joins `kb_uploads` under RLS, so an upload removed on the knowledge screen stops
+  -- counting. FORCEd tenant_isolation.
+first_run_recordings(id, tenant_id, first_run_id FK first_runs, status DEFAULT queued,
+  language, object_key NULL, content_type NULL, words NULL, error_code NULL, ...)
+  -- One spoken piece of the brief (up to three of 30 s): the audio's object key until a
+  -- worker has heard it, then the words; the key is cleared as the audio is deleted.
+  -- FORCEd tenant_isolation; zero-rows proof `tests/first_run_test.py`. Tenant erasure
+  -- deletes both tables. `business_copies.last_trigger` admits `first_run`.
+agent_workspace_moves(id, tenant_id, agent_id, workspace_id, status IN (waiting, moved, held,
+  failed) DEFAULT waiting, reason_code, attempts >= 0, alarmed_code, last_attempt_at,
+  moved_at, ..., UNIQUE(agent_id, workspace_id))
+  -- Migration b5d8f2a9c741 (D-859). The move of one agent from the developer workspace into
+  -- the paying client's own customer workspace, state kept; `alarmed_code` stops the hourly
+  -- retry paging twice for one cause. The go-live guide reads it as the move's progress.
+go_live_guides(id, tenant_id UNIQUE, owed_at, finished_at, dismissed_at, ...)
+  -- Written at the first payment; the sign-in junction and dashboard read it as the guide's
+  -- marker.
+agent_test_copies(id, tenant_id, agent_id, engine_agent_ref, last_used_at, ...)
+  -- A moved agent's developer-workspace copy kept for test calls on the shared trial line
+  -- while the client has no number of its own; retired with the copy.
+  -- All three FORCEd tenant_isolation (zero-rows proof `tests/go_live_test.py`); tenant
+  -- erasure deletes them. The same migration adds `calls.paid_test_call` (§4) and
+  -- `organizations.first_paid_via = operator_conversion` (§2).
 ```
 
 ## 10. Migration & Integrity Rules

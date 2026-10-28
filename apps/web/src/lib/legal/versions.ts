@@ -734,6 +734,16 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         contentHash:
           "sha256:a3c14ba0e4f96e8bd3513b57c8562d1f1f3a56a560814e9e048020394efd0727",
       },
+      // D-927: Annex B.5 says backups are WAL archiving plus a nightly encrypted base backup
+      // with the object-storage provider, not an offsite dump. NOT material, the founder's
+      // call (29 Oct 2026): the offsite dump never ran, and B.5 already said backup and
+      // recovery are designed rather than proven.
+      {
+        revision: "18",
+        material: false,
+        contentHash:
+          "sha256:cbe01fb62e3dbb64373d8c4c023b9ac1a576b0731d5e1fbe1c5c83f2cefaa7eb",
+      },
     ],
     effectiveDate: "2026-09-02",
   },

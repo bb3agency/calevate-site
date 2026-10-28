@@ -85,6 +85,27 @@ In scope v1:
    admins/superadmin can too (D-460 supersedes D-21's admin-only clause; each field carries
    an optional free-text `reason` hint, edits go live on save as a new schema version). Lead
    statuses stay the fixed enum in v1 (custom tags/statuses only if pulled by a client).
+8. Self-serve first run and trial (D-853, D-854, D-855, D-863, D-918): every new account,
+   signed up or invited, starts a 7-day free trial with 15 test-call minutes and no agent.
+   The owner builds the first agent in "Meet your agent": the jobs it does, a brief in their
+   own words with up to three files beside it (a price list, a menu), a few follow-up
+   questions written for their business, a build they watch, the opening line edited in
+   place, and a test call. A test call may come from any agent that is ready.
+9. Knowledge belongs to the client and every agent of that client uses it (D-689). A file
+   added after onboarding suggests a script change to every agent, one tap to keep, that
+   keeps what the owner wrote (D-923). A file is never refused for its symbols: arrows are
+   spelled out and symbols the font lacks are left out (D-925).
+10. Account closure and erasure: erasing a client account also deletes its agents, its
+    callers' contact records that only its calls reached and its own workspace at the voice
+    platform, by code; it waits while a call inside the 90-day recording floor has no
+    recording copy in our own storage (D-922). A stopped account's rented number is held, not renewed,
+    and released before the next monthly renewal unless the client tops up or reopens
+    (D-860).
+11. Hand-offs and help: a caller the agent cannot help is handed to the business's own team
+    with their name and number, by email or the client's own connected WhatsApp, during or
+    after the call (D-904); Pip, the in-app assistant, does the client's work in every area
+    of the dashboard, with one confirmation for anything that reaches callers or spends
+    credit (D-893).
 
 Out of scope v1 (explicit): white-label/reseller tiers; ~~self-serve signup~~ (**pulled
 back IN by D-34/D-39** — the second motion; `POST /v1/auth/signup` ships behind an
@@ -225,6 +246,13 @@ Studio volume fills a Cartesia plan, and then through the ops console's schedule
 cell under the 20% gross-margin target is warned, not refused, and the fix for a thin cell is a
 founder decision, never a nudged rate.
 
+**Credit bought in a pack lasts 12 months** from the day it is added, stated with its date
+before payment and on the Billing page, with an email 30 days before it lapses (D-897,
+switched on 27 Oct 2026; Terms revision 19, clause 6.1). It applies only once the account has
+accepted that revision: credit added before acceptance, credit bought before 27 Oct 2026 and
+credit a super admin grants never lapse (D-900, D-890). New accounts start on a 7-day,
+15-minute free trial (D-853).
+
 **Do not publish a headline per-minute rate without the monthly platform fee beside it** — the
 effective-₹/min rule in TRD §10.2 applies to our own copy as much as to a competitor's.
 
@@ -240,8 +268,14 @@ is TRD §10.0.
 | **Clear** | ThinnestAI's own stack end to end, in the band the console setting `thinnest_clear_voice_band` names | Studio band ₹2.50/min (default, D-792) or Premium band ₹2.00/min; ThinnestAI console, founder-relayed 24 Oct 2026 (D-878) | ₹2.559 or ₹2.0472 | 43.1% or 54.5% at ₹4.50 |
 | **Studio** | Cartesia on our key through ThinnestAI's voice-only BYOK; ThinnestAI's STT, LLM and telephony | ₹1.50/min including the line, plus Cartesia's own charge to our key | ₹1.535 plus Cartesia's ₹2.06–3.42 per call-minute (at 571 characters a minute, by plan and volume; cartesia.ai/pricing read 11 Oct 2026), about ₹3.60–4.96 | 40% down to 17% at ₹6.00 |
 
-Both margins are before ThinnestAI Pro's ₹2,499 a month (needed for the Studio band and for more
-than three customer workspaces, OPERATIONS T-8) and before GST. A Studio rung's cost is a curve
+With our own model switched on (`thinnest_own_model`, D-764/D-834) the minutes change shape:
+Clear runs on BYOK scope `llm` at the band's own minute, and Studio on scope `llm_voice` at
+₹1.00/min flat (`snapshots/2026-10-19/pages/api-reference/bring-your-own-keys.md:28`), each
+plus our Gemini key's tokens; the switch is off today. Both margins are before GST. Our
+pay-as-you-go account has the Studio band, 100 customer workspaces and 20 concurrent calls
+without a monthly plan (VENDOR-STATED 23 Oct 2026, `docs/vendor/thinnest-replies-2026-10-12.md`
+§28); the plan to move to Scale at 10 active clients and Enterprise at 50 is the founder's,
+agreed with ThinnestAI in the same exchange. A Studio rung's cost is a curve
 in volume, not a number: Cartesia sells monthly plans, so a Studio minute is dearest just after
 each plan upgrade. Cartesia bills in dollars; the floor converts at the live USD→INR rate the
 platform already publishes, while the hard refusal stays frozen at the founder's planning rate,
@@ -264,8 +298,8 @@ using them would read as a copy and would collide with the vendor's vocabulary o
 
 ### 6.4 Fixed costs and burn
 
-- Fixed: ThinnestAI Pro ₹2,499/month once the Studio band or a fourth customer workspace is
-  needed; infra ₹7–10k/month (ESTIMATE); numbers and misc.
+- Fixed: no ThinnestAI plan fee while we stay on pay as you go with raised limits (§6.2);
+  infra ₹7–10k/month (ESTIMATE); numbers and misc.
 - Recommended burn ceiling despite "whatever it takes": **₹35k/month** pre-revenue
   (infra + platform minimums + DLT + one paid tool). Spending above this before client #1 buys
   nothing; the constraint is build time and sales, not money.
@@ -315,7 +349,7 @@ suite, transcription error rate on names/numbers (Telugu), escalation correctnes
 | R-07 | Cold-start sales stall | Medium | High | §7 plan; demo-first; pilot pricing; weekly pipeline review. |
 | R-08 | Two-person team overbuild (platform before client) | Medium | High | ROADMAP gate: client #1 live on a partly-manual stack before multi-tenant polish. |
 | R-09 | Runaway usage cost (client campaign misfire) | Low | Medium | Per-tenant hard caps enforced pre-dispatch; prepaid credit; alerts. |
-| R-10 | Telugu voice quality below expectation — neither rung has been ear-tested by us on a real call | Medium | Medium | Two rungs, chosen **per agent** (D-547, D-687): **Clear** speaks ThinnestAI's own voices and **Studio** speaks Cartesia on our key through ThinnestAI, priced as two per-minute rates on every pack and frozen on the credit each purchase buys (§6.1, `billing/credit_packs.PACK_CATALOGUE`). So the mitigation if one rung's Telugu disappoints is the other, with a caveat that is part of the mitigation: Telugu–English code-mixing is **absent from Cartesia's docs** and must not be promised (Hinglish is documented; Telugu-English is not) — VENDOR-PUBLISHED, relayed research over `docs.cartesia.ai`, 7 Sep 2026, `docs/evidence/cartesia-tts-verification-2026-09-06.md` §A4, host egress-blocked here. The ear test on a real phone line is OPERATIONS §2 gate T-6, unrun. |
+| R-10 | Telugu voice quality below expectation — no rung has a recorded ear test on a real call yet | Medium | Medium | Two rungs, chosen **per agent** (D-547, D-687): **Clear** speaks ThinnestAI's own voices and **Studio** speaks Cartesia on our key through ThinnestAI, priced as two per-minute rates on every pack and frozen on the credit each purchase buys (§6.1, `billing/credit_packs.PACK_CATALOGUE`). So the mitigation if one rung's Telugu disappoints is the other, with a caveat that is part of the mitigation: Telugu–English code-mixing is **absent from Cartesia's docs** and must not be promised (Hinglish is documented; Telugu-English is not) — VENDOR-PUBLISHED, relayed research over `docs.cartesia.ai`, 7 Sep 2026, `docs/evidence/cartesia-tts-verification-2026-09-06.md` §A4, host egress-blocked here. The founder has placed Telugu test calls in production (24–28 Oct 2026), which shaped the call rules (D-877, D-887, D-894, D-910, D-912, D-921); the recorded ear test, OPERATIONS §2 gate T-6, is not filed. |
 | R-11 | **Self-serve motion creates telecom-compliance exposure** (D-34): anyone can sign up and dial, but TRAI/DLT liability lands on us as Telemarketer. A single abusive self-serve account can trigger TSP action against our Telemarketer registration — which is one registration for the whole platform — and damage every client on it | Medium once self-serve ships | **Critical** | Non-negotiable, ships WITH the self-serve flow, not after: platform-fixed calling hours (not user-editable); DNC scrub on **every** dispatch path incl. instant (Hard Rule 5 — this is precisely where Outpero fails, teardown §9c); an AI disclosure sentence on every agent, mandatory and non-blank, whose in-call delivery the client may switch off and is audited for doing (D-163) while the truthful ANSWER when asked stays unconditional; durable versioned consent-attestation ledger; per-account concurrency + spend caps; business KYC verified before any account dials or buys a number (numbers are bought in the client's own business name, in its own ThinnestAI workspace, D-693); AUP with enforcement teeth (throttle/suspend on abuse signals); the accepted no-cold-calls pledge (D-692); the complaint-spike campaign pause that resumes only after the client reviews it (D-773); and the big red switch. **There is no manual review of the first campaign** (D-783, founder, 15 Oct 2026, superseding D-51: "this [adds] friction between the client and us while they try Calevate in trial"). Residual: a self-serve or trial account can dial a campaign nobody at Calevate has read. |
 
 ## 10. Assumptions Log (all remaining assumptions — everything else is decided/verified)
@@ -331,7 +365,8 @@ A-6 ThinnestAI's charge per call (`costMicro`) matches the attested rate per bil
     the 2.36% wallet top-up fee — confirmed per call by the hourly charges sweep
     (`workers/engine_charges.py`, D-690, D-754) once real calls are placed.
 A-7 Entity choice does not delay DLT beyond 4 weeks.
-A-8 Concurrency is ThinnestAI's account limit (OPERATIONS §2 gate T-7: 5 simultaneous calls on
-    pay-as-you-go, 10 on Pro, VENDOR-STATED), divided per customer workspace; dispatch is held
-    to the console-managed `thinnest_max_concurrent_calls`.
+A-8 Concurrency is ThinnestAI's account limit (OPERATIONS §2 gate T-7: raised to 20 for our
+    pay-as-you-go account, VENDOR-STATED 23 Oct 2026, replies §28; not observable without 6+
+    calls at once), divided per customer workspace; dispatch is held to the console-managed
+    `thinnest_max_concurrent_calls`, which is never set above the granted figure.
 Each assumption has an owner (Sri) and is closed by the verification session (OPERATIONS.md §2) or week-1 admin tasks.
