@@ -366,6 +366,9 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "engine_dnc_push_failed": "attention",
     "engine_dnc_remove_failed": "attention",
     "engine_contact_erasure_failed": "attention",
+    # D-922. An erased account's data at the platform is not all deleted yet; the erasure task
+    # stays open and the nightly sweep asks again, so one operator task rather than a page.
+    "engine_tenant_erasure_failed": "attention",
     # D-798. The platform's copy of some calls is still held past a retention period or an
     # erasure; the nightly backstop asks again, so one operator task rather than a page.
     "engine_call_content_delete_failed": "attention",

@@ -650,6 +650,8 @@ async def held_contact_erasures(session: AsyncSession) -> list[UUID]:
             text(
                 "SELECT request_ref, vendor_reference FROM processor_erasure_tasks "
                 "WHERE processor = 'voice_engine' AND status IN ('open', 'requested') "
+                # A tenant erasure's held contacts are released by its own job (D-922).
+                "AND request_kind = 'subject' "
                 "AND vendor_reference LIKE :held ORDER BY opened_at"
             ),
             {"held": f"%={CONTACT_HELD}%"},

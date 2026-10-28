@@ -16,7 +16,9 @@ VERIFIED-VENDOR-DOCS, `thinnest-findings/mirror/snapshots/2026-10-08/pages/`:
 EVERY REQUEST CARRIES `Thinnest-Workspace`, AND ONE WITHOUT A CUSTOMER WORKSPACE IS REFUSED
 BEFORE IT IS BUILT: these are tenant-only routes in `engine/thinnest_workspace.py`, the one
 builder of the header. Without it they would act on our developer workspace, which holds
-every legacy client's data.
+every legacy client's data. The one exception is a tenant erasure (D-922), which passes None
+inside `thinnest_workspace.tenant_erasure_in_developer_workspace` to erase the contacts that
+account's own calls created there.
 
 Two calls here may also act in the developer workspace, because each touches only what one
 tenant owns there (VERIFIED-VENDOR-DOCS, `snapshots/2026-10-15/pages/api-reference/`):
@@ -190,7 +192,7 @@ class ThinnestCustomerData:
                 return
             raise
 
-    async def contact_ids(self, workspace: str, phone_e164: str) -> list[str]:
+    async def contact_ids(self, workspace: str | None, phone_e164: str) -> list[str]:
         payload = await self._request(
             workspace, "GET", "/contacts", route="/contacts", params={"phone": phone_e164}
         )
@@ -203,7 +205,7 @@ class ThinnestCustomerData:
             if isinstance(row, dict) and isinstance(row.get("id"), str) and row["id"]
         ]
 
-    async def delete_contact(self, workspace: str, contact_id: str) -> int:
+    async def delete_contact(self, workspace: str | None, contact_id: str) -> int:
         """Erase one contact. Returns the recordings still queued (0 when all are gone)."""
         try:
             payload = await self._request(
