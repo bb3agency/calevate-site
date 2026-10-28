@@ -11,7 +11,7 @@
  */
 
 import clsx from "clsx";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { useCallback, useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 
@@ -276,6 +276,17 @@ const SWITCH_TRACK =
  *   than a tease; in the inline variant the TITLE is the fact ("No GST, and no tax
  *   invoice") and the body is only the elaboration, so a subtitle would
  *   be a third line of text on a strip that exists to remove text.
+ *
+ * ## `variant="row"` — one row of a stacked list of panels
+ *
+ * For several disclosed sections stacked as one list (`DISCLOSURE_LIST` is the frame: one
+ * border, a rule between rows). A stack of full-width cards each with "Show" pinned to the
+ * far edge put the affordance a screen's width away from the title it opens, across dead
+ * space. Here the chevron sits at the start of the row, beside the title, as the folded
+ * groups inside those panels already do, and the subtitle (the FACT, §3) shows at every
+ * width: on a phone it is the only thing the closed row says. The words "Show"/"Hide" are
+ * dropped because the row is visibly a list of openable items and the native `summary`
+ * announces its state; a lone panel keeps `card` and its words.
  */
 export function Disclosure({
   title,
@@ -302,7 +313,7 @@ export function Disclosure({
   status?: ReactNode;
   icon?: ReactNode;
   defaultOpen?: boolean;
-  variant?: "card" | "inline";
+  variant?: "card" | "inline" | "row";
   headingLevel?: 2 | 3 | 4;
   children: ReactNode;
   className?: string;
@@ -319,6 +330,31 @@ export function Disclosure({
 }) {
   const inline = variant === "inline";
   const Heading = headingLevel === 4 ? "h4" : headingLevel === 3 ? "h3" : "h2";
+  if (variant === "row") {
+    return (
+      <details
+        name={name}
+        open={defaultOpen}
+        onToggle={onToggle ? (event) => onToggle(event.currentTarget.open) : undefined}
+        className={clsx("group", className)}
+      >
+        <summary className="flex cursor-pointer list-none items-start gap-3 rounded-card px-4 py-3.5 touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand sm:px-5 [&::-webkit-details-marker]:hidden">
+          <ChevronRight
+            aria-hidden
+            className="mt-0.5 h-4 w-4 shrink-0 text-ink-muted transition-transform duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none [details[open]>summary>&]:rotate-90 [summary:hover>&]:text-ink"
+          />
+          <span className="min-w-0 flex-1">
+            <Heading className="text-[15px] font-semibold leading-5 text-ink">{title}</Heading>
+            {subtitle && <span className="mt-0.5 block text-meta text-ink-muted">{subtitle}</span>}
+          </span>
+          {status !== undefined && status !== null && (
+            <span className="shrink-0 text-meta tabular-nums text-ink-muted">{status}</span>
+          )}
+        </summary>
+        <div className="px-4 pb-6 pt-1 sm:pl-12 sm:pr-5">{children}</div>
+      </details>
+    );
+  }
   return (
     <details
       name={name}
@@ -408,6 +444,9 @@ export function Disclosure({
     </details>
   );
 }
+
+/** The frame for a stack of `Disclosure variant="row"`: one border and a rule between rows. */
+export const DISCLOSURE_LIST = "divide-y divide-line rounded-card border border-line bg-surface";
 
 /**
  * One number, and what it is a number OF.

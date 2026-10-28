@@ -414,7 +414,39 @@ describe("the practice tests in Training", () => {
     expect(screen.queryByRole("button", { name: "Let Pip suggest fixes" })).toBeNull();
     const overTime = screen.getByRole("list", { name: "These tests over time" });
     expect(overTime.textContent).toContain("0 of 2");
-    expect(overTime.textContent).toContain("This test1 of 2");
+    expect(overTime.textContent).toContain("This run1 of 2");
+  });
+
+  it("keeps an all-right Test again to one headline and Test again: no one-colour bar, no flat history (founder, 28 Oct)", async () => {
+    const SHOP = result({ key: "saved_2", title: "Where is the shop?", source: "saved", change: "same" });
+    const entry = (id: string, passed: number, judged: number) => ({
+      id,
+      created_at: "2026-10-27T06:09:00Z",
+      prompt_version: 8,
+      round: 1,
+      score: { passed, judged, total: judged },
+      set_version: 2,
+    });
+    await page(
+      tests(
+        run({
+          retest_of: "run-1",
+          results: [{ ...HOURS, change: "same" }, SHOP],
+          comparison: { with_run: "run-1", with_version: 7, fixed: 0, broken: 0, still: 0, same: 2, new: 0, same_script: false },
+        }),
+        { history: [entry("run-2", 2, 2), entry("run-1", 3, 3)] },
+      ),
+    );
+    expect(await screen.findByRole("heading", { name: "Right every time on all 2 of your tests." })).toBeTruthy();
+    expect(screen.getByText("No change since the last test.")).toBeTruthy();
+    expect(screen.queryByText(/as before/)).toBeNull();
+    // A bar of one colour and two identical full bars said nothing the headline does not.
+    expect(screen.queryByRole("list", { name: "Your score" })).toBeNull();
+    expect(screen.queryByRole("list", { name: "These tests over time" })).toBeNull();
+    expect(screen.getByText("Test again after you change the script or teach it something new.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Test again" })).toBeTruthy();
+    // The tests that were right wait folded, one click away.
+    expect(screen.getByText("Where is the shop?").closest("details")?.parentElement?.closest("details")?.open).toBe(false);
   });
 
   it("has no accessibility violations with every group open", async () => {
@@ -472,7 +504,9 @@ describe("test copy", () => {
     expect(headlineOf(run()).title).toBe("Right every time on 1 of your 2 tests.");
     expect(headlineOf(run({ results: [HOURS] })).title).toBe("Right every time on your one test.");
     const same = run({ comparison: { with_run: "a", with_version: 12, fixed: 0, broken: 0, still: 1, same: 1, new: 0, same_script: true } });
-    expect(headlineOf(same).title).toBe("No change since the last test.");
+    // Nothing moved: the score leads and "no change" is said once, underneath.
+    expect(headlineOf(same).title).toBe("Right every time on 1 of your 2 tests.");
+    expect(headlineOf(same).detail).toBe("No change since the last test. The script was the same in both runs.");
   });
 
   it("groups failures by what fixes them, in the order the owner acts on them", () => {
