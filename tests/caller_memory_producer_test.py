@@ -308,6 +308,50 @@ async def test_a_remembered_call_is_marked_and_recallable_and_metered() -> None:
     assert metered, "a model call this client's cap must be able to stop went unbilled"
 
 
+async def test_gemini_distils_with_no_azure_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    """FAILS IF: the tick needs Azure to run. Gemini is the main model (D-899), so with its
+    leg serving and no Azure the call is read on Gemini, asked for the schema-shaped answer,
+    and metered as the Gemini model rather than the Azure setting."""
+    from apps.api.agents import assist_leg
+    from apps.api.core.settings import get_settings
+    from apps.workers.extraction import GOOGLE_PROVIDER, TenantModelLeg
+
+    tenant_id, agent_id = await _tenant()
+    call_id = await _finished_call(tenant_id, agent_id)
+    serving = TenantModelLeg(
+        model="gemini-test-flash",
+        provider=GOOGLE_PROVIDER,
+        serves_dashboard=True,
+        blocked_reason=None,
+        account_chose_model=False,
+    )
+    monkeypatch.setattr(assist_leg, "google_assist_leg", lambda: serving)
+    monkeypatch.setattr(get_settings(), "gemini_api_key", "test-gemini-key")
+    monkeypatch.setattr(caller_memory_distil, "azure_credentials", lambda: None)
+    seen: list[tuple[Any, Any]] = []
+
+    async def _complete(leg: Any, *_args: Any, **kwargs: Any) -> Any:
+        seen.append((leg, kwargs.get("response_format")))
+        return _Outcome(f'{{"facts": ["{FACT}"]}}')
+
+    metered: list[str] = []
+
+    async def _meter(*_args: Any, **kwargs: Any) -> None:
+        metered.append(str(kwargs["model"]))
+
+    monkeypatch.setattr(caller_memory_distil.chat, "complete", _complete)
+    monkeypatch.setattr(caller_memory_distil, "record_ai_assist_usage", _meter)
+
+    assert await distil_caller_memories({}) != "no_provider"
+
+    assert await _state(tenant_id, call_id) == caller_memory.CALLER_MEMORY_REMEMBERED
+    assert seen and all(
+        leg.dialect == "google" and leg.wire_model == "gemini-test-flash" for leg, _ in seen
+    )
+    assert all(fmt and fmt["type"] == "json_schema" for _, fmt in seen)
+    assert metered and set(metered) == {"gemini-test-flash"}
+
+
 async def test_a_later_call_failing_does_not_unrecord_a_call_already_paid_for() -> None:
     """Hard rule 7 and the `pending` marker, settled per CALL rather than per tenant.
 

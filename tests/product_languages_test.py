@@ -220,6 +220,10 @@ TAG_SPELLING_ALLOWED: dict[str, str] = {
         "language, not a list of languages; a missing key is caught above"
     ),
     "apps/api/agents/handoff.py": "the spoken handover line per language, for the same reason",
+    "apps/api/agents/patient_caller.py": (
+        "the silence preset's spoken nudge, can you see it, per language (D-907), for the "
+        "same reason; `tests/patient_caller_test.py` keeps its keys to the built languages"
+    ),
     "apps/api/agents/specimen_scenarios.py": (
         "the standing test callers' LINES per language (D-749): what a caller says in "
         "Telugu, Hindi and English, keyed by tag. Content per language on the same terms "

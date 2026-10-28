@@ -500,7 +500,7 @@ export function ReplyTimesReport({ report }: { report: ReplyTimeReport }) {
               <EmptyState
                 align="start"
                 message="No turns timed step by step in this window"
-                hint="The platform times turns on its standard voice pipeline from 27 Oct 2026, a few minutes after each call."
+                hint="The platform times each turn on its usual voice pipeline from 27 Oct 2026, a few minutes after each call."
               />
             ) : (
               <div className="space-y-6">
