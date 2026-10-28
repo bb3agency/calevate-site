@@ -8261,6 +8261,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/first-run/documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add a knowledge upload as one of the brief's documents
+         * @description Up to 3. Upload the file with `POST /v1/kb/uploads` first: it is ordinary knowledge, read, reviewed and metered like any upload, and every agent uses it. This records that the brief step added it, so the follow-up questions and the script are written from its words too (redacted first). Refused with `first_run_documents_full` past the bound.
+         */
+        post: operations["post_document_v1_first_run_documents_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/first-run/documents/{upload_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Stop using one document for the brief
+         * @description The upload stays in the knowledge base; remove it there with `DELETE /v1/kb/uploads/{upload_id}`.
+         */
+        delete: operations["delete_document_v1_first_run_documents__upload_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/first-run/finish": {
         parameters: {
             query?: never;
@@ -14885,10 +14925,17 @@ export interface components {
         };
         /** BuildStepOut */
         BuildStepOut: {
+            /**
+             * Documents Used
+             * @default 0
+             */
+            documents_used: number;
             /** Fallback */
             fallback?: ("studio_unavailable" | "studio_minutes_used" | "no_studio_voice" | "no_female_studio_voice") | null;
             /** Label */
             label: string | null;
+            /** Left Out */
+            left_out?: components["schemas"]["LeftOutOut"][];
             /**
              * Not Female
              * @default false
@@ -19603,6 +19650,38 @@ export interface components {
             /** Source */
             source: string | null;
         };
+        /** DocumentIn */
+        DocumentIn: {
+            /**
+             * Upload Id
+             * Format: uuid
+             */
+            upload_id: string;
+        };
+        /**
+         * DocumentOut
+         * @description One document added on the brief step: a knowledge upload, as the run reads it.
+         */
+        DocumentOut: {
+            /** Detail */
+            detail: string | null;
+            /** Name */
+            name: string;
+            /** Reaches Agents */
+            reaches_agents: boolean;
+            /** Source Kind */
+            source_kind: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "reading" | "read" | "failed";
+            /**
+             * Upload Id
+             * Format: uuid
+             */
+            upload_id: string;
+        };
         /**
          * DownloadOut
          * @description A short-lived link to the client's own file, for the person reviewing it.
@@ -20876,6 +20955,10 @@ export interface components {
             build: components["schemas"]["BuildOut"];
             /** Dismissed At */
             dismissed_at: string | null;
+            /** Documents */
+            documents: components["schemas"]["DocumentOut"][];
+            /** Documents Left */
+            documents_left: number;
             /** Due */
             due: boolean;
             /** Finished At */
@@ -23763,6 +23846,19 @@ export interface components {
             entries: components["schemas"]["WalletEntryOut"][];
             /** Payments */
             payments: components["schemas"]["WalletPaymentOut"][];
+        };
+        /** LeftOutOut */
+        LeftOutOut: {
+            /**
+             * Upload Id
+             * Format: uuid
+             */
+            upload_id: string;
+            /**
+             * Why
+             * @enum {string}
+             */
+            why: "reading" | "failed";
         };
         /**
          * LegalDocumentOut
@@ -48271,6 +48367,70 @@ export interface operations {
             query?: never;
             header?: never;
             path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FirstRunOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    post_document_v1_first_run_documents_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DocumentIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FirstRunOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    delete_document_v1_first_run_documents__upload_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                upload_id: string;
+            };
             cookie?: never;
         };
         requestBody?: never;

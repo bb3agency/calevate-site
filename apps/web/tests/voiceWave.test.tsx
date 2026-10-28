@@ -104,6 +104,33 @@ describe("inkLayers", () => {
   });
 });
 
+describe("the contained band", () => {
+  const loudRows = (lines: string[]) => lines.filter((line) => /[#%@*+]/.test(line)).length;
+
+  it("is one lane as tall as the band, centred, with its centre line a row", () => {
+    const { lines, centres } = voiceField(90, 8, STILL_TIME, { band: true });
+    expect(lines).toHaveLength(8);
+    expect(centres).toEqual([3]);
+    expect(lines.every((line) => line.length === 90)).toBe(true);
+  });
+
+  it("is mid-speech in its still frame, the peaks reaching the band's edges", () => {
+    const { lines } = voiceField(90, 7, STILL_TIME, { band: true });
+    expect(loudRows(lines)).toBeGreaterThanOrEqual(5);
+    expect(/[^ ]/.test(lines[0]!) && /[^ ]/.test(lines[6]!)).toBe(true);
+  });
+
+  it("talks most of the time: most moments show a waveform, not a flat line", () => {
+    const moments = Array.from({ length: 120 }, (_, i) => i * 0.5);
+    const talking = moments.filter((t) => loudRows(voiceField(90, 7, t, { band: true }).lines) >= 3);
+    expect(talking.length / moments.length).toBeGreaterThan(0.7);
+  });
+
+  it("leaves the full-screen field as it was", () => {
+    expect(voiceField(62, 81, STILL_TIME, {}).lines).toEqual(voiceField(62, 81, STILL_TIME).lines);
+  });
+});
+
 describe("<VoiceWave />", () => {
   /** A 2D context that records what was drawn, since jsdom has no canvas. */
   function stubCanvas(width: number, height: number) {
@@ -156,6 +183,44 @@ describe("<VoiceWave />", () => {
     const { lines, centres } = voiceField(62, 81, STILL_TIME);
     expect(drawn.at(-1)).toEqual(inkLayers(lines, centres).flat());
     expect(raf).not.toHaveBeenCalled();
+  });
+
+  it("contained, fills its parent instead of the viewport, and stops when it scrolls out of view", () => {
+    const observed: Element[] = [];
+    let report: (entries: { isIntersecting: boolean }[]) => void = () => {};
+    class Observer {
+      constructor(callback: (entries: { isIntersecting: boolean }[]) => void) {
+        report = callback;
+      }
+      observe(element: Element) {
+        observed.push(element);
+      }
+      disconnect() {}
+    }
+    vi.stubGlobal("IntersectionObserver", Observer);
+    const drawn = stubCanvas(320, 96);
+    const { container, unmount } = render(<VoiceWave contained />);
+    const canvas = container.querySelector("canvas");
+    expect(canvas?.className).toContain("absolute");
+    expect(canvas?.className).not.toContain("fixed");
+    expect(canvas?.className).not.toContain("voice-field");
+    expect(canvas?.getAttribute("aria-hidden")).toBe("true");
+    expect(observed).toEqual([canvas]);
+    // Reduced motion (tests/setup.ts): the one still frame, sized to the parent.
+    const { lines, centres } = voiceField(53, 9, STILL_TIME, { band: true });
+    expect(drawn.at(-1)).toEqual(inkLayers(lines, centres).flat());
+    report([{ isIntersecting: false }]);
+    unmount();
+    vi.unstubAllGlobals();
+  });
+
+  it("full-screen, watches nothing: the fixed field is always in view", () => {
+    const observe = vi.fn();
+    vi.stubGlobal("IntersectionObserver", class { observe = observe; disconnect() {} });
+    stubCanvas(375, 812);
+    render(<VoiceWave />);
+    expect(observe).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
   });
 
   it("is behind the public doors and not behind a signed-in settings page", () => {

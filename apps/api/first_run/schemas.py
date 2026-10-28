@@ -10,7 +10,13 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from apps.api.agents.languages import OfferedLanguage
 from apps.api.agents.starters import StarterJob
-from apps.api.first_run.models import MAX_BRIEF_CHARS, MAX_JOBS, MAX_QUESTIONS, MAX_RECORDINGS
+from apps.api.first_run.models import (
+    MAX_BRIEF_CHARS,
+    MAX_DOCUMENTS,
+    MAX_JOBS,
+    MAX_QUESTIONS,
+    MAX_RECORDINGS,
+)
 from apps.api.first_run.questions import MAX_OPTIONS, ProfileTopic, QuestionKind
 from apps.api.tenancy.business_profile import ServiceItem
 
@@ -44,6 +50,32 @@ class QuestionsOut(Strict):
     disclosure: str | None
 
 
+class LeftOutOut(Strict):
+    upload_id: UUID
+    #: `reading` (still being read when the build could wait no longer) or `failed`.
+    why: Literal["reading", "failed"]
+
+
+class DocumentOut(Strict):
+    """One document added on the brief step: a knowledge upload, as the run reads it."""
+
+    upload_id: UUID
+    name: str
+    #: `pdf` · `docx` · `txt` · `csv` · `xlsx` · `image` (`kb_uploads.source_kind`).
+    source_kind: str
+    #: `reading` until its words are stored, then `read`; `failed` when it could not be read.
+    state: Literal["reading", "read", "failed"]
+    #: The knowledge pipeline's own sentence when it failed.
+    detail: str | None
+    #: Whether its words reach the agents on calls today; the script uses them either way.
+    reaches_agents: bool
+
+
+class DocumentIn(Strict):
+    #: The upload `POST /v1/kb/uploads` returned.
+    upload_id: UUID
+
+
 class BuildStepOut(Strict):
     step: Literal["voice", "script", "greeting", "notice"]
     #: `waiting` until the worker reaches it; then `done`, `ready_made` (the ready-made
@@ -67,6 +99,10 @@ class BuildStepOut(Strict):
     ) = None
     #: No woman's voice could be chosen for "Anjali", so the voice step kept the best one.
     not_female: bool = False
+    #: On the script step: how many of the owner's documents the script was written from.
+    documents_used: int = 0
+    #: On the script step: the documents it was written WITHOUT, and why (D-918).
+    left_out: list[LeftOutOut] = Field(default_factory=list)
 
 
 class BuildOut(Strict):
@@ -87,6 +123,9 @@ class FirstRunOut(Strict):
     language_primary: str | None
     languages_extra: list[str]
     brief: str | None
+    #: The documents added beside the brief, in the order added (D-918).
+    documents: list[DocumentOut]
+    documents_left: int = Field(ge=0, le=MAX_DOCUMENTS)
     agent_id: UUID | None
     questions: QuestionsOut
     build: BuildOut
@@ -163,9 +202,12 @@ __all__ = [
     "BriefIn",
     "BuildOut",
     "BuildStepOut",
+    "DocumentIn",
+    "DocumentOut",
     "FirstRunOut",
     "HoursIn",
     "JobIn",
+    "LeftOutOut",
     "NameIn",
     "QuestionOut",
     "QuestionsOut",

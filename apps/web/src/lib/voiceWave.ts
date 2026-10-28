@@ -98,17 +98,24 @@ function smoothstep(edge0: number, edge1: number, v: number): number {
   return x * x * (3 - 2 * x);
 }
 
-/** How loud a speaker is at time `tau`, 0..1: phrases with pauses, syllables inside. */
-function loudness(tau: number, voice: number): number {
-  const phrase = smoothstep(-0.4, 0.15, simplex2(tau * 0.3, 11.7 + voice * 17.3));
+/**
+ * How loud a speaker is at time `tau`, 0..1: phrases with pauses, syllables inside. A
+ * `talkative` speaker (the contained band, where one lane is the whole picture) is in a
+ * phrase most of the time, with short pauses and a higher floor, so a glance finds speech.
+ */
+function loudness(tau: number, voice: number, talkative = false): number {
+  const noise = simplex2(tau * 0.3, 11.7 + voice * 17.3);
+  const phrase = talkative ? smoothstep(-0.85, -0.45, noise) : smoothstep(-0.4, 0.15, noise);
   const syllable = 0.5 + 0.5 * simplex2(tau * 2.2, 3.1 + voice * 29.1);
-  return phrase * (0.4 + 0.6 * syllable);
+  return phrase * (talkative ? 0.55 + 0.45 * syllable : 0.4 + 0.6 * syllable);
 }
 
 /** One lane's voice: where along the row its sound starts (0..1), and which speaker. */
 export interface Lane {
   origin: number;
   voice: number;
+  /** Speech most of the time (`loudness`). */
+  talkative?: boolean;
 }
 
 const CENTRE_LANE: Lane = { origin: 0.5, voice: 0 };
@@ -138,9 +145,12 @@ export function voiceWaveFrame(
     const taper = Math.pow(Math.sin(Math.PI * u), 0.3);
     // A little grain per column keeps the two sides from being exact mirror images.
     const grain = 0.12 * simplex2(u * 9, timeS * 0.9 + lane.voice * 7.7);
-    amp[x] = clamp01(
-      (loudness(timeS - fromOrigin * TRAVEL_S, lane.voice) + grain) * decay * taper,
+    const level = clamp01(
+      (loudness(timeS - fromOrigin * TRAVEL_S, lane.voice, lane.talkative) + grain) * decay * taper,
     );
+    // A band is a few rows tall, so its swing is opened out: a syllable reaches near the
+    // band's edges instead of staying a thin line through its middle.
+    amp[x] = lane.talkative ? Math.pow(level, 0.55) : level;
   }
 
   const lines: string[] = [];
@@ -175,10 +185,12 @@ export function voiceField(
   cols: number,
   rows: number,
   timeS: number,
+  options: { band?: boolean } = {},
 ): { lines: string[]; centres: number[] } {
   const w = Math.max(0, Math.floor(cols));
   const h = Math.max(0, Math.floor(rows));
   if (w === 0 || h === 0) return { lines: [], centres: [] };
+  if (options.band) return voiceBand(w, h, timeS);
 
   const pitch = LANE_ROWS + LANE_GAP;
   const lanes = Math.max(1, Math.floor((h + LANE_GAP) / pitch));
@@ -199,6 +211,21 @@ export function voiceField(
     centres.push(start + (laneRows - 1) / 2);
   }
   return { lines, centres };
+}
+
+/**
+ * A short band (`VoiceWave contained`): ONE talkative lane as tall as the band (odd, so the
+ * centre line is a row), centred, rather than the field's 11-row lanes that leave a short
+ * band mostly empty.
+ */
+function voiceBand(w: number, h: number, timeS: number): { lines: string[]; centres: number[] } {
+  const laneRows = h % 2 === 1 ? h : Math.max(1, h - 1);
+  const top = Math.floor((h - laneRows) / 2);
+  const lines = Array.from({ length: h }, () => " ".repeat(w));
+  voiceWaveFrame(w, laneRows, timeS, { origin: 0.5, voice: 2, talkative: true }).forEach((line, r) => {
+    lines[top + r] = line;
+  });
+  return { lines, centres: [top + (laneRows - 1) / 2] };
 }
 
 /** Where each ramp character is inked: 0 faint, 1 mid, 2 full. Index by ramp position. */

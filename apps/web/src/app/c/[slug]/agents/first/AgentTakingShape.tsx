@@ -9,20 +9,23 @@ import { TEXT_ACTION } from "@/components/console/section";
 import { VoicePreviewButton } from "@/components/voicePreviewButton";
 import type { Agent } from "@/lib/api/agents";
 import { useEngineCatalogue } from "@/lib/api/engineCatalogue";
-import type { FirstRunJob } from "@/lib/api/firstRun";
+import type { FirstRunDocument, FirstRunJob } from "@/lib/api/firstRun";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
+import { useKnows } from "@/lib/api/teach";
 import { CLIENT_PREVIEW_PATH } from "@/lib/api/voicePreview";
 import {
-  GREETING_MAX_CHARS,
-  charCount,
-  greetingFits,
+  documentLine,
+  jobCard,
   jobOf,
   jobsTitle,
   languageLabel,
+  sortJobs,
   type Piece,
   type PieceId,
 } from "@/lib/firstAgent";
 import { useBusinessSuggestions, useVerticalExamples } from "@/lib/useVerticalExamples";
+
+import { OpeningLine } from "./OpeningLine";
 
 /**
  * THE AGENT TAKING SHAPE (D-854, D-855): the card that fills in as each piece lands.
@@ -46,6 +49,8 @@ export function AgentTakingShape({
   loaded,
   compact = false,
   voiceNote = null,
+  documents = [],
+  openingEditable = true,
 }: {
   agent: Agent | null;
   jobs: readonly FirstRunJob[];
@@ -57,10 +62,17 @@ export function AgentTakingShape({
   compact?: boolean;
   /** Why the build chose this voice when it is not a woman's Studio voice (`voicePickNote`). */
   voiceNote?: string | null;
+  /** The files added on the brief step (D-918). */
+  documents?: readonly FirstRunDocument[];
+  /** False while the step itself shows the opening line with its Edit button, so the
+   *  screen has one editor, not two. */
+  openingEditable?: boolean;
 }) {
   const fresh = useFreshlyDone(pieces, loaded);
   const title = agent?.name ?? null;
-  const subtitle = jobsTitle(jobs) ?? (agent ? jobOf(agent) : null);
+  // The open card lists the jobs in their own row, so its header names only the language;
+  // the closed phone line has no rows, so it says the job too.
+  const subtitle = compact ? (jobsTitle(jobs) ?? (agent ? jobOf(agent) : null)) : null;
 
   const header = (
     <div className="flex min-w-0 items-center gap-3">
@@ -68,8 +80,8 @@ export function AgentTakingShape({
       <div className="min-w-0 flex-1">
         <p className="break-words text-heading text-ink">{title ?? <span className="text-ink-faint">Your agent</span>}</p>
         <p className="text-pretty break-words text-meta text-ink-muted">
-          {subtitle ?? "Its job appears here first"}
-          {language ? ` · ${languageLabel(language)}` : ""}
+          {[subtitle, language ? languageLabel(language) : null].filter(Boolean).join(" · ") ||
+            "Its job appears here first"}
         </p>
       </div>
     </div>
@@ -81,11 +93,23 @@ export function AgentTakingShape({
         <Row id="voice" title="Voice" pieces={pieces} fresh={fresh}>
           <VoiceLine agent={agent} note={voiceNote} />
         </Row>
-        <Row id="greeting" title="How it greets" pieces={pieces} fresh={fresh}>
-          <GreetingLine line={agent?.script_opening_line ?? null} />
+        <Row id="greeting" title="Opening line" pieces={pieces} fresh={fresh}>
+          {agent ? (
+            <OpeningLine
+              agent={agent}
+              lang={language ?? agent.language_primary}
+              label="Says first"
+              editable={openingEditable}
+            />
+          ) : (
+            <p className="text-meta text-ink-faint">Written when it is built.</p>
+          )}
         </Row>
-        <Row id="about" title="What it knows about you" pieces={pieces} fresh={fresh}>
-          <BriefLine brief={brief} />
+        <Row id="job" title={jobs.length > 1 ? "Its jobs" : "Its job"} pieces={pieces} fresh={fresh}>
+          <JobsLine jobs={jobs} />
+        </Row>
+        <Row id="about" title="What it knows" pieces={pieces} fresh={fresh}>
+          <KnowsLine brief={brief} documents={documents} />
         </Row>
         <Row id="notes" title="What it notes down" pieces={pieces} fresh={fresh}>
           <NotesLine agent={agent} />
@@ -130,7 +154,7 @@ export function AgentTakingShape({
 }
 
 /** The first letter of the agent's name in a circle, or a dotted ring before it has one. */
-function Monogram({ name }: { name: string | null }) {
+export function Monogram({ name }: { name: string | null }) {
   const initial = name ? Array.from(name.trim())[0]?.toUpperCase() : undefined;
   return (
     <span
@@ -195,7 +219,7 @@ function Example({ children }: { children: ReactNode }) {
   );
 }
 
-function VoiceLine({ agent, note }: { agent: Agent | null; note: string | null }) {
+export function VoiceLine({ agent, note }: { agent: Agent | null; note: string | null }) {
   const session = useClientSession();
   const { href } = useClientRealm();
   const catalogue = useEngineCatalogue(session);
@@ -235,33 +259,66 @@ function VoiceLine({ agent, note }: { agent: Agent | null; note: string | null }
   );
 }
 
-function GreetingLine({ line }: { line: string | null }) {
-  const text = (line ?? "").trim();
-  if (text === "") return <p className="text-meta text-ink-faint">It says this first, on every call.</p>;
-  const count = charCount(text);
-  const over = count > GREETING_MAX_CHARS;
+function JobsLine({ jobs }: { jobs: readonly FirstRunJob[] }) {
+  const cards = sortJobs(jobs)
+    .map((job) => jobCard(job))
+    .filter((card) => card !== null);
+  if (cards.length === 0) return <p className="text-meta text-ink-faint">Chosen in the first step.</p>;
   return (
-    <div className="space-y-1">
-      <blockquote className="break-words border-l-2 border-line pl-3 text-body text-ink">{text}</blockquote>
-      <p className={`text-meta tabular-nums ${over ? "text-warn" : "text-ink-faint"}`}>
-        {count} of {GREETING_MAX_CHARS} characters
-        {over ? " · shorter is easier to listen to" : greetingFits(text) ? "" : " · end it with a question"}
-      </p>
-    </div>
+    <ul className="space-y-1">
+      {cards.map((card) => (
+        <li key={card.job} className="flex items-center gap-2 text-body text-ink">
+          <card.icon aria-hidden className="h-4 w-4 shrink-0 text-ink-muted" />
+          {card.title}
+        </li>
+      ))}
+    </ul>
   );
 }
 
-/** How much of the brief the card shows: enough to recognise it, not to reread it. */
-const BRIEF_PREVIEW_CHARS = 160;
+/** How many of the brief step's files the card names. */
+const DOCUMENTS_SHOWN = 3;
 
-function BriefLine({ brief }: { brief: string | null }) {
+/**
+ * What it knows: the owner's description, the files added on the brief step, and how much
+ * else the knowledge base holds. Every agent of the business knows the same (D-689).
+ */
+function KnowsLine({ brief, documents }: { brief: string | null; documents: readonly FirstRunDocument[] }) {
+  const session = useClientSession();
+  const { href } = useClientRealm();
   const examples = useVerticalExamples();
-  const text = (brief ?? "").trim();
-  if (text === "") return <Example>{examples.scriptBrief}</Example>;
-  const chars = Array.from(text);
-  const shown =
-    chars.length > BRIEF_PREVIEW_CHARS ? `${chars.slice(0, BRIEF_PREVIEW_CHARS).join("").trimEnd()}…` : text;
-  return <p className="break-words text-meta text-ink">{shown}</p>;
+  const knows = useKnows(session);
+  const described = Boolean((brief ?? "").trim());
+  // How much else Knowledge holds is said only once the read has answered: while it is in
+  // flight nothing is claimed, and a failed read says so rather than reading as none.
+  let more: ReactNode = null;
+  if (knows.isError) {
+    more = <p className="text-meta text-ink-muted">Couldn&apos;t check the rest of Knowledge.</p>;
+  } else if (!knows.isPending) {
+    const added = new Set(documents.map((document) => document.name));
+    const extra = knows.data.items.filter((item) => !added.has(item.name)).length + knows.data.facts.length;
+    if (extra > 0)
+      more = (
+        <Link href={href(`/c/${session.orgSlug}/knowledge`)} className={TEXT_ACTION}>
+          {extra} more in Knowledge
+        </Link>
+      );
+  }
+  if (!described && documents.length === 0 && more === null) return <Example>{examples.scriptBrief}</Example>;
+  return (
+    <div className="space-y-1">
+      <ul className="space-y-1 text-meta text-ink">
+        {described ? <li>Your description</li> : null}
+        {documents.slice(0, DOCUMENTS_SHOWN).map((document) => (
+          <li key={document.upload_id} className="break-words">
+            {document.name}
+            <span className="text-ink-muted"> · {documentLine(document)}</span>
+          </li>
+        ))}
+      </ul>
+      {more}
+    </div>
+  );
 }
 
 function NotesLine({ agent }: { agent: Agent | null }) {

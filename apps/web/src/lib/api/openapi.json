@@ -6865,6 +6865,11 @@
       "BuildStepOut": {
         "additionalProperties": false,
         "properties": {
+          "documents_used": {
+            "default": 0,
+            "title": "Documents Used",
+            "type": "integer"
+          },
           "fallback": {
             "anyOf": [
               {
@@ -6892,6 +6897,13 @@
               }
             ],
             "title": "Label"
+          },
+          "left_out": {
+            "items": {
+              "$ref": "#/components/schemas/LeftOutOut"
+            },
+            "title": "Left Out",
+            "type": "array"
           },
           "not_female": {
             "default": false,
@@ -19504,6 +19516,74 @@
         "title": "DncEntryOut",
         "type": "object"
       },
+      "DocumentIn": {
+        "additionalProperties": false,
+        "properties": {
+          "upload_id": {
+            "format": "uuid",
+            "title": "Upload Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "upload_id"
+        ],
+        "title": "DocumentIn",
+        "type": "object"
+      },
+      "DocumentOut": {
+        "additionalProperties": false,
+        "description": "One document added on the brief step: a knowledge upload, as the run reads it.",
+        "properties": {
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "reaches_agents": {
+            "title": "Reaches Agents",
+            "type": "boolean"
+          },
+          "source_kind": {
+            "title": "Source Kind",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "reading",
+              "read",
+              "failed"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "upload_id": {
+            "format": "uuid",
+            "title": "Upload Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "upload_id",
+          "name",
+          "source_kind",
+          "state",
+          "detail",
+          "reaches_agents"
+        ],
+        "title": "DocumentOut",
+        "type": "object"
+      },
       "DownloadOut": {
         "additionalProperties": false,
         "description": "A short-lived link to the client's own file, for the person reviewing it.",
@@ -22860,6 +22940,19 @@
             ],
             "title": "Dismissed At"
           },
+          "documents": {
+            "items": {
+              "$ref": "#/components/schemas/DocumentOut"
+            },
+            "title": "Documents",
+            "type": "array"
+          },
+          "documents_left": {
+            "maximum": 3.0,
+            "minimum": 0.0,
+            "title": "Documents Left",
+            "type": "integer"
+          },
           "due": {
             "title": "Due",
             "type": "boolean"
@@ -22922,6 +23015,8 @@
           "language_primary",
           "languages_extra",
           "brief",
+          "documents",
+          "documents_left",
           "agent_id",
           "questions",
           "build",
@@ -30487,6 +30582,30 @@
           "payments"
         ],
         "title": "LedgerOut",
+        "type": "object"
+      },
+      "LeftOutOut": {
+        "additionalProperties": false,
+        "properties": {
+          "upload_id": {
+            "format": "uuid",
+            "title": "Upload Id",
+            "type": "string"
+          },
+          "why": {
+            "enum": [
+              "reading",
+              "failed"
+            ],
+            "title": "Why",
+            "type": "string"
+          }
+        },
+        "required": [
+          "upload_id",
+          "why"
+        ],
+        "title": "LeftOutOut",
         "type": "object"
       },
       "LegalDocumentOut": {
@@ -78835,6 +78954,86 @@
           }
         },
         "summary": "Put the first run aside for now; the dashboard still offers it",
+        "tags": [
+          "first-run"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/first-run/documents": {
+      "post": {
+        "description": "Up to 3. Upload the file with `POST /v1/kb/uploads` first: it is ordinary knowledge, read, reviewed and metered like any upload, and every agent uses it. This records that the brief step added it, so the follow-up questions and the script are written from its words too (redacted first). Refused with `first_run_documents_full` past the bound.",
+        "operationId": "post_document_v1_first_run_documents_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FirstRunOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Add a knowledge upload as one of the brief's documents",
+        "tags": [
+          "first-run"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/first-run/documents/{upload_id}": {
+      "delete": {
+        "description": "The upload stays in the knowledge base; remove it there with `DELETE /v1/kb/uploads/{upload_id}`.",
+        "operationId": "delete_document_v1_first_run_documents__upload_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "upload_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Upload Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FirstRunOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Stop using one document for the brief",
         "tags": [
           "first-run"
         ],

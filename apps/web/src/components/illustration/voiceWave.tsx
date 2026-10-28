@@ -29,6 +29,15 @@
  * gets one still frame (`STILL_TIME`), redrawn only when the viewport changes size. It is
  * `position: fixed`, so it is always in view and needs no IntersectionObserver, never takes
  * part in layout and cannot cause a sideways scroll; the grid comes from its measured size.
+ *
+ * ## Contained
+ *
+ * `contained` fills its nearest positioned parent instead of the viewport (the first run's
+ * Go live card, D-918). It is absolutely placed, so it still takes no part in layout; it
+ * has no viewport mask and nothing sits on it; it draws ONE talkative lane as tall as the
+ * band (`voiceField`'s `band`) at one fixed size;
+ * and, unlike the fixed field, it can scroll out of view, so an IntersectionObserver stops
+ * the frames while it is off screen.
  */
 
 import { useReducedMotion } from "motion/react";
@@ -41,7 +50,7 @@ const MAX_DPR = 2;
 /** Opacity of the faint, mid and full ink layers (`inkLayers`). */
 const INK_ALPHA = [0.4, 0.75, 1] as const;
 
-export function VoiceWave({ className = "" }: { className?: string }) {
+export function VoiceWave({ className = "", contained = false }: { className?: string; contained?: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const reduced = useReducedMotion() === true;
 
@@ -59,7 +68,7 @@ export function VoiceWave({ className = "" }: { className?: string }) {
     const draw = (timeS: number) => {
       if (!ctx) return;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      const { lines, centres } = voiceField(cols, rows, timeS);
+      const { lines, centres } = voiceField(cols, rows, timeS, { band: contained });
       inkLayers(lines, centres).forEach((layer, tier) => {
         if (!ctx) return;
         ctx.globalAlpha = INK_ALPHA[tier]!;
@@ -110,8 +119,10 @@ export function VoiceWave({ className = "" }: { className?: string }) {
       draw(elapsedS);
     };
 
+    // Only a contained field can leave the viewport; the fixed one is always on screen.
+    let onScreen = true;
     const sync = () => {
-      const run = !reduced && document.visibilityState === "visible";
+      const run = !reduced && document.visibilityState === "visible" && onScreen;
       if (run && frame === 0) {
         last = -1;
         frame = requestAnimationFrame(tick);
@@ -130,6 +141,14 @@ export function VoiceWave({ className = "" }: { className?: string }) {
     const resize = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(redraw);
     resize?.observe(canvas);
     document.addEventListener("visibilitychange", sync);
+    const view =
+      contained && typeof IntersectionObserver !== "undefined"
+        ? new IntersectionObserver((entries) => {
+            onScreen = entries.some((entry) => entry.isIntersecting);
+            sync();
+          })
+        : null;
+    view?.observe(canvas);
     // The mono face is a web font; the first measure may have used its fallback.
     let alive = true;
     void document.fonts?.ready.then(() => {
@@ -142,15 +161,18 @@ export function VoiceWave({ className = "" }: { className?: string }) {
       cancelAnimationFrame(frame);
       frame = 0;
       resize?.disconnect();
+      view?.disconnect();
       document.removeEventListener("visibilitychange", sync);
     };
-  }, [reduced]);
+  }, [reduced, contained]);
 
   return (
     <canvas
       ref={canvasRef}
       aria-hidden="true"
-      className={`voice-field pointer-events-none fixed inset-0 z-below block h-full w-full select-none font-mono text-[10px] text-brand-strong sm:text-xs lg:text-[13px] ${className}`}
+      className={`pointer-events-none block h-full w-full select-none font-mono text-brand-strong ${
+        contained ? "absolute inset-0 text-[12px]" : "voice-field fixed inset-0 z-below text-[10px] sm:text-xs lg:text-[13px]"
+      } ${className}`}
     />
   );
 }

@@ -30,7 +30,7 @@ import { formatCallCap } from "@/components/ui";
 import { LANGUAGE_CHOICES } from "@/lib/agentState";
 import type { Agent, AgentLanguage } from "@/lib/api/agents";
 import type { CallSummary } from "@/lib/api/client";
-import type { FirstRun, FirstRunJob } from "@/lib/api/firstRun";
+import type { FirstRun, FirstRunBuildStep, FirstRunDocument, FirstRunJob } from "@/lib/api/firstRun";
 import { lookup } from "@/lib/lookup";
 
 /** The greeting the card counts as done: short, and ending on a question that hands the turn
@@ -224,7 +224,7 @@ export function piecesOf({ run, agent, calls }: FirstAgentState): Piece[] {
     {
       id: "about",
       label: "What it knows about you",
-      done: Boolean(run?.brief?.trim()),
+      done: Boolean(run?.brief?.trim()) || (run?.documents ?? []).some((document) => document.state === "read"),
     },
     { id: "name", label: "Its name", done: has && agent.name.trim() !== "" },
     {
@@ -234,7 +234,7 @@ export function piecesOf({ run, agent, calls }: FirstAgentState): Piece[] {
     },
     {
       id: "greeting",
-      label: "How it greets",
+      label: "Its opening line",
       done: has && greetingFits(agent.script_opening_line),
     },
     {
@@ -332,6 +332,25 @@ export function trialMinutesLine(trial: {
   if (trial.max_call_seconds > 0) parts.push(`Each call stops at ${formatCallCap(trial.max_call_seconds)}.`);
   if (trial.daily_cap > 0) parts.push(`You can make ${trial.daily_cap} a day (${trial.calls_today} today).`);
   return parts.join(" ");
+}
+
+/**
+ * A brief-step file's state in a few words (D-918). Whether its words reach the agents on
+ * calls is the server's answer per file (`reaches_agents`): a PDF's do not while its words
+ * are kept for the script and for reading only.
+ */
+export function documentLine(document: FirstRunDocument): string {
+  if (document.state === "reading") return "Reading it…";
+  if (document.state === "failed") return "Couldn't read this file.";
+  return document.reaches_agents ? "Read. Your agent uses it." : "Read. Not used on calls yet.";
+}
+
+/** The documents the build went on without, each in one short line by name. */
+export function leftOutLines(step: FirstRunBuildStep | undefined, documents: readonly FirstRunDocument[]): string[] {
+  return (step?.left_out ?? []).map((item) => {
+    const name = documents.find((document) => document.upload_id === item.upload_id)?.name ?? "A file";
+    return item.why === "reading" ? `Built without ${name}: still reading it.` : `Built without ${name}: couldn't read it.`;
+  });
 }
 
 /** Pip's first line in an empty chat on this screen. */

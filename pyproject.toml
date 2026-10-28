@@ -129,6 +129,7 @@ source_modules = [
     "apps.api.copilot",
     "apps.api.crm",
     "apps.api.db",
+    "apps.api.first_run",
     "apps.api.flags",
     "apps.api.forwarding",
     "apps.api.go_live",

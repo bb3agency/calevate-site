@@ -13,6 +13,7 @@ from uuid import UUID
 
 from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from apps.api.db.base import Base, PKMixin, TimestampMixin
@@ -50,6 +51,16 @@ MAX_BUILD_RUNS: Final = 3
 #: The four questions at most that follow the brief (D-863).
 MAX_QUESTIONS: Final = 4
 
+#: Documents the owner may add beside the brief (D-918). Three, the bound the spoken brief
+#: already has: enough for a price list, a menu and a brochure, and with the
+#: `DOCUMENT_CHARS` budget split between them each still keeps a readable share.
+MAX_DOCUMENTS: Final = 3
+#: The documents' read text the question and script writers are given, in characters, all
+#: documents together and after redaction. With the brief's own `MAX_BRIEF_CHARS` it makes
+#: 9000, `workers/business_copy.MAX_INPUT_CHARS`: the largest owner-authored description
+#: this same assist ladder is already sent.
+DOCUMENT_CHARS: Final = 5000
+
 #: One agent does every job picked, so at most all three (D-863).
 MAX_JOBS: Final = len(FIRST_RUN_JOBS)
 
@@ -78,6 +89,9 @@ class FirstRun(PKMixin, TimestampMixin, Base):
             f"brief IS NULL OR char_length(brief) <= {MAX_BRIEF_CHARS}", name="brief_length"
         ),
         CheckConstraint("question_runs >= 0 AND build_runs >= 0", name="runs_not_negative"),
+        CheckConstraint(
+            f"cardinality(document_ids) <= {MAX_DOCUMENTS}", name="document_ids_bounded"
+        ),
     )
 
     tenant_id: Mapped[UUID] = mapped_column(
@@ -94,6 +108,13 @@ class FirstRun(PKMixin, TimestampMixin, Base):
     )
     #: The owner's own description of the agent's work, typed or spoken.
     brief: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: The knowledge uploads (`kb_uploads.id`) the owner added on the brief step, in the
+    #: order added (D-918). Ids, not a foreign key: a document removed on the knowledge
+    #: screen leaves its id here, and every read joins `kb_uploads` under RLS, so it simply
+    #: stops being one of the run's documents.
+    document_ids: Mapped[list[UUID]] = mapped_column(
+        ARRAY(PgUUID(as_uuid=True)), nullable=False, server_default="{}"
+    )
     agent_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("agents.id", ondelete="SET NULL"), nullable=True
     )
@@ -155,9 +176,11 @@ class FirstRunRecording(PKMixin, TimestampMixin, Base):
 __all__ = [
     "BUILD_STATES",
     "BUILD_STEPS",
+    "DOCUMENT_CHARS",
     "FIRST_RUN_JOBS",
     "MAX_BRIEF_CHARS",
     "MAX_BUILD_RUNS",
+    "MAX_DOCUMENTS",
     "MAX_JOBS",
     "MAX_QUESTIONS",
     "MAX_QUESTION_RUNS",

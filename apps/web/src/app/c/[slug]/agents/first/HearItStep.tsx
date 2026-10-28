@@ -28,6 +28,7 @@ import { callIntroFor, trialMinutesLine } from "@/lib/firstAgent";
 import { lookup } from "@/lib/lookup";
 
 import { CallStage, limitIcon, type CallPhase } from "./LiveStage";
+import { OpeningLine } from "./OpeningLine";
 import { StepScreen, TickRow } from "./shell";
 import { FIRST } from "../../setup/_ui/copy";
 
@@ -92,6 +93,7 @@ export function HearItStep({
         hint={FIRST.hearHint}
         onBack={onBack}
       >
+        <OpeningLine agent={agent} lang={agent.language_primary} />
         <Link href={href(`/c/${session.orgSlug}/agents/${agent.id}?section=training`)} className={PRIMARY_BUTTON}>
           <MessageCircle aria-hidden className="h-4 w-4" />
           Try it in the chat
@@ -307,6 +309,8 @@ function CallYou({
           reason={readiness.data.can_accept_reason ?? "Only the account's owner can accept its agreements."}
         />
       ) : null}
+
+      <OpeningLine agent={agent} lang={agent.language_primary} />
 
       <div>
         <label htmlFor={numberId} className="text-heading text-ink">

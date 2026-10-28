@@ -38,8 +38,10 @@ from apps.api.agents.lifecycle import update_agent
 from apps.api.agents.script_builder import load_agent_script, rewrite_script
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
+from apps.api.first_run.documents import Document, read_documents
 from apps.api.first_run.models import (
     MAX_BUILD_RUNS,
+    MAX_DOCUMENTS,
     MAX_QUESTION_RUNS,
     MAX_QUESTIONS,
     MAX_RECORDINGS,
@@ -68,7 +70,8 @@ MAIN_BRANCH_LABEL: Final = "Main branch"
 MAX_ADDRESS_CHARS: Final = 400
 
 _COLUMNS: Final = (
-    "id, jobs, language_primary, languages_extra, brief, agent_id, questions_status, "
+    "id, jobs, language_primary, languages_extra, brief, document_ids, agent_id, "
+    "questions_status, "
     "questions, answers, questions_disclosure, question_runs, build_status, build_steps, "
     "build_disclosure, build_runs, build_requested_at, finished_at, dismissed_at"
 )
@@ -95,10 +98,18 @@ class RunState:
     dismissed_at: datetime | None
     recordings_used: int = 0
     due: bool = False
+    #: The documents added on the brief step that are still knowledge uploads (D-918).
+    documents: tuple[Document, ...] = ()
 
 
-def brief_hash(brief: str) -> str:
-    return hashlib.sha256(" ".join(brief.split()).casefold().encode()).hexdigest()
+def brief_hash(brief: str, document_ids: Sequence[UUID] = ()) -> str:
+    """What the follow-up questions were written from: the brief, and the documents beside
+    it, so adding or removing one asks again. A run with no documents keeps the hash it
+    had before D-918."""
+    words = " ".join(brief.split()).casefold()
+    if document_ids:
+        words += "\n" + ",".join(str(i) for i in document_ids)
+    return hashlib.sha256(words.encode()).hexdigest()
 
 
 #: A build still `building` after this long is reported as failed, so the owner can try again.
@@ -115,7 +126,14 @@ def _build_status(row: Any, *, now: datetime | None = None) -> str:
     return "failed" if status == "building" and stale else status
 
 
-def _state(row: Any, *, recordings_used: int, due: bool, vertical: str | None) -> RunState:
+def _state(
+    row: Any,
+    *,
+    recordings_used: int,
+    due: bool,
+    vertical: str | None,
+    documents: Sequence[Document] = (),
+) -> RunState:
     return RunState(
         id=row.id,
         jobs=list(row.jobs or []),
@@ -135,6 +153,7 @@ def _state(row: Any, *, recordings_used: int, due: bool, vertical: str | None) -
         dismissed_at=row.dismissed_at,
         recordings_used=recordings_used,
         due=due,
+        documents=tuple(documents),
     )
 
 
@@ -229,6 +248,7 @@ async def read_state(session: AsyncSession, *, tenant_id: UUID) -> RunState:
         recordings_used=await _recordings_used(session, row.id),
         due=due,
         vertical=await _vertical(session),
+        documents=await read_documents(session, list(row.document_ids or [])),
     )
 
 
@@ -293,7 +313,8 @@ async def save_brief(session: AsyncSession, *, tenant_id: UUID, brief: str) -> R
     """
     row = await _ensure(session, tenant_id=tenant_id)
     cleaned = brief.strip()
-    digest = brief_hash(cleaned) if cleaned else None
+    documents = [d.upload_id for d in await read_documents(session, list(row.document_ids or []))]
+    digest = brief_hash(cleaned, documents) if cleaned or documents else None
     await session.execute(
         text("UPDATE first_runs SET brief = :brief, updated_at = now() WHERE id = :id"),
         {"id": row.id, "brief": cleaned or None},
@@ -305,7 +326,9 @@ async def save_brief(session: AsyncSession, *, tenant_id: UUID, brief: str) -> R
     ).scalar()
     if digest is not None and digest == current and row.questions_status in ("writing", "ready"):
         return await read_state(session, tenant_id=tenant_id)
-    use_model = len(cleaned) >= MIN_BRIEF_CHARS and int(row.question_runs) < MAX_QUESTION_RUNS
+    # A document is something to read even with the box left empty (D-918).
+    readable = len(cleaned) >= MIN_BRIEF_CHARS or bool(documents)
+    use_model = readable and int(row.question_runs) < MAX_QUESTION_RUNS
     if use_model:
         await session.execute(
             text(
@@ -366,6 +389,57 @@ async def store_questions(
         )
     ).first()
     return stored is not None
+
+
+# ---------------------------------------------------------------------- the documents
+
+
+async def add_document(session: AsyncSession, *, tenant_id: UUID, upload_id: UUID) -> RunState:
+    """Make one knowledge upload a document of this run (D-918). The upload itself was made
+    through `POST /v1/kb/uploads`; this records only that the brief step added it.
+
+    An id already listed is a repeat and changes nothing. Ids whose upload has since been
+    removed are dropped here, so they do not hold a place."""
+    row = await _ensure(session, tenant_id=tenant_id)
+    visible = (
+        await session.execute(text("SELECT 1 FROM kb_uploads WHERE id = :id"), {"id": upload_id})
+    ).first()
+    if visible is None:
+        raise ProblemError.not_found("Knowledge upload")
+    held = [d.upload_id for d in await read_documents(session, list(row.document_ids or []))]
+    if upload_id not in held:
+        if len(held) >= MAX_DOCUMENTS:
+            raise ProblemError.business_rule(
+                "first_run_documents_full",
+                f"You have added {MAX_DOCUMENTS} files, the most this step takes.",
+                remediation="Remove one to add another, or add more under Knowledge later.",
+            )
+        held.append(upload_id)
+    await session.execute(
+        text(
+            "UPDATE first_runs SET document_ids = CAST(:ids AS uuid[]), updated_at = now() "
+            "WHERE id = :id"
+        ),
+        {"id": row.id, "ids": [str(i) for i in held]},
+    )
+    return await read_state(session, tenant_id=tenant_id)
+
+
+async def remove_document(session: AsyncSession, *, tenant_id: UUID, upload_id: UUID) -> RunState:
+    """Stop using one document for the brief. The upload stays in the knowledge base, where
+    it is removed like any other; this run only stops reading it. An id that is not one of
+    the run's documents is 404, the answer a neighbour's id gets too."""
+    row = await _ensure(session, tenant_id=tenant_id)
+    if upload_id not in list(row.document_ids or []):
+        raise ProblemError.not_found("Knowledge upload")
+    await session.execute(
+        text(
+            "UPDATE first_runs SET document_ids = array_remove(document_ids, CAST(:uid AS uuid)), "
+            "updated_at = now() WHERE id = :id"
+        ),
+        {"id": row.id, "uid": str(upload_id)},
+    )
+    return await read_state(session, tenant_id=tenant_id)
 
 
 # ---------------------------------------------------------------------- the spoken brief
@@ -790,6 +864,7 @@ __all__ = [
     "OpenHours",
     "Recording",
     "RunState",
+    "add_document",
     "answer_questions",
     "answers_for_script",
     "brief_hash",
@@ -797,6 +872,7 @@ __all__ = [
     "mark",
     "read_recording",
     "read_state",
+    "remove_document",
     "rename_agent",
     "request_build",
     "save_answers",
