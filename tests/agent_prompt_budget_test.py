@@ -219,8 +219,11 @@ def test_a_guided_call_with_step_by_step_lists_fits_with_margin() -> None:
 #: a one-line close with no recap, paid for by "then ask the next thing", "each turn begun
 #: differently" and shorter clauses. The who-is-calling rule for outbound agents is in START
 #: OF THE CALL, which these agents (no opening line) do not carry.
-PER_CALL_MAX = 7_294
-PER_CALL_ONE_LANGUAGE_MAX = 6_419
+#: D-921 (28 Oct 2026) RAISED both by 20: the voice pauses only at a mark, so a comma every few
+#: words, "?" on every question and a full stop on the rest (the founder heard a call as
+#: unpunctuated).
+PER_CALL_MAX = 7_314
+PER_CALL_ONE_LANGUAGE_MAX = 6_439
 
 
 def _platform_only(languages_extra: list[str]) -> AgentConfig:

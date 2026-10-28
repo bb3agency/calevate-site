@@ -146,9 +146,10 @@ MIN_COUNTED_WORDS: Final = 3
 #: The most words a reply may run without a comma or a sentence end (D-861). Cartesia paces
 #: speech by its punctuation (docs.cartesia.ai sonic-3 prompting tips, 23 Oct 2026, REPORTED),
 #: so a long unmarked run is said in one breath. Our own example turns run two to six words between
-#: marks; 14 is more than two such clauses back to back, so a turn written the way they are
-#: never reaches it. A choice of ours, not a measured threshold.
-BREATH_MAX_WORDS: Final = 14
+#: marks. 14 let a 12-word Telugu run through on the founder's call of 28 Oct 2026 and he heard
+#: the call as unpunctuated; 10 still passes a plain nine-word English sentence. A choice of
+#: ours, not a measured threshold.
+BREATH_MAX_WORDS: Final = 10
 #: What counts as a place to breathe.
 _BREATH_MARK: Final = re.compile(r"[,.!?;:।]")
 _QUOTE_MAX: Final = 80

@@ -320,7 +320,7 @@ TRADE_WORDS: Final[Mapping[str, TradeWords]] = {
         lead_offer=_said(
             "ఈ వారంలో మార్నింగ్ కుదురుతుందా, ఈవెనింగ్ కుదురుతుందా అండి?",
             "इस हफ़्ते मॉर्निंग ठीक रहेगा या ईवनिंग?",
-            "Would a morning or an evening this week work for you?",
+            "This week, would a morning or an evening work for you?",
         ),
         objection=(
             "Can you tell me what medicine to take?",
@@ -382,8 +382,8 @@ TRADE_WORDS: Final[Mapping[str, TradeWords]] = {
         ),
         offer=_said(
             "అడ్వైజర్ తో మాట్లాడటానికి ఈ రోజు కుదురుతుందా, రేపు కుదురుతుందా అండి?",
-            "एडवाइज़र से बात करने के लिए आज ठीक रहेगा या कल?",
-            "Would today or tomorrow suit you for a talk with an advisor?",
+            "एडवाइज़र से बात करने के लिए, आज ठीक रहेगा या कल?",
+            "For a talk with an advisor, would today or tomorrow suit you?",
         ),
         reason_line=_said(
             "మీరు ఇంతకు ముందు పాలసీ గురించి అడిగారు కదా, ఇంకా చూస్తున్నారా అండి?",
@@ -397,7 +397,7 @@ TRADE_WORDS: Final[Mapping[str, TradeWords]] = {
         ),
         lead_offer=_said(
             "అడ్వైజర్ తో మాట్లాడటానికి ఏ రోజు కుదురుతుంది అండి, ఈ రోజా రేపా?",
-            "एडवाइज़र से बात करने के लिए कौन सा दिन ठीक रहेगा, आज या कल?",
+            "एडवाइज़र से बात करने के लिए, कौन सा दिन ठीक रहेगा, आज या कल?",
             "Which day suits you to talk to an advisor, today or tomorrow?",
         ),
         objection=(
@@ -421,7 +421,7 @@ TRADE_WORDS: Final[Mapping[str, TradeWords]] = {
         offer=_said(
             "డెమో క్లాస్ కి వీక్ డే కుదురుతుందా, వీకెండ్ కుదురుతుందా అండి?",
             "डेमो क्लास के लिए वीकडे ठीक रहेगा या वीकेंड?",
-            "Would a weekday or a weekend suit you for a demo class?",
+            "For a demo class, would a weekday or a weekend suit you?",
         ),
         reason_line=_said(
             "మీరు ఇంతకు ముందు అడ్మిషన్ గురించి ఎంక్వైరీ చేశారు కదా, ఇంకా ఆలోచిస్తున్నారా అండి?",
@@ -435,7 +435,7 @@ TRADE_WORDS: Final[Mapping[str, TradeWords]] = {
         ),
         lead_offer=_said(
             "కౌన్సెలింగ్ సెషన్ కి ఈ వారం ఏ రోజు కుదురుతుంది అండి?",
-            "काउंसलिंग सेशन के लिए इस हफ़्ते कौन सा दिन ठीक रहेगा?",
+            "काउंसलिंग सेशन के लिए, इस हफ़्ते कौन सा दिन ठीक रहेगा?",
             "Which day this week suits you for a counselling session?",
         ),
         objection=(

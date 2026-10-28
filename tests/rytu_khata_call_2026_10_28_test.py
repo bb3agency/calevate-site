@@ -17,7 +17,7 @@ from apps.api.agents.engine_limits import refuse_opening_over_limit
 from apps.api.agents.prompt_size import SCRIPT_SECTION_LABELS
 from apps.api.agents.service import dial_first_words
 from apps.api.agents.test_conversations import Turn
-from apps.api.agents.turn_checks import conversation_problems
+from apps.api.agents.turn_checks import conversation_problems, turn_problems
 from apps.api.core.errors import ProblemError
 from apps.api.engine.thinnest import BASE_URL, ThinnestEngine
 from apps.workers.script_assist import UnusableAnswerError, drafted_script, language_problems
@@ -240,3 +240,12 @@ def test_the_script_writer_keeps_an_outbound_opening_only_for_a_both_agent() -> 
     # And held to the opening's length rule.
     long_line = CallScript(schema_version=2, outbound_opening_line="ఇ " * 200)
     assert any(p.startswith("outbound_opening_line") for p in language_problems(long_line, "te-IN"))
+
+
+def test_a_twelve_word_run_without_a_mark_fails_the_breath_check() -> None:
+    """D-921: the founder heard the 6:02 pm call as unpunctuated. Its longest run between marks
+    was this twelve-word Play Store line, which the old fourteen-word limit let through."""
+    run_on = "సరే అండి, ప్లే స్టోర్ ఓపెన్ చేసి అందులో Rytu Khata అని సెర్చ్ చేస్తే మీకు యాప్ కనిపిస్తుంది."
+    marked = "సరే అండి, ప్లే స్టోర్ ఓపెన్ చేయండి. Rytu Khata అని సెర్చ్ చేస్తే, యాప్ కనిపిస్తుంది."
+    assert "no_breath" in [p.kind for p in turn_problems(run_on, language="te-IN")]
+    assert "no_breath" not in [p.kind for p in turn_problems(marked, language="te-IN")]

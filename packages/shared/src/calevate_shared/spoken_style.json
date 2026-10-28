@@ -715,7 +715,7 @@
         },
         {
           "id": "breath",
-          "text": "A comma where you would take a breath: \"సరే అండి, ఒక్క నిమిషం.\""
+          "text": "A comma every few words, after an opener and wherever you would take a breath: \"సరే అండి, ఒక్క నిమిషం.\" The voice pauses only at a mark."
         },
         {
           "id": "question",
@@ -1182,7 +1182,7 @@
       "punctuation": [
         {
           "id": "short",
-          "text": "Short sentences, one idea each, a comma where you would take a breath."
+          "text": "Short sentences, one idea each, a comma every few words and after an opener. The voice pauses only at a mark."
         },
         {
           "id": "question",

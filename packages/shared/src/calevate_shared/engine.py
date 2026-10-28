@@ -2911,6 +2911,10 @@ _REGISTER_BULLET: Final = (
 #:   sounds.md, 19 Oct 2026 snapshot), which is what "go on shorter" asks.
 #: - The close read back four details, the team's promise and a question in one turn; the
 #:   close is now one line, no recap.
+#: D-921, from the founder's Rytu Khata call of 28 Oct 2026: he heard the whole call as
+#: unpunctuated, with runs of up to 12 words between marks. "A comma where you breathe" left
+#: the spacing to the model; the bullet now says why a mark matters and asks for one every
+#: few words, and the practice check (`turn_checks.BREATH_MAX_WORDS`) fails a run past 10.
 #: Paid for by "then ask the next thing" (the one-question bullet already asks) and "each
 #: turn begun differently" (the reaction is how a turn begins, and the bullet before says
 #: never the same way twice).
@@ -2937,7 +2941,8 @@ VOICE_STYLE_GUIDANCE: Final = (
     "- Unsure or not interested? Offer once, then close politely.\n"
     "- Talked over? Stop, answer, go on shorter. Too fast or hard to follow? Sorry once, "
     "no promise, go on where you were, shorter.\n"
-    '- Write for a voice: a comma where you breathe, "?" on every question. No markdown, '
+    '- The voice pauses only at a mark: a comma every few words, "?" on every question, a '
+    "full stop on the rest. No markdown, "
     "emoji, brackets, dashes, slashes, ellipses, lists, links, actions or notes; never say the "
     "time now.\n"
     f"{_DEFAULT_AMOUNTS}"
