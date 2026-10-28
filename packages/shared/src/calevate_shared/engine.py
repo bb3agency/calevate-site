@@ -3977,8 +3977,9 @@ REPLY_TOKENS_DEFAULT: Final = 300
 #: `snapshots/2026-10-19/pages/api-reference/agents/update-agent.md:1418-1439`): `timer`, a
 #: stretch of silence (`turnSilenceSeconds`) after the recogniser's final words; `ear`,
 #: real-time recognition that "waits through a pause mid-thought" and costs nothing extra,
-#: falling back to `timer` where it is not available (`channels/voice.md:931-976`), and does
-#: not read `turnSilenceSeconds` (ThinnestAI email of 27 Oct 2026, VENDOR-STATED); `smart`, a
+#: falling back to `timer` where it is not available (`channels/voice.md:931-976`), and reads
+#: `turnSilenceSeconds` as its end-of-speech silence, floor 0.2 s (ThinnestAI email of
+#: 28 Oct 2026, VENDOR-STATED, `docs/vendor/thinnest-replies-2026-10-12.md` §39); `smart`, a
 #: model that makes the silence a ceiling. Held here because the setting and `AgentConfig`
 #: share it.
 TurnDetection = Literal["timer", "ear", "smart"]
@@ -6490,9 +6491,10 @@ class VoiceEngine(Protocol):
     async def get_call_timeline(self, call_id: str) -> CallTimeline | None:
         """Where the time went in each turn of one call (D-902), or None when the engine
         holds no timeline for it: not written yet, never recorded for that kind of call, or
-        a call from before the engine kept one. The engine does not tell those apart, so a
-        caller that expects one retries rather than reading None as final. An id the engine
-        never placed is refused, as `get_execution` refuses it."""
+        a call from before the engine kept one. This answer does not tell those apart; the
+        call's report does (`ExecutionSnapshot.quality.turns` set means the timeline is final,
+        ThinnestAI 28 Oct 2026), which `workers/call_timeline` reads before retrying. An id
+        the engine never placed is refused, as `get_execution` refuses it."""
         ...
 
     async def list_executions(self, *, since: datetime) -> ExecutionListing:

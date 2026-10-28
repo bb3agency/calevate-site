@@ -336,7 +336,7 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "thinnest",
         "How agents know the caller has finished",
         "Silence: the Call handling pause after the caller's last words ends the turn. Ear: "
-        "live listening ends it and the pause is not used.",
+        "live listening ends it, after that same pause.",
         _THINNEST,
     ),
     "thinnest_timer_turn_silence_ms": _m(
@@ -1341,7 +1341,7 @@ CONTROL_HINTS: Final[dict[str, ControlHint]] = {
     "thinnest_turn_detection": ControlHint(
         options=(
             OptionLabel("timer", "Silence", "The pause set in Call handling ends the turn."),
-            OptionLabel("ear", "Ear", "Real-time listening ends the turn; the pause is not used."),
+            OptionLabel("ear", "Ear", "Real-time listening ends the turn after the pause."),
             OptionLabel("smart", "Smart", "A model judges; replies start later."),
         )
     ),
