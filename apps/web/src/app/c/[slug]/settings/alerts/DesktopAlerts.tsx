@@ -18,17 +18,17 @@ export function DesktopAlerts() {
   return (
     <Section
       title="On this computer"
-      description="While this console is open, show the urgent things as desktop notifications."
+      description="Pop-ups while this page is open."
     >
       <SettingRows className="border-y border-line">
         <SettingRow
           label="Desktop alerts"
           hint={
             state === "denied"
-              ? "Your browser blocks notifications for this site. Allow them in the browser's site settings to use this."
+              ? "Blocked by your browser. Allow it in site settings."
               : state === "unsupported"
-                ? "This browser cannot show desktop notifications."
-                : "Hot leads, failed calls and low credit. Everything else stays on the bell."
+                ? "This browser cannot show them."
+                : "Hot leads, failed calls, low credit."
           }
           value={state === "on" ? "On" : state === "off" ? "Off" : "Not available"}
           action={

@@ -1,7 +1,7 @@
 "use client";
 
 import { StatusPill } from "@/components/console/statusPill";
-import { MonoValue, formatIST } from "@/components/ui";
+import { Disclosure, MonoValue, formatIST } from "@/components/ui";
 import { peStatusCopy, tmLinkCopy, type PeRegistration } from "@/lib/api/dltRegistration";
 import { Term } from "@/lib/glossary";
 
@@ -34,22 +34,26 @@ export function DltDetails({ registration }: { registration: PeRegistration }) {
         </h2>
         <StatusPill tone="neutral">Not needed to make calls</StatusPill>
       </div>
-      <div className="text-sm">
-        <p className="font-semibold text-ink">{verdict}</p>
-        <p className="text-ink-muted">
-          {registration.is_active
-            ? "Kept on record. Outgoing calls do not depend on it."
-            : "Not needed for outgoing calls, which depend on your verified business and the no-cold-calls pledge. Kept here for the record."}
-        </p>
-      </div>
-      <DltStatuses registration={registration} />
-      <DltOnFile registration={registration} />
-      {/* `term="registrar"` attaches the glossary's explanation to a word already in the
-          sentence, without adding copy. */}
-      <p className="text-xs text-ink-faint">
-        We record this against the <Term id="dlt" term="registrar" /> on your behalf and
-        cannot change what it says. There is no control here that sets your own status.
-      </p>
+      <p className="text-sm font-semibold text-ink">{verdict}</p>
+      {/* Kept for the record, and outgoing calls do not depend on it (D-692), so the detail
+          is one tap away rather than a screen of statuses nobody acts on. */}
+      <Disclosure variant="inline" headingLevel={3} title="Details" showLabel="Open" hideLabel="Close">
+        <div className="space-y-3 pt-2">
+          <p className="text-sm text-ink-muted">
+            {registration.is_active
+              ? "Kept on record. Outgoing calls do not depend on it."
+              : "Not needed for outgoing calls, which depend on your verified business and the no-cold-calls pledge. Kept here for the record."}
+          </p>
+          <DltStatuses registration={registration} />
+          <DltOnFile registration={registration} />
+          {/* `term="registrar"` attaches the glossary's explanation to a word already in the
+              sentence, without adding copy. */}
+          <p className="text-xs text-ink-faint">
+            We record this against the <Term id="dlt" term="registrar" /> on your behalf and
+            cannot change what it says. There is no control here that sets your own status.
+          </p>
+        </div>
+      </Disclosure>
     </section>
   );
 }

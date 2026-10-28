@@ -1,16 +1,19 @@
 "use client";
 
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
+import Link from "next/link";
 import { useState } from "react";
 
 import { DataTable } from "@/components/console/dataTable";
 import { EmptySketch } from "@/components/console/emptySketch";
 import { EmptyState } from "@/components/console/emptyState";
+import { InfoTip } from "@/components/console/infoTip";
 import { PageHeader } from "@/components/console/pageHeader";
 import {
   NoticeBox,
   ProblemNotice,
   RestrictionNote,
+  SECONDARY_BUTTON,
   Skeleton,
   formatCount,
 } from "@/components/ui";
@@ -29,7 +32,7 @@ import {
   type Member,
   type MemberRole,
 } from "@/lib/api/members";
-import { useClientSession } from "@/lib/api/session";
+import { useClientRealm } from "@/lib/api/session";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
 
@@ -68,7 +71,7 @@ import { teamColumns, type TeamRow } from "./teamRows";
  */
 
 export function TeamScreen() {
-  const session = useClientSession();
+  const { session, href } = useClientRealm();
   const me = useMe(session);
   const members = useMembers(session);
   const invitations = usePendingInvitations(session);
@@ -309,12 +312,22 @@ export function TeamScreen() {
       {write.allowed ? <InviteInline email={email} setEmail={setEmail} role={role} setRole={setRole} /> : null}
 
       {remove.data && (
-        <NoticeBox tone="warn" title="Access removed">
+        <NoticeBox
+          tone="warn"
+          title="Access removed"
+          action={
+            remove.data.leads_still_assigned > 0 ? (
+              <Link href={href(`/c/${session.orgSlug}/leads`)} className={SECONDARY_BUTTON}>
+                Reassign leads
+              </Link>
+            ) : undefined
+          }
+        >
           {remove.data.leads_still_assigned > 0
             ? `${formatCount(remove.data.leads_still_assigned)} ${
                 remove.data.leads_still_assigned === 1 ? "lead is" : "leads are"
-              } still assigned to them. Reassign them on the Leads screen so somebody picks them up.`
-            : "They had no leads assigned, so nothing needs reassigning."}
+              } still assigned to them.`
+            : "No leads to reassign."}
         </NoticeBox>
       )}
 
@@ -326,14 +339,12 @@ export function TeamScreen() {
       ) : !people ? null : people.length === 0 ? (
         <EmptyState illustration={<EmptySketch kind="leads" />}
           className="border-y border-line"
-          message={
-            <>
-              <span className="block font-medium text-ink">Nobody is on this account yet</span>
-              <span className="mt-1 block">
-                That is unusual: an account always has at least one owner. Reload the page,
-                and tell us if it stays empty.
-              </span>
-            </>
+          message={<span className="block font-medium text-ink">Nobody is on this account yet</span>}
+          hint="Every account has an owner. Try again."
+          action={
+            <button type="button" className={SECONDARY_BUTTON} onClick={() => void members.refetch()}>
+              Try again
+            </button>
           }
         />
       ) : (
@@ -359,7 +370,7 @@ export function TeamScreen() {
 
       {roster.isError && (
         <p className="text-meta text-ink-muted">
-          We could not load your colleagues&apos; email addresses, so they are not shown.{" "}
+          Emails did not load.{" "}
           <button
             type="button"
             onClick={() => void roster.refetch()}
@@ -373,9 +384,14 @@ export function TeamScreen() {
       {/* Only from a list the server actually sent empty: over a failed read this sentence
           would tell an owner no unused key to their account exists. */}
       {pending && pending.length === 0 && (
-        <p className="text-meta text-ink-muted">
-          <span className="font-medium text-ink">No unused invites.</span> Invite links expire
-          after 72 hours and can only be used once, by the person they were sent to.
+        <p className="flex items-center gap-1 text-meta text-ink-muted">
+          <span className="font-medium text-ink">No unused invites.</span>
+          <InfoTip label="invite links" className="touch:-my-2.5">
+            <p>
+              Invite links expire after 72 hours and can only be used once, by the person
+              they were sent to.
+            </p>
+          </InfoTip>
         </p>
       )}
 
@@ -395,16 +411,10 @@ export function TeamScreen() {
           }}
           onConfirm={() => remove.mutate(removing.id, { onSuccess: () => setRemoving(null) })}
         >
-          <p>
-            They will be signed out and will not be able to sign in to this account again
-            unless you invite them back.
-          </p>
+          <p>They are signed out now. You can invite them back later.</p>
           {/* Said BEFORE the click; the "Access removed" notice reports it afterwards,
               which is the wrong moment to learn it. */}
-          <p>
-            Any leads assigned to them stay assigned to them and are not reassigned. You
-            can pick those up from the Leads screen.
-          </p>
+          <p>Their leads stay assigned to them.</p>
         </ConfirmDialog>
       )}
     </div>

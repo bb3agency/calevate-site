@@ -165,7 +165,7 @@ export function VerificationSteps({
         <Step
           status={byId.details}
           next={nextId === "details"}
-          needed="The legal name, how the business is registered, and the GSTIN if it is registered for GST."
+          needed="Legal name, business type, and GSTIN if any."
         >
           {locked ? (
             <SavedDetails record={record} />
@@ -187,21 +187,21 @@ export function VerificationSteps({
         <Step
           status={byId.certificate}
           next={nextId === "certificate"}
-          needed="One certificate: the GST certificate, or the Certificate of Incorporation or Udyam certificate."
+          needed="GST, Incorporation or Udyam certificate."
         >
           <BusinessDocument session={session} record={record} access={access.upload} />
         </Step>
         <Step
           status={byId.owner}
           next={nextId === "owner"}
-          needed="The owner's PAN card for our review, or a DigiLocker check with Aadhaar or PAN."
+          needed="The owner's PAN card, or DigiLocker."
         >
           <OwnerStep session={session} record={record} access={access} />
         </Step>
         <Step
           status={byId.pledge}
           next={nextId === "pledge"}
-          needed="Somebody at the business reads it and accepts it on the business's behalf."
+          needed="Read it and accept for your business."
           last
         >
           {pledge ? (
@@ -407,6 +407,7 @@ function DetailsForm({ session, record, access }: { session: Session; record: Ky
           status={saveFeedback.status}
           disabled={!access.allowed || !ready}
           title={access.reason ?? undefined}
+          className={PHONE_WIDE}
           pendingLabel="Saving…"
           successLabel="Saved"
         >
@@ -420,6 +421,9 @@ function DetailsForm({ session, record, access }: { session: Session; record: Ky
 
 /** What a KYC upload takes, as `fileProblem` and the server check it. */
 const KYC_FILE_HINT = "PDF, JPEG or PNG, up to 5 MB.";
+
+/** A step's one button spans a phone's width, where the thumb reaches it; natural from `sm`. */
+const PHONE_WIDE = "w-full justify-center sm:w-auto";
 
 /**
  * A KYC file control: the kit's `FileDrop` with this page's rules (`fileProblem`, the
@@ -507,12 +511,12 @@ function BusinessDocument({ session, record, access }: { session: Session; recor
           }
         />
       ) : record.gst_registered === null ? (
-        <p className="text-sm text-ink-muted">Save the business details first, so we know which certificate to ask for.</p>
+        <p className="text-sm text-ink-muted">Finish step 1 first.</p>
       ) : (
         <p className="text-sm text-ink">
           {record.gst_registered
             ? "Upload the GST registration certificate."
-            : "Upload the Certificate of Incorporation, or the Udyam registration certificate."}
+            : "Upload the Incorporation or Udyam certificate."}
         </p>
       )}
       {openError instanceof ViewerBlockedError ? (
@@ -523,10 +527,10 @@ function BusinessDocument({ session, record, access }: { session: Session; recor
         openError != null && <ProblemNotice error={openError} />
       )}
       {record.is_verified && current && (
-        <p className={FIELD_HINT}>Your business is verified, so the certificate can no longer be changed.</p>
+        <p className={FIELD_HINT}>Verified. It can no longer be changed.</p>
       )}
       {reviewing && current && (
-        <p className={FIELD_HINT}>It is with our review team, so it cannot be changed until the review is done.</p>
+        <p className={FIELD_HINT}>In review. It cannot be changed for now.</p>
       )}
       {replaceable && record.gst_registered !== null && (
         <div className="max-w-md space-y-3">
@@ -567,7 +571,7 @@ function OwnerStep({ session, record, access }: { session: Session; record: KycR
         <p className="text-sm text-ink">
           {record.is_verified
             ? "Your business is verified."
-            : "Your documents are with our review team. We will let you know when the review is done."}
+            : "In review. We will tell you when it is done."}
         </p>
         {record.owner_id_masked && (
           <p className={FIELD_HINT}>
@@ -578,7 +582,7 @@ function OwnerStep({ session, record, access }: { session: Session; record: KycR
     );
   }
   if (!record.digilocker_outstanding && !ready) {
-    return <p className="text-sm text-ink-muted">Opens once the business details are saved and the certificate is uploaded.</p>;
+    return <p className="text-sm text-ink-muted">Opens after steps 1 and 2.</p>;
   }
   return (
     <div className="max-w-md space-y-4">
@@ -592,7 +596,7 @@ function OwnerStep({ session, record, access }: { session: Session; record: KycR
           label="How would you like to verify?"
           name="kyc-path"
           options={[
-            { value: "manual", label: "Upload the owner's PAN card for our review" },
+            { value: "manual", label: "Upload the owner's PAN card" },
             { value: "digilocker", label: "Verify with DigiLocker" },
           ]}
           value={path}
@@ -624,11 +628,20 @@ function ManualPath({ session, record, access }: { session: Session; record: Kyc
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-ink">
-        Upload a clear photo or scan of the owner&apos;s PAN card. We check the PAN, the name and the date of birth
-        with the Income Tax Department. We cannot accept an Aadhaar card here.
-        {record.self_verification_available && " To use your Aadhaar, verify with DigiLocker instead."}
-      </p>
+      {/* What we collect and why stays in view at the point of collection, in short lines;
+          the full wording is one tap away. */}
+      <div className="space-y-1 text-sm text-ink">
+        <p>A clear photo or scan of the PAN card. No Aadhaar.</p>
+        <p>We check it with the Income Tax Department.</p>
+        {record.self_verification_available && <p>For Aadhaar, use DigiLocker instead.</p>}
+      </div>
+      <Disclosure variant="inline" headingLevel={4} title="How we use it" showLabel="Open" hideLabel="Close">
+        <p className="pt-2 text-sm text-ink-muted">
+          We check the PAN, the name and the date of birth with the Income Tax Department. We
+          keep only a masked form, like XXXXX1234X. The PAN card file is deleted as soon as our
+          review is done, and after 30 days if it is not reviewed.
+        </p>
+      </Disclosure>
       {owner && <FileSummary name={owner.filename} type={owner.content_type} size={owner.size_bytes} />}
       <KycFileDrop
         disabled={!access.upload.allowed || upload.isPending}
@@ -651,8 +664,8 @@ function ManualPath({ session, record, access }: { session: Session; record: Kyc
           aria-describedby={showProblem ? `${panHintId} ${panErrorId}` : panHintId}
         />
         <span id={panHintId} className={FIELD_HINT}>
-          We keep only a masked form, like XXXXX1234X. The PAN card file is deleted as soon as our review is done,
-          and after 30 days if it is not reviewed.
+          <span className="block">We keep only a masked PAN, like XXXXX1234X.</span>
+          <span className="block">The file is deleted after review, or after 30 days.</span>
         </span>
         {showProblem && (
           <span id={panErrorId} className="mt-1 block text-sm text-danger">
@@ -664,6 +677,7 @@ function ManualPath({ session, record, access }: { session: Session; record: Kyc
         status={submitFeedback.status}
         disabled={!access.write.allowed || !owner || !number || Boolean(numberProblem)}
         onClick={() => submitFeedback.run({ owner_id_type: "pan", owner_id_number: number.trim().toUpperCase() })}
+        className={PHONE_WIDE}
         pendingLabel="Sending…"
         successLabel="Sent"
       >
@@ -683,23 +697,22 @@ function DigiLockerPath({ session, record, access }: { session: Session; record:
     // request (`kyc.KycState.digilocker_outstanding`): an uploaded ID cannot, so pointing
     // the client at the upload would send them round in a circle.
     return record.digilocker_outstanding ? (
-      <p className="text-sm text-ink">
-        DigiLocker verification is temporarily unavailable, and uploading the owner&apos;s PAN card
-        cannot replace the DigiLocker check we asked for. Please contact us and we will sort it
-        out with you.
-      </p>
+      <div className="space-y-1 text-sm text-ink">
+        <p>DigiLocker is down for now. Please contact us.</p>
+        <p className="text-ink-muted">A PAN upload cannot replace this check.</p>
+      </div>
     ) : (
-      <p className="text-sm text-ink">
-        DigiLocker verification is not available yet. Please upload the owner&apos;s PAN card for our review instead.
-      </p>
+      <p className="text-sm text-ink">DigiLocker is not ready yet. Upload the PAN card instead.</p>
     );
   }
   return (
     <div className="space-y-3">
-      <p className="text-sm text-ink">
-        You sign in to DigiLocker on its own page and share one record. We receive only whether it succeeded, the
-        name on it and a masked number, never the document.
-      </p>
+      {/* What we receive is said at the point of consent, in short lines. */}
+      <div className="space-y-1 text-sm text-ink">
+        <p>You sign in on DigiLocker&apos;s page and share one record.</p>
+        <p>We get only the result, the name and a masked number.</p>
+        <p className="text-ink-muted">Never the document itself.</p>
+      </div>
       <RadioGroup
         label="Which record to share"
         name="id-doc"
@@ -716,6 +729,7 @@ function DigiLockerPath({ session, record, access }: { session: Session; record:
         status={startFeedback.status}
         disabled={!access.allowed || !record.entity_type}
         title={access.reason ?? undefined}
+        className={PHONE_WIDE}
         pendingLabel="Opening DigiLocker…"
         successLabel="Opening DigiLocker…"
         onClick={() =>
@@ -755,7 +769,7 @@ function PledgeBody({ session, pledge, access }: { session: Session; pledge: Out
         <div className="space-y-3">
           {pledge.accepted_version !== null && (
             <p className="text-sm text-ink">
-              The pledge changed since you accepted version {pledge.accepted_version}. Please read and accept it again.
+              The pledge changed since version {pledge.accepted_version}. Please accept again.
             </p>
           )}
           <RestrictionNote reason={access.reason} />
@@ -773,6 +787,7 @@ function PledgeBody({ session, pledge, access }: { session: Session; pledge: Out
             status={acceptFeedback.status}
             disabled={!access.allowed || !read}
             onClick={() => acceptFeedback.run(pledge)}
+            className={PHONE_WIDE}
             pendingLabel="Accepting…"
             successLabel="Accepted"
           >

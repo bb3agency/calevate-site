@@ -97,7 +97,7 @@ export function WithdrawControl({
         Stop sending me WhatsApp alerts
       </ActionButton>
       <p className="text-meta text-ink-faint">
-        Email alerts continue. You can turn WhatsApp back on here any time.
+        Email alerts continue. Turn back on any time.
       </p>
       {!allowed && reason && (
         <p className="flex items-start gap-2 text-meta text-ink-muted">

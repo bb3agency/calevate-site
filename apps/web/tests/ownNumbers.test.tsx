@@ -117,12 +117,11 @@ describe("what the page shows for the account's state", () => {
   it("on a trial: says calls use the shared number, offers credit, and marks no step next", async () => {
     await renderClientPage(<PhoneNumberPage />, routes(onTrial()));
     expect(await screen.findByRole("heading", { name: "Your own phone number comes after the trial" })).toBeTruthy();
-    expect(screen.getByText(/test calls ring from a shared Calevate number/)).toBeTruthy();
+    expect(screen.getByText(/Trial calls use a shared number/)).toBeTruthy();
     const credit = screen.getAllByRole("link", { name: "Add credit" });
     expect(credit).toHaveLength(1);
     expect(credit[0].getAttribute("href")).toContain(CREDITS_HREF);
-    // The verification already done is said, so it does not read as lost.
-    expect(screen.getByText("Your business is already verified, so that step is done.")).toBeTruthy();
+    // The verification already done shows as Done, so it does not read as lost.
     expect(screen.getByText("After you add credit")).toBeTruthy();
     expect(screen.getByText("Done")).toBeTruthy();
     expect(screen.queryByText("Next step")).toBeNull();
@@ -140,7 +139,7 @@ describe("what the page shows for the account's state", () => {
     // The server refuses every verification write on a trial (`trial_kyc_unavailable`).
     expect(screen.queryByRole("link", { name: "Verify your business" })).toBeNull();
     expect(screen.queryByText(/already verified/)).toBeNull();
-    expect(screen.getByText("Verify your business with its certificate and the owner's ID.")).toBeTruthy();
+    expect(screen.getByText("Needs your certificate and the owner's ID.")).toBeTruthy();
     expect(screen.getAllByRole("link", { name: "Add credit" })).toHaveLength(1);
     expect(screen.queryByText("Next step")).toBeNull();
   });
@@ -150,7 +149,7 @@ describe("what the page shows for the account's state", () => {
     expect(await screen.findByRole("heading", { name: "Add credit to get your own phone number" })).toBeTruthy();
     expect(
       screen.getByText(
-        "Your free trial has ended. To get a phone number in your business's name, add credit to your account first.",
+        "Your trial has ended. Add credit to get a number.",
       ),
     ).toBeTruthy();
     expect(screen.getAllByRole("link", { name: "Add credit" })[0].getAttribute("href")).toContain(CREDITS_HREF);
@@ -173,7 +172,7 @@ describe("what the page shows for the account's state", () => {
       ),
     );
     expect(await screen.findByRole("heading", { name: "Add credit to get your own phone number" })).toBeTruthy();
-    expect(screen.getByText("To get a phone number in your business's name, add credit to your account first.")).toBeTruthy();
+    expect(screen.getByText("Add credit to get your own number.")).toBeTruthy();
     expect(screen.queryByText("Your calling account is being set up")).toBeNull();
     expect(screen.queryByText(/trial/)).toBeNull();
   });
@@ -261,7 +260,7 @@ describe("the three steps, as the server names them", () => {
       ),
     );
     expect(await screen.findByText("The name on the certificate does not match.")).toBeTruthy();
-    expect(screen.getByText(/Fix and send again/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Fix the details" }).getAttribute("href")).toBe("/c/acme/verify-business");
     expect((await enabledButton("Send the details again")).disabled).toBe(false);
   });
 
@@ -279,7 +278,7 @@ describe("the three steps, as the server names them", () => {
       <PhoneNumberPage />,
       routes(status({ step: "business_details", business_status: "expired", can_send_business_details: true })),
     );
-    expect(await screen.findByText("The approval has lapsed. Please send the details again.")).toBeTruthy();
+    expect(await screen.findByText("Approval lapsed. Send the details again.")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Send the details again" })).toBeTruthy();
   });
 
@@ -295,15 +294,15 @@ describe("the three steps, as the server names them", () => {
         }),
       ),
     );
-    expect(await screen.findByText(/Approval was withdrawn, and it cannot be restored from here\. Please contact us/)).toBeTruthy();
+    expect(await screen.findByText("Approval withdrawn. Please contact us.")).toBeTruthy();
     expect(screen.getByText("Approval withdrawn by the authority.")).toBeTruthy();
-    expect(screen.queryByText(/send them again here/)).toBeNull();
+    expect(screen.queryByRole("link", { name: "Fix the details" })).toBeNull();
     expect(screen.queryByRole("button", { name: /Send/ })).toBeNull();
   });
 
   it("says numbers are not on sale yet while no price is set", async () => {
     await renderClientPage(<PhoneNumberPage />, routes(status({ step: "price", inr_per_month: null })));
-    expect(await screen.findByText(/Numbers are not on sale yet/)).toBeTruthy();
+    expect(await screen.findByText("Not on sale yet. We will tell you.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Show numbers" })).toBeNull();
   });
 });
@@ -368,7 +367,7 @@ describe("buying a number", () => {
     await search();
     fireEvent.click(screen.getByRole("button", { name: "Buy +91 80123 45671" }));
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByText(/₹499(\.00)? every month/)).toBeTruthy();
+    expect(within(dialog).getByText(/₹499(\.00)? a month while you keep it/)).toBeTruthy();
     fireEvent.change(within(dialog).getByLabelText(/The agent that answers it/), {
       target: { value: "agent-1" },
     });
@@ -379,7 +378,7 @@ describe("buying a number", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Buy this number" }));
 
     expect(
-      await screen.findByText(/₹499(\.00)? charged now for the first month, then monthly\./),
+      await screen.findByText(/₹499(\.00)? charged now, then monthly\./),
     ).toBeTruthy();
     const sent = bodies(calls, OWN_NUMBERS_PATHS.purchase);
     expect(sent).toHaveLength(2);
@@ -413,8 +412,8 @@ describe("buying a number", () => {
     fireEvent.click(screen.getByRole("button", { name: "Buy +91 80123 45671" }));
     fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Buy this number" }));
     // The server sends this code for any refusal of the number, so the copy names both causes.
-    expect(await screen.findByText(/somebody else may have taken it, or your business details are still being checked/)).toBeTruthy();
-    expect(screen.getByText(/Nothing was charged/)).toBeTruthy();
+    expect(await screen.findByText(/Taken, or your details are in review/)).toBeTruthy();
+    expect(screen.getByText(/Nothing charged/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     fireEvent.click(screen.getByRole("button", { name: "Buy +91 80123 45672" }));
     fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Buy this number" }));
@@ -436,7 +435,7 @@ describe("buying a number", () => {
     await search();
     fireEvent.click(screen.getByRole("button", { name: "Buy +91 80123 45671" }));
     fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Buy this number" }));
-    expect(await screen.findByText(/not enough calling credit/)).toBeTruthy();
+    expect(await screen.findByText(/Not enough credit for the first month/)).toBeTruthy();
     expect(screen.getByRole("link", { name: "Top up credit" })).toBeTruthy();
   });
 
@@ -466,7 +465,7 @@ describe("buying a number", () => {
 
   it("says the agent must be published again when the number cannot reach it", async () => {
     await buyAnswering({ attachment: "other_workspace", replayed: false, first_period: "charged" });
-    expect(screen.getByText(/Publish the agent again, then choose it on the number below/)).toBeTruthy();
+    expect(screen.getByText("Publish the agent again, then pick it below.")).toBeTruthy();
   });
 
   it("keeps only digits in the search, ten at most, so the server never refuses it", async () => {
@@ -490,9 +489,9 @@ describe("buying a number", () => {
 
 describe("what the confirmation says was charged", () => {
   it.each([
-    ["charged", /^₹499(\.00)? charged now for the first month, then monthly\.$/],
-    ["invoiced", /^₹499(\.00)? a month\. The first month is added to your next invoice\.$/],
-    ["trial", /^₹499(\.00)? a month\. Free during your trial; charging starts at the first renewal after it\.$/],
+    ["charged", /^₹499(\.00)? charged now, then monthly\.$/],
+    ["invoiced", /^₹499(\.00)? a month\. First month on your next invoice\.$/],
+    ["trial", /^₹499(\.00)? a month\. Free until your trial ends\.$/],
     ["closed", /^₹499(\.00)? a month\.$/],
     ["before_first_period", /^₹499(\.00)? a month\.$/],
     [null, /^₹499(\.00)? a month\.$/],
@@ -543,9 +542,9 @@ describe("releasing a number", () => {
     );
     fireEvent.click(await enabledButton("Release this number"));
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByText(/Releasing is permanent/)).toBeTruthy();
-    expect(within(dialog).getByText(/anybody may take it next/)).toBeTruthy();
-    expect(within(dialog).getByText(/This month is not refunded\. The monthly charge stops\./)).toBeTruthy();
+    expect(within(dialog).getByText(/Permanent. It stops ringing now./)).toBeTruthy();
+    expect(within(dialog).getByText(/Anyone may take it next/)).toBeTruthy();
+    expect(within(dialog).getByText(/No refund for this month\. The monthly charge stops\./)).toBeTruthy();
     expect(bodies(calls, OWN_NUMBERS_PATHS.release(NUMBER_ID))).toHaveLength(0);
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Release it for good" }));
@@ -669,7 +668,7 @@ describe("the step card on Verify your business", () => {
       [OWN_NUMBERS_PATHS.status]: status({ step: "business_details", business_status: "submitted" }),
     });
     expect(await screen.findByText("Phone numbers in your business's name")).toBeTruthy();
-    expect(screen.getByText(/Next, your business details are approved/)).toBeTruthy();
+    expect(screen.getByText("Next: approval of your business details.")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Go to phone numbers" }).getAttribute("href")).toContain(
       "/c/acme/phone-number",
     );
@@ -692,6 +691,6 @@ describe("the step card on Verify your business", () => {
       },
       [OWN_NUMBERS_PATHS.status]: onTrial(),
     });
-    expect(await screen.findByText("Your own phone number comes after you add credit.")).toBeTruthy();
+    expect(await screen.findByText("Add credit first to get your own number.")).toBeTruthy();
   });
 });

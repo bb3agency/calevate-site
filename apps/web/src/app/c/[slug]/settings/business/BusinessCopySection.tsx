@@ -25,7 +25,7 @@ export function BusinessCopySection({ session, canWrite }: { session: Session; c
       <SettingRows>
         <SettingRow
           label="Last refreshed"
-          hint="Examples in empty fields, suggested steps and example questions, written from your business details and calls. What you type is never changed."
+          hint="Sample text for empty boxes. Yours never changes."
           value={<span aria-live="polite">{lastRefreshed(copy.data, copy.isPending, copy.isError)}</span>}
           control={
             <AskAssistant
@@ -48,6 +48,6 @@ export function lastRefreshed(data: BusinessCopy | undefined, pending: boolean, 
   if (pending) return "Checking…";
   if (failed || !data) return "Could not check just now";
   if (data.refreshing) return `${ASSISTANT_NAME} is writing them now`;
-  if (!data.generated_at) return "Not yet: your examples come from your type of business for now";
+  if (!data.generated_at) return "Not yet";
   return formatIST(data.generated_at);
 }

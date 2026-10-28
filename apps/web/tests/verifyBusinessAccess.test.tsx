@@ -207,9 +207,9 @@ describe("DigiLocker asked for and unavailable", () => {
         self_verification_available: false,
       }),
     );
-    expect(await screen.findByText(/DigiLocker verification is temporarily unavailable/)).toBeTruthy();
+    expect(await screen.findByText(/DigiLocker is down for now/)).toBeTruthy();
     expect(screen.getByText(/Please contact us/)).toBeTruthy();
-    expect(screen.queryByText(/upload the owner's ID for our review instead/)).toBeNull();
+    expect(screen.queryByText(/Upload the PAN card instead/)).toBeNull();
   });
 });
 
@@ -233,7 +233,7 @@ describe("the business certificate on file", () => {
     expect(within(document.getElementById("step-certificate") as HTMLElement).getByText("Verified")).toBeTruthy();
     expect(screen.getByRole("button", { name: "View" })).toBeTruthy();
     expect(
-      screen.getByText("Your business is verified, so the certificate can no longer be changed."),
+      screen.getByText("Verified. It can no longer be changed."),
     ).toBeTruthy();
     expect(screen.queryByLabelText(/replace the certificate/i)).toBeNull();
   });

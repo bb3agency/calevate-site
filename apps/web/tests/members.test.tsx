@@ -184,7 +184,7 @@ describe("who may change the team", () => {
       screen.queryByRole("combobox", { name: /Role for Anita/ }),
     ).toBeNull();
     expect(container.textContent).toContain(
-      "You cannot change your own access",
+      "Only another owner can change yours",
     );
   });
 
@@ -399,7 +399,7 @@ describe("what the invite flow shows", () => {
     // assertion above is the one that matters here and is untouched.
     expect(document.body.textContent).toContain("priya@clinic.example");
     expect(document.body.textContent).toContain(
-      "use Send again below",
+      "Send again below",
     );
   });
 

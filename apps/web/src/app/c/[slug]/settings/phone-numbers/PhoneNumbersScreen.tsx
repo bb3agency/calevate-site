@@ -63,7 +63,7 @@ export function PhoneNumbersScreen() {
 
   return (
     <div className="max-w-2xl space-y-10 pb-12">
-      <PageHeader description="The number your callers know, and how its calls reach your agent." />
+      <PageHeader description="Your own number, answered by your agent." />
       <RestrictionNote reason={write.reason} />
       <Section
         title="Your existing number"
@@ -83,14 +83,17 @@ export function PhoneNumbersScreen() {
           <EmptyState
             align="start"
             message="No existing number set up."
-            hint="Keep the number your callers know and forward its calls to your agent."
+            hint="Keep your number. Its calls go to your agent."
             action={
               data.calevate_numbers.length > 0 ? (
                 <Link href={guide} className={`${PRIMARY_BUTTON} w-full justify-center sm:w-auto`}>
                   Set it up
                 </Link>
               ) : (
-                <Link href={href(`/c/${slug}/phone-number`)} className={TEXT_ACTION}>
+                <Link
+                  href={href(`/c/${slug}/phone-number`)}
+                  className={`${PRIMARY_BUTTON} w-full justify-center sm:w-auto`}
+                >
                   Get your Calevate number first
                 </Link>
               )
@@ -135,8 +138,8 @@ function CallsAtOnce({ session }: { session: Session }) {
             label={callsAtOnce(lines.data.call_lines)}
             hint={
               lines.data.on_trial
-                ? "A free trial has one line. It grows when you start paying."
-                : "Need more? Ask us and we will raise it."
+                ? "Trial: one line. More once you pay."
+                : "Need more? Ask us."
             }
             value={
               <StatusPill tone={lines.data.in_progress > 0 ? "ok" : "neutral"}>
@@ -180,8 +183,17 @@ function LineSettings({
   return (
     <div className="space-y-6 py-6 first:pt-0">
       {line.quiet_since && (
-        <NoticeBox tone="warn" title="No calls from this number for three days." role="status">
-          The forward on your phone may be off. Run the test again.
+        <NoticeBox
+          tone="warn"
+          title="No calls in three days"
+          role="status"
+          action={
+            <a href={`#test-${line.id}`} className={SECONDARY_BUTTON}>
+              Test now
+            </a>
+          }
+        >
+          Your phone&apos;s forward may be off.
         </NoticeBox>
       )}
       {/* The four read-only facts sit two across: as stacked setting rows they filled a
@@ -261,7 +273,7 @@ function LineSettings({
               if (nextSeconds > 0) setSeconds(nextSeconds);
             }}
           />
-          <p className="text-meta text-ink-muted">After saving, dial the new codes on your phone, then test again.</p>
+          <p className="text-meta text-ink-muted">Then dial the new codes and test again.</p>
           {change.error != null && <ProblemNotice error={change.error} />}
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <button type="button" className={SECONDARY_BUTTON} onClick={() => setEditing(false)}>
@@ -288,7 +300,9 @@ function LineSettings({
         </Disclosure>
       )}
 
-      <TestPanel session={session} line={line} allowed={allowed} available={testingAvailable} />
+      <div id={`test-${line.id}`} className="scroll-mt-24">
+        <TestPanel session={session} line={line} allowed={allowed} available={testingAvailable} />
+      </div>
 
       <button type="button" className={TEXT_ACTION_DANGER} disabled={!allowed} onClick={() => setConfirming(true)}>
         Stop using this number
@@ -303,8 +317,7 @@ function LineSettings({
           onCancel={() => setConfirming(false)}
           onConfirm={() => remove.mutate(line.id, { onSuccess: () => setConfirming(false) })}
         >
-          Switch the forward off on your phone too, with the codes for your phone, or callers keep reaching your
-          agent.
+          Also switch the forward off on your phone, or calls keep coming.
         </ConfirmDialog>
       )}
     </div>
@@ -330,7 +343,7 @@ function SaveNumber({ session }: { session: Session }) {
         <div className="space-y-2">
           <ToggleSwitch
             label="Send one message after a booking"
-            hint="When your agent makes a booking or arranges a call back, the caller is asked to save the number reminders come from."
+            hint="After a booking or call back, on WhatsApp."
             checked={state.data.enabled}
             disabled={!write.allowed || set.isPending}
             onChange={(next) => set.mutate(next)}

@@ -1,15 +1,16 @@
 "use client";
 
+import type { ReactNode } from "react";
+
 import { InfoTip } from "@/components/console/infoTip";
 import { PageHeader } from "@/components/console/pageHeader";
-import { ProblemNotice, Skeleton, formatPhone } from "@/components/ui";
+import { ProblemNotice, SECONDARY_BUTTON, Skeleton, formatPhone } from "@/components/ui";
 import { useAgents } from "@/lib/api/agents";
 import { useCampaignNumbers, type CampaignNumber } from "@/lib/api/campaigns";
 import { useOwnNumbersStatus } from "@/lib/api/ownNumbers";
 import Link from "next/link";
 
 import { ExistingNumberPrompt } from "@/components/forwarding/ExistingNumberPrompt";
-import { TEXT_ACTION } from "@/components/console/section";
 import { useClientRealm } from "@/lib/api/session";
 
 import { BuyNumber } from "./BuyNumber";
@@ -91,42 +92,36 @@ export function PhoneNumberScreen() {
           {ours.length > 0 && (
             <section className="space-y-3">
               <h2 className="flex items-center gap-1 text-body font-semibold text-ink">
-                Point your existing phone at this number
+                Forward your phone to this number
                 <InfoTip label="How to forward your line">
                   Your existing phone forwards calls to this number. Keep advertising your own
                   number; nobody needs to know this one.
                 </InfoTip>
               </h2>
-              <p className="text-body text-ink-muted">
-                Forward your existing number to the number below.{" "}
-                <Link href={href(`/c/${session.orgSlug}/settings/phone-numbers`)} className={TEXT_ACTION}>
-                  Codes and test
-                </Link>
-              </p>
+              <Link
+                href={href(`/c/${session.orgSlug}/settings/phone-numbers`)}
+                className={`${SECONDARY_BUTTON} w-full justify-center sm:w-auto`}
+              >
+                Get codes and test
+              </Link>
               {/* `answerable` needs an agent on the number AND our connection of it at the
                   carrier. Only the first is the client's to fix, so the two get different
-                  sentences: "nothing for you to do" beside a number with no agent would
-                  leave it silent for good. */}
+                  lines: "nothing for you to do" beside a number with no agent would leave it
+                  silent for good. Each says what to do; the why is behind the ⓘ. */}
               {ours.some((number) => !number.held && !number.answerable && !number.agent_id) && (
-                <p className="text-body text-ink-muted">
-                  A number with no agent on it cannot take calls. Choose its agent on its card below.
-                  Forward calls only once it says <em>Ready to answer</em>.
-                </p>
+                <WaitLine why="A number with no agent cannot take calls. Forward calls only once it says Ready to answer.">
+                  Pick an agent below before you forward.
+                </WaitLine>
               )}
               {ours.some((number) => !number.held && !number.answerable && outboundOnly(number)) && (
-                <p className="text-body text-ink-muted">
-                  A number on an agent that only makes calls places calls but does not answer
-                  them. To have it answer, choose an agent
-                  that answers calls on its card below, or set that agent&apos;s{" "}
-                  <em>What it does</em> to <em>Answer calls</em> or <em>Both</em>.
-                </p>
+                <WaitLine why="An agent that only makes calls does not answer them. Choose an agent that answers calls, or set that agent's What it does to Answer calls or Both.">
+                  Its agent only calls out. Pick one that answers.
+                </WaitLine>
               )}
               {ours.some(waiting) && (
-                <p className="text-body text-ink-muted">
-                  A number is not ready yet: we are still connecting it, nothing for you to
-                  do. Forward calls only
-                  once it says <em>Ready to answer</em>, or callers hear silence.
-                </p>
+                <WaitLine why="We are still connecting it. Forward calls only once it says Ready to answer, or callers hear silence.">
+                  Still connecting. Nothing to do yet.
+                </WaitLine>
               )}
               {ours.map((number) => (
                 <NumberCard
@@ -161,6 +156,18 @@ export function PhoneNumberScreen() {
 
       {!none && getNumber}
     </div>
+  );
+}
+
+/** A short line of what to do about a number that cannot answer yet; the why behind ⓘ. */
+function WaitLine({ why, children }: { why: string; children: ReactNode }) {
+  return (
+    <p className="flex items-center gap-1 text-body text-ink-muted">
+      <span>{children}</span>
+      <InfoTip label="why this number is not answering" className="touch:-my-2.5">
+        {why}
+      </InfoTip>
+    </p>
   );
 }
 

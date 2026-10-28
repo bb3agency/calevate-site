@@ -34,7 +34,7 @@ import { DLT_NOT_RECORDED, OWNER_ME } from "./fixtures/sharedReads";
  * the nav list, so the screen deliberately has no `<h1>` of its own to wait for.
  */
 // Anchored to the header sentence, which is on screen whatever the records say.
-const SCREEN = /Outgoing calls open once we verify your business/;
+const SCREEN = /Finish these steps to make outgoing calls/;
 
 function record(over: Partial<KycRecord> = {}): KycRecord {
   return {
@@ -114,7 +114,7 @@ describe("business verification verdict", () => {
     );
 
     await screen.findByText(SCREEN);
-    expect(container.textContent).toContain("Calls coming in are unaffected");
+    expect(container.textContent).toContain("Incoming calls still work.");
     // The not-verified branch says calls are paused and explains what that affects.
     expect(
       screen.queryByText("What this affects while it is outstanding"),
@@ -159,9 +159,7 @@ describe("business verification verdict", () => {
       screen.queryByText("What this affects while it is outstanding"),
     ).toBeNull();
     expect(screen.queryByText("Outgoing calls are open")).not.toBeNull();
-    expect(container.textContent).not.toContain(
-      "Calls coming in are unaffected",
-    );
+    expect(container.textContent).not.toContain("Incoming calls still work.");
   });
 
   it("treats a status this build has never heard of as not cleared", async () => {

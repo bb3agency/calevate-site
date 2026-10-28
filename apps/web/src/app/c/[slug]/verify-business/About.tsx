@@ -25,7 +25,7 @@ export function AboutVerification({ record, outgoingOpen }: { record: KycRecord 
     items.push({
       id: "affects",
       title: "What this affects while it is outstanding",
-      subtitle: "Incoming calls never. Outgoing calls and new numbers until it is done.",
+      subtitle: "Incoming calls keep working.",
       content: <WhatItAffects />,
     });
   }
@@ -33,7 +33,7 @@ export function AboutVerification({ record, outgoingOpen }: { record: KycRecord 
     items.push({
       id: "on-file",
       title: "What we hold about your business",
-      subtitle: "The whole record, with nothing else stored about your identity.",
+      subtitle: "Your full record.",
       content: <OnFile record={record} />,
     });
   }
@@ -47,7 +47,7 @@ export function AboutVerification({ record, outgoingOpen }: { record: KycRecord 
     {
       id: "keep",
       title: "What we keep, and what we never ask for",
-      subtitle: "A business certificate and a masked owner ID, never an Aadhaar copy or a full Aadhaar number.",
+      subtitle: "A certificate and a masked ID. No Aadhaar copy.",
       content: <WhatWeKeep />,
     },
   );

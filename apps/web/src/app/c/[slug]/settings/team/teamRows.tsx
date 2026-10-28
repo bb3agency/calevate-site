@@ -69,8 +69,8 @@ export function IssuedInvite({ invitation }: { invitation: CreatedInvitation }) 
       info="Sending again mails a new link, and the one in the earlier email stops working."
       infoLabel="sending an invitation again"
     >
-      <p>The link works once, only from that address, until {formatIST(invitation.expires_at)}.</p>
-      <p>Not arrived? Ask them to check spam, or use Send again below.</p>
+      <p>Works once, until {formatIST(invitation.expires_at)}.</p>
+      <p>Not there? Check spam, or Send again below.</p>
     </NoticeBox>
   );
 }
@@ -135,8 +135,8 @@ function RoleControl({
           </ActionButton>
           <span className="basis-full text-meta text-ink-muted">
             {pendingRole === "owner"
-              ? `${who} will be able to see your invoice, invite and remove people, including you.`
-              : `${who} will lose access to billing and will no longer be able to change who is on this team.`}
+              ? `${who} gets billing and can remove anyone, including you.`
+              : `${who} loses billing and team access.`}
           </span>
         </>
       )}
@@ -181,7 +181,7 @@ function RoleCell({ row, ctx }: { row: TeamRow; ctx: TeamTableContext }) {
       <span className="block">
         <span className="text-ink-muted">{roleLabel(row.member.role)}</span>
         <span className="block text-meta text-ink-faint">
-          You cannot change your own access. Ask another owner.
+          Only another owner can change yours.
         </span>
       </span>
     );
