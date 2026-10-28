@@ -13,6 +13,7 @@ import {
   useCampaignNumbers,
   useCampaignProgress,
   useDltTemplates,
+  useDuplicateCampaign,
   useUpdateCampaign,
   type Classification,
 } from "@/lib/api/campaigns";
@@ -42,6 +43,9 @@ export function EditCampaignScreen({ slug, campaignId }: { slug: string; campaig
   // Success moves back to the campaign, so the save is said in a toast that survives it.
   const updateFeedback = useActionFeedback(update, { errorDisplay: "inline", successToast: "Changes saved" });
   const write = useWriteAccess(session, "leads:dispatch", "change campaigns");
+  // A started campaign is not editable; its way forward is a copy as a new draft.
+  const duplicate = useDuplicateCampaign(session, campaignId);
+  const duplicateFeedback = useActionFeedback(duplicate, { errorDisplay: "inline", successToast: "Copy made as a new draft" });
   const form = useCampaignForm();
   const [loaded, setLoaded] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -90,9 +94,28 @@ export function EditCampaignScreen({ slug, campaignId }: { slug: string; campaig
     return (
       <div className="max-w-4xl space-y-5 pb-12">
         <PageHeader back={back} title="Edit campaign" />
-        <p className="text-body text-ink-muted">
-          Only a draft can be changed. This campaign has started; duplicate it to make a new draft from it.
-        </p>
+        <p className="text-body text-ink">Only a draft can be changed.</p>
+        {duplicate.error != null && <ProblemNotice error={duplicate.error} />}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <ActionButton
+            title={write.allowed ? undefined : (write.reason ?? undefined)}
+            disabled={!write.allowed}
+            status={duplicateFeedback.status}
+            pendingLabel="Copying"
+            successLabel="Copied"
+            onClick={() =>
+              duplicate.mutate(
+                { with_unreached: false },
+                { onSuccess: (made) => router.push(href(`/c/${slug}/campaigns/${made.id}/edit`)) },
+              )
+            }
+          >
+            Copy as a new draft
+          </ActionButton>
+          <button type="button" className={TEXT_ACTION} onClick={() => router.push(detail)}>
+            Back to the campaign
+          </button>
+        </div>
       </div>
     );
   }

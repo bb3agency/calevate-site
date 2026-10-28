@@ -9,6 +9,7 @@ import { recurrenceUntil, type NewRecurrence, type useLaunchCheck } from "@/lib/
 
 import { RepeatFields, StartAtFields } from "./ScheduleFields";
 import { FireTimeRefusal } from "./scheduleCopy";
+import { Why } from "./_ui/Why";
 import type { ScheduleFormState } from "./campaignForm";
 
 /** Said under the start date when the chosen moment cannot be armed; `null` when it can. */
@@ -95,10 +96,7 @@ export function ArmingForms({
             <CalendarClock aria-hidden className="h-3.5 w-3.5" />
             Schedule start
           </ActionButton>
-          <p className={FIELD_HINT}>
-            We check every one of these requirements again at the moment it starts — a
-            campaign that stops being allowed to dial between now and then will not start.
-          </p>
+          <p className={FIELD_HINT}>We check everything again when it starts.</p>
         </form>
       )}
 
@@ -131,8 +129,11 @@ export function ArmingForms({
           Set repeat
         </ActionButton>
         <p className={FIELD_HINT}>
-          If a run is missed — a fault our side, or a previous run still going — we skip it and
-          wait for the next one rather than calling people at a different time of day.
+          A missed run is skipped, never called late.{" "}
+          <Why>
+            A run can be missed by a fault on our side, or because the last run is still going.
+            We wait for the next one rather than call people at a different time of day.
+          </Why>
         </p>
       </form>
     </div>

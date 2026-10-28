@@ -89,7 +89,7 @@ export function LeadPicker({ f }: { f: LeadsLensState }) {
       />
       <p role="status" className={FIELD_HINT}>
         {matching !== undefined ? (
-          `${formatCount(matching)} ${matching === 1 ? "lead matches" : "leads match"}. Anyone on your do-not-call list is skipped when the campaign starts.`
+          `${formatCount(matching)} ${matching === 1 ? "lead matches" : "leads match"}. Do-not-call numbers are skipped.`
         ) : list.error ? (
           "We could not count the matching leads."
         ) : (

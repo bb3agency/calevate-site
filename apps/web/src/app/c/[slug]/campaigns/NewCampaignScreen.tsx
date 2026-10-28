@@ -7,7 +7,7 @@ import { useState } from "react";
 import { useActionFeedback } from "@/components/arc/feedback";
 import { PageHeader } from "@/components/console/pageHeader";
 import { AskAssistant } from "@/components/copilot/AskAssistant";
-import { ProblemNotice, RestrictionNote } from "@/components/ui";
+import { PRIMARY_BUTTON, ProblemNotice, RestrictionNote } from "@/components/ui";
 import { isAssignable } from "@/lib/agentState";
 import { useAgents } from "@/lib/api/agents";
 import {
@@ -157,7 +157,6 @@ export function NewCampaignScreen({ slug }: { slug: string }) {
             prompt="Fill in this campaign for me: who to call, which agent and when. For example: call this week's hot leads tomorrow at 11."
           />
         }
-        description="Your agent calls the people you add, inside the hours you allow."
       />
       <TrialLockNotice lock="campaigns" />
       <RestrictionNote reason={write.reason} />
@@ -165,15 +164,12 @@ export function NewCampaignScreen({ slug }: { slug: string }) {
       {numbers.error && <ProblemNotice error={numbers.error} onRetry={() => numbers.refetch()} />}
       {templates.error && <ProblemNotice error={templates.error} onRetry={() => templates.refetch()} />}
       {failed && (
-        <div className="space-y-2">
+        <div className="space-y-3">
           <ProblemNotice error={failed.error} />
-          <p className="text-body text-ink-muted">
-            The draft was created.{" "}
-            <a href={detail(failed.id)} className="font-medium text-ink underline underline-offset-2">
-              Open it
-            </a>{" "}
-            to finish adding people or setting its start.
-          </p>
+          <p className="text-body text-ink">The draft was saved. Finish it there.</p>
+          <a href={detail(failed.id)} className={`${PRIMARY_BUTTON} w-full sm:w-auto`}>
+            Open the draft
+          </a>
         </div>
       )}
       <NewCampaignFlow

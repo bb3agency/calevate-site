@@ -117,9 +117,7 @@ export function RepeatFields({
           placeholder="Keeps repeating"
         />
       </div>
-      <p className={FIELD_HINT}>
-        Calls go out between 9am and 9pm, so a repeat has to sit inside those hours.
-      </p>
+      <p className={FIELD_HINT}>Pick a time between 9am and 9pm.</p>
     </div>
   );
 }

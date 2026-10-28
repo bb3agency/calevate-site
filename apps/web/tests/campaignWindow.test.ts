@@ -14,8 +14,8 @@ describe("the campaign calling window", () => {
   });
 
   it("refuses a window that ends before, or when, it starts", () => {
-    expect(windowRefusal("18:00", "10:00")).toMatch(/start before it ends/);
-    expect(windowRefusal("12:00", "12:00")).toMatch(/start before it ends/);
+    expect(windowRefusal("18:00", "10:00")).toMatch(/start before they end/);
+    expect(windowRefusal("12:00", "12:00")).toMatch(/start before they end/);
   });
 
   it("refuses a window that starts before 09:00 or ends after 21:00 IST", () => {

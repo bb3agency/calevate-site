@@ -1,11 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { ListPlus } from "lucide-react";
+import { ListPlus, UserPlus } from "lucide-react";
 
 import { Section, TEXT_ACTION } from "@/components/console/section";
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
-import { ProblemNotice, formatCount } from "@/components/ui";
+import { ProblemNotice, SECONDARY_BUTTON_SM, formatCount } from "@/components/ui";
 import { PlanCard } from "@/components/copilot/PlanCard";
 import { useAddContacts, useAddLeadsToCampaign } from "@/lib/api/campaigns";
 import { useClientRealm } from "@/lib/api/session";
@@ -14,6 +14,11 @@ import { ContactEditor } from "./ContactEditor";
 import { ContactResults } from "./ContactResults";
 import { LeadPicker, usePickedLeads } from "./LeadPicker";
 import { useCampaignForm } from "./campaignForm";
+
+/** The people section's element id, so "Add people" in the launch checklist can go to it. */
+export function peopleSectionId(campaignId: string): string {
+  return `people-${campaignId}`;
+}
 
 /**
  * WHO A DRAFT WILL CALL, and the way to add more: "Add people" beside the heading opens
@@ -27,31 +32,42 @@ export function DraftPeople({
   maxAttempts,
   canWrite,
   refusal,
+  adding,
+  onAddingChange,
 }: {
   slug: string;
   campaignId: string;
   maxAttempts: number;
   canWrite: boolean;
   refusal: string | undefined;
+  /** Held by the page, so the launch checklist's "Add people" can open it. */
+  adding: boolean;
+  onAddingChange: (adding: boolean) => void;
 }) {
-  const [adding, setAdding] = useState(false);
   return (
     <Section
       title="Who will be called"
       action={
         <button
           type="button"
-          className={TEXT_ACTION}
+          className={adding ? TEXT_ACTION : SECONDARY_BUTTON_SM}
           aria-expanded={adding}
           title={refusal}
           disabled={!canWrite}
-          onClick={() => setAdding((open) => !open)}
+          onClick={() => onAddingChange(!adding)}
         >
-          {adding ? "Done adding" : "Add people"}
+          {adding ? (
+            "Done adding"
+          ) : (
+            <>
+              <UserPlus aria-hidden className="h-3.5 w-3.5" />
+              Add people
+            </>
+          )}
         </button>
       }
     >
-      <div className="space-y-6">
+      <div id={peopleSectionId(campaignId)} className="scroll-mt-24 space-y-6">
         {adding && <AddPeoplePanel campaignId={campaignId} canWrite={canWrite} refusal={refusal} />}
         <ContactResults
           slug={slug}
@@ -133,9 +149,9 @@ function AddPeoplePanel({
       {result && (
         <p role="status" className="text-meta text-ink-muted">
           Added {formatCount(result.added)}.
-          {result.duplicate > 0 && ` ${formatCount(result.duplicate)} were already on the list.`}
-          {result.malformed > 0 && ` ${formatCount(result.malformed)} numbers couldn't be read and were skipped.`}
-          {(result.foreign ?? 0) > 0 && ` ${formatCount(result.foreign ?? 0)} numbers outside India were skipped.`}
+          {result.duplicate > 0 && ` ${formatCount(result.duplicate)} already on the list.`}
+          {result.malformed > 0 && ` ${formatCount(result.malformed)} unreadable, skipped.`}
+          {(result.foreign ?? 0) > 0 && ` ${formatCount(result.foreign ?? 0)} outside India, skipped.`}
         </p>
       )}
     </div>

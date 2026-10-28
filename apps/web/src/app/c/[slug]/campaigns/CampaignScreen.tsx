@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { useState } from "react";
 
 import { useActionFeedback } from "@/components/arc/feedback";
 import { PageHeader } from "@/components/console/pageHeader";
@@ -22,7 +23,7 @@ import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { useClientRealm } from "@/lib/api/session";
 
-import { DraftPeople } from "./DraftPeople";
+import { DraftPeople, peopleSectionId } from "./DraftPeople";
 import { ArmingForms } from "./ArmingForms";
 import { CampaignHeaderActions } from "./CampaignHeaderActions";
 import { CampaignResults } from "./CampaignResults";
@@ -79,6 +80,15 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
   });
   const repeatFeedback = useActionFeedback(repeat, { errorDisplay: "inline", successToast: "Repeat set" });
   const scheduleForm = useScheduleForm();
+  // The launch checklist's "Add people" opens the panel in "Who will be called" and goes to it.
+  const [addingPeople, setAddingPeople] = useState(false);
+  const addPeople = () => {
+    setAddingPeople(true);
+    // After the panel has rendered, so the scroll lands on it rather than above it.
+    window.setTimeout(() =>
+      document.getElementById(peopleSectionId(campaignId))?.scrollIntoView({ block: "start", behavior: "smooth" }),
+    );
+  };
   const write = useWriteAccess(session, "leads:dispatch", "start or run campaigns");
   const refusal = write.allowed ? undefined : (write.reason ?? undefined);
 
@@ -189,7 +199,7 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
           <p role="status" className="text-body text-ink-muted">
             Calling {formatCount(launch.data.dialable)} {launch.data.dialable === 1 ? "person" : "people"}.
             {launch.data.dnc_scrubbed > 0 &&
-              ` ${formatCount(launch.data.dnc_scrubbed)} were on the do-not-call list and won't be called.`}
+              ` ${formatCount(launch.data.dnc_scrubbed)} skipped: on do-not-call.`}
           </p>
         )}
       </div>
@@ -217,12 +227,10 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
             canWrite={write.allowed}
             writeReason={write.reason}
             refusal={refusal}
+            onAddPeople={addPeople}
           />
           {check.data && (
-            <Disclosure
-              title="Start later or repeat"
-              subtitle="Set a start time or a weekly repeat. The same checks run again when it starts."
-            >
+            <Disclosure title="Start later or repeat" subtitle="Pick a time, or repeat every week.">
               <ArmingForms
                 status={status}
                 check={check}
@@ -276,6 +284,8 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
           maxAttempts={data.retry_policy.max_attempts}
           canWrite={write.allowed}
           refusal={refusal}
+          adding={addingPeople}
+          onAddingChange={setAddingPeople}
         />
       )}
 

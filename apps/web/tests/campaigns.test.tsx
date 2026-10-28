@@ -384,7 +384,7 @@ describe("the number picker", () => {
     await screen.findByText("Calling from");
     const picker = screen.getByRole("combobox", { name: /^Calling from/ }) as HTMLSelectElement;
     expect(Array.from(picker.options).map((o) => o.value)).toEqual(["", "n-ok"]);
-    expect(container.textContent).toContain("Only numbers this agent can make calls from are listed.");
+    expect(container.textContent).toContain("Only numbers this agent can call from.");
   });
 });
 
@@ -426,7 +426,7 @@ describe("creating a campaign", () => {
     await fillNew(rendered.container);
     fireEvent.click(screen.getByRole("button", { name: "Create campaign" }));
     await screen.findByText("We could not save those contacts just now.");
-    expect(screen.getByRole("link", { name: "Open it" }).getAttribute("href")).toBe(
+    expect(screen.getByRole("link", { name: "Open the draft" }).getAttribute("href")).toBe(
       `/c/acme/campaigns/${CAMPAIGN_ID}`,
     );
   });
@@ -536,7 +536,8 @@ describe("adding leads to a draft", () => {
         "/v1/copilot/plans/0192f0aa-9999-7000-8000-000000000001": stillLoading(),
       }),
     );
-    fireEvent.click(await screen.findByRole("button", { name: "Add people" }));
+    // The launch checklist's "Add people" (first) opens the same panel as the section's own.
+    fireEvent.click((await screen.findAllByRole("button", { name: "Add people" }))[0]);
     fireEvent.change(await screen.findByRole("searchbox", { name: "Search leads" }), {
       target: { value: "Priya" },
     });
@@ -583,7 +584,7 @@ describe("one campaign's page", () => {
     );
     await screen.findByText("Not calling anyone right now");
     expect(container.textContent).not.toContain("Running");
-    expect(container.textContent).toContain("national do-not-disturb register");
+    expect(container.textContent).toContain("national do-not-disturb check");
   });
 
   it("holds Resume after a complaint spike until the review is confirmed", async () => {
@@ -697,7 +698,8 @@ describe("one campaign's page", () => {
       }),
     );
     await screen.findByText("What people said");
-    expect(container.textContent).toContain("Each person counts once, by their latest answered call.");
+    // How the counts are made sits behind the heading's info button, not on the page.
+    expect(screen.getByRole("button", { name: "About What people said" })).toBeTruthy();
     expect(container.textContent).toContain("How it ended, per person");
     expect(container.textContent).toContain("Onboarded");
     expect(container.textContent).toContain("None of these");

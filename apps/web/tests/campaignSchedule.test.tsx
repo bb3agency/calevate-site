@@ -100,6 +100,9 @@ const AGENT: Agent = {
 
 const READY: LaunchCheck = { ready: true, blockers: [] };
 
+/** Any form of `FireTimeRefusal`'s first line, arming or armed, start or repeat. */
+const FIRE_TIME_WARNING = /You can set a (time|repeat)|won't start until/i;
+
 /**
  * Two blockers a client would plausibly be sitting on while picking next Tuesday: one
  * they can clear themselves, one that is on OUR desk with the registrar and will take
@@ -227,7 +230,7 @@ describe("scheduling from the launch card", () => {
       "Before you launch",
     );
     expect(container.textContent).toContain(
-      "We check every one of these requirements again at the moment it starts",
+      "We check everything again when it starts.",
     );
   });
 });
@@ -270,7 +273,7 @@ describe("a campaign waiting for its start", () => {
       "Scheduled",
     );
     expect(container.textContent).toContain(
-      "We tried to start this campaign and could not",
+      "Couldn’t start. Fix the items below.",
     );
     expect(container.textContent).toContain("goes back to draft");
     // The rule NAME is the gate's vocabulary, never the client's reading.
@@ -385,7 +388,7 @@ describe("arming a schedule while the gate is refusing", () => {
     expect(container.querySelectorAll("li")).toHaveLength(2);
     expect(container.textContent).toContain("Add the people to call.");
     expect(container.textContent).toContain(
-      "checked against the national do-not-disturb register",
+      "national do-not-disturb check",
     );
     // The desk it lands on survives too: this one is ours, and a client told only "your
     // registration is not active" goes hunting for a setting they do not have.
@@ -409,30 +412,30 @@ describe("arming a schedule while the gate is refusing", () => {
 
     // Once per form, because a client reading only the repeat form must not have to
     // scroll back up to learn that arming it is not the same as it running.
-    expectTextCount(container, "As things stand", 2);
+    expectTextCount(container, "Fix the items above", 2);
     expect(container.textContent).toContain(
-      "As things stand this campaign would not start",
+      "You can set a time. Fix the items above before then.",
     );
     expect(container.textContent).toContain(
-      "As things stand the next run would not start",
+      "You can set a repeat. Fix the items above before it runs.",
     );
     // And the permission this whole fix rests on, in the client's words: setting a time
     // is allowed, and the check is what decides — not this form.
     expectTextCount(
       container,
-      "the same check runs again at the moment it does, so anything you clear before then is enough",
+      "You can set a",
       2,
     );
     // The two consequences differ, and a client plans differently around them: a
     // one-time start is given up on after a day, an occurrence is skipped and the
     // repeat carries on. Both come from the server (`GRACE` vs `RECURRENCE_CATCHUP`).
     expect(container.textContent).toContain(
-      "no calls go out, and after a day of trying the campaign goes back to draft.",
+      "After a day of trying, it goes back to draft.",
     );
     expect(container.textContent).toContain(
-      "that run is skipped rather than dialled at a different time of day",
+      "That run is skipped.",
     );
-    expect(container.textContent).toContain("the repeat itself carries on.");
+    expect(container.textContent).toContain("The repeat carries on.");
     // The rule names stay the gate's vocabulary.
     expect(container.textContent).not.toContain("national_dnd_scrub_missing");
   });
@@ -478,7 +481,7 @@ describe("arming a schedule while the gate is refusing", () => {
 
     await screen.findByText("Everything checks out.");
     expect(screen.getByRole("button", { name: "Schedule start" })).toBeTruthy();
-    expect(container.textContent).not.toContain("As things stand");
+    expect(container.textContent).not.toMatch(FIRE_TIME_WARNING);
   });
 
   it("arms nothing at all while the launch check is unanswered", async () => {
@@ -504,7 +507,7 @@ describe("arming a schedule while the gate is refusing", () => {
     await screen.findByRole("alert");
     expect(screen.queryByRole("button", { name: "Schedule start" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Set repeat" })).toBeNull();
-    expect(container.textContent).not.toContain("As things stand");
+    expect(container.textContent).not.toMatch(FIRE_TIME_WARNING);
     expect(container.textContent).toContain(
       "We could not check this campaign just now.",
     );
@@ -543,7 +546,7 @@ describe("cancelling a schedule that has since acquired a blocker", () => {
     expect((cancel as HTMLButtonElement).disabled).toBe(false);
     // …and the reason it is not going to start is still on the screen beside it.
     expect(container.textContent).toContain(
-      "We tried to start this campaign and could not",
+      "Couldn’t start. Fix the items below.",
     );
     expect(container.textContent).toContain("Add the people to call.");
   });
@@ -606,16 +609,16 @@ describe("an armed schedule the gate would refuse today", () => {
     );
 
     expect(container.textContent).toContain(
-      "As things stand this campaign would not start",
+      "Won't start until the items below are fixed.",
     );
-    expect(container.textContent).toContain("The reasons are listed below.");
+    expect(container.textContent).toContain("items below are fixed.");
     expect(container.textContent).toContain(
-      "no calls go out, and after a day of trying the campaign goes back to draft.",
+      "After a day of trying, it goes back to draft.",
     );
     // Not the server's record — nothing has been attempted yet, and claiming otherwise
     // would be inventing an event.
     expect(container.textContent).not.toContain(
-      "We tried to start this campaign and could not",
+      "Couldn’t start. Fix the items below.",
     );
     // The start itself, and the way out of it, are both still there.
     expect(container.textContent).toContain("10:00");
@@ -643,10 +646,10 @@ describe("an armed schedule the gate would refuse today", () => {
     );
 
     expect(container.textContent).toContain(
-      "We tried to start this campaign and could not",
+      "Couldn’t start. Fix the items below.",
     );
     expect(container.textContent).not.toContain(
-      "The reasons are listed below. Clear them",
+      "items below are fixed.",
     );
   });
 
@@ -671,10 +674,10 @@ describe("an armed schedule the gate would refuse today", () => {
     );
 
     expect(container.textContent).toContain(
-      "As things stand the next run would not start",
+      "Next run won't start until items below are fixed.",
     );
     expect(container.textContent).toContain(
-      "that run is skipped rather than dialled at a different time of day",
+      "That run is skipped.",
     );
     // The occurrence is still named: a warning that swallowed the schedule would be a
     // worse card than the one it replaced.
@@ -717,7 +720,7 @@ describe("an armed schedule the gate would refuse today", () => {
     );
 
     expect(container.textContent).toContain("Next: Tuesday, 18 Aug");
-    expect(container.textContent).not.toContain("As things stand");
+    expect(container.textContent).not.toMatch(FIRE_TIME_WARNING);
   });
 
   it("warns nothing while the launch check is unanswered", async () => {
@@ -737,7 +740,7 @@ describe("an armed schedule the gate would refuse today", () => {
       "Scheduled",
     );
 
-    expect(container.textContent).not.toContain("As things stand");
+    expect(container.textContent).not.toMatch(FIRE_TIME_WARNING);
     expect(
       screen.getByRole("button", { name: "Cancel scheduled start" }),
     ).toBeTruthy();

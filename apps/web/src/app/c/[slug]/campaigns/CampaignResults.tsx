@@ -100,24 +100,23 @@ export function CampaignResults({
         <Metric
           label="Credit spent"
           value={r.credits_spent_inr === null ? "—" : formatINR(r.credits_spent_inr)}
-          hint={r.credits_spent_inr === null ? "Your role doesn't show billing" : "On all this campaign's calls, call-backs included"}
+          hint={r.credits_spent_inr === null ? "Hidden for your role" : "Includes call-backs"}
         />
       </MetricRow>
 
       <div className="grid grid-cols-1 gap-10 md:grid-cols-2">
-        <Section title="How it went with each person" headingLevel={3}>
+        <Section title="How calls went" headingLevel={3}>
           <OutcomeBreakdown outcomes={r.outcomes} />
           {r.opt_outs > 0 && (
             <p className="mt-3 text-meta text-ink-muted">
-              {formatCount(r.opt_outs)} {r.opt_outs === 1 ? "person" : "people"} asked not to be called again and
-              {r.opt_outs === 1 ? " is" : " are"} on your do-not-call list.
+              {formatCount(r.opt_outs)} asked not to be called. Added to do-not-call.
             </p>
           )}
         </Section>
 
-        <Section title="What people's conversations came to" headingLevel={3}>
+        <Section title="What calls led to" headingLevel={3}>
           {tags.length === 0 && sentiment.length === 0 ? (
-            <p className="text-body text-ink-muted">Nothing yet. This fills in as people answer.</p>
+            <p className="text-body text-ink-muted">Nothing yet. Fills in as people answer.</p>
           ) : (
             <div className="space-y-4">
               {tags.length > 0 && (
@@ -193,8 +192,11 @@ function Answers({ results }: { results: Results }) {
   const fields = results.fields.filter((field) => field.values.some((v) => v.count > 0) || field.not_captured > 0);
   if (outcomes.length === 0 && fields.length === 0) return null;
   return (
-    <Section title="What people said" headingLevel={3}>
-      <p className="mb-4 text-meta text-ink-muted">Each person counts once, by their latest answered call.</p>
+    <Section
+      title="What people said"
+      headingLevel={3}
+      info={<p>Each person counts once, by their latest answered call.</p>}
+    >
       <div className="grid grid-cols-1 gap-x-10 gap-y-6 md:grid-cols-2">
         {outcomes.length > 0 && (
           <CountList

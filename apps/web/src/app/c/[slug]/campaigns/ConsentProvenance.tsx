@@ -17,6 +17,12 @@ import {
 } from "@/lib/api/campaigns";
 
 import { CONSENT_SOURCES } from "./choices";
+import { Why } from "./_ui/Why";
+
+/** The answer form's element id, so the launch checklist's "Answer" button can jump to it. */
+export function listSourceId(campaignId: string): string {
+  return `list-source-${campaignId}`;
+}
 
 /**
  * WHERE THIS LIST CAME FROM — the consent-provenance question, and the two places that
@@ -24,7 +30,8 @@ import { CONSENT_SOURCES } from "./choices";
  *
  * Every sentence here is a compliance artefact (SEC-COMP §3): the client is stating on the
  * record where a list came from, and that statement is what a complaint would later be
- * answered with. It is never disclosed and never shortened.
+ * answered with. "This goes on the record" stays visible; only the reason it matters sits
+ * behind "Why?".
  *
  * The fields are shared rather than written twice because the two callers (the create
  * flow, and a blocked draft) must ask IDENTICALLY: two copies would drift, and the drift
@@ -55,9 +62,8 @@ export function ConsentProvenanceFields({
           legendClassName={FIELD_LABEL}
           description={
             <>
-              You&apos;re putting this on the record: it&apos;s how we can show,
-              later, that the people on this list agreed to hear from you. Pick the
-              one that&apos;s true.
+              This goes on the record. Pick the true one.{" "}
+              <Why>It is how we show, later, that these people agreed to hear from you.</Why>
             </>
           }
           name={`${idPrefix}-consent-source`}
@@ -72,7 +78,7 @@ export function ConsentProvenanceFields({
       {/* Days after today are not offered: an agreement cannot have been given tomorrow. */}
       <DatePicker
         label="When did they agree?"
-        hint="The date on the form, bill or enquiry. If the list was built up over time, use the day the most recent person was added."
+        hint="Date on the form, bill or enquiry. Use the newest one."
         value={collectedAt || null}
         onChange={(day) => onCollectedAt(day ?? "")}
         max={todayIST()}
@@ -118,7 +124,8 @@ export function ConsentProvenanceAnswer({
 
   return (
     <form
-      className="space-y-4 border-l-2 border-line pl-4"
+      id={listSourceId(campaignId)}
+      className="scroll-mt-24 space-y-4 border-l-2 border-line pl-4"
       noValidate
       onSubmit={(event) => {
         event.preventDefault();
@@ -131,10 +138,6 @@ export function ConsentProvenanceAnswer({
         {correcting
           ? "Correct where this list came from"
           : "Record where this list came from"}
-      </p>
-      <p className="text-xs text-ink-faint">
-        Your contacts stay as they are — this answers the question against this
-        campaign.
       </p>
 
       <ConsentProvenanceFields

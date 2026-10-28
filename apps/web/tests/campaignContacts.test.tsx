@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ContactEditor, fileHint } from "@/app/c/[slug]/campaigns/ContactEditor";
+import { ContactEditor, FILE_HINT, fileTips } from "@/app/c/[slug]/campaigns/ContactEditor";
 import {
   MAX_CONTACTS_PER_UPLOAD,
   SAMPLE_CSV,
@@ -21,14 +21,16 @@ import {
 
 const entries = (text: string) => rowsToEntries(parseCsv(text)).entries;
 
-describe("the file hint (D-915)", () => {
+describe("the file hint and tips (D-915)", () => {
   it("names the calling agent's script, never a fixed one, and no vertical's column", () => {
-    expect(fileHint("hi-IN")).toContain("in Hindi script.");
-    expect(fileHint("te-IN")).toContain("in Telugu script.");
+    expect(fileTips("hi-IN").join(" ")).toContain("in Hindi script.");
+    expect(fileTips("te-IN").join(" ")).toContain("in Telugu script.");
     for (const language of [undefined, null, "en-IN", "xx-IN"]) {
-      expect(fileHint(language)).not.toMatch(/script/);
+      expect(fileTips(language).join(" ")).not.toMatch(/script/);
     }
-    expect(fileHint("hi-IN")).not.toMatch(/village|Telugu/);
+    expect(fileTips("hi-IN").join(" ")).not.toMatch(/village|Telugu/);
+    // The hint shown by default is one short line naming no script.
+    expect(FILE_HINT).not.toMatch(/script/);
   });
 });
 
@@ -229,7 +231,7 @@ describe("the contact editor", () => {
 
   it("states the do-not-call rule as a fact, with no control to turn it off", () => {
     render(<Harness />);
-    expect(screen.getByText(/Numbers on your do-not-call list are never dialled/)).toBeTruthy();
+    expect(screen.getByText(/Do-not-call numbers are never dialled/)).toBeTruthy();
     expect(screen.queryByRole("checkbox")).toBeNull();
     expect(screen.queryByRole("switch")).toBeNull();
   });

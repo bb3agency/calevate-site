@@ -179,10 +179,12 @@ describe("a campaign that repeats", () => {
 
     await screen.findByText("Repeats");
     expect(container.textContent).toContain(
-      "We skipped the run due Tuesday, 11 Aug",
+      "Skipped Tuesday, 11 Aug",
     );
+    // Why it was skipped is one tap away, beside the line that says so.
+    for (const why of screen.getAllByRole("button", { name: "Why?" })) fireEvent.click(why);
     expect(container.textContent).toContain(
-      "calling people at a different time of day",
+      "rather than call late",
     );
     // The server's enum is never rendered: "missed" is our vocabulary, not a sentence.
     expect(container.textContent).not.toContain("last_skipped_reason");
@@ -195,7 +197,7 @@ describe("a campaign that repeats", () => {
     expect((stop as HTMLButtonElement).disabled).toBe(false);
     // The half a client would otherwise assume: stopping a repeat is not a pause.
     expect(container.textContent).toContain(
-      "Calls already going out are not affected",
+      "Ends the repeat only. Pause to stop today’s calls.",
     );
     for (const button of container.querySelectorAll("button")) {
       // An icon button (the header ⋯ menu) is named by its aria-label.

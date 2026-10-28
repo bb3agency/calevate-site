@@ -1,5 +1,3 @@
-import { type ReactNode } from "react";
-
 import type { NoticeTone } from "@/components/ui";
 import { type CampaignSummary, type PauseReason } from "@/lib/api/campaigns";
 
@@ -15,106 +13,124 @@ import { type CampaignSummary, type PauseReason } from "@/lib/api/campaigns";
  * desk it is on. A rule with no entry falls back to the server's sentence, which is terse
  * but true. `tests/campaignBlockerCopy.test.ts` fails on a key the gate no longer emits.
  *
+ * `text` is the one line shown by default and must be TRUE ON ITS OWN: a fact the client
+ * would act on differently (inbound stopping with outbound, a bought list never being
+ * called) stays in it. `why` is the longer reason, shown only behind "Why?" (founder,
+ * 28 Oct 2026: short lines and buttons, explanations behind a tap).
+ *
  * Rules whose server sentence carries the state (KYC, the pledge, the consent
  * age) have no entry: rule-keyed copy would flatten the state the client needs.
  */
-export type BlockerNote = { text: ReactNode; owner?: "calevate" | "client" };
+export type BlockerNote = { text: string; why?: string; owner?: "calevate" | "client" };
 
 export const BLOCKER_COPY: Record<string, BlockerNote> = {
-  status: { text: "This campaign has already been launched." },
-  agent_not_live: { text: "Your agent has to be published before it can make calls.", owner: "client" },
+  status: { text: "This campaign has already started." },
+  agent_not_live: { text: "Publish your agent first.", owner: "client" },
   agent_archived: {
-    text: "The agent on this campaign has been archived. Restore it, or edit the campaign to use another agent.",
+    text: "This campaign's agent is archived.",
+    why: "Restore the agent in Agents, or edit the campaign to use another agent.",
     owner: "client",
   },
   agent_missing: {
-    text: "The agent on this campaign has been deleted. Edit the campaign to use another agent.",
+    text: "This campaign's agent was deleted.",
+    why: "Edit the campaign and choose another agent.",
     owner: "client",
   },
   agent_inbound_only: {
-    text: "This agent only answers calls. Choose an agent that makes calls, or change this one in Agents.",
+    text: "This agent only answers calls.",
+    why: "Choose an agent that makes calls, or change this one in Agents.",
     owner: "client",
   },
   disclosure_missing: {
-    text: "The agent needs its AI disclosure line, which every call carries.",
+    text: "Your agent needs its AI disclosure line.",
+    why: "Every call carries a line saying the caller is speaking to an AI.",
     owner: "client",
   },
   classification_not_campaignable: {
-    text: "This campaign is filed as transactional, which a campaign can't be. Edit it and choose Service or Promotional.",
+    text: "Choose Service or Promotional for this campaign.",
+    why: "It is filed as transactional, which a campaign can't be.",
     owner: "client",
   },
   no_contacts: { text: "Add the people to call.", owner: "client" },
   all_contacts_dnc: {
-    text: "Everyone on this list is on your do-not-call list, so nobody is left to call. Add other people.",
+    text: "Everyone here is on your do-not-call list.",
+    why: "Nobody is left to call. Add other people.",
     owner: "client",
   },
   number_not_bound_to_agent: {
-    text: "The number you chose is not set up on this campaign's agent, so calls would not show it. Give it to the agent on the Phone number page, or choose another number.",
+    text: "Your number isn't set up on this agent.",
+    why: "Give the number to the agent on the Phone number page, or choose another number.",
     owner: "client",
   },
   number_not_on_carrier: {
-    text: "The number you chose can't make calls through Calevate. Choose another number, or none to use your agent's own.",
+    text: "Your chosen number can't make calls.",
+    why: "Choose another number, or none to use your agent's own.",
     owner: "client",
   },
   number_inbound_only: {
-    text: "The number you chose only receives calls. Choose a number that can make calls, or none to use your agent's own.",
+    text: "Your chosen number only receives calls.",
+    why: "Choose a number that can make calls, or none to use your agent's own.",
     owner: "client",
   },
   trial_campaigns_unavailable: {
-    text: "Campaigns open once you add credit. During your free trial you can try your agents with test calls from your dashboard.",
+    text: "Add credit to use campaigns.",
+    why: "During your free trial, try your agents with test calls from your dashboard.",
     owner: "client",
   },
-  // An empty wallet silences answering as well as dialling (D-551), so this says both
-  // halves and that one payment undoes both.
+  // An empty wallet silences answering as well as dialling (D-551), so the short line says
+  // both halves; that one payment undoes both is in "Why?".
   no_credits: {
-    text:
-      "Your calling credit has run out, so outgoing calls have stopped and your agents " +
-      "are no longer answering incoming ones. Add credit and both start again straight away.",
+    text: "Out of credit. Calls in and out have stopped.",
+    why: "Your agents are not answering incoming calls either. Add credit and both start again straight away.",
     owner: "client",
   },
   spend_cap: {
-    text:
-      "This account has spent up to its monthly limit, so outgoing calls have stopped " +
-      "until the limit is raised or the month turns over. People ringing you still get through.",
+    text: "Monthly spending limit reached. Calls to you still work.",
+    why: "Outgoing calls stop until the limit is raised or the month turns over.",
     owner: "client",
   },
   platform_fee_overdue: {
-    text: "The monthly platform fee is unpaid, so outgoing calls are paused. Pay it from Billing and calls start again.",
+    text: "Platform fee unpaid. Outgoing calls paused.",
+    why: "Pay it from Billing and calls start again.",
     owner: "client",
   },
   payment_dispute: {
-    text: "A payment on this account is disputed, so outgoing calls are paused while we sort it out with you.",
+    text: "A payment is disputed. Outgoing calls paused.",
+    why: "We are sorting it out with you.",
     owner: "calevate",
   },
-  agreements_not_accepted: {
-    text: "Accept the updated terms before this campaign can call.",
-    owner: "client",
-  },
+  agreements_not_accepted: { text: "Accept the updated terms.", owner: "client" },
   account_suspended: {
-    text: "This account is suspended, so it can't make calls. Contact us to find out why.",
+    text: "This account is suspended. It can't make calls.",
+    why: "Contact us to find out why.",
     owner: "calevate",
   },
-  account_closed: { text: "This account is closed, so it can't make calls.", owner: "calevate" },
+  account_closed: { text: "This account is closed. It can't make calls.", owner: "calevate" },
   national_dnd_scrub_missing: {
-    text: "Promotional calls go out only after the list is checked against the national do-not-disturb register that day, and that check has not been recorded for this list. A service campaign does not need it.",
+    text: "Waiting for today's national do-not-disturb check.",
+    why:
+      "Promotional calls go out only after the list is checked against the national " +
+      "do-not-disturb register that day. A service campaign does not need it.",
     owner: "calevate",
   },
   national_dnd_scrub_expired: {
-    text: "The check against the national do-not-disturb register lasts until midnight, and today's has not been recorded for this list yet.",
+    text: "Today's national do-not-disturb check is due.",
+    why: "The check lasts until midnight, and today's has not been recorded for this list yet.",
     owner: "calevate",
   },
   big_red_switch: {
-    text: "Calevate has paused outgoing calls for everyone for a while. There is nothing for you to do; calls continue when it lifts.",
+    text: "Outgoing calls are paused for everyone. Nothing to do.",
+    why: "Calevate paused outgoing calls for a while. Calls continue when it lifts.",
     owner: "calevate",
   },
   consent_provenance_missing: {
-    text: "Tell us where this list came from and when these people agreed to be called. A list we can't trace to a consent can't be called.",
+    text: "Say where this list came from.",
+    why: "A list we can't trace to people agreeing to be called can't be called.",
     owner: "client",
   },
   consent_source_refused: {
-    text:
-      "This list is recorded as bought or rented. Calevate doesn't call purchased lists, " +
-      "because nobody on them agreed to hear from you. If that answer was a mistake, correct it below.",
+    text: "We don't call bought or rented lists.",
+    why: "Nobody on them agreed to hear from you. If that answer was a mistake, correct it below.",
     owner: "client",
   },
 };
@@ -154,7 +170,8 @@ const KYC_BLOCKERS = [
 
 /**
  * Where a client goes to clear a rule whose fix lives on another screen. `at` turns a path
- * under `/c/{slug}` into a link that keeps a view-as session.
+ * under `/c/{slug}` into a link that keeps a view-as session. Labels are button words:
+ * a verb and the thing, nothing more.
  */
 export function blockerDestination(
   rule: string,
@@ -163,15 +180,25 @@ export function blockerDestination(
 ): { href: string; label: string } | undefined {
   if (rule === "no_credits" || rule === "trial_campaigns_unavailable")
     return { href: at("/billing?tab=credits"), label: "Add credit" };
-  if (rule === "spend_cap") return { href: at("/billing?tab=usage"), label: "See your monthly spending limit" };
-  if (rule === "platform_fee_overdue") return { href: at("/billing"), label: "Go to Billing" };
+  if (rule === "spend_cap") return { href: at("/billing?tab=usage"), label: "Raise spending limit" };
+  if (rule === "platform_fee_overdue") return { href: at("/billing"), label: "Pay in Billing" };
   if (rule === "agreements_not_accepted") return { href: at("/agreements"), label: "Read and accept" };
   if (KYC_BLOCKERS.includes(rule)) return { href: at("/verify-business"), label: "Verify your business" };
-  if (rule.startsWith("number_")) return { href: at("/phone-number"), label: "Go to Phone number" };
+  if (rule.startsWith("number_")) return { href: at("/phone-number"), label: "Open Phone number" };
   if (rule === "agent_not_live" || rule === "agent_inbound_only" || rule === "disclosure_missing")
-    return { href: at("/agents"), label: "Go to Agents" };
+    return { href: at("/agents"), label: "Open Agents" };
   if (rule === "agent_archived" || rule === "agent_missing" || rule === "classification_not_campaignable")
-    return { href: at(`/campaigns/${campaignId}/edit`), label: "Edit the campaign" };
+    return { href: at(`/campaigns/${campaignId}/edit`), label: "Edit campaign" };
+  return undefined;
+}
+
+/**
+ * A rule fixed on the campaign's own page rather than another screen: the checklist row
+ * gets a button that opens or jumps to the control that clears it.
+ */
+export function blockerInPage(rule: string): "add-people" | "list-source" | undefined {
+  if (rule === "no_contacts" || rule === "all_contacts_dnc") return "add-people";
+  if ((PROVENANCE_RULES as readonly string[]).includes(rule)) return "list-source";
   return undefined;
 }
 
@@ -180,25 +207,25 @@ export function blockerDestination(
  * automatic pause names itself; a person's pause is the plain word.
  */
 export const PAUSE_COPY: Record<PauseReason, { title: string; text: string }> = {
-  person: { title: "Paused", text: "Someone on your account paused it. Resume to carry on where it stopped." },
+  person: { title: "Paused", text: "Resume to carry on where it stopped." },
   maintenance: {
     title: "Paused for maintenance",
-    text: "Calevate paused calls while it carries out planned work. It resumes by itself when the work ends.",
+    text: "Planned work. It resumes by itself.",
   },
   healer: {
     title: "Paused while we fix a problem",
-    text: "We found a problem with calling and paused this campaign while we fix it. It resumes by itself once it is fixed.",
+    text: "It resumes by itself once fixed.",
   },
   complaint_spike: {
     title: "Paused: too many people asked not to be called",
-    text: "Read what they said below, then confirm you have reviewed it. Resume works after that.",
+    text: "Read what they said, then confirm below.",
   },
   out_of_credit: {
     title: "Paused: out of credit",
-    text: "It resumes by itself as soon as you add credit.",
+    text: "It resumes by itself when you add credit.",
   },
   spend_cap: {
     title: "Paused: monthly spending limit reached",
-    text: "Raise the limit, or wait for the new month, then resume it.",
+    text: "Raise the limit, or wait for next month.",
   },
 };

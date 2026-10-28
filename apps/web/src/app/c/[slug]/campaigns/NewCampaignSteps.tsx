@@ -1,15 +1,16 @@
 "use client";
 
+import Link from "next/link";
 import { useState, type ReactNode } from "react";
 
 import { NumberField } from "@/components/arc/number-field";
 import { TEXT_ACTION } from "@/components/console/section";
 import { SegmentedControl } from "@/components/interior/segmented-control";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
-import { FIELD, FIELD_HINT, FIELD_LABEL, formatPhone } from "@/components/ui";
+import { FIELD, FIELD_HINT, FIELD_LABEL, SECONDARY_BUTTON_SM, formatPhone } from "@/components/ui";
 import { canDialOut } from "@/lib/agentState";
 import { usePeRegistration } from "@/lib/api/dltRegistration";
-import { useClientSession } from "@/lib/api/session";
+import { useClientRealm } from "@/lib/api/session";
 import { useVerticalExamples } from "@/lib/useVerticalExamples";
 import type { Agent } from "@/lib/api/agents";
 import {
@@ -79,7 +80,7 @@ export function RetryChoice({
       <NumberField
         className="max-w-xs"
         label="Tries per person"
-        hint="1 means no retries. A try that was answered, or a number on the do-not-call list, is never retried."
+        hint="1 means no retries. Answered calls are never retried."
         value={value.max_attempts}
         onChange={(next) => setAttempts(next ?? 1)}
         min={1}
@@ -176,7 +177,8 @@ export function BasicsStep({
   showTemplate?: boolean;
 }) {
   const usable = campaignNumbers(numbers.data, selectedAgentId);
-  const registration = usePeRegistration(useClientSession());
+  const { session, href } = useClientRealm();
+  const registration = usePeRegistration(session);
   const eg = useVerticalExamples();
   const classifications = offeredClassifications(
     registration.data?.calevate_tm_active === true,
@@ -195,9 +197,12 @@ export function BasicsStep({
       </label>
 
       {hasNoAgents && (
-        <p className="text-sm text-ink-muted">
-          No agent is set up yet — create one in Agents before campaigns can run.
-        </p>
+        <div className="space-y-2">
+          <p className="text-sm text-ink">No agent is set up yet.</p>
+          <Link href={href(`/c/${session.orgSlug}/agents`)} className={SECONDARY_BUTTON_SM}>
+            Create an agent
+          </Link>
+        </div>
       )}
       {/* Only from a list the server sent: an empty picker over a read in flight or failed
           would read as "you have no agent". */}
@@ -212,11 +217,9 @@ export function BasicsStep({
               </option>
             ))}
           </select>
-          <span className={FIELD_HINT}>
-            {selectedAgent && !canDialOut(selectedAgent)
-              ? "You can build the campaign now, but it will not launch until the agent is switched on and able to dial out."
-              : "Its script and voice are what your customers will hear."}
-          </span>
+          {selectedAgent && !canDialOut(selectedAgent) ? (
+            <span className={FIELD_HINT}>It can&rsquo;t call out yet. You can still build this.</span>
+          ) : null}
         </label>
       )}
 
@@ -243,8 +246,8 @@ export function BasicsStep({
           {numbers.data && (
             <span className={FIELD_HINT}>
               {usable.length === 0
-                ? "None of your numbers is set up to make calls for this agent, so calls show the number the agent dials from."
-                : "Only numbers this agent can make calls from are listed."}
+                ? "No number set up for this agent. Its own is used."
+                : "Only numbers this agent can call from."}
             </span>
           )}
         </label>
@@ -262,7 +265,7 @@ export function BasicsStep({
             ))}
           </select>
           {templates.data?.length === 0 && (
-            <span className={FIELD_HINT}>None registered. You do not need one to make calls.</span>
+            <span className={FIELD_HINT}>None registered. Not needed to call.</span>
           )}
         </label>
         )}
@@ -305,10 +308,7 @@ export function StartChoice({ schedule }: { schedule: ScheduleFormState }) {
         </div>
       )}
       {schedule.startMode !== "review" && (
-        <p className={FIELD_HINT}>
-          We check every launch requirement again at the moment it starts — a campaign that stops being allowed to
-          dial between now and then will not start.
-        </p>
+        <p className={FIELD_HINT}>We check everything again when it starts.</p>
       )}
     </div>
   );
@@ -331,7 +331,7 @@ export function PaceRows({ form }: { form: CampaignFormState }) {
     <SettingRows className="border-y border-line">
       <SettingRow
         label="Calling hours"
-        hint="Calls never go out before 9am or after 9pm. You can narrow that."
+        hint="Never before 9am or after 9pm. You can narrow it."
         value={form.restrictHours ? `${form.windowStart || "…"} – ${form.windowEnd || "…"} IST` : "9am – 9pm IST"}
         action={change("hours")}
       />
@@ -370,7 +370,7 @@ export function PaceRows({ form }: { form: CampaignFormState }) {
         <div className="settings-enter max-w-xs pb-4">
           <NumberField
             label="Calls at the same time"
-            hint="Between 1 and 10. Your plan and the lines kept free for people calling you can allow fewer; the campaign page shows the number that applies."
+            hint="1 to 10. Your plan may allow fewer."
             value={form.concurrency}
             onChange={(next) => form.setConcurrency(next ?? 1)}
             min={1}
@@ -380,8 +380,8 @@ export function PaceRows({ form }: { form: CampaignFormState }) {
         </div>
       )}
       <SettingRow
-        label="No answer, busy or voicemail"
-        hint="How many times we try each person, and how long we wait in between."
+        label="If nobody answers"
+        hint="Tries per person, and the wait between."
         value={describeRetry(form.retry)}
         action={change("retry")}
       />
