@@ -328,8 +328,12 @@ function SetupChecklist({
       <Checklist
         label={allDone ? "Ready for calls" : working ? "Still to set up" : "Before its first call"}
         items={items}
-        collapsible={phone || allDone}
-        defaultOpen={!phone && !allDone}
+        // On a phone the finished steps fold into one "4 done" line instead of the whole
+        // list folding, so the next step's button stays on screen and the notices below
+        // stay near the top (critique-information-density, mobile-native).
+        collapsible={allDone}
+        defaultOpen={!allDone}
+        foldDone={phone}
         emphasizeNext
         nextLabel="Do this next"
       />

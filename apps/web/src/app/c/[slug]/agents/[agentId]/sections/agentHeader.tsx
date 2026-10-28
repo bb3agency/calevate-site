@@ -120,8 +120,14 @@ export function AgentHeader({
       ];
 
   const status = lookup(STATUS_COPY, agent.status);
+  // The status column is named only when it disagrees with the badge in a way the badge
+  // does not already say: "switched off" is the badge's own word for a paused agent.
   const stateLine =
-    status && !deleted && !onTrial && agent.published !== (agent.status === "live")
+    status &&
+    !deleted &&
+    !onTrial &&
+    agent.status !== "paused" &&
+    agent.published !== (agent.status === "live")
       ? `${live.detail} Status: ${status.label}.`
       : live.detail;
   // The tier it speaks in, and that tier's rate, beside the state (Clear or Studio only).
@@ -164,11 +170,22 @@ export function AgentHeader({
         status={<LiveBadge agent={agent} />}
         description={detail}
         actions={
+          // On a phone: the switch and the ⋯ menu share the first row, the buttons fill the
+          // second at full width (mobile-native: 44px targets, no orphaned menu). From `sm`
+          // the pair dissolves into one row and the menu goes last.
           <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
             {restoreButton}
+            {deleted && items.length > 0 && <RowMenu label={agent.name} items={items} />}
             {!deleted && (
               <>
-                <OnOffSwitch agent={agent} canWrite={write.allowed} onTrial={onTrial} move={move} />
+                <div className="flex w-full items-center justify-between gap-2 sm:contents">
+                  <OnOffSwitch agent={agent} canWrite={write.allowed} onTrial={onTrial} move={move} />
+                  {items.length > 0 && (
+                    <span className="sm:order-last">
+                      <RowMenu label={agent.name} items={items} />
+                    </span>
+                  )}
+                </div>
                 {moves.includes("prepare") && (
                   <ActionButton
                     variant="secondary"
@@ -198,7 +215,6 @@ export function AgentHeader({
                 )}
               </>
             )}
-            {items.length > 0 && <RowMenu label={agent.name} items={items} />}
           </div>
         }
       />
