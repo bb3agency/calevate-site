@@ -356,7 +356,7 @@ function Editor({
     realm: "client",
     saves: "autosave",
     liveStep: PUT_LIVE,
-    fields: scriptCopilotFields(script, raw, context?.language),
+    fields: scriptCopilotFields(script, raw, context?.language, context?.direction),
     // The agent's id and name first: a request to change this script names the agent by them.
     facts: [
       { key: "agent_id", label: "Agent id", value: agentId },

@@ -163,7 +163,11 @@ OPENING_LINE_RULE: Final = (
     "The opening_line greets, names the business and asks one short question, in at most "
     f"{OPENING_LINE_MAX_CHARS} characters: no list of products, no offer, and no AI or "
     "recording notice (the platform adds those). When the brief says the agent introduces "
-    "itself first, the opening_line neither greets nor names the agent or the business."
+    "itself first, the opening_line neither greets nor names the agent or the business. "
+    "For an agent that answers calls and also places them, outbound_opening_line is what it "
+    "says first on a call it places, under the same rules: who it is, from which business "
+    "and why it is calling, then one short question, never thanks for calling; for any other "
+    "agent leave outbound_opening_line empty."
 )
 
 

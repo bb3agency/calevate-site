@@ -107,7 +107,12 @@ export const SAY_STEP_COPILOT_HELP =
  * both, so it is marked spoken only: its instructions are English, which leaves any textbook
  * word in a spoken line, and an English rule over the whole body would refuse its greeting.
  */
-export function scriptCopilotFields(script: CallScript, raw: boolean, language?: string): CopilotField[] {
+export function scriptCopilotFields(
+  script: CallScript,
+  raw: boolean,
+  language?: string,
+  direction?: string,
+): CopilotField[] {
   // The lines callers hear, as against the instructions the in-call model reads (D-832).
   const spoken = (field: CopilotField): CopilotField => (language ? { ...field, spokenLanguage: language } : field);
   const instruction = (field: CopilotField): CopilotField => ({ ...field, instruction: true });
@@ -136,6 +141,19 @@ export function scriptCopilotFields(script: CallScript, raw: boolean, language?:
     instruction(text("script-goal", "What a good call achieves", script.goal)),
     instruction(text("script-outbound_purpose", "Why you are calling", script.outbound_purpose)),
     spoken(text("script-opening_line", "Opening line", script.opening_line, OPENING_LINE_COPILOT_HELP)),
+    // A "both" agent's second opening (D-920), for the calls it places.
+    ...(direction === "both"
+      ? [
+          spoken(
+            text(
+              "script-outbound_opening_line",
+              "Opening line when it calls",
+              script.outbound_opening_line ?? "",
+              "Its first words on a call it places: who it is, the business and why it calls, then one short question.",
+            ),
+          ),
+        ]
+      : []),
     ...script.stages.flatMap((stage, index) => [
       stage.mode === "say"
         ? spoken(

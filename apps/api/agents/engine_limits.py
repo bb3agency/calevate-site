@@ -28,6 +28,7 @@ from calevate_shared.engine import (
     DisclosurePosture,
     VoiceEngine,
     compose_opening_line,
+    compose_placed_call_first_words,
     introduces_itself,
     join_first_words,
     spoken_ai_notice,
@@ -202,12 +203,23 @@ def refuse_opening_over_limit(
     posture: DisclosurePosture,
     opening: str,
     language: str,
+    placed: bool = False,
 ) -> None:
-    """Refuse a new opening line that would not fit with the notices, before it is saved."""
-    limit = greeting_limit(engine, direction)
+    """Refuse a new opening line that would not fit with the notices, before it is saved.
+
+    `placed`: the opening a "both" agent says on the calls it places (D-920), which rides
+    each dial rather than the greeting field, so only the dial's ceiling binds it."""
+    if placed:
+        limit = hosted_agent_limits(engine).call_opening_chars
+        recorded = engine_capabilities(engine).records_audio
+        notices = compose_opening_line(posture, call_is_recorded=recorded)
+        ai_notice = spoken_ai_notice(posture)
+        length = len(join_first_words(notices, opening, ai_notice=ai_notice, language=language))
+    else:
+        limit = greeting_limit(engine, direction)
+        length = _posture_chars(engine, posture, opening=opening, language=language)
     if limit is None:
         return
-    length = _posture_chars(engine, posture, opening=opening, language=language)
     if length <= limit:
         return
     log.info(
@@ -245,6 +257,12 @@ def refuse_over_engine_limits(engine: VoiceEngine, cfg: AgentConfig) -> None:
     limit = greeting_limit(engine, cfg.direction)
     if limit is not None and length > limit:
         raise _opening_too_long(engine, cfg, length=length, cap=limit)
+    placed = compose_placed_call_first_words(cfg)
+    placed_cap = hosted_agent_limits(engine).call_opening_chars
+    if placed is not None and placed_cap is not None and len(placed) > placed_cap:
+        # A "both" agent's opening on the calls it places rides each dial (D-920); one too
+        # long would be dropped at dial time for the answering greeting.
+        raise _opening_too_long(engine, cfg, length=len(placed), cap=placed_cap, placed=True)
     if cfg.direction == "inbound":
         return
     if limits.call_opening_required and not length:
@@ -319,25 +337,27 @@ def _check_prompt(engine: VoiceEngine, cfg: AgentConfig, cap: int) -> None:
 
 
 def _opening_too_long(
-    engine: VoiceEngine, cfg: AgentConfig, *, length: int, cap: int
+    engine: VoiceEngine, cfg: AgentConfig, *, length: int, cap: int, placed: bool = False
 ) -> ProblemError:
     log.warning(
         "agent_publish_refused_engine_limit",
         extra={"agent_id": cfg.agent_id, "engine": engine.name, "reason": OPENING_TOO_LONG},
     )
     introduced = introduces_itself(ai_notice=cfg.ai_notice, language=cfg.language_primary)
+    which = "opening line for calls it places" if placed else "opening line"
     return ProblemError(
         kind="business_rule",
         code=OPENING_TOO_LONG,
-        title="This agent's opening line is too long to publish",
+        title=f"This agent's {which} is too long to publish",
         detail=(
-            "What the agent says first (its opening line and any notices switched on"
+            f"What the agent says first{' when it calls' if placed else ''} (its {which} and "
+            "any notices switched on"
             + (", its introduction with its own name among them" if introduced else "")
             + f") is {length:,} characters, and at most {cap:,} can be spoken there. Nothing "
             "was shortened and nothing was published."
         ),
         remediation=(
-            f"Shorten the opening line in the agent's script by at least {length - cap:,} "
+            f"Shorten the {which} in the agent's script by at least {length - cap:,} "
             "characters"
             + (", or give the agent a shorter name" if introduced else "")
             + ", then publish again."

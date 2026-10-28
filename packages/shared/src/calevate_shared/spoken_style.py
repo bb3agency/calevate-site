@@ -758,6 +758,25 @@ def trial_call_opening(
     return " ".join(template.replace("{name}", name).replace("{business}", business).split())
 
 
+#: The placed-call line for a language whose row has no `outbound` opening (English today):
+#: the English call-leads starter's words (`agents/starters.py`) without its follow-up clause.
+PLACED_CALL_FALLBACK: Final = "Hello, I am calling from {business}. Is this a good time to talk?"
+PLACED_CALL_FALLBACK_INTRODUCED: Final = "Is this a good time to talk?"
+
+
+def placed_call_opening(tag: str | None, *, business: str, introduced: bool = False) -> str:
+    """What a "both" agent with no outbound opening of its own says on a call it places
+    (D-920): the language's starter `outbound` line, which names the business and asks whether
+    now suits, never the answering greeting. `introduced`, only the question (D-865), which
+    is also all that is said when no business name is known, rather than a gap where it
+    goes."""
+    introduced = introduced or not business.strip()
+    template = opening_in(tag, "outbound", introduced=introduced) or (
+        PLACED_CALL_FALLBACK_INTRODUCED if introduced else PLACED_CALL_FALLBACK
+    )
+    return " ".join(template.replace("{business}", business).split())
+
+
 def opening_in(tag: str | None, direction: str, *, introduced: bool = False) -> str | None:
     """A starter's opening line in the agent's language (`{business}` unfilled), or None
     where the table has none for it. `introduced` asks for the form said after the agent's
@@ -879,6 +898,7 @@ __all__ = [
     "opening_in",
     "pack_facts_rule",
     "pack_lines",
+    "placed_call_opening",
     "prompt_example_line",
     "register_guidance",
     "shipped_pack_choice",

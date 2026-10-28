@@ -123,6 +123,15 @@ describe("the lines callers hear, and the screen's present state (D-832)", () =>
     expect(scriptCopilotFields(STRUCTURED, false).some((f) => f.spokenLanguage)).toBe(false);
   });
 
+  it("offers the opening for calls it places only on an agent that answers and calls (D-920)", () => {
+    const both = scriptCopilotFields(STRUCTURED, false, "te-IN", "both");
+    const placed = both.find((f) => f.id === "script-outbound_opening_line");
+    expect(placed?.spokenLanguage).toBe("te-IN");
+    expect(
+      scriptCopilotFields(STRUCTURED, false, "te-IN", "outbound").some((f) => f.id === "script-outbound_opening_line"),
+    ).toBe(false);
+  });
+
   it("marks a stage said word for word as spoken, with its own help, and a guide stage as an instruction", () => {
     const script: CallScript = {
       ...STRUCTURED,

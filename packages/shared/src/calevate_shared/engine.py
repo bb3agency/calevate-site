@@ -32,7 +32,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from calevate_shared.call_script import NativeStep, opening_line_of
+from calevate_shared.call_script import NativeStep, opening_line_of, outbound_opening_of
 from calevate_shared.calling_window import ist_wall_clock
 from calevate_shared.events import (
     CallBilling,
@@ -53,6 +53,7 @@ from calevate_shared.spoken_style import (
     language_pack,
     pack_facts_rule,
     pack_lines,
+    placed_call_opening,
     prompt_example_line,
     register_guidance,
     shipped_pack_choice,
@@ -4419,6 +4420,46 @@ def compose_first_utterance(cfg: AgentConfig) -> str:
     )
 
 
+def placed_call_line(*, body: str | None, language: str, business: str, ai_notice: str) -> str:
+    """The line a "both" agent opens the calls it places with (D-920): its own outbound
+    opening, else the language's composed one (`spoken_style.placed_call_opening`), never
+    the answering greeting, which thanks the person for calling."""
+    own = outbound_opening_of(body)
+    if own:
+        return own
+    return placed_call_opening(
+        language,
+        business=business,
+        introduced=introduces_itself(ai_notice=ai_notice, language=language),
+    )
+
+
+def placed_call_first_words(
+    *, body: str | None, notices: str, ai_notice: str, language: str, business: str
+) -> str:
+    """What a "both" agent says first on a call it places: the notices its switches turn on
+    and `placed_call_line`, in the order its greeting carries them (D-861, D-865), so hard
+    rule 5 and D-163 hold as on an answered call. Takes the parts rather than a config so the
+    dial (`agents.service.dial_first_words`) and the prompt compose one text."""
+    line = placed_call_line(body=body, language=language, business=business, ai_notice=ai_notice)
+    return join_first_words(notices, line, ai_notice=ai_notice, language=language)
+
+
+def compose_placed_call_first_words(cfg: AgentConfig) -> str | None:
+    """`placed_call_first_words` for `cfg`, or None for an agent of one direction: an
+    outbound agent's greeting already opens a call it places, and an answering agent rings
+    out only on a test call (`agents.service.trial_call_first_words`)."""
+    if cfg.direction != "both":
+        return None
+    return placed_call_first_words(
+        body=cfg.system_prompt,
+        notices=cfg.opening_line,
+        ai_notice=cfg.ai_notice,
+        language=cfg.language_primary,
+        business=cfg.business,
+    )
+
+
 #: The header of the section that tells the model its first words were already said.
 START_OF_CALL_HEADER: Final = "--- START OF THE CALL ---"
 
@@ -4475,6 +4516,16 @@ def _start_of_call_section(cfg: AgentConfig) -> str:
     still gets both answers: the truthful-answer block binds last.
     """
     first_words = neutralise_markers(compose_first_utterance(cfg))
+    placed = compose_placed_call_first_words(cfg)
+    if placed is not None:
+        # A "both" agent's two first turns differ (D-920): quoting only the answering one
+        # told the model of a placed call that it had thanked the person for calling, and
+        # on the founder's call of 28 Oct 2026 it then greeted a second time.
+        answered = f'on a call you answer, "{first_words}"; ' if first_words else ""
+        return (
+            f"{START_OF_CALL_HEADER}\nAlready said for you as your first turn: {answered}on a "
+            f'call you place, "{neutralise_markers(placed)}".{OPENING_CONTINUES_RULE}'
+        )
     if not first_words:
         return ""
     has_opening = bool(opening_line_of(cfg.system_prompt))
@@ -5066,12 +5117,13 @@ class CallContext(BaseModel):
     #: adapter sends it as the per-call `maxCallSeconds` override.
     max_call_seconds: int | None = Field(default=None, ge=60, le=1200)
     #: THE FIRST WORDS OF THIS ONE CALL in place of the agent's greeting, or None for the
-    #: greeting. Set only for a free-trial test call of an agent that only answers calls
-    #: (founder, 23 Oct 2026): its greeting thanks a caller for calling, which is wrong when it
-    #: rings its owner. `agents.service.dispatch_call` composes it from the same notices the
-    #: greeting carries (`compose_opening_line`, the agent's two switches) and the language's
-    #: `test_call` line, so hard rule 5 and D-163 hold as on any call. Only an engine whose dial
-    #: takes per-call first words reads it (ThinnestAI's `purpose`).
+    #: greeting. Set for every call a "both" agent places (its outbound opening, D-920) and
+    #: for a test call of an agent that only answers calls (founder, 23 Oct 2026): either
+    #: greeting thanks a caller for calling, which is wrong on a call the agent made.
+    #: `agents.service.dial_first_words` composes it from the same notices the greeting
+    #: carries (`compose_opening_line`, the agent's two switches), so hard rule 5 and D-163
+    #: hold as on any call. Only an engine whose dial takes per-call first words reads it
+    #: (ThinnestAI's `purpose`).
     opening: str | None = None
     #: TRUE ONLY FOR THE OWNER'S TEST CALL TO A NUMBER THEY ATTESTED AS THEIR OWN (D-866):
     #: the one dial our gate lets ring outside `calling_window.DEFAULT_WINDOW`. Every other

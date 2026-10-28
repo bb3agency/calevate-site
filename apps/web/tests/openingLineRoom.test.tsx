@@ -113,6 +113,19 @@ describe("the opening line's room (D-846)", () => {
     expect(box.getAttribute("aria-describedby")).toContain(meter.parentElement?.id ?? "missing");
   });
 
+  it("quotes both first turns of an agent that answers and calls, by the call each opens (D-920)", async () => {
+    await renderClientPage(
+      <OpeningNotices
+        agent={agent({ direction: "both", first_words_when_calling: "Ippudu matladocha?" })}
+      />,
+      { "/v1/me": OWNER },
+    );
+    expect(screen.getByText("When it answers")).toBeTruthy();
+    expect(screen.getByText("When it calls")).toBeTruthy();
+    expect(screen.getByText("“Ippudu matladocha?”")).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Edit the opening lines/ })).toBeTruthy();
+  });
+
   it("offers Pip to shorten it, prefilled with the room and never sent", async () => {
     const asked: AssistantRequest[] = [];
     function Listener() {

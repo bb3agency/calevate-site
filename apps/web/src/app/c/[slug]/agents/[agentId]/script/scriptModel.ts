@@ -455,6 +455,9 @@ export function scriptAsText(script: CallScript): string {
     if (body?.trim()) out.push(`${title}\n${body.trim()}`);
   };
   if (script.opening_line.trim()) out.push(`[OPENING]\n${script.opening_line.trim()}`);
+  // The header the server reads a "both" agent's placed-call opening from (D-920).
+  const placed = script.outbound_opening_line?.trim();
+  if (placed) out.push(`[OPENING ON CALLS YOU PLACE]\n${placed}`);
   para("About the business", script.business_line);
   para("Who you are", script.identity);
   para("The goal", script.goal);

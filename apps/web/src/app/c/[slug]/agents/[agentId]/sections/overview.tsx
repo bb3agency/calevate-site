@@ -79,6 +79,15 @@ export function Overview({ agent, slug }: { agent: Agent; slug: string }) {
       { key: "recording_notice_enabled", label: "Says the call is recorded at the start", value: agent.recording_notice_enabled ? "yes" : "no" },
       { key: "script_opening_line", label: "Opening line (its greeting, from the script)", value: agent.script_opening_line.trim() || "none written" },
       { key: "first_words", label: "What callers hear first", value: agent.first_words.trim() || "nothing yet" },
+      ...(agent.first_words_when_calling != null
+        ? [
+            {
+              key: "first_words_when_calling",
+              label: "What people it calls hear first (set with agent_edit outbound_opening_line)",
+              value: agent.first_words_when_calling.trim() || "nothing yet",
+            },
+          ]
+        : []),
       {
         key: "pending",
         label: "Changes waiting to go live",

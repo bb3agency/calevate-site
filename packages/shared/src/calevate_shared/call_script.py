@@ -164,6 +164,9 @@ GUARDRAILS_BLOCK: Final = (
 #: The header the compiler puts above the opening line. A section runs from its header line
 #: to the next line starting with `[` (PROMPT-GUIDE §2, `apps/api/agents/t0_block.py`).
 OPENING_HEADER: Final = "[OPENING]"
+#: The header above the line a "both" agent opens the calls it places with (D-920): the
+#: [OPENING] line thanks a caller for calling, which is wrong on a call the agent made.
+OUTBOUND_OPENING_HEADER: Final = "[OPENING ON CALLS YOU PLACE]"
 
 
 def opening_line_of(body: str | None) -> str:
@@ -175,10 +178,20 @@ def opening_line_of(body: str | None) -> str:
     reader serves all of them. A raw-mode script has an opening only if its author wrote
     the same section; otherwise the agent has no opening line of its own.
     """
+    return _section_of(body, OPENING_HEADER)
+
+
+def outbound_opening_of(body: str | None) -> str:
+    """The line a "both" agent opens the calls it places with, or "" when it has none
+    (D-920). Read from the compiled body for `opening_line_of`'s reason."""
+    return _section_of(body, OUTBOUND_OPENING_HEADER)
+
+
+def _section_of(body: str | None, header: str) -> str:
     if not body:
         return ""
     lines = body.splitlines()
-    start = next((i for i, line in enumerate(lines) if line.strip() == OPENING_HEADER), None)
+    start = next((i for i, line in enumerate(lines) if line.strip() == header), None)
     if start is None:
         return ""
     end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("[")), len(lines))
@@ -591,6 +604,11 @@ class CallScript(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     opening_line: str = Field(default="", max_length=1000)
+    #: A "both" agent's opening on the calls it places (D-920): who it is, from which
+    #: business and why it calls, in the main language; the notices are said with it as with
+    #: `opening_line`. Empty: a composed line is said (`engine.placed_call_line`). Unread for
+    #: an agent of one direction.
+    outbound_opening_line: str = Field(default="", max_length=1000)
     steps: list[ScriptStep] = Field(default_factory=list, max_length=MAX_SCRIPT_STEPS)
     faqs: list[FaqEntry] = Field(default_factory=list, max_length=MAX_SCRIPT_FAQS)
     faq_fallback: str = Field(default=DEFAULT_FAQ_FALLBACK, min_length=1, max_length=500)
@@ -645,6 +663,7 @@ class CallScript(BaseModel):
         """
         if self.raw_override is not None and (
             self.opening_line.strip()
+            or self.outbound_opening_line.strip()
             or self.steps
             or self.faqs
             or self.end_call_extra_rules
@@ -911,6 +930,7 @@ def _compile_v2(script: CallScript, collect: Sequence[CollectField]) -> str:
         ) + f"On calls you place, say early why you call: {purpose}"
     add("[GOAL]", goal)
     add(OPENING_HEADER, script.opening_line)
+    add(OUTBOUND_OPENING_HEADER, script.outbound_opening_line)
 
     style = script.style
     style_lines: list[str] = []
@@ -1069,6 +1089,7 @@ def script_text(script: CallScript) -> str:
         script.goal,
         script.outbound_purpose,
         script.opening_line,
+        script.outbound_opening_line,
         script.style.tone,
         script.style.address_form,
         *script.style.sample_phrases,
@@ -1144,6 +1165,9 @@ def compile_call_script(script: CallScript, *, collect: Sequence[CollectField] =
     opening = script.opening_line.strip()
     if opening:
         sections.append(f"{OPENING_HEADER}\n{opening}")
+    placed = script.outbound_opening_line.strip()
+    if placed:
+        sections.append(f"{OUTBOUND_OPENING_HEADER}\n{placed}")
 
     steps = [step.instruction.strip() for step in script.steps if step.instruction.strip()]
     if steps:
@@ -1193,6 +1217,7 @@ __all__ = [
     "MAX_SCRIPT_STAGES",
     "NO_CALL_BACKS_POLICY",
     "OPENING_HEADER",
+    "OUTBOUND_OPENING_HEADER",
     "PROCEDURE_HEADER",
     "PROCEDURE_LEAD",
     "PROCEDURE_POINTER",
@@ -1230,6 +1255,7 @@ __all__ = [
     "extract_variable_names",
     "native_steps",
     "opening_line_of",
+    "outbound_opening_of",
     "per_call_sections_last",
     "procedure_pointer",
     "quick_fact_lines",

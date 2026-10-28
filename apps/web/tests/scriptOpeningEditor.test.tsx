@@ -69,6 +69,25 @@ describe("how the call opens, in the script editor", () => {
     expect(screen.getByText("300 characters left")).toBeTruthy();
   });
 
+  it("gives an agent that answers and calls two openings, each saved to its own field (D-920)", () => {
+    const set = opening({ direction: "both" });
+    expect(screen.queryByRole("textbox", { name: /^Opening line/ })).toBeNull();
+    expect(screen.getByRole("textbox", { name: /When it answers/ })).toBeTruthy();
+    fireEvent.change(screen.getByRole("textbox", { name: /When it calls/ }), {
+      target: { value: "Namaskaram andi, mee enquiry gurinchi call chestunnanu." },
+    });
+    expect(set).toHaveBeenCalledWith(
+      "outbound_opening_line",
+      "Namaskaram andi, mee enquiry gurinchi call chestunnanu.",
+    );
+  });
+
+  it("shows one opening on an agent of one direction", () => {
+    opening({ direction: "outbound" });
+    expect(screen.queryByRole("textbox", { name: /When it calls/ })).toBeNull();
+    expect(screen.getByRole("textbox", { name: /Opening line/ })).toBeTruthy();
+  });
+
   it("previews the opening with each caller detail named where its value will be said", () => {
     opening({ script: { ...EMPTY_SCRIPT, opening_line: "Namaskaram {{lead_name}} garu." } });
     const preview = screen.getByRole("complementary", { name: "How it will sound" });

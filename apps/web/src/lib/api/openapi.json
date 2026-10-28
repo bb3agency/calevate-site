@@ -3386,6 +3386,17 @@
             "title": "First Words",
             "type": "string"
           },
+          "first_words_when_calling": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Words When Calling"
+          },
           "greeting_budget": {
             "anyOf": [
               {
@@ -3500,6 +3511,17 @@
             "default": "",
             "title": "Script Opening Line",
             "type": "string"
+          },
+          "script_outbound_opening_line": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Script Outbound Opening Line"
           },
           "status": {
             "enum": [
@@ -9942,6 +9964,12 @@
             "default": "",
             "maxLength": 1000,
             "title": "Opening Line",
+            "type": "string"
+          },
+          "outbound_opening_line": {
+            "default": "",
+            "maxLength": 1000,
+            "title": "Outbound Opening Line",
             "type": "string"
           },
           "outbound_purpose": {
@@ -33891,6 +33919,15 @@
             "minLength": 1,
             "title": "Opening Line",
             "type": "string"
+          },
+          "when": {
+            "default": "answers",
+            "enum": [
+              "answers",
+              "calls"
+            ],
+            "title": "When",
+            "type": "string"
           }
         },
         "required": [
@@ -33916,6 +33953,15 @@
               }
             ],
             "title": "Version"
+          },
+          "when": {
+            "default": "answers",
+            "enum": [
+              "answers",
+              "calls"
+            ],
+            "title": "When",
+            "type": "string"
           }
         },
         "required": [
@@ -69112,7 +69158,7 @@
     },
     "/v1/agents/{agent_id}/script/opening-line": {
       "put": {
-        "description": "For shortening the opening line where a notice switch was refused for want of room (D-846). The rest of the script is kept. Refused while other script changes are waiting to go live, and when the line would not fit after the notices switched on.",
+        "description": "For shortening the opening line where a notice switch was refused for want of room (D-846), and for setting the line an agent that answers and places calls opens the calls it places with (`when: calls`, D-920). The rest of the script is kept. Refused while other script changes are waiting to go live, and when the line would not fit after the notices switched on.",
         "operationId": "replace_opening_line_v1_agents__agent_id__script_opening_line_put",
         "parameters": [
           {
@@ -69154,7 +69200,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Replace the opening line in the script callers hear, and put it live",
+        "summary": "Replace an opening line in the script callers hear, and put it live",
         "tags": [
           "agents"
         ],

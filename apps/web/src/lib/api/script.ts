@@ -117,6 +117,8 @@ export interface ExampleLine {
  */
 export interface CallScript {
   opening_line: string;
+  /** A "both" agent's first words on a call it places (D-920); empty or absent: a composed line. */
+  outbound_opening_line?: string;
   steps: ScriptStep[];
   faqs: FaqEntry[];
   faq_fallback: string;
@@ -434,21 +436,26 @@ export function useRewriteOpeningInLanguage(
 
 export type OpeningLineOut = components["schemas"]["OpeningLineOut"];
 
+/** Which opening line: the one callers who ring hear, or a "both" agent's for calls it places (D-920). */
+export type OpeningWhen = components["schemas"]["OpeningLineIn"]["when"];
+
 /**
- * Replace the opening line in the script callers hear and put it live, keeping the rest
- * (D-846). The way back from a notice switch refused for want of room. Awaits the agent
- * reads too, so a retried switch is measured against the new line.
+ * Replace an opening line in the script callers hear and put it live, keeping the rest
+ * (D-846). The way back from a notice switch refused for want of room, and with `when:
+ * "calls"` the way to set a "both" agent's line for the calls it places (D-920). Awaits the
+ * agent reads too, so a retried switch is measured against the new line.
  */
 export function useReplaceOpeningLine(
   session: Session,
   agentId: string,
+  when: OpeningWhen = "answers",
 ): UseMutationResult<OpeningLineOut, Error, string> {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (openingLine: string) =>
       apiRequest<OpeningLineOut>(session, `${base(agentId)}/opening-line`, {
         method: "PUT",
-        body: { opening_line: openingLine },
+        body: { opening_line: openingLine, when },
       }),
     onSuccess: () =>
       Promise.all([

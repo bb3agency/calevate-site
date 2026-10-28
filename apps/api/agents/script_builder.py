@@ -742,8 +742,12 @@ async def replace_opening_line(
     agent_id: UUID,
     opening_line: str,
     created_by: UUID | None,
+    placed: bool = False,
 ) -> ReplacedOpening:
     """Put a new opening line into the script callers hear and keep the rest of it (D-846).
+
+    `placed` replaces the opening a "both" agent says on the calls it places (D-920) instead
+    of the one it answers with, under the same rules.
 
     The way back from a notice switch refused for want of room: the owner shortens the line
     where they were refused, and it goes live at once, which "Put it live" would also do but
@@ -789,6 +793,12 @@ async def replace_opening_line(
                 "Open the script, shorten the line under the opening heading, then put it live."
             ),
         )
+    if placed and str(row.direction) != "both":
+        raise ProblemError.business_rule(
+            "placed_opening_needs_both",
+            "Only an agent that answers calls and also calls people has a second opening line.",
+            remediation="Change the opening line it has, or give the agent both jobs first.",
+        )
     engine = get_engine()
     refuse_opening_over_limit(
         engine,
@@ -797,20 +807,22 @@ async def replace_opening_line(
         posture=_posture(row),
         opening=line,
         language=str(row.language_primary),
+        placed=placed,
     )
+    field = "outbound_opening_line" if placed else "opening_line"
     script = CallScript.model_validate(row.structured_script)
-    old_line = script.opening_line.strip()
+    old_line = str(getattr(script, field)).strip()
     version = await rewrite_script(
         session,
         tenant_id=tenant_id,
         agent_id=agent_id,
-        script=script.model_copy(update={"opening_line": line}),
-        notes="Opening line shortened",
+        script=script.model_copy(update={field: line}),
+        notes="Opening line for calls it places changed" if placed else "Opening line shortened",
         created_by=created_by,
     )
     draft = await read_draft(session, agent_id)
-    if draft is not None and draft.script.opening_line.strip() == old_line:
-        await save_draft(session, agent_id, draft.script.model_copy(update={"opening_line": line}))
+    if draft is not None and str(getattr(draft.script, field)).strip() == old_line:
+        await save_draft(session, agent_id, draft.script.model_copy(update={field: line}))
     return ReplacedOpening(opening_line=line, version=version)
 
 

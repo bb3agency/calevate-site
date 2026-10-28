@@ -21,6 +21,7 @@ from calevate_shared.engine import (
     AgentConfig,
     compose_engine_prompt,
     compose_first_utterance,
+    compose_placed_call_first_words,
     engine_prompt_layers,
 )
 from calevate_shared.spoken_guard import latin_word_problem, latin_words
@@ -57,8 +58,15 @@ def test_the_prompt_quotes_the_exact_opening_already_spoken_and_says_to_go_on() 
         start = _start(cfg)
         spoken = compose_first_utterance(cfg)
         assert spoken == f"{OPENING} {NOTICE}", "greeting first, then the notice (D-861)"
+        # A "both" agent's placed calls open with their own line (D-920), so both are quoted.
+        said = (
+            f'on a call you answer, "{spoken}"; on a call you place, '
+            f'"{compose_placed_call_first_words(cfg)}".'
+            if direction == "both"
+            else f'"{spoken}".'
+        )
         assert start.startswith(
-            f'{START_OF_CALL_HEADER}\nAlready said for you as your first turn: "{spoken}".'
+            f"{START_OF_CALL_HEADER}\nAlready said for you as your first turn: {said}"
         )
         assert OPENING_CONTINUES_RULE in start
         prompt = compose_engine_prompt(cfg)

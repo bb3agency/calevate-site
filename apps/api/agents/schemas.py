@@ -116,6 +116,13 @@ class AgentOut(BaseModel):
     script_opening_line: str = ""
     #: What a caller hears first: `script_opening_line`, then `opening_line` (D-861).
     first_words: str = ""
+    #: A "both" agent's own opening for the calls it places (D-920), from the script callers
+    #: hear now; empty when none is written (`first_words_when_calling` then holds the
+    #: composed one); null for an agent of one direction.
+    script_outbound_opening_line: str | None = None
+    #: What the person a "both" agent rings hears first, notices included, exactly as the dial
+    #: sends it before `{{name}}` fields are filled; null for an agent of one direction.
+    first_words_when_calling: str | None = None
     #: How much room the opening line has in what the agent says first. Null where the
     #: calling system sets no ceiling there.
     greeting_budget: GreetingBudgetOut | None = None
