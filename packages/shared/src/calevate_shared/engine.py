@@ -265,6 +265,12 @@ class EngineCapabilities(BaseModel):
     #: addressing real engine-side documents (Bolna: `rag_id`)? Under False all three
     #: must refuse by name, and the T3 retrieval tier has no engine behind it.
     knowledge_base: bool
+    #: Does the knowledge base index `KBSourceRef.text` and nothing else — never the
+    #: `document` bytes and never `source_url`? Under True a source with no text has
+    #: nothing the engine can hold: the publisher does not attach it (`kb_can_hold`), and
+    #: the adapter refuses one rather than posting a blank document under the client's
+    #: file name. Meaningless under `knowledge_base=False`.
+    kb_text_only: bool
     #: The number classes this engine can PROVISION. Empty = it provisions none, which is
     #: Bolna's answer today (numbers come from the telephony vendor directly). The
     #: 140/160 series are Indian DLT classes; an engine with no Indian telephony path
@@ -386,6 +392,15 @@ class EngineCapabilities(BaseModel):
 
         """
         return self.agent_hosting == "control_plane"
+
+    def kb_can_hold(self, text: str) -> bool:
+        """Would a knowledge document whose text is `text` hold anything on this engine?
+
+        The one rule for a text-only knowledge base: the publisher asks it before an attach
+        and the adapters ask it before a POST, so the two cannot disagree about which
+        sources reach an agent. Blank counts as empty because vendors trim the text.
+        """
+        return not self.kb_text_only or bool(text.strip())
 
     def provisions(self, series: NumberSeries) -> bool:
         """Can this engine provision a number in `series`? Asked per SERIES rather than

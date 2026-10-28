@@ -131,6 +131,7 @@ from apps.api.engine.capabilities import (
     engine_not_configured,
     require_call_compliance_floor,
     require_capability,
+    require_kb_text,
     require_speech_leg,
 )
 from apps.api.engine.catalogue import (
@@ -520,6 +521,9 @@ _VOICE_BANDS: Final[dict[str, HostedVoiceBand]] = {band: band for band in get_ar
 # * `records_audio`: we send `recordCalls: true` (agents.md:160) and phone calls are
 #   recorded on every number (channels/voice.md:426-438).
 # * `knowledge_base`: agent-scoped text documents (knowledge.md:38-52).
+#   `kb_text_only` True: this adapter posts `{title, text}` only; files are console uploads
+#   (snapshots/2026-10-28/pages/api-reference/knowledge/add-knowledge-document.md:7), and a
+#   request with neither `url` nor `text` is a 400 (same page, :500-514).
 # * `number_series` empty, `inbound_binding` False: renting and attaching a number are done
 #   in their console (voices-and-models.md:85-87; agents.md:167-168).
 # * `caller_id` True: `from` names which of the agent's numbers rings, and a number that is
@@ -548,6 +552,7 @@ THINNEST_CAPABILITIES = EngineCapabilities(
     agent_hosting="control_plane",
     campaigns=False,
     knowledge_base=True,
+    kb_text_only=True,
     number_series=frozenset(),
     caller_id=True,
     inbound_binding=False,
@@ -3545,7 +3550,9 @@ class ThinnestEngine:
         self, ref: EngineAgentRef, source: KBSourceRef, *, agent: AgentConfig | None = None
     ) -> EngineKBRef:
         """`POST /agents/{id}/knowledge` with `{title, text}` (knowledge.md:9-36). Text only:
-        files are console uploads (knowledge.md:52), so `source.document` is not sent."""
+        files are console uploads (knowledge.md:52), so `source.document` is not sent, and a
+        source with no text is refused before any request (`require_kb_text`)."""
+        require_kb_text(source.text, engine=self)
         text = self._within(
             source.text, KB_TOTAL_MAX_CHARS, code="engine_kb_text_too_long", what="knowledge text"
         )

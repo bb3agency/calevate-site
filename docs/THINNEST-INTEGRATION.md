@@ -524,6 +524,8 @@ The new fixed values are part of `hosted_platform.PLATFORM_AGENT_VALUES`, so the
 
 **Errors and limits.** Every code in `errors.md:84-197` that `POST /calls`, agents, numbers or the plan can answer is mapped (`_dial_refusal`, `vendor_http`, `thinnest_numbers`, `thinnest_customer_data`, `workers/engine_workspaces` for `agent_on_live_call`); 429s honour `Retry-After`. Idempotency keys are sent on every route the spec gives one that we call: `POST /calls`, `POST /customers`, `POST /phone-numbers` (rent).
 
+**Knowledge with no text.** Add Knowledge Document takes `url` or `text`, files are console uploads, and neither is a 400 (`api-reference/knowledge/add-knowledge-document.md:7,500-514`); we send `text` only (`EngineCapabilities.kb_text_only`). A PDF or link whose words are not sent (`kb_send_extracted_files` off, or not read) is therefore not attached on publish or catch-up, and a copy an agent holds of it is withdrawn (`kb/service._withheld_from_engine`); the adapter refuses a text-less document with `engine_kb_text_empty` before any request. Whether the vendor really answers an empty `text` with 400 is not observed.
+
 **Half-wired.** `ThinnestEngine.list_voice_clones` (and the `ListsVoiceClones` protocol) and `disable_own_voice_key` had no caller outside tests; both are removed. No TODO remains in the engine package, and every `thinnest_*` setting is read.
 
 ### Questions for ThinnestAI (UNKNOWN until answered)

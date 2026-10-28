@@ -323,6 +323,34 @@ def require_call_compliance_floor(*, engine: VoiceEngine, prompt_on_the_wire: st
     )
 
 
+#: The refusal for a knowledge document with no text on an engine whose knowledge base is
+#: text only (`EngineCapabilities.kb_text_only`). Its own code: the engine HAS a knowledge
+#: base, so `engine_capability_absent` would send an operator looking in the wrong place.
+ENGINE_KB_TEXT_EMPTY: Final = "engine_kb_text_empty"
+
+
+def require_kb_text(text: str, *, engine: VoiceEngine) -> None:
+    """Refuse a knowledge document the engine could hold nothing of, before any request.
+
+    The publisher does not attach such a source (`kb.service`), so reaching this is a
+    caller that skipped `EngineCapabilities.kb_can_hold`; posting anyway would put a blank
+    document named after the client's file on their agent.
+    """
+    if engine.capabilities.kb_can_hold(text):
+        return
+    log.warning("engine_kb_text_empty", extra={"engine": engine.name})
+    raise ProblemError(
+        kind="business_rule",
+        code=ENGINE_KB_TEXT_EMPTY,
+        title="This knowledge has no text the voice platform can use",
+        detail=(
+            "The voice platform takes knowledge as text only, and this source has no text "
+            "to send, so nothing was added to the agent."
+        ),
+        remediation="Add the information as text, or wait until its words can be sent.",
+    )
+
+
 # NO `provisionable_series()` HERE. It existed, was exported, had no callers, and its
 # docstring claimed the campaign gate matches on the engine's series — the gate matches on
 # OUR `phone_numbers.series`, which is a DLT 140/160 decision in our own schema and not a
@@ -333,6 +361,7 @@ def require_call_compliance_floor(*, engine: VoiceEngine, prompt_on_the_wire: st
 __all__ = [
     "ENGINE_CAPABILITY_ABSENT",
     "ENGINE_COMPLIANCE_FLOOR_ABSENT",
+    "ENGINE_KB_TEXT_EMPTY",
     "NO_CREDENTIALS_REASON",
     "EngineCapabilityAbsentError",
     "engine_capabilities",
@@ -340,5 +369,6 @@ __all__ = [
     "engine_not_configured",
     "require_call_compliance_floor",
     "require_capability",
+    "require_kb_text",
     "require_speech_leg",
 ]

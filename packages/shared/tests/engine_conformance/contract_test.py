@@ -1461,6 +1461,39 @@ async def test_attach_kb_accepts_our_source_ref_and_returns_a_handle(
     assert isinstance(handle, str) and handle, "an attached source must be addressable"
 
 
+async def test_a_text_only_knowledge_base_refuses_a_source_with_no_text(
+    engine: VoiceEngine,
+) -> None:
+    """`kb_text_only` is a promise the publisher acts on: it skips a source with no text
+    rather than attaching it. The adapter must keep the same promise, refusing such a
+    source by name and leaving the agent holding nothing new, or a caller that skipped
+    the check would put a blank document named after the client's file on their agent.
+
+    The other answer is exercised too: an engine that keeps the document holds the same
+    text-less source, because the file is what it ingests.
+    """
+    if not engine.capabilities.knowledge_base:
+        return  # covered instead by the refusal clause for KB-less engines
+    cfg = _agent_config(engine)
+    ref = await _agent_ref(engine, cfg)
+    before = set(await engine.list_kb(ref))
+    textless = _kb_source("kb_textless", "Menu", "  \n\n ")
+    assert engine.capabilities.kb_can_hold(textless.text) is not engine.capabilities.kb_text_only
+    if not engine.capabilities.kb_text_only:
+        handle = await engine.attach_kb(ref, textless, agent=cfg)
+        assert handle in set(await engine.list_kb(ref))
+        return
+    refusal: Exception | None = None
+    try:
+        await engine.attach_kb(ref, textless, agent=cfg)
+    except Exception as exc:
+        refusal = exc
+    assert getattr(refusal, "code", None) == "engine_kb_text_empty", (
+        "a text-only knowledge base accepted, or refused without naming why, a source with no text"
+    )
+    assert set(await engine.list_kb(ref)) == before, "the refused source left a document"
+
+
 async def test_detach_kb_actually_removes_exactly_the_source_it_names(
     engine: VoiceEngine,
 ) -> None:
