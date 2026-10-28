@@ -31,7 +31,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
-from tests.conftest import create_org_with_receptionist
+from tests.conftest import ACCEPT_CALLER_MEMORY_STATEMENT, create_org_with_receptionist
 
 BASE = "/v1/compliance/caller-notice"
 
@@ -562,11 +562,31 @@ def test_the_same_field_asked_for_by_two_agents_is_listed_once() -> None:
 # recorded — so the draft has to say it exactly when it is true and never when it is not.
 
 
-async def _remember_callers(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> None:
+async def _remember_callers(
+    tenant_id: uuid.UUID, agent_id: uuid.UUID, *, accepted: bool = True
+) -> None:
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text("UPDATE agents SET caller_memory_enabled = true WHERE id = :a"), {"a": agent_id}
         )
+        if accepted:
+            await session.execute(ACCEPT_CALLER_MEMORY_STATEMENT, {"tid": tenant_id})
+
+
+async def test_memory_switched_on_without_the_current_statement_is_not_described() -> None:
+    """Until the owner accepts the current memory statement no agent remembers anyone
+    (D-900), so the notice must not tell callers their notes are kept."""
+    tenant_id, agent_id, _, _ = await _tenant()
+    await _publish(tenant_id, agent_id)
+    await _remember_callers(tenant_id, agent_id, accepted=False)
+
+    draft = await _draft(tenant_id)
+
+    assert draft.caller_memory_on == []  # type: ignore[attr-defined]
+    assert "keeps a short note" not in draft.markdown  # type: ignore[attr-defined]
+
+    await _remember_callers(tenant_id, agent_id)
+    assert (await _draft(tenant_id)).caller_memory_on  # type: ignore[attr-defined]
 
 
 async def test_a_client_who_does_not_remember_callers_says_nothing_about_it() -> None:

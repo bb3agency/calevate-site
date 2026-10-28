@@ -647,6 +647,54 @@ async def test_agent_edit_changes_a_draft_and_undo_puts_it_back() -> None:
     assert tuple(restored) == tuple(before)
 
 
+async def test_agent_edit_puts_the_notices_back_when_the_rest_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The notices commit on their own first; a refused language, voice or opening line
+    after them must not leave them changed behind a failed action with no Undo."""
+    from apps.api.copilot import console_actions
+
+    async def refuse(*_args: Any, **_kwargs: Any) -> None:
+        raise ProblemError.business_rule("voice_not_offered", "That voice is not offered.")
+
+    monkeypatch.setattr(console_actions, "_apply_voice_and_opening", refuse)
+    tenant_id, _slug, token = await _make_tenant()
+    agent_id = await _draft_agent(tenant_id)
+    sql = "SELECT language_primary, ai_disclosure_enabled FROM agents WHERE id = :a"
+    before = await _one(tenant_id, sql, a=agent_id)
+
+    with pytest.raises(ProblemError):
+        await _run(
+            tenant_id,
+            token,
+            "agent_edit",
+            {
+                "agent_id": str(agent_id),
+                "language_primary": "en-IN",
+                "voice_id": None,
+                "ai_disclosure_enabled": not before[1],
+                "recording_notice_enabled": None,
+            },
+        )
+
+    assert tuple(await _one(tenant_id, sql, a=agent_id)) == tuple(before)
+
+    # With no notice in the edit there is nothing to put back; the refusal still reaches them.
+    with pytest.raises(ProblemError):
+        await _run(
+            tenant_id,
+            token,
+            "agent_edit",
+            {
+                "agent_id": str(agent_id),
+                "language_primary": "en-IN",
+                "voice_id": None,
+                "ai_disclosure_enabled": None,
+                "recording_notice_enabled": None,
+            },
+        )
+
+
 async def test_agent_edit_refuses_a_live_agent_and_the_live_twin_needs_a_click() -> None:
     tenant_id, _slug, token = await _make_tenant()
     agent_id = await _agent_of(tenant_id)  # `_make_tenant`'s agent is live

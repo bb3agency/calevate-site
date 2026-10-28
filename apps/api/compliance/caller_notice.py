@@ -71,7 +71,7 @@ from calevate_shared.lead_fields import CORE_KEYS
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.compliance.caller_memory import spdi_refuses_memory
+from apps.api.compliance.caller_memory import MEMORY_ON_SQL, spdi_refuses_memory
 from apps.api.core.logging import get_logger
 from apps.api.retrieval.models import RETENTION_CALLER_MEMORY
 
@@ -270,7 +270,7 @@ async def _reachable_agents(session: AsyncSession) -> list[dict[str, Any]]:
         await session.execute(
             text(
                 "SELECT a.id, a.name, a.ai_disclosure_enabled, a.recording_notice_enabled, "
-                "a.direction, a.caller_memory_enabled, a.handoff_enabled, "
+                f"a.direction, {MEMORY_ON_SQL}, a.handoff_enabled, "
                 "s.fields, COALESCE(o.vertical_template, o.unconfirmed_business_type) "
                 "FROM agents a JOIN organizations o ON o.id = a.tenant_id "
                 "LEFT JOIN extraction_schemas s ON s.id = a.extraction_schema_id "
@@ -289,7 +289,9 @@ async def _reachable_agents(session: AsyncSession) -> list[dict[str, Any]]:
             # D-506. A caller who is REMEMBERED ACROSS CALLS is a materially different
             # privacy proposition from one who is not, so the itemisation Rule 3 asks for
             # has to say it. Defaults FALSE, so for every client today this is False and
-            # the draft reads exactly as it did before.
+            # the draft reads exactly as it did before. Read through `MEMORY_ON_SQL`: an
+            # account that has not accepted the current memory statement remembers nothing
+            # until it does (D-900), so its notice does not say its agents remember.
             #
             # AND'ED WITH THE SPDI REFUSAL (D-507(b)), because this key means "does this
             # agent remember its callers" and not "what does the column say". On a refused

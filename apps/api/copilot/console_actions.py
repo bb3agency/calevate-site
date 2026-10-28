@@ -1708,15 +1708,55 @@ async def _apply_agent_settings(
     opening line through `PUT .../script/opening-line`'s own function, which refuses a line
     over the greeting budget (D-846). Each re-publishes a live agent itself."""
     from apps.api.agents.publishing import set_disclosure_posture
-    from apps.api.agents.script_builder import replace_opening_line
 
-    if ai_disclosure_enabled is not None or recording_notice_enabled is not None:
+    notices = ai_disclosure_enabled is not None or recording_notice_enabled is not None
+    rest = language_primary is not None or voice_id is not None or opening_line is not None
+    # The notices commit in their own transaction, before the voice or opening line can be
+    # refused. A refusal there would leave the notices changed behind an action reported as
+    # failed and with no Undo, so they are put back before the refusal is reported. The rest
+    # runs in a savepoint: rolling it back releases the agent row's lock, which putting the
+    # notices back (another session) needs, and keeps this transaction's claim and tenant
+    # settings, which a full rollback would drop.
+    prior = await _agent_settings(session, agent_id) if notices and rest else None
+    if notices:
         await set_disclosure_posture(
             tenant_id=actor.tenant_id,
             agent_id=agent_id,
             ai_disclosure_enabled=ai_disclosure_enabled,
             recording_notice_enabled=recording_notice_enabled,
         )
+    try:
+        async with session.begin_nested():
+            await _apply_voice_and_opening(
+                session,
+                actor,
+                agent_id=agent_id,
+                language_primary=language_primary,
+                voice_id=voice_id,
+                opening_line=opening_line,
+            )
+    except Exception:
+        if prior is not None:
+            await set_disclosure_posture(
+                tenant_id=actor.tenant_id,
+                agent_id=agent_id,
+                ai_disclosure_enabled=prior["ai_disclosure_enabled"],
+                recording_notice_enabled=prior["recording_notice_enabled"],
+            )
+        raise
+
+
+async def _apply_voice_and_opening(
+    session: AsyncSession,
+    actor: ToolActor,
+    *,
+    agent_id: UUID,
+    language_primary: str | None,
+    voice_id: str | None,
+    opening_line: str | None,
+) -> None:
+    from apps.api.agents.script_builder import replace_opening_line
+
     if language_primary is not None or voice_id is not None:
         await lifecycle.update_agent(
             session,

@@ -925,6 +925,34 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
     expect(screen.getByRole("button", { name: "Accept and resume" })).toBeTruthy();
   });
 
+  it("accepting the updated statement sends memory on with the acceptance (D-900)", async () => {
+    openSection("settings");
+    const { calls } = await renderClientPage(
+      page,
+      routes({
+        "/v1/agents/agent-1": agent({
+          caller_memory_enabled: true,
+          caller_memory_paused: true,
+          caller_memory_statement: "I confirm the updated statement.",
+        }),
+        "PATCH /v1/agents/agent-1/caller-memory": {
+          agent_id: "agent-1",
+          caller_memory_enabled: true,
+          attestation: "I confirm the updated statement.",
+        },
+      }),
+    );
+
+    await screen.findByText("Caller memory is paused until you accept the updated statement");
+    await act(async () => {
+      fireEvent.click(await pressable(document.body, /Accept and resume/));
+    });
+
+    const patch = calls.find((call) => call.method === "PATCH");
+    expect(patch?.path).toBe("/v1/agents/agent-1/caller-memory");
+    expect(JSON.parse(patch?.body ?? "{}")).toEqual({ enabled: true, accept: true });
+  });
+
   it("offers the screen-guide switch off by default, with how it works (D-906)", async () => {
     openSection("settings");
     const { container } = await renderClientPage(page, routes());
