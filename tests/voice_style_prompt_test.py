@@ -158,3 +158,16 @@ def test_the_founders_fixes_reach_every_prompt_and_the_floor_stays_last() -> Non
     assert "React only if it fits what they said" in prompt
     assert carries_truthful_answer_floor(prompt)
     assert prompt.rindex(TRUTHFUL_ANSWER_MARKER) > prompt.index(VOICE_STYLE_GUIDANCE)
+
+
+def test_amounts_follow_the_agents_own_language() -> None:
+    """Telugu says prices the English way in Telugu letters; Hindi allows its own number
+    words and English has no rule, so neither may carry the Telugu examples (D-915)."""
+    telugu = compose_engine_prompt(_config("Call leads."))
+    assert '"వన్ ట్వంటీ రూపీస్", "టూ క్రోర్స్"' in telugu
+    for language in ("hi-IN", "en-IN"):
+        cfg = _config("Call leads.").model_copy(update={"language_primary": language})
+        prompt = compose_engine_prompt(cfg)
+        assert "వన్ ట్వంటీ" not in prompt
+        assert "- Amounts in words as people say them, never ₹ or digits." in prompt
+        assert 'A time or amount they said goes back in their words ("six" stays' in prompt

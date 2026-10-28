@@ -136,7 +136,8 @@ def test_without_an_approved_pack_the_shipped_prompt_has_no_pack() -> None:
         cfg = _agent(tag)
         layers = dict(engine_prompt_layers(cfg))
         assert "languages" not in layers
-        assert layers["how_to_speak"] == engine.VOICE_STYLE_GUIDANCE
+        assert layers["how_to_speak"] == engine._how_to_speak(None, cfg)
+        assert 'Never say "uhm".' not in layers["how_to_speak"]
         assert compose_engine_prompt(cfg) == engine.LAYER_SEPARATOR.join(layers.values())
 
 

@@ -132,6 +132,10 @@ class LanguageStyle:
     #: letter names in this language's letters, a comma between. Read from the file alone,
     #: like `prompt_examples`, because it reaches the in-call prompt.
     spelled_address: str | None = None
+    #: Two amounts said the English way in this language's letters, quoted, for the in-call
+    #: amount rule when the `prices` rule says `english` (`amounts_rule`). File-only, like
+    #: `spelled_address`.
+    spoken_amounts: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -349,6 +353,7 @@ def _build(tag: str, row: Mapping[str, Any]) -> LanguageStyle:
         reviewed_on=reviewed_on,
         prompt_examples=_prompt_examples(tag, row),
         spelled_address=row.get("spelled_address") or None,
+        spoken_amounts=row.get("spoken_amounts") or None,
     )
 
 
@@ -664,6 +669,17 @@ def register_guidance(tag: str | None) -> str | None:
     return " ".join(parts)
 
 
+def amounts_rule(tag: str | None) -> str | None:
+    """The in-call amount bullet for a language whose prices are said the English way
+    (Telugu, D-744), with its own examples; None where the language's own number words are
+    allowed or it has no row, so the platform's neutral bullet applies."""
+    style = style_for(tag)
+    if style is None or style.native_price_words:
+        return None
+    examples = f" ({style.spoken_amounts})" if style.spoken_amounts else ""
+    return f"- Amounts the English way in the call's letters{examples}, never ₹ or digits."
+
+
 def spelled_address(tag: str | None) -> str | None:
     """How a web address is spelled aloud in this language (D-906), or None without one."""
     style = style_for(tag)
@@ -848,6 +864,7 @@ __all__ = [
     "ReviewStatus",
     "Speaker",
     "StyleEntry",
+    "amounts_rule",
     "caller_guidance",
     "candidate_prompt_examples",
     "default_entries",

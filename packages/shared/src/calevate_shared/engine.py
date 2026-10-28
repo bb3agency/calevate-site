@@ -49,6 +49,7 @@ from calevate_shared.languages import find_language
 from calevate_shared.spoken_guard import opens_with_greeting, without_greeting
 from calevate_shared.spoken_style import (
     PackChoice,
+    amounts_rule,
     language_pack,
     pack_facts_rule,
     pack_lines,
@@ -2897,6 +2898,16 @@ _REGISTER_BULLET: Final = (
 #: Paid for by "then ask the next thing" (the one-question bullet already asks) and "each
 #: turn begun differently" (the reaction is how a turn begins, and the bullet before says
 #: never the same way twice).
+#: The agent's default call language (`AgentConfig.language_primary`).
+DEFAULT_PRIMARY_LANGUAGE: Final = "te-IN"
+
+#: How amounts are said is the language's own rule (D-915): Telugu says prices the English way
+#: in Telugu letters (D-744, `spoken_style.amounts_rule`), while Hindi allows its own number
+#: words, so a Telugu example on a Hindi or English agent contradicted its own number rule.
+#: `VOICE_STYLE_GUIDANCE` is the default language's form; `_how_to_speak` swaps the bullet.
+_NEUTRAL_AMOUNTS: Final = "- Amounts in words as people say them, never ₹ or digits."
+_DEFAULT_AMOUNTS: Final = amounts_rule(DEFAULT_PRIMARY_LANGUAGE) or _NEUTRAL_AMOUNTS
+
 VOICE_STYLE_GUIDANCE: Final = (
     "--- HOW TO SPEAK ---\n"
     "- Open with a few words and a comma; one or two short sentences, then wait.\n"
@@ -2913,9 +2924,8 @@ VOICE_STYLE_GUIDANCE: Final = (
     '- Write for a voice: a comma where you breathe, "?" on every question. No markdown, '
     "emoji, brackets, dashes, slashes, ellipses, lists, links, actions or notes; never say the "
     "time now.\n"
-    '- Amounts the English way in the call\'s letters ("వన్ ట్వంటీ రూపీస్", "టూ క్రోర్స్"), '
-    'never ₹ or digits. A time or amount they said goes back in their words ("six" stays '
-    '"six").\n'
+    f"{_DEFAULT_AMOUNTS}"
+    ' A time or amount they said goes back in their words ("six" stays "six").\n'
     '- Under ten digits of a mobile? Ask for the rest ("six more digits?"); never read back, '
     "confirm, act or end on part of one.\n"
     "- Read back what you heard and wait for a yes, a mobile a few digits at a time; an "
@@ -2968,6 +2978,9 @@ def screen_steps_bullet(language: str | None) -> str:
 
 def _how_to_speak(pack: PackChoice | None, cfg: AgentConfig | None = None) -> str:
     guidance = VOICE_STYLE_GUIDANCE
+    if cfg is not None:
+        own_amounts = amounts_rule(cfg.language_primary) or _NEUTRAL_AMOUNTS
+        guidance = guidance.replace(_DEFAULT_AMOUNTS, own_amounts)
     if pack is not None:
         guidance = guidance.replace(_REGISTER_BULLET, _PACK_REGISTER_BULLET)
     if cfg is not None and cfg.caller_has_screen:
@@ -3958,7 +3971,7 @@ class AgentConfig(BaseModel):
     agent_id: str
     name: str
     direction: Literal["inbound", "outbound", "both"]
-    language_primary: str = "te-IN"
+    language_primary: str = DEFAULT_PRIMARY_LANGUAGE
     languages_extra: list[str] = Field(default_factory=list)
     system_prompt: str
     #: The business the agent speaks for (`organizations.name`), named by the prompt's role
