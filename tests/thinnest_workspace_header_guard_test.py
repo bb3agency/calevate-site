@@ -293,7 +293,8 @@ async def test_our_own_accounts_calls_carry_no_header() -> None:
         customers.developer_workspace_id,
         lambda: customers.find("calevate-x"),
         lambda: customers.create(name="Acme", external_id="calevate-x", timezone="Asia/Kolkata"),
-        lambda: customers.delete("org_x"),
+        # A client workspace: the recorder names "org_x" as ours, which delete() refuses (D-922).
+        lambda: customers.delete("org_client"),
     ):
         with contextlib.suppress(ProblemError):
             await op()
