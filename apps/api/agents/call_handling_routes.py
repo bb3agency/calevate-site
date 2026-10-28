@@ -199,9 +199,6 @@ class AgentCallHandlingOut(BaseModel):
     turn_silence_ms: int | None
     turn_silence_ms_effective: int
     turn_silence_source: SettingSource
-    #: Whether the pause decides anything on this agent's calls: false while its turns end by
-    #: real-time listening, where the pause is not used (D-903). Still stored and sent.
-    turn_silence_applies: bool
     end_call_on_finish: bool | None
     end_call_on_finish_effective: bool
     end_call_on_finish_source: SettingSource
@@ -459,7 +456,6 @@ def _agent_out(
             **_own(state.own),
             **_effective(state.resolved.values),
             "turn_silence_source": sources["turn_silence_ms"],
-            "turn_silence_applies": state.turn_silence_applies,
             "end_call_on_finish_source": sources["end_call_on_finish"],
             **{
                 f"{field}_source": sources[field]
@@ -525,9 +521,9 @@ def _audit_summary(changes: dict[str, object], moved: tuple[str, ...]) -> dict[s
 _AGENT_DESCRIPTION = (
     "`turn_silence_ms` is the quiet after the caller's last words that ends their turn, "
     f"{TURN_SILENCE_MIN_MS}-{TURN_SILENCE_MAX_MS} ms; longer suits callers reading out "
-    "numbers, shorter answers sooner. It is used only while the agent's turns end by "
-    "silence: `turn_silence_applies` is false when they end by real-time listening, where "
-    "the value is kept but not used. `end_call_on_finish` releases the line when the agent "
+    "numbers, shorter answers sooner. It is used however turns end: under real-time "
+    "listening it is the recogniser's end-of-speech silence, under the timer the wait after "
+    "the final words. `end_call_on_finish` releases the line when the agent "
     "has finished; with it off a finished call stays connected, and charged, until the caller "
     "hangs up.\n\n"
     "If the caller goes quiet: `nudge_after_seconds` "
@@ -900,8 +896,6 @@ class AgentTurnDetectionOut(BaseModel):
     #: `thinnest_timer_turn_silence_ms` (D-903).
     turn_silence_ms_effective: int
     turn_silence_source: SettingSource
-    #: False under `ear`, where the pause is sent but not used.
-    turn_silence_applies: bool
 
 
 class AgentTurnDetectionIn(BaseModel):
@@ -919,7 +913,6 @@ def _turn_out(handling: AgentCallHandling) -> AgentTurnDetectionOut:
         console_turn_detection=get_settings().thinnest_turn_detection,
         turn_silence_ms_effective=pause.ms,
         turn_silence_source=pause.source,
-        turn_silence_applies=handling.turn_silence_applies,
     )
 
 

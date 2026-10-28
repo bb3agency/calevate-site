@@ -88,7 +88,6 @@ function agent(over: Partial<AgentCallHandling> = {}): AgentCallHandling {
     turn_silence_ms: 700,
     turn_silence_ms_effective: 700,
     turn_silence_source: "agent",
-    turn_silence_applies: true,
     end_call_on_finish: null,
     end_call_on_finish_effective: true,
     end_call_on_finish_source: "platform",
@@ -384,23 +383,6 @@ describe("one agent's call handling", () => {
       fireEvent.click(changes[2]);
     });
     expect(screen.queryByRole("radio", { name: /^All my agents/ })).toBeNull();
-  });
-
-  it("says the pause is not used on an agent that hears when the caller has finished", async () => {
-    await renderClientPage(<AgentCallHandlingRows agentId="agent-1" />, {
-      "/v1/me": OWNER,
-      [ORG_PATH]: organization(),
-      [AGENT_PATH]: agent({ turn_silence_applies: false }),
-    });
-    await screen.findByText("This agent hears when callers finish. No pause needed.");
-    expect(screen.getByText("Not used")).toBeTruthy();
-    expect(screen.queryByText("Unhurried (0.7 s)")).toBeNull();
-    // The pause's row offers no Change: its first button is the hang-up's.
-    const [first] = screen.getAllByRole("button", { name: "Change" });
-    await act(async () => {
-      fireEvent.click(first);
-    });
-    expect(screen.queryByRole("button", { name: "Save pause" })).toBeNull();
   });
 
   it("offers no change to the switch to someone who cannot make it", async () => {

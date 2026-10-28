@@ -208,7 +208,6 @@ const AGENT_CALL_HANDLING = {
   turn_silence_ms: 700,
   turn_silence_ms_effective: 700,
   turn_silence_source: "agent",
-  turn_silence_applies: true,
   end_call_on_finish: false,
   end_call_on_finish_effective: false,
   end_call_on_finish_source: "agent",
@@ -5280,7 +5279,6 @@ const ADMIN_SCREENS: Screen[] = [
         console_turn_detection: "ear",
         turn_silence_ms_effective: 700,
         turn_silence_source: "agent",
-        turn_silence_applies: true,
       },
       "/v1/agents/agent-1/pending": {
         agent_id: "agent-1",

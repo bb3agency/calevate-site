@@ -2150,3 +2150,47 @@ field of the turn, not of `split`.
   be compared on Anjali.
 - Knowledge turns are on the operator's call view and the screen; a client's call card says
   how many replies looked up their information, beside the typical wait for an answer.
+
+## 39. Ashutosh's reply of 28 Oct 2026
+
+Founder-relayed email (**VENDOR-STATED**, 28 Oct 2026), in substance. Built as D-924 where
+marked.
+
+1. **Correction of §38's covering note: `turnSilenceSeconds` IS read under Ear.** It is the
+   recogniser's end-of-speech silence; under Timer it is the wait after the final transcript.
+   0.2 s is the floor. *(D-924: the "Not used" pause on the client and admin screens is gone;
+   the pause is shown and editable in every mode. Reverses D-903 part 3.)*
+2. **Recogniser.** Ear uses Sarvam `saaras:v4` (realtime) on ThinnestAI's account; no key of
+   ours needed. Not chosen per workspace; bringing our own key is the only way to choose.
+   Stream type `balanced`, not `fast`. Interim transcripts drive Ear's check, `earlyAnswers`
+   and barge-in.
+3. **Language.** A Telugu-pinned agent is recognised as Telugu; "match the customer" (`auto`)
+   has to auto-detect, which is less reliable on a short or noisy start. ThinnestAI advises
+   pinning Telugu for Telugu callers. *(NOT built: the founder's standing rule is `auto` for
+   every agent, 19 and 28 Oct 2026. Put to the founder.)*
+4. **Vocabulary.** Under Ear, `voice.vocabulary` goes to saaras:v4 as key terms, as many as fit
+   its limit, in listed order; under Timer and Smart on Indian lines it is not used. *(D-924:
+   the list is now the business name, the names the owner taught the voice to say (the
+   script's pronunciations), then the agent's own name, at most 50.)*
+5. **Where ~2 s goes.** About 0.5 s from the caller stopping to the final words at 200 ms
+   silence (Hindi measurement; Telugu not measured), Ear's check about 0.2 s, so about 0.75 s
+   to the decision; the rest is our Gemini's first sentence plus the voice's first audio
+   (0.2-0.4 s). Read it in the timeline's `split`. Nothing further to lower on their side
+   (silence at floor, `earlyAnswers` on). Their advice: check Gemini thinking (calls already
+   run at the minimal level, ThinnestAI 19 Oct 2026), a lighter model, a short first clause (D-901).
+6. **Temperature** reaches our Gemini on `byok: llm` and `llm_voice`; an unset agent runs at
+   0.8 on calls. (We state 0.3 on every write, D-911.)
+7. **`recall: verified` with `pastConversations: recap`** stops only other channels' history
+   and stored contact details. The same number's earlier calls are part of the call's own
+   conversation, so the agent still uses them; `recap` still opens by saying you have spoken
+   before; `fresh` uses none. (We send `fresh` whenever caller memory is off.)
+8. **Nudges.** Only caller speech restarts `endAfterSilenceSeconds`; silence is counted across
+   the nudges.
+9. **Timeline timing.** Written once from the pipeline's final report at the end of the call;
+   not in `call.analysed`. Once Get Call's `quality.turns` is not null the report has landed,
+   so the timeline is there or never will be; speech-to-speech calls never have one. A
+   `timelineReady` flag or webhook is offered. *(D-924: the timeline job stops retrying once
+   `quality.turns` is set.)*
+10. **Empty lists.** Get Agent returns `[]` (never null) for `backchannelWords`,
+    `acknowledgementWords` and `vocabulary` when none are set. (Our drift check already treats
+    null and `[]` alike.)

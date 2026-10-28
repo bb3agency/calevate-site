@@ -1684,7 +1684,7 @@ export interface paths {
         };
         /**
          * One client agent's call settings
-         * @description `turn_silence_ms` is the quiet after the caller's last words that ends their turn, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. It is used only while the agent's turns end by silence: `turn_silence_applies` is false when they end by real-time listening, where the value is kept but not used. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.
+         * @description `turn_silence_ms` is the quiet after the caller's last words that ends their turn, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. It is used however turns end: under real-time listening it is the recogniser's end-of-speech silence, under the timer the wait after the final words. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.
          *
          *     If the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, "" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).
          *
@@ -1704,7 +1704,7 @@ export interface paths {
         head?: never;
         /**
          * Set one client agent's call settings
-         * @description `turn_silence_ms` is the quiet after the caller's last words that ends their turn, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. It is used only while the agent's turns end by silence: `turn_silence_applies` is false when they end by real-time listening, where the value is kept but not used. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.
+         * @description `turn_silence_ms` is the quiet after the caller's last words that ends their turn, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. It is used however turns end: under real-time listening it is the recogniser's end-of-speech silence, under the timer the wait after the final words. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.
          *
          *     If the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, "" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).
          *
@@ -3668,7 +3668,7 @@ export interface paths {
         };
         /**
          * An agent's call settings, and where each comes from
-         * @description `turn_silence_ms` is the quiet after the caller's last words that ends their turn, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. It is used only while the agent's turns end by silence: `turn_silence_applies` is false when they end by real-time listening, where the value is kept but not used. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.
+         * @description `turn_silence_ms` is the quiet after the caller's last words that ends their turn, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. It is used however turns end: under real-time listening it is the recogniser's end-of-speech silence, under the timer the wait after the final words. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.
          *
          *     If the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, "" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).
          *
@@ -3688,7 +3688,7 @@ export interface paths {
         head?: never;
         /**
          * Set an agent's call settings, or let them inherit
-         * @description `turn_silence_ms` is the quiet after the caller's last words that ends their turn, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. It is used only while the agent's turns end by silence: `turn_silence_applies` is false when they end by real-time listening, where the value is kept but not used. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.
+         * @description `turn_silence_ms` is the quiet after the caller's last words that ends their turn, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. It is used however turns end: under real-time listening it is the recogniser's end-of-speech silence, under the timer the wait after the final words. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.
          *
          *     If the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, "" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).
          *
@@ -13545,8 +13545,6 @@ export interface components {
              * @enum {string}
              */
             reask_after_ms_source: "agent" | "organization" | "platform";
-            /** Turn Silence Applies */
-            turn_silence_applies: boolean;
             /** Turn Silence Ms */
             turn_silence_ms: number | null;
             /** Turn Silence Ms Effective */
@@ -14047,8 +14045,6 @@ export interface components {
              * @enum {string}
              */
             turn_detection_effective: "timer" | "ear" | "smart";
-            /** Turn Silence Applies */
-            turn_silence_applies: boolean;
             /** Turn Silence Ms Effective */
             turn_silence_ms_effective: number;
             /**

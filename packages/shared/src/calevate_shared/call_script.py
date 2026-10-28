@@ -187,6 +187,22 @@ def outbound_opening_of(body: str | None) -> str:
     return _section_of(body, OUTBOUND_OPENING_HEADER)
 
 
+#: The style line that lists the names the owner taught the voice to say.
+PRONOUNCE_LEAD: Final = "Say these names exactly like this: "
+
+
+def pronounced_names_of(body: str | None) -> list[str]:
+    """The names on the compiled body's pronunciation line, as the owner spelled them, or []
+    (the compiler's `word as "say_as"` pairs, read back from the body for
+    `opening_line_of`'s reason). Names a caller may say, so the recogniser is told them."""
+    line = next(
+        (ln.strip() for ln in (body or "").splitlines() if ln.strip().startswith(PRONOUNCE_LEAD)),
+        "",
+    )
+    pairs = line.removeprefix(PRONOUNCE_LEAD).split("; ") if line else []
+    return [name for pair in pairs if (name := pair.rsplit(" as ", 1)[0].strip())]
+
+
 def _section_of(body: str | None, header: str) -> str:
     if not body:
         return ""
@@ -947,7 +963,7 @@ def _compile_v2(script: CallScript, collect: Sequence[CollectField]) -> str:
         style_lines.append(f"Phrases you can use, not every turn: {phrases}")
     if style.pronunciations:
         said = "; ".join(f"{p.word.strip()} as {_quote(p.say_as)}" for p in style.pronunciations)
-        style_lines.append(f"Say these names exactly like this: {said}")
+        style_lines.append(f"{PRONOUNCE_LEAD}{said}")
     add(STYLE_HEADER, "\n".join(style_lines))
 
     stages = [s for s in script.stages if s.instruction.strip()]
@@ -1223,6 +1239,7 @@ __all__ = [
     "PROCEDURE_POINTER",
     "PROCEDURE_STEP_MAX",
     "PROCEDURE_WAIT_MAX",
+    "PRONOUNCE_LEAD",
     "QUICK_FACTS_HEADER",
     "QUICK_FACTS_LEAD",
     "SCRIPT_SCHEMA_VERSION",
@@ -1258,6 +1275,7 @@ __all__ = [
     "outbound_opening_of",
     "per_call_sections_last",
     "procedure_pointer",
+    "pronounced_names_of",
     "quick_fact_lines",
     "render_steps",
     "script_text",

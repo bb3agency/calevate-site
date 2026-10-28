@@ -50,7 +50,11 @@ from typing import Any, Final, Literal, cast, get_args
 from urllib.parse import quote, urlsplit
 
 import httpx
-from calevate_shared.call_script import business_line_of, substitute_variables
+from calevate_shared.call_script import (
+    business_line_of,
+    pronounced_names_of,
+    substitute_variables,
+)
 from calevate_shared.calling_window import CALLING_HOURS_RULE, DEFAULT_WINDOW
 from calevate_shared.engine import (
     DETAILS_VARIABLE,
@@ -369,12 +373,15 @@ EAR_VOICE_VALUES: Final[dict[str, Any]] = {
 CUSTOMER_RECALL: Final = "verified"
 VERIFY_BY_CODE: Final = False
 #: `voice.vocabulary`, the recogniser's custom vocabulary: at most 50 terms of 1-64 characters,
-#: `[]` none (same openapi.json, `AgentVoiceInput.vocabulary`). We send the business's own name
-#: (`_vocabulary`), the one proper noun every caller of an agent may say.
+#: `[]` none (same openapi.json, `AgentVoiceInput.vocabulary`). Under Ear it reaches the
+#: recogniser (Sarvam saaras:v4) as key terms, as many as fit its limit in the order listed;
+#: under Timer and Smart on Indian lines it is not used (ThinnestAI, email of 28 Oct 2026,
+#: VENDOR-STATED). So the most-said names go first (`_vocabulary`).
 VOCABULARY_TERM_MAX_CHARS: Final = 64
+VOCABULARY_MAX_TERMS: Final = 50
 #: Which of our values fills `voice.vocabulary`, named in the platform revision so a change of
 #: the rule republishes every live agent (`hosted_platform.PLATFORM_AGENT_VALUES`).
-VOCABULARY_SOURCE: Final = "business_name"
+VOCABULARY_SOURCE: Final = "business_name,pronounced_names,agent_name"
 #: Every fixed agent value beyond `PLATFORM_VOICE_VALUES` that only a deploy changes.
 PLATFORM_AGENT_FIELDS: Final[dict[str, Any]] = {
     "temperature": AGENT_TEMPERATURE,
@@ -1393,11 +1400,19 @@ def _knowledge_on_calls(cfg: AgentConfig) -> bool:
 
 
 def _vocabulary(cfg: AgentConfig) -> list[str]:
-    """`voice.vocabulary` for `cfg`: the business's name, so the recogniser hears it as
-    spelled; `[]` when there is none or it is longer than a term may be (a longer one is a 400,
-    and cutting it would teach the recogniser a word nobody says)."""
-    name = " ".join(cfg.business.split())
-    return [name] if 0 < len(name) <= VOCABULARY_TERM_MAX_CHARS else []
+    """`voice.vocabulary` for `cfg`, most-said first: the business's name, then the names
+    its owner taught the voice to say (the script's pronunciations: products, places,
+    people), then the agent's own name. A term longer than a term may be is left out (a
+    longer one is a 400, and cutting it would teach the recogniser a word nobody says), and a
+    repeat is said once."""
+    terms: list[str] = []
+    seen: set[str] = set()
+    for raw in (cfg.business, *pronounced_names_of(cfg.system_prompt), cfg.name):
+        term = " ".join(raw.split())
+        if 0 < len(term) <= VOCABULARY_TERM_MAX_CHARS and term.casefold() not in seen:
+            seen.add(term.casefold())
+            terms.append(term)
+    return terms[:VOCABULARY_MAX_TERMS]
 
 
 def _tools_drift(wanted: dict[str, Any], held: dict[str, Any]) -> list[str]:
@@ -2295,17 +2310,16 @@ class ThinnestEngine:
             # Seconds of quiet that end the caller's turn, a number 0.2 to 3 that reads back
             # null until set, "0.25 s on most lines" (same pages, read 11 Oct 2026). Always
             # stated, so a console reset to null reads as drift. Whole milliseconds on our
-            # side (`agents/call_handling`), divided only here. Sent under `ear` too, where it
-            # is not read, so an agent moved back to the timer keeps its pause (D-903).
+            # side (`agents/call_handling`), divided only here.
             "turnSilenceSeconds": cfg.turn_silence_ms / 1000,
             # The console's mode or an operator's per agent (D-849, D-901), always stated so a
             # change of the vendor's default (`null`) cannot change what the client's pause
             # means: under `timer` it is silence counted from the recogniser's final words, so
             # the wait is the recogniser's own plus the pause; under `smart` a ceiling
             # (snapshots/2026-10-13/pages/api-reference/agents/update-agent.md:1349-1381);
-            # under `ear` it is not read: the recogniser's end of speech (about 0.5 s) and a
-            # check of about 200 ms end the turn (ThinnestAI email of 27 Oct 2026,
-            # VENDOR-STATED, D-903).
+            # under `ear` it is the recogniser's end-of-speech silence, then a check of about
+            # 0.2 s ends the turn (ThinnestAI email of 28 Oct 2026, VENDOR-STATED, correcting
+            # its 27 Oct one that said it was not read).
             "turnDetection": cfg.turn_detection,
             # An Ear-only field, so sent only under `ear` (update-agent.md:1548-1553, 19 Oct
             # 2026 snapshot; vendor default on).

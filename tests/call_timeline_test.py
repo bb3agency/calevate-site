@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -41,9 +42,16 @@ _TIMELINE = CallTimeline(
 class _Engine:
     """Answers `get_call_timeline` from a script of results, one per try."""
 
-    def __init__(self, *answers: CallTimeline | ProblemError | None) -> None:
+    def __init__(
+        self, *answers: CallTimeline | ProblemError | None, report_turns: int | None = None
+    ) -> None:
         self.answers = list(answers)
         self.asked: list[str] = []
+        #: Get Call's `quality.turns`: None until the call's final report has landed.
+        self.report_turns = report_turns
+
+    async def get_execution(self, call_id: str) -> Any:
+        return SimpleNamespace(quality=SimpleNamespace(turns=self.report_turns))
 
     async def get_call_timeline(self, call_id: str) -> CallTimeline | None:
         self.asked.append(call_id)
@@ -125,6 +133,23 @@ async def test_the_last_try_stores_nothing_and_a_refusal_is_not_retried(
     assert last == "none_recorded"
     first = await call_timeline.fetch_call_timeline({"job_try": 1}, _payload(tenant, call_id, ecid))
     assert first == "refused:engine_rejected"
+    assert await _stored(tenant, call_id) is None
+
+
+async def test_an_empty_answer_after_the_final_report_is_not_retried(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Once Get Call's `quality.turns` is set, a missing timeline never arrives (ThinnestAI,
+    28 Oct 2026), so the first empty answer is the last."""
+    tenant = await _tenant()
+    call_id, ecid = await _call_row(tenant)
+    engine = _Engine(None, report_turns=4)
+    monkeypatch.setattr(call_timeline, "get_engine", lambda: engine)
+
+    outcome = await call_timeline.fetch_call_timeline(
+        {"job_try": 1}, _payload(tenant, call_id, ecid)
+    )
+    assert outcome == "none_recorded"
     assert await _stored(tenant, call_id) is None
 
 

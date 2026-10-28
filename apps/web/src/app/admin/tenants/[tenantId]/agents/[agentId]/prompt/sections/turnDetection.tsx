@@ -34,7 +34,6 @@ export const TURN_DETECTION_LABELS: Record<TurnDetection, string> = {
 
 /** The pause this agent's calls use beside the mode, and whose it is. */
 function pauseInForce(data: AgentTurnDetection): string {
-  if (!data.turn_silence_applies) return "pause not used";
   return `pause ${formatPause(data.turn_silence_ms_effective)}, ${sourceLabel(data.turn_silence_source).toLowerCase()}`;
 }
 

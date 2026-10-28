@@ -3,9 +3,9 @@ each turn mode (D-903, from ThinnestAI's email of 27 Oct 2026).
 
 `knowledgeOnCalls` is stated on every publish of the built-in tools, read back by the publish
 and compared and repaired by the settings sweep. Get Agent reports `voice.openingWaitSeconds`
-as the number a call uses, so an unstated wait reads 4 and is in step. Under `ear` the pause is
-not read, and the screens say so; an agent an operator puts on the timer starts from the
-console's `thinnest_timer_turn_silence_ms`.
+as the number a call uses, so an unstated wait reads 4 and is in step. The pause is used in
+every mode (ThinnestAI's email of 28 Oct 2026 corrected the 27 Oct one); an agent an operator
+puts on the timer starts from the console's `thinnest_timer_turn_silence_ms`.
 """
 
 from __future__ import annotations
@@ -222,7 +222,7 @@ async def test_publish_sends_the_trial_pause_and_still_sends_the_pause_under_ear
     assert voice["turnSilenceSeconds"] == 0.25
 
 
-async def test_the_screens_say_whether_the_pause_is_used_and_which_one_is(
+async def test_the_screens_say_which_pause_is_used(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(get_settings(), "thinnest_turn_detection", "ear")
@@ -236,19 +236,13 @@ async def test_the_screens_say_whether_the_pause_is_used_and_which_one_is(
         ear_turn = (await client.get(turn, headers=operator)).json()
         put = await client.put(turn, headers=operator, json={"turn_detection": "timer"})
         on_timer = (await client.get(handling, headers=owner)).json()
-    assert on_ear["turn_silence_applies"] is False
     assert on_ear["turn_silence_ms_effective"] == 250
     assert on_ear["bounds"]["platform_turn_silence_ms"] == 250
-    assert (ear_turn["turn_detection_effective"], ear_turn["turn_silence_applies"]) == (
-        "ear",
-        False,
-    )
+    assert ear_turn["turn_detection_effective"] == "ear"
     assert put.status_code == 200, put.text
     assert (put.json()["turn_silence_ms_effective"], put.json()["turn_silence_source"]) == (
         400,
         "platform",
     )
-    assert put.json()["turn_silence_applies"] is True
-    assert on_timer["turn_silence_applies"] is True
     assert on_timer["turn_silence_ms_effective"] == 400
     assert on_timer["bounds"]["platform_turn_silence_ms"] == 400

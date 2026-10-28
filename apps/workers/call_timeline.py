@@ -4,8 +4,9 @@ The voice platform writes a call's timeline after the call and does not say when
 answers "no timeline" alike for one not written yet, one never recorded for that kind of call
 (off the standard voice pipeline) and a call from before 27 Oct 2026. So the post-call pipeline
 queues this job a minute after a call with answered turns, and an empty answer is retried on a
-ladder rather than stored: `calls.engine_timeline` stays NULL until a real one arrives, and
-NULL after the last try means the platform timed nothing for the call. A separate job rather
+ladder rather than stored, until the call's final report has landed (`_report_landed`), after
+which an empty answer is final: `calls.engine_timeline` stays NULL until a real one arrives,
+and NULL at the end means the platform timed nothing for the call. A separate job rather
 than a pipeline stage, so waiting on the timeline never holds back a call's transcript, lead
 or minutes.
 
@@ -68,6 +69,17 @@ async def request_call_timeline(*, tenant_id: UUID, call_id: UUID, execution_id:
     )
 
 
+async def _report_landed(execution_id: str) -> bool:
+    """Has the call's final report landed? Then a timeline not there now never will be: Get
+    Call's `quality.turns` stops being null with the report the timeline is written from
+    (ThinnestAI, email of 28 Oct 2026, VENDOR-STATED). A read that fails says not yet."""
+    try:
+        snapshot = await get_engine().get_execution(execution_id)
+    except ProblemError:
+        return False
+    return snapshot.quality is not None and snapshot.quality.turns is not None
+
+
 def _retry_or_stop(attempt: int, outcome: str, call_id: UUID) -> str:
     if attempt < WORKER_MAX_TRIES:
         raise Retry(defer=ladder_delay_s(RETRY_BACKOFF_S, attempt))
@@ -101,6 +113,9 @@ async def fetch_call_timeline(ctx: dict[str, Any], payload: dict[str, Any]) -> s
         return f"refused:{exc.code}"
 
     if timeline is None or not timeline.turns:
+        if await _report_landed(execution_id):
+            log.info("call_timeline_not_recorded", extra={"call_id": str(call_id)})
+            return "none_recorded"
         return _retry_or_stop(attempt, "none_recorded", call_id)
 
     async with tenant_session(tenant_id) as session:

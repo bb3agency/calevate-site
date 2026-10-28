@@ -1,10 +1,10 @@
 """The call settings a client decides per agent or for the whole account (D-751, F3, F9).
 
-- **Pause before the agent replies**: under the silence timer, the quiet after the caller's
-  last words that ends their turn. Too short and a caller reading out a phone number is
-  answered half way through it; too long and every reply waits. Under real-time listening
-  (`ear`) it is not used at all (D-903): the screens say so and the value is still sent, so
-  an agent moved back to the timer keeps it.
+- **Pause before the agent replies**: the quiet after the caller's last words that ends their
+  turn. Too short and a caller reading out a phone number is answered half way through it;
+  too long and every reply waits. Under real-time listening (`ear`) it is the recogniser's
+  end-of-speech silence, under the timer the wait after its final words (ThinnestAI, email of
+  28 Oct 2026, VENDOR-STATED, correcting its 27 Oct one; 0.2 s is the floor either way).
 - **Hang up when the conversation ends**: the agent releases the line when it has finished,
   rather than leaving it open, and billed, until the caller puts the phone down.
 - **If the caller goes quiet** (F3, F9, 12 Oct 2026): ask "are you still there?" after some
@@ -474,14 +474,6 @@ class AgentCallHandling:
     @property
     def turn_detection_effective(self) -> TurnDetection:
         return self.turn_detection or get_settings().thinnest_turn_detection
-
-    @property
-    def turn_silence_applies(self) -> bool:
-        """Whether the pause decides anything on this agent's calls. Under `ear` the
-        recogniser's own end of speech and a short check end the turn and `turnSilenceSeconds`
-        is not read (ThinnestAI's email of 27 Oct 2026, VENDOR-STATED); it is still sent, so
-        the agent keeps its pause if it is moved back to the timer."""
-        return self.turn_detection_effective != "ear"
 
     @property
     def turn_silence_ms(self) -> int | None:
