@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { FIX_ALL_REQUEST, TestSection } from "@/app/c/[slug]/agents/[agentId]/test/TestSection";
@@ -181,24 +181,31 @@ function page(data: TestConversations, extra: Record<string, unknown> = {}) {
   });
 }
 
+
+/** The card a test title sits in. */
+const card = (title: string) => screen.getByText(title).closest("li") as HTMLElement;
+
 describe("the practice tests in Training", () => {
   it("scores only what the owner's script decides and keeps our side apart (the screenshot)", async () => {
-    await page(tests(run(), { waiting_update: "Your agreements are waiting." }));
-    // One headline: right every time on 1 of the 2 tests the script decides.
-    expect(await screen.findByRole("heading", { name: "Right every time on 1 of your 2 tests." })).toBeTruthy();
-    expect(screen.getByRole("list", { name: "Your score" }).textContent).toBe("1 right every time1 needs a fix");
-    // The rule we failed is ours: in "On our side", never under what the owner fixes.
-    const attention = screen.getByRole("heading", { name: /Missing an answer/ }).closest("section");
-    expect(attention?.textContent).toContain("Asked on a real call: Delivery");
-    expect(attention?.textContent).not.toContain("Asks not to be called again");
-    // Our side is one line; what we found waits behind "Show details".
-    expect(screen.getByText("This is ours to fix and does not count against your agent.")).toBeTruthy();
-    expect(screen.getByText("Failed a rule we keep for every agent: 1 test")).toBeTruthy();
-    expect(screen.getByText("Used textbook words: 2 tests")).toBeTruthy();
+    const { container } = await page(tests(run(), { waiting_update: "Your agreements are waiting." }));
+    // One verdict: a number, not a sentence.
+    expect(await screen.findByRole("heading", { name: "1 of 2 OK" })).toBeTruthy();
+    // The bar is tiny and wordless; the number above says it.
+    expect(container.querySelector("[data-score-bar]")?.getAttribute("aria-hidden")).toBe("true");
+    expect(screen.queryByRole("list", { name: "Your score" })).toBeNull();
+    // The rule we failed is ours: never a card for the owner to act on.
+    const look = screen.getByRole("list", { name: "Tests to look at" });
+    expect(look.textContent).toContain("Asked on a real call: Delivery");
+    expect(look.textContent).not.toContain("Asks not to be called again");
+    // Our side is one muted line with nothing to open; the details are Pip's to explain.
+    expect(screen.getByText("1 test is ours to fix, not yours.")).toBeTruthy();
+    expect(screen.queryByText(/textbook words/i)).toBeNull();
+    expect(screen.queryByText(/Show details/)).toBeNull();
     expect(screen.queryByText(/contact us/i)).toBeNull();
-    // The sandbox's hand-over reply is for the owner to read, with the languages shown.
-    const read = screen.getByRole("heading", { name: /Read these yourself/ }).closest("section");
-    expect(read?.textContent).toContain("Asks to speak to a person");
+    // The sandbox's hand-over reply is for the owner to check, its chat one tap away.
+    const person = card("Asks to speak to a person");
+    expect(person.textContent).toContain("Check it yourself");
+    fireEvent.click(within(person).getByRole("button", { name: "See the chat" }));
     expect(screen.getAllByText(", Telugu").length).toBeGreaterThan(0);
     expect(screen.getByText(/Your agreements are waiting/)).toBeTruthy();
     // No trend against a different set of tests.
@@ -213,26 +220,35 @@ describe("the practice tests in Training", () => {
     }
     render(<Listener />);
     const { calls } = await page(tests(run({ results: [PRICE, FLAKY, HOURS] })));
-    fireEvent.click(await screen.findByRole("button", { name: "Let Pip suggest fixes" }));
-    // A test right on 2 of 3 tries is not reliable yet, and not Pip's to chase.
-    const fixOne = screen.getAllByRole("button", { name: "Let Pip suggest a fix" });
+    const primary = await screen.findByRole("button", { name: "Fix 1 with Pip" });
+    expect(primary.className).toContain("bg-brand-strong");
+    fireEvent.click(primary);
+    // A test OK on 2 of 3 tries is Sometimes OK, and not Pip's to chase.
+    const fixOne = screen.getAllByRole("button", { name: "Fix it" });
     expect(fixOne).toHaveLength(1);
     fireEvent.click(fixOne[0]);
     expect(asked.map((a) => a.prompt)).toEqual([
       FIX_ALL_REQUEST,
       "Suggest a fix for this agent's failed test “Asked on a real call: Delivery”.",
     ]);
-    expect(screen.getByText("Not reliable yet")).toBeTruthy();
-    expect(screen.getByText("Right 2 of 3 times")).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: /Try \d/ })).toHaveLength(3);
+    const flaky = card("Asked on a real call: Bulk order");
+    expect(flaky.textContent).toContain("Sometimes OK");
+    // How often, and why Pip leaves it, wait behind "Why?".
+    expect(screen.queryByText(/OK 2 of 3 times/)).toBeNull();
+    fireEvent.click(within(flaky).getByRole("button", { name: "Why?" }));
+    expect(within(flaky).getByText(/OK 2 of 3 times/)).toBeTruthy();
+    expect(within(flaky).getByText("Mostly OK, so Pip leaves it alone.")).toBeTruthy();
+    fireEvent.click(within(flaky).getByRole("button", { name: "See the chat" }));
+    expect(within(flaky).getAllByRole("button", { name: /Chat \d/ })).toHaveLength(3);
     expect(calls.some((c) => c.method === "POST")).toBe(false);
   });
 
   it("shows another try's conversation on demand", async () => {
     await page(tests(run({ results: [FLAKY] })));
+    fireEvent.click(await screen.findByRole("button", { name: "See the chat" }));
     // The failing try is shown first.
     expect(await screen.findByText("Ten percent discount istam.")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Try 1/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Chat 1/ }));
     expect(screen.getByText("Team confirm chestundi andi.")).toBeTruthy();
   });
 
@@ -248,14 +264,16 @@ describe("the practice tests in Training", () => {
     const { calls } = await page(tests(compared), {
       "POST /v1/agents/agent-1/script/versions/11/restore": { script: { schema_version: 2, stages: [] }, saved_at: "2026-10-19T10:10:00Z" },
     });
-    expect(await screen.findByRole("heading", { name: "1 fixed, 1 newly broken since the last test." })).toBeTruthy();
-    expect(screen.getByText("Fixed")).toBeTruthy();
-    expect(screen.getByText("Newly broken")).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "1 fixed, 1 broke" })).toBeTruthy();
+    expect(screen.getByText("Now 1 of 2 OK")).toBeTruthy();
+    expect(screen.getByText("Your last change broke 1 test.")).toBeTruthy();
+    // The broken test says so in its one status.
+    expect(card("When do you open?").textContent).toContain("Broke");
     // Undo leads while a change broke a test; the fixes stay offered beside it.
-    expect(screen.getByRole("button", { name: "Undo the last change" }).className).toContain("bg-brand-strong");
-    expect(screen.getByRole("button", { name: "Let Pip suggest fixes" }).className).not.toContain("bg-brand-strong");
-    fireEvent.click(screen.getByRole("button", { name: "Undo the last change" }));
-    expect(await screen.findByText("The earlier script is in your draft")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Undo last change" }).className).toContain("bg-brand-strong");
+    expect(screen.getByRole("button", { name: "Fix 1 with Pip" }).className).not.toContain("bg-brand-strong");
+    fireEvent.click(screen.getByRole("button", { name: "Undo last change" }));
+    expect(await screen.findByText("Earlier script is in your draft")).toBeTruthy();
     expect(calls.some((c) => c.method === "POST" && c.path.endsWith("/versions/11/restore"))).toBe(true);
   });
 
@@ -280,9 +298,9 @@ describe("the practice tests in Training", () => {
     expect(JSON.parse(posted[0]?.body ?? "null")).toEqual({ practice_callers: false });
   });
 
-  it("shows which try is running", async () => {
+  it("shows which round is running", async () => {
     await page(tests(run({ status: "running", trials_done: 1 })));
-    expect(await screen.findByText("Try 2 of 3")).toBeTruthy();
+    expect(await screen.findByText("Round 2 of 3")).toBeTruthy();
     expect(screen.getByRole("status")).toBeTruthy();
   });
 
@@ -300,7 +318,7 @@ describe("the practice tests in Training", () => {
   it("says a run that could not be asked as a call needs calling set up, naming no provider", async () => {
     await page(tests(run({ status: "failed", error_code: "engine_test_call_not_set_up", results: [] })));
     expect(await screen.findByText("The test did not finish")).toBeTruthy();
-    expect(screen.getByText(/this agent is not set up to take calls yet/)).toBeTruthy();
+    expect(screen.getByText(/This agent cannot take calls yet/)).toBeTruthy();
   });
 
   it("invites the first run", async () => {
@@ -318,7 +336,7 @@ describe("the practice tests in Training", () => {
   it("shows the fixes being worked out, and why they could not be", async () => {
     await page(tests(run({ improving: true })));
     // A moving bar named for what it is doing, not a sentence; no actions while it runs.
-    expect(await screen.findByRole("progressbar", { name: "Working out a fix for 1 test" })).toBeTruthy();
+    expect(await screen.findByRole("progressbar", { name: "Pip is fixing 1 test" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Test again" })).toBeNull();
   });
 
@@ -342,10 +360,24 @@ describe("the practice tests in Training", () => {
       ),
       { "/v1/agents/agent-1/script": noReply() },
     );
-    expect(await screen.findByText("Fixes are ready below. Keep the ones you want, then test again.")).toBeTruthy();
-    expect(screen.getByText("Pip could not suggest new fixes on the last try, so these are from before.")).toBeTruthy();
+    expect(await screen.findByText("These fixes are from before.")).toBeTruthy();
     // The failed round is said once, quietly: never as a warning beside the waiting fixes.
     expect(screen.queryByText(/came back incomplete/)).toBeNull();
+  });
+
+  it("points at fixes that are ready and folded away", async () => {
+    const improvement = {
+      base: "live" as const,
+      edits: [{ id: "e1", op: "set_step" as const, label: "Step 2", before: "Ask.", after: "Ask again.", because: null, why: "" }],
+      facts: [],
+      for_keys: [],
+      disclosure: null,
+      created_at: "2026-10-19T10:00:00Z",
+      tested: false,
+    };
+    await page(tests(run({ improvement })), { "/v1/agents/agent-1/script": noReply() });
+    expect(await screen.findByText("Pip's fixes are below.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "See the fixes" })).toBeNull();
   });
 
   it("says why suggestions could not be made", async () => {
@@ -353,7 +385,7 @@ describe("the practice tests in Training", () => {
     expect(await screen.findByText(/allowance is used up/)).toBeTruthy();
   });
 
-  it("routes a setting to its setting and lets the owner mark a test wrong (D-823)", async () => {
+  it("routes a setting and a missing answer to where they are fixed, and lets the owner say not a problem (D-823)", async () => {
     const OFF = { ...PERSON, owner: "setting" as const, fix: "settings", standing: "setting" as const, setting: { area: "handover" as const, reason: "Hand-over to a person is switched off for this agent." } };
     const { calls } = await page(tests(run({ results: [PRICE, OFF, HOURS] })), {
       "POST /v1/agents/agent-1/script/tests/run-2/results/real_1/wrong": tests(
@@ -361,10 +393,15 @@ describe("the practice tests in Training", () => {
       ),
     });
     await screen.findByText("Asked on a real call: Delivery");
-    expect(screen.getByRole("link", { name: "Open call handling" }).getAttribute("href")).toContain("section=settings#call-handling");
-    fireEvent.click(screen.getAllByRole("button", { name: "This test is wrong" })[0]);
-    expect((await screen.findAllByText("Marked wrong")).length).toBeGreaterThan(0);
-    expect(calls.some((c) => c.method === "POST" && c.path.endsWith("/results/real_1/wrong"))).toBe(true);
+    // The setting is the primary next step and its card's own button.
+    expect(screen.getAllByRole("link", { name: "Open call handling" })[0].getAttribute("href")).toContain("section=settings#call-handling");
+    const price = card("Asked on a real call: Delivery");
+    expect(within(price).getByRole("link", { name: "Add answer" }).getAttribute("href")).toContain("/c/acme/knowledge");
+    fireEvent.click(within(price).getByRole("button", { name: "Why?" }));
+    fireEvent.click(within(price).getByRole("button", { name: "Not a problem" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.path.endsWith("/results/real_1/wrong"))).toBe(true));
+    // It moves to the folded "Not a problem" list.
+    await waitFor(() => expect(screen.getByText("Asked on a real call: Delivery").closest("details")).toBeTruthy());
   });
 
   it("answers a Test again with nothing changed as guidance in the server's words, not an error", async () => {
@@ -386,20 +423,22 @@ describe("the practice tests in Training", () => {
     expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.queryByText("We cannot do that")).toBeNull();
     // The way forward is still the one primary action.
-    expect(screen.getByRole("button", { name: "Let Pip suggest fixes" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Fix 1 with Pip" })).toBeTruthy();
   });
 
-  it("shows the judge's reason on the closed row, and what a good answer does when opened", async () => {
+  it("keeps the judge's reason behind Why?, with what a good answer does", async () => {
     await page(tests(run({ results: [{ ...PRICE, expect: "Says delivery is free above ₹500." }, HOURS] })));
-    const row = (await screen.findByText("Asked on a real call: Delivery")).closest("details");
-    expect(row?.open).toBe(false);
-    expect(row?.querySelector("summary")?.textContent).toContain("It made up a delivery charge.");
-    // One status per row: "Needs a fix" says it; "Wrong all 3 times" would say it again.
-    expect(row?.querySelector("summary")?.textContent).not.toContain("Wrong all 3 times");
-    expect(row?.textContent).toContain("A good answerSays delivery is free above ₹500.");
+    const price = (await screen.findByText("Asked on a real call: Delivery")).closest("li") as HTMLElement;
+    // One status per card, and no reason until asked for.
+    expect(price.textContent).toContain("Not OK");
+    expect(price.textContent).not.toContain("It made up a delivery charge.");
+    fireEvent.click(within(price).getByRole("button", { name: "Why?" }));
+    expect(price.textContent).toContain("What happenedIt made up a delivery charge.");
+    expect(price.textContent).toContain("A good answerSays delivery is free above ₹500.");
+    expect(price.textContent).toContain("From a real call");
   });
 
-  it("tests a changed script first, and shows the same tests over time", async () => {
+  it("tests a changed script first, and keeps the same tests over time inside How this works", async () => {
     const entry = (id: string, passed: number) => ({
       id,
       created_at: "2026-10-19T10:00:00Z",
@@ -409,15 +448,19 @@ describe("the practice tests in Training", () => {
       set_version: 2,
     });
     await page(tests(run({ is_current: false }), { history: [entry("run-2", 1), entry("run-1", 0)] }));
-    expect(await screen.findByText(/The script changed since this test/)).toBeTruthy();
+    expect(await screen.findByText("The script changed since this test.")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Test again" }).className).toContain("bg-brand-strong");
-    expect(screen.queryByRole("button", { name: "Let Pip suggest fixes" })).toBeNull();
-    const overTime = screen.getByRole("list", { name: "These tests over time" });
-    expect(overTime.textContent).toContain("0 of 2");
-    expect(overTime.textContent).toContain("This run1 of 2");
+    expect(screen.queryByRole("button", { name: /with Pip/ })).toBeNull();
+    // Hidden by default; one tap on "How this works" shows it.
+    expect(screen.queryByRole("list", { name: "These tests over time" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "How this works" }));
+    const overTime = await screen.findByRole("list", { name: "These tests over time" });
+    expect(overTime.textContent).toContain("0 of 2 OK");
+    expect(overTime.textContent).toContain("This test1 of 2 OK");
+    expect(screen.getByText(/Last test:/)).toBeTruthy();
   });
 
-  it("keeps an all-right Test again to one headline and Test again: no one-colour bar, no flat history (founder, 28 Oct)", async () => {
+  it("keeps an all-OK Test again to a check, a number and Test again (founder, 28 Oct)", async () => {
     const SHOP = result({ key: "saved_2", title: "Where is the shop?", source: "saved", change: "same" });
     const entry = (id: string, passed: number, judged: number) => ({
       id,
@@ -427,7 +470,7 @@ describe("the practice tests in Training", () => {
       score: { passed, judged, total: judged },
       set_version: 2,
     });
-    await page(
+    const { container } = await page(
       tests(
         run({
           retest_of: "run-1",
@@ -437,24 +480,109 @@ describe("the practice tests in Training", () => {
         { history: [entry("run-2", 2, 2), entry("run-1", 3, 3)] },
       ),
     );
-    expect(await screen.findByRole("heading", { name: "Right every time on all 2 tests." })).toBeTruthy();
-    expect(screen.getByText("No change since the last test.")).toBeTruthy();
-    expect(screen.queryByText(/as before/)).toBeNull();
-    // A bar of one colour and two identical full bars said nothing the headline does not.
-    expect(screen.queryByRole("list", { name: "Your score" })).toBeNull();
-    expect(screen.queryByRole("list", { name: "These tests over time" })).toBeNull();
-    expect(screen.getByText("Test again after you change the script or teach it something new.")).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "All 2 OK" })).toBeTruthy();
+    expect(screen.getByText("Same as last time")).toBeTruthy();
+    // A bar of one colour said nothing the number does not.
+    expect(container.querySelector("[data-score-bar]")).toBeNull();
+    expect(screen.queryByRole("list", { name: "Tests to look at" })).toBeNull();
     expect(screen.getByRole("button", { name: "Test again" })).toBeTruthy();
-    // The tests that were right wait folded, one click away.
-    expect(screen.getByText("Where is the shop?").closest("details")?.parentElement?.closest("details")?.open).toBe(false);
+    // The tests that were OK wait folded, one tap away.
+    expect(screen.getByText("Where is the shop?").closest("details")?.open).toBe(false);
   });
 
-  it("has no accessibility violations with every group open", async () => {
+  it("has no accessibility violations with every card open", async () => {
     const OFF = { ...PERSON, key: "off", owner: "setting" as const, fix: "settings", standing: "setting" as const, setting: { area: "handover" as const, reason: "Hand-over is off." } };
     const { container } = await page(tests(run({ results: [PRICE, FLAKY, OFF, STOP, PERSON, HOURS] })));
     await screen.findByText("Asked on a real call: Delivery");
     container.querySelectorAll("details").forEach((d) => (d.open = true));
+    for (const name of ["Why?", "See the chat"]) {
+      screen.getAllByRole("button", { name }).forEach((button) => fireEvent.click(button));
+    }
     await expectNoA11yViolations(container, "practice tests");
+  });
+});
+
+/**
+ * THE WORDINESS GUARD (founder, 28 Oct 2026: "more buttons and short sentences"). Every line
+ * this tab shows before anything is opened stays short, so explanation sentences cannot creep
+ * back. Not counted: a test's title (`data-user-text`, the server's words), the server's own
+ * notices (`data-server-text`), anything screen-reader-only or inside a closed fold.
+ */
+const LINE_MAX = 60;
+const BLOCKS = "p,h4,h5,li,button,a,summary,dt,dd,label,[role=progressbar]";
+
+function shownLines(root: HTMLElement): string[] {
+  const lines: string[] = [];
+  root.querySelectorAll<HTMLElement>(BLOCKS).forEach((el) => {
+    if (el.closest("[data-user-text],[data-server-text],.sr-only,[hidden],[aria-hidden='true']")) return;
+    // Inside a closed fold, only that fold's own summary is on screen.
+    for (let fold = el.closest("details"); fold; fold = fold.parentElement?.closest("details") ?? null) {
+      if (!fold.open && el.closest("summary")?.parentElement !== fold) return;
+    }
+    const own = el.cloneNode(true) as HTMLElement;
+    own.querySelectorAll(`${BLOCKS},[data-user-text],.sr-only,[aria-hidden='true']`).forEach((child) => child.remove());
+    const text = (own.textContent ?? "").replace(/\s+/g, " ").trim();
+    if (text) lines.push(text);
+  });
+  return lines;
+}
+
+describe("the Training tab's default view stays short", () => {
+  const OFF = { ...PERSON, key: "off", owner: "setting" as const, fix: "settings", standing: "setting" as const, setting: { area: "handover" as const, reason: "Hand-over to a person is switched off for this agent." } };
+  const LONG = { ...PRICE, reason: "The agent incorrectly accepted a partial phone number as a complete number and moved on without asking.".repeat(2) };
+  const improvement = {
+    base: "live" as const,
+    edits: [{ id: "e1", op: "set_step" as const, label: "Step 2", before: "Ask.", after: "Ask again.", because: null, why: "" }],
+    facts: [],
+    for_keys: [],
+    disclosure: null,
+    created_at: "2026-10-19T10:00:00Z",
+    tested: false,
+  };
+  const STATES: [string, TestConversations][] = [
+    ["failing", tests(run({ results: [LONG, FLAKY, OFF, STOP, PERSON, HOURS], note: "These tests come from your real calls, so no practice callers were written this time." }), { waiting_tests: 2, practice_offered: true })],
+    ["all OK", tests(run({ results: [HOURS] }))],
+    ["working", tests(run({ improving: true }))],
+    ["ours only", tests(run({ results: [STOP, HOURS] }))],
+    ["broke", tests(run({ results: [{ ...PRICE, change: "broken" }], comparison: { with_run: "run-1", with_version: 11, fixed: 0, broken: 1, still: 0, same: 0, new: 0, same_script: true } }))],
+    ["changed script", tests(run({ is_current: false }))],
+    ["running", tests(run({ status: "running", trials_done: 1 }))],
+    ["stopped", tests(run({ status: "failed", error_code: "engine_test_call_not_set_up", results: [] }))],
+    ["first run", tests(null, { missing_facts: ["prices"] })],
+  ];
+
+  it.each(STATES)("keeps every line on the %s view short", async (_name, data) => {
+    const { container } = await page(data);
+    await waitFor(() => expect(container.querySelector("h4, [data-notice]")).toBeTruthy());
+    const long = shownLines(container).filter((line) => line.length > LINE_MAX);
+    expect(long).toEqual([]);
+  });
+
+  it("sees a long line when one is on screen, and not one folded away", () => {
+    const long = "x".repeat(LINE_MAX + 1);
+    const { container } = render(
+      <div>
+        <p>{long}</p>
+        <details>
+          <summary>Open</summary>
+          <p>{`${long}y`}</p>
+        </details>
+      </div>,
+    );
+    expect(shownLines(container)).toEqual([long, "Open"]);
+  });
+
+  it("keeps the folded Practice callers line short", () => {
+    const counts = countsOf([PRICE, FLAKY, OFF, STOP, PERSON, HOURS]);
+    expect(lastRunLine(counts, true)).toBe("1 of 4 OK, 1 to check, fixes ready");
+    expect(lastRunLine(counts, true).length).toBeLessThanOrEqual(LINE_MAX);
+  });
+
+  it("shows fixes ready under the limit too, apart from the review the owner opened", async () => {
+    const { container } = await page(tests(run({ improvement })), { "/v1/agents/agent-1/script": noReply() });
+    await screen.findByText("Pip's fixes are below.");
+    const verdict = container.querySelector("section[aria-labelledby='tests-summary-heading']") as HTMLElement;
+    expect(shownLines(verdict).filter((line) => line.length > LINE_MAX)).toEqual([]);
   });
 });
 
@@ -466,13 +594,13 @@ describe("test copy", () => {
     expect(languageOf("…")).toBeNull();
   });
 
-  it("scores a run of only rules and our side by what was right, never 0 of 0", () => {
+  it("scores a run of only rules and our side by what was OK, never 0 of 0", () => {
     const HOURS_RULE = result({ key: "probe_ai", title: "Says it is an AI", probe: "ai", source: "standard", counted: false });
     const onlyRules = run({ results: [HOURS_RULE, STOP] });
-    expect(headlineOf(onlyRules).title).toBe("Right every time on its one test.");
+    expect(headlineOf(onlyRules).title).toBe("1 of 1 OK");
     expect(headlineOf(onlyRules).tone).toBe("ok");
-    expect(lastRunLine(countsOf(onlyRules.results), true)).toBe("Last run: all 1 right, fixes waiting.");
-    expect(lastRunLine(countsOf([STOP]), false)).toBe("Last run: nothing to score.");
+    expect(lastRunLine(countsOf(onlyRules.results), true)).toBe("1 of 1 OK, fixes ready");
+    expect(lastRunLine(countsOf([STOP]), false)).toBe("Nothing to score");
   });
 
   it("counts the owner's score without the rules or our side", () => {
@@ -489,8 +617,8 @@ describe("test copy", () => {
     expect(countsOf([{ verdict: "failed", fix: "platform", probe: null }, { verdict: "failed", fix: "style", probe: null }]).ours).toBe(2);
   });
 
-  it("says how often a test was right, and which are worth a fix", () => {
-    expect(triesLine(FLAKY)).toBe("Right 2 of 3 times");
+  it("says how often a test was OK, and which are worth a fix", () => {
+    expect(triesLine(FLAKY)).toBe("OK 2 of 3 times");
     // Wrong (or right) every time is the status's to say, not a second line's.
     expect(triesLine(PRICE)).toBeNull();
     expect(triesLine({ passes: 1, judged_tries: 1 })).toBeNull();
@@ -501,19 +629,21 @@ describe("test copy", () => {
   });
 
   it("leads with the change on the same tests, or the score on a new set", () => {
-    expect(headlineOf(run()).title).toBe("Right every time on 1 of your 2 tests.");
-    expect(headlineOf(run({ results: [HOURS] })).title).toBe("Right every time on its one test.");
-    // A passing rule check is not scored but is in the "Right every time" list, so the
-    // all-right headline counts it too and the two numbers match.
+    expect(headlineOf(run()).title).toBe("1 of 2 OK");
+    expect(headlineOf(run({ results: [HOURS] })).title).toBe("1 of 1 OK");
+    // A passing rule check is not scored but is in the folded "OK" list, so the all-OK
+    // number counts it too and the two match.
     const check = { ...HOURS, key: "rule-check", probe: "partial_number", counted: false };
-    expect(headlineOf(run({ results: [HOURS, check] })).title).toBe("Right every time on all 2 tests.");
+    expect(headlineOf(run({ results: [HOURS, check] })).title).toBe("All 2 OK");
+    // The folded row says the same number as the card it opens to.
+    expect(lastRunLine(countsOf([HOURS, check]), false)).toBe("All 2 OK");
     const same = run({ comparison: { with_run: "a", with_version: 12, fixed: 0, broken: 0, still: 1, same: 1, new: 0, same_script: true } });
-    // Nothing moved: the score leads and "no change" is said once, underneath.
-    expect(headlineOf(same).title).toBe("Right every time on 1 of your 2 tests.");
-    expect(headlineOf(same).detail).toBe("No change since the last test. The script was the same in both runs.");
+    // Nothing moved: the score leads and "Same as last time" is said once, underneath.
+    expect(headlineOf(same).title).toBe("1 of 2 OK");
+    expect(headlineOf(same).detail).toBe("Same as last time");
   });
 
-  it("groups failures by what fixes them, in the order the owner acts on them", () => {
+  it("orders failures by what fixes them, in the order the owner acts on them", () => {
     const OFF = { ...PRICE, key: "off", owner: "setting" as const, standing: "setting" as const };
     const groups = fixGroups([OFF, HOURS, PRICE, FLAKY, STOP, PERSON]);
     expect(groups.map((g) => [g.group, g.rows.map((r) => r.key)])).toEqual([

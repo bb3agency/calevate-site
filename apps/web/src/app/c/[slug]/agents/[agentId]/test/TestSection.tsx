@@ -7,15 +7,13 @@
  * callers" disclosure at the foot of the Training tab and declares its copilot surface only
  * while open (`declare`).
  *
- * The screen's job: show the owner what is wrong and the one thing to do about it.
- * 1. How is my agent doing? (`Standing`) One headline, the score as countable blocks, and the
- *    same tests on earlier runs.
- * 2. What do I do next? (`NextStepBlock`) One sentence, one primary action, "Test again"
- *    beside it.
- * 3. Which tests? (`Results`) The failures grouped by what fixes them (the script, a missing
- *    answer, a setting), each row showing the judge's reason before it is opened.
+ * The screen's job: show the owner what is wrong and the one thing to do about it, in as few
+ * words as possible (founder, 28 Oct 2026; docs/evidence/simple-ui-research-2026-10-28.md).
+ * 1. The verdict card (`Verdict`): an icon, "2 of 5 OK", and ONE primary button.
+ * 2. The problem cards (`Results`): one card per test to look at, with its own buttons; the
+ *    judge's reason behind "Why?".
  *
- * What is ours to fix (a rule we keep for every agent, how replies sounded) is one quiet note,
+ * What is ours to fix (a rule we keep for every agent, how replies sounded) is one muted line,
  * outside the score: the owner cannot change it, so it never sinks their result (D-828).
  */
 
@@ -44,8 +42,8 @@ import { noFill } from "@/lib/copilot/types";
 import { ImprovementReview } from "../script/ImprovementReview";
 import { CALL_HANDLING_ANCHOR } from "../sections/settingsTab";
 import { Results } from "./TestResults";
-import { FirstRun, NextStepBlock, Running, Standing, Stopped } from "./TestSummary";
-import { NOTHING_CHANGED_CODE, SETTING_LINK, countsOf, isFixable } from "./testCopy";
+import { FirstRun, Running, Stopped, Verdict } from "./TestSummary";
+import { NOTHING_CHANGED_CODE, SETTING_LINK, countsOf, isFixable, oursNote } from "./testCopy";
 
 /** What Pip is asked for the fixes, in the words the owner sees in its ask box (D-820). */
 export const FIX_ALL_REQUEST = "Suggest fixes for the tests this agent failed.";
@@ -81,6 +79,7 @@ export function TestSection({
   const done = latest?.status === "done" ? latest : null;
   const fixable = done ? done.results.filter(isFixable) : [];
   const counts = done ? countsOf(done.results) : null;
+  const ours = done ? oursNote(done) : null;
   const improving = done?.improving === true;
   const proposal = done?.improvement ?? null;
   const showReview = done !== null && proposal !== null && !improving && closed !== proposal.created_at;
@@ -109,6 +108,11 @@ export function TestSection({
                   ? "a test is running"
                   : "no finished test yet",
             },
+            // The screen shows our side as one line; the details are here so Pip can explain
+            // them when the owner asks.
+            ...(ours
+              ? [{ key: "ours", label: "Ours to fix, not the owner's (not scored)", value: ours.details.join("; ") }]
+              : []),
             {
               key: "what_is_here",
               label: "What this section does",
@@ -144,23 +148,31 @@ export function TestSection({
     script: href(`/c/${slug}/agents/${agent.id}?section=script`),
     handover: href(`/c/${slug}/agents/${agent.id}?section=${SETTING_LINK.handover.section}#${CALL_HANDLING_ANCHOR}`),
     agreements: href(`/c/${slug}/agreements`),
+    knowledge: href(`/c/${slug}/knowledge`),
   };
   const canRun = data?.available === true && write.allowed && !testing;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {data?.waiting_update && (
-        <NoticeBox
-          tone="warn"
-          title={data.waiting_update}
-          action={
-            <Link href={links.agreements} className={TEXT_ACTION}>
-              Open agreements
-            </Link>
-          }
-        />
+        // The server's words: `data-server-text` keeps them out of the line-length guard.
+        <div data-server-text>
+          <NoticeBox
+            tone="warn"
+            title={data.waiting_update}
+            action={
+              <Link href={links.agreements} className={TEXT_ACTION}>
+                Open agreements
+              </Link>
+            }
+          />
+        </div>
       )}
-      {data && !data.available && <p className="text-body text-ink-muted">{data.unavailable_reason}</p>}
+      {data && !data.available && (
+        <p data-server-text className="text-body text-ink-muted">
+          {data.unavailable_reason}
+        </p>
+      )}
       <RestrictionNote reason={write.reason} />
 
       {tests.isLoading && <Skeleton rows={4} />}
@@ -177,30 +189,27 @@ export function TestSection({
             onRetry={() => start(latest.retest_of ? { retest_of: latest.retest_of } : {})}
           />
         ) : done ? (
-          <>
-            <Standing run={done} data={data} />
-            <NextStepBlock
-              run={done}
-              data={data}
-              canRun={canRun}
-              canWrite={write.allowed}
-              fixable={fixable.length}
-              improving={improving}
-              hasProposal={proposal !== null}
-              showingReview={showReview}
-              restoring={restore.isPending}
-              restoreStatus={restoreFeedback.status}
-              runStatus={runStatus}
-              restored={restore.isSuccess}
-              links={links}
-              unchanged={unchanged}
-              onTestAgain={testAgain}
-              onNewSet={(practice) => start({ practice_callers: practice })}
-              onFix={() => askForFixes()}
-              onReopen={() => setClosed(null)}
-              onUndo={(version) => restore.mutate(version)}
+          <Verdict
+            run={done}
+            data={data}
+            canRun={canRun}
+            canWrite={write.allowed}
+            fixable={fixable.length}
+            improving={improving}
+            hasProposal={proposal !== null}
+            showingReview={showReview}
+            restoring={restore.isPending}
+            restoreStatus={restoreFeedback.status}
+            runStatus={runStatus}
+            restored={restore.isSuccess}
+            links={links}
+            unchanged={unchanged}
+            onTestAgain={testAgain}
+            onNewSet={(practice) => start({ practice_callers: practice })}
+            onFix={() => askForFixes()}
+            onReopen={() => setClosed(null)}
+            onUndo={(version) => restore.mutate(version)}
             />
-          </>
         ) : (
           <FirstRun
             data={data}

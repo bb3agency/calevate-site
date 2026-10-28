@@ -1,17 +1,24 @@
 "use client";
 
 /**
- * The tests of a finished run, grouped by what fixes them rather than by verdict: the script,
- * a missing answer, or a setting (D-823's owners). Each group says in one line what to do,
- * and each test closes to one scannable row (its name, ONE status and the judge's reason)
- * and opens to what went wrong, what a good answer does, the actions and the conversation.
+ * The tests of a finished run, as cards. Each test that needs the owner is one short card:
+ * its title, ONE status, and the one or two buttons that act on it ("Fix it", "Add answer",
+ * the setting, "See the chat"). The judge's reason, the good answer and "Not a problem" wait
+ * behind "Why?" (progressive disclosure: the default view shows only what is acted on,
+ * docs/evidence/simple-ui-research-2026-10-28.md row 6).
  *
- * Then what needs no action from the owner: tests to read themselves, the ones right every
- * time (folded), our side (one line, details on demand, D-828) and tests marked wrong. Inside
- * those groups the heading already says the status, so a row does not say it again.
+ * Cards rather than grouped rows under explanatory headings: the owner learns what to do
+ * from the buttons on the card, not from a sentence above a group, and a group heading with
+ * its hint was two more lines to read per kind of problem.
+ *
+ * After them, folded: the tests that were OK and those the owner said were not a problem.
+ * Our side is one muted line, outside the score (D-828); what it holds is in the assistant's
+ * facts, not on the screen.
  */
 
 import Link from "next/link";
+import { useId, useState } from "react";
+import { BookOpen } from "lucide-react";
 
 import { TEXT_ACTION_SM } from "@/components/console/section";
 import { InfoTip } from "@/components/console/infoTip";
@@ -19,13 +26,11 @@ import { StatusPill } from "@/components/console/statusPill";
 import { PipMark } from "@/components/illustration/pip";
 import { SECONDARY_BUTTON_SM } from "@/components/ui";
 import type { TestResult, TestRun } from "@/lib/api/script";
-import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { lookup } from "@/lib/lookup";
 
 import { TriesAndConversation } from "./TestConversation";
 import {
   CHANGE,
-  FIX_GROUP,
   MOSTLY_RIGHT,
   SETTING_LINK,
   STANDING,
@@ -49,6 +54,8 @@ export interface ResultLinks {
   script: string;
   handover: string;
   agreements: string;
+  /** What the business's agents know, where a missing answer is taught. */
+  knowledge: string;
 }
 
 export interface RowActions {
@@ -63,89 +70,50 @@ export interface RowActions {
 
 const count = (n: number) => `${n} ${n === 1 ? "test" : "tests"}`;
 
+/** A card's buttons share a phone's width and wrap whole rather than break a label; their own width above. */
+const CARD_BUTTON = `${SECONDARY_BUTTON_SM} flex-1 justify-center whitespace-nowrap sm:flex-none`;
+
 export function Results({ run, actions }: { run: TestRun; actions: RowActions }) {
   const by = (place: string) => run.results.filter((r) => standingOf(r) === place);
-  const groups = fixGroups(run.results);
+  // What Pip can fix first, then a missing answer, then a setting (`FIX_GROUP_ORDER`).
+  const failing = fixGroups(run.results).flatMap((group) => group.rows);
   const read = by("check");
   const works = by("works");
-  const ours = by("ours");
   const wrong = by("wrong");
   const quiet = { ...actions, canFix: false, canMarkWrong: false };
   const note = oursNote(run);
   return (
-    <div className="space-y-8 border-t border-line pt-6">
-      {groups.map(({ group, rows }) => (
-        <section key={group} aria-labelledby={`tests-${group}-heading`}>
-          <GroupHeading id={`tests-${group}-heading`} title={FIX_GROUP[group].title} n={rows.length} />
-          <p className="mt-0.5 max-w-prose text-meta text-ink-muted">{FIX_GROUP[group].hint}</p>
-          <ResultList rows={rows} actions={actions} showStatus />
-        </section>
-      ))}
-      {read.length > 0 && (
-        <section aria-labelledby="tests-read-heading">
-          <GroupHeading id="tests-read-heading" title="Read these yourself" n={read.length} />
-          <p className="mt-0.5 max-w-prose text-meta text-ink-muted">
-            A test chat cannot show these, so nobody judged them. Open one to read what your agent said.
-          </p>
-          <ResultList rows={read} actions={quiet} />
-        </section>
+    <div className="space-y-4">
+      {failing.length + read.length > 0 && (
+        <ul aria-label="Tests to look at" className="space-y-3">
+          {failing.map((r) => (
+            <TestCard key={r.key} result={r} actions={actions} />
+          ))}
+          {read.map((r) => (
+            <TestCard key={r.key} result={r} actions={quiet} />
+          ))}
+        </ul>
       )}
-      {works.length > 0 && (
-        <Folded title="Right every time" rows={works} actions={quiet} open={false} />
-      )}
-      {note && (
-        <section aria-labelledby="tests-ours-heading" className="space-y-1">
-          <GroupHeading id="tests-ours-heading" title="On our side" n={ours.length} />
-          <p className="max-w-prose text-meta text-ink-muted">{note.line}</p>
-          <details className="group/fold">
-            <summary className={`${TEXT_ACTION_SM} -mx-2 cursor-pointer list-none [&::-webkit-details-marker]:hidden`}>
-              <Chevron className="group-open/fold:rotate-90" />
-              <span className="group-open/fold:hidden">Show details</span>
-              <span className="hidden group-open/fold:inline">Hide details</span>
-            </summary>
-            <ul className="mt-1 space-y-1 border-l-2 border-line pl-3 text-meta text-ink-muted">
-              {note.details.map((line) => (
-                <li key={line}>{line}</li>
-              ))}
-            </ul>
-            {ours.length > 0 && <ResultList rows={ours} actions={quiet} />}
-          </details>
-        </section>
-      )}
-      {wrong.length > 0 && <Folded title="Marked wrong" rows={wrong} actions={quiet} open={false} />}
+      {works.length > 0 && <Folded title="OK" rows={works} actions={quiet} />}
+      {wrong.length > 0 && <Folded title="Not a problem" rows={wrong} actions={quiet} />}
+      {note && <p className="text-meta text-ink-muted">{note.line}</p>}
     </div>
   );
 }
 
-/** A group's name and how many tests it holds, as a quiet count rather than a bare digit. */
-function GroupHeading({ id, title, n }: { id: string; title: string; n: number }) {
+function Folded({ title, rows, actions }: { title: string; rows: TestResult[]; actions: RowActions }) {
   return (
-    <h5 id={id} className="flex flex-wrap items-baseline gap-x-2 text-heading text-ink">
-      {title}
-      {n > 0 && <span className="text-meta font-normal text-ink-muted">{count(n)}</span>}
-    </h5>
-  );
-}
-
-function ResultList({ rows, actions, showStatus = false }: { rows: TestResult[]; actions: RowActions; showStatus?: boolean }) {
-  return (
-    <ul className="mt-2 divide-y divide-line border-y border-line">
-      {rows.map((r) => (
-        <ResultRow key={r.key} result={r} actions={actions} showStatus={showStatus} />
-      ))}
-    </ul>
-  );
-}
-
-function Folded({ title, rows, actions, open }: { title: string; rows: TestResult[]; actions: RowActions; open: boolean }) {
-  return (
-    <details open={open} className="group/fold">
-      <summary className="flex touch:min-h-11 cursor-pointer list-none items-baseline gap-2 rounded-sm text-heading text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand [&::-webkit-details-marker]:hidden">
-        <Chevron className="translate-y-0.5 group-open/fold:rotate-90" />
+    <details className="group/fold">
+      <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-sm text-heading text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand [&::-webkit-details-marker]:hidden">
+        <Chevron className="group-open/fold:rotate-90" />
         {title}
         <span className="text-meta font-normal text-ink-muted">{count(rows.length)}</span>
       </summary>
-      <ResultList rows={rows} actions={actions} />
+      <ul className="mt-2 space-y-3">
+        {rows.map((r) => (
+          <TestCard key={r.key} result={r} actions={actions} compact />
+        ))}
+      </ul>
     </details>
   );
 }
@@ -162,107 +130,93 @@ function Chevron({ className = "" }: { className?: string }) {
   );
 }
 
-const CHANGE_TONE: Record<string, string> = {
-  fixed: "font-medium text-brand-strong",
-  broken: "font-medium text-danger",
-};
-
-
 /**
- * One test. Closed, it is one scannable row: its name; its status (only where the group does
- * not already say it), what changed since the last test and where it came from; and, for a
- * test that needs the owner, the judge's reason in two lines. Open: what went wrong and what a
- * good answer does as two labelled lines, the actions, then the conversation. Native
- * `details`, so it opens by keyboard and needs no script.
+ * One test as a card. Closed: the title (the server's words, at most two lines), one status
+ * and the buttons. "Why?" opens the judge's reason, a good answer, how often it was OK and
+ * "Not a problem"; "See the chat" opens the conversation. Both are plain toggles
+ * (`aria-expanded`), so the card's buttons stay buttons and are never nested in a summary.
  */
-function ResultRow({ result, actions, showStatus }: { result: TestResult; actions: RowActions; showStatus: boolean }) {
+function TestCard({ result, actions, compact = false }: { result: TestResult; actions: RowActions; compact?: boolean }) {
+  const [why, setWhy] = useState(false);
+  const [chat, setChat] = useState(false);
+  const id = useId();
   const place = standingOf(result);
   const look = STANDING[place];
-  const change = result.change ? CHANGE[result.change] : null;
   const owner = ownerOf(result);
-  const tag = result.probe ? PROBE_TAG : (lookup(TAG, result.source) ?? null);
   const attention = isFailing(result);
-  const fixable = attention && isFixable(result);
   const setting = owner === "setting" ? result.setting : null;
+  const canFix = attention && isFixable(result) && actions.canFix;
+  const teach = attention && owner === "knowledge";
+  const openScript = attention && result.fix === "script_step";
+  const canMarkWrong = attention && actions.canMarkWrong;
+  // Pip leaves a mostly-right test alone; "Why?" says so, in place of a fix button.
+  const leftAlone = place === "unreliable" && !isFixable(result);
   const tries =
     result.tries && result.tries.length > 0
       ? result.tries
       : [{ verdict: result.verdict, reason: result.reason, turns: result.turns }];
-  const howOften = triesLine(result);
-  const canFix = fixable && actions.canFix;
-  const openScript = attention && result.fix === "script_step";
-  const canMarkWrong = attention && actions.canMarkWrong;
-  // Pip leaves a mostly-right test alone; the row says why there is no "suggest a fix" on it.
-  const leftAlone = place === "unreliable" && !isFixable(result);
+  // A test that broke since the last run says so in its one status; it is why Undo leads.
+  const status = result.change === "broken" ? { label: CHANGE.broken ?? look.label, tone: "stop" as const } : look;
+  const hasWhy = !compact || Boolean(result.reason);
 
   return (
-    <li>
-      <details className="group/row">
-        <summary className="flex touch:min-h-11 cursor-pointer list-none items-start gap-3 rounded-sm py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand [&::-webkit-details-marker]:hidden">
-          <span className="min-w-0 flex-1 space-y-1">
-            <span className="block text-body font-medium text-ink [overflow-wrap:anywhere]">{result.title}</span>
-            <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-meta text-ink-muted">
-              {showStatus && <StatusPill tone={look.tone}>{look.label}</StatusPill>}
-              {howOften && <span>{howOften}</span>}
-              {change && <span className={lookup(CHANGE_TONE, result.change ?? "") ?? ""}>{change}</span>}
-              {tag && <span>{tag}</span>}
-            </span>
-            {attention && result.reason && (
-              <span className="line-clamp-2 block text-meta text-ink [overflow-wrap:anywhere] group-open/row:hidden">
-                {result.reason}
-              </span>
-            )}
-          </span>
-          <Chevron className="mt-1.5 group-open/row:rotate-90" />
-        </summary>
+    <li className="rounded-card border border-line bg-surface p-3 sm:p-4">
+      <div className="flex items-start justify-between gap-3">
+        <p data-user-text className="line-clamp-2 min-w-0 text-body font-medium text-ink [overflow-wrap:anywhere]">
+          {result.title}
+        </p>
+        {!compact && (
+          <StatusPill tone={status.tone} className="mt-0.5">
+            {status.label}
+          </StatusPill>
+        )}
+      </div>
 
-        <div className="min-w-0 space-y-4 pb-5">
-          {(result.reason || (result.expect && attention) || setting) && (
-            <dl className="max-w-prose space-y-2.5 text-body">
-              {result.reason && (
-                <div>
-                  <dt className="text-meta font-medium text-ink-muted">{attention ? "What went wrong" : "Why"}</dt>
-                  <dd className="text-ink [overflow-wrap:anywhere]">
-                    {result.reason}
-                    {result.limit && (
-                      <span className="ml-1 inline-flex align-middle">
-                        <InfoTip label="what a test cannot show">
-                          <p>{result.limit}</p>
-                        </InfoTip>
-                      </span>
-                    )}
-                  </dd>
-                </div>
-              )}
-              {result.expect && attention && (
-                <div className="border-l-2 border-brand pl-3">
-                  <dt className="text-meta font-medium text-ink-muted">A good answer</dt>
-                  <dd className="text-ink [overflow-wrap:anywhere]">{result.expect}</dd>
-                </div>
-              )}
-              {setting && setting.reason !== result.reason && (
-                <div>
-                  <dt className="text-meta font-medium text-ink-muted">The setting</dt>
-                  <dd className="text-ink">{setting.reason}</dd>
-                </div>
-              )}
-            </dl>
-          )}
-          {leftAlone && <p className="max-w-prose text-meta text-ink-muted">{MOSTLY_RIGHT}</p>}
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        {canFix && (
+          <button type="button" className={CARD_BUTTON} onClick={() => actions.onFix(result.key)}>
+            <PipMark size={14} className="shrink-0" />
+            Fix it
+          </button>
+        )}
+        {teach && (
+          <Link href={actions.links.knowledge} className={CARD_BUTTON}>
+            <BookOpen aria-hidden className="h-3.5 w-3.5" />
+            Add answer
+          </Link>
+        )}
+        {setting && (
+          <Link href={actions.links[setting.area]} className={CARD_BUTTON}>
+            {SETTING_LINK[setting.area].label}
+          </Link>
+        )}
+        <button
+          type="button"
+          className={CARD_BUTTON}
+          aria-expanded={chat}
+          aria-controls={`${id}-chat`}
+          onClick={() => setChat((open) => !open)}
+        >
+          {chat ? "Hide the chat" : "See the chat"}
+        </button>
+        {hasWhy && (
+          <button
+            type="button"
+            className={TEXT_ACTION_SM}
+            aria-expanded={why}
+            aria-controls={`${id}-why`}
+            onClick={() => setWhy((open) => !open)}
+          >
+            Why?
+          </button>
+        )}
+      </div>
 
-          {(setting || canFix || openScript || canMarkWrong) && (
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-              {setting && (
-                <Link href={actions.links[setting.area]} className={SECONDARY_BUTTON_SM}>
-                  {SETTING_LINK[setting.area].label}
-                </Link>
-              )}
-              {canFix && (
-                <button type="button" className={SECONDARY_BUTTON_SM} onClick={() => actions.onFix(result.key)}>
-                  <PipMark size={14} className="shrink-0" />
-                  Let {ASSISTANT_NAME} suggest a fix
-                </button>
-              )}
+      {why && (
+        <div id={`${id}-why`} className="mt-3 space-y-2.5 border-t border-line pt-3 text-body">
+          <WhyDetails result={result} attention={attention} leftAlone={leftAlone} setting={setting} />
+          {(openScript || canMarkWrong) && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
               {openScript && (
                 <Link href={actions.links.script} className={TEXT_ACTION_SM}>
                   Open the script
@@ -276,18 +230,74 @@ function ResultRow({ result, actions, showStatus }: { result: TestResult; action
               )}
             </div>
           )}
-
+        </div>
+      )}
+      {chat && (
+        <div id={`${id}-chat`} className="mt-3 border-t border-line pt-3">
           <TriesAndConversation tries={tries} />
         </div>
-      </details>
+      )}
     </li>
   );
 }
 
+/** What is behind "Why?": the judge's reason, a good answer, the setting, and the small facts. */
+function WhyDetails({
+  result,
+  attention,
+  leftAlone,
+  setting,
+}: {
+  result: TestResult;
+  attention: boolean;
+  leftAlone: boolean;
+  setting: TestResult["setting"] | null;
+}) {
+  const change = result.change ? CHANGE[result.change] : null;
+  const tag = result.probe ? PROBE_TAG : (lookup(TAG, result.source) ?? null);
+  const facts = [triesLine(result), change, tag].filter((part): part is string => Boolean(part));
+  return (
+    <>
+      {(result.reason || (result.expect && attention) || setting) && (
+        <dl className="max-w-prose space-y-2.5">
+          {result.reason && (
+            <div>
+              <dt className="text-meta font-medium text-ink-muted">What happened</dt>
+              <dd className="text-ink [overflow-wrap:anywhere]">
+                {result.reason}
+                {result.limit && (
+                  <span className="ml-1 inline-flex align-middle">
+                    <InfoTip label="what a test cannot show">
+                      <p>{result.limit}</p>
+                    </InfoTip>
+                  </span>
+                )}
+              </dd>
+            </div>
+          )}
+          {result.expect && attention && (
+            <div>
+              <dt className="text-meta font-medium text-ink-muted">A good answer</dt>
+              <dd className="text-ink [overflow-wrap:anywhere]">{result.expect}</dd>
+            </div>
+          )}
+          {setting && setting.reason !== result.reason && (
+            <div>
+              <dt className="text-meta font-medium text-ink-muted">The setting</dt>
+              <dd className="text-ink">{setting.reason}</dd>
+            </div>
+          )}
+        </dl>
+      )}
+      {leftAlone && <p className="text-meta text-ink-muted">{MOSTLY_RIGHT}</p>}
+      {facts.length > 0 && <p className="text-meta text-ink-muted">{facts.join(" · ")}</p>}
+    </>
+  );
+}
+
 /**
- * Quieter than the row's buttons (it overrides the judge rather than fixing the agent), so it
- * is a muted text action and carries the action's state in its words rather than as a filled
- * `ActionButton`. The name stays "This test is wrong"; the state is spoken beside it.
+ * "Not a problem": the owner overrides the judge (the test, not the agent, was wrong). Quieter
+ * than a fix, so a muted text action that carries its state in words.
  */
 function MarkWrongButton({
   status,
@@ -308,12 +318,12 @@ function MarkWrongButton({
           if (!busy) onClick();
         }}
       >
-        This test is wrong
-        {busy ? <span aria-hidden className="ml-1">(marking…)</span> : null}
+        Not a problem
+        {busy ? <span aria-hidden className="ml-1">(saving…)</span> : null}
         {status === "error" ? <span aria-hidden className="ml-1 text-danger">(try again)</span> : null}
       </button>
       <span role="status" className="sr-only">
-        {status === "success" ? "Marked" : status === "error" ? "Did not work" : ""}
+        {status === "success" ? "Saved" : status === "error" ? "Did not work" : ""}
       </span>
     </>
   );

@@ -4,9 +4,13 @@
  * rendering.
  *
  * D-828: every test is tried several times, "Test again" asks the same tests, and the owner's
- * score counts only what their script and facts decide. The words here follow that: a test
- * is right every time, not reliable yet, or needs a fix; anything ours is said once, plainly,
- * and never counted against the agent.
+ * score counts only what their script and facts decide. A test is OK (right every time),
+ * Sometimes OK, or Not OK; anything ours is said once and never counted against the agent.
+ *
+ * The words are short and common on purpose (founder, 28 Oct 2026; evidence in
+ * docs/evidence/simple-ui-research-2026-10-28.md): owners read on a phone, many in a second
+ * language, and every default line is read word by word. No "tries", "judged", "reliable" or
+ * "script version" on the default view.
  */
 
 import { formatIST, type NoticeTone } from "@/components/ui";
@@ -26,35 +30,23 @@ import { lookup } from "@/lib/lookup";
 
 /** How each place a test can sit reads to the owner, with its status tone. */
 export const STANDING: Record<TestStanding, { label: string; tone: NoticeTone }> = {
-  works: { label: "Right every time", tone: "ok" },
-  unreliable: { label: "Not reliable yet", tone: "warn" },
-  broken: { label: "Needs a fix", tone: "stop" },
+  works: { label: "OK", tone: "ok" },
+  unreliable: { label: "Sometimes OK", tone: "warn" },
+  broken: { label: "Not OK", tone: "stop" },
   setting: { label: "Needs a setting", tone: "warn" },
-  check: { label: "Read it yourself", tone: "neutral" },
-  ours: { label: "On our side", tone: "neutral" },
-  wrong: { label: "Marked wrong", tone: "neutral" },
+  check: { label: "Check it yourself", tone: "neutral" },
+  ours: { label: "Ours to fix", tone: "neutral" },
+  wrong: { label: "Not a problem", tone: "neutral" },
 };
 
 /** The problem code of a "Test again" refused because nothing it is tested with moved (D-823). */
 export const NOTHING_CHANGED_CODE = "agent_tests_nothing_changed";
 
-/** What fixes a failing test, which is how the failures are grouped for the owner. */
+/**
+ * What fixes a failing test. The cards are ordered by it (what Pip can fix first) and each
+ * card's buttons follow from it, so no group heading has to explain what to do.
+ */
 export type FixGroup = "script" | "knowledge" | "setting";
-
-export const FIX_GROUP: Record<FixGroup, { title: string; hint: string }> = {
-  script: {
-    title: "Fix in the script",
-    hint: "Pip can suggest the words. Nothing changes until you keep them.",
-  },
-  knowledge: {
-    title: "Missing an answer",
-    hint: "Teach the right answer, or let Pip suggest it.",
-  },
-  setting: {
-    title: "Fix in a setting",
-    hint: "The script cannot change these. Change the setting, then test again.",
-  },
-};
 
 export const FIX_GROUP_ORDER: readonly FixGroup[] = ["script", "knowledge", "setting"];
 
@@ -143,15 +135,14 @@ export function nextStepOf(facts: {
 /** Before against after on the same test. `same` says nothing: nothing moved. */
 export const CHANGE: Record<TestChange, string | null> = {
   fixed: "Fixed",
-  broken: "Newly broken",
-  still: "Still not right",
+  broken: "Broke",
+  still: "Still not OK",
   same: null,
   new: "New test",
 };
 
 /** A test right on most tries: Pip leaves it alone, so a fix never breaks what works. */
-export const MOSTLY_RIGHT =
-  "It was right most of the time, so Pip leaves it alone rather than risk what works. Test again after your next change to see if it holds.";
+export const MOSTLY_RIGHT = "Mostly OK, so Pip leaves it alone.";
 
 /** How the replies sounded, in the owner's words: ours to fix, never their score. */
 export const SOUND: Record<SoundKind, string> = {
@@ -288,23 +279,28 @@ export function scoreOf(counts: RunCounts): { right: number; of: number } {
 
 /** The closed "Practice callers" row's line for a finished run. */
 export function lastRunLine(counts: RunCounts, fixesWaiting: boolean): string {
-  const { right, of } = scoreOf(counts);
-  const score = of === 0 ? "nothing to score" : right === of ? `all ${of} right` : `${right} of ${of} right`;
   const extra = [
-    counts.unchecked > 0 ? `${counts.unchecked} to read` : null,
-    fixesWaiting ? "fixes waiting" : null,
+    counts.unchecked > 0 ? `${counts.unchecked} to check` : null,
+    fixesWaiting ? "fixes ready" : null,
   ].filter((part): part is string => part !== null);
-  return `Last run: ${[score, ...extra].join(", ")}.`;
+  // The same number as the verdict card: an all-OK run counts every OK test, rule checks too.
+  const { right, of } = counts.failing === 0 && counts.works > 0 ? { right: counts.works, of: counts.works } : scoreOf(counts);
+  return [of === 0 ? "Nothing to score" : okWords(right, of), ...extra].join(", ");
+}
+
+/** "2 of 5 OK", "All 5 OK", or "1 of 1 OK" (never "All 1 OK"). */
+function okWords(right: number, of: number): string {
+  return right === of && of > 1 ? `All ${of} OK` : `${right} of ${of} OK`;
 }
 
 /**
- * "Right 2 of 3 times" for a test right on some tries and not others, else null. Right or
- * wrong on every try, the row's status already says it, and saying it twice was noise.
+ * "OK 2 of 3 times" for a test right on some tries and not others, else null. Right or wrong
+ * on every try, the card's status already says it. It sits behind "Why?".
  */
 export function triesLine(result: Pick<TestResult, "passes" | "judged_tries">): string | null {
   const judged = result.judged_tries ?? 0;
   const passes = result.passes ?? 0;
-  return judged >= 2 && passes > 0 && passes < judged ? `Right ${passes} of ${judged} times` : null;
+  return judged >= 2 && passes > 0 && passes < judged ? `OK ${passes} of ${judged} times` : null;
 }
 
 export interface Headline {
@@ -316,10 +312,9 @@ export interface Headline {
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 /**
- * The one sentence at the top of a finished run, and at most one line under it. A "Test
- * again" that moved something leads with what moved; one that moved nothing leads with the
- * score, as a new set does, and says "no change" once underneath. A "No change" headline over
- * a line restating the score said the same thing twice.
+ * The verdict at the top of a finished run: a few words and a number, and at most one short
+ * line under it. A "Test again" that moved something leads with what moved; one that moved
+ * nothing leads with the score and says "Same as last time" underneath.
  */
 export function headlineOf(run: Pick<TestRun, "comparison" | "results" | "created_at">): Headline {
   const counts = countsOf(run.results);
@@ -327,13 +322,12 @@ export function headlineOf(run: Pick<TestRun, "comparison" | "results" | "create
   if (compared && compared.fixed + compared.broken + compared.still + compared.same > 0) {
     const moved = [
       compared.fixed > 0 ? `${compared.fixed} fixed` : null,
-      compared.broken > 0 ? `${compared.broken} newly broken` : null,
+      compared.broken > 0 ? `${compared.broken} broke` : null,
     ].filter((part): part is string => part !== null);
-    const same = compared.same_script ? " The script was the same in both runs." : "";
-    if (moved.length === 0) return { ...scoreHeadline(counts), detail: `No change since the last test.${same}` };
+    if (moved.length === 0) return { ...scoreHeadline(counts), detail: "Same as last time" };
     return {
-      title: `${moved.join(", ")} since the last test.`,
-      detail: `Now right every time on ${counts.passed} of ${counts.passed + counts.failing}.${same}`,
+      title: moved.join(", "),
+      detail: `Now ${okWords(counts.passed, counts.passed + counts.failing)}`,
       tone: compared.broken > 0 ? "stop" : "ok",
     };
   }
@@ -342,50 +336,24 @@ export function headlineOf(run: Pick<TestRun, "comparison" | "results" | "create
 
 function scoreHeadline(counts: RunCounts): Headline {
   const scored = counts.passed + counts.failing;
-  if (scored === 0) {
-    if (counts.works > 0) {
-      return {
-        title: counts.works === 1 ? "Right every time on its one test." : `Right every time on all ${counts.works} tests.`,
-        detail: counts.unchecked > 0 ? "Read the answers we could not judge below." : null,
-        tone: "ok",
-      };
-    }
-    return {
-      title: "Nothing here for your script to fix.",
-      detail: counts.unchecked > 0 ? "Read the answers below yourself." : null,
-      tone: "neutral",
-    };
+  const check = counts.unchecked > 0 ? `${counts.unchecked} to check yourself` : null;
+  // Every right test, rule checks included, so the number matches the folded "OK" list.
+  if (counts.failing === 0 && counts.works > 0) {
+    return { title: okWords(counts.works, counts.works), detail: scored === 0 ? check : null, tone: "ok" };
   }
-  if (counts.failing === 0) {
-    // Every right test, rule checks included, so the number matches the "Right every time"
-    // list under it rather than the scored count.
-    return {
-      title: counts.works === 1 ? "Right every time on its one test." : `Right every time on all ${counts.works} tests.`,
-      detail: null,
-      tone: "ok",
-    };
-  }
-  // The breakdown is the score strip's own legend, right under this line: not repeated here.
-  return {
-    title: `Right every time on ${counts.passed} of your ${scored} tests.`,
-    detail: null,
-    tone: counts.passed === 0 ? "stop" : "warn",
-  };
+  if (scored === 0) return { title: "Nothing to fix", detail: check, tone: "neutral" };
+  return { title: okWords(counts.passed, scored), detail: null, tone: counts.passed === 0 ? "stop" : "warn" };
 }
 
-/** When the run was and what it ran on, as short facts the screen sets on one quiet line. */
-export function setLine(run: Pick<TestRun, "set_version" | "trials" | "created_at" | "prompt_version">): string[] {
-  return [
-    `Ran ${formatIST(run.created_at)}`,
-    run.prompt_version ? `script version ${run.prompt_version}` : null,
-    run.trials && run.trials > 1 ? `${run.trials} tries per test` : null,
-  ].filter((part): part is string => part !== null);
+/** When the run was, for "How this works": not on the default view. */
+export function ranLine(run: Pick<TestRun, "created_at">): string {
+  return `Last test: ${formatIST(run.created_at)}`;
 }
 
 /**
- * Everything ours, as one line and the details behind it: rules we failed and how replies
- * sounded. Null when there is none. The line says the one thing the owner needs (it is not
- * theirs to fix and does not count); the details wait behind a disclosure.
+ * Everything ours, as one muted line, plus the details for the assistant's facts (rules we
+ * failed, how replies sounded). Null when there is none. The owner cannot act on the details,
+ * so the screen shows only the line; Pip can explain them when asked.
  */
 export function oursNote(run: Pick<TestRun, "results" | "sounds">): { line: string; details: string[] } | null {
   const counts = countsOf(run.results);
@@ -393,8 +361,8 @@ export function oursNote(run: Pick<TestRun, "results" | "sounds">): { line: stri
   if (counts.ours === 0 && sounds.length === 0) return null;
   const line =
     counts.ours > 0
-      ? `${counts.ours === 1 ? "This is" : "These are"} ours to fix and ${counts.ours === 1 ? "does" : "do"} not count against your agent.`
-      : "Some answers did not sound right. That is ours to fix and does not count against your agent.";
+      ? `${plural(counts.ours, "test is", "tests are")} ours to fix, not yours.`
+      : "Some replies need polish. That is ours to fix.";
   const details = [
     counts.ours > 0 ? `Failed a rule we keep for every agent: ${plural(counts.ours, "test", "tests")}` : null,
     ...sounds.map((sound) => {

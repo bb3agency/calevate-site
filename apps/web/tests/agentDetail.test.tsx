@@ -2282,7 +2282,7 @@ describe("Training shows what the agent knows (D-689: the business's knowledge, 
     await within(panel).findAllByText("Red chilli powder is ₹120 for 250 g.");
     // Folded to one line (D-893 §6): files and links are counted, never claimed as known,
     // because a PDF's or a link's words do not reach the agents yet (D-868).
-    expect(panel.textContent).toContain("2 facts, 1 file or link, shared by all your agents.");
+    expect(panel.textContent).toContain("2 facts, 1 file or link");
     const facts = within(within(panel).getAllByRole("list")[0]!)
       .getAllByRole("listitem")
       .map((row) => row.textContent);
@@ -2328,7 +2328,7 @@ describe("Training shows what the agent knows (D-689: the business's knowledge, 
         "/v1/agents/agent-1/script/tests": problem(503, { title: "Upstream unavailable" }),
       }),
     );
-    await screen.findByText("The last run could not be read.");
+    await screen.findByText("Could not be read");
     expect(screen.queryByText(/Not run yet/)).toBeNull();
   });
 
@@ -2676,7 +2676,7 @@ describe("progressive disclosure defaults", () => {
     await renderClientPage(page, routes(TRAINING_READS));
     await screen.findByRole("heading", { level: 3, name: "What it knows" });
     expect(disclosed("What it knows")).toBe(true);
-    expect(await screen.findByText("2 facts, 1 file or link, shared by all your agents.")).toBeTruthy();
+    expect(await screen.findByText("2 facts, 1 file or link")).toBeTruthy();
   });
 
   it("states the tier in force on the Model section before any option", async () => {

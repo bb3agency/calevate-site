@@ -39,6 +39,7 @@ import { QUESTION_PARAM } from "@/lib/api/teachQuestions";
 import { activeTrial, useWallet } from "@/lib/api/wallet";
 import { CopilotSurfaceScope, useCopilotSurface } from "@/lib/copilot/registry";
 import { PRACTICE_CALLERS_ANCHOR } from "@/lib/copilot/handoff";
+import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { asText } from "@/lib/copilot/types";
 
 import { TeachBox } from "../../../knowledge/TeachBox";
@@ -147,11 +148,11 @@ function WhatItKnows({ slug, agentId }: { slug: string; agentId: string }) {
   const teach = useWriteAccess(session, "kb:write", "teach your agents");
   const knows = useKnows(session);
 
-  let line = "Checking what your agents know…";
+  let line = "Checking…";
   let body;
   if (knows.isLoading) body = <Skeleton rows={3} label="Loading what your agents know" />;
   else if (knows.error || !knows.data) {
-    line = "Could not be read.";
+    line = "Could not be read";
     body = (
       <ProblemNotice
         error={knows.error ?? new Error("We could not load what your agents know.")}
@@ -162,10 +163,10 @@ function WhatItKnows({ slug, agentId }: { slug: string; agentId: string }) {
     const { facts, items } = knows.data;
     line =
       facts.length + items.length === 0
-        ? "Nothing yet."
+        ? "Nothing yet"
         : `${countLine(facts.length, "fact", "facts")}${
             items.length > 0 ? `, ${countLine(items.length, "file or link", "files and links")}` : ""
-          }, shared by all your agents.`;
+          }`;
     // Pinned facts first, as on the Knowledge page: they are in every call.
     const ordered = [...facts.filter((f) => f.pinned), ...facts.filter((f) => !f.pinned)];
     const shown = ordered.slice(0, FACTS_SHOWN);
@@ -209,15 +210,15 @@ function WhatItKnows({ slug, agentId }: { slug: string; agentId: string }) {
 function SavedTestsSummary({ agentId, canWrite }: { agentId: string; canWrite: boolean }) {
   const session = useClientSession();
   const cases = useTestCases(session, agentId);
-  let line = "Checking your saved tests…";
-  if (cases.error) line = "Could not be read.";
+  let line = "Checking…";
+  if (cases.error) line = "Could not be read";
   else if (cases.data) {
     const all = cases.data.cases;
     const running = all.some((c) => c.status !== "idle");
     line =
       all.length === 0
-        ? "None yet. Make one from a call, or write one."
-        : `${countLine(all.length, "saved test", "saved tests")}${running ? ", running now" : ""}.`;
+        ? "None yet"
+        : `${countLine(all.length, "test", "tests")}${running ? ", running now" : ""}`;
   }
   return (
     <Disclosure variant="row" headingLevel={3} title="Saved tests" subtitle={line}>
@@ -244,12 +245,12 @@ function PracticeCallers({ agent, slug }: { agent: Agent; slug: string }) {
   // by itself.
   const [open, setOpen] = useState<boolean | null>(null);
 
-  let fact = "Not run yet.";
+  let fact = "Not run yet";
   // "Not run yet" is a claim about the agent, so it waits for the read that can make it.
   if (!tests.data) {
-    fact = tests.error ? "The last run could not be read." : "Checking the last run…";
-  } else if (busy) fact = latest?.improving === true ? "Working out fixes." : "Running now.";
-  else if (latest?.status === "failed") fact = "The last test did not finish.";
+    fact = tests.error ? "Could not be read" : "Checking…";
+  } else if (busy) fact = latest?.improving === true ? `${ASSISTANT_NAME} is fixing tests` : "Running now";
+  else if (latest?.status === "failed") fact = "Did not finish";
   else if (latest?.status === "done") fact = lastRunLine(countsOf(latest.results), waiting);
   const shown = open ?? (busy || waiting);
 

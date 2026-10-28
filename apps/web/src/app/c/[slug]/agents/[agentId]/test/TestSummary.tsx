@@ -1,23 +1,30 @@
 "use client";
 
 /**
- * The top of the practice tests: the state the agent is in and the one thing to do next.
+ * The top of the practice tests: one verdict card. An icon, the score in a few words
+ * ("2 of 5 OK"), and ONE primary button for the next thing (`nextStepOf`). Everything else on
+ * it is quieter: "Test again", new tests, and "How this works", which holds what used to be
+ * explanation sentences on the screen (when it ran, what OK means, earlier runs).
  *
- * A finished run answers, in order: how is my agent doing (one headline, the score as a bar
- * of countable blocks, and how the same tests went on earlier runs), then what do I do next
- * (one sentence and one primary button, chosen by `nextStepOf`). "Test again" is always
- * beside it, quieter. A "Test again" the server refuses because nothing changed is calm
- * guidance in the server's own words, not an error: the owner did nothing wrong.
+ * Why so few words: the owners are small-business people on phones, many reading English as
+ * a second language, and lower-literacy readers read every line word by word instead of
+ * scanning (docs/evidence/simple-ui-research-2026-10-28.md, rows 1-6). A line we do not show
+ * costs them nothing; a sentence we do show costs them all of it. The wordiness guard in `agentTestSection.test.tsx`
+ * holds every default line to about 60 characters.
+ *
+ * A "Test again" the server refuses because nothing changed is calm guidance in the server's
+ * own words, not an error: the owner did nothing wrong.
  */
 
 import Link from "next/link";
-import { CircleAlert, CircleCheck, CircleMinus, CircleX, type LucideIcon } from "lucide-react";
+import { CircleAlert, CircleCheck, CircleMinus, CircleX, Info, type LucideIcon } from "lucide-react";
 
 import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
-import { InfoTip } from "@/components/console/infoTip";
+import { Popover } from "@/components/arc/popover";
+import { TEXT_ACTION_SM } from "@/components/console/section";
 import { PipMark } from "@/components/illustration/pip";
 import { ProgressBar } from "@/components/interior/progress-bar";
-import { NoticeBox, PRIMARY_BUTTON_SM, SECONDARY_BUTTON_SM, formatIST } from "@/components/ui";
+import { NoticeBox, PRIMARY_BUTTON, SECONDARY_BUTTON_SM, formatIST } from "@/components/ui";
 import type { TestConversations, TestRun } from "@/lib/api/script";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 
@@ -29,16 +36,15 @@ import {
   nextStepOf,
   progressMoved,
   progressOf,
+  ranLine,
   scoreOf,
-  setLine,
   type Headline,
   type NextStep,
   type RunCounts,
-  type RunPoint,
 } from "./testCopy";
 import type { ResultLinks } from "./TestResults";
 
-/** The headline's status mark: a shape per tone as well as a colour, so colour is never the only cue. */
+/** The verdict's mark: a shape per tone as well as a colour, so colour is never the only cue. */
 const HEADLINE_MARK: Record<Headline["tone"], LucideIcon> = {
   ok: CircleCheck,
   warn: CircleAlert,
@@ -55,25 +61,67 @@ const HEADLINE_INK: Record<Headline["tone"], string> = {
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
-export function HowItWorks({ data }: { data: TestConversations }) {
+/**
+ * Full width on a phone, where it is the one thing a thumb should find; its own size above
+ * that. The primary uses the regular size, not `_SM`: a primary call to action deserves the
+ * larger target (research row 7).
+ */
+const PRIMARY_WIDE = `${PRIMARY_BUTTON} w-full justify-center sm:w-auto`;
+const SECONDARY_WIDE = `${SECONDARY_BUTTON_SM} flex-1 justify-center whitespace-nowrap sm:flex-none`;
+
+/**
+ * "How this works": the explanation the screen no longer prints, one short line each, behind a
+ * labelled control rather than an unlabelled (i), so a reader who wants it can find it.
+ */
+export function HowItWorks({ data, run }: { data: TestConversations; run?: TestRun | null }) {
   const trials = data.trials ?? 3;
+  // Earlier runs of the same tests, only when the score moved between them: identical full
+  // bars carry nothing.
+  const all = run ? (progressOf(data.history, run) ?? []) : [];
+  const points = progressMoved(all) ? all.filter((point) => point.judged > 0) : [];
   return (
-    <InfoTip label="how testing works" align="start">
-      <p>
-        Your agent is asked the questions it struggled with on real calls, your saved tests, and four rules every
-        agent keeps: saying it is an AI, whether the call is recorded, stopping calls when asked, and handing over to
-        a person.
-      </p>
-      <p className="mt-2">
-        Each test is tried {trials} times, because an agent does not answer the same caller the same way every time.
-        A test counts as right only when it is right every time.
-      </p>
-      <p className="mt-2">
-        “Test again” asks exactly the same tests, so you can see what your changes fixed. New saved tests join when you
-        add them.
-      </p>
-      <p className="mt-2">{data.cost_note}</p>
-    </InfoTip>
+    <Popover
+      label="How this works"
+      align="start"
+      className="w-80"
+      trigger={
+        <button type="button" className={`${TEXT_ACTION_SM} -mx-2 text-ink-muted`}>
+          <Info aria-hidden className="h-4 w-4" />
+          How this works
+        </button>
+      }
+    >
+      <div className="space-y-2 text-[13px] text-ink-muted">
+        <ul className="space-y-1">
+          <li>We ask your agent what real callers ask.</li>
+          <li>We also check the rules every agent keeps.</li>
+          <li>Each test runs {trials} times.</li>
+          <li>OK means right every time.</li>
+          <li>Sometimes OK means right only some times.</li>
+          <li>Test again asks the same tests.</li>
+          <li>{ASSISTANT_NAME}&apos;s fixes change nothing until you keep one.</li>
+          {data.cost_note && <li>{data.cost_note}</li>}
+        </ul>
+        {run && (
+          <p className="border-t border-line pt-2">
+            {ranLine(run)}
+            {run.note && <span className="block">{run.note}</span>}
+          </p>
+        )}
+        {points.length >= 2 && (
+          <ol aria-label="These tests over time" className="space-y-0.5 border-t border-line pt-2">
+            {points.map((point) => (
+              <li key={point.id} className="flex justify-between gap-3 tabular-nums">
+                <span>{point.latest ? "This test" : formatIST(point.created_at)}</span>
+                <span className={point.latest ? "font-medium text-ink" : ""}>
+                  {point.passed} of {point.judged} OK
+                </span>
+              </li>
+            ))}
+          </ol>
+        )}
+      </div>
+    </Popover>
   );
 }
 
@@ -96,16 +144,10 @@ export function FirstRun({
   const noPrices = data.missing_facts?.includes("prices") ?? false;
   return (
     <section aria-labelledby="tests-first-heading" className="space-y-3">
-      <div className="flex items-start gap-2">
-        <h4 id="tests-first-heading" className="text-title text-ink">
-          Check your agent before your callers do
-        </h4>
-        <HowItWorks data={data} />
-      </div>
-      <p className="max-w-prose text-body text-ink-muted">
-        It is asked what real callers ask, {data.trials ?? 3} times each, and you see which answers it gets right every
-        time. It takes a few minutes; you can leave this page.
-      </p>
+      <h4 id="tests-first-heading" className="text-title text-ink">
+        Check your agent before your callers do
+      </h4>
+      <p className="text-body text-ink-muted">Takes a few minutes. You can leave this page.</p>
       {noPrices && (
         <NoticeBox
           tone="neutral"
@@ -116,20 +158,23 @@ export function FirstRun({
             </Link>
           }
         >
-          Callers ask what things cost, and nothing your agent knows has a price yet. Until you add them, it tells
-          callers the team will confirm the price.
+          Callers ask prices. Your agent has none yet.
         </NoticeBox>
       )}
-      <ActionButton
-        variant="primary-sm"
-        status={status}
-        pendingLabel="Starting…"
-        successLabel="Started"
-        disabled={!canRun && status !== "pending"}
-        onClick={onRun}
-      >
-        Run the tests
-      </ActionButton>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
+        <ActionButton
+          variant="primary"
+          className="w-full sm:w-auto"
+          status={status}
+          pendingLabel="Starting…"
+          successLabel="Started"
+          disabled={!canRun && status !== "pending"}
+          onClick={onRun}
+        >
+          Run the tests
+        </ActionButton>
+        <HowItWorks data={data} />
+      </div>
     </section>
   );
 }
@@ -138,20 +183,23 @@ export function Running({ run, trials }: { run: TestRun | null; trials: number }
   const total = run?.trials ?? trials;
   const doneTries = run?.trials_done ?? 0;
   return (
-    <section aria-labelledby="tests-running-heading" className="space-y-3" role="status" aria-live="polite">
-      <h4 id="tests-running-heading" className="text-sm font-semibold text-ink">
+    <section
+      aria-labelledby="tests-running-heading"
+      className="space-y-3 rounded-card border border-line p-4"
+      role="status"
+      aria-live="polite"
+    >
+      <h4 id="tests-running-heading" className="text-heading text-ink">
         Testing your agent
       </h4>
       <ProgressBar
         value={run?.status === "running" ? doneTries : null}
         max={total}
-        label={run?.status === "running" ? `Try ${Math.min(doneTries + 1, total)} of ${total}` : "Getting the callers ready"}
+        label={run?.status === "running" ? `Round ${Math.min(doneTries + 1, total)} of ${total}` : "Getting ready"}
         pendingLabel="Starting"
         completeLabel="Finishing"
       />
-      <p className="text-meta text-ink-muted">
-        Each try asks every test once. This takes a few minutes; you can leave this page and come back.
-      </p>
+      <p className="text-meta text-ink-muted">Takes a few minutes. You can leave this page.</p>
     </section>
   );
 }
@@ -169,10 +217,10 @@ export function Stopped({
 }) {
   const why =
     run.error_code === "stalled"
-      ? "It stopped answering part-way, so we stopped it."
+      ? "It stopped answering, so we stopped it."
       : run.error_code === "engine_test_call_not_set_up"
-        ? "Tests run as a phone call, and this agent is not set up to take calls yet. Contact us to set up calling for it, then test again."
-        : "Something on our side stopped it before it finished. Nothing about your agent was judged.";
+        ? "This agent cannot take calls yet. Contact us to set it up."
+        : "A problem on our side stopped it. Nothing was judged.";
   return (
     <NoticeBox
       tone="warn"
@@ -197,116 +245,23 @@ export function Stopped({
 }
 
 /**
- * How the agent is doing on the latest finished run: the headline with its status mark, at
- * most one line under it, then a quiet line of when and on what. The score bar and the
- * earlier runs appear only when they say something the headline does not.
+ * The score as a tiny wordless bar: one equal segment per test, so a short set reads as
+ * countable blocks. Decorative (`aria-hidden`): the verdict above already says the number, and
+ * each problem is its own card below. Drawn only for a mix; one colour says nothing.
  */
-export function Standing({ run, data }: { run: TestRun; data: TestConversations }) {
-  const headline = headlineOf(run);
-  const counts = countsOf(run.results);
-  const points = progressOf(data.history, run);
-  const Mark = HEADLINE_MARK[headline.tone];
+function ScoreBar({ counts }: { counts: RunCounts }) {
+  const sizes: [number, string][] = [
+    [scoreOf(counts).right, "bg-brand-strong"],
+    [counts.unreliable, "bg-warn"],
+    [counts.failing - counts.unreliable, "bg-danger"],
+  ];
+  if (sizes.filter(([n]) => n > 0).length < 2) return null;
+  const segments = sizes.flatMap(([n, tone]) => Array.from({ length: n }, () => tone));
   return (
-    <section aria-labelledby="tests-summary-heading" className="space-y-4">
-      <div className="flex items-start gap-3">
-        <Mark aria-hidden className={`mt-0.5 size-5 shrink-0 ${HEADLINE_INK[headline.tone]}`} strokeWidth={2.25} />
-        <div className="min-w-0 flex-1 space-y-1">
-          <div className="flex items-start gap-1.5">
-            <h4 id="tests-summary-heading" className="min-w-0 text-heading text-ink [text-wrap:pretty]">
-              {headline.title}
-            </h4>
-            <HowItWorks data={data} />
-          </div>
-          {headline.detail && <p className="text-body text-ink-muted [text-wrap:pretty]">{headline.detail}</p>}
-          {/* When the run was and on what, as facts rather than a sentence; the run's own
-              note (where these tests came from) follows as one line of its own. */}
-          {/* A no-break space before each dot keeps it on the line it closes when a phone wraps. */}
-          <p className="text-meta text-ink-muted">{setLine(run).join(" · ")}</p>
-          {run.note && <p className="max-w-prose text-meta text-ink-muted">{run.note}</p>}
-        </div>
-      </div>
-      <ScoreStrip counts={counts} />
-      {points && progressMoved(points) && <RunProgress points={points} />}
-    </section>
-  );
-}
-
-const SCORE_PARTS = [
-  { key: "passed", tone: "bg-brand-strong", one: "right every time", many: "right every time" },
-  { key: "unreliable", tone: "bg-warn", one: "not reliable yet", many: "not reliable yet" },
-  { key: "notRight", tone: "bg-danger", one: "needs a fix", many: "need a fix" },
-] as const;
-
-/**
- * The owner's score as one bar: right every time, right sometimes, not right. Each test is
- * one equal segment, so a short set reads as countable blocks rather than a percentage; the
- * legend under it names each colour with its count, so colour is never the only cue.
- *
- * Drawn only for a MIX: a bar of one colour restates the headline at full width and carries
- * nothing, so an all-right run has none.
- */
-function ScoreStrip({ counts }: { counts: RunCounts }) {
-  const sizes = {
-    passed: scoreOf(counts).right,
-    unreliable: counts.unreliable,
-    notRight: counts.failing - counts.unreliable,
-  };
-  const segments = SCORE_PARTS.flatMap((part) => Array.from({ length: sizes[part.key] }, () => part.tone));
-  if (SCORE_PARTS.filter((part) => sizes[part.key] > 0).length < 2) return null;
-  return (
-    <div className="space-y-2 sm:pl-8">
-      <div aria-hidden className="flex h-2 max-w-md gap-0.5 overflow-hidden rounded-full">
-        {segments.map((tone, index) => (
-          <span key={index} className={`h-full flex-1 ${tone}`} />
-        ))}
-      </div>
-      <ul className="flex flex-wrap gap-x-4 gap-y-1 text-meta text-ink" aria-label="Your score">
-        {SCORE_PARTS.filter((part) => part.key === "passed" || sizes[part.key] > 0).map((part) => (
-          <li key={part.key} className="inline-flex items-center gap-1.5">
-            <span aria-hidden className={`size-2 rounded-sm ${part.tone}`} />
-            <span>
-              <span className="font-medium">{sizes[part.key]}</span> {sizes[part.key] === 1 ? part.one : part.many}
-            </span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-/**
- * The same tests on earlier runs, oldest first, so progress reads down the list. Shown only
- * when the share right moved between runs (`progressMoved`). The bars are short and of one
- * fixed length, so they compare against each other rather than stretch across the card. A
- * run that scored nothing of the owner's (every test a rule we keep, or ours) has no bar to
- * draw and is left out rather than shown as "0 of 0".
- */
-function RunProgress({ points: all }: { points: RunPoint[] }) {
-  const points = all.filter((point) => point.judged > 0);
-  if (points.length < 2) return null;
-  return (
-    <div className="space-y-1.5 sm:pl-8">
-      <p className="text-meta font-medium text-ink-muted">These tests over time</p>
-      <ol className="space-y-1" aria-label="These tests over time">
-        {points.map((point) => {
-          const share = Math.round((point.passed / point.judged) * 100);
-          const ink = point.latest ? "font-medium text-ink" : "text-ink-muted";
-          return (
-            <li key={point.id} className="grid grid-cols-[8.5rem_6rem_auto] items-center gap-3 text-meta">
-              <span className={ink}>{point.latest ? "This run" : formatIST(point.created_at)}</span>
-              <span aria-hidden className="h-1.5 overflow-hidden rounded-full bg-ink/[0.08]">
-                <span
-                  className={`block h-full rounded-full ${point.latest ? "bg-brand-strong" : "bg-ink-faint"}`}
-                  style={{ width: `${share}%` }}
-                />
-              </span>
-              <span className={`tabular-nums ${ink}`}>
-                {point.passed} of {point.judged}
-              </span>
-            </li>
-          );
-        })}
-      </ol>
+    <div aria-hidden data-score-bar className="flex h-1.5 w-full max-w-48 gap-0.5 overflow-hidden rounded-full">
+      {segments.map((tone, index) => (
+        <span key={index} className={`h-full flex-1 ${tone}`} />
+      ))}
     </div>
   );
 }
@@ -337,14 +292,15 @@ export interface NextStepProps {
 }
 
 /**
- * What to do next: ONE state, the latest. The sentence and its primary action come from
- * `nextStepOf`; "Test again" is always beside it, quieter. While Pip works out fixes the
- * block is a progress state and nothing else. A suggestion round that came back with nothing
- * says so once: as the block's notice when no fixes wait, or as one quiet line under the
- * waiting ones (they are from an earlier round, and they are still the thing to do).
+ * The verdict card: how the agent is doing and the ONE next step (`nextStepOf`, most urgent
+ * first). While Pip works out fixes the actions give way to a progress bar. A suggestion round
+ * that came back with nothing is said once: as the server's notice when no fixes wait, or as
+ * one short line when earlier fixes still wait (they are still the thing to do).
  */
-export function NextStepBlock(props: NextStepProps) {
+export function Verdict(props: NextStepProps) {
   const { run, data, canRun, fixable, improving, restoring, unchanged } = props;
+  const headline = headlineOf(run);
+  const Mark = HEADLINE_MARK[headline.tone];
   const counts = countsOf(run.results);
   const settings = fixGroups(run.results).find((g) => g.group === "setting")?.rows ?? [];
   const broke = run.comparison && run.comparison.broken > 0 ? run.comparison.with_version : null;
@@ -360,162 +316,175 @@ export function NextStepBlock(props: NextStepProps) {
   });
   const firstSetting = settings[0]?.setting ?? null;
   const waiting = data.waiting_tests ?? 0;
-  const retestPrimary = step === "retest";
   const stopNote = run.improve_note && !improving ? run.improve_note : null;
-  const earlierFixes = stopNote !== null && props.hasProposal;
+  const line = stepLine(step, run, props.showingReview, stopNote !== null && props.hasProposal);
+  // "Test again" leads only when the script changed since this test; otherwise it is the
+  // quiet companion of whatever leads.
+  const retestLeads = step === "retest" && !unchanged;
+  const fixLeads = step === "fix";
 
   return (
-    // Part of the same answer as the headline above it, so it follows it in the column the
-    // headline's text starts in, with no rule or heading of its own between them: a second
-    // heading here split one verdict into two sections. The heading stays for screen readers.
-    <section aria-labelledby="tests-next-heading" className="space-y-3 sm:pl-8">
-      <h4 id="tests-next-heading" className="sr-only">
-        What to do next
-      </h4>
+    <section aria-labelledby="tests-summary-heading" className="space-y-4 rounded-card border border-line bg-surface p-4 shadow-card sm:p-5">
+      <div className="flex items-center gap-3">
+        <Mark aria-hidden className={`size-9 shrink-0 ${HEADLINE_INK[headline.tone]}`} strokeWidth={2} />
+        <div className="min-w-0">
+          <h4 id="tests-summary-heading" className="text-figure text-ink">
+            {headline.title}
+          </h4>
+          {headline.detail && <p className="text-meta text-ink-muted">{headline.detail}</p>}
+        </div>
+      </div>
+      <ScoreBar counts={counts} />
+
       {improving ? (
         <WorkingOnFixes count={fixable} />
       ) : (
         <>
-          <div className="space-y-1">
-            <p
-              className={`max-w-prose text-body [text-wrap:pretty] ${step === "done" || step === "hold" ? "text-ink-muted" : "font-medium text-ink"}`}
-            >
-              {sentenceOf(step, run, fixable, settings.length, props.showingReview)}
-            </p>
-            {earlierFixes && (
-              <p className="max-w-prose text-meta text-ink-muted">
-                {ASSISTANT_NAME} could not suggest new fixes on the last try, so these are from before.
-              </p>
-            )}
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
+          {line && <p className="text-body font-medium text-ink">{line}</p>}
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
             {step === "undo" && broke !== null && (
               <ActionButton
-                variant="primary-sm"
+                variant="primary"
+                className="w-full sm:w-auto"
                 status={props.restoreStatus ?? (restoring ? "pending" : "idle")}
                 pendingLabel="Undoing…"
                 successLabel="Undone"
                 onClick={() => props.onUndo(broke)}
               >
-                Undo the last change
+                Undo last change
               </ActionButton>
             )}
             {step === "review" && !props.showingReview && (
-              <button type="button" className={PRIMARY_BUTTON_SM} onClick={props.onReopen}>
-                Review the fixes
+              <button type="button" className={PRIMARY_WIDE} onClick={props.onReopen}>
+                See the fixes
               </button>
             )}
-            {/* Offered whenever a test can be fixed, not only when fixing is the next step:
-                a newly broken test makes Undo the lead action, and the fixes for the
-                tests that were already failing must not disappear behind it. */}
-            {fixable > 0 && props.canWrite && step !== "review" && step !== "retest" && (
-              <button
-                type="button"
-                className={step === "fix" ? PRIMARY_BUTTON_SM : SECONDARY_BUTTON_SM}
-                onClick={props.onFix}
-              >
-                <PipMark size={16} className="shrink-0" />
-                Let {ASSISTANT_NAME} suggest fixes
+            {fixLeads && props.canWrite && (
+              <button type="button" className={PRIMARY_WIDE} onClick={props.onFix}>
+                <PipMark size={18} className="shrink-0" />
+                Fix {fixable} with {ASSISTANT_NAME}
               </button>
             )}
             {step === "setting" && firstSetting && (
-              <Link href={props.links[firstSetting.area]} className={PRIMARY_BUTTON_SM}>
+              <Link href={props.links[firstSetting.area]} className={PRIMARY_WIDE}>
                 {SETTING_LINK[firstSetting.area].label}
               </Link>
             )}
-            <ActionButton
-              variant={retestPrimary && !unchanged ? "primary-sm" : "secondary-sm"}
-              status={props.runStatus ?? "idle"}
-              pendingLabel="Starting…"
-              successLabel="Started"
-              disabled={!canRun && props.runStatus !== "pending"}
-              onClick={props.onTestAgain}
-            >
-              Test again
-            </ActionButton>
-            {waiting > 0 && (
-              <button type="button" className={SECONDARY_BUTTON_SM} disabled={!canRun} onClick={() => props.onNewSet(false)}>
-                Add {waiting === 1 ? "1 new test" : `${waiting} new tests`}
-              </button>
+            {retestLeads && (
+              <ActionButton
+                variant="primary"
+                className="w-full sm:w-auto"
+                status={props.runStatus ?? "idle"}
+                pendingLabel="Starting…"
+                successLabel="Started"
+                disabled={!canRun && props.runStatus !== "pending"}
+                onClick={props.onTestAgain}
+              >
+                Test again
+              </ActionButton>
             )}
-            {data.practice_offered && (
-              <button type="button" className={SECONDARY_BUTTON_SM} disabled={!canRun} onClick={() => props.onNewSet(true)}>
-                Add practice callers
-              </button>
-            )}
+            <div className="flex flex-wrap gap-2">
+              {/* A newly broken test makes Undo lead; the fixes for tests that were already
+                  failing stay one tap away beside it rather than disappearing behind it. */}
+              {fixable > 0 && props.canWrite && step === "undo" && (
+                <button type="button" className={SECONDARY_WIDE} onClick={props.onFix}>
+                  <PipMark size={16} className="shrink-0" />
+                  Fix {fixable} with {ASSISTANT_NAME}
+                </button>
+              )}
+              {!retestLeads && (
+                <ActionButton
+                  variant="secondary-sm"
+                  className="flex-1 sm:flex-none"
+                  status={props.runStatus ?? "idle"}
+                  pendingLabel="Starting…"
+                  successLabel="Started"
+                  disabled={!canRun && props.runStatus !== "pending"}
+                  onClick={props.onTestAgain}
+                >
+                  Test again
+                </ActionButton>
+              )}
+              {waiting > 0 && (
+                <button type="button" className={SECONDARY_WIDE} disabled={!canRun} onClick={() => props.onNewSet(false)}>
+                  Add {waiting === 1 ? "1 new test" : `${waiting} new tests`}
+                </button>
+              )}
+              {data.practice_offered && (
+                <button type="button" className={SECONDARY_WIDE} disabled={!canRun} onClick={() => props.onNewSet(true)}>
+                  Add practice callers
+                </button>
+              )}
+            </div>
           </div>
         </>
       )}
+
       {unchanged && (
-        <NoticeBox tone="neutral" role="status" title={unchanged.said}>
-          {unchanged.next}
-        </NoticeBox>
+        <div data-server-text>
+          <NoticeBox tone="neutral" role="status" title={unchanged.said}>
+            {unchanged.next}
+          </NoticeBox>
+        </div>
       )}
       {props.restored && (
         <NoticeBox
           tone="ok"
-          title="The earlier script is in your draft"
+          title="Earlier script is in your draft"
           action={
             <Link href={props.links.script} className="text-meta font-medium text-ink underline underline-offset-2">
               Open the script
             </Link>
           }
         >
-          <p className="text-meta text-ink-muted">Put it live from the Script tab, then test again.</p>
+          <p className="text-meta text-ink-muted">Put it live, then test again.</p>
         </NoticeBox>
       )}
       {stopNote && !props.hasProposal && (
-        <NoticeBox
-          tone={run.improve_stop === "failed" || run.improve_stop === "budget" ? "warn" : "neutral"}
-          title={stopNote}
-        />
+        <div data-server-text>
+          <NoticeBox
+            tone={run.improve_stop === "failed" || run.improve_stop === "budget" ? "warn" : "neutral"}
+            title={stopNote}
+          />
+        </div>
       )}
+      <HowItWorks data={data} run={run} />
     </section>
   );
 }
 
-/**
- * Pip at work: a moving bar rather than a sentence, so it reads as in progress at a glance.
- * The fixes arrive in place (the screen polls), so the line under it says the person need
- * not wait here.
- */
+/** Pip at work: a moving bar, named for what it does. The fixes arrive in place (the screen polls). */
 function WorkingOnFixes({ count }: { count: number }) {
   return (
-    <div role="status" aria-live="polite" className="flex items-start gap-3 rounded-card border border-line p-4">
+    <div role="status" aria-live="polite" className="flex items-start gap-3">
       <PipMark size={20} className="mt-0.5 shrink-0" />
       <div className="min-w-0 flex-1 space-y-2">
         <ProgressBar
           value={null}
-          label={`Working out ${count === 1 ? "a fix" : "fixes"} for ${plural(count, "test", "tests")}`}
+          label={`${ASSISTANT_NAME} is fixing ${plural(count, "test", "tests")}`}
           pendingLabel="About 2 min"
         />
-        <p className="text-meta text-ink-muted">You can leave this page. The fixes wait here for you.</p>
+        <p className="text-meta text-ink-muted">You can leave this page.</p>
       </div>
     </div>
   );
 }
 
-function sentenceOf(step: NextStep, run: TestRun, fixable: number, settings: number, showingReview: boolean): string {
+/** At most one short line above the buttons, only where the button alone would not say why. */
+function stepLine(step: NextStep, run: TestRun, showingReview: boolean, earlierFixes: boolean): string | null {
   switch (step) {
     case "undo":
-      return `A change since the last test broke ${
-        run.comparison?.broken === 1 ? "a test that was right" : "tests that were right"
-      }. Undo puts the earlier script in your draft.`;
+      return `Your last change broke ${plural(run.comparison?.broken ?? 1, "test", "tests")}.`;
     case "review":
-      return showingReview
-        ? "Fixes are ready below. Keep the ones you want, then test again."
-        : "Fixes are ready. Keep the ones you want, then test again.";
+      if (earlierFixes) return "These fixes are from before.";
+      return showingReview ? `${ASSISTANT_NAME}'s fixes are below.` : null;
     case "retest":
-      return "The script changed since this test. Test again to see what callers hear now.";
-    case "fix":
-      return `${ASSISTANT_NAME} can suggest fixes for ${plural(fixable, "test", "tests")}. Nothing changes until you keep one.`;
-    case "setting":
-      return `${plural(settings, "test waits", "tests wait")} on a setting. Change it, then test again.`;
+      return "The script changed since this test.";
     case "hold":
-      return "What is left is right most of the time, so the script is best left alone. Test again after your next change.";
+      return "Mostly OK. Best left as it is.";
+    case "fix":
+    case "setting":
     case "done":
-      // The headline already says everything was right; this says only when to come back.
-      return "Test again after you change the script or teach it something new.";
+      return null;
   }
 }
-
