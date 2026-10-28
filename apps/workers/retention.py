@@ -60,11 +60,13 @@ category of its own — see `DERIVED_COPIES`, which records why and what each on
 instead: the uploaded list on the client's own CRM clock, the call-back on the clock of
 the conversation it was promised in.
 
-Vendor-side copies are the open edge, honestly marked: no vendor that handles a call
-offers a deletion we can perform, so `engine_deletion` is recorded as `unconfirmed` in the
-proof rather than asserted, and each erasure opens `processor_erasure_tasks` rows naming
-the vendor ids a written request must quote. A proof that overclaims is worse than one
-that says what it does not know.
+Vendor-side copies are the open edge, honestly marked: where a vendor offers no deletion we
+can perform, `engine_deletion` is recorded as `unconfirmed` in the proof rather than
+asserted, and each erasure opens `processor_erasure_tasks` rows naming the vendor ids a
+written request must quote. ThinnestAI is the exception: it deletes a call's content
+(D-798) and, for a tenant erasure, the account's agents, contacts and own workspace
+(D-922), each by a job queued here that confirms the task. A proof that overclaims is
+worse than one that says what it does not know.
 
 THE SWEEP'S COST SHAPE (see `_due_tenants` and `sweep_tenant`): the tick costs one
 probe per tenant that CAN hold call data, not one session per organization on the
@@ -108,6 +110,13 @@ from apps.api.compliance.dnc_recall import enqueue_erasure_recall
 from apps.api.compliance.engine_content import (
     deletes_call_content,
     queue_engine_content_deletion,
+)
+from apps.api.compliance.engine_tenant_erasure import (
+    VOICE_PLATFORM_ACCOUNT_DELETION,
+    VOICE_PLATFORM_ACCOUNT_SENTENCE,
+    developer_workspace_parties,
+    owed_tenant_engine_erasures,
+    queue_engine_tenant_erasure,
 )
 from apps.api.compliance.processor_erasure import (
     CONTACT_NOT_ASKED,
@@ -487,6 +496,9 @@ _EMPTY_TOTALS: Mapping[str, int] = {
     # Contact erasures held back for our recording copy (D-810) queued again; the job
     # deletes the contacts once the copy is ours or the floor has passed.
     "engine_contact_erasures_requeued": 0,
+    # Erased accounts whose data at the voice platform is still owed its deletion (D-922)
+    # queued again: a job that waited on our recording copy or a rented number, or gave up.
+    "engine_tenant_erasures_requeued": 0,
     "deferred": 0,
 }
 
@@ -1014,6 +1026,9 @@ async def sweep_tenant(tenant_id: UUID) -> dict[str, int]:
         totals["engine_contact_erasures_requeued"] += await _release_held_contacts(
             session, tenant_id=tenant_id
         )
+        totals["engine_tenant_erasures_requeued"] += await _release_tenant_engine_erasures(
+            session, tenant_id=tenant_id
+        )
     return totals
 
 
@@ -1096,6 +1111,23 @@ async def _release_held_contacts(session: AsyncSession, *, tenant_id: UUID) -> i
         await enqueue_outbox(
             session,
             job="erase_engine_contact",
+            payload={"tenant_id": str(tenant_id), "request_id": str(request_id)},
+        )
+    return len(requests)
+
+
+async def _release_tenant_engine_erasures(session: AsyncSession, *, tenant_id: UUID) -> int:
+    """Queue every tenant erasure of this tenant whose voice-platform deletion is still owed
+    (D-922) again. The job decides what is left; a repeat of a finished step costs one 404.
+    No numbers ride the payload: the first run recorded the contacts it found."""
+    if not deletes_call_content():
+        return 0
+    requests = await owed_tenant_engine_erasures(session)
+    for request_id in requests:
+        # The literal, so `scripts/check_job_wiring` reads the job name at its enqueue site.
+        await enqueue_outbox(
+            session,
+            job="erase_tenant_at_engine",
             payload={"tenant_id": str(tenant_id), "request_id": str(request_id)},
         )
     return len(requests)
@@ -3597,6 +3629,11 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         if row[0] is not None:
             return "already_completed"
 
+        # BEFORE the call arm clears the numbers: the voice platform's contacts in our shared
+        # developer workspace can only be found by them (D-922). Sealed onto the job below.
+        developer_parties = (
+            await developer_workspace_parties(session) if deletes_call_content() else []
+        )
         counts, held_until = await _erase_tenant_calls(
             session, tenant_id=tenant_id, request_id=request_id
         )
@@ -3976,6 +4013,10 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         # and OUTLIVE our own rows, so this works for a tenant whose sources a retention
         # sweep has already deleted. Rows our own runtime wrote are left out: they name
         # rows in this database, which the arms above have already reached.
+        #
+        # On ThinnestAI the task is not a written request (D-922): the platform deletes an
+        # agent with its knowledge, a contact and a customer workspace on request, so
+        # `erase_tenant_at_engine` does it after this commits and confirms the task.
         own_engines = sorted(OWN_RUNTIME_ENGINES)
         engine_refs = [
             str(ref)
@@ -3996,7 +4037,19 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
             .scalars()
             .all()
         ]
-        if engine_refs:
+        if deletes_call_content():
+            if await queue_engine_tenant_erasure(
+                session, tenant_id=tenant_id, request_id=request_id, parties=developer_parties
+            ):
+                proof["engine_deletion"] = VOICE_PLATFORM_ACCOUNT_DELETION
+                proof["actions"]["voice_platform_account"] = VOICE_PLATFORM_ACCOUNT_SENTENCE
+                proof["actions"]["engine_agent_routes"] = (
+                    f"{counts['engine_routes_withdrawn']} voice-platform routing entr(ies) "
+                    "withdrawn, so no further call reaching this account's agents is "
+                    "recorded here; the agents themselves are deleted at the voice platform "
+                    "after this erasure"
+                )
+        elif engine_refs:
             await open_tasks_for_request(
                 session,
                 tenant_id=tenant_id,

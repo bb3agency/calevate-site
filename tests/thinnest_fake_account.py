@@ -40,6 +40,8 @@ class Workspace:
     business: dict[str, Any] = field(default_factory=lambda: {"status": "none"})
     agents: set[str] = field(default_factory=set)
     live_calls: dict[str, int] = field(default_factory=dict)
+    #: Contact id -> phone, digits only with the country code (contacts/get-contact.md).
+    contacts: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -127,7 +129,24 @@ class FakeAccount:
                 200, json={"items": [{"id": f"c{i}"} for i in range(n)], "nextCursor": None}
             )
         if path.startswith("/agents/") and request.method == "DELETE":
-            self.ws(workspace).agents.discard(path.split("/")[2])
+            place = self.ws(workspace)
+            agent = path.split("/")[2]
+            if agent not in place.agents:
+                return _err(404, "not_found", "No such agent in your workspace.")
+            place.agents.discard(agent)
+            return httpx.Response(204)
+        if path == "/contacts" and request.method == "GET":
+            # "in any format a person would type it" (contacts/list-contacts.md:7).
+            digits = "".join(ch for ch in request.url.params.get("phone", "") if ch.isdigit())
+            items = [
+                {"id": cid, "phone": phone}
+                for cid, phone in self.ws(workspace).contacts.items()
+                if phone == digits
+            ]
+            return httpx.Response(200, json={"items": items, "nextCursor": None})
+        if path.startswith("/contacts/") and request.method == "DELETE":
+            if self.ws(workspace).contacts.pop(path.split("/")[2], None) is None:
+                return _err(404, "not_found", "Contact not found.")
             return httpx.Response(204)
         return _err(404, "not_found")
 

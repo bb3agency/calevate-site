@@ -161,6 +161,7 @@ from apps.workers.engine_signals import (
     ingest_engine_opt_out,
     ingest_engine_problem,
 )
+from apps.workers.engine_tenant_erasure import erase_tenant_at_engine
 from apps.workers.engine_webhooks import WEBHOOK_SWEEP_MINUTES, reconcile_engine_webhooks
 from apps.workers.engine_workspace_events import ingest_engine_workspace_event
 from apps.workers.engine_workspaces import (
@@ -422,6 +423,9 @@ FUNCTIONS: list[Any] = [
         erase_engine_contact,
         # Calls' content deleted at the voice platform: retention and erasure (D-798).
         delete_engine_call_content,
+        # An erased account's agents, contacts and own workspace deleted at the voice
+        # platform (D-922), from the outbox and the nightly retention backstop.
+        erase_tenant_at_engine,
         # A client workspace's call retention, from its policy (D-798).
         sync_engine_retention,
         # Each client's own voice platform workspace (D-693): made, its business details

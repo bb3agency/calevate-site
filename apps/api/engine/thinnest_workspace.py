@@ -34,7 +34,9 @@ Three classes of route, enforced here rather than at each call site:
 * TENANT-ONLY — writes that must never land in the developer workspace, which holds every
   legacy client's data: creating an agent, renting a number, sending business details,
   adding to the do-not-call list, finding or erasing a contact. Without a customer workspace
-  they are refused here, before anything is sent.
+  they are refused here, before anything is sent. Two scoped exceptions: a free trial's agent
+  create (`trial_agent_in_developer_workspace`, D-697) and a tenant erasure's contact lookup
+  and erasure (`tenant_erasure_in_developer_workspace`, D-922).
 * everything else follows the object: a customer workspace's header, or none for an object
   that lives in the developer workspace.
 """
@@ -122,6 +124,26 @@ def trial_agent_allowed() -> bool:
     return _TRIAL_AGENT.get()
 
 
+#: The contact lookup and erasure a TENANT ERASURE may make in the developer workspace
+#: (D-922): finding and erasing the contacts one erased account's own calls created there.
+#: Set only by `workers/engine_tenant_erasure`, around numbers it has checked no other
+#: client's call in that workspace reached; everywhere else these routes stay tenant-only.
+_ERASURE_CONTACT_ROUTES: Final[frozenset[tuple[str, str]]] = frozenset(
+    {("GET", "/contacts"), ("DELETE", "/contacts/{id}")}
+)
+_ERASURE_CONTACTS: ContextVar[bool] = ContextVar("thinnest_erasure_contacts", default=False)
+
+
+@contextmanager
+def tenant_erasure_in_developer_workspace() -> Iterator[None]:
+    """Let the enclosed contact lookups and erasures act in the developer workspace."""
+    token = _ERASURE_CONTACTS.set(True)
+    try:
+        yield
+    finally:
+        _ERASURE_CONTACTS.reset(token)
+
+
 #: Our developer workspace's id as read from `GET /workspace` by this process
 #: (`remember_developer_workspace`); `Settings.thinnest_developer_workspace_id` covers a
 #: process that has not read it.
@@ -204,7 +226,8 @@ def workspace_headers(method: str, route: str, workspace: str | None) -> dict[st
         return {}
     customer = is_customer_workspace(workspace) and not is_developer_workspace(workspace)
     trial_create = workspace is None and key in _TRIAL_AGENT_ROUTES and _TRIAL_AGENT.get()
-    if key in TENANT_ONLY_ROUTES and not customer and not trial_create:
+    erasure = workspace is None and key in _ERASURE_CONTACT_ROUTES and _ERASURE_CONTACTS.get()
+    if key in TENANT_ONLY_ROUTES and not customer and not trial_create and not erasure:
         raise workspace_not_provisioned()
     if workspace is None:
         return {}
@@ -223,6 +246,7 @@ __all__ = [
     "in_workspace",
     "is_developer_workspace",
     "remember_developer_workspace",
+    "tenant_erasure_in_developer_workspace",
     "trial_agent_allowed",
     "trial_agent_in_developer_workspace",
     "workspace_headers",

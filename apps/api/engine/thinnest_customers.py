@@ -34,7 +34,12 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 from apps.api.engine.capabilities import NO_CREDENTIALS_REASON, engine_not_configured
 from apps.api.engine.thinnest import AUTH_HEADER, AUTH_SCHEME, BASE_URL, IDEMPOTENCY_HEADER
-from apps.api.engine.thinnest_workspace import remember_developer_workspace, workspace_headers
+from apps.api.engine.thinnest_workspace import (
+    WorkspaceScopeError,
+    is_developer_workspace,
+    remember_developer_workspace,
+    workspace_headers,
+)
 from apps.api.engine.vendor_http import REQUEST_TIMEOUT_S, vendor_request
 
 ENGINE: Final = "thinnest"
@@ -224,7 +229,10 @@ class ThinnestCustomers:
 
     async def delete(self, workspace_id: str) -> None:
         """Delete the customer; erased by the vendor 30 days later unless restored. 409 while
-        it holds a rented number. Absent is success."""
+        it holds a rented number. Absent is success. Our developer workspace is refused
+        before anything is sent: it holds every trial account's agents and callers."""
+        if is_developer_workspace(workspace_id):
+            raise WorkspaceScopeError("our developer workspace is never deleted")
         await self._request(
             "DELETE",
             f"/customers/{workspace_id}",
