@@ -151,6 +151,13 @@ describe("Office files become text on this device", () => {
     expect(prepared.blob.type).toBe("text/plain");
     expect(await prepared.blob.text()).toBe("Price list\nTea\t20");
   });
+
+  it("sends a Markdown file as plain text", async () => {
+    const prepared = await prepareFile(new File(["# Guide\n- Tea → 20"], "guide.md"));
+    expect(prepared.kind).toBe("document");
+    expect(prepared.blob.type).toBe("text/plain");
+    expect(await prepared.blob.text()).toBe("# Guide\n- Tea → 20");
+  });
 });
 
 // --- the panel -------------------------------------------------------------------------

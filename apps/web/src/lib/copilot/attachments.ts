@@ -51,6 +51,7 @@ const SOURCES: Record<string, Source> = {
   heic: "image",
   heif: "image",
   txt: "text",
+  md: "text",
   csv: "csv",
   docx: "docx",
   xlsx: "xlsx",
@@ -61,7 +62,7 @@ const SOURCES: Record<string, Source> = {
 /** What the file picker offers. Explicit types rather than `image/*`: Safari on iOS then
  *  hands a HEIC photo over as JPEG (WebKit bug 267277). */
 export const ACCEPT =
-  "image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp,.heic,.heif,.txt,.csv,.docx,.xlsx,.pptx," +
+  "image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp,.heic,.heif,.txt,.md,.csv,.docx,.xlsx,.pptx," +
   ".pdf,text/plain,text/csv,application/pdf";
 
 /** What the transcript keeps instead of the files. Mirrors
@@ -177,7 +178,7 @@ export function refusalFor(file: File): string | null {
     return `${file.name} is an older Office file. Save it as .docx, .xlsx or .pptx and attach that.`;
   }
   if (lookup(SOURCES, ext) === undefined) {
-    return `${file.name} can't be attached. ${ASSISTANT_NAME} reads pictures, PDFs, text and CSV files, and Word, Excel and PowerPoint files.`;
+    return `${file.name} can't be attached. ${ASSISTANT_NAME} reads pictures, PDFs, text, Markdown and CSV files, and Word, Excel and PowerPoint files.`;
   }
   if (ext === "pdf" && file.size > MAX_PDF_BYTES) return `${file.name} is larger than 14 MB, the most a PDF can be.`;
   if (file.size > MAX_FILE_BYTES) return `${file.name} is larger than 20 MB.`;

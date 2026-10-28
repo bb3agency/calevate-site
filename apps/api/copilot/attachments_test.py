@@ -71,6 +71,7 @@ def test_the_allow_list_refuses_with_a_code_a_person_can_act_on(
 def test_what_the_browser_produces_is_what_is_allowed() -> None:
     assert attachments.stored_type_for("IMG_0001.HEIC", "image/jpeg") == "image/jpeg"
     assert attachments.stored_type_for("menu.docx", "text/plain") == "text/plain"
+    assert attachments.stored_type_for("Guide.md", "text/plain") == "text/plain"
     assert attachments.stored_type_for("leads.csv", "text/csv; charset=utf-8") == "text/csv"
 
 

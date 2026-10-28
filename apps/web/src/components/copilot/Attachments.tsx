@@ -360,11 +360,15 @@ export function AttachmentTray({
   return (
     <div className="mb-2 space-y-1.5">
       {items.length > 0 && (
-        <ul aria-label="Attached files" className="flex flex-wrap gap-2">
+        // One row that scrolls sideways, so several files never push the question box down.
+        <ul
+          aria-label="Attached files"
+          className="flex snap-x gap-2 overflow-x-auto overscroll-x-contain pb-1"
+        >
           {items.map((item) => (
             <li
               key={item.key}
-              className={`flex max-w-full items-center gap-2 rounded-md border py-1 pl-1 pr-1 text-meta ${
+              className={`flex max-w-[85%] shrink-0 snap-start items-center gap-2 rounded-md border py-1 pl-1 pr-1 text-meta ${
                 item.status === "failed" ? "border-chart-danger" : "border-line"
               }`}
             >

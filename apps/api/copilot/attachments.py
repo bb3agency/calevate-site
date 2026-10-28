@@ -109,6 +109,7 @@ ALLOWED: Final[dict[str, StoredType]] = {
     "heic": "image/jpeg",
     "heif": "image/jpeg",
     "txt": "text/plain",
+    "md": "text/plain",
     "csv": "text/csv",
     "docx": "text/plain",
     "xlsx": "text/plain",
@@ -255,8 +256,8 @@ def stored_type_for(file_name: str, declared: str) -> StoredType:
     if expected is None:
         raise _refusal(
             "copilot_file_type",
-            f"{ASSISTANT_NAME} can read pictures (JPG, PNG, WebP, HEIC), text and CSV files, "
-            "and Word, Excel and PowerPoint files.",
+            f"{ASSISTANT_NAME} can read pictures (JPG, PNG, WebP, HEIC), text, Markdown and CSV "
+            "files, and Word, Excel and PowerPoint files.",
             "Attach one of those, or take a screenshot of what you want to ask about.",
         )
     if declared.split(";", 1)[0].strip().lower() != expected:
