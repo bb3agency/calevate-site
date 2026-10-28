@@ -107,6 +107,15 @@ export function progressOf(
 }
 
 /**
+ * Whether the earlier runs say anything the headline does not: some run scored a different
+ * share than another. Identical full bars ("4 of 4", then "3 of 3") carry no information.
+ */
+export function progressMoved(points: readonly RunPoint[]): boolean {
+  const shares = points.filter((p) => p.judged > 0).map((p) => p.passed / p.judged);
+  return shares.length >= 2 && shares.some((share) => share !== shares[0]);
+}
+
+/**
  * The one next step at the top of a finished run, most urgent first: undo a change that
  * broke a test, review fixes already waiting, test a script that changed since, ask Pip to
  * fix what the script or knowledge owns, change a setting, or nothing beyond "Test again".
@@ -307,8 +316,10 @@ export interface Headline {
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 /**
- * The one sentence at the top of a finished run. A "Test again" leads with what changed on
- * the same tests; a new set leads with the score.
+ * The one sentence at the top of a finished run, and at most one line under it. A "Test
+ * again" that moved something leads with what moved; one that moved nothing leads with the
+ * score, as a new set does, and says "no change" once underneath. A "No change" headline over
+ * a line restating the score said the same thing twice.
  */
 export function headlineOf(run: Pick<TestRun, "comparison" | "results" | "created_at">): Headline {
   const counts = countsOf(run.results);
@@ -319,19 +330,17 @@ export function headlineOf(run: Pick<TestRun, "comparison" | "results" | "create
       compared.broken > 0 ? `${compared.broken} newly broken` : null,
     ].filter((part): part is string => part !== null);
     const same = compared.same_script ? " The script was the same in both runs." : "";
-    if (moved.length === 0) {
-      return {
-        title: "No change since the last test.",
-        detail: `Same tests as before. ${plural(counts.passed, "test is", "tests are")} right every time, as before.${same}`,
-        tone: counts.failing > 0 ? "warn" : "ok",
-      };
-    }
+    if (moved.length === 0) return { ...scoreHeadline(counts), detail: `No change since the last test.${same}` };
     return {
       title: `${moved.join(", ")} since the last test.`,
-      detail: `Same tests as before. ${counts.passed} of ${counts.passed + counts.failing} now right every time.${same}`,
+      detail: `Now right every time on ${counts.passed} of ${counts.passed + counts.failing}.${same}`,
       tone: compared.broken > 0 ? "stop" : "ok",
     };
   }
+  return scoreHeadline(counts);
+}
+
+function scoreHeadline(counts: RunCounts): Headline {
   const scored = counts.passed + counts.failing;
   if (scored === 0) {
     if (counts.works > 0) {
@@ -362,11 +371,13 @@ export function headlineOf(run: Pick<TestRun, "comparison" | "results" | "create
   };
 }
 
-/** The line under the headline that says which tests these are and when they ran. */
-export function setLine(run: Pick<TestRun, "set_version" | "trials" | "created_at" | "prompt_version">): string {
-  const tries = run.trials && run.trials > 1 ? `, each tried ${run.trials} times` : "";
-  const version = run.prompt_version ? ` on script version ${run.prompt_version}` : "";
-  return `Ran ${formatIST(run.created_at)}${version}${tries}.`;
+/** When the run was and what it ran on, as short facts the screen sets on one quiet line. */
+export function setLine(run: Pick<TestRun, "set_version" | "trials" | "created_at" | "prompt_version">): string[] {
+  return [
+    `Ran ${formatIST(run.created_at)}`,
+    run.prompt_version ? `script version ${run.prompt_version}` : null,
+    run.trials && run.trials > 1 ? `${run.trials} tries per test` : null,
+  ].filter((part): part is string => part !== null);
 }
 
 /**

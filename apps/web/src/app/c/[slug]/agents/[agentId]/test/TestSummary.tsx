@@ -11,6 +11,7 @@
  */
 
 import Link from "next/link";
+import { CircleAlert, CircleCheck, CircleMinus, CircleX, type LucideIcon } from "lucide-react";
 
 import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
 import { InfoTip } from "@/components/console/infoTip";
@@ -26,6 +27,7 @@ import {
   fixGroups,
   headlineOf,
   nextStepOf,
+  progressMoved,
   progressOf,
   scoreOf,
   setLine,
@@ -36,11 +38,19 @@ import {
 } from "./testCopy";
 import type { ResultLinks } from "./TestResults";
 
-const HEADLINE_DOT: Record<Headline["tone"], string> = {
-  ok: "bg-brand-strong",
-  warn: "bg-warn",
-  stop: "bg-danger",
-  neutral: "bg-ink-faint",
+/** The headline's status mark: a shape per tone as well as a colour, so colour is never the only cue. */
+const HEADLINE_MARK: Record<Headline["tone"], LucideIcon> = {
+  ok: CircleCheck,
+  warn: CircleAlert,
+  stop: CircleX,
+  neutral: CircleMinus,
+};
+
+const HEADLINE_INK: Record<Headline["tone"], string> = {
+  ok: "text-brand-strong",
+  warn: "text-warn",
+  stop: "text-danger",
+  neutral: "text-ink-faint",
 };
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
@@ -186,30 +196,37 @@ export function Stopped({
   );
 }
 
-/** How the agent is doing on the latest finished run. */
+/**
+ * How the agent is doing on the latest finished run: the headline with its status mark, at
+ * most one line under it, then a quiet line of when and on what. The score bar and the
+ * earlier runs appear only when they say something the headline does not.
+ */
 export function Standing({ run, data }: { run: TestRun; data: TestConversations }) {
   const headline = headlineOf(run);
   const counts = countsOf(run.results);
   const points = progressOf(data.history, run);
+  const Mark = HEADLINE_MARK[headline.tone];
   return (
     <section aria-labelledby="tests-summary-heading" className="space-y-4">
-      <div className="space-y-1">
-        <div className="flex items-start gap-2.5">
-          <span aria-hidden className={`mt-2 h-2 w-2 shrink-0 rounded-full ${HEADLINE_DOT[headline.tone]}`} />
-          <h4 id="tests-summary-heading" className="min-w-0 text-heading text-ink [text-wrap:pretty]">
-            {headline.title}
-          </h4>
-          <HowItWorks data={data} />
+      <div className="flex items-start gap-3">
+        <Mark aria-hidden className={`mt-0.5 size-5 shrink-0 ${HEADLINE_INK[headline.tone]}`} strokeWidth={2.25} />
+        <div className="min-w-0 flex-1 space-y-1">
+          <div className="flex items-start gap-1.5">
+            <h4 id="tests-summary-heading" className="min-w-0 text-heading text-ink [text-wrap:pretty]">
+              {headline.title}
+            </h4>
+            <HowItWorks data={data} />
+          </div>
+          {headline.detail && <p className="text-body text-ink-muted [text-wrap:pretty]">{headline.detail}</p>}
+          {/* When the run was and on what, as facts rather than a sentence; the run's own
+              note (where these tests came from) follows as one line of its own. */}
+          {/* A no-break space before each dot keeps it on the line it closes when a phone wraps. */}
+          <p className="text-meta text-ink-muted">{setLine(run).join(" · ")}</p>
+          {run.note && <p className="max-w-prose text-meta text-ink-muted">{run.note}</p>}
         </div>
-        {headline.detail && <p className="pl-[18px] text-body text-ink">{headline.detail}</p>}
-        {/* Which tests these are: when they ran, and (in the run's own words) where they came from. */}
-        <p className="pl-[18px] text-meta text-ink-muted">
-          {setLine(run)}
-          {run.note ? ` ${run.note}` : ""}
-        </p>
       </div>
       <ScoreStrip counts={counts} />
-      {points && <RunProgress points={points} />}
+      {points && progressMoved(points) && <RunProgress points={points} />}
     </section>
   );
 }
@@ -224,6 +241,9 @@ const SCORE_PARTS = [
  * The owner's score as one bar: right every time, right sometimes, not right. Each test is
  * one equal segment, so a short set reads as countable blocks rather than a percentage; the
  * legend under it names each colour with its count, so colour is never the only cue.
+ *
+ * Drawn only for a MIX: a bar of one colour restates the headline at full width and carries
+ * nothing, so an all-right run has none.
  */
 function ScoreStrip({ counts }: { counts: RunCounts }) {
   const sizes = {
@@ -232,10 +252,10 @@ function ScoreStrip({ counts }: { counts: RunCounts }) {
     notRight: counts.failing - counts.unreliable,
   };
   const segments = SCORE_PARTS.flatMap((part) => Array.from({ length: sizes[part.key] }, () => part.tone));
-  if (segments.length === 0) return null;
+  if (SCORE_PARTS.filter((part) => sizes[part.key] > 0).length < 2) return null;
   return (
-    <div className="space-y-2 pl-[18px]">
-      <div aria-hidden className="flex h-2.5 gap-0.5 overflow-hidden rounded-full">
+    <div className="space-y-2 sm:pl-8">
+      <div aria-hidden className="flex h-2 max-w-md gap-0.5 overflow-hidden rounded-full">
         {segments.map((tone, index) => (
           <span key={index} className={`h-full flex-1 ${tone}`} />
         ))}
@@ -255,28 +275,32 @@ function ScoreStrip({ counts }: { counts: RunCounts }) {
 }
 
 /**
- * The same tests on earlier runs, oldest first, so progress reads down the list. A run that
- * scored nothing of the owner's (every test a rule we keep, or ours) has no bar to draw and
- * is left out rather than shown as "0 of 0".
+ * The same tests on earlier runs, oldest first, so progress reads down the list. Shown only
+ * when the share right moved between runs (`progressMoved`). The bars are short and of one
+ * fixed length, so they compare against each other rather than stretch across the card. A
+ * run that scored nothing of the owner's (every test a rule we keep, or ours) has no bar to
+ * draw and is left out rather than shown as "0 of 0".
  */
 function RunProgress({ points: all }: { points: RunPoint[] }) {
   const points = all.filter((point) => point.judged > 0);
   if (points.length < 2) return null;
   return (
-    <div className="space-y-1.5 pl-[18px]">
-      <p className="text-meta font-medium text-ink">These tests over time</p>
+    <div className="space-y-1.5 sm:pl-8">
+      <p className="text-meta font-medium text-ink-muted">These tests over time</p>
       <ol className="space-y-1" aria-label="These tests over time">
         {points.map((point) => {
-          const share = point.judged > 0 ? Math.round((point.passed / point.judged) * 100) : 0;
+          const share = Math.round((point.passed / point.judged) * 100);
+          const ink = point.latest ? "font-medium text-ink" : "text-ink-muted";
           return (
-            <li key={point.id} className="grid grid-cols-[minmax(0,7.5rem)_1fr_auto] items-center gap-3 text-meta">
-              <span className={point.latest ? "font-medium text-ink" : "text-ink-muted"}>
-                {point.latest ? "This test" : formatIST(point.created_at)}
-              </span>
+            <li key={point.id} className="grid grid-cols-[8.5rem_6rem_auto] items-center gap-3 text-meta">
+              <span className={ink}>{point.latest ? "This run" : formatIST(point.created_at)}</span>
               <span aria-hidden className="h-1.5 overflow-hidden rounded-full bg-ink/[0.08]">
-                <span className="block h-full rounded-full bg-brand-strong" style={{ width: `${share}%` }} />
+                <span
+                  className={`block h-full rounded-full ${point.latest ? "bg-brand-strong" : "bg-ink-faint"}`}
+                  style={{ width: `${share}%` }}
+                />
               </span>
-              <span className={`tabular-nums ${point.latest ? "font-medium text-ink" : "text-ink-muted"}`}>
+              <span className={`tabular-nums ${ink}`}>
                 {point.passed} of {point.judged}
               </span>
             </li>
@@ -341,8 +365,11 @@ export function NextStepBlock(props: NextStepProps) {
   const earlierFixes = stopNote !== null && props.hasProposal;
 
   return (
-    <section aria-labelledby="tests-next-heading" className="space-y-3 border-t border-line pt-5">
-      <h4 id="tests-next-heading" className="text-heading text-ink">
+    // Part of the same answer as the headline above it, so it follows it in the column the
+    // headline's text starts in, with no rule or heading of its own between them: a second
+    // heading here split one verdict into two sections. The heading stays for screen readers.
+    <section aria-labelledby="tests-next-heading" className="space-y-3 sm:pl-8">
+      <h4 id="tests-next-heading" className="sr-only">
         What to do next
       </h4>
       {improving ? (
@@ -350,7 +377,9 @@ export function NextStepBlock(props: NextStepProps) {
       ) : (
         <>
           <div className="space-y-1">
-            <p className="max-w-prose text-body text-ink [text-wrap:pretty]">
+            <p
+              className={`max-w-prose text-body [text-wrap:pretty] ${step === "done" || step === "hold" ? "text-ink-muted" : "font-medium text-ink"}`}
+            >
               {sentenceOf(step, run, fixable, settings.length, props.showingReview)}
             </p>
             {earlierFixes && (
@@ -485,7 +514,8 @@ function sentenceOf(step: NextStep, run: TestRun, fixable: number, settings: num
     case "hold":
       return "What is left is right most of the time, so the script is best left alone. Test again after your next change.";
     case "done":
-      return "Nothing to fix. Test again after you change the script or teach it something new.";
+      // The headline already says everything was right; this says only when to come back.
+      return "Test again after you change the script or teach it something new.";
   }
 }
 

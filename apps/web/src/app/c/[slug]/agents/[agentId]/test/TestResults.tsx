@@ -73,7 +73,7 @@ export function Results({ run, actions }: { run: TestRun; actions: RowActions })
   const quiet = { ...actions, canFix: false, canMarkWrong: false };
   const note = oursNote(run);
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 border-t border-line pt-6">
       {groups.map(({ group, rows }) => (
         <section key={group} aria-labelledby={`tests-${group}-heading`}>
           <GroupHeading id={`tests-${group}-heading`} title={FIX_GROUP[group].title} n={rows.length} />
@@ -91,7 +91,7 @@ export function Results({ run, actions }: { run: TestRun; actions: RowActions })
         </section>
       )}
       {works.length > 0 && (
-        <Folded title="Right every time" rows={works} actions={quiet} open={groups.length === 0 && read.length === 0} />
+        <Folded title="Right every time" rows={works} actions={quiet} open={false} />
       )}
       {note && (
         <section aria-labelledby="tests-ours-heading" className="space-y-1">

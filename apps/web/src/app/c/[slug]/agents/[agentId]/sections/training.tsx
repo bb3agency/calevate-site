@@ -29,7 +29,7 @@ import { Section, TEXT_ACTION } from "@/components/console/section";
 import { QuestionsToAnswer } from "@/components/improvement/QuestionsToAnswer";
 import { SavedTests } from "@/components/improvement/SavedTests";
 import { TryChat } from "@/components/improvement/TryChat";
-import { Disclosure, ProblemNotice, Skeleton } from "@/components/ui";
+import { DISCLOSURE_LIST, Disclosure, ProblemNotice, Skeleton } from "@/components/ui";
 import type { Agent } from "@/lib/api/agents";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useTestConversations } from "@/lib/api/script";
@@ -121,7 +121,9 @@ function Training({ agent, slug }: { agent: Agent; slug: string }) {
         </div>
       </Section>
 
-      <div className="space-y-3">
+      {/* One list of three folded rows rather than three cards: a fact on each closed row,
+          the chevron beside its title. */}
+      <div className={DISCLOSURE_LIST}>
         <WhatItKnows slug={slug} agentId={agent.id} />
         <SavedTestsSummary agentId={agent.id} canWrite={tryAccess.allowed} />
         <PracticeCallers agent={agent} slug={slug} />
@@ -188,7 +190,7 @@ function WhatItKnows({ slug, agentId }: { slug: string; agentId: string }) {
   }
 
   return (
-    <Disclosure variant="card" headingLevel={3} title="What it knows" subtitle={line}>
+    <Disclosure variant="row" headingLevel={3} title="What it knows" subtitle={line}>
       <div className="space-y-6">
         {body}
         {/* The shared facts above, then which of them this agent answers at once (D-896). */}
@@ -218,7 +220,7 @@ function SavedTestsSummary({ agentId, canWrite }: { agentId: string; canWrite: b
         : `${countLine(all.length, "saved test", "saved tests")}${running ? ", running now" : ""}.`;
   }
   return (
-    <Disclosure variant="card" headingLevel={3} title="Saved tests" subtitle={line}>
+    <Disclosure variant="row" headingLevel={3} title="Saved tests" subtitle={line}>
       <SavedTests agentId={agentId} canWrite={canWrite} headingLevel={3} framed={false} />
     </Disclosure>
   );
@@ -255,7 +257,7 @@ function PracticeCallers({ agent, slug }: { agent: Agent; slug: string }) {
     // The id is where Pip's hand-off after "Suggest fixes" lands (`copilot/handoff.ts`).
     <div id={PRACTICE_CALLERS_ANCHOR} className="scroll-mt-4">
       <Disclosure
-        variant="card"
+        variant="row"
         headingLevel={3}
         title="Practice callers"
         subtitle={fact}
