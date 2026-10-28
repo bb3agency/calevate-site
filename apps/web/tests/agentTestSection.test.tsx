@@ -437,7 +437,7 @@ describe("the practice tests in Training", () => {
         { history: [entry("run-2", 2, 2), entry("run-1", 3, 3)] },
       ),
     );
-    expect(await screen.findByRole("heading", { name: "Right every time on all 2 of your tests." })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Right every time on all 2 tests." })).toBeTruthy();
     expect(screen.getByText("No change since the last test.")).toBeTruthy();
     expect(screen.queryByText(/as before/)).toBeNull();
     // A bar of one colour and two identical full bars said nothing the headline does not.
@@ -502,7 +502,11 @@ describe("test copy", () => {
 
   it("leads with the change on the same tests, or the score on a new set", () => {
     expect(headlineOf(run()).title).toBe("Right every time on 1 of your 2 tests.");
-    expect(headlineOf(run({ results: [HOURS] })).title).toBe("Right every time on your one test.");
+    expect(headlineOf(run({ results: [HOURS] })).title).toBe("Right every time on its one test.");
+    // A passing rule check is not scored but is in the "Right every time" list, so the
+    // all-right headline counts it too and the two numbers match.
+    const check = { ...HOURS, key: "rule-check", probe: "partial_number", counted: false };
+    expect(headlineOf(run({ results: [HOURS, check] })).title).toBe("Right every time on all 2 tests.");
     const same = run({ comparison: { with_run: "a", with_version: 12, fixed: 0, broken: 0, still: 1, same: 1, new: 0, same_script: true } });
     // Nothing moved: the score leads and "no change" is said once, underneath.
     expect(headlineOf(same).title).toBe("Right every time on 1 of your 2 tests.");

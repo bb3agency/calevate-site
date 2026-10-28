@@ -357,8 +357,10 @@ function scoreHeadline(counts: RunCounts): Headline {
     };
   }
   if (counts.failing === 0) {
+    // Every right test, rule checks included, so the number matches the "Right every time"
+    // list under it rather than the scored count.
     return {
-      title: scored === 1 ? "Right every time on your one test." : `Right every time on all ${scored} of your tests.`,
+      title: counts.works === 1 ? "Right every time on its one test." : `Right every time on all ${counts.works} tests.`,
       detail: null,
       tone: "ok",
     };
