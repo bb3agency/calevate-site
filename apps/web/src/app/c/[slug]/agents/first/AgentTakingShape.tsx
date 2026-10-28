@@ -154,7 +154,7 @@ export function AgentTakingShape({
 }
 
 /** The first letter of the agent's name in a circle, or a dotted ring before it has one. */
-function Monogram({ name }: { name: string | null }) {
+export function Monogram({ name }: { name: string | null }) {
   const initial = name ? Array.from(name.trim())[0]?.toUpperCase() : undefined;
   return (
     <span
@@ -219,7 +219,7 @@ function Example({ children }: { children: ReactNode }) {
   );
 }
 
-function VoiceLine({ agent, note }: { agent: Agent | null; note: string | null }) {
+export function VoiceLine({ agent, note }: { agent: Agent | null; note: string | null }) {
   const session = useClientSession();
   const { href } = useClientRealm();
   const catalogue = useEngineCatalogue(session);

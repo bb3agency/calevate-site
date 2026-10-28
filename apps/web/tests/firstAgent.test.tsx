@@ -9,6 +9,7 @@ import { metaOf, rowStateOf } from "@/app/c/[slug]/agents/first/BuildStep";
 import { JobStep } from "@/app/c/[slug]/agents/first/JobStep";
 import { callPhaseOf, isLimitRule } from "@/app/c/[slug]/agents/first/HearItStep";
 import { hoursSummary } from "@/app/c/[slug]/agents/first/QuestionsStep";
+import { goLiveSteps } from "@/app/c/[slug]/agents/first/ResultStep";
 import { recordingMimeType } from "@/components/voiceButton";
 import type { Agent } from "@/lib/api/agents";
 import type { FirstRun, FirstRunQuestion } from "@/lib/api/firstRun";
@@ -562,6 +563,37 @@ describe("meet your agent", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("textbox", { name: "Opening line" })).toBeNull();
     expect(screen.getAllByText("“Namaskaram, Madhav Homes. Meeku ela help cheyagalanu?”").length).toBeGreaterThan(0);
+  });
+
+  it("on the team step, Go live is the next step with its current step's button, from the go-live guide", async () => {
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/first-run": built({ jobs: ["answer_calls", "call_new_leads"], finished_at: "2026-10-23T05:00:00Z" }),
+        "/v1/agents": [agent()],
+        [`/v1/calls?agent_id=${AGENT_ID}&limit=1`]: [],
+        "/v1/trial": TRIAL,
+        "/v1/go-live": { due: false, owed_at: null, finished_at: null, dismissed_at: null, current: "move", move: { state: "done", total: 0, agents: [] }, verify: "todo", number: "locked", numbers: 0, switch_on: "todo", live_agents: 0 },
+      }),
+    );
+    expect(await screen.findByRole("heading", { name: "Anjali is on your team" })).toBeTruthy();
+    const card = await screen.findByRole("region", { name: "Go live" });
+    expect(within(card).getByRole("button", { name: "Add credit" })).toBeTruthy();
+    expect(within(card).getByText("Verify your business")).toBeTruthy();
+    expect(within(card).getAllByRole("button")).toHaveLength(1);
+    expect(within(card).getByText("Until then, Anjali only makes test calls to you.")).toBeTruthy();
+    const leads = screen.getByRole("region", { name: "Connect your lead form" });
+    expect(within(leads).getByRole("link", { name: "Connect" }).getAttribute("href")).toBe("/c/acme/lead-sources");
+    // The agent's real opening line, editable here too.
+    expect(screen.getByRole("button", { name: "Edit" })).toBeTruthy();
+  });
+
+  it("puts the go-live steps in order, the first not done current, a review said as such", () => {
+    expect(goLiveSteps(undefined).map((step) => step.state)).toEqual(["current", "waiting", "waiting"]);
+    const paid = { owed_at: "2026-10-27T10:00:00Z", verify: "in_review" as const, number: "locked" as const };
+    expect(goLiveSteps(paid).map((step) => step.state)).toEqual(["done", "in_review", "waiting"]);
+    const verified = { owed_at: "2026-10-27T10:00:00Z", verify: "done" as const, number: "todo" as const };
+    expect(goLiveSteps(verified).map((step) => step.state)).toEqual(["done", "done", "current"]);
   });
 
   it("shows the build's real steps ticked, then the agent by name", async () => {

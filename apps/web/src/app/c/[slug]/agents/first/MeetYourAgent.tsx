@@ -245,7 +245,9 @@ export function MeetYourAgent({ slug }: { slug: string }) {
           after) the card only restates steps 1 and 2 and competes with the call being read,
           so the step stands alone. The rail sits above both, so the step is not squeezed. */}
       {stage === "result" || stage === "team" ? (
-        <section className="min-w-0 max-w-2xl" aria-label="This step">
+        // The team step is two columns from `lg` (the agent, then what is next), so it takes
+        // the width the call read-back does not need.
+        <section className={`min-w-0 ${stage === "team" ? "max-w-5xl" : "max-w-2xl"}`} aria-label="This step">
           {body}
         </section>
       ) : (

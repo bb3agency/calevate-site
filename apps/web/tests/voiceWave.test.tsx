@@ -158,6 +158,44 @@ describe("<VoiceWave />", () => {
     expect(raf).not.toHaveBeenCalled();
   });
 
+  it("contained, fills its parent instead of the viewport, and stops when it scrolls out of view", () => {
+    const observed: Element[] = [];
+    let report: (entries: { isIntersecting: boolean }[]) => void = () => {};
+    class Observer {
+      constructor(callback: (entries: { isIntersecting: boolean }[]) => void) {
+        report = callback;
+      }
+      observe(element: Element) {
+        observed.push(element);
+      }
+      disconnect() {}
+    }
+    vi.stubGlobal("IntersectionObserver", Observer);
+    const drawn = stubCanvas(320, 96);
+    const { container, unmount } = render(<VoiceWave contained />);
+    const canvas = container.querySelector("canvas");
+    expect(canvas?.className).toContain("absolute");
+    expect(canvas?.className).not.toContain("fixed");
+    expect(canvas?.className).not.toContain("voice-field");
+    expect(canvas?.getAttribute("aria-hidden")).toBe("true");
+    expect(observed).toEqual([canvas]);
+    // Reduced motion (tests/setup.ts): the one still frame, sized to the parent.
+    const { lines, centres } = voiceField(53, 9, STILL_TIME);
+    expect(drawn.at(-1)).toEqual(inkLayers(lines, centres).flat());
+    report([{ isIntersecting: false }]);
+    unmount();
+    vi.unstubAllGlobals();
+  });
+
+  it("full-screen, watches nothing: the fixed field is always in view", () => {
+    const observe = vi.fn();
+    vi.stubGlobal("IntersectionObserver", class { observe = observe; disconnect() {} });
+    stubCanvas(375, 812);
+    render(<VoiceWave />);
+    expect(observe).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
   it("is behind the public doors and not behind a signed-in settings page", () => {
     const door = render(
       <AuthPageFrame realmLabel="Client console">

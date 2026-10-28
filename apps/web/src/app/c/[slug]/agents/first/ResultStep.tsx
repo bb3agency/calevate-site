@@ -6,7 +6,8 @@ import { useRef, useState } from "react";
 import { ArrowRight, Check, FileText, Link2, PencilLine, PhoneCall } from "lucide-react";
 
 import type { CallAudioPlayerHandle } from "@/components/callAudioPlayer";
-import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { ActionButton, useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
+import { VoiceWave } from "@/components/illustration/voiceWave";
 import { TEXT_ACTION } from "@/components/console/section";
 import {
   Disclosure,
@@ -21,17 +22,20 @@ import type { Agent } from "@/lib/api/agents";
 import type { CallSummary } from "@/lib/api/client";
 import type { FirstRun } from "@/lib/api/firstRun";
 import { useFinishFirstRun } from "@/lib/api/firstRun";
+import { useGoLive, type GoLive } from "@/lib/api/goLive";
 import { useCall } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
 import { useTrialPanel } from "@/lib/api/trialCalls";
-import { callsLeft, jobsTitle } from "@/lib/firstAgent";
+import { callsLeft, jobOf, jobsTitle } from "@/lib/firstAgent";
 import { lookup } from "@/lib/lookup";
 
 import { CapturedDetails } from "../../calls/[callId]/CapturedDetails";
 import { RecordingCard } from "../../calls/[callId]/RecordingCard";
 import { useRecordingLink } from "../../calls/[callId]/transcriptAccess";
 import { TestCallTranscript } from "../../TestCallTranscript";
+import { Monogram, VoiceLine } from "./AgentTakingShape";
 import { CallStage } from "./LiveStage";
+import { OpeningLine } from "./OpeningLine";
 import { StepScreen } from "./shell";
 import { FIRST } from "../../setup/_ui/copy";
 import { Why } from "@/components/why";
@@ -224,93 +228,77 @@ export function TeamStep({ agent, run, onBack }: { agent: Agent; run: FirstRun; 
   const router = useRouter();
   const trial = panel.data;
   const left = trial?.on_trial ? callsLeft(trial.minutes_left, trial.max_call_seconds) : null;
-  const done = [
-    `${jobsTitle(run.jobs) ?? "Its job"}, in your words`,
-    "A voice, a greeting and its AI notice",
-    "Its first call, to you",
-  ];
   const agentHref = href(`/c/${session.orgSlug}/agents/${agent.id}`);
   const finishThen = (to: string) => {
     setPressed(to);
     finish.mutate(null, { onSettled: () => router.push(to) });
   };
-  const creditsHref = href(`/c/${session.orgSlug}/billing?tab=credits`);
   const tourHref = `${agentHref}?tour=1`;
   const homeHref = href(`/c/${session.orgSlug}`);
   const statusOf = (to: string) => (pressed === to ? finishFeedback.status : "idle");
-  const othersHeld = finish.isPending;
+  const held = (to: string) => finish.isPending && pressed !== to;
+  const chips = trial?.on_trial
+    ? [
+        FIRST.trialMinutes(trial.minutes_left ?? 0),
+        left !== null ? FIRST.trialCalls(left) : null,
+        trial.days_remaining !== null && trial.days_remaining !== undefined ? FIRST.trialDays(trial.days_remaining) : null,
+      ].filter((chip): chip is string => chip !== null)
+    : [];
 
   return (
-    <StepScreen
-      title={`${agent.name} is on your team`}
-      hint="Here is what is next."
-      onBack={onBack}
-    >
-      <ul className="space-y-2">
-        {done.map((line) => (
-          <li key={line} className="flex items-center gap-2.5 text-body text-ink">
-            <span
-              aria-hidden
-              className="flex h-5 w-5 items-center justify-center rounded-full bg-brand-strong text-white"
-            >
-              <Check className="h-3 w-3" strokeWidth={3} />
+    <StepScreen title={`${agent.name} is on your team`} hint="Ready for its first real callers." onBack={onBack}>
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start lg:gap-6">
+        <section aria-label={`${agent.name}, ready`} className="rounded-card border border-line bg-surface p-4 shadow-card sm:p-5">
+          <div className="flex min-w-0 items-center gap-3">
+            <Monogram name={agent.name} />
+            <div className="min-w-0 flex-1">
+              <p className="break-words text-heading text-ink">{agent.name}</p>
+              <p className="text-meta text-ink-muted">{jobsTitle(run.jobs) ?? jobOf(agent)}</p>
+            </div>
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-brand-soft px-2.5 py-0.5 text-meta font-medium text-brand-strong">
+              <Check aria-hidden className="h-3.5 w-3.5" strokeWidth={3} />
+              Ready
             </span>
-            {line}
-          </li>
-        ))}
-      </ul>
+          </div>
+          <div className="mt-4 space-y-4 border-t border-line pt-4">
+            <VoiceLine agent={agent} note={null} />
+            <OpeningLine agent={agent} lang={agent.language_primary} />
+          </div>
+          {chips.length > 0 ? (
+            <ul className="mt-4 flex flex-wrap gap-2" aria-label="Your free trial">
+              {chips.map((chip) => (
+                <li key={chip} className="rounded-full bg-surface-muted px-3 py-1 text-meta font-medium tabular-nums text-ink">
+                  {chip}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </section>
 
-      {trial?.on_trial ? (
-        // What the trial has left, as chips rather than one long sentence.
-        <ul className="flex flex-wrap gap-2" aria-label="Your free trial">
-          {[
-            FIRST.trialMinutes(trial.minutes_left ?? 0),
-            left !== null ? FIRST.trialCalls(left) : null,
-            trial.days_remaining !== null && trial.days_remaining !== undefined
-              ? FIRST.trialDays(trial.days_remaining)
-              : null,
-          ]
-            .filter((chip): chip is string => chip !== null)
-            .map((chip) => (
-              <li key={chip} className="rounded-full bg-surface-muted px-3 py-1 text-meta font-medium tabular-nums text-ink">
-                {chip}
-              </li>
-            ))}
-        </ul>
-      ) : null}
-
-      {run.jobs.includes("call_new_leads") ? (
-        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-          <p className="text-body text-ink-muted">{FIRST.leadForm}</p>
-          <Link href={href(`/c/${session.orgSlug}/lead-sources`)} className={SECONDARY_BUTTON_SM}>
-            <Link2 aria-hidden className="h-4 w-4" />
-            Connect it later
-          </Link>
+        <div className="space-y-4">
+          <GoLiveCard agentName={agent.name} statusOf={statusOf} held={held} onGo={finishThen} />
+          {run.jobs.includes("call_new_leads") ? (
+            <section aria-label={FIRST.leadForm} className="flex items-start gap-3 rounded-card border border-line p-4">
+              <span aria-hidden className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-brand-soft text-brand-strong">
+                <Link2 className="h-4 w-4" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-body font-medium text-ink">{FIRST.leadForm}</p>
+                <Why>New enquiries reach {agent.name} in minutes, so it can ring them while they care.</Why>
+              </div>
+              <Link href={href(`/c/${session.orgSlug}/lead-sources`)} className={`${SECONDARY_BUTTON_SM} shrink-0`}>
+                Connect
+              </Link>
+            </section>
+          ) : null}
         </div>
-      ) : null}
-
-      <div className="rounded-card border border-line p-4">
-        <h3 className="text-heading text-ink">Go live</h3>
-        <p className="mt-1 text-meta text-ink-muted">
-          Add credit, then verify your business and choose your number. Until then {agent.name} only makes test calls to
-          you.
-        </p>
-        <ActionButton
-          className="mt-3"
-          status={statusOf(creditsHref)}
-          disabled={othersHeld && pressed !== creditsHref}
-          successLabel="Opening"
-          onClick={() => finishThen(creditsHref)}
-        >
-          Add credit
-        </ActionButton>
       </div>
 
-      <div className="flex flex-wrap gap-3">
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-line pt-4">
         <ActionButton
           variant="secondary"
           status={statusOf(tourHref)}
-          disabled={othersHeld && pressed !== tourHref}
+          disabled={held(tourHref)}
           successLabel="Opening"
           onClick={() => finishThen(tourHref)}
         >
@@ -318,16 +306,126 @@ export function TeamStep({ agent, run, onBack }: { agent: Agent; run: FirstRun; 
             Show me around {agent.name}
           </span>
         </ActionButton>
-        <ActionButton
-          variant="secondary"
-          status={statusOf(homeHref)}
-          disabled={othersHeld && pressed !== homeHref}
-          successLabel="Opening"
-          onClick={() => finishThen(homeHref)}
-        >
+        <button type="button" className={TEXT_ACTION} disabled={held(homeHref)} onClick={() => finishThen(homeHref)}>
           Go to my dashboard
-        </ActionButton>
+          <ArrowRight aria-hidden className="h-4 w-4" />
+        </button>
       </div>
     </StepScreen>
+  );
+}
+
+type GoLiveStepId = "credit" | "verify" | "number";
+type StepState = "done" | "current" | "waiting" | "in_review" | "attention";
+
+/** The three steps to real callers, each one short line, from the go-live guide's own state. */
+export function goLiveSteps(
+  guide: Pick<GoLive, "owed_at" | "verify" | "number"> | undefined,
+): { id: GoLiveStepId; label: string; state: StepState }[] {
+  const credit = guide?.owed_at ? "done" : "todo";
+  const verify = guide?.verify ?? "todo";
+  const number = guide?.number ?? "todo";
+  const raw: { id: GoLiveStepId; label: string; done: boolean; note: StepState | null }[] = [
+    { id: "credit", label: "Add credit", done: credit === "done", note: null },
+    {
+      id: "verify",
+      label: "Verify your business",
+      done: verify === "done",
+      note: verify === "in_review" ? "in_review" : verify === "needs_attention" ? "attention" : null,
+    },
+    { id: "number", label: "Choose your number", done: number === "done", note: null },
+  ];
+  const current = raw.findIndex((step) => !step.done);
+  return raw.map((step, index) => ({
+    id: step.id,
+    label: step.label,
+    state: step.done ? "done" : index === current ? (step.note ?? "current") : "waiting",
+  }));
+}
+
+const STEP_NOTE: Partial<Record<StepState, string>> = { in_review: "In review", attention: "Needs you" };
+
+/**
+ * THE GO LIVE CARD (D-918): the screen's one primary next step. Its header band is the
+ * auth pages' ASCII voice field, contained (`VoiceWave contained`), quiet behind nothing:
+ * the steps and the button sit below it on the opaque card, so their contrast is the
+ * card's own. The steps come from `GET /v1/go-live`; the current one carries the button.
+ */
+function GoLiveCard({
+  agentName,
+  statusOf,
+  held,
+  onGo,
+}: {
+  agentName: string;
+  statusOf: (to: string) => FeedbackStatus;
+  held: (to: string) => boolean;
+  onGo: (to: string) => void;
+}) {
+  const { session, href } = useClientRealm();
+  const guide = useGoLive(session);
+  const creditsHref = href(`/c/${session.orgSlug}/billing?tab=credits`);
+  const guideHref = href(`/c/${session.orgSlug}/go-live`);
+  const steps = guide.isError ? goLiveSteps(undefined) : goLiveSteps(guide.data);
+  return (
+    <section aria-labelledby="go-live-title" className="overflow-hidden rounded-card border border-brand/30 bg-surface shadow-card">
+      <div className="relative h-20 overflow-hidden border-b border-line bg-surface-muted sm:h-36">
+        <VoiceWave contained className="opacity-70" />
+        <h3 id="go-live-title" className="absolute bottom-3 left-4 rounded-md bg-surface px-2.5 py-1 text-heading text-ink shadow-card sm:left-5">
+          Go live
+        </h3>
+      </div>
+      <div className="p-4 sm:p-5">
+        {guide.isPending ? (
+          <Skeleton rows={3} label="Checking where you are" />
+        ) : (
+          <ol className="space-y-3">
+            {steps.map((step, index) => (
+              <li key={step.id} className="flex items-center gap-3">
+                <StepMark state={step.state} index={index} />
+                <span className={`min-w-0 flex-1 text-body ${step.state === "waiting" ? "text-ink-muted" : "text-ink"}`}>
+                  {step.label}
+                  {STEP_NOTE[step.state] ? <span className="text-ink-muted"> · {STEP_NOTE[step.state]}</span> : null}
+                </span>
+                {step.state === "current" || step.state === "attention" ? (
+                  <ActionButton
+                    variant="primary-sm"
+                    status={statusOf(step.id === "credit" ? creditsHref : guideHref)}
+                    disabled={held(step.id === "credit" ? creditsHref : guideHref)}
+                    successLabel="Opening"
+                    onClick={() => onGo(step.id === "credit" ? creditsHref : guideHref)}
+                  >
+                    {step.id === "credit" ? "Add credit" : "Continue"}
+                  </ActionButton>
+                ) : null}
+              </li>
+            ))}
+          </ol>
+        )}
+        {guide.isError ? <p className="mt-3 text-meta text-ink-muted">Couldn&apos;t check your progress.</p> : null}
+        <p className="mt-4 text-meta text-ink-muted">Until then, {agentName} only makes test calls to you.</p>
+      </div>
+    </section>
+  );
+}
+
+function StepMark({ state, index }: { state: StepState; index: number }) {
+  if (state === "done")
+    return (
+      <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-brand-strong text-white">
+        <span className="sr-only">Done: </span>
+        <Check aria-hidden className="h-3.5 w-3.5" strokeWidth={3} />
+      </span>
+    );
+  const current = state !== "waiting";
+  return (
+    <span
+      className={`grid h-6 w-6 shrink-0 place-items-center rounded-full border text-[12px] font-medium tabular-nums ${
+        current ? "border-brand-strong text-brand-strong" : "border-line text-ink-faint"
+      }`}
+    >
+      <span className="sr-only">{current ? "Next: " : "Later: "}</span>
+      {index + 1}
+    </span>
   );
 }
