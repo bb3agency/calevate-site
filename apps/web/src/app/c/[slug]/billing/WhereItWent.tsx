@@ -53,7 +53,7 @@ export function WhereItWent({ session }: { session: Session }) {
         <EmptyState
           illustration={<EmptySketch kind="deliveries" />}
           message={period === "month" ? "Nothing has moved on your credit this month" : "Nothing has moved on your credit yet"}
-          hint="Once your agents start taking and making calls, this is where you will see what each part costs."
+          hint="What each part costs will show here."
         />
       ) : (
         <div className="space-y-4">

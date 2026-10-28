@@ -38,7 +38,7 @@ export function StatementsView({ session, allowed }: { session: Session; allowed
 
   if (allowed === false) {
     return (
-      <RestrictionNote reason="Statements are limited to the account owner. Ask them to share this month's statement, or to give you owner access." />
+      <RestrictionNote reason="Only the account owner can see statements." />
     );
   }
 
@@ -106,7 +106,11 @@ export function StatementsView({ session, allowed }: { session: Session; allowed
       ) : !statements.data ? (
         <Skeleton rows={4} label="Loading your statements" />
       ) : rows.length === 0 ? (
-        <EmptyState illustration={<EmptySketch kind="deliveries" />} message="No statements yet. Your first one appears at the end of your first month." />
+        <EmptyState
+          illustration={<EmptySketch kind="deliveries" />}
+          message="No statements yet"
+          hint="Your first one comes after your first month."
+        />
       ) : (
         <>
           <DataTable
@@ -159,7 +163,7 @@ function StatementDrawer({
       open
       onClose={onClose}
       title={`Statement for ${label}`}
-      description="Indian Standard Time. Print it, or save it as a PDF from the print window."
+      description="Print it, or save it as a PDF."
       width="lg"
       initialFocus="container"
       footer={
@@ -173,7 +177,7 @@ function StatementDrawer({
           className={PRIMARY_BUTTON}
         >
           <Printer className="h-4 w-4" aria-hidden />
-          Print
+          Print or save PDF
         </button>
         {printing.failed && <p role="alert" className="text-meta text-danger">{PRINT_FAILED}</p>}
         </div>

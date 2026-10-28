@@ -54,7 +54,7 @@ describe("auto top-up and the payment route it needs", () => {
       "/v1/billing/auto-recharge": SETTINGS,
       "/v1/billing/auto-recharge/charges?limit=20": [],
     });
-    expect(await screen.findByText(/needs online payment, which isn't on for your account yet/)).toBeTruthy();
+    expect(await screen.findByText(/Needs online payment, which isn't on yet/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Approve a payment method/ })).toBeNull();
     expect(screen.queryByRole("switch")).toBeNull();
     expect(container.textContent).not.toContain("UPI Autopay");
@@ -72,7 +72,7 @@ describe("auto top-up and the payment route it needs", () => {
       "/v1/billing/auto-recharge/charges?limit=20": [],
     });
     expect(await screen.findByRole("button", { name: "Withdraw approval" })).toBeTruthy();
-    expect(screen.getByText(/needs online payment/)).toBeTruthy();
+    expect(screen.getByText(/Needs online payment/)).toBeTruthy();
     expect(screen.queryByRole("switch")).toBeNull();
   });
 
@@ -84,7 +84,7 @@ describe("auto top-up and the payment route it needs", () => {
     });
     expect(await screen.findByRole("button", { name: /Approve a payment method/ })).toBeTruthy();
     expect(screen.getByRole("switch", { name: /Top up automatically/ })).toBeTruthy();
-    expect(screen.queryByText(/needs online payment/)).toBeNull();
+    expect(screen.queryByText(/needs online payment/i)).toBeNull();
     // The closed row says what it is set to, and offers to set it up.
     const summary = screen.getByText("Auto top-up").closest("summary");
     expect(summary?.textContent).toContain("Off");

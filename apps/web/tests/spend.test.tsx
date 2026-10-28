@@ -741,7 +741,7 @@ describe("the client's spend screen", () => {
       }),
       "Usage",
     );
-    await screen.findByText(/limited to the account owner/);
+    await screen.findByText("Only the account owner can see spending.");
     expect(container.textContent).not.toContain("₹");
     // What the refusal must NOT do is also render the API's 403 underneath it. The query is
     // declared before the permission is known — `/v1/me` is still in flight on the first

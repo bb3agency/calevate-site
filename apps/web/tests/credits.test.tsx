@@ -292,10 +292,10 @@ describe("the hero: how much, and how long it lasts", () => {
       "div",
     ) as HTMLElement;
     within(tile).getByText("₹3,400");
-    await screen.findByText(/About 10 days left at your current pace/);
+    await screen.findByText(/About 10 days left/);
     // THE WORKING, not only the conclusion: an owner who disagrees with "10 days" can see
     // the ₹340 a day it came from.
-    await screen.findByText(/spending about ₹340 a day/);
+    await screen.findByText(/about ₹340 a day/);
     // THE MINUTES ARE A PAIR NOW, one figure per voice quality, and both come from the lot
     // queue — summed lot by lot at each lot's own frozen rate (D-547). The single "about N
     // minutes at today's rate" that used to sit here divided one balance by one LIST rate,
@@ -339,7 +339,7 @@ describe("the hero: how much, and how long it lasts", () => {
     // on the balance (the assistant still reads it through `runwaySentence`).
     await screen.findByText("₹1,000");
     expect(screen.queryByText(/We need about 7 days/)).toBeNull();
-    expect(screen.queryByText(/current pace/)).toBeNull();
+    expect(screen.queryByText(/days left|at this pace/)).toBeNull();
     // The lie this screen must never tell.
     expect(screen.queryByText(/0 days of calling left/)).toBeNull();
     expect(screen.queryByText(/About 0 days/)).toBeNull();
@@ -363,7 +363,7 @@ describe("the hero: how much, and how long it lasts", () => {
       }),
     );
     await screen.findByText("₹3,400");
-    expect(screen.queryByText(/current pace/)).toBeNull();
+    expect(screen.queryByText(/days left|at this pace/)).toBeNull();
     expect(screen.queryByText(/days left/)).toBeNull();
   });
 
@@ -384,7 +384,7 @@ describe("the hero: how much, and how long it lasts", () => {
         }),
       }),
     );
-    await screen.findByText(/Lasts more than a year at your current pace/);
+    await screen.findByText(/Lasts over a year at this pace/);
   });
 });
 
@@ -422,7 +422,7 @@ describe("an empty wallet: what stopped, and what emphatically did not", () => {
     // what stopped.
     expect(text).not.toContain("still get through");
     expect(text).toContain(
-      "outgoing calls have stopped and your agents are no longer answering incoming ones",
+      "No outgoing calls. Agents don't answer incoming ones.",
     );
     // The reputational half — a caller must not be able to work out why (D-551).
     expect(text).toContain(
@@ -431,7 +431,7 @@ describe("an empty wallet: what stopped, and what emphatically did not", () => {
     // And the one action that undoes BOTH, with no support ticket in it.
     expect(text).toContain("start again straight away");
     // The state is not carried by colour alone (WCAG 1.4.1): there is a sentence.
-    expect(text).toContain("Your calling credit has run out");
+    expect(text).toContain("Credit ran out. All calls stopped.");
     await expectNoA11yViolations(container, "c/[slug]/credits — empty wallet");
   });
 
@@ -451,9 +451,9 @@ describe("an empty wallet: what stopped, and what emphatically did not", () => {
     );
 
     // A quiet line, not a paragraph (D-536: nothing is debited during a trial).
-    await screen.findByText(/Free trial — calls aren’t charged until/);
+    await screen.findByText(/Free trial · calls free until/);
     expect(container.textContent).not.toContain("running low");
-    expect(container.textContent).not.toContain("has run out");
+    expect(container.textContent).not.toContain("ran out");
     expect(container.textContent).not.toContain("Outgoing calls stop when this reaches zero");
     expect(screen.queryByRole("alert")).toBeNull();
   });
@@ -498,16 +498,16 @@ describe("an empty wallet: what stopped, and what emphatically did not", () => {
     );
 
     const notice = (
-      await screen.findByText(/Until there is credit on the account/)
+      await screen.findByText("Add credit to start calling")
     ).closest("[role=status]");
     // The same withdrawal applies on day one (D-551): an account with no credit has no
     // answering agents either, so this variant differs from the run-out one only in TENSE
     // — what will not happen, rather than what has stopped.
-    expect(notice?.textContent).toContain("will not answer incoming ones");
+    expect(notice?.textContent).toContain("agents won't call or answer");
     expect(notice?.textContent).not.toContain("get through");
     // And the thing that did not happen is not reported as though it had: nothing "ran
     // out" on an account that has never had anything on it.
-    await waitFor(() => expect(screen.queryByText(/has run out/)).toBeNull());
+    await waitFor(() => expect(screen.queryByText(/ran out/)).toBeNull());
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
@@ -579,8 +579,8 @@ describe("the credit itself: what is left, and at which rates", () => {
     await renderBillingHub(routes({ [LOTS_ROUTE]: lots }));
     const table = await screen.findByRole("table", { name: /in the order it will be spent/i });
     const rows = within(table).getAllByRole("row");
-    expect(rows[1].textContent).toMatch(/Lapses/);
-    expect(rows[2].textContent).not.toMatch(/Lapses/);
+    expect(rows[1].textContent).toMatch(/Expires/);
+    expect(rows[2].textContent).not.toMatch(/Expires/);
   });
 
   it("states the expiry at checkout while credit expires (D-840)", async () => {
@@ -590,14 +590,14 @@ describe("the credit itself: what is left, and at which rates", () => {
     );
     // Before the button, with the day it lapses, so nobody pays without having seen it.
     expect(
-      await screen.findByText(/Credit you buy now lasts 12 months, until \d{1,2} \w{3} \d{4}\./),
+      await screen.findByText(/^Lasts 12 months, until \d{1,2} \w{3} \d{4}$/),
     ).toBeTruthy();
   });
 
   it("says nothing about expiry at checkout while credit does not expire", async () => {
     await renderBillingHub(routes(), "Credits");
     await screen.findByRole("button", { name: "Continue" });
-    expect(document.body.textContent).not.toMatch(/lasts \d+ months/);
+    expect(document.body.textContent).not.toMatch(/lasts \d+ months/i);
   });
 
   it("renders whatever the server calls the two qualities, never a name held here", async () => {
@@ -683,7 +683,7 @@ describe("the credit itself: what is left, and at which rates", () => {
     );
 
     await screen.findByText(/run ₹1,000 past the credit on the account/);
-    await screen.findByText(/next top-up clears that first/);
+    await screen.findByText("₹1,000 owed. Your next top-up clears it first.");
     expect(
       screen.queryByRole("table", { name: /in the order it will be spent/i }),
     ).toBeNull();
@@ -784,7 +784,7 @@ describe("the credit itself: what is left, and at which rates", () => {
       }),
     );
 
-    await screen.findByText(/Until there is credit on the account/);
+    await screen.findByText("Add credit to start calling");
     expect(container.textContent).not.toContain("minutes on Clear");
     expect(container.textContent).not.toContain("0 minutes");
   });
@@ -813,7 +813,7 @@ describe("the credit itself: what is left, and at which rates", () => {
     ) as HTMLElement;
     within(tile).getByText("-₹120");
     expect(tile.textContent).toMatch(/a little below zero/);
-    expect(tile.textContent).toMatch(/next top-up clears what is owed first/);
+    expect(tile.textContent).toMatch(/next top-up clears this first/);
     // The owed figure is said once, in danger, not by the colour of the balance alone.
     expect(container.textContent).toContain("You owe ₹120");
   });
@@ -917,8 +917,8 @@ describe("where the money went", () => {
     );
     await within(await card()).findByText(/Nothing has moved on your credit this month/);
     fireEvent.click(await screen.findByRole("radio", { name: "Transactions" }));
-    await screen.findByText(/Payments you make and calls your agents handle/);
-    await screen.findByText(/There is nothing to download yet/);
+    await screen.findByText("Payments and calls will show here.");
+    await screen.findByText("Nothing to download yet");
   });
 
   it("is the owner's: a session without billing access is not sent the read", async () => {
@@ -1230,6 +1230,9 @@ describe("payments that did not finish", () => {
     await screen.findByText("Did not go through");
     await screen.findByText(/nothing was charged and no credit was added/);
     await screen.findByText("CAL-2608-0007");
+    // The retry is a button, and it opens the one place a payment starts.
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByRole("dialog", { name: "Add credit" })).toBeTruthy();
   });
 
   it("tells a client who closed the tab that their credit lands without this page", async () => {
@@ -1254,13 +1257,15 @@ describe("payments that did not finish", () => {
     await screen.findByText("Still settling");
     await screen.findByText(/your credit is added automatically/);
     await screen.findByText(/should not pay again yet/);
+    // A payment that may still land offers no retry.
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
   });
 
   it("says nothing at all when no payment is outstanding", async () => {
     await renderBillingHub(routes());
     // A card headed "payments that did not finish" reading "none" on every visit is a
     // permanent invitation to worry.
-    expect(screen.queryByText(/Payments that have not finished/)).toBeNull();
+    expect(screen.queryByText(/Unfinished payments/)).toBeNull();
   });
 });
 
@@ -1306,7 +1311,7 @@ describe("the states that are not a balance", () => {
       }),
     );
     await screen.findByText("Moving to prepaid calling credit");
-    await screen.findByText(/honoured as issued/);
+    await screen.findByText("Invoices already sent stay valid. No new ones.");
     // THE DEAD END IS THE DEFECT. This branch used to name two other screens in prose and
     // offer nothing; now the three money questions each have a link, because an invoiced
     // client who lands here has usually been sent by somebody who assumed they had a
@@ -1333,7 +1338,7 @@ describe("the states that are not a balance", () => {
         "/v1/me": { ...ME, role: "staff", permissions: ["calls:read"] },
       }),
     );
-    await screen.findByText(/limited to people with access to it/);
+    await screen.findByText("Only the account owner can open billing.");
     expect(screen.queryByText("₹3,400")).toBeNull();
   });
 });
@@ -1480,14 +1485,14 @@ describe("the summary card and the settings under it", () => {
     };
     await renderBillingHub(routes({ [LOTS_ROUTE]: lots }));
     expect(
-      await screen.findByText("₹2,000 of it lapses on 20 Aug 2027 if it is not used."),
+      await screen.findByText("₹2,000 expires on 20 Aug 2027 if unused"),
     ).toBeTruthy();
   });
 
   it("prints no lapse line while no credit carries an expiry", async () => {
     const { container } = await renderBillingHub(routes());
     await screen.findByText("₹3,400");
-    expect(container.textContent).not.toContain("lapses on");
+    expect(container.textContent).not.toContain("expires on");
   });
 
   it("does not offer auto top-up's payment setup where only bank transfer works", async () => {
@@ -1499,7 +1504,7 @@ describe("the summary card and the settings under it", () => {
         "/v1/billing/auto-recharge/charges?limit=20": [],
       }),
     );
-    expect(await screen.findByText(/needs online payment/)).toBeTruthy();
+    expect(await screen.findByText(/Needs online payment/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Approve a payment method/ })).toBeNull();
     expect(container.textContent).not.toContain("UPI Autopay");
   });

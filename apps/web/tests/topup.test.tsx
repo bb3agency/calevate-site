@@ -390,7 +390,7 @@ describe("the top-up panel", () => {
     // Awaited on the SENTENCE, not on the card around it: the panel renders a skeleton
     // until the capability lands, so asserting after the card would judge the loading
     // state and pass or fail on timing.
-    await screen.findByText("Pay by bank transfer.");
+    await screen.findByText("Pay by bank transfer");
     // The picker still answers "what does it buy", but nothing can start a payment.
     expect(screen.queryByRole("button", { name: "Get payment details" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
@@ -441,7 +441,7 @@ describe("the top-up panel", () => {
       "Credits",
     );
 
-    await screen.findByText("Pay by bank transfer.");
+    await screen.findByText("Pay by bank transfer");
     const leaks = [
       "no_webhook_secret",
       "no_publishable_key",
@@ -490,7 +490,7 @@ describe("the top-up panel", () => {
     fireEvent.change(field, { target: { value: "2500.10" } });
     fireEvent.click(screen.getByRole("button", { name: "Get payment details" }));
 
-    await screen.findByText(/nothing has been charged yet/);
+    await screen.findByText(/nothing charged yet/);
     // The paise the server priced, on screen exactly as sent. `Number("2500.10")` on the
     // way past is how ₹2,500.10 becomes ₹2,500.1 beside a bank transfer it must match.
     //
@@ -503,9 +503,9 @@ describe("the top-up panel", () => {
     // again in the sentence saying which rates this amount buys at BEFORE the button. A
     // float anywhere on that path would drop the last paisa in one of the three, so the
     // count is asserted rather than mere presence — `toContain` is answered by any one of
-    // them and a sabotage of the other two goes unnoticed. FOUR since the picker: the
-    // "You pay" line beside the button says it as well.
-    expectTextCount(container, "₹2,500.10", 4);
+    // them and a sabotage of the other two goes unnoticed. The rates line no longer repeats the
+    // amount (it names the rates only), and the "You pay" line beside the button says it: three.
+    expectTextCount(container, "₹2,500.10", 3);
     // The two shapes a `Number()` leaves behind: the dropped trailing paisa, and the
     // ungrouped digits.
     expect(container.textContent).not.toMatch(/2,?500\.1(?!0)/);
@@ -534,9 +534,9 @@ describe("the top-up panel", () => {
 
     await payCustomAmount();
 
-    await screen.findByText(/nothing has been charged yet/);
+    await screen.findByText(/nothing charged yet/);
     expect(container.textContent).toContain(
-      "to us by bank transfer quoting the reference",
+      "by bank transfer quoting the reference",
     );
     expect(opened, "no checkout without an order").toHaveLength(0);
   });
@@ -579,7 +579,7 @@ describe("the top-up panel", () => {
     expect(rates).toContain("₹6/min on Studio");
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
-    await screen.findByText(/nothing has been charged yet/);
+    await screen.findByText(/nothing charged yet/);
     const sent = calls.find((c) => c.path === "/v1/billing/topups/intent");
     expect(sent?.body).toBe(JSON.stringify({ pack_id: "max" }));
   });
@@ -625,7 +625,7 @@ describe("the top-up panel", () => {
     // that covers it, not the biggest that exists, which is the difference between a
     // recommendation and an upsell.
     fireEvent.change(field, { target: { value: "200" } });
-    await waitFor(() => expect(suggestion()).toContain("₹2,000 covers 200 minutes a month"));
+    await waitFor(() => expect(suggestion()).toContain("₹2,000 covers 200 min a month"));
     // The matched card says so where the reader is looking, and is selected, so the one
     // button is ready for it; its card shows both voices' minutes.
     expect(container.textContent).toContain("Fits your month");
@@ -636,13 +636,13 @@ describe("the top-up panel", () => {
     // `talk_time_minutes` — which holds the cheaper figure — would have kept the ₹2,000
     // pack here and quietly under-bought for a Studio agent.
     fireEvent.change(field, { target: { value: "300" } });
-    await waitFor(() => expect(suggestion()).toContain("₹5,000 covers 300 minutes"));
+    await waitFor(() => expect(suggestion()).toContain("₹5,000 covers 300 min"));
     expect((screen.getByRole("radio", { name: /^₹5,000/ }) as HTMLInputElement).checked).toBe(true);
 
     // More than the whole catalogue can hold is answered honestly rather than by
     // recommending a pack that does not cover it.
     fireEvent.change(field, { target: { value: "40000" } });
-    await waitFor(() => expect(suggestion()).toContain("more than one pack"));
+    await waitFor(() => expect(suggestion()).toContain("Over our largest pack"));
     // AND IT NAMES SOMETHING THAT EXISTS. There is one pricing model since D-707, so the
     // answer to "more than the largest pack" is more credit, never an invoiced plan.
     expect(suggestion()).toContain("auto top-up");
@@ -651,7 +651,7 @@ describe("the top-up panel", () => {
     // Not a number: a sentence they can act on, and no recommendation invented from it.
     fireEvent.change(field, { target: { value: "lots" } });
     await waitFor(() =>
-      expect(suggestion()).toContain("Enter the minutes as digits"),
+      expect(suggestion()).toContain("Digits only"),
     );
     expect(container.textContent).not.toContain("Fits your month");
 
@@ -681,7 +681,7 @@ describe("the top-up panel", () => {
     await waitFor(() => expect(preview()).toContain("₹5/min on Clear"));
     expect(preview()).toContain("₹8/min on Studio");
     expect(preview()).toContain("₹2,000 pack");
-    expect(preview()).toContain("₹3,400 buys calling");
+    expect(preview()).toContain("At the ₹2,000 pack’s rates");
 
     // A rung crossed changes the answer, and the figures are the catalogue's own digits —
     // no rate is interpolated between the rungs.
@@ -719,12 +719,12 @@ describe("the top-up panel", () => {
     // What is gone is every per-minute figure, on the cards and in the explainer. The lot
     // panel's rates are excluded: they are frozen on the client's own purchases and arrive
     // on a different read, labelled by it.
-    expect(container.textContent).toContain("Your credit and what it costs a minute");
+    expect(container.textContent).toContain("Your credit, by purchase");
     const outsideLots = container.cloneNode(true) as HTMLElement;
     outsideLots
       .querySelectorAll("section")
       .forEach((section) => {
-        if (section.querySelector("h2")?.textContent === "Your credit and what it costs a minute") {
+        if (section.querySelector("h2")?.textContent === "Your credit, by purchase") {
           section.remove();
         }
       });
@@ -816,7 +816,7 @@ describe("the payment window", () => {
         await vi.advanceTimersByTimeAsync(CREDIT_POLL_MS);
       });
 
-      expect(await screen.findByText("The credit has been added to your balance.")).toBeTruthy();
+      expect(await screen.findByText("Credit added to your balance.")).toBeTruthy();
       await waitFor(() => expect(screen.queryByText("Still settling")).toBeNull());
       await waitFor(() =>
         expect(calls.filter((c) => c.path === WALLET).length).toBeGreaterThan(walletReadsBefore),

@@ -4,6 +4,7 @@ import { CARD } from "@/components/console/dataTable";
 import { Section } from "@/components/console/section";
 import { NOTICE_BAR, NOTICE_BASE, ScrollRegion, formatINR, formatIST, formatISTDate } from "@/components/ui";
 
+import { Why } from "./_ui/Why";
 import { formatWhole, isVoiceTier, lotRate, type WalletLots } from "./lots";
 
 /**
@@ -56,15 +57,20 @@ export function LotsPanel({ lots }: { lots: WalletLots }) {
 
   return (
     <Section
-      title="Your credit and what it costs a minute"
-      description="Each purchase keeps the per-minute rates it was bought at, and your calls are charged against the oldest one first."
+      title="Your credit, by purchase"
+      description="Each keeps its own rates. Oldest is used first."
     >
       {owed && (
-        <p role="status" className={`mb-4 ${NOTICE_BASE} ${NOTICE_BAR.warn}`}>
-          Your calls have run {formatINR(lots.overdraft_inr)} past the credit on the account.
-          Your next top-up clears that first, and whatever is left opens as new credit at
-          that purchase&rsquo;s rates.
-        </p>
+        <div role="status" className={`mb-4 ${NOTICE_BASE} ${NOTICE_BAR.warn}`}>
+          <p>{formatINR(lots.overdraft_inr)} owed. Your next top-up clears it first.</p>
+          <Why>
+            <p>
+              Your calls have run {formatINR(lots.overdraft_inr)} past the credit on the
+              account. Whatever is left of your next top-up opens as new credit at that
+              purchase&rsquo;s rates.
+            </p>
+          </Why>
+        </div>
       )}
 
       {lots.lots.length > 0 && (
@@ -118,7 +124,7 @@ export function LotsPanel({ lots }: { lots: WalletLots }) {
 {/* Each purchase keeps the term it was bought on (Terms 6.1): one bought
                         before expiry was switched on has none, and says so beside one that does. */}
                     <span className="block text-meta">
-                      {lot.expires_at ? `Lapses ${formatISTDate(lot.expires_at) ?? "—"}` : "No expiry"}
+                      {lot.expires_at ? `Expires ${formatISTDate(lot.expires_at) ?? "—"}` : "No expiry"}
                     </span>
                     </span>
 </td>

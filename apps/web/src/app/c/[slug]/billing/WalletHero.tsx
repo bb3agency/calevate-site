@@ -14,6 +14,7 @@ import {
 } from "@/lib/api/wallet";
 
 import { TierRunwayLines } from "./LotsPanel";
+import { Why } from "./_ui/Why";
 import { firstLapse, formatISTDate, type WalletLots } from "./lots";
 
 /**
@@ -85,23 +86,19 @@ export function WalletHero({
              account that was running, and nothing has on a new one. */
           role={dayOne ? "status" : "alert"}
           tone={dayOne ? "neutral" : "stop"}
-          title={
-            dayOne
-              ? "Until there is credit on the account your agents cannot make outgoing calls and will not answer incoming ones."
-              : "Your calling credit has run out, so outgoing calls have stopped and your agents are no longer answering incoming ones."
+          title={dayOne ? HERO_COPY.dayOneTitle : HERO_COPY.stoppedTitle}
+          why={
+            /* `funded === null`: the history has not arrived, so the sentence must be
+               true of both a spent wallet and one that never had credit. */
+            dayOne || funded === null ? HERO_COPY.dayOneWhy : HERO_COPY.stoppedWhy
           }
         >
-          {/* `funded === null`: the history has not arrived, so the sentence must be true
-              of both a spent wallet and one that never had credit. */}
-          {dayOne || funded === null
-            ? "Callers hear a short apology that gives no reason and says nothing about your account. Add credit and answering, campaigns and call-backs start straight away."
-            : "Callers hear a short apology that gives no reason and says nothing about your account. Add credit and answering, campaigns and call-backs all start again straight away."}
+          {dayOne ? HERO_COPY.dayOneLine : HERO_COPY.stoppedLine}
         </Notice>
       )}
       {state === "low" && (
-        <Notice role="status" tone="warn" title="Your calling credit is running low.">
-          {formatINR(wallet.balance_inr)} left, below the {formatINR(wallet.low_balance_threshold_inr)} we
-          warn at. At zero, calls stop in both directions.
+        <Notice role="status" tone="warn" title={HERO_COPY.lowTitle}>
+          {formatINR(wallet.balance_inr)} left. All calls stop at ₹0.
         </Notice>
       )}
 
@@ -120,10 +117,13 @@ export function WalletHero({
             <div className="pt-1 text-body">
               <p className="font-medium text-danger">You owe {formatINR(owed)}</p>
               {/* Read off the SIGN of the server's string, never a parsed number. */}
-              <p className="text-ink-muted">
-                A call in progress is finished rather than cut off, so the balance can dip a
-                little below zero. Your next top-up clears what is owed first.
-              </p>
+              <p className="text-ink-muted">Your next top-up clears this first.</p>
+              <Why>
+                <p>
+                  A call in progress is finished rather than cut off, so the balance can dip a
+                  little below zero.
+                </p>
+              </Why>
             </div>
           )}
           {runway && (
@@ -132,7 +132,7 @@ export function WalletHero({
               {/* The working, so an owner who doubts the days can see what they came from. */}
               {wallet.runway.daily_burn_inr !== null && runway !== BEYOND && (
                 <span className="text-ink-muted">
-                  , spending about {formatINR(wallet.runway.daily_burn_inr)} a day
+                  {" "}· about {formatINR(wallet.runway.daily_burn_inr)} a day
                 </span>
               )}
             </p>
@@ -140,8 +140,10 @@ export function WalletHero({
           {/* One figure per voice quality, from the lot queue (D-547). */}
           {lots && <TierRunwayLines lots={lots} />}
           {lapse && lapseDay && (
+            /* D-900: the date is on screen; the term behind it is under "Credit, by
+               purchase" and in "What calls cost". */
             <p className="text-meta text-ink-muted">
-              {formatINR(lapse.credits_remaining)} of it lapses on {lapseDay} if it is not used.
+              {formatINR(lapse.credits_remaining)} expires on {lapseDay} if unused
             </p>
           )}
           {trial !== null && (
@@ -149,9 +151,7 @@ export function WalletHero({
                calls, so the trial is a quiet fact here rather than a paragraph. */
             <p className="flex items-center gap-1.5 pt-1 text-meta text-brand-strong dark:text-brand-bright">
               <CircleDashed aria-hidden className="h-3.5 w-3.5 shrink-0" />
-              <span>
-                Free trial — calls aren&rsquo;t charged until {trialEndsAt(trial)}.
-              </span>
+              <span>Free trial · calls free until {trialEndsAt(trial)}</span>
             </p>
           )}
         </div>
@@ -161,7 +161,25 @@ export function WalletHero({
   );
 }
 
-const BEYOND = "Lasts more than a year at your current pace";
+/**
+ * The hero's words. The empty-wallet pair says the same three facts as
+ * `crm/attention.BLOCK_REMEDIES["no_credits"]` and the low-balance email: both directions
+ * have stopped (D-551), callers hear an apology that says nothing about the account, and
+ * adding credit restarts both. The first is on screen; the other two are behind "Why?".
+ */
+export const HERO_COPY = {
+  stoppedTitle: "Credit ran out. All calls stopped.",
+  stoppedLine: "No outgoing calls. Agents don't answer incoming ones.",
+  stoppedWhy:
+    "Callers hear a short apology that gives no reason and says nothing about your account. Add credit and answering, campaigns and call-backs all start again straight away.",
+  dayOneTitle: "Add credit to start calling",
+  dayOneLine: "Until then, agents won't call or answer.",
+  dayOneWhy:
+    "Callers hear a short apology that gives no reason and says nothing about your account. Add credit and answering, campaigns and call-backs start straight away.",
+  lowTitle: "Credit is running low",
+} as const;
+
+const BEYOND = "Lasts over a year at this pace";
 
 /**
  * How long the credit lasts, or `null` when the server made no projection. Only the
@@ -171,7 +189,7 @@ const BEYOND = "Lasts more than a year at your current pace";
 export function runwayLine(runway: Runway): string | null {
   if (runway.beyond_horizon) return BEYOND;
   if (runway.basis !== "projected" || runway.days === null) return null;
-  return `About ${runway.days.toLocaleString("en-IN")} ${runway.days === 1 ? "day" : "days"} left at your current pace`;
+  return `About ${runway.days.toLocaleString("en-IN")} ${runway.days === 1 ? "day" : "days"} left`;
 }
 
 const NOTICE_TONES = {
@@ -180,16 +198,18 @@ const NOTICE_TONES = {
   neutral: { bar: "bg-surface-muted text-ink-muted", icon: CircleDashed },
 } as const;
 
-/** The state strip across the top of the card: an icon, a sentence in bold, one more line. */
+/** The state strip across the top of the card: an icon, a bold line, one short line, "Why?". */
 function Notice({
   role,
   tone,
   title,
+  why,
   children,
 }: {
   role: "alert" | "status";
   tone: keyof typeof NOTICE_TONES;
   title: string;
+  why?: string;
   children: ReactNode;
 }) {
   const { bar, icon: Icon } = NOTICE_TONES[tone];
@@ -199,6 +219,11 @@ function Notice({
       <div className="min-w-0 text-body">
         <p className="font-semibold text-ink">{title}</p>
         <p className="mt-0.5 text-ink-muted">{children}</p>
+        {why && (
+          <Why className="mt-0.5">
+            <p>{why}</p>
+          </Why>
+        )}
       </div>
     </div>
   );

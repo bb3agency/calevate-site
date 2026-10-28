@@ -31,6 +31,8 @@ import { openRazorpayCheckout } from "@/lib/razorpayCheckout";
 import { ApiProblem, type Session } from "@/lib/api/client";
 import { useQueryClient } from "@tanstack/react-query";
 
+import { Why } from "./_ui/Why";
+
 /**
  * The monthly platform fee (D-707), on the client's billing screen.
  *
@@ -122,32 +124,38 @@ function FeeBody({ session, fee }: { session: Session; fee: PlatformFee }) {
   return (
     <Card title="Monthly platform fee">
       <div className="space-y-4">
-        <p className="max-w-prose text-body text-ink-muted">
-          {amount ? (
-            <>
-              {formatPayableINR(amount)} a month, paid separately from your calling credit. It never
-              comes out of your balance, and buying credit never pays it.
-            </>
-          ) : (
-            "The monthly platform fee is switched off. Nothing is owed for months to come."
-          )}
-        </p>
+        {amount ? (
+          <div>
+            <p className="text-body text-ink-muted">
+              {formatPayableINR(amount)} a month · separate from credit
+            </p>
+            <Why>
+              <p>
+                It is paid separately from your calling credit. It never comes out of your
+                balance, and buying credit never pays it.
+              </p>
+            </Why>
+          </div>
+        ) : (
+          <p className="text-body text-ink-muted">Switched off. Nothing to pay.</p>
+        )}
 
         {fee.exemption === "trial" && (
-          <NoticeBox tone="ok" title="Not charged during your free trial">
-            Your account pays no platform fee while it is on a free trial.
-          </NoticeBox>
+          <NoticeBox tone="ok" title="Free during your trial" />
         )}
         {fee.exemption === "waiver" && (
-          <NoticeBox tone="ok" title="Your account is not charged this fee">
-            We have waived the monthly platform fee for your account.
-          </NoticeBox>
+          <NoticeBox tone="ok" title="We've waived this fee for you" />
         )}
 
         {fee.outbound_paused && (
           <NoticeBox tone="stop" title="Outgoing calls are paused">
-            This month&apos;s platform fee is unpaid, so your agents are not placing outgoing
-            calls. Incoming calls keep being answered. Pay the fee and calling resumes at once.
+            <p>Fee unpaid. Incoming calls still answered.</p>
+            <Why>
+              <p>
+                This month&apos;s platform fee is unpaid, so your agents are not placing
+                outgoing calls. Pay the fee and calling resumes at once.
+              </p>
+            </Why>
           </NoticeBox>
         )}
 
@@ -159,10 +167,18 @@ function FeeBody({ session, fee }: { session: Session; fee: PlatformFee }) {
               <p className="text-meta text-ink-muted">
                 {owed.status === "overdue"
                   ? `Unpaid since ${formatIST(owed.grace_ends_at)}`
-                  : `Pay by ${formatIST(owed.grace_ends_at)} to keep outgoing calls running (${fee.grace_days}-day grace period)`}
+                  : `Pay by ${formatIST(owed.grace_ends_at)}`}
               </p>
+              {owed.status !== "overdue" && (
+                <Why>
+                  <p>
+                    Pay by then to keep outgoing calls running ({fee.grace_days}-day grace
+                    period).
+                  </p>
+                </Why>
+              )}
             </div>
-            <div className="space-y-2">
+            <div className="w-full space-y-2 sm:w-auto [&>button]:w-full [&>button]:justify-center sm:[&>button]:w-auto">
               <ActionButton
                 status={payStatus}
                 successLabel="Paid"
@@ -180,15 +196,18 @@ function FeeBody({ session, fee }: { session: Session; fee: PlatformFee }) {
 
         {stage.at === "bank" && (
           <NoticeBox tone="neutral" title="Pay by bank transfer">
-            Online payment is not available yet. Transfer {formatPayableINR(stage.order.amount_inr)} and
-            quote the reference <MonoValue>{stage.order.receipt}</MonoValue>; we record it as
-            soon as it arrives.
+            <p>
+              Transfer {formatPayableINR(stage.order.amount_inr)}. Quote ref{" "}
+              <MonoValue>{stage.order.receipt}</MonoValue>.
+            </p>
+            <Why label="How it works">
+              <p>Online payment is not available yet. We record it as soon as it arrives.</p>
+            </Why>
           </NoticeBox>
         )}
         {stage.at === "received" && (
           <NoticeBox tone="ok" title="Payment received">
-            Thank you. The fee shows as paid as soon as the payment is confirmed, usually within
-            a minute.
+            Shows as paid within about a minute.
           </NoticeBox>
         )}
         {stage.at === "failed" && <ProblemNotice error={stage.problem} />}

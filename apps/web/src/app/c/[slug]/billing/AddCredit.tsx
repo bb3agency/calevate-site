@@ -27,11 +27,11 @@ export function AddCreditDrawer({
       open={open}
       onClose={onClose}
       title="Add credit"
-      description="1 credit is ₹1. Choose a pack or your own amount."
+      description="1 credit = ₹1. Pick a pack."
       width="lg"
     >
       {billingRefused ? (
-        <RestrictionNote reason="Prices and payment are limited to the account owner. Ask them to top up the account, or to give you owner access." />
+        <RestrictionNote reason="Only the account owner can add credit." />
       ) : (
         <TopUp session={session} />
       )}

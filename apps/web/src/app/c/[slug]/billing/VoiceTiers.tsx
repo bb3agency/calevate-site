@@ -4,7 +4,14 @@ import Link from "next/link";
 
 import { TierComparison, type Tier } from "@/components/arc/tier-comparison";
 import { Section } from "@/components/console/section";
-import { ProblemNotice, Skeleton, formatCount, formatINR, hasNonZeroDigit } from "@/components/ui";
+import {
+  ProblemNotice,
+  SECONDARY_BUTTON_SM,
+  Skeleton,
+  formatCount,
+  formatINR,
+  hasNonZeroDigit,
+} from "@/components/ui";
 import type { Session } from "@/lib/api/client";
 import { useVoiceTierComparison, type VoiceTierCompare } from "@/lib/api/voiceTiers";
 
@@ -34,8 +41,8 @@ function toTier(tier: VoiceTierCompare, notOfferedNotice: string | null): Tier {
       yours !== null
         ? tier.minutes_left === null
           ? "Your rate now"
-          : `Your rate now · your credit covers about ${formatCount(tier.minutes_left)} minutes`
-        : "Depends on the pack you buy. Your rate is fixed when you add credit.",
+          : `Your rate now · about ${formatCount(tier.minutes_left)} min left`
+        : "Set by the pack you buy",
     summary: !tier.offered
       ? (notOfferedNotice ?? "Not open on your account yet.")
       : used
@@ -79,13 +86,10 @@ export function VoiceTiers({ session, agentsHref }: { session: Session; agentsHr
                 </span>{" "}
                 {data.recommendation_reason}
               </p>
-              <p>
-                Each agent speaks with one of them, and you can change it on the agent&apos;s own
-                screen.{" "}
-                <Link href={agentsHref} className="font-medium text-ink underline underline-offset-2 hover:text-brand-strong">
-                  Open your agents
-                </Link>
-              </p>
+              <p>Change the voice on each agent.</p>
+              <Link href={agentsHref} className={`${SECONDARY_BUTTON_SM} w-full justify-center sm:w-auto`}>
+                Open your agents
+              </Link>
             </>
           }
         />

@@ -16,6 +16,8 @@ import {
   NOTICE_BASE,
   ProblemNotice,
   RestrictionNote,
+  SECONDARY_BUTTON,
+  SECONDARY_BUTTON_SM,
   Skeleton,
   formatCount,
   formatDecimal,
@@ -30,7 +32,14 @@ import { formatBillingMonth } from "@/lib/billingMonth";
 import type { Session } from "@/lib/api/client";
 
 import { SpendPanel } from "./SpendPanel";
+import { Why } from "./_ui/Why";
 import { voiceUsage } from "./lots";
+
+/** Said wherever a staff session meets the owner's spending figures. */
+export const OWNER_ONLY_SPENDING = "Only the account owner can see spending.";
+
+/** The spending limit's anchor, so the capped notice can take the reader to it. */
+const SPEND_LIMIT_ID = "spending-limit";
 
 /**
  * USAGE — what this month has cost, which agent spent it, and the limit that stops it.
@@ -91,7 +100,7 @@ export function UsageTab({
 
   if (refused) {
     return (
-      <RestrictionNote reason="Spending and usage are limited to the account owner. Ask them to share this month's figures, or to give you owner access." />
+      <RestrictionNote reason={OWNER_ONLY_SPENDING} />
     );
   }
 
@@ -100,7 +109,7 @@ export function UsageTab({
   return (
     <div className="space-y-5">
       <p className="text-body text-ink-muted">
-        {data ? `${formatBillingMonth(data.month)} so far, in Indian Standard Time.` : "This month's usage."}
+        {data ? `${formatBillingMonth(data.month)} so far (IST)` : "This month's usage"}
       </p>
 
       {usage.error && <ProblemNotice error={usage.error} onRetry={() => void usage.refetch()} />}
@@ -116,10 +125,19 @@ export function UsageTab({
               {/* The cap is a safety rail the client chose; explaining it beats a silent
                   stop, which reads as an outage. Inbound is unaffected — the gate is
                   outbound-only — and saying so prevents a needless support call. */}
-              Outgoing calls are paused for this month — you have reached your spending
-              cap. People calling you still get through. Raise your own limit below, or
-              talk to us if the limit on your plan is the one you have
-              reached.
+              <p className="font-medium">Outgoing calls paused. Spending limit reached.</p>
+              <p className="text-ink-muted">People calling you still get through.</p>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1">
+                <a href={`#${SPEND_LIMIT_ID}`} className={`${SECONDARY_BUTTON} w-full justify-center sm:w-auto`}>
+                  Raise my limit
+                </a>
+                <Why>
+                  <p>
+                    You have reached your spending cap for this month. If the limit on your
+                    plan is the one you have reached, talk to us.
+                  </p>
+                </Why>
+              </div>
             </div>
           )}
 
@@ -156,11 +174,11 @@ export function UsageTab({
                 value: formatDecimal(data.minutes_used),
                 hint: data.included_minutes > 0 ? `${formatCount(data.included_minutes)} included` : "Pay as you go",
               },
-              { label: "Calls", value: formatCount(data.calls), hint: "Billed calls this month" },
+              { label: "Calls", value: formatCount(data.calls), hint: "Billed this month" },
               {
                 label: "Extra minutes",
                 value: formatDecimal(data.overage_minutes),
-                hint: hasNonZeroDigit(data.overage_minutes) ? "Beyond your plan" : "None — you are within your plan",
+                hint: hasNonZeroDigit(data.overage_minutes) ? "Beyond your plan" : "Within your plan",
               },
               {
                 label: "Extra charges",
@@ -196,7 +214,7 @@ export function UsageTab({
                   usedText={`${formatDecimal(data.minutes_used)} min`}
                   limitText={`${formatCount(data.cap_minutes)} min`}
                   overTone="danger"
-                  hint="Outgoing calls pause at the cap. People calling you still get through."
+                  hint="Outgoing calls pause here. Incoming still work."
                 />
               ) : null}
             </div>
@@ -295,8 +313,7 @@ export function UsageTab({
                 is a suggestion to spend money. */}
             {hasNonZeroDigit(data.llm_surcharge_inr) && <ModelUpgradeLink slug={slug} />}
             <p className="mt-3 text-meta text-ink-muted">
-              Usage appears a couple of minutes after each call ends, once the recording
-              and summary have been processed.
+              Each call shows a few minutes after it ends.
             </p>
           </Disclosure>
         </>
@@ -308,7 +325,7 @@ export function UsageTab({
           breakdown under this month's totals. */}
       <Disclosure
         title="By agent and by call"
-        subtitle="Every rupee of a month’s calling charge, against the agent and the call that produced it."
+        subtitle="Which agent and which call cost what"
       >
         <div className="space-y-5">
           <input
@@ -339,17 +356,18 @@ export function UsageTab({
 function ModelUpgradeLink({ slug }: { slug: string }) {
   const { href } = useClientRealm();
   return (
-    <p className="mt-3 text-meta text-ink-muted">
-      The AI model upgrade is charged for the minutes your agents ran a model you chose.
-      Change it on{" "}
-      <Link
-        href={href(`/c/${slug}/settings/models`)}
-        className="font-medium underline underline-offset-2 hover:text-ink"
-      >
-        AI model
+    <div className="mt-3 space-y-2">
+      <p className="text-meta text-ink-muted">Charged for the AI model you chose.</p>
+      <Link href={href(`/c/${slug}/settings/models`)} className={SECONDARY_BUTTON_SM}>
+        Change AI model
       </Link>
-      , or on a single agent from Agents.
-    </p>
+      <Why>
+        <p>
+          The AI model upgrade is charged for the minutes your agents ran a model you chose.
+          You can also change it on a single agent from Agents.
+        </p>
+      </Why>
+    </div>
   );
 }
 
@@ -393,9 +411,10 @@ function SpendLimit({ session }: { session: Session }) {
   const spendField = spend ?? current.client_cap_spend_inr ?? "";
 
   return (
+    <div id={SPEND_LIMIT_ID} className="scroll-mt-20">
     <Section
       title="Your spending limit"
-      description="Set your own limit for this month. Outgoing calls stop when you reach it. Incoming calls are never affected."
+      description="Outgoing calls stop at it. Incoming never do."
     >
       <dl className="divide-y divide-line border-y border-line text-body">
         <Row
@@ -461,12 +480,15 @@ function SpendLimit({ session }: { session: Session }) {
           </ActionButton>
         </form>
 
-        <p className="text-meta text-ink-muted">
-          Leave a box empty to remove your own limit and fall back on your plan&apos;s. A
-          limit below what you have already spent this month takes effect immediately —
-          outgoing calls stop for the rest of the month, and you can raise it again here
-          at any time.
-        </p>
+        <p className="text-meta text-ink-muted">Leave empty to use your plan&apos;s limit.</p>
+        <Why label="How this works">
+          <p>
+            Leave a box empty to remove your own limit and fall back on your plan&apos;s. A
+            limit below what you have already spent this month takes effect immediately —
+            outgoing calls stop for the rest of the month, and you can raise it again here
+            at any time.
+          </p>
+        </Why>
 
         {/* What the save put in force, which can be stricter than what was typed (the plan's
             limit wins) — said once, beside the form, after a save. */}
@@ -476,12 +498,13 @@ function SpendLimit({ session }: { session: Session }) {
             className={`${NOTICE_BASE} ${NOTICE_BAR[save.data.capped ? "warn" : "ok"]}`}
           >
             {save.data.capped
-              ? "Outgoing calls are stopped for the rest of this month. Incoming calls still get through."
+              ? "Outgoing calls stopped this month. Incoming still work."
               : `In force this month: ${describeLimit(save.data.effective_cap_minutes, save.data.effective_cap_spend_inr)}.`}
           </div>
         )}
       </div>
     </Section>
+    </div>
   );
 }
 

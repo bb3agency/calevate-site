@@ -370,7 +370,7 @@ describe("the client's own invoice", () => {
     // AWAITED: `/v1/me` decides this and is in flight on the first paint — nothing is
     // refused until the server has answered, so a screen never flashes an explanation it
     // is about to withdraw.
-    await screen.findByText(/Statements are limited to the account owner/);
+    await screen.findByText("Only the account owner can see statements.");
     expect(container.textContent).not.toContain("TAX INVOICE");
   });
 });
