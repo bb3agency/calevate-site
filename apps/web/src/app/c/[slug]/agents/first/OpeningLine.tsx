@@ -14,6 +14,7 @@ import { useReplaceOpeningLine } from "@/lib/api/script";
 import { useClientSession } from "@/lib/api/session";
 
 import { RoomCounter, roomLabel, spokenLength } from "../panels/openingLineFix";
+import { OUTBOUND_PURPOSE_MAX } from "../[agentId]/script/ScriptSections";
 
 /** The server's refusal as one short line, and its full sentence behind a tap. */
 export function refusalLine(error: unknown): { line: string; detail: string | null } {
@@ -191,20 +192,41 @@ export function OpeningLine({
 }) {
   const session = useClientSession();
   const replace = useReplaceOpeningLine(session, agent.id);
+  const replaceCalling = useReplaceOpeningLine(session, agent.id, "calls");
   // The refusal is drawn under the box, so no toast repeats it.
   const feedback = useActionFeedback(replace, { errorDisplay: "inline" });
+  const callingFeedback = useActionFeedback(replaceCalling, { errorDisplay: "inline" });
+  // An agent that both answers and calls has a second first line, for the calls it places
+  // (D-920); one-direction agents have only the one.
+  const both = agent.direction === "both";
   return (
-    <LineEditor
-      caption={label}
-      fieldLabel="Opening line"
-      value={agent.script_opening_line}
-      lang={lang}
-      room={agent.greeting_budget?.opening_room ?? null}
-      save={replace}
-      status={feedback.status}
-      editable={editable}
-      empty="No opening line yet."
-      why="Callers hear this first. Your AI and recording notices are separate and stay as set."
-    />
+    <div className="space-y-4">
+      <LineEditor
+        caption={both ? "When it answers" : label}
+        fieldLabel="Opening line"
+        value={agent.script_opening_line}
+        lang={lang}
+        room={agent.greeting_budget?.opening_room ?? null}
+        save={replace}
+        status={feedback.status}
+        editable={editable}
+        empty="No opening line yet."
+        why="Callers hear this first. Your AI and recording notices are separate and stay as set."
+      />
+      {both ? (
+        <LineEditor
+          caption="When it calls"
+          fieldLabel="Opening line when it calls"
+          value={agent.script_outbound_opening_line ?? ""}
+          lang={lang}
+          room={OUTBOUND_PURPOSE_MAX}
+          save={replaceCalling}
+          status={callingFeedback.status}
+          editable={editable}
+          empty="Not written yet. It says who it is and where from."
+          why="What it says first when it rings someone: who it is and why it calls. Your notices come before it."
+        />
+      ) : null}
+    </div>
   );
 }

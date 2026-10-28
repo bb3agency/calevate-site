@@ -534,7 +534,40 @@ describe("meet your agent", () => {
       expect(calls.some((call) => call.method === "PUT" && call.path === `/v1/agents/${AGENT_ID}/script/opening-line`)).toBe(true),
     );
     const sent = calls.find((call) => call.path === `/v1/agents/${AGENT_ID}/script/opening-line`);
-    expect(JSON.parse(sent?.body ?? "{}")).toEqual({ opening_line: "Namaskaram! Emi kavali?" });
+    expect(JSON.parse(sent?.body ?? "{}")).toEqual({ opening_line: "Namaskaram! Emi kavali?", when: "answers" });
+    // An agent of one direction has one first line, so no "When it calls" editor.
+    expect(screen.queryByText("When it calls")).toBeNull();
+  });
+
+  it("gives an agent that both answers and calls a second line for the calls it places (D-920)", async () => {
+    const both = agent({ direction: "both", script_outbound_opening_line: null });
+    const { calls } = await renderClientPage(
+      page,
+      routes({
+        "/v1/first-run": built(),
+        "/v1/agents": [both],
+        [`/v1/calls?agent_id=${AGENT_ID}&limit=1`]: [],
+        "/v1/trial": TRIAL,
+        "/v1/legal/readiness": READINESS,
+        "/v1/compliance/outbound-pledge": PLEDGE,
+        [`PUT /v1/agents/${AGENT_ID}/script/opening-line`]: { opening_line: "Namaskaram, Rytu Khata nundi.", version: 2 },
+      }),
+    );
+    await screen.findByRole("heading", { name: "Hear Anjali on your phone" });
+    expect(screen.getAllByText("When it answers").length).toBeGreaterThan(0);
+    const calling = screen
+      .getAllByText("When it calls")
+      .map((caption) => caption.closest("figure"))
+      .find((figure): figure is HTMLElement => figure !== null && within(figure).queryAllByRole("button").length > 0);
+    if (!calling) throw new Error("no editable When it calls line");
+    fireEvent.click(within(calling).getByRole("button", { name: "Write one" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Opening line when it calls" }), {
+      target: { value: "Namaskaram, Rytu Khata nundi." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(calls.some((call) => call.method === "PUT")).toBe(true));
+    const sent = calls.find((call) => call.method === "PUT");
+    expect(JSON.parse(sent?.body ?? "{}")).toEqual({ opening_line: "Namaskaram, Rytu Khata nundi.", when: "calls" });
   });
 
   it("shows the server's refusal of an opening line in one short line, and Cancel leaves it as it was", async () => {
