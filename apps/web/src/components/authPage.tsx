@@ -6,7 +6,9 @@
  * One calm surface: the wordmark, the form in a card, and — on the client realm's screens
  * at desktop width — a panel showing the product the person is signing in to. The panel
  * is real console UI with illustrative data (`authShowcase.tsx`), never a stock picture,
- * and it is hidden below `lg` so a phone gets the form and nothing else.
+ * and it is hidden below `lg`. Behind everything on the public doors runs the voice field
+ * (`illustration/voiceWave.tsx`), on a phone and a desktop alike: lanes of ASCII speech
+ * waveforms, dimmed behind the form column and the header and footer, under an opaque card.
  *
  * `/auth/**`, `/signup` and the admin door are outside both app shells: `/c` and `/admin`
  * each own a `fixed inset-0` layout and an auth page has neither. `globals.css` sets
@@ -20,6 +22,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 
 import { BrandWordmark } from "@/components/brand";
+import { VoiceWave } from "@/components/illustration/voiceWave";
 import { OfflineBanner } from "@/components/offline";
 
 export function AuthPageFrame({
@@ -46,8 +49,13 @@ export function AuthPageFrame({
 }) {
   return (
     <div
-      className={`flex min-h-0 flex-1 flex-col overflow-y-auto ${ground === "surface" ? "bg-surface" : "bg-app"}`}
+      className={`isolate flex min-h-0 flex-1 flex-col overflow-y-auto ${ground === "surface" ? "bg-surface" : "bg-app"}`}
     >
+      {/* The public doors only: on `surface` the frame is a signed-in settings page that
+          reads as part of the console, where a moving field is noise. `isolate` makes this
+          box the stacking context, so the field's `z-below` paints above its background and
+          below everything else in it. */}
+      {ground === "app" ? <VoiceWave className={aside ? "voice-field--split" : ""} /> : null}
       {/* Offline matters MORE here than inside the consoles: a sign-in that cannot reach
           the API fails with a message about the request, and a person who cannot see that
           their connection is gone reads it as "my password is wrong". */}

@@ -1579,3 +1579,25 @@ html:has([data-marketing-root]) body {
 [data-marketing-root] .mk-eq--b { animation-delay: -0.3s; }
 [data-marketing-root] .mk-eq--c { animation-delay: -0.6s; }
 [data-marketing-root] .mk-eq--d { animation-delay: -0.9s; }
+
+/*
+ * THE AUTH SCREENS' VOICE FIELD (`components/illustration/voiceWave.tsx`). The canvas fills
+ * the viewport behind the header, form and footer; this mask is what keeps the text in
+ * front readable. It dims the field to a fraction of its strength in an ellipse behind
+ * the content column and along the header and footer strips; the two masks are
+ * intersected so both dimmings apply. The card is opaque on its own. `--split` is the
+ * two-column frame (form left, showcase right from `lg`), where the ellipse follows the
+ * form column.
+ */
+.voice-field {
+  --vf-at: 50% 50%;
+  mask-image:
+    radial-gradient(ellipse 26rem 62% at var(--vf-at), rgb(0 0 0 / 0.12) 55%, black 100%),
+    linear-gradient(to bottom, rgb(0 0 0 / 0.18) 0, black 7rem, black calc(100% - 5rem), rgb(0 0 0 / 0.18) 100%);
+  mask-composite: intersect;
+}
+@media (min-width: 64rem) {
+  .voice-field--split {
+    --vf-at: 25% 50%;
+  }
+}
