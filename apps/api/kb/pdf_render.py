@@ -20,7 +20,9 @@ pypdf 6.16.2 on 2026-09-01, and all closed here:
 2. *A character the embedded font does not cover.* fpdf2 does **not** raise: it prints
    "Font ... is missing the following glyphs" to stderr and drops them. A Hindi
    paragraph pasted into a Telugu knowledge base extracted back as the empty string.
-   `_require_font_coverage` refuses instead, naming the codepoints.
+   `_drawable` spells out arrows and leaves out symbols the font lacks, which carry no
+   words; `_require_font_coverage` then refuses any letter still uncovered, naming the
+   codepoints.
 3. *Text shaping.* fpdf2 can shape complex scripts through uharfbuzz, which renders
    Telugu conjuncts correctly for a human eye — and corrupts the text layer, because a
    ligature glyph gets no faithful `ToUnicode` entry: `తెరుస్తాము` extracted back as
@@ -70,6 +72,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import re
+import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -142,6 +145,15 @@ _SEPARATOR = "-----"
 #: has no glyph for a newline or a tab and does not need one — fpdf2 consumes them as
 #: layout, never as a glyph — so they must be exempt from the coverage check.
 _LAYOUT_CODEPOINTS = frozenset({0x09, 0x0A, 0x0D})
+
+#: Arrows a guide writes for "then" or "to" ("Chrome → Settings → Install"), spelled in
+#: characters every font has so the order of the steps survives. Dropping them would weld
+#: "Settings Install" into one step.
+_ARROWS: dict[str, str] = {
+    **dict.fromkeys("→⇒⟶⟹➔➜➝➞➡⇨", "->"),
+    **dict.fromkeys("←⇐⟵⟸⬅⇦", "<-"),
+    **dict.fromkeys("↔⇔⟷⟺⬌", "<->"),
+}
 
 
 class KnowledgePdfError(Exception):
@@ -302,6 +314,35 @@ def _require_font_coverage(covered: frozenset[int], marker: str, text: str) -> N
         raise UnrenderableTextError(marker, missing)
 
 
+def _decoration(ch: str) -> bool:
+    """A symbol, punctuation mark or invisible format character: it carries no fact a
+    caller can be told, so one the font cannot draw is left out. A letter, digit or vowel
+    sign of another script is not decoration, and stays refused, since leaving it out
+    would lose words."""
+    category = unicodedata.category(ch)
+    return category[0] in "SP" or category == "Cf" or 0xFE00 <= ord(ch) <= 0xFE0F
+
+
+def _drawable(covered: frozenset[int], text: str) -> str:
+    """`text` as the font can draw it: arrows spelled out, other symbols the font lacks
+    (≡, emoji, box drawing) left out. Clients upload the documents they already have, so
+    the knowledge adapts to them rather than asking them to edit their files."""
+    kept: list[str] = []
+    dropped = False
+    for ch in text:
+        if ord(ch) in covered or ord(ch) in _LAYOUT_CODEPOINTS:
+            kept.append(ch)
+        elif ch in _ARROWS:
+            kept.append(_ARROWS[ch])
+        elif _decoration(ch):
+            dropped = True
+        else:
+            kept.append(ch)
+    drawn = "".join(kept)
+    # A symbol left out between two spaces would leave a double space behind.
+    return re.sub(r"(?<=\S)  +(?=\S)", " ", drawn) if dropped else drawn
+
+
 def _normalise(text: str) -> str:
     """Collapse the whitespace a paste brings in, keeping paragraph breaks.
 
@@ -346,26 +387,27 @@ def render_knowledge_pdf(chunks: Sequence[ApprovedChunk]) -> RenderedKnowledgePd
     pdf = _new_document()
     covered = _charset_of(pdf)
 
-    renderable: list[tuple[ApprovedChunk, str]] = []
+    renderable: list[tuple[ApprovedChunk, str, str]] = []
     for chunk in chunks:
         if not (chunk.approved and chunk.is_active):
             raise UnapprovedChunkError(chunk.marker)
-        body = _normalise(chunk.content)
+        body = _drawable(covered, _normalise(chunk.content))
         if not body:
             # An empty approved chunk is not an error — `submit_source` can produce one
             # from a source that is all whitespace — but it must not become a block, or
             # the PDF grows a marker with no fact under it for retrieval to return.
             continue
-        _require_font_coverage(covered, chunk.marker, chunk.source_name)
+        name = _drawable(covered, chunk.source_name)
+        _require_font_coverage(covered, chunk.marker, name)
         _require_font_coverage(covered, chunk.marker, body)
-        renderable.append((chunk, body))
+        renderable.append((chunk, name, body))
 
     if not renderable:
         raise EmptyKnowledgeError()
 
     pdf.add_page()
     width = _PAGE_WIDTH_PT - (2 * _MARGIN_PT)
-    for position, (chunk, body) in enumerate(renderable):
+    for position, (chunk, name, body) in enumerate(renderable):
         if position:
             _write(pdf, width, "")
             _write(pdf, width, _SEPARATOR)
@@ -373,7 +415,7 @@ def render_knowledge_pdf(chunks: Sequence[ApprovedChunk]) -> RenderedKnowledgePd
         # Marker and source name on their own lines above the fact: the vendor's
         # splitter, whatever it is, cuts on text order, so anything that must travel
         # with the fact has to sit immediately before it.
-        _write(pdf, width, f"{chunk.marker} {chunk.source_name}")
+        _write(pdf, width, f"{chunk.marker} {name}")
         _write(pdf, width, body)
 
     content = bytes(pdf.output())
@@ -383,7 +425,7 @@ def render_knowledge_pdf(chunks: Sequence[ApprovedChunk]) -> RenderedKnowledgePd
     return RenderedKnowledgePdf(
         content=content,
         sha256=hashlib.sha256(content).hexdigest(),
-        markers=tuple(chunk.marker for chunk, _ in renderable),
+        markers=tuple(chunk.marker for chunk, _, _ in renderable),
         chunk_size=RECOMMENDED_CHUNK_SIZE,
         overlapping=RECOMMENDED_OVERLAP,
     )

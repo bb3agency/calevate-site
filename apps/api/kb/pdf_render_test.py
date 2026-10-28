@@ -207,9 +207,19 @@ def test_a_script_the_font_cannot_draw_is_refused_not_silently_dropped() -> None
     assert "U+0928" in str(caught.value)
 
 
-def test_an_emoji_is_refused() -> None:
-    with pytest.raises(UnrenderableTextError):
-        render_knowledge_pdf([chunk("We are open \U0001f600")])
+def test_an_emoji_is_left_out_and_the_words_kept() -> None:
+    text = extract(render_knowledge_pdf([chunk("We are open \U0001f600️ today")]).content)
+    assert "We are open today" in text
+
+
+def test_arrows_are_spelled_out_and_menu_symbols_left_out() -> None:
+    """A client's own guide, as uploaded (U+2192 and U+2261 refused a whole file on 28 Oct
+    2026): the steps keep their order and the knowledge is published."""
+    body = "Chrome → rytukhata.com → Install. In Samsung Internet open the ≡ menu, then ← back."
+    text = extract(render_knowledge_pdf([chunk(body, name="Guide → Android")]).content)
+    assert "Chrome -> rytukhata.com -> Install." in text
+    assert "open the menu, then <- back." in text
+    assert "Guide -> Android" in text
 
 
 def test_the_source_name_is_checked_too() -> None:
