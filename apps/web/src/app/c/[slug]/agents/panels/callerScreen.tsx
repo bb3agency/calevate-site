@@ -22,7 +22,7 @@ export function CallerScreen({ agent }: { agent: Agent }) {
     <section>
       <h3 className="text-heading text-ink">Caller follows along on a screen</h3>
       <p className="mt-1 text-body text-ink-muted">
-        For calls that walk someone through your app or website, one step at a time.
+        For callers using your app or website.
       </p>
       {setScreen.error != null && <ProblemNotice error={setScreen.error} />}
       <div className="mt-4">

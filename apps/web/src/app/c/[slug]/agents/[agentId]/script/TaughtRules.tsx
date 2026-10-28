@@ -64,7 +64,7 @@ export function TaughtRules({
         Rules you taught
       </h3>
       <p className="mt-1 text-meta text-ink-muted">
-        Rules you taught this agent on What your agents know. Choose where each one goes in the script.
+        Choose where each one goes in the script.
       </p>
       <ul className="mt-2 divide-y divide-line">
         {waiting.map((rule) => {

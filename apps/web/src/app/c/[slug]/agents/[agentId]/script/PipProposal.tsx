@@ -94,7 +94,7 @@ export function PipProposal({
     return (
       <NoticeBox tone="neutral" title="This suggestion no longer fits" action={dismiss}>
         <p className="mt-1 text-meta">
-          The script was switched between steps and writing by hand after {ASSISTANT_NAME} wrote it.
+          The script changed form after {ASSISTANT_NAME} wrote it.
         </p>
       </NoticeBox>
     );
@@ -137,7 +137,7 @@ export function PipProposal({
                   <li key={i}>{line}</li>
                 ))}
               </ul>
-              <p className="mt-2 text-meta">Add them to a step after keeping the changes, or discard and edit your text.</p>
+              <p className="mt-2 text-meta">Add them to a step later, or discard this.</p>
               <label className="mt-2 flex items-start gap-2 text-meta">
                 <input type="checkbox" checked={read} onChange={(e) => setRead(e.target.checked)} />
                 <span>I have read these lines</span>

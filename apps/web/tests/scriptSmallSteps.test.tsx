@@ -148,6 +148,6 @@ describe("the small steps editor", () => {
     const full = Array.from({ length: 15 }, (_, i) => ({ action: `Step ${i}`, wait_for: "" }));
     render(<Harness initial={full} />);
     expect(screen.queryByRole("button", { name: "Add a small step" })).toBeNull();
-    expect(screen.getByText(/15 small steps is the most one step can have/)).toBeTruthy();
+    expect(screen.getByText(/15 small steps at most/)).toBeTruthy();
   });
 });

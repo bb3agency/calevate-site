@@ -11,21 +11,27 @@
  * notices stay near the top. Hearing the agent for yourself is in Training.
  */
 
+import { RotateCw } from "lucide-react";
+
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { ProblemNotice, Skeleton, formatINR } from "@/components/ui";
 import { Checklist, type ChecklistItem } from "@/components/console/checklist";
-import type { Agent } from "@/lib/api/agents";
+import { TEXT_ACTION } from "@/components/console/section";
+import { movesFor } from "@/lib/agentState";
+import { useAgentLifecycle, type Agent, type LifecycleMove } from "@/lib/api/agents";
 import { useAgreementsReadiness, type LegalReadiness } from "@/lib/api/agreements";
 import { usePendingChanges, type PendingState } from "@/lib/api/publishing";
 import { useScript, type ScriptOut } from "@/lib/api/script";
 import { useTrialPanel } from "@/lib/api/trialCalls";
 import { activeTrial, trialEndsAt, useWallet, walletState, type Wallet } from "@/lib/api/wallet";
-import { useCalls } from "@/lib/api/hooks";
+import { useCalls, useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 
 import { LatestCalls } from "../../../LatestCalls";
+import { LifecycleError, MOVE_COPY } from "../../AgentLifecycle";
 import { AgentReadinessPanel } from "../../AgentReadiness";
 import { OpeningNotices } from "../../panels/openingNotices";
 import { PendingBanner } from "../../panels/publishing";
@@ -109,15 +115,30 @@ export function Overview({ agent, slug }: { agent: Agent; slug: string }) {
 }
 
 /** One read's three answers, as the checklist needs them. */
-type Read<T> = { data: T | undefined; isLoading: boolean; isError: boolean };
+type Read<T> = {
+  data: T | undefined;
+  isLoading: boolean;
+  isError: boolean;
+  refetch: () => unknown;
+};
 
-/** The row for a read that did not arrive: unknown, said as unknown, never "to do". */
-function unknown(id: string, label: string): ChecklistItem {
+/**
+ * The row for a read that did not arrive: unknown, said as unknown, never "to do" — and
+ * the retry is a button on the row rather than a sentence asking for a reload
+ * (error-handling-ux: the way out sits where the failure is).
+ */
+function unknown(id: string, label: string, read: Pick<Read<unknown>, "refetch">): ChecklistItem {
   return {
     id,
     label,
     state: "waiting",
-    detail: "We could not check this just now. Reload to try again.",
+    detail: "Couldn't check this.",
+    action: (
+      <button type="button" className={TEXT_ACTION} onClick={() => void read.refetch()}>
+        <RotateCw aria-hidden className="h-4 w-4" />
+        Try again
+      </button>
+    ),
   };
 }
 
@@ -144,7 +165,13 @@ function SetupChecklist({
   onTrial: boolean;
 }) {
   const { href } = useClientRealm();
+  const session = useClientSession();
   const phone = useIsPhone();
+  const move = useAgentLifecycle(session, agent.id);
+  // The row's button turns into "done" when the agent reads back as working; a refusal
+  // stays inline under the list, in the same words the header's switch uses.
+  const moveFeedback = useActionFeedback(move, { errorDisplay: "inline" });
+  const write = useWriteAccess(session, "org:manage", "change whether this agent is working");
   const base = `/c/${slug}/agents/${agent.id}`;
   const working =
     agent.published && (agent.status === "live" || (onTrial && agent.status === "paused"));
@@ -164,7 +191,7 @@ function SetupChecklist({
       link: scriptDone ? undefined : { href: href(`${base}?section=script`), label: "Write" },
     });
   } else {
-    items.push(unknown("script", "Write its script"));
+    items.push(unknown("script", "Write its script", script));
   }
 
   // The greeting is the script's own line, never a notice (D-708): an agent whose script has
@@ -178,7 +205,7 @@ function SetupChecklist({
       ...(greets
         ? {}
         : {
-            detail: "The greeting it opens every call with, after any notices you switched on.",
+            detail: "Its first words on every call.",
             link: { href: href(`${base}?section=script`), label: "Write" },
           }),
     });
@@ -193,7 +220,7 @@ function SetupChecklist({
       link: chosen ? undefined : { href: href(`${base}?section=voice`), label: "Choose" },
     });
   } else if (pending.isError) {
-    items.push(unknown("voice", "Choose a voice"));
+    items.push(unknown("voice", "Choose a voice", pending));
   }
 
   if (agent.direction !== "outbound") {
@@ -210,11 +237,11 @@ function SetupChecklist({
         ? {}
         : onTrial
           ? {
-              detail: "Numbers open once you add calling credit and verify your business.",
+              detail: "Add credit and verify your business first.",
               link: { href: href(`/c/${slug}/billing`), label: "Add credit" },
             }
           : {
-              detail: "Buy a number on the Numbers page once your business is verified.",
+              detail: "Needs a verified business.",
               link: { href: href(`/c/${slug}/phone-number`), label: "Get a number" },
             }),
     });
@@ -231,15 +258,15 @@ function SetupChecklist({
         label: "Add calling credit",
         state: stopped ? "todo" : "done",
         detail: stopped
-          ? "Calls have stopped until credit is added."
+          ? "Calls stopped. No credit left."
           : trial !== null
-            ? `Free trial: calls are on us until ${trialEndsAt(trial)}.`
+            ? `Free until ${trialEndsAt(trial)}`
             : `${formatINR(wallet.data.balance_inr)} left`,
         link: stopped ? { href: href(`/c/${slug}/billing`), label: "Top up" } : undefined,
       });
     }
   } else {
-    items.push(unknown("credit", "Add calling credit"));
+    items.push(unknown("credit", "Add calling credit", wallet));
   }
 
   if (agreements.data) {
@@ -253,35 +280,64 @@ function SetupChecklist({
       link: accepted ? undefined : { href: href(`/c/${slug}/agreements`), label: "Review" },
     });
   } else {
-    items.push(unknown("agreements", "Accept the agreements"));
+    items.push(unknown("agreements", "Accept the agreements", agreements));
   }
 
   const agreementsOutstanding =
     agreements.data !== undefined && agreements.data.outstanding_documents > 0;
+  // The step does the move itself (the header's switch, as a button here) rather than
+  // pointing at the switch: on a trial "on" is `prepare`, test calls only (D-853).
+  const switchOn: LifecycleMove | null = movesFor(agent.status).includes("activate")
+    ? onTrial
+      ? "prepare"
+      : "activate"
+    : null;
   items.push({
     id: "live",
-    label: "Switch it on",
+    label: onTrial ? "Switch it on for test calls" : "Switch it on",
     state: working ? "done" : "todo",
-    // Once it is working, the header says how and offers the test call on a trial.
-    detail: working
-      ? undefined
-      : onTrial
-        ? "Use the Taking calls switch at the top of this page. On your free trial it gets the agent ready for test calls."
-        : "Use the Taking calls switch at the top of this page.",
+    ...(!working && switchOn
+      ? {
+          action: (
+            <ActionButton
+              variant="primary-sm"
+              status={move.variables === switchOn ? moveFeedback.status : "idle"}
+              pendingLabel={MOVE_COPY[switchOn].busy}
+              successLabel="Done"
+              disabled={!write.allowed || move.isPending}
+              title={write.reason ?? undefined}
+              onClick={() => moveFeedback.run(switchOn)}
+            >
+              {MOVE_COPY[switchOn].label}
+            </ActionButton>
+          ),
+        }
+      : {}),
     ...(scriptDone === false && !working
-      ? { disabledReason: "An agent with no script cannot be switched on." }
+      ? { disabledReason: "Write its script first." }
       : agreementsOutstanding && !working
-        ? { disabledReason: "It cannot be switched on until the agreements are accepted." }
+        ? { disabledReason: "Accept the agreements first." }
         : {}),
   });
 
   const allDone = items.every((item) => item.state === "done");
   return (
-    <Checklist
-      label={allDone ? "Ready for calls" : working ? "Still to set up" : "Before its first call"}
-      items={items}
-      collapsible={phone || allDone}
-      defaultOpen={!phone && !allDone}
-    />
+    <div className="space-y-3">
+      {/* One next step, drawn as the primary button (critique-visual-hierarchy: one
+          entry point), so an owner never has to choose where to start. */}
+      <Checklist
+        label={allDone ? "Ready for calls" : working ? "Still to set up" : "Before its first call"}
+        items={items}
+        // On a phone the finished steps fold into one "4 done" line instead of the whole
+        // list folding, so the next step's button stays on screen and the notices below
+        // stay near the top (critique-information-density, mobile-native).
+        collapsible={allDone}
+        defaultOpen={!allDone}
+        foldDone={phone}
+        emphasizeNext
+        nextLabel="Do this next"
+      />
+      <LifecycleError error={move.error} />
+    </div>
   );
 }

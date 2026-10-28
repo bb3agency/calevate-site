@@ -117,8 +117,7 @@ export function AgentModel({ agent, slug }: { agent: AgentWithLlm; slug: string 
       readOnly={
         isDeleted(agent) ? (
           <p className="text-body text-ink-muted">
-            This agent is deleted, so its model is kept as a record. Bring it back to
-            change it.
+            Deleted. Bring it back to change its model.
           </p>
         ) : undefined
       }
@@ -128,9 +127,9 @@ export function AgentModel({ agent, slug }: { agent: AgentWithLlm; slug: string 
 
 /** Where this agent's tier comes from, in one line. A wire string chooses between them. */
 const SOURCE_LINE: Record<LlmModelSource, string> = {
-  agent: "Set for this agent. Your organisation default does not change it.",
+  agent: "Set for this agent. The default does not change it.",
   organization: "Follows your organisation default.",
-  platform: "Follows Calevate's default, because neither this agent nor your organisation has picked one.",
+  platform: "Follows the standard default.",
 };
 
 function SourceLine({ view, slug }: { view: AgentLlmView; slug: string }) {

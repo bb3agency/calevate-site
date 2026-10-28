@@ -211,7 +211,7 @@ export function Handover({ agent }: { agent: Agent }) {
 
         {nobodyChosen && (
           <p role="status" className={`mt-4 ${NOTICE_BASE} ${NOTICE_BAR.warn}`}>
-            Nobody is chosen to take calls. Add someone below, or callers get a call-back.
+            Nobody is chosen to take calls. Callers get a call-back.
           </p>
         )}
         {needsHours && data.remediation && (
@@ -230,7 +230,7 @@ export function Handover({ agent }: { agent: Agent }) {
           <EmptyState illustration={<EmptySketch kind="numbers" />}
             className="mt-4"
             message="Nobody can take calls yet."
-            hint="Add the people who can take a call to your business profile, then choose them here."
+            hint="Add them to your business profile first."
             action={
               <Link href={contactsHref} className={SECONDARY_BUTTON_SM}>
                 Add people
@@ -303,7 +303,7 @@ export function Handover({ agent }: { agent: Agent }) {
           </ActionButton>
           {dirty && (
             <span className="text-xs text-ink-faint">
-              Not saved yet. Changes reach your callers the next time this agent is published.
+              Not saved yet. Applies once it is put live.
             </span>
           )}
         </div>
@@ -334,8 +334,7 @@ export function Handover({ agent }: { agent: Agent }) {
                 <p className="mt-1 text-ink-muted">{attempt.explanation}</p>
                 {attempt.second_recording_at_platform && (
                   <p className="mt-1 text-xs text-ink-faint">
-                    This part of the call was recorded separately. It is kept and deleted on
-                    the same terms as the rest of the call.
+                    Recorded separately. Kept like the rest of the call.
                   </p>
                 )}
               </li>

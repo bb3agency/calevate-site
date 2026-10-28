@@ -160,7 +160,7 @@ export function CompiledPrompt({ text, onClose }: { text: string; onClose: () =>
       open
       onClose={onClose}
       title="What the agent reads"
-      description="Your script with the rules every agent follows, exactly as sent."
+      description="Your script plus the rules every agent follows."
       width="lg"
       initialFocus="container"
     >

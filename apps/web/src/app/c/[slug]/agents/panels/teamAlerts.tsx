@@ -11,14 +11,15 @@
  * Writes are the owner's (`org:manage`); the server's refusal is shown in its own words.
  */
 
+import Link from "next/link";
 import { useId, useState } from "react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
-import { TEXT_ACTION_SM } from "@/components/console/section";
+import { TEXT_ACTION, TEXT_ACTION_SM } from "@/components/console/section";
 import { FIELD, FIELD_HINT, FIELD_LABEL, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton } from "@/components/ui";
 import type { Agent } from "@/lib/api/agents";
 import { useWriteAccess } from "@/lib/api/hooks";
-import { useClientSession } from "@/lib/api/session";
+import { useClientRealm, useClientSession } from "@/lib/api/session";
 import {
   useAddTeamContact,
   useDefaultTeamContact,
@@ -179,7 +180,7 @@ function AddContact({
   canWrite: boolean;
   reason: string | null;
 }) {
-  const session = useClientSession();
+  const { session, href } = useClientRealm();
   const add = useAddTeamContact(session);
   const feedback = useActionFeedback(add, { errorDisplay: "inline", successToast: "Code sent" });
   const [channel, setChannel] = useState<"email" | "whatsapp">("email");
@@ -228,7 +229,12 @@ function AddContact({
           </label>
         </fieldset>
       ) : (
-        <p className={FIELD_HINT}>To send on WhatsApp, connect your own WhatsApp account first.</p>
+        <p className={`${FIELD_HINT} flex flex-wrap items-center gap-x-3`}>
+          <span>WhatsApp needs your own account.</span>
+          <Link href={href(`/c/${session.orgSlug}/integrations`)} className={TEXT_ACTION}>
+            Connect WhatsApp
+          </Link>
+        </p>
       )}
       <div>
         <label htmlFor={ids.address} className={FIELD_LABEL}>
@@ -267,7 +273,7 @@ function AddContact({
               Approved template
             </label>
             <input id={ids.template} maxLength={512} value={template} onChange={(event) => setTemplate(event.target.value)} className={FIELD} />
-            <span className={FIELD_HINT}>The code to confirm the number is sent in its &ldquo;why&rdquo; blank.</span>
+            <span className={FIELD_HINT}>The confirm code goes in its &ldquo;why&rdquo; blank.</span>
           </div>
           <div>
             <label htmlFor={ids.language} className={FIELD_LABEL}>
@@ -394,13 +400,14 @@ function When({
       <label className="flex items-start gap-2 text-sm text-ink touch:min-h-11 touch:py-2.5">
         <input type="checkbox" className="mt-0.5" disabled={!canWrite} checked={inCall} onChange={(event) => setInCall(event.target.checked)} />
         <span>
-          During a call, when the agent cannot help, it tells the team at once and says so to the caller.
+          Tell the team during the call, too
           {inCall && !rule.in_call_live && rule.in_call ? (
             <span className="block text-meta text-warn">Off until an address is confirmed.</span>
           ) : null}
         </span>
       </label>
-      <p className={FIELD_HINT}>The team gets the caller&rsquo;s name, full number, call time, why, and a link to the call.</p>
+      <p className={FIELD_HINT}>The agent tells the caller it has done so.</p>
+      <p className={FIELD_HINT}>They get name, number, time, reason and call link.</p>
 
       {save.error ? <ProblemNotice error={save.error} /> : null}
       <div className="flex flex-wrap gap-2">

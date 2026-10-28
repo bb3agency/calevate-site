@@ -302,7 +302,7 @@ describe("which agents are working right now", () => {
     await screen.findByText("Half built");
     expect(within(row("Half built")).getByText("Being set up")).toBeTruthy();
     // The one sentence the old empty "Working right now" group carried, now in the header.
-    expect(screen.getByText("Nothing is answering your calls")).toBeTruthy();
+    expect(screen.getByText("0 of 1 answering calls")).toBeTruthy();
   });
 
   it("says how many lines each answering agent picks up in parallel", async () => {
@@ -328,7 +328,7 @@ describe("which agents are working right now", () => {
 
     await screen.findByText("Front desk");
     const working = roster();
-    expect(within(working).getByText(/Answers 3 numbers/)).toBeTruthy();
+    expect(within(working).getByText(/3 numbers/)).toBeTruthy();
     expect(within(working).queryByText(/Answers 0 numbers/)).toBeNull();
   });
 });
@@ -352,7 +352,7 @@ describe("what the screen says when it could not read the agents", () => {
     expect(container.textContent).not.toContain("No agents yet");
     expect(container.textContent).not.toContain("answering your calls");
     expect(container.textContent).not.toContain("answering calls");
-    expect(container.textContent).not.toContain("How changes take effect");
+    expect(container.textContent).not.toContain("When changes reach callers");
   });
 
   it("does say the account has no agents when the server said exactly that", async () => {
@@ -370,7 +370,7 @@ describe("what the screen says when it could not read the agents", () => {
     ).toBeTruthy();
     // The lane table hangs off the roster: explaining how changes reach agents that do not
     // exist yet is noise, and one more request for nothing.
-    expect(container.textContent).not.toContain("How changes take effect");
+    expect(container.textContent).not.toContain("When changes reach callers");
   });
 });
 
@@ -426,9 +426,9 @@ describe("deleting an agent from the roster", () => {
     await screen.findByText("Front desk");
 
     const panel = await chooseDelete("Front desk");
-    expect(panel.textContent).toContain("Front desk is working right now");
+    expect(panel.textContent).toContain("Front desk is taking calls");
     expect(panel.textContent).toContain(
-      "switched off before it can be deleted",
+      "Switch it off first.",
     );
     // NOT A REQUEST. The refusal is the server's to make, but a screen that fires it and
     // renders the 409 has taught the owner nothing about what to do next.
@@ -466,7 +466,7 @@ describe("deleting an agent from the roster", () => {
     const panel = await chooseDelete("Weekend line");
     // The sentence that makes the word "delete" honest, and it is the DETAIL screen's
     // sentence — `MOVE_COPY`, imported, not a second wording that could drift from it.
-    expect(panel.textContent).toContain("stay in your call log");
+    expect(panel.textContent).toContain("Its calls, recordings and leads are kept.");
     expect(calls.some((call) => call.method === "POST")).toBe(false);
 
     await act(async () => {
@@ -601,11 +601,11 @@ describe("the roster says which agents carry their own AI model", () => {
       .getByText("Weekend line")
       .closest("li") as HTMLElement;
 
-    expect(own.textContent).toContain("Its own AI model: Plus");
+    expect(own.textContent).toContain("AI model: Plus");
     // The default is NOT printed on every row: a column of identical identifiers hides the
     // one row that differs, which is the opposite of what a roster scan is for.
     expect(inherits.textContent).not.toContain("Standard");
-    expect(inherits.textContent).not.toContain("Its own AI model");
+    expect(inherits.textContent).not.toContain("AI model");
   });
 
   it("says nothing about an agent following its organisation's choice", async () => {
@@ -633,7 +633,7 @@ describe("the roster says which agents carry their own AI model", () => {
     const row = within(roster())
       .getByText("Front desk")
       .closest("li");
-    expect(row!.textContent).not.toContain("Its own AI model");
+    expect(row!.textContent).not.toContain("AI model");
   });
 });
 
@@ -650,8 +650,8 @@ describe("the activity figures come from the server or are absent", () => {
 
     await screen.findByText("Reception");
     const working = roster();
-    expect(within(working).getByText(/4,102 calls handled/)).toBeTruthy();
-    expect(within(working).getByText(/last used /)).toBeTruthy();
+    expect(within(working).getByText(/4,102 calls/)).toBeTruthy();
+    expect(within(working).getByText(/ · last /)).toBeTruthy();
   });
 
   it("says nothing at all rather than '0 calls' while the figures have not arrived", async () => {
@@ -664,7 +664,7 @@ describe("the activity figures come from the server or are absent", () => {
     );
 
     await screen.findByText("Reception");
-    expect(container.textContent).not.toContain("calls handled");
+    expect(container.textContent).not.toMatch(/\d calls?\b/);
   });
 });
 
@@ -682,16 +682,16 @@ describe("how changes take effect", () => {
       }),
     );
 
-    // WAIT FOR THE BODY, NOT THE SUMMARY. "How changes take effect" is now the title of a
+    // WAIT FOR THE BODY, NOT THE SUMMARY. "When changes reach callers" is now the title of a
     // `<Disclosure>` (UX-DOCTRINE §3 — platform reference material, read once), and a
     // disclosure's summary paints immediately while `GET /v1/agents/lanes` is still in
     // flight. Awaiting the summary would let every assertion below run against an empty
     // body and pass vacuously, which is worse than failing.
-    await screen.findByText(/Every call is capped at 15 minutes by default/);
+    await screen.findByText(/Call limit: 15 minutes by default/);
     expect(container.textContent).toContain(
-      "Every call is capped at 15 minutes by default",
+      "Call limit: 15 minutes by default",
     );
-    expect(container.textContent).toContain("between 2 minutes and 30 minutes");
+    expect(container.textContent).toContain("Set 2 minutes to 30 minutes");
     expect(container.textContent).not.toContain("10 minutes");
   });
 

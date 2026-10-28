@@ -183,8 +183,7 @@ export function ToolRow({
           }
         >
           <p>
-            Your agent stops being able to do this on calls straight away. Anything it has
-            already sent stays sent.
+            It stops doing this at once. Anything sent stays sent.
           </p>
           <p>You can set it up again later, with the same credential.</p>
         </ConfirmDialog>
@@ -227,8 +226,7 @@ export function TestPanel({
     <div className="border-t border-line pt-3">
       <p className="text-xs font-medium text-ink">Test with sample values</p>
       <p className={FIELD_HINT}>
-        This runs it for real — a WhatsApp test really sends, a booking really books, a CRM
-        record is really saved.
+        Runs for real: messages send, bookings book.
       </p>
       <div className="mt-2 space-y-2">
         {needsPhone ? (
@@ -246,8 +244,7 @@ export function TestPanel({
               />
             </label>
             <span className={FIELD_HINT}>
-              WhatsApp and payment-link tests go only to one of your business&rsquo;s own
-              contact numbers.
+              Tests go only to your own business numbers.
             </span>
           </div>
         ) : null}

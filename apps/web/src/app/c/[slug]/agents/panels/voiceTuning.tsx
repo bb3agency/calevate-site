@@ -23,6 +23,7 @@ import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { FIELD, FIELD_LABEL, NoticeBox, ProblemNotice, Skeleton } from "@/components/ui";
 import { Slider as KitSlider } from "@/components/arc/slider";
 import { TEXT_ACTION } from "@/components/console/section";
+import { InfoTip } from "@/components/console/infoTip";
 import { ApiProblem } from "@/lib/api/client";
 import { useClientSession } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
@@ -171,8 +172,7 @@ function PreviewRefusal({ error }: { error: Error }) {
   if (codeOf(error) === "voice_speed_not_for_this_voice") {
     return (
       <NoticeBox tone="warn" role="status">
-        This voice keeps the pace it was recorded at, so its speed cannot be changed. Set
-        speed back to Normal; loudness and emotion still work.
+        This voice&apos;s speed is fixed. Set speed to Normal.
       </NoticeBox>
     );
   }
@@ -220,7 +220,7 @@ export function ClientVoiceTuning({
   if (held.error || !held.data) {
     return (
       <ProblemNotice
-        error={held.error ?? new Error("How this agent sounds could not be read just now.")}
+        error={held.error ?? new Error("Couldn't load how it sounds.")}
         onRetry={() => void held.refetch()}
       />
     );
@@ -249,13 +249,21 @@ export function ClientVoiceTuning({
 
   return (
     <section aria-labelledby={`${id}-heading`} className="space-y-3">
-      <h3 id={`${id}-heading`} className="text-heading text-ink">
-        How it sounds
-      </h3>
+      {/* One line by default; how the settings behave is behind the ⓘ. */}
+      <div className="flex items-center gap-1">
+        <h3 id={`${id}-heading`} className="text-heading text-ink">
+          How it sounds
+        </h3>
+        <InfoTip label="How it sounds">
+          <p>
+            {studio
+              ? "Normal is the voice as it was made. The voice treats these as guidance, so listen before relying on one."
+              : "Normal is the voice's own pace. Loudness and emotion can be set when the agent speaks a Studio voice."}
+          </p>
+        </InfoTip>
+      </div>
       <p className="max-w-prose text-body text-ink-muted">
-        {studio
-          ? "For this agent alone. Normal is the voice as it was made. Listen before relying on a setting: the voice treats these as guidance."
-          : "For this agent alone. Normal is the voice's own pace. You hear a new speed on the agent's next call. Loudness and emotion can be set when the agent speaks a Studio voice."}
+        {studio ? "For this agent only. Hear it before you save." : "For this agent only. Speed applies from the next call."}
       </p>
       <form
         className="grid max-w-xl gap-5"
@@ -343,8 +351,7 @@ export function ClientVoiceTuning({
           )}
           {saved && (
             <span role="status" className="basis-full text-meta text-ink-muted">
-              Saved. A call already in progress finishes as it started; the next call uses
-              these.
+              Saved. The next call uses these.
             </span>
           )}
         </div>
@@ -356,8 +363,7 @@ export function ClientVoiceTuning({
       )}
       {!studio ? null : usedUp || codeOf(preview.error) === "voice_preview_daily_cap" ? (
         <NoticeBox tone="neutral" role="status">
-          You have heard all {options.previews_per_day} samples for today. You can hear more
-          tomorrow, and your saved settings still apply to calls.
+          All {options.previews_per_day} samples used today. Saving still works.
         </NoticeBox>
       ) : (
         preview.error && <PreviewRefusal error={preview.error} />

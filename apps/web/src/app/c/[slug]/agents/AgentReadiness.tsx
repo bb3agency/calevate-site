@@ -82,8 +82,8 @@ export function AgentReadinessPanel({ agentId, slug }: { agentId: string; slug: 
             value={readiness.data.score}
             label="Readiness"
             fixes={fixesFor(readiness.data, link)}
-            fixesTitle="What would raise it"
-            allDoneText="Nothing left to fix. It is ready for callers."
+            fixesTitle="Fix these to raise it"
+            allDoneText="Nothing to fix. Ready for callers."
             pointsLabel={(points) => `+${points}`}
           />
           <Disclosure variant="inline" headingLevel={3} title="How the score is made">

@@ -97,10 +97,7 @@ export function CallerContinuity({ agent }: { agent: Agent }) {
   return (
     <section>
       <h3 className="text-heading text-ink">Remembering callers</h3>
-      <p className="mt-1 text-body text-ink-muted">
-        Greets returning callers with what they asked last time, and books the call-backs
-        they ask for.
-      </p>
+      <p className="mt-1 text-body text-ink-muted">Knows returning callers. Books their call-backs.</p>
 
       {setCallerMemory.error && !needsAttestation && (
         <ProblemNotice error={setCallerMemory.error} />
@@ -108,8 +105,8 @@ export function CallerContinuity({ agent }: { agent: Agent }) {
 
       {paused && (
         <div className="mt-4">
-          <NoticeBox tone="warn" role="status" title="Caller memory is paused until you accept the updated statement">
-            No agent remembers callers until then. Accepting resumes it on every agent you left on.
+          <NoticeBox tone="warn" role="status" title="Caller memory is paused">
+            The statement changed. Accept it to resume all agents.
           </NoticeBox>
           <blockquote className="mt-3 border-l-2 border-brand pl-4 text-body text-ink">
             {agent.caller_memory_statement}
@@ -149,17 +146,18 @@ export function CallerContinuity({ agent }: { agent: Agent }) {
           <ShieldCheck aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span>
             {paused
-              ? "Once resumed, the agent tells"
+              ? "Once resumed, it tells callers a note is kept."
               : agent.caller_memory_enabled
-                ? "This agent tells"
-                : "When on, the agent tells"}{" "}
-            callers, as it says goodbye, that a short note is kept. Notes are charged like
-            other assistant work and stop at your spending limit.
+                ? "It tells callers a note is kept."
+                : "When on, it tells callers a note is kept."}
           </span>
         </p>
+        {/* Money stays visible, never only in the disclosure (howItWorks.tsx). */}
+        <p className="mt-1 pl-5.5 text-xs text-ink-muted">Notes are charged. They stop at your spending limit.</p>
 
         <HowItWorks
           items={[
+            "It says so as it says goodbye.",
             "Kept: what they wanted, what happened, and preferences like language, call time or contact.",
             "Never kept: health details, amounts of money, or their exact words.",
             "Used only for that person's calls with you, never shared. Deleted after 180 days, or sooner if asked.",

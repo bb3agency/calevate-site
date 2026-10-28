@@ -93,37 +93,40 @@ export const MOVE_COPY: Record<LifecycleMove, MoveCopy> = {
     label: "Switch on",
     busy: "Switching on…",
     done: "Switched on",
-    hint: "Puts it on the calling system and starts it taking calls. We check the platform is really running your script and voice before it goes live, so this can take a moment — and it is refused if the script has not been written yet.",
+    // Switching on is a publish with a read-back, so it can take a moment and is refused
+    // without a script; the refusal itself arrives as the server's problem notice.
+    hint: "Starts taking calls. It needs a script first.",
     icon: Power,
   },
   prepare: {
     label: "Get it ready",
     busy: "Getting it ready…",
     done: "Ready to try in the chat",
-    hint: "Puts it on the calling system so you can try it in the chat, without taking or making any calls. Switch it on when you want it answering.",
+    hint: "Try it in the chat. It takes no calls yet.",
     icon: MessageSquareText,
   },
   deactivate: {
     label: "Switch off",
     busy: "Switching off…",
     done: "Switched off",
-    hint: "Stops it answering and dialling straight away. The numbers it answers are released, so they stop being picked up by this agent. Everything else is kept and switching it back on is one button.",
+    // Switching off releases the numbers it answers (D-420), so that is said.
+    hint: "Stops all calls now. Its numbers are freed.",
     icon: PowerOff,
   },
   archive: {
     label: "Delete",
     busy: "Deleting…",
     done: "Agent deleted",
-    hint: "Use this when you are finished with an agent, rather than leaving it switched off forever.",
+    hint: "For an agent you no longer need.",
     icon: Trash2,
     danger: true,
     confirm: {
       title: "Deleting this agent",
       points: [
-        "It comes off your agents list and can no longer be put on a campaign.",
-        "The numbers it answers are released, so it stops picking up.",
-        "Its calls, recordings and everything it captured stay in your call log and your leads exactly as they are — we keep those for you by law.",
-        "You can bring it back at any time. It comes back switched off, and you switch it on again yourself.",
+        "It leaves your list and your campaigns.",
+        "Its numbers stop ringing it.",
+        "Its calls, recordings and leads are kept.",
+        "Bring it back any time. It returns switched off.",
       ],
       go: "Delete this agent",
     },
@@ -132,7 +135,9 @@ export const MOVE_COPY: Record<LifecycleMove, MoveCopy> = {
     label: "Bring it back",
     busy: "Restoring…",
     done: "Agent brought back, switched off",
-    hint: "Takes it out of the deleted list. It comes back switched OFF — we do not put an agent straight back on the phone after it has been retired, because the calling system may have moved on while it was away. Switch it on when you are ready.",
+    // Off rather than live: only a publish with its read-back can prove what the calling
+    // system holds after the agent sat retired.
+    hint: "It comes back switched off.",
     icon: Undo2,
   },
 };
@@ -176,8 +181,7 @@ export function AgentLifecycle({
        alternative is a client staring at an agent with no controls and no explanation. */
     return (
       <p className="text-sm text-ink-muted">
-        We cannot tell from here what can be done with this agent. Your account
-        manager can.
+        We can&apos;t tell what to do here. Ask us.
       </p>
     );
   }
@@ -288,7 +292,7 @@ export function LifecycleError({ error }: { error: Error | null }) {
     <ProfileBlockers
       blockers={blockers}
       href={(path: string) => realmHref(`/c/${session.orgSlug}${path}`)}
-      lead="This agent cannot take calls until these are done."
+      lead="Do these first, then it can take calls."
     />
   );
 }

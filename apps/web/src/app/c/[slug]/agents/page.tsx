@@ -99,17 +99,14 @@ export default function AgentsPage({
 
   return (
     <div className="max-w-4xl space-y-6 pb-12">
+      {/* The count is the status, as a chip (ux-writing: status as a number, not a
+          sentence); the rows say the rest. */}
       <PageHeader
-        description="Open one to change what it says, teach it, or switch it on and off."
         status={
           agents.data && roster.length > 0 ? (
-            working === 0 ? (
-              <StatusPill tone="warn">Nothing is answering your calls</StatusPill>
-            ) : (
-              <span className="text-sm text-ink-muted">
-                {working} of {roster.length} answering calls
-              </span>
-            )
+            <StatusPill tone={working === 0 ? "warn" : "ok"}>
+              {working} of {roster.length} answering calls
+            </StatusPill>
           ) : undefined
         }
         actions={

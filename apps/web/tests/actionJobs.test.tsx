@@ -295,7 +295,7 @@ describe("every action is a peer (founder, 10 Oct 2026)", () => {
 
     expect(await screen.findByRole("heading", { name: "Send a WhatsApp message" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "← All actions" })).toBeTruthy();
-    expect(screen.getByText(/Not connected\. Your agent cannot do this until it is fixed/)).toBeTruthy();
+    expect(screen.getByText(/Not connected\. It won't work until fixed/)).toBeTruthy();
     expect(screen.getByText("Try it")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Remove send_whatsapp" })).toBeTruthy();
   });

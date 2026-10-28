@@ -256,8 +256,7 @@ export function Actions({ agentId, session }: { agentId: string; session: Sessio
   return (
     <div className="max-w-2xl space-y-10">
       <p className="max-w-prose text-body text-ink-muted">
-        Your agent can book, look up and send things while it talks. Changes reach live calls
-        straight away.
+        Things it can do on calls. Changes apply at once.
       </p>
 
       <RestrictionNote reason={write.reason} />
@@ -334,7 +333,7 @@ export function Actions({ agentId, session }: { agentId: string; session: Sessio
                     title={jobTitle(job, eg)}
                     description={
                       unavailable
-                        ? "Google Calendar is not available on your account yet — ask your Calevate team."
+                        ? "Not on your account yet. Ask us."
                         : jobLine(job, eg)
                     }
                     icon={<IconTile service={jobLogo(job)} icon={ICONS[job.id]} />}

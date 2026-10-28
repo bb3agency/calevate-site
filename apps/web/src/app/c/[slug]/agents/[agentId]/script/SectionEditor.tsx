@@ -110,7 +110,7 @@ export function SectionEditor({
           rows={3}
           value={section.instruction}
           placeholder={
-            say ? "For example: Mee peru cheppagalara?" : "For example: Ask what they are looking for and when they need it."
+            say ? "For example: Mee peru cheppagalara?" : "For example: Ask what they need and when."
           }
           aria-invalid={errors("instruction").length > 0 || undefined}
           aria-describedby={describedBy || undefined}

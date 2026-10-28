@@ -224,8 +224,7 @@ export function FieldEditorRow({
           className={FIELD}
         />
         <span className={FIELD_HINT}>
-          The AI uses this to fill the field more accurately. Leave blank to use just the
-          name.
+          Optional. Helps it fill this in correctly.
         </span>
       </label>
 

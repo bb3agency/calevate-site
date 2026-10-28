@@ -65,7 +65,7 @@ export function Roster({ agents, slug }: { agents: Agent[]; slug: string }) {
   if (agents.length === 0) {
     return (
       <EmptyState illustration={<EmptySketch kind="actions" />}
-        message="No agents yet. Build one and it shows up here before it takes a call."
+        message="No agents yet."
         action={
           <Link href={href(`/c/${slug}/agents/first`)} className={PRIMARY_BUTTON}>
             <Plus aria-hidden className="h-4 w-4" />
@@ -99,7 +99,7 @@ export function Archive({ slug }: { slug: string }) {
   return (
     <Disclosure
       title={`Deleted (${archived.data.length})`}
-      subtitle="They take no calls. Their call history stays in your call log, and you can bring one back."
+      subtitle="No calls. Open one to bring it back."
     >
       <AgentList rows={archived.data} slug={slug} stats={stats.data} label="Deleted agents" archived />
     </Disclosure>
@@ -181,29 +181,31 @@ function AgentRow({
           <span title={agent.name} className="block truncate text-sm font-semibold text-ink">
             {agent.name}
           </span>
-          <span className="block text-xs text-ink-muted">
-            {direction?.label ?? humanise(agent.direction)} · Speaks {language}
+          {/* Short facts joined by dots, one line each: what it does, the language, how
+              many numbers it answers, and its own model when it has one. */}
+          <span className="block text-meta text-ink-muted">
+            {direction?.label ?? humanise(agent.direction)} · {language}
             {/* Inbound is a per-number binding, so this is the honest per-agent count of
                 calls it can answer at once; outbound concurrency is account-wide. */}
             {agent.direction !== "outbound" && (
               <>
                 {" · "}
                 {agent.inbound_number_count === 1
-                  ? "Answers 1 number"
-                  : `Answers ${formatCount(agent.inbound_number_count)} numbers`}
+                  ? "1 number"
+                  : `${formatCount(agent.inbound_number_count)} numbers`}
               </>
             )}
             {/* The server's identifier, as the invoice line prints it. */}
             {ownTier !== null && (
               <>
-                {" · "}Its own AI model: {ownTier}
+                {" · "}AI model: {ownTier}
               </>
             )}
           </span>
           {stats && (
-            <span className="block text-xs text-ink-faint">
-              {formatCount(stats.calls_total)} {stats.calls_total === 1 ? "call" : "calls"} handled
-              {stats.last_call_at !== null && <> · last used {formatIST(stats.last_call_at)}</>}
+            <span className="block text-meta text-ink-faint">
+              {formatCount(stats.calls_total)} {stats.calls_total === 1 ? "call" : "calls"}
+              {stats.last_call_at !== null && <> · last {formatIST(stats.last_call_at)}</>}
             </span>
           )}
           {agent.archived_at !== null && (
@@ -250,7 +252,7 @@ function DeleteDialog({ agent, onClose }: { agent: Agent; onClose: () => void })
   if (working) {
     return (
       <ConfirmDialog
-        title={`${agent.name} is working right now`}
+        title={`${agent.name} is taking calls`}
         confirmLabel="Switch it off"
         pendingLabel="Switching off…"
         cancelLabel="Keep it"
@@ -262,10 +264,8 @@ function DeleteDialog({ agent, onClose }: { agent: Agent; onClose: () => void })
           if (write.allowed) move.mutate("deactivate", { onSuccess: onClose });
         }}
       >
-        <p>
-          It has to be switched off before it can be deleted. Switching it off stops it
-          answering and dialling, and releases the numbers it picks up.
-        </p>
+        <p className="font-medium text-ink">Switch it off first.</p>
+        <p>{MOVE_COPY.deactivate.hint}</p>
         <RestrictionNote reason={write.reason} />
       </ConfirmDialog>
     );

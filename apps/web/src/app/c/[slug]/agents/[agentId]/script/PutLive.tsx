@@ -97,8 +97,8 @@ export function PutLiveDialog({
       description={
         <p>
           {agentOn
-            ? "Callers hear the new script from their next call. Calls already going keep the old one."
-            : "It becomes the script the agent uses. Callers hear it once you switch the agent on."}
+            ? "From the next call. Calls on now keep the old one."
+            : "Callers hear it once you switch the agent on."}
         </p>
       }
       actions={

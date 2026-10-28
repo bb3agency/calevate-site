@@ -12,7 +12,7 @@ import { SettingRows } from "@/components/console/settingRow";
 import type { Agent } from "@/lib/api/agents";
 import { pauseLabel, sourceLabel, useAgentCallHandling } from "@/lib/api/callHandling";
 import { usePendingChanges } from "@/lib/api/publishing";
-import { useClientSession } from "@/lib/api/session";
+import { useClientRealm, useClientSession } from "@/lib/api/session";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 
@@ -31,11 +31,12 @@ function usePending(agentId: string) {
 
 export function VoiceSection({ agent }: { agent: Agent }) {
   const pending = usePending(agent.id);
+  const { session, href } = useClientRealm();
   if (pending.isLoading) return <Skeleton rows={4} />;
   if (pending.error || !pending.data) {
     return (
       <ProblemNotice
-        error={pending.error ?? new Error("This agent's voice could not be read just now.")}
+        error={pending.error ?? new Error("Couldn't load its voice.")}
         onRetry={() => void pending.refetch()}
       />
     );
@@ -44,7 +45,11 @@ export function VoiceSection({ agent }: { agent: Agent }) {
     <div className="space-y-6">
       {/* No top rule: this list opens the tab, directly under the tab bar's own line. */}
       <SettingRows className="border-b border-line">
-        <VoiceNow state={pending.data} published={agent.published} />
+        <VoiceNow
+          state={pending.data}
+          published={agent.published}
+          creditHref={href(`/c/${session.orgSlug}/billing`)}
+        />
       </SettingRows>
       <VoiceChoice agentId={agent.id} state={pending.data} />
       <ClientVoiceTuning agentId={agent.id} voiceId={agent.engine_voice_id ?? null} />
@@ -109,7 +114,7 @@ export function CallHandlingSection({ agent }: { agent: Agent }) {
           <Skeleton rows={2} />
         ) : pending.error || !pending.data ? (
           <ProblemNotice
-            error={pending.error ?? new Error("This agent's call limit could not be read just now.")}
+            error={pending.error ?? new Error("Couldn't load its call limit.")}
             onRetry={() => void pending.refetch()}
           />
         ) : (

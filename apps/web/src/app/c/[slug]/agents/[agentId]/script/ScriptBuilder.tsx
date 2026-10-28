@@ -166,10 +166,7 @@ export function ScriptBuilder({
   if (deleted) {
     return (
       <NoticeBox tone="warn" title="This agent is deleted">
-        <p className="mt-1">
-          Its script is kept as a record. Bring the agent back from its own screen to edit
-          it; it returns switched off.
-        </p>
+        <p className="mt-1">Read-only. Bring the agent back to edit it.</p>
       </NoticeBox>
     );
   }
@@ -461,7 +458,7 @@ function Editor({
         <div className="rounded-card border border-dashed border-line px-4 py-8 text-center">
           <p className="text-body text-ink">No steps yet.</p>
           <p className="mx-auto mt-1 max-w-md text-meta text-ink-muted">
-            Most calls go: greet, find out the need, help, agree what happens next.
+            Most calls: greet, ask the need, help, agree next steps.
           </p>
           {write.allowed && (
             <div className="mt-4 flex flex-wrap justify-center gap-2">
@@ -506,7 +503,7 @@ function Editor({
                 <div className="px-4 py-8 text-center">
                   <p className="text-body text-ink">Choose a step to edit it here.</p>
                   <p className="mx-auto mt-1 max-w-64 text-meta text-ink-muted">
-                    Drag a step to move it, or its dot to another step to add a way out.
+                    Drag a step to move it. Drag its dot to link steps.
                   </p>
                 </div>
               )}
@@ -768,7 +765,8 @@ function Editor({
             edit((s) => removeSection(s, id));
           }}
         >
-          <p>It comes out of your draft. Callers keep hearing the live script until you put it live.</p>
+          <p>Removed from your draft only.</p>
+          <p>Callers hear no change until you put it live.</p>
           {pointersTo(sections, deleting).length > 0 && (
             <p>
               {pointersTo(sections, deleting).join(", ")} {pointersTo(sections, deleting).length === 1 ? "goes" : "go"} to
@@ -793,11 +791,17 @@ function Editor({
             edit(raw ? { ...EMPTY_SCRIPT } : { ...EMPTY_SCRIPT, raw_override: scriptAsText(script) });
           }}
         >
-          <p>
-            {raw
-              ? "The text box is cleared from your draft and you start with empty steps. To keep your text, use “Turn this into steps” instead."
-              : "Everything you built is copied into one text box, so nothing is lost. The steps are cleared from your draft. Callers keep hearing the live script until you put it live."}
-          </p>
+          {raw ? (
+            <>
+              <p>Your text is cleared. You start with empty steps.</p>
+              <p>To keep it, use “Turn this into steps” instead.</p>
+            </>
+          ) : (
+            <>
+              <p>Your steps are copied into one text box. Nothing is lost.</p>
+              <p>Callers hear no change until you put it live.</p>
+            </>
+          )}
         </ConfirmDialog>
       )}
     </div>

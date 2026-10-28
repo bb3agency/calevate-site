@@ -37,31 +37,31 @@ export const JOBS: readonly Job[] = [
     id: "caller_lookup",
     kind: "caller_lookup",
     title: "Know who is calling",
-    line: "Your agent looks the caller up in your CRM or a sheet and greets them by name.",
+    line: "Greets callers by name from your CRM or sheet.",
   },
   {
     id: "booking",
     kind: "calendar",
     title: "Take bookings",
-    line: "Your agent can check your Google Calendar and book callers in.",
+    line: "Checks your Google Calendar and books callers in.",
   },
   {
     id: "whatsapp",
     kind: "whatsapp",
     title: "Send a WhatsApp message",
-    line: "Your agent sends one of your approved WhatsApp messages, such as your price list.",
+    line: "Sends your approved WhatsApp messages, like a price list.",
   },
   {
     id: "payment_link",
     kind: "payment_link",
     title: "Send a payment link",
-    line: "Your agent sends a payment link on WhatsApp. The money goes to your own account.",
+    line: "Sends a payment link on WhatsApp. Paid to you.",
   },
   {
     id: "crm",
     kind: "crm",
     title: "Save callers to your CRM",
-    line: "Each caller is saved as a lead or a contact while the call carries on.",
+    line: "Saves each caller as a lead or contact.",
   },
   {
     id: "sheets",
@@ -73,7 +73,7 @@ export const JOBS: readonly Job[] = [
     id: "custom_api",
     kind: "custom_api",
     title: "Use your own API",
-    line: "For your developer: your agent calls an address on your own system during the call.",
+    line: "For your developer: calls your own system mid-call.",
   },
 ];
 

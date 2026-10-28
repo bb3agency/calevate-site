@@ -46,10 +46,7 @@ export function HandWritten({
             and whether the call is recorded, are added for you.
           </InfoTip>
         </div>
-        <span className={FIELD_HINT}>
-          Brief it like a new member of staff. Put the greeting on the line after one that reads
-          [OPENING].
-        </span>
+        <span className={FIELD_HINT}>Brief it like new staff. Greeting goes under [OPENING].</span>
         <textarea
           id="raw-script"
           className={`${FIELD} min-h-[40dvh] font-mono`}
@@ -72,7 +69,7 @@ export function HandWritten({
           disabled={!write.allowed || readOnly || text.trim().length < 10}
         />
         <p className="text-meta text-ink-muted">
-          You review every step on this page before anything is replaced. Uses your AI allowance.
+          You check each step first. Uses your AI allowance.
         </p>
       </div>
     </div>

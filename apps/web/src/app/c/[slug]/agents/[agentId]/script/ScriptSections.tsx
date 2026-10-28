@@ -19,6 +19,7 @@
  * (`usePlainText`), by the same rule as the kit's `ScriptEditor`.
  */
 
+import Link from "next/link";
 import type { ReactNode } from "react";
 import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
 
@@ -33,6 +34,7 @@ import {
 } from "@/components/ui";
 import { InfoTip } from "@/components/console/infoTip";
 import { TEXT_ACTION } from "@/components/console/section";
+import { useSectionLink } from "@/components/console/settingsLayout";
 import type {
   CallScript,
   CodeMix,
@@ -264,9 +266,9 @@ export function variablesNote(direction?: string): string {
   const places = direction !== "inbound";
   const answers = direction === "inbound" || direction === "both";
   return [
-    places ? "On a call this agent places, a caller detail is filled from the lead." : "",
-    answers ? "On a call it answers, it is filled only when the caller has called before." : "",
-    "When there is no value, it is left out and the sentence still reads.",
+    places ? "On calls it places, filled from the lead." : "",
+    answers ? "On calls it answers, only if they called before." : "",
+    "With no value, it is left out and the line still reads.",
   ]
     .filter(Boolean)
     .join(" ");
@@ -307,7 +309,7 @@ export function OpeningEditor({
     {
       id: "opening_line",
       title: "Opening line",
-      hint: "The first thing it says on every call, straight after any notices you switched on, so it has to fit the room they leave.",
+      hint: "Its first words, after any notices. Keep it short.",
       value: script.opening_line,
       maxChars: room,
       placeholder: "For example: Namaskaram andi, cheppandi, em kavali?",
@@ -426,7 +428,7 @@ export function StyleSection({
       <TextBox
         id="sample-phrases"
         label="Phrases it can use"
-        hint="One per line, in your callers' language. It varies them rather than repeating one."
+        hint="One per line, in your callers' language."
         rows={3}
         value={style.sample_phrases.join("\n")}
         onChange={(v) => patch({ sample_phrases: v.split("\n") })}
@@ -434,8 +436,7 @@ export function StyleSection({
       <div>
         <span className={FIELD_LABEL}>Names and how to say them</span>
         <span className={FIELD_HINT}>
-          Products, places or people, and exactly what to call them on a call, such as a product&apos;s name in
-          your callers&apos; language. The agent never translates a name itself.
+          Names it must say exactly. It never translates a name.
         </span>
         {style.pronunciations.length > 0 && (
           <ul className="mt-2 space-y-2">
@@ -507,7 +508,7 @@ export function ObjectionsSection({
                   rows={2}
                   aria-label={`Objection ${i + 1}: how to answer`}
                   value={o.response}
-                  placeholder="Say what makes it worth the price. If they still say no, accept it."
+                  placeholder="Say why it is worth it. Accept a final no."
                   onChange={(e) => update(i, { response: plain.take(e.target.value) })}
                 />
               </div>
@@ -540,16 +541,17 @@ export function PoliciesSection({
   context: ScriptContext | null;
 }) {
   const trial = context !== null && !context.call_backs_available;
+  const settings = useSectionLink("settings");
   return (
     <Section
       id="policies"
-      hint="Stop-calling requests are always recorded, and the agent always answers truthfully whether it is an AI."
+      hint="Always on: stop-calling requests, and honesty about AI."
     >
       <ToggleSwitch
         label="Offer a call back when it cannot help"
         hint={
           trial
-            ? "During your free trial the agent never offers a call back, because none can be placed. It says the business will get back to them instead."
+            ? "Not on a free trial. It says you will get back to them."
             : "When off, it says the business will get back to them."
         }
         checked={policies.offer_call_backs && !trial}
@@ -558,7 +560,7 @@ export function PoliciesSection({
       />
       <ToggleSwitch
         label="Tell callers prices"
-        hint="Only prices it finds in what you taught it. When off, it says the team will share them."
+        hint="Only prices you taught it. Off: the team shares them."
         checked={policies.share_prices}
         onChange={(next) => onChange({ ...policies, share_prices: next })}
       />
@@ -568,11 +570,20 @@ export function PoliciesSection({
         checked={policies.take_bookings}
         onChange={(next) => onChange({ ...policies, take_bookings: next })}
       />
-      <p className="text-sm text-ink-muted">
-        {context?.hand_over_enabled
-          ? "Handing a caller to a person is on. It happens only when they ask for a person and someone is on duty."
-          : "Handing a caller to a person is off. When a caller asks for one, the agent says nobody is free right now."}
-      </p>
+      {/* A status and the button that changes it, not a sentence: hand-over is set in the
+          Settings tab, reached through the tabs' own unsaved-edits guard. */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-ink-muted">
+        <span>
+          {context?.hand_over_enabled
+            ? "Hand-over to a person: on, when someone is on duty."
+            : "Hand-over to a person: off. It says nobody is free."}
+        </span>
+        {settings && (
+          <Link href={settings.href} onClick={settings.onClick} scroll={false} className={TEXT_ACTION}>
+            Change
+          </Link>
+        )}
+      </div>
     </Section>
   );
 }
@@ -612,7 +623,7 @@ export function ExampleSection({
   const edit = (next: ExampleLine[]) => onChange(next, false);
   const plain = usePlainText();
   return (
-    <Section id="example" hint="A few lines in your callers' language. It copies the style, never the facts.">
+    <Section id="example" hint="A few lines in your callers' language. Style only.">
       {needsReview && lines.length > 0 && (
         <NoticeBox
           tone="warn"
@@ -674,12 +685,12 @@ export function StrictnessSection({
     {
       value: "flexible" as const,
       label: "Use the steps as a guide",
-      hint: "It follows your order but goes where the caller takes the call, and skips what is already done.",
+      hint: "It follows your order, but goes where the caller goes.",
     },
     {
       value: "strict" as const,
       label: "Follow the steps closely",
-      hint: "It goes through them in order and keeps to your exact-words lines as closely as it can.",
+      hint: "It goes in order and keeps closely to your exact words.",
     },
   ];
   // One line on the page; what each choice does is behind the ⓘ, because an owner picks

@@ -30,7 +30,7 @@ export function ScriptHistory({
   // The dialog shows a refusal inside itself; the restored draft appears in the editor.
   const restoreFeedback = useActionFeedback(restore, {
     errorDisplay: "inline",
-    successToast: "Restored to your draft. Callers hear it once you put it live.",
+    successToast: "Restored to your draft. Put it live to use it.",
   });
   const write = useWriteAccess(session, "org:manage", "restore an earlier script");
   const [asking, setAsking] = useState<ScriptVersion | null>(null);
@@ -39,7 +39,7 @@ export function ScriptHistory({
   if (!versions.data) return <Skeleton rows={4} label="Loading the history" />;
   const rows = versions.data;
   if (rows.length === 0) {
-    return <p className="text-body text-ink-muted">Nothing has been put live yet. Each time you do, it is listed here.</p>;
+    return <p className="text-body text-ink-muted">Nothing put live yet.</p>;
   }
   return (
     <>
@@ -89,7 +89,7 @@ export function ScriptHistory({
         >
           <p>
             Your current draft is replaced by the script from {formatIST(asking.created_at)}.
-            Callers keep hearing the live script until you put the draft live.
+            Callers hear no change until you put it live.
           </p>
         </ConfirmDialog>
       )}
