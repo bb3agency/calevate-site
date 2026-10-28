@@ -15,7 +15,7 @@ import { ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
 import { agentKeys, useAgents, type Agent } from "@/lib/api/agents";
 import { useBusinessProfile } from "@/lib/api/businessProfile";
 import type { CallSummary } from "@/lib/api/client";
-import { useDismissFirstRun, useFirstRun } from "@/lib/api/firstRun";
+import { useDismissFirstRun, useFirstRun, type FirstRunDocument } from "@/lib/api/firstRun";
 import { useCalls, useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
@@ -29,6 +29,7 @@ import {
   STEP_OF_STAGE,
   charCount,
   defaultLanguage,
+  documentLine,
   firstAgentOf,
   introFor,
   piecesOf,
@@ -119,7 +120,16 @@ export function MeetYourAgent({ slug }: { slug: string }) {
   else if (agents.isError) body = <ProblemNotice error={agents.error} onRetry={() => void agents.refetch()} />;
   else if (!loaded || stage === null || write.unknown) body = <Skeleton rows={6} label="Getting your agent ready…" />;
   else if (!write.allowed) body = <RestrictionNote reason={write.reason} />;
-  else if (pip) body = <PipPanel slug={slug} agent={agent} pieces={pieces} onClose={() => setPip(false)} />;
+  else if (pip)
+    body = (
+      <PipPanel
+        slug={slug}
+        agent={agent}
+        pieces={pieces}
+        documents={run.data?.documents ?? []}
+        onClose={() => setPip(false)}
+      />
+    );
   else {
     const data = run.data!;
     switch (stage) {
@@ -195,6 +205,8 @@ export function MeetYourAgent({ slug }: { slug: string }) {
       loaded={loaded}
       compact={compact}
       voiceNote={voiceNote}
+      documents={run.data?.documents ?? []}
+      openingEditable={!(stage === "hear" || (stage === "build" && run.data?.build.status === "built"))}
     />
   );
 
@@ -275,11 +287,13 @@ function PipPanel({
   slug,
   agent,
   pieces,
+  documents,
   onClose,
 }: {
   slug: string;
   agent: Agent | null;
   pieces: readonly Piece[];
+  documents: readonly FirstRunDocument[];
   onClose: () => void;
 }) {
   const { session, href } = useClientRealm();
@@ -290,7 +304,7 @@ function PipPanel({
     title: "Meet your agent",
     realm: "client",
     fields: [],
-    facts: surfaceFacts(agent, pieces),
+    facts: surfaceFacts(agent, pieces, documents),
     apply: noFill,
   });
   const declared = useCopilotSurfaceHolder();
@@ -332,12 +346,17 @@ function PipPanel({
 
 /** What Pip is told about this screen: the pieces and the agent's current values, by name
  *  (the screen guide skips any piece marked done). */
-function surfaceFacts(agent: Agent | null, pieces: readonly Piece[]) {
+function surfaceFacts(agent: Agent | null, pieces: readonly Piece[], documents: readonly FirstRunDocument[]) {
   const facts = [
     {
       key: "pieces",
       label: "Pieces of the first agent (done or to do)",
       value: pieces.map((piece) => `${piece.label}: ${piece.done ? "done" : "to do"}`).join("; "),
+    },
+    {
+      key: "documents",
+      label: "Files the owner added for the agent to read",
+      value: documents.map((document) => `${document.name}: ${documentLine(document)}`).join("; ") || "none",
     },
   ];
   if (agent === null) return [...facts, { key: "agent", label: "The agent being built", value: "none yet" }];

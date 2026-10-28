@@ -212,7 +212,7 @@ export function AddLink({ allowed, reason }: { allowed: boolean; reason: string 
 }
 
 /** The one rule the browser previews: the API's `MAX_UPLOAD_BYTES`, said its way. */
-function sizeProblem(file: File): string | null {
+export function sizeProblem(file: File): string | null {
   if (file.size === 0) return "That file is empty.";
   if (file.size > MAX_UPLOAD_MB * 1024 * 1024) {
     return `Over ${MAX_UPLOAD_MB} MB. Send a smaller file.`;

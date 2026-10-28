@@ -24,6 +24,7 @@ import { lookup } from "@/lib/lookup";
 import { examplesFor } from "@/lib/verticalExamples";
 import { useVerticalExamples } from "@/lib/useVerticalExamples";
 
+import { BriefDocuments } from "./BriefDocuments";
 import { StepScreen } from "./shell";
 import { FIRST } from "../../setup/_ui/copy";
 import { Why } from "@/components/why";
@@ -43,7 +44,8 @@ export const HEARD_FAILURES: Record<string, string> = {
  * AI-written one once it exists, else the trade's example), so the owner edits rather than
  * faces a blank box. Other trades' examples are a tap away. A microphone takes up to three
  * pieces of 30 seconds; each one's words are added to the box once heard, for the owner to
- * correct, and the audio is deleted as soon as it is heard.
+ * correct, and the audio is deleted as soon as it is heard. Files the owner already has (a
+ * price list, a menu) can be added beside the words or instead of them (`BriefDocuments`).
  */
 export function BriefStep({
   run,
@@ -147,6 +149,8 @@ export function BriefStep({
         onHeard={(words) => setBrief((current) => [(current ?? "").trim(), words].filter(Boolean).join("\n"))}
         onTypeInstead={() => box.current?.focus()}
       />
+
+      <BriefDocuments run={run} />
 
       <div>
         <h3 className="text-heading text-ink">Start from another example</h3>

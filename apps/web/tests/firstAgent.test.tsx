@@ -32,7 +32,7 @@ import { answersBody, emptyAnswer } from "@/lib/firstRunQuestions";
 
 import { businessProfileFixture } from "./businessProfileFixture";
 import { OWNER_ME, agentRow } from "./fixtures/sharedReads";
-import { renderClientPage } from "./harness";
+import { problem, renderClientPage } from "./harness";
 
 /**
  * "MEET YOUR AGENT" (D-855): the job, the brief, the questions, the build ticked as it
@@ -70,11 +70,13 @@ function run(over: Partial<FirstRun> = {}): FirstRun {
     language_primary: null,
     languages_extra: [],
     brief: null,
+    documents: [],
+    documents_left: 3,
     agent_id: null,
     questions: { status: "idle", items: [], disclosure: null },
     build: {
       status: "idle",
-      steps: STEPS.map((step) => ({ step, state: "waiting", label: null, not_female: false })),
+      steps: STEPS.map((step) => ({ step, state: "waiting", label: null, not_female: false, documents_used: 0 })),
       disclosure: null,
       builds_left: 3,
     },
@@ -96,10 +98,10 @@ function built(over: Partial<FirstRun> = {}): FirstRun {
     build: {
       status: "built",
       steps: [
-        { step: "voice", state: "done", label: "Lakshmi", not_female: false },
-        { step: "script", state: "done", label: null, not_female: false },
-        { step: "greeting", state: "done", label: null, not_female: false },
-        { step: "notice", state: "done", label: null, not_female: false },
+        { step: "voice", state: "done", label: "Lakshmi", not_female: false, documents_used: 0 },
+        { step: "script", state: "done", label: null, not_female: false, documents_used: 0 },
+        { step: "greeting", state: "done", label: null, not_female: false, documents_used: 0 },
+        { step: "notice", state: "done", label: null, not_female: false, documents_used: 0 },
       ],
       disclosure: null,
       builds_left: 2,
@@ -184,6 +186,7 @@ function routes(over: Record<string, unknown> = {}) {
     "/v1/business-copy": { placeholders: null, steps: [], caller_details: [], example_questions: [], language: null, generated_at: null, refresh: null },
     "/v1/copilot/consent": { status: "accepted", can_accept: true, can_withdraw: true, text: "", text_sha256: "a", version: 1, accepted_at: null, withdrawn_at: null },
     "/v1/agents/engine-catalogue": { available: true, voices: [], models: [] },
+    "/v1/kb/knows": { facts: [], facts_state: "none", items: [], pinned_not_yet_on: [] },
     ...over,
   };
 }
@@ -299,7 +302,7 @@ describe("the pieces and where an owner resumes", () => {
   });
 
   it("moves each build row only on the server's word", () => {
-    const waiting = { step: "script" as const, state: "waiting", label: null, not_female: false };
+    const waiting = { step: "script" as const, state: "waiting", label: null, not_female: false, documents_used: 0 };
     expect(rowStateOf(waiting, true, false)).toBe("working");
     expect(rowStateOf(waiting, false, false)).toBe("waiting");
     expect(rowStateOf(waiting, true, true)).toBe("failed");
@@ -309,7 +312,7 @@ describe("the pieces and where an owner resumes", () => {
   });
 
   it("says the AI notice is said after the greeting, or why it is not (D-864)", () => {
-    const notice = { step: "notice" as const, label: null, not_female: false };
+    const notice = { step: "notice" as const, label: null, not_female: false, documents_used: 0 };
     expect(metaOf({ ...notice, state: "done" })).toBe("Said right after its greeting on every call");
     expect(metaOf({ ...notice, state: "off" })).toBe("Kept off, as you set it");
     expect(metaOf({ ...notice, state: "no_room" })).toBe("No room after its greeting. Shorten the greeting to add it.");
@@ -332,22 +335,22 @@ describe("the pieces and where an owner resumes", () => {
   });
 
   it("says what really happened at each build step, fallbacks included", () => {
-    expect(metaOf({ step: "voice", state: "done", label: "Lakshmi", rung: "studio", fallback: null, not_female: false })).toBe("Lakshmi · Studio");
-    expect(metaOf({ step: "voice", state: "done", label: "Bindu", rung: "clear", fallback: "studio_minutes_used", not_female: false })).toBe(
+    expect(metaOf({ step: "voice", state: "done", label: "Lakshmi", rung: "studio", fallback: null, not_female: false, documents_used: 0 })).toBe("Lakshmi · Studio");
+    expect(metaOf({ step: "voice", state: "done", label: "Bindu", rung: "clear", fallback: "studio_minutes_used", not_female: false, documents_used: 0 })).toBe(
       "Bindu · Clear. Your trial's Studio minutes are used, so it uses a Clear voice.",
     );
     expect(studioFallbackLine("studio_unavailable")).toBe("Studio voices aren't available right now, so it uses a Clear voice.");
     expect(studioFallbackLine(null)).toBeNull();
-    expect(metaOf({ step: "voice", state: "done", label: "Bindu", rung: "clear", fallback: "no_female_studio_voice", not_female: false })).toBe(
+    expect(metaOf({ step: "voice", state: "done", label: "Bindu", rung: "clear", fallback: "no_female_studio_voice", not_female: false, documents_used: 0 })).toBe(
       "Bindu · Clear. No Studio woman's voice speaks this language yet, so it uses a Clear voice.",
     );
-    expect(metaOf({ step: "voice", state: "done", label: "Ravi", rung: "studio", fallback: null, not_female: true })).toBe(
+    expect(metaOf({ step: "voice", state: "done", label: "Ravi", rung: "studio", fallback: null, not_female: true, documents_used: 0 })).toBe(
       `Ravi · Studio. ${NOT_FEMALE_LINE}`,
     );
     expect(voicePickNote(null, false)).toBeNull();
     expect(NOT_FEMALE_LINE).not.toMatch(/thinnest|cartesia/i);
-    expect(metaOf({ step: "voice", state: "none", label: null, not_female: false })).toMatch(/Pick one before the call/);
-    expect(metaOf({ step: "script", state: "ready_made", label: null, not_female: false })).toMatch(/ready-made script/);
+    expect(metaOf({ step: "voice", state: "none", label: null, not_female: false, documents_used: 0 })).toMatch(/Pick one before the call/);
+    expect(metaOf({ step: "script", state: "ready_made", label: null, not_female: false, documents_used: 0 })).toMatch(/ready-made script/);
   });
 });
 
@@ -398,6 +401,167 @@ describe("meet your agent", () => {
     expect(box.value.length).toBeGreaterThan(20);
     expect(screen.getByText("Only the text is kept, not the audio.")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Talk it through with Pip instead/ })).toBeTruthy();
+  });
+
+  it("lists the brief's files by state: being read, read but not on calls, and unreadable with a way to try another", async () => {
+    const reading = "0192f3a4-0000-7000-8000-00000000d001";
+    const pdf = "0192f3a4-0000-7000-8000-00000000d002";
+    const broken = "0192f3a4-0000-7000-8000-00000000d003";
+    const withFiles = run({
+      jobs: ["answer_calls"],
+      language_primary: "te-IN",
+      documents: [
+        { upload_id: reading, name: "menu.jpg", source_kind: "image", state: "reading", detail: null, reaches_agents: true },
+        { upload_id: pdf, name: "prices.pdf", source_kind: "pdf", state: "read", detail: null, reaches_agents: false },
+        { upload_id: broken, name: "old.xlsx", source_kind: "xlsx", state: "failed", detail: "No words found.", reaches_agents: true },
+      ],
+      documents_left: 0,
+    });
+    const { calls } = await renderClientPage(
+      page,
+      routes({
+        "/v1/first-run": withFiles,
+        [`DELETE /v1/first-run/documents/${broken}`]: { ...withFiles, documents: withFiles.documents.slice(0, 2), documents_left: 1 },
+      }),
+    );
+    await screen.findByText("Or add a file");
+    const step = screen.getByRole("region", { name: "This step" });
+    expect(within(step).getByText("menu.jpg")).toBeTruthy();
+    expect(within(step).getByText("Reading it…")).toBeTruthy();
+    expect(within(step).getByText("Read. Not used on calls yet.")).toBeTruthy();
+    expect(within(step).getByText("Couldn't read this file.")).toBeTruthy();
+    // At the bound, no picker: the line says where more go.
+    expect(within(step).getByText("That's the most for now. Add more under Knowledge.")).toBeTruthy();
+    fireEvent.click(within(step).getByRole("button", { name: "Try another file" }));
+    await waitFor(() =>
+      expect(calls.some((call) => call.method === "DELETE" && call.path === `/v1/first-run/documents/${broken}`)).toBe(true),
+    );
+  });
+
+  it("uploads a brief file through the knowledge upload, then records it on the first run", async () => {
+    const UPLOAD = "0192f3a4-0000-7000-8000-00000000d010";
+    // `apiUpload` is an XMLHttpRequest (upload progress); `knowledgeUploads.test.tsx` has the full stub.
+    const sentUploads: string[] = [];
+    class UploadXhr {
+      status = 0;
+      responseText = "";
+      withCredentials = false;
+      readonly upload = new EventTarget();
+      private readonly events = new EventTarget();
+      private url = "";
+      open(_method: string, url: string) {
+        this.url = url;
+      }
+      setRequestHeader() {}
+      getResponseHeader(name: string) {
+        return name.toLowerCase() === "content-type" ? "application/json" : null;
+      }
+      addEventListener(type: string, listener: EventListener) {
+        this.events.addEventListener(type, listener);
+      }
+      abort() {}
+      send() {
+        sentUploads.push(this.url);
+        queueMicrotask(() => {
+          this.status = 201;
+          this.responseText = JSON.stringify({ id: UPLOAD, name: "menu.docx" });
+          this.events.dispatchEvent(new Event("load"));
+        });
+      }
+    }
+    vi.stubGlobal("XMLHttpRequest", UploadXhr);
+    const before = run({ jobs: ["answer_calls"], language_primary: "te-IN" });
+    const { calls, container } = await renderClientPage(
+      page,
+      routes({
+        "/v1/first-run": before,
+        "POST /v1/first-run/documents": {
+          ...before,
+          documents: [
+            { upload_id: UPLOAD, name: "menu.docx", source_kind: "docx", state: "reading", detail: null, reaches_agents: true },
+          ],
+          documents_left: 2,
+        },
+      }),
+    );
+    await screen.findByText("Or add a file");
+    const input = container.querySelector<HTMLInputElement>("input[type=file]");
+    const file = new File(["Idli 40"], "menu.docx", { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
+    fireEvent.change(input!, { target: { files: [file] } });
+    const step = screen.getByRole("region", { name: "This step" });
+    expect(await within(step).findByText("Reading it…")).toBeTruthy();
+    vi.unstubAllGlobals();
+    expect(sentUploads).toHaveLength(1);
+    expect(sentUploads[0].endsWith("/v1/kb/uploads")).toBe(true);
+    expect(calls.filter((call) => call.method === "POST").map((call) => call.path)).toEqual(["/v1/first-run/documents"]);
+    const linked = calls.find((call) => call.path === "/v1/first-run/documents");
+    expect(JSON.parse(linked?.body ?? "{}")).toEqual({ upload_id: UPLOAD });
+  });
+
+  it("edits the opening line in place on Hear it, counting against the server's room, and saves it through the agent's route", async () => {
+    const withRoom = agent({
+      greeting_budget: {
+        limit: 200,
+        opening_chars: 50,
+        opening_room: 60,
+        opening_room_with_ai_disclosure: 40,
+        opening_room_with_recording_notice: 30,
+      },
+    });
+    const { calls } = await renderClientPage(
+      page,
+      routes({
+        "/v1/first-run": built(),
+        "/v1/agents": [withRoom],
+        [`/v1/calls?agent_id=${AGENT_ID}&limit=1`]: [],
+        "/v1/trial": TRIAL,
+        "/v1/legal/readiness": READINESS,
+        "/v1/compliance/outbound-pledge": PLEDGE,
+        [`PUT /v1/agents/${AGENT_ID}/script/opening-line`]: { opening_line: "Namaskaram! Emi kavali?", version: 2 },
+      }),
+    );
+    await screen.findByRole("heading", { name: "Hear Anjali on your phone" });
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    const box = screen.getByRole("textbox", { name: "Opening line" }) as HTMLTextAreaElement;
+    fireEvent.change(box, { target: { value: "x".repeat(61) } });
+    expect(screen.getByText("1 character too long")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(box, { target: { value: "Namaskaram! Emi kavali?" } });
+    expect(screen.getByText("37 characters left")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(calls.some((call) => call.method === "PUT" && call.path === `/v1/agents/${AGENT_ID}/script/opening-line`)).toBe(true),
+    );
+    const sent = calls.find((call) => call.path === `/v1/agents/${AGENT_ID}/script/opening-line`);
+    expect(JSON.parse(sent?.body ?? "{}")).toEqual({ opening_line: "Namaskaram! Emi kavali?" });
+  });
+
+  it("shows the server's refusal of an opening line in one short line, and Cancel leaves it as it was", async () => {
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/first-run": built(),
+        "/v1/agents": [agent()],
+        [`/v1/calls?agent_id=${AGENT_ID}&limit=1`]: [],
+        "/v1/trial": TRIAL,
+        "/v1/legal/readiness": READINESS,
+        "/v1/compliance/outbound-pledge": PLEDGE,
+        [`PUT /v1/agents/${AGENT_ID}/script/opening-line`]: problem(409, {
+          code: "script_change_waiting",
+          title: "Script changes are waiting",
+          detail: "This agent has script changes that are not live yet.",
+        }),
+      }),
+    );
+    await screen.findByRole("heading", { name: "Hear Anjali on your phone" });
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Opening line" }), { target: { value: "Hello, Madhav Homes?" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    const alert = await screen.findByRole("alert");
+    expect(within(alert).getByText("Script changes are waiting")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("textbox", { name: "Opening line" })).toBeNull();
+    expect(screen.getAllByText("“Namaskaram, Madhav Homes. Meeku ela help cheyagalanu?”").length).toBeGreaterThan(0);
   });
 
   it("shows the build's real steps ticked, then the agent by name", async () => {
@@ -469,7 +633,7 @@ describe("meet your agent", () => {
     expect(await screen.findByText("You have used today's test calls.")).toBeTruthy();
   });
 
-  it("shows the build live on the stage, the step being worked on named by what it does", async () => {
+  it("shows the build as its real steps, the one being worked on named by what it does", async () => {
     const building = run({
       jobs: ["answer_calls"],
       language_primary: "te-IN",
@@ -477,12 +641,44 @@ describe("meet your agent", () => {
       build: { ...run().build, status: "building" },
     });
     await renderClientPage(page, routes({ "/v1/first-run": building }));
-    expect(await screen.findByRole("region", { name: "Your agent being built" })).toBeTruthy();
-    // A picture, one caption in words, and every step in a list a screen reader reads.
-    expect(screen.getByRole("img", { name: "Your agent's card being put together" })).toBeTruthy();
-    expect(screen.getByText("0 of 4 · Choosing a voice for Telugu")).toBeTruthy();
-    expect(screen.getByText(/Voice: Working on it, Choosing a voice for Telugu/)).toBeTruthy();
-    expect(screen.getByText(/AI notice: Waiting/)).toBeTruthy();
+    const list = await screen.findByRole("region", { name: "Your agent being built" });
+    // No picture (D-918): each step is a row with what is happening, in words.
+    expect(within(list).queryByRole("img")).toBeNull();
+    expect(within(list).getAllByText("Choosing a voice for Telugu").length).toBeGreaterThan(0);
+    expect(within(list).getByText("Working on it:")).toBeTruthy();
+    expect(within(list).getAllByText("Waiting:")).toHaveLength(3);
+    expect(within(list).getByText("AI notice")).toBeTruthy();
+  });
+
+  it("names a file the build went without, with a way to try another", async () => {
+    const DOC = "0192f3a4-0000-7000-8000-00000000d001";
+    const steps = run().build.steps.map((step) =>
+      step.step === "script"
+        ? { ...step, state: "done", left_out: [{ upload_id: DOC, why: "failed" as const }] }
+        : { ...step, state: "done" },
+    );
+    const done = built({
+      build: { status: "built", steps, disclosure: null, builds_left: 2 },
+      documents: [
+        { upload_id: DOC, name: "menu.jpg", source_kind: "image", state: "failed", detail: "No words found.", reaches_agents: true },
+      ],
+      documents_left: 2,
+    });
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/first-run": done,
+        "/v1/agents": [agent()],
+        [`/v1/calls?agent_id=${AGENT_ID}&limit=1`]: [],
+        "/v1/trial": TRIAL,
+        "/v1/legal/readiness": READINESS,
+        "/v1/compliance/outbound-pledge": PLEDGE,
+      }),
+    );
+    await screen.findByRole("heading", { name: "Hear Anjali on your phone" });
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(await screen.findByText("Built without menu.jpg: couldn't read it.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Try another file" })).toBeTruthy();
   });
 
   it("reads the brief on the stage while the questions are written, with a way to build at once", async () => {

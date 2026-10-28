@@ -2915,6 +2915,10 @@ const CLIENT_SCREENS: Screen[] = [
         language_primary: "te-IN",
         languages_extra: ["en-IN"],
         brief: "We sell flats in Kondapur.",
+        documents: [
+          { upload_id: "0192f3a4-0000-7000-8000-00000000d001", name: "menu.jpg", source_kind: "image", state: "failed", detail: "No words found.", reaches_agents: true },
+        ],
+        documents_left: 2,
         agent_id: AGENT.id,
         questions: { status: "ready", items: [], disclosure: null },
         build: {
@@ -2948,6 +2952,7 @@ const CLIENT_SCREENS: Screen[] = [
       },
       "/v1/compliance/outbound-pledge": { accepted_at: null, accepted_version: null, is_current: false, pledge_text: "We only call people who asked us to.", text_sha256: "b".repeat(64), version: "1" },
       "/v1/agents/engine-catalogue": { available: true, voices: [], models: [] },
+      "/v1/kb/knows": { facts: [], facts_state: "none", items: [], pinned_not_yet_on: [] },
       [`/v1/calls?agent_id=${AGENT.id}&limit=1`]: [],
     },
   },

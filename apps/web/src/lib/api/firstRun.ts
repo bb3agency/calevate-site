@@ -14,8 +14,10 @@ import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tan
 
 import { agentKeys } from "./agents";
 import { businessProfileKeys } from "./businessProfile";
-import { apiRequest, apiUpload, type Session } from "./client";
+import { apiRequest, apiUpload, type Session, type UploadProgress } from "./client";
+import type { KbUpload } from "./kb";
 import type { components } from "./schema";
+import { knowsKey } from "./teach";
 
 type Schemas = components["schemas"];
 
@@ -25,6 +27,8 @@ export type FirstRunBuildStep = Schemas["BuildStepOut"];
 export type FirstRunRecording = Schemas["RecordingOut"];
 export type FirstRunAnswers = Schemas["AnswersIn"];
 export type FirstRunAnswer = Schemas["AnswerIn"];
+/** A file added on the brief step: an ordinary knowledge upload (D-918). */
+export type FirstRunDocument = Schemas["DocumentOut"];
 /** One agent does every job picked (D-863). */
 export type FirstRunJob = FirstRun["jobs"][number];
 
@@ -39,7 +43,11 @@ export function firstRunKey(slug: string) {
 }
 
 export function isFirstRunBusy(run: FirstRun | undefined): boolean {
-  return run?.questions.status === "writing" || run?.build.status === "building";
+  return (
+    run?.questions.status === "writing" ||
+    run?.build.status === "building" ||
+    (run?.documents ?? []).some((document) => document.state === "reading")
+  );
 }
 
 export function useFirstRun(session: Session, enabled = true): UseQueryResult<FirstRun> {
@@ -110,6 +118,46 @@ export function useFinishFirstRun(session: Session) {
 
 export function useDismissFirstRun(session: Session) {
   return useFirstRunWrite<null>(session, "/dismiss", "POST");
+}
+
+/** The knowledge reads a new upload changes (`kb.ts`'s own invalidation, for the two it
+ *  shares with this screen). */
+function invalidateKnowledge(client: ReturnType<typeof useQueryClient>, session: Session): void {
+  void client.invalidateQueries({ queryKey: ["kb-uploads", session.orgSlug] });
+  void client.invalidateQueries({ queryKey: knowsKey(session.orgSlug) });
+}
+
+/**
+ * Add one file beside the brief (D-918). The file goes through the knowledge upload
+ * (`POST /v1/kb/uploads`), so it is read, reviewed and metered like any upload and every
+ * agent uses it; then the first run records it as one of its documents.
+ */
+export function useAddDocument(session: Session) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ file, onProgress }: { file: File; onProgress?: (progress: UploadProgress) => void }) => {
+      const form = new FormData();
+      form.set("file", file);
+      const upload = await apiUpload<KbUpload>(session, "/v1/kb/uploads", form, { onProgress });
+      return apiRequest<FirstRun>(session, `${FIRST_RUN_PATH}/documents`, {
+        method: "POST",
+        body: { upload_id: upload.id },
+      });
+    },
+    onSuccess: (next) => client.setQueryData(firstRunKey(session.orgSlug), next),
+    // On a refused link too: the upload itself may have landed in the knowledge base.
+    onSettled: () => invalidateKnowledge(client, session),
+  });
+}
+
+/** Stop using one file for the brief. It stays in the knowledge base. */
+export function useRemoveDocument(session: Session) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (uploadId: string) =>
+      apiRequest<FirstRun>(session, `${FIRST_RUN_PATH}/documents/${uploadId}`, { method: "DELETE" }),
+    onSuccess: (next) => client.setQueryData(firstRunKey(session.orgSlug), next),
+  });
 }
 
 /** Upload one spoken piece of the brief; the worker hears it and deletes the audio. */
