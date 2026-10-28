@@ -118,8 +118,7 @@ export function TranscriptCard({
           </NoticeBox>
         ) : (
           <p className="text-meta text-ink-faint">
-            Personal details — phone numbers, account numbers, dates of birth — are hidden in
-            this view.
+            Personal details are hidden here.
           </p>
         )}
 
@@ -177,10 +176,10 @@ export interface EnglishRetry {
 }
 
 function emptyTranscript(detail: Pick<CallDetail, "status" | "summary_state">): { message: string; hint?: string } {
-  if (detail.status === "in_progress") return { message: "The call is still going", hint: "Its transcript appears here when it ends." };
+  if (detail.status === "in_progress") return { message: "The call is still going", hint: "It shows here when the call ends." };
   if (detail.status !== "completed") return { message: "Nobody spoke on this call" };
   if (detail.summary_state === "empty") return { message: "Nothing was said on this call" };
-  return { message: "No transcript yet", hint: "Transcripts arrive a couple of minutes after the call ends." };
+  return { message: "No transcript yet", hint: "It arrives a few minutes after the call." };
 }
 
 function speakerName(speaker: string, detail: Pick<CallDetail, "agent_name" | "lead_name">): string {
@@ -239,7 +238,7 @@ function EnglishPreparing() {
   const bar = "animate-pulse rounded-2xl bg-ink/[0.06] motion-reduce:animate-none";
   return (
     <div role="status" aria-live="polite" className="space-y-4">
-      <p className="text-body text-ink-muted">English is being prepared. It appears here on its own, usually within a minute.</p>
+      <p className="text-body text-ink-muted">English is being prepared. Usually under a minute.</p>
       <div aria-hidden className="space-y-3">
         <div className="flex items-start gap-2.5">
           <div className="h-7 w-7 shrink-0 rounded-full bg-ink/[0.06]" />
@@ -272,11 +271,11 @@ function EnglishUnavailable({
     <div className="space-y-3 rounded-md border border-line px-4 py-4">
       <p className="text-body text-ink">
         {state === "failed"
-          ? "The English for this call could not be prepared."
-          : "This call came in before English was added to call reviews."}
+          ? "Couldn't prepare the English."
+          : "This call is older than English reviews."}
       </p>
       <p className="text-meta text-ink-muted">
-        The conversation is complete in {spoken}. Preparing the English uses a little of this month&apos;s AI help.
+        Complete in {spoken}. English uses a little AI help.
       </p>
       {retry.error != null && <ProblemNotice error={retry.error} />}
       <RestrictionNote reason={retry.access.allowed ? null : retry.access.reason} />
@@ -380,7 +379,7 @@ function Bubble({
       )}
       {agent && turn.likely_cut_off && (
         <p className="max-w-full text-meta text-ink-faint">
-          The caller spoke over this, so they may not have heard all of it.
+          Caller spoke over this part.
         </p>
       )}
       {marker}

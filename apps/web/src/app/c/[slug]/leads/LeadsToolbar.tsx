@@ -155,7 +155,7 @@ export function LeadsToolbar({
           onChange={onColumns}
           unavailableReason={
             leads.error
-              ? "We could not read this table's columns just now, so they cannot be chosen. Reload the page to try again."
+              ? "Couldn't load columns. Reload to try again."
               : null
           }
         />
@@ -194,12 +194,12 @@ export function LeadsToolbar({
             // permission answer is still coming.
             exportRefusal ??
             (mayExport
-              ? "Downloads these leads: name and full phone number first, then the columns shown here."
-              : "Checking whether you can export these leads…")
+              ? "Downloads these leads with full phone numbers."
+              : "Checking you can export…")
           }
         >
           <Download aria-hidden className="h-3.5 w-3.5" />
-          Export this view as CSV
+          Export CSV
         </ActionButton>
         <InfoTip label="the CSV export" align="end">
           <p>{exportNote}</p>

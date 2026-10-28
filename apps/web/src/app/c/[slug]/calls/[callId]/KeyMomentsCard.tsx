@@ -94,7 +94,7 @@ export function KeyMomentsCard({
       </ol>
       {approximate && (
         <p className="mt-2 text-meta text-ink-faint">
-          Times marked ~ are approximate, so playback starts a couple of seconds early.
+          ~ means about. Playback starts a little early.
         </p>
       )}
     </Section>

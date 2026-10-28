@@ -7,7 +7,7 @@ import { ArrowLeft } from "lucide-react";
 import { ButtonGroup } from "@/components/arc/button-group";
 import { useActionFeedback } from "@/components/arc/feedback";
 import { useFollowUpActions } from "@/components/calls/followUpActions";
-import { NoticeBox, ProblemNotice } from "@/components/ui";
+import { NoticeBox, ProblemNotice, SECONDARY_BUTTON_SM } from "@/components/ui";
 import { LiveCallPanel } from "@/components/console/liveCallPanel";
 import type { CallAudioPlayerHandle } from "@/components/callAudioPlayer";
 import { canDialOut } from "@/lib/agentState";
@@ -135,9 +135,9 @@ export function CallDetailScreen({
     dialerFor: () => (dialer ? { id: dialer.id, name: dialer.name } : null),
     noDialerReason:
       agents.error != null
-        ? "We could not read your agents just now, so no call can be placed. Reload the page to try again."
+        ? "Couldn't load your agents. Reload to call."
         : !agents.data
-          ? "Checking which of your agents can place the call…"
+          ? "Checking your agents…"
           : undefined,
   });
   /**
@@ -275,9 +275,20 @@ export function CallDetailScreen({
     // resolved with nothing, which is a broken premise rather than a call with no
     // content. Say we have nothing rather than describing the call as having none.
     return (
-      <NoticeBox tone="neutral" title="Nothing to show">
-        We could not read this call. Reload the page, or go back to the call log.
-      </NoticeBox>
+      <NoticeBox
+        tone="neutral"
+        title="Couldn't load this call"
+        action={
+          <span className="flex flex-wrap gap-2">
+            <button type="button" className={SECONDARY_BUTTON_SM} onClick={() => void call.refetch()}>
+              Try again
+            </button>
+            <Link href={href(`/c/${slug}/calls`)} className={SECONDARY_BUTTON_SM}>
+              Back to calls
+            </Link>
+          </span>
+        }
+      />
     );
   }
 

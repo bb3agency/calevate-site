@@ -61,7 +61,7 @@ describe("moving a call-back", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Move" }));
     const dialog = await screen.findByRole("dialog", { name: "Move this call-back" });
-    expect(within(dialog).getByText(/between 9am and 9pm India time/)).toBeTruthy();
+    expect(within(dialog).getByText(/9am to 9pm/)).toBeTruthy();
     await expectNoA11yViolations(dialog, "Move a call-back");
     fireEvent.click(within(dialog).getByRole("button", { name: "Move it" }));
 
@@ -178,7 +178,7 @@ describe("calling the unanswered again", () => {
 
   it("says plainly when no agent can place calls", async () => {
     await renderClientPage(<Again dialers={[]} />, { "/v1/me": OWNER });
-    expect(await screen.findByText(/None of your agents places calls right now/)).toBeTruthy();
+    expect(await screen.findByText(/No agent can call out right now/)).toBeTruthy();
     expect(
       (screen.getByRole("button", { name: "Call them again" }) as HTMLButtonElement).disabled,
     ).toBe(true);

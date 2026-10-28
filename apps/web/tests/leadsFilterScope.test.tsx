@@ -156,7 +156,7 @@ describe("the empty state belongs to the filters, not to the business", () => {
     // The defect, in the words a client read.
     expect(container.textContent).not.toContain("No leads yet");
     expect(container.textContent).not.toContain(
-      "Every answered call becomes a lead",
+      "Each answered call becomes a lead.",
     );
     expect(screen.getByText("No leads match these filters")).toBeTruthy();
     // And the way out is OFFERED, not merely named (ux-audit F-18).
@@ -175,10 +175,10 @@ describe("the empty state belongs to the filters, not to the business", () => {
     // still fell through to the unfiltered arm, so a ranked empty table told the client
     // their leads were still on their way.
     expect(container.textContent).toContain(
-      "No lead's captured answers match that question",
+      "No answers match that question",
     );
     expect(container.textContent).not.toContain(
-      "Every answered call becomes a lead",
+      "Each answered call becomes a lead.",
     );
     expect(
       screen.getByRole("button", { name: "Clear the filters" }),
@@ -190,7 +190,7 @@ describe("the empty state belongs to the filters, not to the business", () => {
 
     expect(await screen.findByText("No leads yet")).toBeTruthy();
     expect(container.textContent).toContain(
-      "Every answered call becomes a lead",
+      "Each answered call becomes a lead.",
     );
     // Nothing to clear, so nothing is offered.
     expect(
@@ -259,7 +259,7 @@ describe("the two counts say what they are counts OF", () => {
 
     // Unfiltered, both sentences are about the account, and they may say so. The scope
     // of the stage counts is behind the ⓘ beside the count now.
-    expect(await readInfoTip("these counts")).toContain("In this account, by stage:");
+    expect(await readInfoTip("these counts")).toContain("Stage counts cover every lead.");
 
     await filterByOwner();
 
@@ -269,9 +269,9 @@ describe("the two counts say what they are counts OF", () => {
     // And the six badges beside it are the server's counts over that same narrowed
     // scope (crm/service.py), so they are not "this account" either.
     await waitFor(async () => {
-      expect(await readInfoTip("these counts")).toContain("Matching these filters, by stage:");
+      expect(await readInfoTip("these counts")).toContain("Stage counts follow your other filters.");
     });
-    expect(await readInfoTip("these counts")).not.toContain("In this account, by stage:");
+    expect(await readInfoTip("these counts")).not.toContain("Stage counts cover every lead.");
   });
 });
 
@@ -283,16 +283,16 @@ describe("the CSV refusal is on the screen, not only in a tooltip", () => {
     await askQuestion("3BHK in Gachibowli");
 
     const button = screen.getByRole("button", {
-      name: /Export this view as CSV/,
+      name: /Export CSV/,
     }) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
     // The assertion that would have caught it: the sentence is in the DOCUMENT, not in
     // an attribute of a control that takes no focus and receives no hover on touch.
     expect(container.textContent).toContain(
-      "A question ranks the best matches",
+      "A question can't be exported",
     );
     expect(container.textContent).toContain(
-      "Clear it to export by the filters instead",
+      "Clear it first.",
     );
   });
 
@@ -303,7 +303,7 @@ describe("the CSV refusal is on the screen, not only in a tooltip", () => {
     );
 
     const button = (await screen.findByRole("button", {
-      name: /Export this view as CSV/,
+      name: /Export CSV/,
     })) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
     expect(container.textContent).toContain(
@@ -320,7 +320,7 @@ describe("the CSV refusal is on the screen, not only in a tooltip", () => {
       routes({ "/v1/me": problem(503, { title: "Service unavailable" }) }),
     );
 
-    await screen.findByRole("button", { name: /Export this view as CSV/ });
+    await screen.findByRole("button", { name: /Export CSV/ });
     expect(container.textContent).not.toContain(
       "Only an account owner can export leads.",
     );
@@ -332,11 +332,11 @@ describe("the CSV refusal is on the screen, not only in a tooltip", () => {
   it("says nothing when the export is available", async () => {
     const { container } = await renderClientPage(<LeadsPage />, routes());
     const button = (await screen.findByRole("button", {
-      name: /Export this view as CSV/,
+      name: /Export CSV/,
     })) as HTMLButtonElement;
     expect(button.disabled).toBe(false);
     expect(container.textContent).not.toContain(
-      "A question ranks the best matches",
+      "A question can't be exported",
     );
     expect(container.textContent).not.toContain(
       "Only an account owner can export leads.",
@@ -472,7 +472,7 @@ describe("the derivation is exhaustive over the lens, not over the filters we re
 
   it("orders the export refusal the way the button is disabled", () => {
     // A question refuses the export even for an owner who holds the permission.
-    expect(exportRefusal("3BHK", true, null)).toContain("cannot be exported");
+    expect(exportRefusal("3BHK", true, null)).toContain("can't be exported");
     expect(
       exportRefusal("", false, "Only an account owner can export leads."),
     ).toBe("Only an account owner can export leads.");

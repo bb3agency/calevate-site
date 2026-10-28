@@ -143,7 +143,7 @@ describe("the call detail screen", () => {
     // And the reader is TOLD which view they are on — hard rule 5 is invisible
     // otherwise, and an odd-looking line reads as the agent mishearing.
     expect(
-      screen.getByText(/Personal details .* are hidden in this view/),
+      screen.getByText("Personal details are hidden here."),
     ).toBeTruthy();
   });
 
@@ -278,7 +278,7 @@ describe("the call detail screen", () => {
     expect(await screen.findByRole("alert")).toBeTruthy();
     // The transcript did NOT blank out, and it did not silently upgrade either.
     expect(container.textContent).toContain("My number is [redacted].");
-    expect(container.textContent).toContain("are hidden in this view");
+    expect(container.textContent).toContain("Personal details are hidden here.");
   });
 
   it("says the full transcript includes personal details, once it is open", async () => {
@@ -316,7 +316,7 @@ describe("the call detail screen", () => {
     expect(await screen.findByText(`My number is ${RAW_NUMBER}.`)).toBeTruthy();
     // The raw view says what it holds.
     expect(container.textContent).toContain("Personal details included.");
-    expect(container.textContent).not.toContain("are hidden in this view");
+    expect(container.textContent).not.toContain("Personal details are hidden here.");
   });
 
   /**
@@ -454,7 +454,7 @@ describe("the call detail screen", () => {
       routes(detail({ has_recording: false, forwarded_to_phone: true })),
     );
 
-    expect(await screen.findByText(/Forwarded calls are not recorded\./)).toBeTruthy();
+    expect(await screen.findByText("Put through to your phone. Not recorded.")).toBeTruthy();
     expect(container.innerHTML.toLowerCase()).not.toContain("thinnest");
   });
 
@@ -490,7 +490,7 @@ describe("the call detail screen", () => {
     // link would die and left them to do something about it. The link is now sized to
     // the audio and refreshed on expiry, so the sentence it replaces says that.
     expect(
-      await screen.findByText(/refreshed automatically while you listen/),
+      await screen.findByText("Private to this page."),
     ).toBeTruthy();
     // In an <audio>, not an <a href>: a signed URL in a link is a credential handed to
     // history and to the next page's referrer.
@@ -511,13 +511,13 @@ describe("the call detail screen", () => {
     // `null` is "the pipeline never recorded an answer", NOT "no". Telling an owner
     // their call was non-compliant on a null sends them to fix what was never broken.
     expect(unknown.container.textContent).not.toContain(
-      "No disclosure was played",
+      "The AI notice did not play",
     );
     unknown.unmount();
 
     await renderClientPage(page, routes(detail({ disclosure_played: false })));
     expect(
-      await screen.findByText("No disclosure was played on this call"),
+      await screen.findByText("The AI notice did not play"),
     ).toBeTruthy();
   });
 
@@ -577,7 +577,7 @@ describe("the follow-up action when the eligibility read did not answer", () => 
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("Service unavailable");
     expect(container.textContent).toContain(
-      "We could not check whether this call can be followed up",
+      "Can't call back until this loads.",
     );
     // And the action is not offered on a check that never landed.
     expect(
@@ -593,7 +593,7 @@ describe("the follow-up action when the eligibility read did not answer", () => 
     // A refusal by eligibility is a sentence, not a dead button under it.
     expect(screen.queryByRole("button", { name: /call back now/i })).toBeNull();
     expect(container.textContent).not.toContain(
-      "We could not check whether this call",
+      "Can't call back until this loads.",
     );
   });
 });

@@ -18,10 +18,11 @@ export function DisclosureNotice({ played }: { played: boolean | null | undefine
     return (
       <NoticeBox
         tone="stop"
-        title="No disclosure was played on this call"
+        title="The AI notice did not play"
+        info="Callers must be told they are speaking to an automated agent. Tell us about this call so we can check how the agent is set up."
+        infoLabel="why this matters"
       >
-        Callers must be told they are speaking to an automated agent. Tell us about this call
-        so we can check how the agent is set up.
+        Tell us so we can check the agent.
       </NoticeBox>
     );
   }

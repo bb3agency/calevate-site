@@ -190,7 +190,7 @@ async function lastCallTo(
 /** The batch's summary: one of several status lines on the screen, told apart by its words. */
 async function bulkSummary(): Promise<HTMLElement> {
   return vi.waitFor(() => {
-    const found = screen.getAllByRole("status").find((el) => / out of /.test(el.textContent ?? ""));
+    const found = screen.getAllByRole("status").find((el) => / · of /.test(el.textContent ?? ""));
     if (!found) throw new Error("no batch summary yet");
     return found;
   });
@@ -204,7 +204,7 @@ async function tick(name: string) {
 /** Walk the bar's two-step control: review, then apply. */
 async function review() {
   fireEvent.click(
-    await screen.findByRole("button", { name: /Review this change/ }),
+    await screen.findByRole("button", { name: /^Review$/ }),
   );
 }
 
@@ -228,10 +228,10 @@ describe("selection scope is never ambiguous", () => {
     );
 
     expect(
-      await screen.findByText(/All 2 leads on this page are selected/),
+      await screen.findByText(/All 2 on this page selected/),
     ).toBeTruthy();
     const extend = screen.getByRole("button", {
-      name: /Select all 140 leads matching these filters/,
+      name: /Select all 140 matching/,
     });
 
     fireEvent.click(extend);
@@ -239,10 +239,10 @@ describe("selection scope is never ambiguous", () => {
     // is the whole risk of this control and it is stated rather than implied.
     expect(
       await screen.findByText(
-        /All 140 leads matching these filters are selected/,
+        /All 140 matching leads selected/,
       ),
     ).toBeTruthy();
-    expect(container.textContent).toContain("138 not on this page");
+    expect(container.textContent).toContain("138 on other pages");
   });
 
   it("does not offer the whole query when the page already holds every matching lead", async () => {
@@ -306,7 +306,7 @@ describe("selection scope is never ambiguous", () => {
     );
     fireEvent.click(
       await screen.findByRole("button", {
-        name: /Select all 140 leads matching these filters/,
+        name: /Select all 140 matching/,
       }),
     );
     await review();
@@ -364,7 +364,7 @@ describe("selection scope is never ambiguous", () => {
     fireEvent.click(await screen.findByRole("radio", { name: /^Hot/ }));
     fireEvent.click(await screen.findByLabelText("Select all leads on this page"));
     fireEvent.click(
-      await screen.findByRole("button", { name: /Select all 140 leads matching these filters/ }),
+      await screen.findByRole("button", { name: /Select all 140 matching/ }),
     );
     await review();
     fireEvent.change(screen.getByLabelText("Type 140 to confirm"), { target: { value: "140" } });
@@ -372,7 +372,7 @@ describe("selection scope is never ambiguous", () => {
 
     // Not "140 could not be changed": the counts are the plan's, read from the plan.
     expect(await screen.findByText("Set 140 leads to contacted")).toBeTruthy();
-    expect(screen.queryByText(/could not be changed/)).toBeNull();
+    expect(screen.queryByText(/\d+ failed/)).toBeNull();
   });
 
   it("clears the selection when the filter moves", async () => {
@@ -430,12 +430,12 @@ describe("the confirmation states the consequences before the click", () => {
 
     const alert = await screen.findByRole("dialog", { name: /Set the stage to/ });
     expect(alert.textContent).toContain("1 lead");
-    expect(alert.textContent).toContain("you have ticked on this page");
+    expect(alert.textContent).toContain("The leads you ticked.");
     // The `unchanged` bucket is promised BEFORE the run, so "3 were already there" in the
     // result is not a surprise the client reads as a fault.
     expect(
       (await screen.findByText(/already at that stage/)).textContent,
-    ).toContain("left alone");
+    ).toContain("skipped");
   });
 
   it("takes no typed confirmation for a handful of rows", async () => {
@@ -459,7 +459,7 @@ describe("the confirmation states the consequences before the click", () => {
     );
     fireEvent.click(
       await screen.findByRole("button", {
-        name: /Select all 140 leads matching these filters/,
+        name: /Select all 140 matching/,
       }),
     );
     await review();
@@ -510,8 +510,8 @@ describe("the result is the server's answer, and a partial failure reads as one"
     const summary = await bulkSummary();
     // Every number is the SERVER's, including the ones the screen never asked for.
     expect(summary.textContent).toContain("1 lead changed");
-    expect(summary.textContent).toContain("2 could not be changed");
-    expect(summary.textContent).toContain("out of 3");
+    expect(summary.textContent).toContain("2 failed");
+    expect(summary.textContent).toContain("of 3");
     // THE ROWS, BY NAME where we hold one and by id where we do not — a filter-scoped
     // batch can fail on a lead that is not on this page, and inventing a name for it
     // would be worse than a truncated id.
@@ -542,8 +542,8 @@ describe("the result is the server's answer, and a partial failure reads as one"
 
     const summary = await bulkSummary();
     expect(summary.textContent).toContain("7 leads changed");
-    expect(summary.textContent).toContain("3 leads were already there");
-    expect(summary.textContent).not.toContain("could not be changed");
+    expect(summary.textContent).toContain("3 already there");
+    expect(summary.textContent).not.toContain("failed");
   });
 
   it("says which SCOPE the server ran over, not which one we asked for", async () => {
@@ -564,7 +564,7 @@ describe("the result is the server's answer, and a partial failure reads as one"
     fireEvent.click(await screen.findByRole("button", { name: /Apply to 1/ }));
 
     expect((await bulkSummary()).textContent).toContain(
-      "out of 140 matching those filters",
+      "of 140 matching",
     );
   });
 

@@ -7,6 +7,7 @@ import { useActionFeedback } from "@/components/arc/feedback";
 import { useFollowUpActions } from "@/components/calls/followUpActions";
 import { FilterChip, ProblemNotice, RestrictionNote, Skeleton, formatCount } from "@/components/ui";
 import { InfoTip } from "@/components/console/infoTip";
+import { TEXT_ACTION } from "@/components/console/section";
 import { AskAssistant } from "@/components/copilot/AskAssistant";
 import { PlanCard } from "@/components/copilot/PlanCard";
 import { SegmentedControl } from "@/components/interior/segmented-control";
@@ -152,9 +153,9 @@ export function LeadsScreen() {
    */
   const unavailable =
     agents.error != null
-      ? "We could not read your agents just now, so no call can be placed from this table. Reload the page to try again."
+      ? "Couldn't load your agents. Reload to call."
       : me.error != null
-        ? "We could not check who you are signed in as, so calls from this table and the “Assigned to me” filter are closed. Reload the page to try again."
+        ? "Couldn't check your sign-in. Reload to call."
         : null;
 
   const selectedDialer = dialers?.find((agent) => agent.id === selectedAgentId);
@@ -209,10 +210,8 @@ export function LeadsScreen() {
 
   const exportNote =
     exportTotal === null
-      ? "The CSV export contains the leads shown here: name and full phone number first, then the columns shown here."
-      : `The CSV export contains ${
-          exportTotal === 1 ? "this 1 lead" : `these ${formatCount(exportTotal)} leads`
-}: name and full phone number first, then the columns shown here.`;
+      ? "These leads: name, full phone, then these columns."
+      : `${exportTotal === 1 ? "1 lead" : `${formatCount(exportTotal)} leads`}: name, full phone, then these columns.`;
 
   const { moreInUse } = f;
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -287,10 +286,10 @@ export function LeadsScreen() {
               <InfoTip label="these counts" align="end">
                 <p>
                   {narrowedBeyondStatus(lens)
-                    ? "Matching these filters, by stage: the figures beside each stage count only the leads your other filters match."
-                    : "In this account, by stage: the figures beside each stage count every lead in the account."}
+                    ? "Stage counts follow your other filters."
+                    : "Stage counts cover every lead."}
                 </p>
-                <p>Columns match what your agent captures on each call.</p>
+                <p>Columns follow what your agent captures.</p>
               </InfoTip>
             </p>
           )}
@@ -300,7 +299,9 @@ export function LeadsScreen() {
       {f.campaignId && (
         <div role="group" aria-label="Campaign filter" className="flex flex-wrap items-center gap-2">
           <FilterChip label="One campaign's leads" active onClick={() => f.setCampaignId(undefined)} />
-          <span className="text-meta text-ink-muted">Press it to see every lead.</span>
+          <button type="button" className={TEXT_ACTION} onClick={() => f.setCampaignId(undefined)}>
+            Show all leads
+          </button>
         </div>
       )}
 
@@ -328,15 +329,27 @@ export function LeadsScreen() {
       {/* WHAT THE ROWS ARE when a question is in force: a ranked table looks exactly like
           a filtered one. `semantic_truncated` is the server's own "is this all of them". */}
       {f.askTerm && leads.data && (
-        <p className="max-w-prose text-meta text-ink-muted">
-          Ranked by how closely each lead&rsquo;s captured answers match{" "}
-          <span className="font-medium text-ink">&ldquo;{f.askTerm}&rdquo;</span>.
-          {leads.data.semantic_truncated
-            ? " There may be more matches than were ranked — ask a narrower question."
-            : ""}{" "}
-          Names, phone numbers and dates are not searched this way — use the search box and the
-          filters for those.
-        </p>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-meta text-ink-muted">
+          <p className="min-w-0 [overflow-wrap:anywhere]">
+            Best matches for <span className="font-medium text-ink">&ldquo;{f.askTerm}&rdquo;</span>
+            {leads.data.semantic_truncated ? ". There may be more." : ""}
+          </p>
+          <InfoTip label="this ranking" align="start">
+            <p>Ranked by how closely each lead&rsquo;s answers match.</p>
+            <p>Names, numbers and dates aren&rsquo;t searched here.</p>
+            <p>Use the search box and filters for those.</p>
+          </InfoTip>
+          <button
+            type="button"
+            className={TEXT_ACTION}
+            onClick={() => {
+              f.setAsk("");
+              f.setAskTerm("");
+            }}
+          >
+            Clear question
+          </button>
+        </div>
       )}
 
       <RestrictionNote reason={mayEditLead.reason} />
@@ -404,7 +417,7 @@ export function LeadsScreen() {
           kit={kit}
           partialNote={
             leads.data.total > items.length
-              ? `Sorted within the ${formatCount(items.length)} leads on this page, not all ${formatCount(leads.data.total)}.`
+              ? `Sorted within this page's ${formatCount(items.length)} leads.`
               : undefined
           }
         />

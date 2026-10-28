@@ -66,8 +66,8 @@ describe("CallQualityCard", () => {
     expect(screen.getByText("1.2 s / 1.9 s / 3.4 s")).toBeTruthy();
     expect(screen.getByText("Replies that looked up knowledge")).toBeTruthy();
     expect(screen.getByText("1 (longest 12.4 s)")).toBeTruthy();
-    expect(screen.getByText(/A reply took more than five seconds/)).toBeTruthy();
-    expect(screen.getByText(/took down the caller's details/)).toBeTruthy();
+    expect(screen.getByText(/A reply took over 5 seconds/)).toBeTruthy();
+    expect(screen.getByText(/took the caller's details/)).toBeTruthy();
     expect(screen.queryByText("Replies that failed")).toBeNull();
     expect(document.body.textContent).not.toMatch(/thinnest|cartesia|sarvam/i);
   });

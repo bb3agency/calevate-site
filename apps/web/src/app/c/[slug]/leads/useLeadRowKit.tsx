@@ -101,7 +101,7 @@ export function useLeadRowKit({
       // which is a statement about the business made from a request that never landed.
       unavailableReason={
         members.error
-          ? "We could not read your team just now, so the owner cannot be changed. Reload the page to try again."
+          ? "Couldn't load your team. Reload to change owner."
           : mayEditLead.reason
       }
       // Per-ROW pending, not the mutation's global flag: one saving row must not freeze

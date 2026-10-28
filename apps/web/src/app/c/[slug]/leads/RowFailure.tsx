@@ -34,7 +34,7 @@ export function errorSentence(error: unknown): string | null {
   // connection, a sleeping laptop) has no `detail` at all, so it gets a sentence about
   // the connection rather than a blank cell.
   if (error instanceof Error && error.message) return `Not saved — ${error.message}`;
-  return "Not saved — we could not reach Calevate. Check your connection and try again.";
+  return "Not saved. Check your connection.";
 }
 
 export function RowFailure({ error }: { error: unknown }) {

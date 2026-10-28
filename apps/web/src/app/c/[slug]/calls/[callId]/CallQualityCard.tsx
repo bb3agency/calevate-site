@@ -22,12 +22,12 @@ type Signal = CallDetail["signals"][number];
 type Turn = NonNullable<CallDetail["timeline"]>[number];
 
 const SIGNAL_WORDS: Record<Signal["kind"], string> = {
-  slow_reply: "A reply took more than five seconds to start",
-  no_answer_from_model: "The agent could not get an answer and apologised to the caller",
-  own_key_failed: "The agent's own model key failed and it apologised to the caller",
-  voice_failed: "The voice connection failed: the caller may have heard silence or been cut off",
-  lead_captured: "The agent took down the caller's details",
-  conversation_escalated: "The agent handed the conversation to a person",
+  slow_reply: "A reply took over 5 seconds",
+  no_answer_from_model: "Agent had no answer and said sorry",
+  own_key_failed: "Agent's AI key failed; it said sorry",
+  voice_failed: "Voice dropped; caller may have heard silence",
+  lead_captured: "Agent took the caller's details",
+  conversation_escalated: "Agent handed over to a person",
 };
 
 const PROBLEMS: ReadonlySet<Signal["kind"]> = new Set([
@@ -132,8 +132,7 @@ function TurnTable({ turns }: { turns: Turn[] }) {
     <ScrollRegion label="Each turn's wait" className="mt-4">
       <table className="w-full text-meta tabular-nums">
         <caption className="mb-1 text-left text-ink-muted">
-          Each turn, in ms from the caller stopping. “Est.” marks an answer start worked out
-          from the audio queued behind a filler.
+          Each turn, ms after the caller stops. “Est.” is estimated.
         </caption>
         <thead>
           <tr className="text-left text-ink-muted">

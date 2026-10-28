@@ -446,7 +446,7 @@ describe("key moments in the call", () => {
       "~0:21Caller asked about paymentBuying signal· Suggested",
       "0:34Caller asked not to be called againNeeds attention",
     ]);
-    expect(screen.getByText(/times marked ~ are approximate/i)).toBeTruthy();
+    expect(screen.getByText(/~ means about/)).toBeTruthy();
   });
 
   it("marks only the model's moment as suggested", async () => {

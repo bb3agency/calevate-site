@@ -57,7 +57,7 @@ export function FollowUpAction({
       <div className="space-y-3">
         <ProblemNotice error={eligibility.error} onRetry={() => void eligibility.refetch()} />
         <p className="text-meta text-ink-muted">
-          We could not check whether this call can be followed up, so the button stays closed.
+          Can&apos;t call back until this loads.
         </p>
         {lead}
       </div>
@@ -69,8 +69,7 @@ export function FollowUpAction({
     return (
       <div className="space-y-3">
         <NoticeBox tone="ok">
-          Calling back now, follow-up #{callback.data.follow_up_number}. It shows in your call log
-          in a moment.
+          Calling back now (follow-up #{callback.data.follow_up_number}).
         </NoticeBox>
         {lead}
       </div>
@@ -110,13 +109,13 @@ export function FollowUpAction({
           onClick={onCallBack}
         >
           <PhoneForwarded aria-hidden className="h-4 w-4" />
-          Have the agent call back now
+          Call back now
         </ActionButton>
         {lead}
       </div>
       {write.allowed ? (
         <p className="text-meta text-ink-muted">
-          The agent rings this number and picks up where this conversation stopped.
+          Your agent picks up where this call stopped.
         </p>
       ) : (
         <RestrictionNote reason={write.reason} />

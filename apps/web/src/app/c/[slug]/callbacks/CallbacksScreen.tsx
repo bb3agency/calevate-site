@@ -1,6 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
+import { CalendarClock, PhoneOff, ShieldCheck } from "lucide-react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { SelectionBar } from "@/components/arc/filter-toolbar";
@@ -35,7 +37,7 @@ import {
   type ScheduledCallback,
 } from "@/lib/api/callbacks";
 import { useWriteAccess } from "@/lib/api/hooks";
-import { useClientSession } from "@/lib/api/session";
+import { useClientRealm } from "@/lib/api/session";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
 import { lookup } from "@/lib/lookup";
@@ -57,8 +59,10 @@ import type { NoticeTone } from "@/components/ui";
  *   calling rule stays as it was, and the result says which and why, in the server's words.
  * - Loading, failure and empty are three states. "No call-backs" is said only from rows
  *   the server sent, never under a failed request.
- * - The sentence naming the checks a call-back passes (do-not-call, calling hours, credit)
- *   qualifies a compliance control, so it stays visible, word for word.
+ * - The checks a call-back passes (do-not-call, calling hours, credit) qualify a compliance
+ *   control, so they stay visible as chips under the title rather than folding away.
+ * - One short line per item (founder, Oct 2026: "buttons, not paragraphs"): the row actions
+ *   are real buttons, and the detail sits behind How it works.
  */
 
 /** The heading a row sits under. Our status words never reach the screen; these do. */
@@ -82,6 +86,9 @@ const TONE: Record<string, NoticeTone> = {
 };
 
 /** Peer views of one list (D-655): the live promises, or every one. */
+/** The checks every call-back passes before it rings: a compliance control, always shown. */
+const CHECKS = ["Do-not-call list", "Calling hours", "Your credit"];
+
 const VIEWS = [
   { value: "open", label: "Upcoming" },
   { value: "all", label: "All" },
@@ -95,7 +102,8 @@ function plural(n: number, one: string, many: string): string {
 }
 
 export function CallbacksScreen() {
-  const session = useClientSession();
+  // `href` keeps the D-22 operator session on the link to the agents screen.
+  const { session, href } = useClientRealm();
   const [view, setView] = useState("all");
   const openOnly = view === "open";
   const callbacks = useCallbacks(session, openOnly);
@@ -236,24 +244,27 @@ export function CallbacksScreen() {
       cell: (row) =>
         // `dialing` is not stoppable: that phone may be ringing as this renders.
         row.status === "scheduled" && write.allowed ? (
-          <div className="flex items-center gap-4 max-sm:pt-1 sm:justify-end sm:gap-3">
+          // Two equal buttons, side by side and full width on a phone (44px targets).
+          <div className="grid grid-cols-2 gap-2 max-sm:pt-1 sm:flex sm:justify-end">
             <button
               type="button"
               onClick={() => {
                 move.reset();
                 setMoving({ ids: [row.id], one: row });
               }}
-              className={TEXT_ACTION}
+              className={`${SECONDARY_BUTTON_SM} justify-center whitespace-nowrap max-sm:min-h-11`}
             >
+              <CalendarClock aria-hidden className="h-3.5 w-3.5" />
               Move
             </button>
             <button
               type="button"
               disabled={cancel.isPending && cancel.variables === row.id}
               onClick={() => setStopping(row)}
-              className={TEXT_ACTION}
+              className={`${SECONDARY_BUTTON_SM} justify-center whitespace-nowrap max-sm:min-h-11`}
             >
-              {cancel.isPending && cancel.variables === row.id ? "Calling it off…" : "Call it off"}
+              <PhoneOff aria-hidden className="h-3.5 w-3.5" />
+              {cancel.isPending && cancel.variables === row.id ? "Calling off…" : "Call off"}
             </button>
           </div>
         ) : row.status === "dialing" ? (
@@ -267,16 +278,28 @@ export function CallbacksScreen() {
   return (
     <div className="max-w-4xl space-y-6 pb-12">
       {/* The checks every call-back passes qualify a compliance control, so they stay on the
-          page in the one line under the title; the rest is behind How it works. */}
+          page as chips under the title; the rest is behind How it works. */}
       <div>
-        <PageHeader description="Calls your agents promised. Each one first passes the do-not-call list, calling hours and your credit." />
+        <PageHeader description="Calls your agents promised to make." />
+        <ul aria-label="Checked before each call-back" className="mt-2 flex flex-wrap items-center gap-1.5 text-meta text-ink-muted">
+          <li className="inline-flex items-center gap-1">
+            <ShieldCheck aria-hidden className="h-3.5 w-3.5 text-brand-strong" />
+            Checked first:
+          </li>
+          {CHECKS.map((check) => (
+            <li key={check} className="rounded-md bg-surface-muted px-2 py-0.5 text-ink">
+              {check}
+            </li>
+          ))}
+        </ul>
         <HowItWorks
           headingLevel={3}
           items={[
-            "A call-back rings at the time the caller asked for.",
-            "One that a check stops is not placed, and says why.",
-            "Move one to any time between 9am and 9pm India time.",
-            "Calling one off does not tell the caller. Ring them if it matters.",
+            "It rings at the time the caller asked for.",
+            "If a check stops it, the row says why.",
+            "Move it to any time, 9am to 9pm.",
+            "Calling off does not tell the caller.",
+            "Ring them yourself if it matters.",
           ]}
         />
       </div>
@@ -323,11 +346,19 @@ export function CallbacksScreen() {
         ) : (
           <EmptyState
             illustration={<EmptySketch kind="callbacks" />}
-            message={openOnly ? "Nobody is waiting for a call right now." : "No call-backs yet."}
-            hint={
-              openOnly
-                ? undefined
-                : "Agents book one when a caller asks to be rung back — switch it on under the agent's Remembering callers."
+            message={openOnly ? "Nobody is waiting for a call." : "No call-backs yet."}
+            hint={openOnly ? undefined : "Agents book one when a caller asks."}
+            action={
+              openOnly ? (
+                <button type="button" className={SECONDARY_BUTTON_SM} onClick={() => setView("all")}>
+                  Show all
+                </button>
+              ) : (
+                // Call-backs are switched on per agent, under its Remembering callers.
+                <Link href={href(`/c/${session.orgSlug}/agents`)} className={SECONDARY_BUTTON_SM}>
+                  Turn on in Agents
+                </Link>
+              )
             }
           />
         )}
@@ -371,14 +402,12 @@ export function CallbacksScreen() {
           onConfirm={() => cancel.mutate(stopping.id, { onSuccess: () => setStopping(null) })}
         >
           <p>
-            <MonoValue className="tabular-nums text-ink">{formatPhone(stopping.phone_e164)}</MonoValue>{" "}
-            is due a call back at{" "}
-            <strong className="font-semibold text-ink">{formatIST(stopping.requested_at)}</strong>.
+            <MonoValue className="tabular-nums text-ink">{formatPhone(stopping.phone_e164)}</MonoValue>
+            {" · due "}
+            <strong className="font-semibold text-ink">{formatIST(stopping.requested_at)}</strong>
           </p>
           <p>
-            They will not be called.{" "}
-            <strong className="font-semibold text-ink">Nobody tells them the call is off</strong>{" "}
-            — if it matters, ring them yourself.
+            <strong className="font-semibold text-ink">Nobody tells them.</strong> Ring them if it matters.
           </p>
         </ConfirmDialog>
       )}
@@ -408,11 +437,9 @@ export function CallbacksScreen() {
           }
         >
           <p>
-            None of them will be called.{" "}
-            <strong className="font-semibold text-ink">Nobody tells them the calls are off</strong>{" "}
-            — if it matters, ring them yourself.
+            <strong className="font-semibold text-ink">Nobody tells them.</strong> Ring them if it matters.
           </p>
-          <p>One that is already being placed, or has ended, is left as it is.</p>
+          <p>Ones already ringing or done stay as they are.</p>
         </ConfirmDialog>
       )}
 
@@ -475,11 +502,10 @@ function MoveDialog({
             <MonoValue className="block tabular-nums font-medium text-ink">
               {formatPhone(one.phone_e164)}
             </MonoValue>
-            Now due {formatIST(one.requested_at)}. It rings at the new time instead, between
-            9am and 9pm India time.
+            Now due {formatIST(one.requested_at)}. Pick a time, 9am to 9pm.
           </>
         ) : (
-          "Each one rings at the new time instead, between 9am and 9pm India time. One already being placed or ended is left as it is."
+          "Pick a time, 9am to 9pm. Ones already ringing stay."
         )
       }
       onClose={onClose}

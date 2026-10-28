@@ -136,7 +136,7 @@ function Chooser({
             </select>
           ) : campaigns.error || !campaigns.data ? null : open.length === 0 ? (
             <p className="mt-1 text-body text-ink-muted">
-              No campaign is waiting to start.{" "}
+              No campaign waiting to start.{" "}
               <Link href={href(`/c/${slug}/campaigns/new`)} className={TEXT_ACTION}>
                 Create a campaign
               </Link>
@@ -184,14 +184,10 @@ function Chooser({
           onConfirm={run}
         >
           <p className="font-medium text-ink">
-            {selection.wholeQuery
-              ? "Every lead matching these filters, not only the ones on screen."
-              : "The leads you have ticked on this page."}
+            {selection.wholeQuery ? "Every matching lead, not just this page." : "The leads you ticked."}
           </p>
-          <p>
-            Nobody is called now. They are called when the campaign starts, inside its calling
-            hours. Numbers already on it, on the do-not-call list or outside India are left out.
-          </p>
+          <p>Nobody is called now. Calls start with the campaign.</p>
+          <p>Skips repeats, do-not-call and non-India numbers.</p>
           {needsTyping && (
             <TypedConfirmation phrase={String(count)} value={typed} onChange={setTyped} inputMode="numeric" />
           )}
@@ -234,7 +230,7 @@ function AddedNotice({
       }
     >
       Added {formatCount(added.added)} to “{campaign.name}”
-      {left > 0 ? `; ${formatCount(left)} left out (already on it, or a number it cannot call)` : ""}.
+      {left > 0 ? ` · ${formatCount(left)} skipped` : ""}
     </NoticeBox>
   );
 }

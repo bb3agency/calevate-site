@@ -121,8 +121,7 @@ export function LeadTable({ kit, partialNote }: { kit: LeadRowKit; partialNote?:
            over the whole lens), never to the business. */
         <EmptyState
           variant="filtered"
-          message={askTerm ? "No lead's captured answers match that question" : "No leads match these filters"}
-          hint="Clear the filters to see everything."
+          message={askTerm ? "No answers match that question" : "No leads match these filters"}
           onClear={filtered ? onClearFilters : undefined}
           clearLabel="Clear the filters"
         />
@@ -130,7 +129,7 @@ export function LeadTable({ kit, partialNote }: { kit: LeadRowKit; partialNote?:
         <EmptyState
           illustration={<EmptySketch kind="leads" />}
           message="No leads yet"
-          hint="Every answered call becomes a lead within two minutes."
+          hint="Each answered call becomes a lead."
         />
       )}
     </div>

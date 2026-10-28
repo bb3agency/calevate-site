@@ -223,9 +223,9 @@ export function CallsScreen({ slug }: { slug: string }) {
     // "None of your agents places calls" only once the list has arrived and says so.
     noDialerReason:
       agents.error != null
-        ? "We could not read your agents just now, so no call can be placed. Reload the page to try again."
+        ? "Couldn't load your agents. Reload to call."
         : !agents.data
-          ? "Checking which of your agents can place the call…"
+          ? "Checking your agents…"
           : undefined,
   });
   const targetOf = (call: CallSummary): FollowUpTarget => ({
@@ -538,7 +538,7 @@ export function CallsScreen({ slug }: { slug: string }) {
         ) : null}
         {live.isError ? (
           <p role="status" className="text-meta text-ink-muted">
-            We could not check how your live calls are going just now. Their rows update when the calls end.
+            Live status paused. Rows update when calls end.
           </p>
         ) : null}
       </div>
@@ -577,7 +577,7 @@ export function CallsScreen({ slug }: { slug: string }) {
             label="Calls, newest first"
             partialNote={
               calls.hasNextPage
-                ? `Sorted within the ${formatCount(rows.length)} calls loaded; older calls are not included.`
+                ? `Sorted within the ${formatCount(rows.length)} calls loaded.`
                 : undefined
             }
           />
@@ -587,7 +587,7 @@ export function CallsScreen({ slug }: { slug: string }) {
           <EmptyState
             illustration={<EmptySketch kind="calls" />}
             message="No calls yet."
-            hint="A call you place shows here as soon as it is dialled. A call that comes in shows when it ends."
+            hint="Calls show here as they happen."
             action={
               <Link href={href(`/c/${slug}/agents`)} className={SECONDARY_BUTTON_SM}>
                 Make a test call

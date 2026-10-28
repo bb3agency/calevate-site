@@ -61,23 +61,22 @@ export function CallHeader({ detail, actions }: { detail: CallDetail; actions?: 
       {/* D-746: a forwarded call that showed your own number, and our forwarding test. */}
       {detail.caller_id_hidden && (
         <p className="mt-1 text-meta text-ink-muted">
-          The network hid the caller&apos;s number, so your agent asked for one to call back on.
+          Number hidden. Your agent asked for one.
         </p>
       )}
       {detail.forwarding_test && (
-        <p className="mt-1 text-meta text-ink-muted">This was a forwarding test call. It is not charged.</p>
+        <p className="mt-1 text-meta text-ink-muted">Forwarding test. Not charged.</p>
       )}
       {/* D-855: a free-trial test call, rung to a number the owner typed. */}
       {detail.test_call && !detail.forwarding_test && (
         <p className="mt-1 text-meta text-ink-muted">
-          A free-trial test call. Its minutes count towards your trial minutes.
+          Trial test call. Uses your trial minutes.
         </p>
       )}
       {/* D-835: a whole-line forward put the caller through to a phone. */}
       {detail.forwarded_to_phone && (
         <p className="mt-1 text-meta text-ink-muted">
-          This call was put through to your phone, so your agent did not take it. Forwarded calls are not
-          recorded.
+          Put through to your phone. Not recorded.
         </p>
       )}
       {/* D-842: a call that was waiting to be placed and never rang; the server's sentence. */}

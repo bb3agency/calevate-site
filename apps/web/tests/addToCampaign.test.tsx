@@ -125,7 +125,7 @@ describe("adding the selected leads to a campaign", () => {
 
   it("points to creating a campaign when none is waiting to start", async () => {
     await view({ ids: ["a"], wholeQuery: false }, { "/v1/campaigns": [CAMPAIGNS[1]] });
-    expect(await screen.findByText("No campaign is waiting to start.")).toBeTruthy();
+    expect(await screen.findByText("No campaign waiting to start.")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Create a campaign" }).getAttribute("href")).toBe(
       "/c/acme/campaigns/new",
     );

@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import { ButtonGroup } from "@/components/arc/button-group";
 import { useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
 import { useFollowUpActions } from "@/components/calls/followUpActions";
@@ -8,6 +10,7 @@ import {
   NoticeBox,
   ProblemNotice,
   RestrictionNote,
+  SECONDARY_BUTTON_SM,
   Skeleton,
   StatusBadge,
   formatCount,
@@ -92,9 +95,9 @@ export function LeadDetailScreen({ slug, leadId }: { slug: string; leadId: strin
     dialerFor: () => (dialer ? { id: dialer.id, name: dialer.name } : null),
     noDialerReason:
       agents.error != null
-        ? "We could not read your agents just now, so no call can be placed. Reload the page to try again."
+        ? "Couldn't load your agents. Reload to call."
         : !agents.data
-          ? "Checking which of your agents can place the call…"
+          ? "Checking your agents…"
           : undefined,
   });
   const mayAssign = useWriteAccess(session, "leads:write", "change who owns a lead");
@@ -323,7 +326,7 @@ export function LeadDetailScreen({ slug, leadId }: { slug: string; leadId: strin
                 members={members.data}
                 unavailableReason={
                   members.error
-                    ? "We could not read your team just now, so the owner cannot be changed. Reload the page to try again."
+                    ? "Couldn't load your team. Reload to change owner."
                     : mayAssign.reason
                 }
                 disabled={!mayAssign.allowed || editLead.isPending}
@@ -343,10 +346,18 @@ export function LeadDetailScreen({ slug, leadId }: { slug: string; leadId: strin
           // having none.
           <NoticeBox
             tone="neutral"
-            title="Nothing to show"
-          >
-            We could not read this lead. Reload the page, or go back to the leads table.
-          </NoticeBox>
+            title="Couldn't load this lead"
+            action={
+              <span className="flex flex-wrap gap-2">
+                <button type="button" className={SECONDARY_BUTTON_SM} onClick={() => void lead.refetch()}>
+                  Try again
+                </button>
+                <Link href={href(`/c/${slug}/leads`)} className={SECONDARY_BUTTON_SM}>
+                  Back to leads
+                </Link>
+              </span>
+            }
+          />
         )
       )}
 
