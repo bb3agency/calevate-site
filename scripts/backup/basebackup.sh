@@ -6,10 +6,10 @@
 # with no recent base, RTO grows linearly with the age of the oldest one, and a 4-hour RTO
 # (OPERATIONS §5) becomes a day of replay. A nightly base bounds replay at ~24h of WAL.
 #
-# WHAT THIS IS NOT. It is not the offsite copy. This lands in Cloudflare R2, the same
+# WHAT THIS IS NOT. It is not an offsite copy. This lands in Cloudflare R2, the same
 # vendor and account as our edge (DEPLOYMENT §7's vendor-concentration warning). The copy
-# that survives a Cloudflare account event is `dump-offsite.sh`, on a different provider
-# with a different credential. Neither replaces the other.
+# that would survive a Cloudflare account event is `dump-offsite.sh`, on a different
+# provider, which production does not run (D-927): this chain is the only one.
 #
 # Exit non-zero on any failure: systemd's OnFailure= turns that into an alert
 # (infra/backup/systemd/). Do not add `|| true` anywhere in this file.

@@ -89,8 +89,10 @@ MAX_HEALTH_GAP_S=${MAX_HEALTH_GAP_S:-2700}
 # night is a warning, not a rounding error); the health timer gets an hour, four times its
 # own interval — it is triggering the very run doing the asking, so anything older than
 # that means the run came from somewhere else (a drill, a hand invocation) or the stamp is
-# stale. Format: `unit:max_age_seconds`.
-BACKUP_TIMERS=${BACKUP_TIMERS:-calevate-basebackup.timer:129600 calevate-dump-offsite.timer:129600 calevate-backup-health.timer:3600}
+# stale. Format: `unit:max_age_seconds`. The offsite dump timer is not in the default:
+# production keeps one chain, wal-g to R2 (D-927). A host that installs the offsite chain
+# adds `calevate-dump-offsite.timer:129600` here through a drop-in setting BACKUP_TIMERS.
+BACKUP_TIMERS=${BACKUP_TIMERS:-calevate-basebackup.timer:129600 calevate-backup-health.timer:3600}
 
 PSQL=(psql --no-psqlrc --tuples-only --no-align --quiet --dbname "${HEALTH_DB:-postgres}")
 

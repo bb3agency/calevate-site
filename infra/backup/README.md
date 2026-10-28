@@ -53,6 +53,14 @@ process boundary instead. §5 is that seam and what it costs.
 
 ## 3. Two chains, on purpose, and why neither replaces the other
 
+> **Production runs chain A only (D-927, founder 29 Oct 2026: "one is enough on
+> Cloudflare").** Chain B is not installed: no offsite provider, no age identity, no
+> rclone, no `calevate-dump-offsite.timer`, and `backup-health.sh` no longer expects it.
+> The risk is accepted, not removed: the three points below still hold, so a lost,
+> suspended or compromised Cloudflare account loses every backup, and a table dropped
+> days ago comes back only by a whole-cluster point-in-time restore. The chain B files stay
+> in this directory so it can be installed later without re-writing it.
+
 | | Chain A — PITR | Chain B — offsite dump |
 |---|---|---|
 | Tool | wal-g `wal-push` (continuous) + `backup-push` (nightly) | `pg_dump -Fc` + `age` + `rclone` |
