@@ -202,19 +202,19 @@ def test_the_founders_agents_open_as_decided_and_fit_the_greeting() -> None:
     """The AI and recording notices on, then the AI notice off."""
     rec_te, rec_hi = recording_notice_for(language="te-IN"), recording_notice_for(language="hi-IN")
     expected = {
-        ("a_te_calling", True): (f"నమస్కారం అండి, {TE_AI} ఇప్పుడు రెండు నిమిషాలు మాట్లాడొచ్చా? {rec_te}"),
+        ("a_te_calling", True): (f"నమస్కారం అండి, {TE_AI} ఇప్పుడు మీరు మాట్లాడగలరా, ఫ్రీయేనా? {rec_te}"),
         ("b_te_answering", True): (
             f"నమస్కారం అండి, {TE_AI} కాల్ చేసినందుకు థాంక్స్. చెప్పండి, ఏం కావాలి? {rec_te}"
         ),
-        ("c_hi_calling_male", True): (f"नमस्ते जी, {HI_AI_MALE} अभी दो मिनट बात हो सकती है? {rec_hi}"),
+        ("c_hi_calling_male", True): (f"नमस्ते जी, {HI_AI_MALE} क्या यह आपके लिए सही समय है? {rec_hi}"),
         ("a_te_calling", False): (
-            f"నమస్కారం అండి, Sri Estates నుంచి కాల్ చేస్తున్నాను. ఇప్పుడు రెండు నిమిషాలు మాట్లాడొచ్చా? {rec_te}"
+            f"హాయ్ అండి, మేము Sri Estates నుండి కాల్ చేస్తున్నాము. ఇప్పుడు మీరు మాట్లాడగలరా, ఫ్రీయేనా? {rec_te}"
         ),
         ("b_te_answering", False): (
             f"నమస్కారం అండి, Sri Estates కి కాల్ చేసినందుకు థాంక్స్. చెప్పండి, ఏం కావాలి? {rec_te}"
         ),
         ("c_hi_calling_male", False): (
-            f"नमस्ते जी, Sri Estates की तरफ़ से कॉल है। अभी दो मिनट बात हो सकती है? {rec_hi}"
+            f"नमस्ते, हम Sri Estates की ओर से बोल रहे हैं। क्या यह आपके लिए सही समय है? {rec_hi}"
         ),
     }
     engine = FakeEngine(name="thinnest", capabilities=DICTATED_SPEECH_CAPABILITIES)

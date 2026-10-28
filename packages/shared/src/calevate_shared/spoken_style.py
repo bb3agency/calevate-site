@@ -758,10 +758,11 @@ def trial_call_opening(
     return " ".join(template.replace("{name}", name).replace("{business}", business).split())
 
 
-#: The placed-call line for a language whose row has no `outbound` opening (English today):
-#: the English call-leads starter's words (`agents/starters.py`) without its follow-up clause.
-PLACED_CALL_FALLBACK: Final = "Hello, I am calling from {business}. Is this a good time to talk?"
-PLACED_CALL_FALLBACK_INTRODUCED: Final = "Is this a good time to talk?"
+#: The placed-call line for a language whose row has no `outbound` opening (English today), in
+#: the founder's shape for every language's placed call (28 Oct 2026): who is calling and
+#: from where, then whether they are free. Not a competitor's "two minutes" wording.
+PLACED_CALL_FALLBACK: Final = "Hi, we are calling from {business}. Are you free to talk now?"
+PLACED_CALL_FALLBACK_INTRODUCED: Final = "Are you free to talk now?"
 
 
 def placed_call_opening(tag: str | None, *, business: str, introduced: bool = False) -> str:

@@ -586,10 +586,10 @@
       ],
       "openings": {
         "inbound": "నమస్కారం అండి, {business} కి కాల్ చేసినందుకు థాంక్స్. చెప్పండి, ఏం కావాలి?",
-        "outbound": "నమస్కారం అండి, {business} నుంచి కాల్ చేస్తున్నాను. ఇప్పుడు రెండు నిమిషాలు మాట్లాడొచ్చా?",
+        "outbound": "హాయ్ అండి, మేము {business} నుండి కాల్ చేస్తున్నాము. ఇప్పుడు మీరు మాట్లాడగలరా, ఫ్రీయేనా?",
         "test_call": "నమస్కారం అండి, నేను {name}, {business} నుంచి, ఇది మీ కొత్త రిసెప్షనిస్ట్ టెస్ట్ కాల్. ఇప్పుడు మాట్లాడొచ్చా?",
         "inbound_introduced": "కాల్ చేసినందుకు థాంక్స్. చెప్పండి, ఏం కావాలి?",
-        "outbound_introduced": "ఇప్పుడు రెండు నిమిషాలు మాట్లాడొచ్చా?",
+        "outbound_introduced": "ఇప్పుడు మీరు మాట్లాడగలరా, ఫ్రీయేనా?",
         "test_call_introduced": "ఇది మీ కొత్త రిసెప్షనిస్ట్ టెస్ట్ కాల్. ఇప్పుడు మాట్లాడొచ్చా?"
       },
       "prompt_swaps": [
@@ -1107,10 +1107,10 @@
       ],
       "openings": {
         "inbound": "नमस्ते जी, {business} में कॉल करने के लिए थैंक यू. बताइए, क्या चाहिए?",
-        "outbound": "नमस्ते जी, {business} की तरफ़ से कॉल है। अभी दो मिनट बात हो सकती है?",
+        "outbound": "नमस्ते, हम {business} की ओर से बोल रहे हैं। क्या यह आपके लिए सही समय है?",
         "test_call": "नमस्ते जी, मैं {name}, {business} से, ये आपके नए रिसेप्शनिस्ट का टेस्ट कॉल है। अभी बात हो सकती है?",
         "inbound_introduced": "कॉल करने के लिए थैंक यू. बताइए, क्या चाहिए?",
-        "outbound_introduced": "अभी दो मिनट बात हो सकती है?",
+        "outbound_introduced": "क्या यह आपके लिए सही समय है?",
         "test_call_introduced": "ये आपके नए रिसेप्शनिस्ट का टेस्ट कॉल है। अभी बात हो सकती है?"
       },
       "prompt_swaps": [
@@ -1578,7 +1578,7 @@
       "word_swaps": [],
       "openings": {
         "inbound": "வணக்கம்ங்க, {business}-க்கு call பண்ணதுக்கு thanks. சொல்லுங்க, என்ன வேணும்?",
-        "outbound": "வணக்கம்ங்க, {business}-ல இருந்து call பண்றேன். இப்போ ரெண்டு நிமிஷம் பேசலாமா?"
+        "outbound": "ஹாய், நாங்க {business}-ல இருந்து call பண்றோம். இப்போ பேச free-ஆ இருக்கீங்களா?"
       },
       "language_pack": {
         "review": "needs_founder_review",
@@ -1612,7 +1612,7 @@
       "word_swaps": [],
       "openings": {
         "inbound": "ನಮಸ್ಕಾರ, {business} ಗೆ call ಮಾಡಿದ್ದಕ್ಕೆ thanks. ಹೇಳಿ, ಏನು ಬೇಕು?",
-        "outbound": "ನಮಸ್ಕಾರ, {business} ಇಂದ call ಮಾಡ್ತಿದ್ದೀನಿ. ಈಗ ಎರಡು ನಿಮಿಷ ಮಾತಾಡಬಹುದಾ?"
+        "outbound": "ಹಾಯ್, ನಾವು {business} ಇಂದ call ಮಾಡ್ತಿದ್ದೀವಿ. ಈಗ ಮಾತಾಡೋಕೆ free ಇದ್ದೀರಾ?"
       },
       "language_pack": {
         "review": "needs_founder_review",
@@ -1646,7 +1646,7 @@
       "word_swaps": [],
       "openings": {
         "inbound": "നമസ്കാരം, {business}-ലേക്ക് call ചെയ്തതിന് thanks. പറയൂ, എന്താണ് വേണ്ടത്?",
-        "outbound": "നമസ്കാരം, {business}-ൽ നിന്നാണ് call ചെയ്യുന്നത്. ഇപ്പോൾ രണ്ട് മിനിറ്റ് സംസാരിക്കാമോ?"
+        "outbound": "ഹായ്, ഞങ്ങൾ {business}-ൽ നിന്നാണ് call ചെയ്യുന്നത്. ഇപ്പോൾ സംസാരിക്കാൻ free ആണോ?"
       },
       "language_pack": {
         "review": "needs_founder_review",
@@ -1680,7 +1680,7 @@
       "word_swaps": [],
       "openings": {
         "inbound": "नमस्कार, {business} ला call केल्याबद्दल thank you. सांगा, काय हवं आहे?",
-        "outbound": "नमस्कार, {business} कडून call करत आहे. आता दोन मिनिटं बोलता येईल का?"
+        "outbound": "हाय, आम्ही {business} कडून call करत आहोत. आता बोलायला तुम्ही free आहात का?"
       },
       "language_pack": {
         "review": "needs_founder_review",

@@ -53,8 +53,8 @@ SCRIPT = f"[IDENTITY] Sunrise Clinic receptionist\n{FACTS}\n[TASK FLOW]\nGreet, 
 #: CALL quotes the first turn of a call they answer and of a call they place).
 #: The screen switch, off here, adds nothing.
 PINNED = (
-    "248ee583b2d9c6ce1590c15c03d08ca4fac21ec0df777dd17844910d455580e4",
-    "c8fd9818326d46cecbfd667028e453aa7d0f21c7f21770af33939103f70c7217",
+    "7e3d33a38f69f896d0d536132ba4524a05da4faeef7937584e9ffb3187d32eba",
+    "bfa59c52368de711f54028a45b158a8287864e86e52deaf50f9b7f048a160c40",
 )
 
 
