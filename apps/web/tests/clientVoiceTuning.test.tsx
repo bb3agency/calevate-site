@@ -101,7 +101,7 @@ describe("How it sounds", () => {
     ]);
     fireEvent.change(emotion, { target: { value: "" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await screen.findByText(/the next call uses these/);
+    await screen.findByText(/The next call uses these/);
     expect(sent).toEqual({ speed: null, volume: 1.5, emotion: null });
     expect(container.textContent ?? "").not.toMatch(VENDOR_WORDS);
     expect(container.textContent ?? "").not.toMatch(/english/i);
@@ -138,13 +138,13 @@ describe("How it sounds", () => {
       }),
     });
     fireEvent.click(screen.getByRole("button", { name: "Hear it" }));
-    expect(await screen.findByText(/You have heard all 20 samples for today/)).toBeTruthy();
+    expect(await screen.findByText(/All 20 samples used today/)).toBeTruthy();
   });
 
   it("holds Hear it once none are left, and says why", async () => {
     await mount({ [`GET ${PATH}`]: tuning({ previews_left_today: 0 }) });
     expect((screen.getByRole("button", { name: "Hear it" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByText(/You have heard all 20 samples for today/)).toBeTruthy();
+    expect(screen.getByText(/All 20 samples used today/)).toBeTruthy();
   });
 
   it("says a voice that keeps its pace in a sentence, and the sliders stay usable", async () => {
@@ -157,7 +157,7 @@ describe("How it sounds", () => {
       }),
     });
     fireEvent.click(screen.getByRole("button", { name: "Hear it" }));
-    expect(await screen.findByText(/keeps the pace it was recorded at, so its speed cannot be changed/)).toBeTruthy();
+    expect(await screen.findByText(/speed is fixed/)).toBeTruthy();
     const loudness = screen.getByRole("slider", { name: "Loudness" });
     expect((loudness as HTMLInputElement).disabled).toBe(false);
     fireEvent.change(loudness, { target: { value: "100" } });
@@ -178,7 +178,7 @@ describe("How it sounds", () => {
         return { ...clear, speed: "1.15" };
       },
     });
-    expect(screen.getByText(/when the agent speaks a Studio voice/)).toBeTruthy();
+    expect(screen.getByText(/Speed applies from the next call/)).toBeTruthy();
     expect(screen.queryByRole("slider", { name: "Loudness" })).toBeNull();
     expect(screen.queryByRole("combobox", { name: "Emotion" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Hear it" })).toBeNull();
@@ -191,7 +191,7 @@ describe("How it sounds", () => {
     expect(speed.getAttribute("aria-valuetext")).toBe("1.05 times normal");
     fireEvent.change(speed, { target: { value: "75" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await screen.findByText(/the next call uses these/);
+    await screen.findByText(/The next call uses these/);
     // The speed alone: a loudness held from a Studio voice is left as it is.
     expect(sent).toEqual({ speed: 1.15 });
     expect(container.textContent ?? "").not.toMatch(VENDOR_WORDS);

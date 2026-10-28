@@ -10,8 +10,13 @@
  */
 
 
-import { formatINR, formatIST, NOTICE_BAR, NOTICE_BASE } from "@/components/ui";
+import Link from "next/link";
+
+import { formatINR, formatIST, NOTICE_BAR, NOTICE_BASE, SECONDARY_BUTTON_SM } from "@/components/ui";
 import { SettingRow } from "@/components/console/settingRow";
+import { TEXT_ACTION } from "@/components/console/section";
+import { useSectionLink } from "@/components/console/settingsLayout";
+
 import { voiceTierRate, type PendingChange, type PendingState } from "@/lib/api/publishing";
 
 /** The field name the server gives a staged script in `PendingOut.pending`. */
@@ -30,6 +35,8 @@ export function stagedScript(state: PendingState): PendingChange | undefined {
  * Renders nothing when nothing is waiting; the "Live" line in the header says the rest.
  */
 export function PendingBanner({ state }: { state: PendingState }) {
+  // Through the tabs' own unsaved-edits guard when drawn inside the workspace.
+  const script = useSectionLink("script");
   if (!state.has_pending) return null;
   return (
     <div role="status" data-notice="warn" className={`${NOTICE_BASE} ${NOTICE_BAR.warn}`}>
@@ -39,11 +46,19 @@ export function PendingBanner({ state }: { state: PendingState }) {
           <PendingRow key={change.field} change={change} />
         ))}
       </ul>
-      <p className="mt-2 text-meta text-ink-muted">
-        Callers keep hearing what is live now until the change is put live. Nothing goes
-        live silently.
-        {stagedScript(state) ? " Put it live from the top of this page, or undo it from the ⋯ menu there." : ""}
-      </p>
+      <p className="mt-2 text-meta text-ink-muted">Callers hear the old version until then.</p>
+      {/* The next step is a button, not a sentence pointing at the top of the page: the
+          Script tab holds the change and its own Put it live (ux-writing, feedback-patterns). */}
+      {stagedScript(state) && script && (
+        <Link
+          href={script.href}
+          onClick={script.onClick}
+          scroll={false}
+          className={`${SECONDARY_BUTTON_SM} mt-3 w-full justify-center sm:w-auto`}
+        >
+          Review and put live
+        </Link>
+      )}
     </div>
   );
 }
@@ -72,7 +87,16 @@ function PendingRow({ change }: { change: PendingChange }) {
  * printed when absent — quoting a rate a client is not on is the money defect hard rule 7
  * exists for. The tier priced is the LIVE voice's, because that is the one being billed.
  */
-export function VoiceNow({ state, published }: { state: PendingState; published: boolean }) {
+export function VoiceNow({
+  state,
+  published,
+  creditHref,
+}: {
+  state: PendingState;
+  published: boolean;
+  /** Where "Add credit" goes when no credit sets a rate; no button when absent. */
+  creditHref?: string;
+}) {
   const voice = state.voice;
   // Absent on an older API build; a missing fact is honest, an invented one is not.
   if (!voice) return null;
@@ -98,18 +122,27 @@ export function VoiceNow({ state, published }: { state: PendingState; published:
   const tier = voiceTierRate(state.voice_tier_rates, voice.live?.voice_tier);
   return (
     <>
+      {/* One short line under the label; the longer reason for the two unclear states is
+          behind the ⓘ (critique-information-density: explanation on request). */}
       <SettingRow
         label="Voice callers hear"
         hint={
-          engineVoice
+          engineVoice || noneSet
             ? voice.headline
             : voice.live
-            ? "The voice the calling system is speaking in right now."
-            : noneSet
-              ? voice.headline
+              ? "In use on calls now."
               : published
-              ? "The calling system has a voice for this agent; we have no record of which one. Choosing one below will settle it."
-              : "Nothing is on the calling system yet, so no caller hears a voice at all."
+                ? "Choose one below to be sure."
+                : "No caller hears it yet."
+        }
+        info={
+          !engineVoice && !voice.live && !noneSet ? (
+            <p>
+              {published
+                ? "The calling system has a voice for this agent, but we have no record of which one. Choosing one below settles it."
+                : "Nothing is on the calling system yet, so no caller hears a voice at all."}
+            </p>
+          ) : undefined
         }
         value={heard}
       />
@@ -123,11 +156,23 @@ export function VoiceNow({ state, published }: { state: PendingState; published:
           hint={
             /* No rate means no open credit lot — an empty or overdrawn wallet — so the
                action is the owner's own, never a person's. */
-            tier.inr_per_min === null
-              ? "You have no credit left, so nothing sets a per-minute price for this voice yet. The credit pack you buy fixes the rate you pay on it."
-              : tier.further_open_lots === 0
-                ? "What a minute on this voice costs against your current credit."
-                : `What a minute on this voice costs against your oldest unspent credit. You have ${tier.further_open_lots} later purchase${tier.further_open_lots === 1 ? "" : "s"} behind it, each at the rates it was bought at.`
+            tier.inr_per_min === null ? "No credit left, so no rate yet." : "Per minute, from your credit."
+          }
+          action={
+            tier.inr_per_min === null && creditHref ? (
+              <Link href={creditHref} className={TEXT_ACTION}>
+                Add credit
+              </Link>
+            ) : undefined
+          }
+          info={
+            <p>
+              {tier.inr_per_min === null
+                ? "You have no credit left, so nothing sets a per-minute price for this voice yet. The credit pack you buy fixes the rate you pay on it."
+                : tier.further_open_lots === 0
+                  ? "What a minute on this voice costs against your current credit."
+                  : `What a minute on this voice costs against your oldest unspent credit. You have ${tier.further_open_lots} later purchase${tier.further_open_lots === 1 ? "" : "s"} behind it, each at the rates it was bought at.`}
+            </p>
           }
           value={
             <>
@@ -140,7 +185,7 @@ export function VoiceNow({ state, published }: { state: PendingState; published:
       {voice.republish_required && voice.configured && (
         <SettingRow
           label="New voice waiting"
-          hint="Chosen for this agent and not on the calling system yet."
+          hint="Chosen, not on calls yet."
           value={clientVoiceName(voice.configured)}
         />
       )}
@@ -157,9 +202,14 @@ export function WorstCaseCost({ state }: { state: PendingState }) {
         /* Struck from the dearest minute the account can be charged — the plan's overage
            rate, or the rate on a prepaid account's own credit (`publishing.py::worst_case_rate`),
            so neither sentence names "your plan". */
-        state.worst_case_call_cost_inr === null
-          ? "Nothing on your account prices a minute yet, so we cannot put a number on it. The credit pack you buy sets that rate."
-          : "A call that runs the full limit, at the dearest per-minute rate your account can be charged. Almost every call ends long before this."
+        state.worst_case_call_cost_inr === null ? "No rate on your account yet." : "Most calls cost far less."
+      }
+      info={
+        <p>
+          {state.worst_case_call_cost_inr === null
+            ? "Nothing on your account prices a minute yet, so we cannot put a number on it. The credit pack you buy sets that rate."
+            : "A call that runs the full limit, at the dearest per-minute rate your account can be charged. Almost every call ends long before this."}
+        </p>
       }
       /* Null is "we cannot say", NOT zero. The figure stays a string: `formatINR` formats
          the digits and never parses them (hard rule 7). */

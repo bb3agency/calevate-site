@@ -173,8 +173,7 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
   if (isDeleted(agent)) {
     return (
       <p className="text-sm text-ink-muted">
-        This agent is deleted, so its details are kept as a record. Bring it back to
-        change them.
+        Deleted. Bring it back to change these.
       </p>
     );
   }
@@ -235,8 +234,7 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
         <legend className={FIELD_LABEL}>What it does</legend>
         <DirectionPicker name={`direction-${agent.id}`} value={direction} onChange={setDirection} />
         <p className={FIELD_HINT}>
-          If the agent is live, this changes your phone line: an agent that stops answering
-          calls stops picking up its numbers.
+          On a live agent, this changes which numbers it answers.
         </p>
       </fieldset>
 
@@ -263,9 +261,7 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
           ))}
         </select>
         <span className={FIELD_HINT}>
-          It greets callers in this language, and falls back to it when unsure. Changing it
-          rewrites the call notices (AI, recording, memory) in the new language; your
-          opening line and script are not translated.
+          Its notices switch to it. Your script is not translated.
         </span>
       </label>
 
@@ -290,8 +286,7 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
           ))}
         </div>
         <p className={FIELD_HINT}>
-          A caller who speaks one of these is answered in it. Leave them all unticked and it
-          answers in its main language only.
+          Callers who speak these are answered in them.
         </p>
       </fieldset>
 
@@ -344,8 +339,7 @@ function OpeningLineOffer({
   return (
     <div role="status" className={`${NOTICE_BASE} ${NOTICE_BAR.neutral}`}>
       <p>
-        Saved. What it tells callers at the start of a call is now in {name}. Its opening line
-        is still the one you wrote.
+        Saved. Its notices are now in {name}. Your opening line is unchanged.
       </p>
       {rewrite.error ? <ProblemNotice error={rewrite.error} /> : null}
       <div className="flex flex-wrap gap-2 pt-1">

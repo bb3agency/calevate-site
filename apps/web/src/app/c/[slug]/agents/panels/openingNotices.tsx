@@ -12,7 +12,7 @@
  * every owner was made to read all of it on every visit, and stopped reading.
  */
 
-import { ShieldCheck } from "lucide-react";
+import { PenLine, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
 
@@ -21,6 +21,7 @@ import {
   Disclosure,
   ProblemNotice,
   RestrictionNote,
+  SECONDARY_BUTTON_SM,
   ToggleSwitch,
   NOTICE_BAR,
   NOTICE_BASE,
@@ -143,7 +144,7 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
           quote={agent.ai_disclosure_line}
           checked={agent.ai_disclosure_enabled}
           pending={locked}
-          offNote="Not said at the start. If a caller asks, the agent still says it is an AI."
+          offNote="If asked, it still says it is an AI."
           onChange={(next) => flip({ ai_disclosure_enabled: next }, next)}
         />
         <NoticeToggle
@@ -151,7 +152,7 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
           quote={agent.recording_notice_line}
           checked={agent.recording_notice_enabled}
           pending={locked}
-          offNote="Calls are still recorded, and telling callers is still your responsibility."
+          offNote="Calls are still recorded. Tell callers yourself."
           onChange={(next) => flip({ recording_notice_enabled: next }, next)}
         />
         {agent.caller_memory_enabled && (
@@ -161,7 +162,7 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
               “{agent.caller_memory_notice_line}”
             </blockquote>
             <p className="mt-2 text-xs text-ink-muted">
-              This one has no switch: it is said while the agent remembers callers.
+              No switch. Said while it remembers callers.
             </p>
           </div>
         )}
@@ -174,14 +175,14 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
             “{firstWords}”
           </blockquote>
         ) : (
-          <p className="mt-2 text-sm text-ink-muted">
-            Nothing yet. Both notices are off and the script has no opening line.
-          </p>
+          <p className="mt-2 text-sm text-ink-muted">Nothing yet.</p>
         )}
+        {/* A button, not a sentence: the opening line is changed on the Script tab. */}
         <Link
           href={href(`/c/${session.orgSlug}/agents/${agent.id}?section=script`)}
-          className="mt-2 inline-flex items-center text-sm font-medium text-brand-strong underline-offset-2 hover:underline touch:min-h-11"
+          className={`${SECONDARY_BUTTON_SM} mt-3 w-full justify-center sm:w-auto`}
         >
+          <PenLine aria-hidden className="h-4 w-4" />
           {opening ? "Edit the opening line" : "Write an opening line"}
         </Link>
       </div>
@@ -189,7 +190,7 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
       <Disclosure
         variant="inline"
         headingLevel={4}
-        title="More about these notices"
+        title="How these work"
         className="mt-2"
       >
         <NoticeDetails agent={agent} promiseRest={promise.rest} hasOpening={opening !== ""} />

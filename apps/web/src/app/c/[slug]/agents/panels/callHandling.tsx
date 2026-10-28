@@ -78,7 +78,7 @@ export function AgentCallHandlingRows({ agentId }: { agentId: string }) {
   if (state.error || !state.data) {
     return (
       <ProblemNotice
-        error={state.error ?? new Error("This agent's call settings could not be read just now.")}
+        error={state.error ?? new Error("Couldn't load its call settings.")}
         onRetry={() => void state.refetch()}
       />
     );

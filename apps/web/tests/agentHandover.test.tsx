@@ -399,9 +399,9 @@ describe("recent handovers and saving the list", () => {
       }),
     );
     await screen.findByText("Recent handovers");
-    expect(container.textContent).toContain("recorded separately");
+    expect(container.textContent).toContain("Recorded separately");
     expect(container.textContent).toContain(
-      "same terms as the rest of the call",
+      "Kept like the rest of the call",
     );
     // AND THE WITHDRAWN SENTENCE MUST NOT COME BACK. A screen telling a client to route an
     // erasure to us for something our own erasure already destroys would have them promise

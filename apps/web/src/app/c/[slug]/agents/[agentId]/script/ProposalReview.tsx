@@ -168,12 +168,12 @@ export function ProposalReview({
           {changes.length === 1 ? "1 suggested change" : `${changes.length} suggested changes`}
         </h3>
         <p className="mt-1 text-meta text-ink-muted">
-          Untick what you do not want, and edit any wording first. What you keep goes into your draft, not live.
+          Untick or edit any. Kept ones go to your draft, not live.
         </p>
       </div>
       {children}
       {changes.length === 0 ? (
-        <p className="text-body text-ink-muted">The suggestion is the same as your script. Nothing to change.</p>
+        <p className="text-body text-ink-muted">Same as your script. Nothing to change.</p>
       ) : (
         <ul ref={list} className="divide-y divide-line border-y border-line">
           {changes.map((change) => {

@@ -157,7 +157,7 @@ function ExtractionEditor({ agent, leadsHref }: { agent: Agent; leadsHref: React
           label: `${at} storage key`,
           type: "text" as const,
           value: row.key,
-          help: "Lower-case, underscores. Left alone it is derived from the name.",
+          help: "Lower-case and underscores. Made from the name if empty.",
         } as (typeof fields)[number]);
       }
       return fields;
@@ -310,8 +310,7 @@ function ExtractionEditor({ agent, leadsHref }: { agent: Agent; leadsHref: React
       >
         {rows.length === 0 ? (
           <p className="text-sm text-ink-muted">
-            No variables yet. Calls still turn into leads with the caller name, number and a
-            summary — add a variable to capture a business-specific detail on top of that.
+            No extra details yet. Leads get name, number, summary.
           </p>
         ) : (
           <ul className="divide-y divide-line border-y border-line">
@@ -365,8 +364,7 @@ function ExtractionEditor({ agent, leadsHref }: { agent: Agent; leadsHref: React
         </div>
 
         <p className="text-xs text-ink-muted">
-          Changes take effect on the next call. Renaming or removing one hides its column on
-          older leads; their values are kept.
+          From the next call. Old leads keep their values.
         </p>
       </form>
     </section>
@@ -443,8 +441,7 @@ function ArchivedExtractionList({
         <p className="mt-2 text-sm text-ink-muted">This agent captured no extra columns.</p>
       )}
       <p className="mt-2 text-xs text-ink-muted">
-        This agent is deleted, so its columns in your {leadsHref} table are kept as a
-        record. Bring it back to change them.
+        Deleted. Its {leadsHref} columns are kept. Bring it back to change them.
       </p>
     </section>
   );

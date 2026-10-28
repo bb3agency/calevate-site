@@ -38,9 +38,10 @@ export function SmallSteps({
     <fieldset className="space-y-3">
       <legend className={FIELD_LABEL}>Small steps, one at a time</legend>
       <span className={FIELD_HINT}>
-        For a caller doing something on their phone as you go, like installing an app. The agent
-        gives one, waits until it is done, then gives the next. {steps.length} of{" "}
-        {limits.maxProcedureSteps}.
+        For callers doing it as you talk. One at a time.{" "}
+        <span className="tabular-nums">
+          {steps.length} of {limits.maxProcedureSteps}
+        </span>
       </span>
       {steps.length > 0 && (
         <ol className="space-y-3">
@@ -118,8 +119,7 @@ export function SmallSteps({
       )}
       {full ? (
         <p className="text-meta text-ink-muted">
-          {limits.maxProcedureSteps} small steps is the most one step can have. Split the rest into
-          the next step.
+          {limits.maxProcedureSteps} small steps at most. Put the rest in the next step.
         </p>
       ) : (
         <button

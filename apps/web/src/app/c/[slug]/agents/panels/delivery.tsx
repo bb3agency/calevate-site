@@ -37,9 +37,7 @@ import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 
 /** The call cap's promise: a save applies from the next call. */
-const NEXT_CALL_NOTE =
-  "Saved changes reach the calling system straight away and apply from the next call. " +
-  "A call already in progress finishes exactly as it started.";
+const NEXT_CALL_NOTE = "From the next call. A call in progress is not cut.";
 
 /**
  * The voice platform's own voices as cards, with a save that appears only once the choice
@@ -151,10 +149,7 @@ export function CallCapChoice({ agentId, state }: { agentId: string; state: Pend
               ? "Empty: the standard limit applies."
               : `${formatCallCap(parsed)} per call.`}
             {/* A failed `lanes` read removes this input's bounds, so it says so. */}
-            {lanes.isError
-              ? " The allowed range did not load, so this box shows no limit; a value outside" +
-                " it will still be refused when you save."
-              : ""}{" "}
+            {lanes.isError ? " Range didn't load. Wrong values are refused on save." : ""}{" "}
             {NEXT_CALL_NOTE}
           </span>
         </form>

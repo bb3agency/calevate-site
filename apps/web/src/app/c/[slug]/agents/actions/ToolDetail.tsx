@@ -116,7 +116,7 @@ export function ToolDetail({
         </SettingRows>
         {problem ? (
           <p className="mt-3 text-meta text-warn">
-            {problem}. Your agent cannot do this until it is fixed. Use Change to finish it.
+            {problem}. It won&apos;t work until fixed.
           </p>
         ) : null}
       </div>
@@ -173,8 +173,7 @@ export function ToolDetail({
           }
         >
           <p>
-            Your agent stops being able to do this on calls straight away. Anything it has
-            already sent stays sent.
+            It stops doing this at once. Anything sent stays sent.
           </p>
           <p>You can set it up again later, with the same credential.</p>
         </ConfirmDialog>

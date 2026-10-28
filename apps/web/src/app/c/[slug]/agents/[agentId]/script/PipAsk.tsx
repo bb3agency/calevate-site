@@ -60,10 +60,7 @@ export function PipAsk({ handWritten }: { handWritten: boolean }) {
       <RestrictionNote reason={write.reason} />
       {handWritten ? (
         <div className="space-y-2">
-          <p className="text-body text-ink">
-            Your script is written by hand. {ASSISTANT_NAME} can lay it out as steps first, and
-            change those after you keep them.
-          </p>
+          <p className="text-body text-ink">Written by hand. Turn it into steps first.</p>
           <AskAssistant label={`Let ${ASSISTANT_NAME} turn it into steps`} prompt={STEPS_REQUEST} disabled={!write.allowed} />
         </div>
       ) : (
@@ -97,7 +94,7 @@ export function PipAsk({ handWritten }: { handWritten: boolean }) {
             </ul>
           </div>
           <p className="text-meta text-ink-muted">
-            Uses your AI allowance. You check every change before it goes into your draft.
+            Uses your AI allowance. You check every change first.
           </p>
           <AskAssistant label={`Let ${ASSISTANT_NAME} draft the whole script`} prompt={WHOLE_REQUEST} disabled={!write.allowed} />
         </>

@@ -81,7 +81,7 @@ export function AgentHeader({
   // Started from the ⋯ menu, which closes: the result is said in a toast.
   const undoFeedback = useActionFeedback(undo, {
     errorDisplay: "inline",
-    successToast: "Waiting changes undone. The draft matches what callers hear.",
+    successToast: "Changes undone. Callers hear the same as before.",
   });
   const write = useWriteAccess(session, "org:manage", "change whether this agent is working");
   // Owners see what this agent spent this month; staff without billing:read see nothing,
@@ -127,7 +127,20 @@ export function AgentHeader({
   // The tier it speaks in, and that tier's rate, beside the state (Clear or Studio only).
   const tierLine = deleted ? null : voiceTierLine(pending.data);
   const spendLine = spend.isSuccess && !deleted ? agentMonthLine(spend.data, agent.id) : null;
-  const detail = [stateLine, tierLine, spendLine].filter(Boolean).join(" · ");
+  // Three short facts, each on its own wrap unit, so a phone breaks between facts rather
+  // than mid-sentence (responsive-layout-patterns).
+  const detail = (
+    <span className="flex flex-wrap gap-x-3 gap-y-0.5">
+      {[stateLine, tierLine, spendLine]
+        .filter((part): part is string => Boolean(part))
+        .map((part, index) => (
+          <span key={part} className={index === 0 ? undefined : "whitespace-nowrap"}>
+            {index > 0 && <span aria-hidden className="mr-3 text-ink-faint">·</span>}
+            {part}
+          </span>
+        ))}
+    </span>
+  );
 
   const restoreButton = deleted && moves.includes("restore") && (
     <ActionButton

@@ -537,7 +537,7 @@ describe("where one agent's model tier came from", () => {
     );
 
     await screen.findByText(/^Set for this agent\./);
-    expect(container.textContent).toContain("Your organisation default does not change it");
+    expect(container.textContent).toContain("The default does not change it");
     expect(screen.queryByText(/^Follows your organisation default\./)).toBeNull();
     const plus = await screen.findByRole("radio", { name: /^Plus/ });
     expect((plus as HTMLInputElement).checked).toBe(true);
@@ -604,7 +604,7 @@ describe("where one agent's model tier came from", () => {
 
     await screen.findByText(/^Follows your organisation default\./);
     expect(screen.queryByRole("radio", { name: /^Standard/ })).toBeNull();
-    expect(container.textContent).toContain("kept as a record");
+    expect(container.textContent).toContain("Bring it back to change its model");
   });
 });
 

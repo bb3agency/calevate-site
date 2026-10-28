@@ -32,10 +32,7 @@ export function HowChangesTakeEffect({ session }: { session: Session }) {
   const lanes = useLanes(session);
 
   return (
-    <Disclosure
-      title="How changes take effect"
-      subtitle="What waits to be applied, and what is in force on the next call."
-    >
+    <Disclosure title="When changes reach callers">
       <LaneBody lanes={lanes} />
     </Disclosure>
   );
@@ -65,16 +62,14 @@ function LaneBody({ lanes }: { lanes: ReturnType<typeof useLanes> }) {
 
   return (
     <>
-      {/* THE ONE THING FIRST (D-527). This block used to open with the server's precedence
-          rule — three clauses of our vocabulary — and put the sentence a person actually
-          needs underneath it. The order is now the other way round: the guarantee leads,
-          and the precedence rule stays as the smaller line beneath it because SURFACES §2b
-          asks for it to be STATED and it is the server's own words for it. */}
-      <p className="text-sm font-medium text-ink">
-        On an agent taking calls, a change to what it SAYS waits until it is put live. Everything
-        else is in force on the next call.
-      </p>
-      <p className="mt-1 text-xs text-ink-muted">
+      {/* THE ONE THING FIRST (D-527): the guarantee leads, as two short lines, and the
+          server's precedence rule stays beneath it because SURFACES §2b asks for it to be
+          STATED and it is the server's own words for it. */}
+      <ul className="space-y-1 text-body font-medium text-ink">
+        <li>Script changes: only once you put them live.</li>
+        <li>Everything else: from the next call.</li>
+      </ul>
+      <p className="mt-1 text-meta text-ink-muted">
         {lanes.data.precedence_rule}
       </p>
 
@@ -94,15 +89,15 @@ function LaneBody({ lanes }: { lanes: ReturnType<typeof useLanes> }) {
         />
         <LaneList
           title="Ask us"
-          hint="We cannot tell you when these take effect from here."
+          hint="We can't tell when these apply."
           lanes={unclassified}
         />
       </div>
 
-      <p className="mt-5 text-xs text-ink-muted">
-        Every call is capped at {formatCallCap(lanes.data.call_cap_default_s)}{" "}
-        by default — settable between {formatCallCap(lanes.data.call_cap_min_s)}{" "}
-        and {formatCallCap(lanes.data.call_cap_max_s)}, never removable.
+      <p className="mt-5 text-meta text-ink-muted">
+        Call limit: {formatCallCap(lanes.data.call_cap_default_s)} by default.
+        {" "}Set {formatCallCap(lanes.data.call_cap_min_s)} to{" "}
+        {formatCallCap(lanes.data.call_cap_max_s)}. Always on.
       </p>
     </>
   );

@@ -52,16 +52,14 @@ export function liveState(agent: Agent, onTrial = false): LiveState {
       // connect them. The detail keeps the sentence that makes the word honest.
       label: "Deleted",
       tone: "neutral",
-      detail:
-        "It takes no calls and makes none. The calls it already handled are still in your call log.",
+      detail: "Takes no calls. Its call history is kept.",
     };
   }
   if (!agent.published) {
     return {
       label: "Being set up",
       tone: "neutral",
-      detail:
-        "Not taking or making calls yet. Get it ready to try it in the chat, or switch it on.",
+      detail: "Not taking calls yet.",
     };
   }
   /* Published and switched off: the server's "Ready, not taking calls" (D-838). Readied to
@@ -71,15 +69,14 @@ export function liveState(agent: Agent, onTrial = false): LiveState {
     return {
       label: "On for test calls",
       tone: "ok",
-      detail:
-        "Ready for test calls from our shared trial number. It answers your own number and calls your leads once your account goes live.",
+      detail: "Test calls only, until your account is live.",
     };
   }
   if (agent.status === "paused") {
     return {
       label: "Ready, not taking calls",
       tone: "warn",
-      detail: "You can try it in the chat. It answers no calls and makes none until you switch it on.",
+      detail: "Switched off. You can try it in the chat.",
     };
   }
   if (agent.status === "live") {
@@ -95,8 +92,7 @@ export function liveState(agent: Agent, onTrial = false): LiveState {
   return {
     label: humanise(agent.status),
     tone: "neutral",
-    detail:
-      "We cannot tell you from here whether this agent is taking calls. Our team can.",
+    detail: "We can't tell if it is taking calls. Ask us.",
   };
 }
 

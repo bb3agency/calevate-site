@@ -44,7 +44,7 @@ describe("Tell my team", () => {
       },
     });
     expect(
-      await screen.findByText("To send on WhatsApp, connect your own WhatsApp account first."),
+      await screen.findByText("WhatsApp needs your own account."),
     ).toBeTruthy();
     expect(screen.queryByText("WhatsApp, from your own account")).toBeNull();
     expect(screen.getByText("Nothing is sent until an address is confirmed.")).toBeTruthy();
@@ -85,7 +85,7 @@ describe("Tell my team", () => {
       }),
     );
     fireEvent.click(await screen.findByLabelText("Booked"));
-    fireEvent.click(screen.getByLabelText(/it tells the team at once/));
+    fireEvent.click(screen.getByLabelText(/Tell the team during the call, too/));
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(calls.some((c) => c.method === "PUT")).toBe(true));
     expect(JSON.parse(calls.find((c) => c.method === "PUT")?.body ?? "{}")).toEqual({

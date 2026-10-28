@@ -29,7 +29,7 @@ function opening(over: Partial<Parameters<typeof OpeningEditor>[0]> = {}) {
 
 describe("how the call opens, in the script editor", () => {
   it("says when a caller detail is filled, by who places the call", () => {
-    expect(variablesNote("inbound")).toContain("filled only when the caller has called before");
+    expect(variablesNote("inbound")).toContain("only if they called before");
     expect(variablesNote("inbound")).not.toContain("from the lead");
     expect(variablesNote("outbound")).toContain("filled from the lead");
     expect(variablesNote("outbound")).not.toContain("called before");

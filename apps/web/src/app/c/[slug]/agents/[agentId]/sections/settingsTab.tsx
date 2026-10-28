@@ -20,7 +20,7 @@ import Link from "next/link";
 
 import { useActionFeedback } from "@/components/arc/feedback";
 import { Section, TEXT_ACTION } from "@/components/console/section";
-import { NoticeBox, ProblemNotice } from "@/components/ui";
+import { NoticeBox, ProblemNotice, SECONDARY_BUTTON_SM } from "@/components/ui";
 import { movesFor } from "@/lib/agentState";
 import { useAgentLifecycle, type Agent } from "@/lib/api/agents";
 import { useWriteAccess } from "@/lib/api/hooks";
@@ -48,10 +48,12 @@ export function SettingsTab({ agent, slug }: { agent: Agent; slug: string }) {
     >
       <div className="space-y-12">
         <div id={CALL_HANDLING_ANCHOR} className="scroll-mt-24">
+          {/* Each section: a title and one short line. The fuller reason, where one is
+              worth having, is behind the ⓘ (critique-information-density). */}
           <Section
             headingLevel={3}
             title="How it handles calls"
-            description="How long a call may run, when it replies, putting callers through to a person, and remembering callers."
+            description="Call length, pauses, handing over, memory."
           >
             <CallHandlingSection agent={agent} />
           </Section>
@@ -60,7 +62,8 @@ export function SettingsTab({ agent, slug }: { agent: Agent; slug: string }) {
         <Section
           headingLevel={3}
           title="Tell my team"
-          description="Callers the agent cannot help are passed to your team with their name and number, so nobody is left waiting."
+          description="Callers it can't help go to your team."
+          info={<p>Your team gets the caller&apos;s name and number, so nobody is left waiting.</p>}
         >
           <TeamAlertsPanel agent={agent} />
         </Section>
@@ -72,7 +75,8 @@ export function SettingsTab({ agent, slug }: { agent: Agent; slug: string }) {
         <Section
           headingLevel={3}
           title="What it is"
-          description="Its name, which way its calls go, and the language it speaks. Changing what it does can stop it answering your numbers."
+          description="Name, call direction and language."
+          info={<p>Changing which way its calls go can stop it answering your numbers.</p>}
         >
           <AgentIdentity agent={agent} />
         </Section>
@@ -80,7 +84,7 @@ export function SettingsTab({ agent, slug }: { agent: Agent; slug: string }) {
         <Section
           headingLevel={3}
           title="Leads and calling hours"
-          description="Where leads come from and when your agents may call them are set once for your whole business."
+          description="Set once for your whole business."
           action={
             <Link href={href(`/c/${slug}/lead-sources`)} className={TEXT_ACTION}>
               Open leads and hours
@@ -113,7 +117,7 @@ function SwitchOffFirst({ agent }: { agent: Agent }) {
           canSwitchOff ? (
             <button
               type="button"
-              className={TEXT_ACTION}
+              className={SECONDARY_BUTTON_SM}
               disabled={!write.allowed}
               aria-disabled={moveFeedback.status === "pending" || undefined}
               aria-busy={moveFeedback.status === "pending" || undefined}
@@ -131,7 +135,7 @@ function SwitchOffFirst({ agent }: { agent: Agent }) {
           ) : undefined
         }
       >
-        It is taking calls. Switch it off before you delete it.
+        It is taking calls. Switch it off first.
       </NoticeBox>
     </div>
   );

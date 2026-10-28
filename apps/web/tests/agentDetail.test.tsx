@@ -416,7 +416,9 @@ describe("which script callers are actually hearing", () => {
 
     await screen.findByText("Changes waiting to go live");
     // Founder decision (10 Oct 2026): owners see "live" and "waiting", never version numbers.
-    expect(container.textContent).toContain("Callers keep hearing what is live now until the change is put live");
+    expect(container.textContent).toContain("Callers hear the old version until then.");
+    // The next step is a button to the Script tab, not a sentence pointing at the header.
+    expect(screen.getByRole("link", { name: "Review and put live" })).toBeTruthy();
     expect(screen.queryByText("Live version")).toBeNull();
     expect(screen.queryByText("Waiting to be applied")).toBeNull();
 
@@ -469,7 +471,7 @@ describe("which script callers are actually hearing", () => {
     );
 
     // The header says it, and no banner claims anything is waiting.
-    await screen.findByText(/Not taking or making calls yet/);
+    await screen.findByText(/Not taking calls yet/);
     expect(container.textContent).not.toContain("what callers hear right now");
     expect(container.textContent).not.toContain("Changes waiting to go live");
   });
@@ -535,9 +537,11 @@ describe("which voice callers are actually hearing", () => {
     await screen.findByText("Voice quality and rate");
     // The server's own digits, prefixed and never parsed (hard rule 7).
     expect(factValue("Voice quality and rate")).toBe("Studio — ₹8 / min");
-    expect(container.textContent).toContain(
-      "You have 1 later purchase behind it, each at the rates it was bought at.",
-    );
+    // The rate is on screen; how it is struck is one tap away, behind the ⓘ.
+    fireEvent.click(screen.getByRole("button", { name: "About Voice quality and rate" }));
+    expect(
+      await screen.findByText("You have 1 later purchase behind it, each at the rates it was bought at.", { exact: false }),
+    ).toBeTruthy();
     expect(container.textContent).not.toMatch(/sarvam|cartesia/i);
   });
 
@@ -772,9 +776,10 @@ describe("the numbers come from the server", () => {
 
     await screen.findByText("Most one call can cost you");
     expect(container.textContent).toContain("₹70");
-    expect(container.textContent).toContain(
-      "at the dearest per-minute rate your account can be charged",
-    );
+    fireEvent.click(screen.getByRole("button", { name: "About Most one call can cost you" }));
+    expect(
+      await screen.findByText(/at the dearest per-minute rate your account can be charged/),
+    ).toBeTruthy();
     expect(container.textContent).not.toContain("your plan's per-minute rate");
     expect(container.textContent).not.toContain("Your plan does not quote");
   });
@@ -808,9 +813,10 @@ describe("the numbers come from the server", () => {
     );
 
     await screen.findByText("Voice quality");
-    expect(container.textContent).toContain(
-      "The credit pack you buy fixes the rate you pay",
-    );
+    // The fix is a button on the row, to Billing.
+    expect(screen.getByRole("link", { name: "Add credit" }).getAttribute("href")).toBe("/c/acme/billing");
+    fireEvent.click(screen.getByRole("button", { name: "About Voice quality" }));
+    expect(await screen.findByText(/The credit pack you buy fixes the rate you pay/)).toBeTruthy();
     expect(container.textContent).not.toContain(
       "We cannot put a per-minute price on this voice for your account right now.",
     );
@@ -898,7 +904,7 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
     // of its own, so a toggle HERE would advertise a state ("remembers, says nothing") the
     // product cannot be configured into.
     expect(noticeSwitches()).toHaveLength(2);
-    expect(container.textContent).toContain("This one has no switch");
+    expect(container.textContent).toContain("No switch. Said while it remembers callers.");
     // WHY it is being said, not just that it is: a client reading a three-sentence opening
     // has to be able to find the setting that produced the third one.
     expect(container.textContent).toContain(
@@ -920,7 +926,7 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
       }),
     );
 
-    await screen.findByText("Caller memory is paused until you accept the updated statement");
+    await screen.findByText("Caller memory is paused");
     expect(container.textContent).toContain(STATEMENT);
     expect(screen.getByRole("button", { name: "Accept and resume" })).toBeTruthy();
   });
@@ -943,7 +949,7 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
       }),
     );
 
-    await screen.findByText("Caller memory is paused until you accept the updated statement");
+    await screen.findByText("Caller memory is paused");
     await act(async () => {
       fireEvent.click(await pressable(document.body, /Accept and resume/));
     });
@@ -990,7 +996,7 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
     const { container } = await renderClientPage(page, routes());
 
     await screen.findByText(`“${OPENING}”`);
-    expect(container.textContent).not.toContain("This one has no switch");
+    expect(container.textContent).not.toContain("No switch. Said while it remembers callers.");
     expect(container.textContent).not.toContain(
       "Say that it remembers callers",
     );
@@ -1008,7 +1014,7 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
 
     // VERBATIM: asserted against a sentence this test invents, so it can only pass if the
     // screen renders what the server sent rather than wording of its own. The guarantee (the
-    // first sentence) is on screen; the rest is in "More about these notices" (D-873).
+    // first sentence) is on screen; the rest is in "How these work" (D-873).
     const promise = await screen.findByText("The agent never claims to be human.");
     const rest = screen.getByText("Ask it and it says so.");
     expect(rest.closest("details")?.open).toBe(false);
@@ -1037,7 +1043,7 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
       }),
     );
 
-    await screen.findByText(/Both notices are off and the script has no opening line/);
+    await screen.findByText(/^Nothing yet.$/);
     // Never an empty quotation: a pair of empty quotes reads as "the agent says nothing",
     // which is true of the OPENING and false of the call.
     expect(container.textContent).not.toContain("“”");
@@ -1054,7 +1060,7 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
       "Act; with this off, it has to be covered by your own privacy notice or consent",
     );
     // And, in both off-states, the agent still answers honestly when asked.
-    expect(container.textContent).toContain("the agent still says it is an AI");
+    expect(container.textContent).toContain("If asked, it still says it is an AI.");
     expect(container.textContent).toContain("the agent still says yes");
   });
 
@@ -1075,7 +1081,7 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
 
     // What callers hear first is the agent's own greeting, not "nothing".
     await screen.findByText(`“${GREETING}”`);
-    expect(container.textContent).not.toContain("Both notices are off and the script has no opening line");
+    expect(container.textContent).not.toContain("Nothing yet.");
     expect(container.textContent).toContain("These switches never change it");
     expect(screen.getByRole("link", { name: "Edit the opening line" })).toBeTruthy();
   });
@@ -1168,7 +1174,7 @@ describe("the readiness card on Overview (D-873)", () => {
     }
     await screen.findByText("Write the opening line callers hear first.");
     expect(screen.getByText("How the score is made").closest("details")?.open).toBe(false);
-    expect(screen.getByText("More about these notices").closest("details")?.open).toBe(false);
+    expect(screen.getByText("How these work").closest("details")?.open).toBe(false);
   });
 });
 
@@ -1231,7 +1237,7 @@ describe("editing what an agent captures (the extraction variables)", () => {
     expect(within(panel).getByDisplayValue("Budget")).toBeTruthy();
     // The old account-manager disclaimer is gone; the self-serve promise replaces it.
     expect(panel.textContent).not.toContain("test run against real calls");
-    expect(panel.textContent).toContain("take effect on the next call");
+    expect(panel.textContent).toContain("From the next call.");
     // An existing variable's key is shown but not editable — changing it orphans history.
     expect(within(panel).queryByDisplayValue("visit_reason")).toBeNull();
     expect(panel.textContent).toContain("visit_reason");
@@ -1700,7 +1706,7 @@ describe("switching an agent on, off and deleting it (D-440, D-527)", () => {
     await screen.findByText("Reception");
     const panel = card("Delete this agent");
     expect(within(panel).queryByRole("button", { name: /Delete/ })).toBeNull();
-    expect(panel.textContent).toContain("Switch it off before you delete it.");
+    expect(panel.textContent).toContain("It is taking calls. Switch it off first.");
     // A quiet notice, not a tinted card, with the one move beside it.
     expect(panel.querySelector("[data-notice]")).not.toBeNull();
     expect(within(panel).getByRole("button", { name: "Switch off" })).toBeTruthy();
@@ -1781,7 +1787,7 @@ describe("switching an agent on, off and deleting it (D-440, D-527)", () => {
     await waitFor(() => expect(toggle.checked).toBe(true));
     // Said once, in the header line; the checklist and the row under the header do not
     // repeat it (D-873).
-    expect(screen.getAllByText(/test calls from our shared trial number/)).toHaveLength(1);
+    expect(screen.getAllByText(/Test calls only, until your account is live/)).toHaveLength(1);
     const links = screen.getAllByRole("link", { name: "Make a test call" });
     expect(links).toHaveLength(1);
     expect(links[0].getAttribute("href")).toBe("/c/acme");
@@ -1840,8 +1846,8 @@ describe("switching an agent on, off and deleting it (D-440, D-527)", () => {
     await act(async () => {
       fireEvent.click(await pressable(panel, /^Delete…$/));
     });
-    expect(panel.textContent).toContain("stay in your call log");
-    expect(panel.textContent).toContain("no longer be put on a campaign");
+    expect(panel.textContent).toContain("Its calls, recordings and leads are kept.");
+    expect(panel.textContent).toContain("It leaves your list and your campaigns.");
     expect(calls.some((call) => call.method === "POST")).toBe(false);
 
     // SECOND PRESS: the move — still `POST /archive`, because the server's word for it
@@ -1887,7 +1893,7 @@ describe("switching an agent on, off and deleting it (D-440, D-527)", () => {
     // The confirm is a kit `ActionButton`, whose own (empty) outcome line is a status too.
     const announced = within(panel)
       .getAllByRole("status")
-      .find((el) => el.textContent?.includes("stay in your call log"));
+      .find((el) => el.textContent?.includes("Its calls, recordings and leads are kept."));
     expect(announced, "the delete consequences were not announced").toBeDefined();
 
     const armed = within(panel).getByRole("button", {
@@ -1903,7 +1909,7 @@ describe("switching an agent on, off and deleting it (D-440, D-527)", () => {
     await act(async () => {
       fireEvent.click(within(panel).getByRole("button", { name: /Keep it/ }));
     });
-    expect(within(panel).queryByText(/stay in your call log/)).toBeNull();
+    expect(within(panel).queryByText(/Its calls, recordings and leads are kept/)).toBeNull();
     expect(
       within(panel).getByRole("button", { name: /^Delete…$/ }),
     ).toBeTruthy();
@@ -1965,7 +1971,7 @@ describe("switching an agent on, off and deleting it (D-440, D-527)", () => {
     await act(async () => {
       fireEvent.click(switchOn);
     });
-    expect(await screen.findByText("This agent cannot take calls until these are done.")).toBeTruthy();
+    expect(await screen.findByText("Do these first, then it can take calls.")).toBeTruthy();
     const link = screen.getAllByRole("link").find((a) => a.getAttribute("href")?.includes("/setup?step=hours"));
     expect(link).toBeTruthy();
   });
@@ -2015,7 +2021,7 @@ describe("a deleted agent offers nothing to tweak (the founder's screenshot)", (
     expect(screen.queryByRole("link", { name: /script builder/i })).toBeNull();
     expect(document.body.textContent).not.toContain("Write the script first");
     // And it says what IS true, in place of the sentence that was not.
-    expect(document.body.textContent).toContain("cannot be changed while it is deleted");
+    expect(document.body.textContent).toContain("Read-only while deleted");
   });
 
   it("renders no write control anywhere on the screen except the restore", async () => {
@@ -2477,7 +2483,7 @@ describe("the header holds the one primary, and Overview keeps the guarantee fir
     );
 
     expect(
-      await screen.findByText("An agent with no script cannot be switched on."),
+      await screen.findByText("Write its script first."),
     ).toBeTruthy();
   });
 });
@@ -2539,7 +2545,7 @@ describe("the setup checklist reflects the real state", () => {
 
     await screen.findByText("Add calling credit");
     const credit = row("Add calling credit");
-    expect(credit.textContent).toContain("We could not check this just now");
+    expect(credit.textContent).toContain("Couldn't check this.");
     expect(credit.textContent).not.toContain("To do");
   });
 
@@ -2585,7 +2591,7 @@ describe("the setup checklist reflects the real state", () => {
     await screen.findByText("Give it a phone number to answer");
     const number = row("Give it a phone number to answer");
     expect(number.textContent).not.toContain("account manager");
-    expect(number.textContent).toMatch(/Numbers page|Numbers open once/);
+    expect(number.textContent).toMatch(/Needs a verified business|verify your business first/);
     expect(within(number).getByRole("link", { name: /Get a number|Add credit/ })).toBeTruthy();
   });
 });

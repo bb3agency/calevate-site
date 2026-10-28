@@ -96,7 +96,7 @@ export function BookingJob({
           label="Hours"
           hint={
             kept === null
-              ? "Not a rule yet: your agent could book at any time. Use Change to set your hours."
+              ? "Not set, so it could book any time."
               : undefined
           }
           value={kept === null ? "Any time" : `${hourLabel(kept.from)} – ${hourLabel(kept.to)}`}
@@ -106,7 +106,7 @@ export function BookingJob({
       </SettingRows>
       {parts.length < 2 ? (
         <p className="mt-3 text-meta text-warn">
-          Only half of this is set up, so your agent cannot book yet. Use Change to finish it.
+          Half set up. It can&apos;t book yet.
         </p>
       ) : null}
       </div>
@@ -154,7 +154,7 @@ function TryIt({
     <div>
       <h4 className="text-body font-medium text-ink">Try it</h4>
       <p className="mt-0.5 text-meta text-ink-muted">
-        Pick a time and we check your calendar the way your agent would. Nothing is booked.
+        Pick a time to check your calendar. Nothing is booked.
       </p>
       <form
         noValidate
