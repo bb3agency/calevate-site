@@ -82,7 +82,8 @@ export function Templates({
     <Section
       headingLevel={3}
       title="Message templates"
-      description={`WhatsApp only lets a business start a chat with an approved template. Meta reviews each one in up to ${TEMPLATE_REVIEW_HOURS} hours.`}
+      description="Chats must start with an approved template."
+      info={<p>{`Meta reviews each one in up to ${TEMPLATE_REVIEW_HOURS} hours.`}</p>}
       action={
         <button
           type="button"
@@ -199,11 +200,11 @@ function TemplateForm({
   const problem = !body.trim()
     ? null
     : halfBlank(body)
-      ? "Write each blank with two curly brackets on each side, like {{1}}."
+      ? "Write each blank like {{1}}."
       : !blanksInOrder(body)
       ? "Number the blanks in order: {{1}}, then {{2}}, and so on."
       : blankAtEdge(body)
-        ? "Put a word before the first blank and after the last one. Meta refuses a message that starts or ends with a blank."
+        ? "Put a word before the first blank and after the last."
         : null;
   const missingExample = blanks.some((_, i) => !(examples[i] ?? "").trim() || !(labels[i] ?? "").trim());
   const ready = name.length > 0 && body.trim().length > 0 && !problem && !missingExample;
@@ -251,7 +252,7 @@ function TemplateForm({
         options={[
           {
             value: "UTILITY",
-            label: "About something the customer asked for: an order, a booking, a payment.",
+            label: "About an order, booking or payment.",
             hint: "Meta calls this Utility. Use this for your agent.",
           },
           {

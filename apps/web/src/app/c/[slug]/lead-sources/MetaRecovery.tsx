@@ -3,6 +3,7 @@
 import { RotateCcw } from "lucide-react";
 
 import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
+import { InfoTip } from "@/components/console/infoTip";
 import {
   NOTICE_BAR,
   NOTICE_BASE,
@@ -53,11 +54,16 @@ export function MetaRecovery({
   return (
     <div className="mt-4 border-t border-line pt-4">
       <p className="text-body font-medium text-ink">Leads we recorded but could not read</p>
-      <p className="mt-1 text-body text-ink-muted">
-        If a lead arrived before your Page access token was in place, we kept it against
-        its Meta lead ID but could not fetch what the person typed. Meta stops resending
-        after about a day and a half; this fetches them now. Each one goes through the
-        same checks a live lead does — including whether you may call them.
+      <p className="mt-1 flex items-center gap-1 text-body text-ink-muted">
+        <span>Fetch them now, before Meta stops resending.</span>
+        <InfoTip label="recovering leads">
+          <p>
+            If a lead arrived before your Page access token was in place, we kept it against
+            its Meta lead ID but could not fetch what the person typed. Meta stops resending
+            after about a day and a half. Each one goes through the same checks a live lead
+            does, including whether you may call them.
+          </p>
+        </InfoTip>
       </p>
 
       {activity.error != null ? (
@@ -103,12 +109,12 @@ export function MetaRecovery({
                 said only "2 recovered" is the shape that makes someone press again and
                 again. `deferred` is the one with an action attached, so it says so. */}
             {result.refused > 0 &&
-              `${formatCount(result.refused)} could not be used — see the reason on each row below. `}
+              `${formatCount(result.refused)} couldn't be used — see each row. `}
             {result.duplicate > 0 &&
               `${formatCount(result.duplicate)} had already landed. `}
             {result.deferred > 0
-              ? `${formatCount(result.deferred)} could not be fetched just now — Meta was unreachable, and they are still waiting, so try again shortly.`
-              : "Anything recovered appears in your leads, and was called only if your rules allowed it."}
+              ? `${formatCount(result.deferred)} could not be fetched just now. Try again soon.`
+              : "Recovered leads are in Leads."}
           </p>
         </div>
       )}

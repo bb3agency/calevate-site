@@ -51,6 +51,7 @@ export function SourcesList({
   onAgent,
   onFields,
   onMeta,
+  onAdd,
 }: {
   sources: ReturnType<typeof useLeadSources>;
   agents: Agent[] | undefined;
@@ -63,6 +64,8 @@ export function SourcesList({
   onAgent: (source: LeadSource) => void;
   onFields: (source: LeadSource) => void;
   onMeta: (source: LeadSource) => void;
+  /** Absent for a viewer who may not add one. */
+  onAdd?: () => void;
 }) {
   if (sources.isLoading) return <Skeleton rows={2} />;
   const items = sources.data?.items;
@@ -76,7 +79,17 @@ export function SourcesList({
   }
   if (items.length === 0) {
     return (
-      <EmptyState illustration={<EmptySketch kind="deliveries" />} message="No lead sources yet. Add one, then point your form at the address we give you." />
+      <EmptyState
+        illustration={<EmptySketch kind="deliveries" />}
+        message="No lead sources yet."
+        action={
+          onAdd ? (
+            <button type="button" className={SECONDARY_BUTTON_SM} onClick={onAdd}>
+              Add your first source
+            </button>
+          ) : undefined
+        }
+      />
     );
   }
 
@@ -105,7 +118,7 @@ export function SourcesList({
           </p>
           {row.previous_secret_expires_at && (
             <p className="mt-0.5 text-meta text-warn">
-              Your previous secret still works until {formatIST(row.previous_secret_expires_at)}.
+              Old secret works until {formatIST(row.previous_secret_expires_at)}
             </p>
           )}
           {row.source === META_SOURCE && waiting(row.id) > 0 && (

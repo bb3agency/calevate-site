@@ -118,14 +118,11 @@ export function FieldsDrawer({
     >
       <div className="space-y-4">
         {save.error && <ProblemNotice error={save.error} />}
-        <p className="text-meta text-ink-muted">
-          Type the name your form uses for each field. Leave a box empty to use ours. New leads
-          are read this way; leads already received keep what they had.
-        </p>
+        <p className="text-meta text-ink-muted">Your form&apos;s name for each field. Empty uses ours.</p>
         {field("Phone", phone, setPhone, "Needed whenever you name any field here.", "phone_number")}
         {missingPhone && (
           <p role="alert" className="-mt-2 text-meta text-danger">
-            Name the phone field too, or every lead from this form would be turned away.
+            Name the phone field too, or leads are turned away.
           </p>
         )}
         {field("Name", name, setName, "The person's name.", "full_name")}
@@ -133,7 +130,7 @@ export function FieldsDrawer({
           "Permission to call",
           consent,
           setConsent,
-          "Optional. A lead that does not confirm it is saved and never called.",
+          "Optional. Leads who don't agree aren't called.",
           "consent_to_call",
         )}
 

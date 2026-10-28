@@ -39,7 +39,7 @@ const GUIDES: Record<GuideKind, { label: string; steps: Step[]; note: string }> 
     steps: [
       { text: "Sign in to AiSensy and open the menu.", path: ["Manage", "API Key"] },
       { text: "Copy the key." },
-      { text: "For each message your agent sends, set up an API campaign with your approved template and make it Live." },
+      { text: "For each message, make a Live API campaign." },
       { text: "Paste the key here. On the action, type the campaign's name." },
     ],
     note: "AiSensy sends one Live API campaign per message.",
@@ -49,7 +49,7 @@ const GUIDES: Record<GuideKind, { label: string; steps: Step[]; note: string }> 
     steps: [
       { text: "Sign in to Interakt and open your settings.", path: ["Settings", "Developer Settings"] },
       { text: "Copy the key shown there." },
-      { text: "Paste the key here. On the action, type the template name and its language." },
+      { text: "Paste the key here. Add template name and language." },
     ],
     note: "Interakt's API is not on its Starter plan.",
   },
@@ -62,12 +62,12 @@ const GUIDES: Record<GuideKind, { label: string; steps: Step[]; note: string }> 
       },
       { text: "Assign your WhatsApp app to it with Manage app." },
       {
-        text: "Generate a token with the three permissions Meta lists for business management, WhatsApp management and WhatsApp messaging. Choose how long it lasts: when it expires, your messages stop until you paste a new one.",
+        text: "Generate a token with business management, WhatsApp management and WhatsApp messaging. When it expires, messages stop until you paste a new one.",
       },
       { text: "Copy the Phone number ID.", path: ["WhatsApp Manager", "API Setup"] },
-      { text: "Paste the token here. On the action, add the Phone number ID." },
+      { text: "Paste the token here. Add the Phone number ID." },
     ],
-    note: "This needs a Meta app in your own business account. If you do not have one, connect through Meta above instead.",
+    note: "Needs your own Meta app. No app? Connect through Meta above.",
   },
 };
 

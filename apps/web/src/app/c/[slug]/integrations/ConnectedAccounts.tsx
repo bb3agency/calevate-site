@@ -58,14 +58,14 @@ import { useAccountSignIn } from "./useAccountSignIn";
 import { WhatsAppSection } from "./whatsapp/WhatsAppSection";
 
 const SIGN_IN: { kind: OAuthKind; label: string; what: string }[] = [
-  { kind: "google_calendar", label: "Google Calendar", what: "Find free times and book them for callers." },
+  { kind: "google_calendar", label: "Google Calendar", what: "Book callers into free times." },
   {
     kind: "google_sheets",
     label: "Google Sheets",
-    what: "Write calls and leads into the spreadsheets you choose, and look callers up.",
+    what: "Write calls and leads into your sheets.",
   },
-  { kind: "zoho_crm", label: "Zoho CRM", what: "Save callers as leads and greet them by name." },
-  { kind: "hubspot", label: "HubSpot", what: "Save callers as contacts and greet them by name." },
+  { kind: "zoho_crm", label: "Zoho CRM", what: "Save callers as leads." },
+  { kind: "hubspot", label: "HubSpot", what: "Save callers as contacts." },
 ];
 const SIGN_IN_KINDS: readonly string[] = SIGN_IN.map((s) => s.kind);
 
@@ -80,7 +80,7 @@ const KEY_KINDS: { kind: KeyKind; label: string; hint: string }[] = [
   {
     kind: "razorpay",
     label: "Razorpay keys",
-    hint: "Razorpay Dashboard → Account & Settings → API Keys. Payments go to your account.",
+    hint: "Razorpay → Account & Settings → API Keys.",
   },
   { kind: "custom_api", label: "Your own API key", hint: "Sent only to your own address." },
 ];
@@ -215,10 +215,7 @@ export function ConnectedAccounts({ session, canWrite }: { session: Session; can
             {complete.data.label} is connected. Choose it on an agent&rsquo;s Actions.
           </NoticeBox>
         ) : null}
-        <p className={`${FIELD_HINT} mt-3`}>
-          Google asks for permission on the account you choose. Calevate can open only the
-          spreadsheets you pick.
-        </p>
+        <p className={`${FIELD_HINT} mt-3`}>We open only the sheets you pick.</p>
       </Section>
 
       <WhatsAppSection
@@ -235,7 +232,7 @@ export function ConnectedAccounts({ session, canWrite }: { session: Session; can
       <Section
         headingLevel={2}
         title="Keys"
-        description="For services you connect by pasting a key. We seal it and never show it again."
+        description="Paste a key once. We never show it again."
         action={
           <button
             type="button"
@@ -289,10 +286,7 @@ export function ConnectedAccounts({ session, canWrite }: { session: Session; can
           onCancel={() => setPendingDelete(null)}
           onConfirm={() => remove.mutate(pendingDelete.id, { onSuccess: () => setPendingDelete(null) })}
         >
-          <p>
-            Every action that uses it is taken off your live agents straight away. If a caller
-            asks for one anyway, the agent says it can&rsquo;t do that right now.
-          </p>
+          <p>Actions that use it stop on your agents now.</p>
           <p>Connect it again any time and choose it on those actions.</p>
         </ConfirmDialog>
       )}

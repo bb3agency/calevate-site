@@ -120,19 +120,16 @@ export function SheetsForm({
         headline={unavailable.message}
         remediation={
           unavailable.remediation ??
-          "Set up a delivery to your own system instead, or ask us to enable Google Sheets for your account."
+          "Send to your own system, or ask us to switch it on."
         }
-        footnote="Nothing was created, so there is nothing to undo. Reload this page once we have told you Sheets is switched on for your account."
+        footnote="Nothing was created, so there is nothing to undo."
       />
     );
   }
 
   return (
     <div className="space-y-3">
-      <p className="text-meta text-ink-faint">
-        We add a row for each event, written by your own Google account into the spreadsheet
-        you choose.
-      </p>
+      <p className="text-meta text-ink-faint">One row per event, in the sheet you pick.</p>
       {create.error && (
         <div className="mt-3">
           <ProblemNotice error={create.error} />

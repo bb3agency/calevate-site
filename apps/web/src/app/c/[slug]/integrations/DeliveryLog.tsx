@@ -163,7 +163,7 @@ export function DeliveryLog({
                       // reason on hover says which kind of nothing this is.
                       <span
                         className="text-xs text-ink-faint"
-                        title="No copy is kept for this delivery — it has aged out under your retention policy, was erased, or the event carried no customer record."
+                        title="No copy kept: too old, erased, or no customer in it."
                       >
                         —
                       </span>
@@ -179,7 +179,7 @@ export function DeliveryLog({
         <EmptyState
           illustration={<EmptySketch kind="deliveries" />}
           message="Nothing sent yet."
-          hint="Deliveries appear here as they happen — including the ones your endpoint rejected."
+          hint="Every delivery shows here, even refused ones."
         />
       )}
 
@@ -213,8 +213,7 @@ export function DeliveryLog({
           ) : payload.data ? (
             <>
               <p className="mt-1 text-xs text-ink-faint">
-                Exactly what your endpoint received. It contains your customer&apos;s
-                details.
+                Exactly what your endpoint got. Holds customer details.
               </p>
               {payload.data.truncated && (
                 <p className="mt-2 text-xs text-warn">

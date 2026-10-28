@@ -117,7 +117,7 @@ export function ReaderDrawer({
             {words.data.sections.length === 0 ? (
               <p className="text-body text-ink-muted">
                 {upload.read_state === "reading"
-                  ? "We are still reading this. The words appear here in a minute."
+                  ? "Still reading. Words show here in a minute."
                   : "We hold no words for this yet."}
               </p>
             ) : (
@@ -217,7 +217,7 @@ function ReplaceFile({ upload, onDone }: { upload: KbUpload; onDone: () => void 
   const send = useUploadDocument(session);
   useActionFeedback(send, {
     errorDisplay: "inline",
-    successToast: `We're reading the new ${upload.name}. It takes the old one's place once it's read.`,
+    successToast: `Reading the new ${upload.name}. It replaces the old one.`,
   });
   const [percent, setPercent] = useState<number | null>(null);
   const [sending, setSending] = useState<File | null>(null);

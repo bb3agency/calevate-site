@@ -76,10 +76,7 @@ export function TestLeadDrawer({
                   ? "A real submission like this WOULD get a call."
                   : "A real submission like this would NOT get a call."}
               </p>
-              <p className="mt-1">
-                That is the answer right now. The do-not-call list and calling hours are read at
-                the moment of the dial, so a real submission is checked again when it arrives.
-              </p>
+              <p className="mt-1">That is the answer right now. Real leads are checked again.</p>
             </div>
             <ul className="divide-y divide-line">
               {result.steps.map((step) => (
@@ -107,7 +104,7 @@ export function TestLeadDrawer({
           variant="inline"
           headingLevel={3}
           title="The sample"
-          subtitle="Built from this source's field names. Edit it to try what your form really sends."
+          subtitle="Edit it to match what your form sends."
         >
           <textarea
             value={payloadText}

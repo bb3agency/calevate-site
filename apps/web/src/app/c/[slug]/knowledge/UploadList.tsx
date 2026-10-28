@@ -181,10 +181,7 @@ export function UploadRow({ upload }: { upload: KbUpload }) {
           onCancel={() => setConfirmingRemoval(false)}
           onConfirm={() => remove.mutate(shown.id, { onSuccess: () => setConfirmingRemoval(false) })}
         >
-          <p>
-            Your agents stop using this straight away, and we delete our copy of it. Callers
-            who ask about it will get whatever else you have taught your agents.
-          </p>
+          <p>Your agents stop using it now. We delete our copy.</p>
           <p>You can send it again later.</p>
         </ConfirmDialog>
       )}
@@ -240,8 +237,8 @@ function ExtractedText({ upload, onDone }: { upload: KbUpload; onDone: () => voi
       <p className="text-xs text-ink-muted">
         <span>
           {isMachineRead(upload)
-            ? "This is what our computer read off your photo — it is not your own typing, so please check the numbers and the spellings before you say yes."
-            : "This is the text we took out of what you sent. Check it before you say yes."}
+            ? "We read this off your photo. Check numbers and spellings."
+            : "This is what we read. Check it first."}
         </span>
       </p>
 
@@ -264,10 +261,7 @@ function ExtractedText({ upload, onDone }: { upload: KbUpload; onDone: () => voi
           ))}
         </div>
       ) : (
-        <p className="text-xs text-ink-muted">
-          There is nothing readable in this one. Remove it and send a clearer photo, or type
-          the details in yourself.
-        </p>
+        <p className="text-xs text-ink-muted">Nothing readable. Send a clearer photo.</p>
       )}
 
       {confirm.error && <ProblemNotice error={confirm.error} />}
@@ -314,10 +308,7 @@ function ExtractedText({ upload, onDone }: { upload: KbUpload; onDone: () => voi
             })
           }
         >
-          <p>
-            We delete this and the file it came from, and your agents never see it. Nothing
-            you have already taught your agents changes.
-          </p>
+          <p>We delete it and its file. Agents never see it.</p>
         </ConfirmDialog>
       )}
     </div>

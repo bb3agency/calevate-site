@@ -129,7 +129,7 @@ describe("a new signing secret", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Issue a new secret" }));
 
     expect(await screen.findByText("whsec_brand_new")).toBeTruthy();
-    expect(screen.getByText(/The old secret also signs every delivery until/)).toBeTruthy();
+    expect(screen.getByText(/Old secret works until/)).toBeTruthy();
     const rotation = calls.find((c) => c.path.endsWith("/endpoints/e1/rotate-secret"));
     expect(rotation?.method).toBe("POST");
   });

@@ -367,7 +367,7 @@ describe("one body of knowledge for the whole business (D-689)", () => {
     // No row is attributed to one agent: every agent answers from every row.
     expect(container.textContent).not.toContain("Front desk");
     expect(container.textContent).not.toContain("Outbound reminders");
-    expect(container.textContent).toContain("shared by every one of your agents");
+    expect(container.textContent).toContain("all agents use them");
   });
 
   it("asks Pip to teach the words, with no agent named (D-821)", async () => {
@@ -445,7 +445,7 @@ describe("what the screen says the agent does with the text", () => {
     expect(text).toContain("Pinned facts");
     // And how it gets there, in the same sentence: D-658 — nobody approves what the
     // account's own people add, and saying otherwise has a client waiting on nobody.
-    expect(text).toContain("Nobody approves what you add");
+    expect(text).toContain("No approval needed");
     expect(text).not.toMatch(/reviewed by your account manager/i);
   });
 

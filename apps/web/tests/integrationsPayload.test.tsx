@@ -209,7 +209,7 @@ describe("the retained delivery body", () => {
     });
 
     expect(
-      await screen.findByTitle(/No copy is kept for this delivery/),
+      await screen.findByTitle(/No copy kept/),
     ).toBeTruthy();
     expect(screen.queryByRole("button", { name: "View" })).toBeNull();
   });

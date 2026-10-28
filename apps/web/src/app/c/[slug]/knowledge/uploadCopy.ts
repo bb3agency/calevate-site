@@ -88,12 +88,8 @@ const READ_COPY_KINDS: ReadonlySet<string> = new Set(["pdf", "url"]);
 
 /** Said under a PDF or link the agents do not use yet, once its words are read. */
 const NOT_USED_YET: Readonly<Record<string, string>> = {
-  pdf:
-    "Saved — your agents don't use this yet. You and Pip can open it and search it. If " +
-    "callers need it now, type the key details under Write it.",
-  url:
-    "Saved — your agents don't use this yet. You and Pip can open the page and search " +
-    "it. If callers need it now, type the key details under Write it.",
+  pdf: "Agents don't use PDFs yet. Write the key facts instead.",
+  url: "Agents don't use links yet. Write the key facts instead.",
 };
 
 /** Does what this upload says reach the agents? The server's `reaches_agents`. */
@@ -127,7 +123,7 @@ export function uploadState(upload: KbUpload): UploadState {
     if (upload.read_state === "reading") {
       return {
         label: "Being read",
-        meaning: `We are reading the words in this ${thing}. This usually takes a minute.`,
+        meaning: "Reading it now. About a minute.",
         tone: WORK_TONE,
         working: true,
         awaitingConfirmation: false,
@@ -138,7 +134,7 @@ export function uploadState(upload: KbUpload): UploadState {
         label: "Couldn't read",
         meaning:
           upload.read_detail ??
-          `We could not read the words in this ${thing}. It is still saved; try reading it again.`,
+          `Couldn't read this ${thing}. It is still saved.`,
         tone: STOP_TONE,
         working: false,
         awaitingConfirmation: false,
@@ -158,7 +154,7 @@ export function uploadState(upload: KbUpload): UploadState {
   if (upload.is_live) {
     return {
       label: "In use",
-      meaning: "Your agents are using this now, when callers ask about it.",
+      meaning: "Your agents use this on calls.",
       tone: LIVE_TONE,
       working: false,
       awaitingConfirmation: false,
@@ -170,7 +166,7 @@ export function uploadState(upload: KbUpload): UploadState {
   if (upload.ingest_status === "error") {
     return {
       label: "Could not be added",
-      meaning: `We could not add this ${thing} for your agents.`,
+      meaning: `Couldn't add this ${thing}. Send it again.`,
       tone: STOP_TONE,
       working: false,
       awaitingConfirmation: false,
@@ -179,7 +175,7 @@ export function uploadState(upload: KbUpload): UploadState {
   if (upload.ingest_status === "conversion_failed") {
     return {
       label: "Could not be read",
-      meaning: `We could not read anything out of this ${thing}.`,
+      meaning: `Nothing readable in this ${thing}.`,
       tone: STOP_TONE,
       working: false,
       awaitingConfirmation: false,
@@ -188,9 +184,7 @@ export function uploadState(upload: KbUpload): UploadState {
   if (upload.ingest_status === "conversion_unavailable") {
     return {
       label: "Cannot be read here",
-      meaning:
-        "We cannot read this kind of file on this account yet. Send the same content as a PDF, " +
-        "or paste it in as text.",
+      meaning: "Can't read this type here. Send a PDF or type it.",
       tone: STOP_TONE,
       working: false,
       awaitingConfirmation: false,
@@ -200,7 +194,7 @@ export function uploadState(upload: KbUpload): UploadState {
   if (upload.review_state === "rejected") {
     return {
       label: "Not accepted",
-      meaning: `We did not accept this ${thing}.`,
+      meaning: `This ${thing} was not accepted.`,
       tone: STOP_TONE,
       working: false,
       awaitingConfirmation: false,
@@ -209,7 +203,7 @@ export function uploadState(upload: KbUpload): UploadState {
   if (upload.review_state === "archived") {
     return {
       label: "Replaced",
-      meaning: "A newer version of this took its place.",
+      meaning: "A newer version replaced it.",
       tone: QUIET_TONE,
       working: false,
       awaitingConfirmation: false,
@@ -220,9 +214,8 @@ export function uploadState(upload: KbUpload): UploadState {
     return {
       label: "Check what we read",
       meaning: isMachineRead(upload)
-        ? "We read the words off your photo. Read them through and confirm they are right — " +
-          "then your agents can start using them."
-        : "We have read this. Have a look and confirm it, and your agents can start using it.",
+        ? "Check the words we read off your photo."
+        : "Check what we read, then confirm.",
       tone: WAIT_TONE,
       working: false,
       awaitingConfirmation: true,
@@ -233,8 +226,8 @@ export function uploadState(upload: KbUpload): UploadState {
     return {
       label: "Being read",
       meaning: isLink
-        ? "We are reading the page. This usually takes a minute."
-        : "We are reading your file. This usually takes a minute.",
+        ? "Reading the page. About a minute."
+        : "Reading your file. About a minute.",
       tone: WORK_TONE,
       working: true,
       awaitingConfirmation: false,
@@ -243,7 +236,7 @@ export function uploadState(upload: KbUpload): UploadState {
   if (upload.ingest_status === "processing") {
     return {
       label: "Going to your agents",
-      meaning: "Your agents are being given this now. It takes a minute or two.",
+      meaning: "Sending to your agents. A minute or two.",
       tone: WORK_TONE,
       working: true,
       awaitingConfirmation: false,
@@ -255,7 +248,7 @@ export function uploadState(upload: KbUpload): UploadState {
   if (upload.review_state === "approved") {
     return {
       label: "Approved, not in use yet",
-      meaning: "Nothing is needed from you. Your agents start using it once we have sent it over.",
+      meaning: "Nothing to do. Agents get it soon.",
       tone: WORK_TONE,
       working: false,
       awaitingConfirmation: false,
@@ -263,7 +256,7 @@ export function uploadState(upload: KbUpload): UploadState {
   }
   return {
     label: "Waiting for review",
-    meaning: `We read this ${thing} before your agents start using it.`,
+    meaning: `We check this ${thing} first.`,
     tone: WAIT_TONE,
     working: false,
     awaitingConfirmation: false,
@@ -337,19 +330,23 @@ export const ACCEPTED_EXTENSIONS = [
 export const ACCEPT_ATTRIBUTE = ACCEPTED_EXTENSIONS.join(",");
 
 /**
- * The kinds whose words reach the agents, as a sentence for the person. PDFs are accepted
- * too (`ACCEPTED_EXTENSIONS`) but said apart, in `PDF_NOTE`, because whether the agents use
- * one is decided per item (`reaches_agents`) and said on its row.
+ * The kinds whose words reach the agents: one short line by default, the full sentence
+ * behind the File view's tip. PDFs are accepted too (`ACCEPTED_EXTENSIONS`) but said apart,
+ * because whether the agents use one is decided per item (`reaches_agents`) and said on
+ * its row.
  */
+export const READ_KINDS_LINE = "Word, Excel, CSV, text, or a photo of a list.";
 export const READ_KINDS_SENTENCE =
   "Send what you already have: a Word document, an Excel or CSV sheet, a text file, or a " +
   "photo of a printed price list or menu. We read it, and every one of your agents uses what it says.";
 
 /** Said beside the file control so a PDF is never sent believing the agents will read it. */
+export const PDF_LINE = "PDFs are saved, but agents may not use them.";
 export const PDF_NOTE =
   "You can save a PDF too. We read its words so you and Pip can open and search it, and each one shows whether your agents use it.";
 
 /** Said beside the link control, for the same reason. */
+export const LINK_LINE = "We read that one page. Agents may not use it.";
 export const LINK_NOTE =
   "We read that one page so you and Pip can open and search it. Each link shows whether your agents use it.";
 

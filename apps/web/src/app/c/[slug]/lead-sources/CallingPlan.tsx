@@ -9,6 +9,7 @@ import { todayIST } from "@/components/arc/ist-dates";
 import { RadioGroup } from "@/components/arc/radio-group";
 import {
   Card,
+  Disclosure,
   FIELD,
   FIELD_HINT,
   FIELD_INLINE,
@@ -63,9 +64,9 @@ const WAITS: { seconds: number; label: string }[] = [
 
 const AFTER_HOURS: { value: AfterHours; label: string; hint: string }[] = [
   { value: "next_open", label: "Call when you open", hint: "The first minute of your next calling hours." },
-  { value: "open_plus_3h", label: "Call 3 hours after you open", hint: "Leaves the morning for leads that arrive then." },
-  { value: "next_day", label: "Call the next day", hint: "At opening on your next calling day, even if you open later today." },
-  { value: "hold", label: "Hold them for me", hint: "They wait below until you choose to call or not." },
+  { value: "open_plus_3h", label: "Call 3 hours after you open", hint: "Mornings stay free for new leads." },
+  { value: "next_day", label: "Call the next day", hint: "At opening on your next calling day." },
+  { value: "hold", label: "Hold them for me", hint: "They wait for you to choose." },
 ];
 
 const RETRIES = [0, 1, 2, 3].map((count) => ({
@@ -106,19 +107,43 @@ function problemOf(plan: Plan, windowStart: string, windowEnd: string): string |
   const end = plan.hours_end ?? "";
   if (!start || !end) return "Enter both times.";
   if (start < windowStart || end > windowEnd) {
-    return `Calling hours must sit between ${windowStart} and ${windowEnd}.`;
+    return `Use times between ${windowStart} and ${windowEnd}.`;
   }
   if (start >= end) return "The end time must be after the start time.";
   return null;
 }
 
-function Group({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
+/**
+ * One part of the plan as a folded row whose closed face says what it is set to
+ * ("When to call · Straight away · 09:00–19:00"). Five open groups made this card the whole
+ * phone screen, burying the lead sources under it (critique-information-density:
+ * progressive disclosure). Native `<details>`, so every field stays mounted and a
+ * half-made change survives folding.
+ */
+function Group({
+  title,
+  status,
+  hint,
+  open = false,
+  children,
+}: {
+  title: string;
+  status: ReactNode;
+  hint?: string;
+  open?: boolean;
+  children: ReactNode;
+}) {
+  // Read once at mount: following `open` afterwards would fold the row shut under the
+  // person's cursor the moment they fixed the problem that opened it.
+  const [startOpen] = useState(open);
   return (
-    <fieldset className="border-t border-line pt-4 first:border-t-0 first:pt-0">
-      <legend className="text-sm font-semibold text-ink">{title}</legend>
-      {hint && <p className="mt-0.5 text-xs text-ink-muted">{hint}</p>}
-      <div className="mt-3 space-y-3">{children}</div>
-    </fieldset>
+    <Disclosure variant="row" headingLevel={3} title={title} status={status} defaultOpen={startOpen}>
+      <fieldset>
+        <legend className="sr-only">{title}</legend>
+        {hint && <p className="text-xs text-ink-muted">{hint}</p>}
+        <div className="mt-3 space-y-3">{children}</div>
+      </fieldset>
+    </Disclosure>
   );
 }
 
@@ -188,6 +213,12 @@ export function CallingPlan({
   const holidays = draft.holidays ?? [];
   const retries = draft.retry_attempts ?? 0;
 
+  const callerName =
+    callers.find((agent) => agent.id === draft.calling_agent_id)?.name ?? "Each source's agent";
+  const waitLabel = WAITS.find((w) => w.seconds === (draft.wait_seconds ?? 0))?.label ?? "Straight away";
+  const afterHoursLabel = AFTER_HOURS.find((o) => o.value === draft.after_hours)?.label ?? "";
+  const retryLabel = RETRIES.find((r) => r.value === String(retries))?.label ?? "";
+
   const addHoliday = () => {
     if (!holiday || holidays.includes(holiday) || holidays.length >= 60) return;
     set({ holidays: [...holidays, holiday].sort() });
@@ -206,11 +237,12 @@ export function CallingPlan({
       >
         {plan.data.trial_notice && (
           <NoticeBox tone="warn" title="Free trial: test calls only">
-            {plan.data.trial_notice} Set it up now; calling starts once your account is live.
+            {plan.data.trial_notice} Calling starts when you go live.
           </NoticeBox>
         )}
 
-        <Group title="Who calls" hint="One agent calls every new lead, from every source.">
+        <div className="-mx-1 divide-y divide-line rounded-card border border-line">
+        <Group title="Who calls" status={callerName} hint="One agent calls every new lead.">
           <label className="block max-w-md">
             <span className={FIELD_LABEL}>Agent</span>
             <select
@@ -231,7 +263,11 @@ export function CallingPlan({
           </label>
         </Group>
 
-        <Group title="When to call">
+        <Group
+          title="When to call"
+          status={`${waitLabel} · ${draft.hours_start ?? ""}–${draft.hours_end ?? ""}`}
+          open={problem !== null}
+        >
           <label className="block max-w-md">
             <span className={FIELD_LABEL}>Wait before calling</span>
             <select
@@ -246,9 +282,7 @@ export function CallingPlan({
                 </option>
               ))}
             </select>
-            <span className={FIELD_HINT}>
-              Lets them finish the form first. Checked every 30 seconds.
-            </span>
+            <span className={FIELD_HINT}>Lets them finish the form first.</span>
           </label>
 
           <div>
@@ -285,7 +319,7 @@ export function CallingPlan({
               />
             </div>
             <span id="calling-hours-hint" className={problem ? "mt-1 block text-xs text-danger" : FIELD_HINT}>
-              {problem ?? `Anywhere between ${windowStart} and ${windowEnd}; nobody is called outside that.`}
+              {problem ?? `Between ${windowStart} and ${windowEnd} only.`}
             </span>
           </div>
 
@@ -369,7 +403,7 @@ export function CallingPlan({
           </div>
         </Group>
 
-        <Group title="Leads that arrive after hours">
+        <Group title="Leads that arrive after hours" status={afterHoursLabel}>
           <RadioGroup
             label={<span className="sr-only">Leads that arrive after hours</span>}
             name="after-hours"
@@ -383,7 +417,7 @@ export function CallingPlan({
           />
         </Group>
 
-        <Group title="If nobody answers">
+        <Group title="If nobody answers" status={retryLabel}>
           <RadioGroup
             label={<span className="sr-only">Try again</span>}
             name="retries"
@@ -408,35 +442,34 @@ export function CallingPlan({
                   </option>
                 ))}
               </select>
-              <span className={FIELD_HINT}>
-                A try outside your hours moves to the next opening. Tries stop once they
-                answer or call you back.
-              </span>
+              <span className={FIELD_HINT}>Stops once they answer or call back.</span>
             </label>
           )}
         </Group>
 
-        <Group title="Answering machines">
+        <Group title="Answering machines" status={draft.detect_machines ? "Hang up" : "Keep talking"}>
           <ToggleSwitch
             label="Hang up if a machine answers"
-            hint="Applies to every call your agents place. Off: the agent talks to voicemail too."
+            hint="For every call. Off: it talks to voicemail."
             checked={Boolean(draft.detect_machines)}
             disabled={!canWrite}
             onChange={(next) => set({ detect_machines: next })}
           />
         </Group>
 
-        <section aria-labelledby="always-applied" className="rounded-md bg-surface-muted px-4 py-3">
-          <h3 id="always-applied" className="flex items-center gap-1.5 text-xs font-semibold text-ink">
-            <Lock aria-hidden className="h-3.5 w-3.5" />
-            Always applied, whatever you choose
-          </h3>
-          <ul className="mt-1.5 list-disc space-y-0.5 pl-5 text-xs text-ink-muted">
+        <Disclosure
+          variant="row"
+          headingLevel={3}
+          title="Always applied"
+          status={<Lock aria-label="Can't be changed" className="h-3.5 w-3.5" />}
+        >
+          <ul className="list-disc space-y-0.5 pl-5 text-xs text-ink-muted">
             {plan.data.always_applied.map((rule) => (
               <li key={rule}>{rule}</li>
             ))}
           </ul>
-        </section>
+        </Disclosure>
+        </div>
 
         {saveError != null && <ProblemNotice error={saveError} />}
         <div className="flex flex-wrap items-center gap-3">
@@ -454,10 +487,11 @@ export function CallingPlan({
               Undo changes
             </button>
           ) : null}
+          {problem ? <span className="text-xs text-danger">Check the calling hours</span> : null}
           <span role="status" className="text-xs text-ink-muted">
             {!dirty && savedAgents !== null
               ? savedAgents > 0
-                ? `Saved. Your ${savedAgents === 1 ? "live agent is" : `${savedAgents} live agents are`} being updated now; a call in progress finishes first.`
+                ? `Saved. Updating ${savedAgents === 1 ? "1 live agent" : `${savedAgents} live agents`}.`
                 : "Saved."
               : ""}
           </span>

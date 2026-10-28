@@ -54,8 +54,8 @@ type GuideKind = "aisensy" | "interakt" | "meta_cloud";
 /** What a refused or abandoned window means, in the owner's words. */
 function cancelledWords(step: string | null): string {
   return step
-    ? "You closed Meta's window before the end, so nothing was connected. Press Connect WhatsApp to start again."
-    : "Meta's window closed before the end, so nothing was connected.";
+    ? "You closed Meta's window. Nothing was connected."
+    : "Meta's window closed early. Nothing was connected.";
 }
 
 const SETUP_STEPS = [
@@ -107,7 +107,7 @@ export function WhatsAppSection({
     <Section
       title="WhatsApp from your own number"
       headingLevel={2}
-      description="Your agent can send a booking confirmation or a payment link while the caller is still on the line, from your business's WhatsApp."
+      description="Send confirmations and payment links during calls."
     >
       <div className="space-y-8">
         {connected?.pin && (
@@ -115,8 +115,7 @@ export function WhatsAppSection({
             <span className="block">
               Your number&rsquo;s two-step PIN is{" "}
               <strong className="font-mono text-ink tabular-nums tracking-[0.2em]">{connected.pin}</strong>. Keep it
-              somewhere safe: you need it to ever move this number. Calevate does not keep it and cannot show it
-              again.
+              safe. We can&rsquo;t show it again.
             </span>
           </NoticeBox>
         )}
@@ -132,11 +131,11 @@ export function WhatsAppSection({
                 tone="neutral"
                 title={
                   setup.reason === "weekly_limit"
-                    ? "Meta limits how many businesses we connect each week, and this week's are used."
+                    ? "This week's Meta connections are used up."
                     : "Connecting through Meta is not switched on yet."
                 }
               >
-                Connect with a key from your WhatsApp provider below. You can switch to Meta later.
+                Use a key from your provider below.
               </NoticeBox>
             ) : choice === null ? (
               <Chooser label="How do you use WhatsApp for your business today?">
@@ -159,7 +158,7 @@ export function WhatsAppSection({
                 <ChooserItem
                   icon={<Store className="h-5 w-5" />}
                   title="I already send WhatsApp through another company"
-                  description="Such as AiSensy or Interakt. Give Calevate access through Meta, or paste a key."
+                  description="Like AiSensy or Interakt."
                   disabled={!canWrite}
                   onSelect={() => setChoice("grant_access")}
                 />
@@ -179,7 +178,7 @@ export function WhatsAppSection({
               <Section
                 headingLevel={3}
                 title="Connect with a key from your provider"
-                description="Find the key in your provider's account, then paste it here. Calevate seals it and never shows it again."
+                description="Paste it once. We never show it again."
               >
                 <KeyGuides canWrite={canWrite} onPasteKey={onPasteKey} />
               </Section>
@@ -283,26 +282,23 @@ function ConnectFlow({
       <div>
         <h3 className="text-body font-semibold text-ink">Have these ready</h3>
         <ul className="mt-2 list-disc space-y-1 pl-5 text-body text-ink">
-          <li>Your Facebook login. Meta asks for it to know the account is yours.</li>
+          <li>Your Facebook login.</li>
           {choice === "new" && (
-            <li>
-              Your own SIM mobile number, in a phone you have with you. Meta sends it a 6-digit code. Not your Calevate
-              number, and not a number already on WhatsApp.
-            </li>
+            <li>A SIM number in your hand, not on WhatsApp yet.</li>
           )}
-          {choice === "business_app" && <li>Your phone with the WhatsApp Business app, updated to the latest version.</li>}
-          {isExisting && <li>Admin access to the WhatsApp account your provider set up for you.</li>}
-          <li>A debit or credit card for Meta. Meta charges you for each message; Calevate adds nothing.</li>
+          {choice === "business_app" && <li>The WhatsApp Business app, updated.</li>}
+          {isExisting && <li>Admin access to your provider&rsquo;s WhatsApp account.</li>}
+          <li>A card for Meta. Meta charges you for each message; Calevate adds nothing.</li>
         </ul>
       </div>
 
       <div>
         <h3 className="text-body font-semibold text-ink">What happens</h3>
         <ol className="mt-2 list-decimal space-y-1 pl-5 text-body text-ink">
-          <li>Meta opens its own window. Sign in and choose your business.</li>
-          {choice === "new" && <li>Enter your number, then the code Meta sends to it, and the name customers will see.</li>}
-          {isExisting && <li>Choose the WhatsApp account you already have, if Meta offers it.</li>}
-          <li>Back here, Calevate gets your number ready and sends four standard messages, in Telugu, Hindi and English, to Meta for review.</li>
+          <li>In Meta&rsquo;s window, sign in and pick your business.</li>
+          {choice === "new" && <li>Enter your number, the code, and your business name.</li>}
+          {isExisting && <li>Pick your WhatsApp account, if Meta offers it.</li>}
+          <li>Back here, we set up your number and messages.</li>
           <li>
             In WhatsApp Manager, add your card so Meta can bill you. Meta reviews messages in up to{" "}
             {TEMPLATE_REVIEW_HOURS} hours.
@@ -388,7 +384,7 @@ function ConnectedAccount({
       label: "Add a card in Meta",
       status: "waiting",
       statusText: "Do this in Meta",
-      info: "Meta bills you for each message on this card. Calevate cannot see whether it is added.",
+      info: "Meta bills each message to this card. We can't see if it's added.",
       action: (
         <a href={paymentUrl} target="_blank" rel="noreferrer" className={TEXT_ACTION}>
           Open WhatsApp Manager
@@ -434,7 +430,7 @@ function ConnectedAccount({
             <div className="space-y-2">
               <p className="text-body text-ink">
                 {account.account_alert
-                  ? "Meta reported a problem with this account. Check Meta Business Suite, then try again."
+                  ? "Meta found a problem. Check Meta Business Suite."
                   : "One step did not finish. Nothing was charged."}
               </p>
               <ActionButton
@@ -468,11 +464,8 @@ function ConnectedAccount({
           onCancel={() => setConfirming(false)}
           onConfirm={() => disconnect.mutate(account.id, { onSuccess: () => setConfirming(false) })}
         >
-          <p>Your agents stop sending WhatsApp messages from this number straight away. Calevate deletes its key.</p>
-          <p>
-            Meta still lists Calevate on your account until you remove it in Meta Business Settings. Your number and
-            templates stay yours in Meta.
-          </p>
+          <p>Your agents stop sending from this number now.</p>
+          <p>Your number and templates stay yours in Meta.</p>
         </ConfirmDialog>
       )}
     </div>

@@ -63,9 +63,8 @@ export function EndpointExtras({
         <span className="text-ink-muted">
           A link to the call recording
           <span className="block text-meta text-ink-faint">
-            A short-lived, signed link to our copy of the audio — not the audio itself. It
-            expires within minutes, so fetch it as soon as you receive it.
-            {ready && " Always on with “A call recording is ready”, which exists to send this link."}
+            Expires in minutes. Fetch it straight away.
+            {ready && " Always on for “A call recording is ready”."}
           </span>
         </span>
       </label>
@@ -89,8 +88,7 @@ export function EndpointExtras({
             <span className="text-ink-muted">
               The transcript, redacted
               <span className="block text-meta text-ink-faint">
-                The conversation with personal details (numbers, IDs, OTPs) masked — the same
-                text your team sees on the call screen.
+                Numbers, IDs and OTPs masked.
               </span>
             </span>
           </label>
@@ -105,10 +103,8 @@ export function EndpointExtras({
             <span className="text-ink-muted">
               The transcript, unredacted
               <span className="block text-meta text-warn">
-                Sends the FULL transcript — every phone number, ID and OTP spoken on the call —
-                to your endpoint in the clear. Only turn this on if your system is allowed to
-                hold that data. Turning it on needs the same permission as reading a raw
-                transcript.
+                <span className="block">Sends the FULL transcript, numbers and OTPs included.</span>
+                <span className="block">Only if your system may hold that data.</span>
               </span>
             </span>
           </label>
