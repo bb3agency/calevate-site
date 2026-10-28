@@ -6,9 +6,9 @@
  * One calm surface: the wordmark, the form in a card, and — on the client realm's screens
  * at desktop width — a panel showing the product the person is signing in to. The panel
  * is real console UI with illustrative data (`authShowcase.tsx`), never a stock picture,
- * and it is hidden below `lg`. Above the form on the public doors sits the voice band
- * (`illustration/voiceWave.tsx`), the one figure a phone gets: short there, taller on a
- * desktop, and always quieter than the card.
+ * and it is hidden below `lg`. Behind everything on the public doors runs the voice field
+ * (`illustration/voiceWave.tsx`), on a phone and a desktop alike: lanes of ASCII speech
+ * waveforms, dimmed behind the form column and the header and footer, under an opaque card.
  *
  * `/auth/**`, `/signup` and the admin door are outside both app shells: `/c` and `/admin`
  * each own a `fixed inset-0` layout and an auth page has neither. `globals.css` sets
@@ -49,8 +49,13 @@ export function AuthPageFrame({
 }) {
   return (
     <div
-      className={`flex min-h-0 flex-1 flex-col overflow-y-auto ${ground === "surface" ? "bg-surface" : "bg-app"}`}
+      className={`isolate flex min-h-0 flex-1 flex-col overflow-y-auto ${ground === "surface" ? "bg-surface" : "bg-app"}`}
     >
+      {/* The public doors only: on `surface` the frame is a signed-in settings page that
+          reads as part of the console, where a moving field is noise. `isolate` makes this
+          box the stacking context, so the field's `z-below` paints above its background and
+          below everything else in it. */}
+      {ground === "app" ? <VoiceWave className={aside ? "voice-field--split" : ""} /> : null}
       {/* Offline matters MORE here than inside the consoles: a sign-in that cannot reach
           the API fails with a message about the request, and a person who cannot see that
           their connection is gone reads it as "my password is wrong". */}
@@ -72,21 +77,12 @@ export function AuthPageFrame({
             </Link>
             <span className="text-xs font-medium text-ink-muted">{realmLabel}</span>
           </header>
-          <main className="flex w-full flex-1 flex-col justify-center py-8 sm:py-10">
-            {/* The public doors only: on `surface` the frame is a signed-in settings page
-                that reads as part of the console, where a moving figure is noise. The
-                band is wider than the form so it frames it, and short on a phone so
-                the form's primary button stays above the fold. */}
-            {ground === "app" ? (
-              <VoiceWave className="mx-auto mb-5 h-[4.5rem] max-w-[44rem] text-[10px] sm:mb-8 sm:h-28 sm:text-xs lg:h-36" />
-            ) : null}
-            <div
-              className={`mx-auto w-full px-5 sm:px-8 ${
-                width === "wide" ? "max-w-xl" : "max-w-[25rem]"
-              }`}
-            >
-              {children}
-            </div>
+          <main
+            className={`mx-auto flex w-full flex-1 flex-col justify-center px-5 py-10 sm:px-8 ${
+              width === "wide" ? "max-w-xl" : "max-w-[25rem]"
+            }`}
+          >
+            {children}
           </main>
           <footer className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 px-5 pb-6 text-xs text-ink-muted">
             <Link href="/legal/privacy" className="inline-flex items-center py-1 underline-offset-2 hover:underline touch:min-h-11">

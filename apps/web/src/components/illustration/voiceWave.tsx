@@ -1,37 +1,45 @@
 "use client";
 
 /**
- * The voice band on the public auth screens: an ASCII speech waveform, drawn from
- * `lib/voiceWave.ts`, that sits above the form as atmosphere. It is DECORATIVE: the screen
- * reads the same with it removed, so it is `aria-hidden` and holds nothing focusable.
+ * The voice field behind the public auth screens: lanes of ASCII speech waveforms, drawn
+ * from `lib/voiceWave.ts`, filling the viewport behind the header, the form and the
+ * footer. It is DECORATIVE: the screen reads the same with it removed, so it is
+ * `aria-hidden`, takes no pointer events and holds nothing focusable.
  *
  * ## Canvas rather than a `<pre>`
  *
  * A canvas holds no text node, so nothing in it can be read as text — by a screen reader,
  * find-in-page, a long-press selection or a contrast check — and it can be drawn at partial
- * alpha, which is what keeps the band quieter than the card's text and its button. Each
- * frame is one `fillText` per row in the app's mono face, backed at `devicePixelRatio`, so
- * it is as sharp as DOM text; a `<pre>` would re-lay out its text on every frame and could
- * only be made quiet with a colour lighter than any text is allowed to be.
+ * alpha, which lets the quiet texture stay light while the loud peaks carry full brand ink.
+ * Each frame is three `fillText` calls per row (one per ink layer) in the app's mono face,
+ * backed at `devicePixelRatio`, so it is as sharp as DOM text; a full-screen `<pre>` would
+ * re-lay out thousands of glyphs every frame.
+ *
+ * ## Keeping the text in front readable
+ *
+ * The mask dims the field to a fraction of its strength in an ellipse behind the centre
+ * column (the heading and the form) and along the header and footer strips, so text
+ * never sits on full-strength characters; the card itself is opaque. Everywhere else the
+ * field runs at full strength, which is what fills the screen.
  *
  * ## What it costs
  *
- * 15 frames a second from `requestAnimationFrame`, and none at all while the tab is hidden,
- * while the band is scrolled out of view, after unmount, or under
- * `prefers-reduced-motion: reduce` — which gets one still frame (`STILL_TIME`), redrawn
- * only when the band changes size. The grid comes from the band's measured width, so it
- * can never overflow sideways, and the band's height is fixed by its class before any
- * script runs, so drawing into it shifts nothing.
+ * 15 frames a second from `requestAnimationFrame`, backed at most at 2x, and none at all
+ * while the tab is hidden, after unmount, or under `prefers-reduced-motion: reduce` — which
+ * gets one still frame (`STILL_TIME`), redrawn only when the viewport changes size. It is
+ * `position: fixed`, so it is always in view and needs no IntersectionObserver, never takes
+ * part in layout and cannot cause a sideways scroll; the grid comes from its measured size.
  */
 
 import { useReducedMotion } from "motion/react";
 import { useEffect, useRef } from "react";
 
-import { STILL_TIME, voiceWaveFrame } from "@/lib/voiceWave";
+import { STILL_TIME, inkLayers, voiceField } from "@/lib/voiceWave";
 
 const FRAME_MS = 1000 / 15;
-/** Quiet enough that the card and its button stay the first thing the eye lands on. */
-const ALPHA = 0.7;
+const MAX_DPR = 2;
+/** Opacity of the faint, mid and full ink layers (`inkLayers`). */
+const INK_ALPHA = [0.4, 0.75, 1] as const;
 
 export function VoiceWave({ className = "" }: { className?: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -51,8 +59,11 @@ export function VoiceWave({ className = "" }: { className?: string }) {
     const draw = (timeS: number) => {
       if (!ctx) return;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      voiceWaveFrame(cols, rows, timeS).forEach((line, i) => {
-        ctx?.fillText(line, originX, originY + i * linePx);
+      const { lines, centres } = voiceField(cols, rows, timeS);
+      inkLayers(lines, centres).forEach((layer, tier) => {
+        if (!ctx) return;
+        ctx.globalAlpha = INK_ALPHA[tier]!;
+        layer.forEach((line, i) => ctx?.fillText(line, originX, originY + i * linePx));
       });
     };
 
@@ -60,7 +71,7 @@ export function VoiceWave({ className = "" }: { className?: string }) {
     const measure = () => {
       const width = canvas.clientWidth;
       const height = canvas.clientHeight;
-      // A band with no box (not laid out yet, or a DOM without layout) draws nothing,
+      // A canvas with no box (not laid out yet, or a DOM without layout) draws nothing,
       // and is not worth a context until it has one.
       if (width === 0 || height === 0) {
         cols = rows = 0;
@@ -68,23 +79,20 @@ export function VoiceWave({ className = "" }: { className?: string }) {
       }
       ctx ??= canvas.getContext("2d");
       if (!ctx) return;
-      const dpr = window.devicePixelRatio || 1;
+      const dpr = Math.min(window.devicePixelRatio || 1, MAX_DPR);
       canvas.width = Math.round(width * dpr);
       canvas.height = Math.round(height * dpr);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       const style = getComputedStyle(canvas);
-      // The type size comes from the band's class, so each breakpoint sets its own
-      // density; a row is exactly one type size tall.
+      // The type size comes from the class, so each breakpoint sets its own density; a row
+      // is exactly one type size tall.
       linePx = parseFloat(style.fontSize) || 10;
       ctx.font = `${linePx}px ${style.fontFamily}`;
       ctx.fillStyle = style.color;
-      ctx.globalAlpha = ALPHA;
       ctx.textBaseline = "top";
       const cell = ctx.measureText("0".repeat(32)).width / 32 || linePx * 0.6;
       cols = Math.floor(width / cell);
       rows = Math.floor(height / linePx);
-      // An odd count puts one row on the centre line, where silence is drawn.
-      if (rows % 2 === 0) rows -= 1;
       originX = (width - cols * cell) / 2;
       originY = (height - rows * linePx) / 2;
     };
@@ -92,7 +100,6 @@ export function VoiceWave({ className = "" }: { className?: string }) {
     let frame = 0;
     let last = -1;
     let elapsedS = 0;
-    let onScreen = true;
 
     const tick = (now: number) => {
       frame = requestAnimationFrame(tick);
@@ -104,7 +111,7 @@ export function VoiceWave({ className = "" }: { className?: string }) {
     };
 
     const sync = () => {
-      const run = !reduced && onScreen && document.visibilityState === "visible";
+      const run = !reduced && document.visibilityState === "visible";
       if (run && frame === 0) {
         last = -1;
         frame = requestAnimationFrame(tick);
@@ -122,14 +129,6 @@ export function VoiceWave({ className = "" }: { className?: string }) {
 
     const resize = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(redraw);
     resize?.observe(canvas);
-    const visible =
-      typeof IntersectionObserver === "undefined"
-        ? null
-        : new IntersectionObserver(([entry]) => {
-            onScreen = entry?.isIntersecting ?? true;
-            sync();
-          });
-    visible?.observe(canvas);
     document.addEventListener("visibilitychange", sync);
     // The mono face is a web font; the first measure may have used its fallback.
     let alive = true;
@@ -143,7 +142,6 @@ export function VoiceWave({ className = "" }: { className?: string }) {
       cancelAnimationFrame(frame);
       frame = 0;
       resize?.disconnect();
-      visible?.disconnect();
       document.removeEventListener("visibilitychange", sync);
     };
   }, [reduced]);
@@ -152,7 +150,7 @@ export function VoiceWave({ className = "" }: { className?: string }) {
     <canvas
       ref={canvasRef}
       aria-hidden="true"
-      className={`pointer-events-none block w-full select-none font-mono text-brand-strong [mask-image:linear-gradient(to_right,transparent,black_15%,black_85%,transparent)] ${className}`}
+      className={`voice-field pointer-events-none fixed inset-0 z-below block h-full w-full select-none font-mono text-[10px] text-brand-strong sm:text-xs lg:text-[13px] ${className}`}
     />
   );
 }
