@@ -83,7 +83,7 @@ export function Overview({ agent, slug }: { agent: Agent; slug: string }) {
         ? [
             {
               key: "first_words_when_calling",
-              label: "What people it calls hear first (set with agent_edit outbound_opening_line)",
+              label: "What people it calls hear first",
               value: agent.first_words_when_calling.trim() || "nothing yet",
             },
           ]
