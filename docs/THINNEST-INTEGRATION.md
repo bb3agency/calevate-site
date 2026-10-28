@@ -534,3 +534,11 @@ The new fixed values are part of `hosted_platform.PLATFORM_AGENT_VALUES`, so the
 4. **A nudge and `endAfterSilenceSeconds`** (D-907, the patient-caller preset): does the agent's own "are you still there?" restart the count, or only the caller's speech?
 5. **Timeline readiness.** Can a call's timeline be null for a while and then appear, or is it final once `call.analysed` has been sent? A webhook (or a field on `call.analysed`) saying it is ready would replace our retry ladder.
 6. **Backchannel lists in Get Agent.** Does Get Agent read `backchannelWords`, `acknowledgementWords` and `vocabulary` back as `[]` or `null` when none is set? (We accept either.)
+
+Questions 1-6 went to ThinnestAI by email on 28 Oct 2026 with five about speech recognition. The founder's decision of that day is to stay on ThinnestAI's own recogniser, not bring a key of our own (`scope: all`), so these ask what it runs and whether it can be tuned there:
+
+7. **Which recogniser.** Which speech-to-text provider and model run on Telugu, Hindi and English phone calls? Their docs do not name it (UNKNOWN).
+8. **Sarvam `saaras:v4` on their side.** Can they run it for Telugu as their own recogniser, and if they already use Sarvam, is it v3 or v4?
+9. **Tuning.** If Sarvam: `stream_type=fast`, interim transcripts for turn-taking, and the end-of-speech silence they use.
+10. **Vocabulary as key terms.** Does `voice.vocabulary` reach the recogniser (e.g. v4 `keyterms`)? Overlaps question 2.
+11. **Reply delay.** The founder's 28 Oct call (Ear, 200 ms, our Gemini) had a median of 2,031 ms from the caller stopping to the agent's first audio (`answerAudioMs`, Get Call Timeline). How much of that is the recogniser, and what would lower it?

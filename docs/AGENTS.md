@@ -48,8 +48,9 @@ Plan and build state: `docs/THINNEST-INTEGRATION.md`.
 ## Project
 
 Multi-tenant AI voice-agent SaaS (India, Telugu-first) on the ThinnestAI engine. Outside the
-call, two language legs are ours: **dashboard AI** on **Azure OpenAI in East US 2**
-(`AZURE_LOCATION`, `eastus2`; default `AZURE_OPENAI_DEFAULT_MODEL`, `gpt-4o-mini`), under
+call, two language legs are ours: **dashboard AI** on **our Gemini first** (D-899), then
+**Azure OpenAI in East US 2** where configured (`AZURE_LOCATION`, `eastus2`; default
+`AZURE_OPENAI_DEFAULT_MODEL`, `gpt-4o-mini`), then the Sarvam standby, under
 D-127's redaction rules (Pip excepted once the account owner turns it on, D-788: its primary
 model then receives what is typed, attached and read unmasked; the standby stays masked); and
 the **first post-call extraction on Sarvam, permanently**,
