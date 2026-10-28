@@ -130,11 +130,11 @@ describe("the screen renders the server's verdict and never its own", () => {
       [READINESS_PATH]: readiness(),
     });
 
-    await screen.findByText("Outgoing calls are blocked.");
+    await screen.findByText("Outgoing calls blocked");
     // The reassurance that has to survive every refusal on this screen: the receptionist
     // is still answering. `check_dispatch` is outbound-only, by design (D-38). Said ONCE:
     // the verdict, the section and the list each used to say it, and it read as noise.
-    expect(screen.getAllByText(/Calls coming in are unaffected/i)).toHaveLength(1);
+    expect(screen.getAllByText(/Incoming calls still work/i)).toHaveLength(1);
 
     // The server's own sentence, not a composed one.
     expect(screen.getByText(readiness().verdict)).toBeTruthy();
@@ -150,11 +150,11 @@ describe("the screen renders the server's verdict and never its own", () => {
     await renderClientPage(<AgreementsPage />, {
       ...ME_ROUTE, [READINESS_PATH]: READY });
 
-    await screen.findByText("This account is ready to make calls.");
+    await screen.findByText("Ready to make calls");
     expect(screen.getAllByText("Accepted")).toHaveLength(4);
     expect(screen.getAllByText(/Padmavathi Rao/)).toHaveLength(4);
     expect(screen.queryByRole("checkbox")).toBeNull();
-    expect(screen.getByText(/Nothing else at the account level/i)).toBeTruthy();
+    expect(screen.getByText(/Nothing else is blocking calls/i)).toBeTruthy();
   });
 
   it("says an undated document is undated rather than hiding the row", async () => {
@@ -165,8 +165,8 @@ describe("the screen renders the server's verdict and never its own", () => {
       ...ME_ROUTE,
       [READINESS_PATH]: readiness(),
     });
-    await screen.findByText("Outgoing calls are blocked.");
-    expect(screen.getAllByText("No effective date yet").length).toBeGreaterThan(0);
+    await screen.findByText("Outgoing calls blocked");
+    expect(screen.getAllByText("No start date yet").length).toBeGreaterThan(0);
   });
 });
 
@@ -176,7 +176,7 @@ describe("the layout", () => {
       ...ME_ROUTE,
       [READINESS_PATH]: readiness({ documents: [doc({ effective_date: "2026-09-02" })] }),
     });
-    await screen.findByText("Outgoing calls are blocked.");
+    await screen.findByText("Outgoing calls blocked");
     expect(screen.getByText(/^In force from 2 Sept? 2026$/)).toBeTruthy();
     expect(screen.queryByText(/2026-09-02/)).toBeNull();
   });
@@ -197,7 +197,7 @@ describe("the layout", () => {
         ],
       }),
     });
-    await screen.findByText("Outgoing calls are blocked.");
+    await screen.findByText("Outgoing calls blocked");
     expect(screen.getByRole("link", { name: /Review and accept/ }).getAttribute("href")).toBe("#accept");
     // Two verification rules are one trip to one page, so one link.
     expect(screen.getAllByRole("link", { name: /Verify your business/ })).toHaveLength(1);
@@ -223,7 +223,7 @@ describe("accepting", () => {
       },
     });
 
-    await screen.findByText("Outgoing calls are blocked.");
+    await screen.findByText("Outgoing calls blocked");
     const button = screen.getByRole("button", { name: /Accept 4 agreements/i });
     // Nothing may be recorded before the person has ticked the statement they are agreeing
     // to: the wording IS half the evidence the ledger row stores.
@@ -251,7 +251,7 @@ describe("accepting", () => {
     }
 
     // The POST answers with the WHOLE screen, so the verdict flips without a re-read.
-    await screen.findByText("This account is ready to make calls.");
+    await screen.findByText("Ready to make calls");
   });
 
   it("renders the refusal when a version moved under an open tab", async () => {
@@ -265,7 +265,7 @@ describe("accepting", () => {
       }),
     });
 
-    await screen.findByText("Outgoing calls are blocked.");
+    await screen.findByText("Outgoing calls blocked");
     fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(
       screen.getByRole("button", { name: /Accept 4 agreements/i }),
@@ -275,7 +275,7 @@ describe("accepting", () => {
       "The version of this document on your screen is out of date.",
     );
     // Still blocked, and the screen says so: a refused write must not read as a success.
-    expect(screen.getByText("Outgoing calls are blocked.")).toBeTruthy();
+    expect(screen.getByText("Outgoing calls blocked")).toBeTruthy();
   });
 });
 
@@ -291,7 +291,7 @@ describe("who may sign", () => {
       }),
     });
 
-    await screen.findByText("Outgoing calls are blocked.");
+    await screen.findByText("Outgoing calls blocked");
     expect(screen.getByText(reason)).toBeTruthy();
     // Absent, not disabled. A disabled control with no explanation is the shape D-22
     // exists to stop, and this one has a contract ledger behind it.
@@ -316,9 +316,9 @@ describe("when the read does not land", () => {
     await screen.findByRole("alert");
     expect(screen.queryByText(/Nothing is holding up/i)).toBeNull();
     expect(
-      screen.queryByText("This account is ready to make calls."),
+      screen.queryByText("Ready to make calls"),
     ).toBeNull();
-    expect(screen.queryByText("Outgoing calls are blocked.")).toBeNull();
+    expect(screen.queryByText("Outgoing calls blocked")).toBeNull();
   });
 
   it("shows a skeleton while the read is in flight, not an empty screen", async () => {
@@ -328,7 +328,7 @@ describe("when the read does not land", () => {
     });
 
     expect(container.querySelector(".animate-pulse")).toBeTruthy();
-    expect(screen.queryByText(/agreements that bind/i)).toBeNull();
+    expect(screen.queryByText(/agreements to accept/i)).toBeNull();
   });
 });
 
@@ -355,7 +355,7 @@ describe("a client blocker row", () => {
 
   it("is one plain line with whose move it is, and the server's sentences behind its ⓘ", async () => {
     await renderClientPage(<AgreementsPage />, routes);
-    await screen.findByText("Outgoing calls are blocked.");
+    await screen.findByText("Outgoing calls blocked");
 
     expect(screen.getByText("No-cold-calls pledge updated")).toBeTruthy();
     expect(screen.getByText("Your move")).toBeTruthy();
@@ -369,8 +369,8 @@ describe("a client blocker row", () => {
 
   it("says inbound is unaffected once, and prints no em dash", async () => {
     const { container } = await renderClientPage(<AgreementsPage />, routes);
-    await screen.findByText("Outgoing calls are blocked.");
-    expect(screen.getAllByText(/Calls coming in are unaffected/i)).toHaveLength(1);
+    await screen.findByText("Outgoing calls blocked");
+    expect(screen.getAllByText(/Incoming calls still work/i)).toHaveLength(1);
     expect(container.textContent).not.toContain("—");
   });
 });

@@ -1,6 +1,5 @@
 "use client";
 
-import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { useCallback } from "react";
 import { useRouter } from "next/navigation";
 
@@ -13,6 +12,8 @@ import {
 } from "@/components/copilot/workspace/AssistantWorkspace";
 import { useClientRealm } from "@/lib/api/session";
 import { resolveDestination } from "@/lib/copilot/navigate";
+
+import { ASSISTANT_COPY as COPY } from "./copy";
 
 /**
  * The client's assistant page. Inside a view-as session the assistant is closed (asking it
@@ -36,11 +37,8 @@ export function AssistantScreen() {
   if (realm.session.impersonateOrg) {
     return (
       <div className="max-w-4xl space-y-5 pb-12">
-        <PageHeader description={`What ${ASSISTANT_NAME} is doing for this client, and everything it did.`} />
-        <EmptyState
-          message={`${ASSISTANT_NAME} is not available while you view this account.`}
-          hint="Asking it would spend the client's own allowance. The client can use it on their own dashboard."
-        />
+        <PageHeader description={COPY.viewAsDescription} />
+        <EmptyState message={COPY.viewAsOff} hint={COPY.viewAsWhy} />
       </div>
     );
   }

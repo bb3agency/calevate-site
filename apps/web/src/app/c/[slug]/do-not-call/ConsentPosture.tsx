@@ -10,7 +10,10 @@ import {
   useSetOutboundConsentPolicy,
 } from "@/lib/api/outboundConsent";
 
-const LABEL = "Only call people who have opted in";
+import { WhyTip } from "../agreements/_ui/WhyTip";
+import { DNC_COPY as COPY, DNC_KEPT as KEPT } from "./copy";
+
+const LABEL = COPY.postureLabel;
 
 /**
  * Whether this account dials a number with no opt-in on file: one setting, one switch.
@@ -30,7 +33,7 @@ export function ConsentPosture({ session }: { session: Session }) {
 
   return (
     <section aria-label="Who this account may call" className="border-t border-line pt-1">
-      {policy.isPending && <Skeleton rows={1} label="Loading this account's calling posture" />}
+      {policy.isPending && <Skeleton rows={1} label={COPY.postureSaving} />}
       {policy.error != null && <ProblemNotice error={policy.error} />}
       {enabled !== undefined && (
         <>
@@ -38,7 +41,7 @@ export function ConsentPosture({ session }: { session: Session }) {
               whose control is a lone switch would be too small a target on a phone. */}
           <ToggleSwitch
             label={LABEL}
-            hint="Checked before every outbound call, campaigns included."
+            hint={COPY.postureHint}
             checked={enabled}
             // Disabled while the write is in flight too: a switch that moves back under
             // the reader's finger when the request fails is worse than one that waits.
@@ -48,14 +51,12 @@ export function ConsentPosture({ session }: { session: Session }) {
           />
           <SavedTick at={set.isSuccess ? set.submittedAt : 0} />
           <div className="space-y-1 pb-2">
-            <p className="text-meta text-ink-muted">
-              {enabled
-                ? "A number with no opt-in on file is refused rather than dialled. Capture the opt-in first — a form, a booking, a reply, or an inbound call from the customer."
-                : "Numbers with no opt-in on file are dialled. Turn this on if this account only contacts its own existing customers about their own bookings."}
-            </p>
-            <p className="text-meta text-ink-faint">
-              Leaving this off is not permission to call strangers. It means this system stops
-              checking, and the responsibility for who is called stays with your business.
+            <p className="text-meta text-ink-muted">{enabled ? KEPT.postureOn : KEPT.postureOff}</p>
+            <p className="flex flex-wrap items-center gap-x-1 text-meta text-ink-muted">
+              {KEPT.notPermission}
+              <WhyTip about="the opt-in setting" label="Why?">
+                <p>{enabled ? COPY.postureOnWhy : COPY.postureOffWhy}</p>
+              </WhyTip>
             </p>
           </div>
           <RestrictionNote reason={write.reason} />

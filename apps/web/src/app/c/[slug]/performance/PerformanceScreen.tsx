@@ -53,6 +53,7 @@ import {
   durationAxisEnd,
   durationRows,
 } from "./PerformanceCharts";
+import { PERFORMANCE_COPY as COPY, periodHeadline } from "./copy";
 
 /**
  * How the agents are doing over a range of IST days the owner picks (SURFACES §2).
@@ -166,7 +167,7 @@ export function PerformanceScreen() {
 
   if (refused) {
     return (
-      <RestrictionNote reason="Call reports need permission to read call records, which this account does not have. Ask your account owner for access." />
+      <RestrictionNote reason={COPY.refused} />
     );
   }
 
@@ -176,13 +177,13 @@ export function PerformanceScreen() {
   return (
     <div className="space-y-10 pb-12">
       <PageHeader
-        description={`How your agents did, ${rangeWords}.`}
+        description={periodHeadline(rangeWords)}
         actions={<Updating busy={busy} />}
       />
 
       <div className="flex flex-wrap items-end gap-x-8 gap-y-4">
         <DateRangePicker
-          label="Dates"
+          label={COPY.dates}
           value={range}
           onChange={(next) => setRange(next ? clampRange(next) : defaultRange())}
           max={today}
@@ -190,7 +191,7 @@ export function PerformanceScreen() {
           className="w-full max-w-80 sm:w-80"
         />
         <ToggleSwitch
-          label="Include my test calls"
+          label={COPY.testCalls}
           checked={testCalls}
           onChange={setTestCalls}
           className="pb-2"
@@ -200,17 +201,17 @@ export function PerformanceScreen() {
       {stats.error ? (
         <ProblemNotice error={stats.error} onRetry={() => void stats.refetch()} />
       ) : !stats.data ? (
-        <Skeleton rows={2} label="Loading the figures" />
+        <Skeleton rows={2} label={COPY.loadingFigures} />
       ) : (
         <StatsBand
-          label="This period at a glance"
+          label={COPY.glance}
           items={statItems(stats.data, ["calls", "answer_rate_pct", "leads", "avg_duration_s"], {
             context: `vs the previous ${formatCount(stats.data.window.days)} days`,
           })}
         />
       )}
 
-      <Section title="Activity over time" description="Calls each day. Drag the window below the chart to look closer.">
+      <Section title={COPY.activityTitle} info={COPY.activityTip}>
         <BrushChart
           // A new range, or the data arriving, opens a new window on the chosen days; the
           // brush keeps its selection in state from its first render.
@@ -232,8 +233,8 @@ export function PerformanceScreen() {
           }
           // Not arrived and not failed is still waiting (a paused query offline included), never "no calls".
           loading={!timeline.data && !timeline.error}
-          error={chartError(timeline.error, "We could not load your calls over time.", () => void timeline.refetch())}
-          empty="No calls in this stretch yet."
+          error={chartError(timeline.error, COPY.activityError, () => void timeline.refetch())}
+          empty={COPY.activityEmpty}
         />
       </Section>
 
@@ -242,25 +243,25 @@ export function PerformanceScreen() {
       <CallGroupsTable range={window} />
 
       <div className="grid grid-cols-1 items-start gap-10 page-lg:grid-cols-12 page-lg:gap-12">
-        <Section title="From calls to customers" info={FUNNEL_NOTE} className="page-lg:col-span-7">
+        <Section title={COPY.funnelTitle} info={FUNNEL_NOTE} className="page-lg:col-span-7">
           <PerformancePanel perf={perf} kind="funnel" />
         </Section>
-        <Section title="How calls ended" info={OUTCOMES_NOTE} className="page-lg:col-span-5">
+        <Section title={COPY.outcomesTitle} info={OUTCOMES_NOTE} className="page-lg:col-span-5">
           <PerformancePanel perf={perf} kind="outcomes" />
         </Section>
       </div>
 
       <Section
-        title="When it gets busy"
+        title={COPY.busyTitle}
         info={HEATMAP_NOTE}
         action={
           <SegmentedControl
-            label="Show"
+            label={COPY.busyShow}
             value={heatmapMetric}
             onValueChange={(next) => setHeatmapMetric(next === "leads" ? "leads" : "calls")}
             options={[
-              { value: "calls", label: "Calls" },
-              { value: "leads", label: "New leads" },
+              { value: "calls", label: COPY.busyCalls },
+              { value: "leads", label: COPY.busyLeads },
             ]}
           />
         }
@@ -273,17 +274,17 @@ export function PerformanceScreen() {
           // The server numbers weekdays 1 (Monday) to 7; the chart counts from 0.
           cells={heatmap.data ? heatmap.data.cells.map((cell) => ({ weekday: cell.weekday - 1, hour: cell.hour, count: cell.count })) : []}
           loading={!heatmap.data && !heatmap.error}
-          error={chartError(heatmap.error, "We could not load when your calls happen.", () => void heatmap.refetch())}
+          error={chartError(heatmap.error, COPY.busyError, () => void heatmap.refetch())}
           empty={heatmapMetric === "calls" ? "No calls in this period." : "No new leads in this period."}
         />
       </Section>
 
       <Section
-        title="How long calls last"
+        title={COPY.lengthTitle}
         info={DURATIONS_NOTE}
         action={
           <SegmentedControl
-            label="Compare by"
+            label={COPY.lengthCompare}
             value={groupBy}
             onValueChange={(next) => setGroupBy(next === "outcome" ? "outcome" : "agent")}
             options={[
@@ -307,8 +308,8 @@ export function PerformanceScreen() {
           medianColumn="Middle call"
           p90Column="9 in 10 under"
           loading={!durations.data && !durations.error}
-          error={chartError(durations.error, "We could not load how long your calls last.", () => void durations.refetch())}
-          empty="No completed calls in this period."
+          error={chartError(durations.error, COPY.lengthError, () => void durations.refetch())}
+          empty={COPY.lengthEmpty}
         />
       </Section>
     </div>

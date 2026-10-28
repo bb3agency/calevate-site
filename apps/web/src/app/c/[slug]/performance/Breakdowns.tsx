@@ -8,7 +8,9 @@ import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import { EmptyState } from "@/components/console/emptyState";
 import { Section } from "@/components/console/section";
 import { SegmentedControl } from "@/components/interior/segmented-control";
-import { Skeleton, ToggleSwitch, formatCount, formatINR, formatIST } from "@/components/ui";
+import { ArrowRight } from "lucide-react";
+
+import { SECONDARY_BUTTON_SM, Skeleton, ToggleSwitch, formatCount, formatINR, formatIST } from "@/components/ui";
 import {
   useActivitySummary,
   useCallGroups,
@@ -20,6 +22,8 @@ import {
 } from "@/lib/api/analytics";
 import { useClientSession } from "@/lib/api/session";
 import { outcomeLabel } from "@/lib/callReview";
+
+import { PERFORMANCE_COPY as COPY } from "./copy";
 
 const BUCKETS: { value: SummaryBucket; label: string }[] = [
   { value: "day", label: "Day" },
@@ -81,11 +85,11 @@ export function PeriodTable({ range }: { range: AnalyticsRange }) {
 
   return (
     <Section
-      title="Day by day, week by week"
-      description="India time. Weeks start on Monday."
+      title={COPY.periodTitle}
+      description={COPY.periodNote}
       action={
         <SegmentedControl
-          label="Group by"
+          label={COPY.periodGroup}
           value={bucket}
           onValueChange={(next) => setBucket(next === "day" ? "day" : next === "month" ? "month" : "week")}
           options={BUCKETS}
@@ -95,14 +99,14 @@ export function PeriodTable({ range }: { range: AnalyticsRange }) {
       {summary.error && !data ? (
         <EmptyState
           variant="error"
-          message="We could not load these figures."
+          message={COPY.periodError}
           error={summary.error}
           onRetry={() => void summary.refetch()}
         />
       ) : !data ? (
-        <Skeleton rows={4} label="Loading the figures" />
+        <Skeleton rows={4} label={COPY.loadingFigures} />
       ) : data.calls === 0 && data.leads === 0 && data.spent_inr === null ? (
-        <EmptyState message="No calls or new leads in this period." />
+        <EmptyState message={COPY.periodEmpty} />
       ) : (
         <div className="space-y-3">
           <p className="text-meta text-ink-muted">
@@ -117,15 +121,15 @@ export function PeriodTable({ range }: { range: AnalyticsRange }) {
             label={`Calls, answered calls and new leads by ${bucket}, newest first`}
           />
           {data.spend_withheld === "no_billing_access" ? (
-            <p className="text-meta text-ink-muted">Spend is shown to people who can see billing.</p>
+            <p className="text-meta text-ink-muted">{COPY.spendNoAccess}</p>
           ) : data.spend_withheld === "one_agent" ? (
-            <p className="text-meta text-ink-muted">
-              Spend is for the whole account. See it on{" "}
-              <Link href={`/c/${slug}/billing?tab=usage`} className="underline underline-offset-2">
-                Usage
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+              <p className="text-meta text-ink-muted">{COPY.spendWholeAccount}</p>
+              <Link href={`/c/${slug}/billing?tab=usage`} className={SECONDARY_BUTTON_SM}>
+                {COPY.spendLink}
+                <ArrowRight aria-hidden className="h-3.5 w-3.5" />
               </Link>
-              .
-            </p>
+            </div>
           ) : null}
         </div>
       )}
@@ -189,11 +193,11 @@ export function CallGroupsTable({ range }: { range: AnalyticsRange }) {
 
   return (
     <Section
-      title="Who called, and how it went"
-      description="Counted over every call in the period, not counting your own test calls."
+      title={COPY.groupsTitle}
+      description={COPY.groupsNote}
       action={
         <SegmentedControl
-          label="Count by"
+          label={COPY.groupsCountBy}
           value={by}
           onValueChange={(next) => setBy(next === "outcome" ? "outcome" : next === "agent" ? "agent" : "caller")}
           options={GROUPS}
@@ -202,17 +206,17 @@ export function CallGroupsTable({ range }: { range: AnalyticsRange }) {
     >
       <div className="space-y-3">
         {by === "caller" ? (
-          <ToggleSwitch label="Only people who called more than once" checked={repeatOnly} onChange={setRepeatOnly} />
+          <ToggleSwitch label={COPY.repeatOnly} checked={repeatOnly} onChange={setRepeatOnly} />
         ) : null}
         {groups.error && !data ? (
           <EmptyState
             variant="error"
-            message="We could not count these calls."
+            message={COPY.groupsError}
             error={groups.error}
             onRetry={() => void groups.refetch()}
           />
         ) : !data ? (
-          <Skeleton rows={4} label="Counting calls" />
+          <Skeleton rows={4} label={COPY.groupsLoading} />
         ) : (
           <>
             <p className="text-meta text-ink-muted" aria-live="polite">
@@ -221,9 +225,7 @@ export function CallGroupsTable({ range }: { range: AnalyticsRange }) {
             {data.groups.length === 0 ? (
               <EmptyState
                 message={
-                  data.calls === 0
-                    ? "No calls in this period."
-                    : "Nobody called more than once in this period."
+                  data.calls === 0 ? COPY.groupsNone : COPY.groupsNoRepeat
                 }
               />
             ) : (

@@ -12,6 +12,7 @@ import { CONSENT_SOURCES, type ConsentSource, type ConsentStatus } from "@/lib/a
 import { Verdict } from "./Verdict";
 import { NO_STATUSES, STATUS_COPY } from "./statusCopy";
 import { type ConsentForm } from "./consentForm";
+import { CONSENT_COPY as COPY } from "./copy";
 
 /**
  * Recording what a customer said — the append-only write behind this screen.
@@ -40,16 +41,12 @@ export function RecordConsent({ form }: { form: ConsentForm }) {
 
   return (
     <div>
-      <p className="text-sm text-ink-muted">
-        Every record is kept — nothing here is edited or deleted. If someone changes
-        their mind, record the new answer and it replaces the old one from that
-        moment.
-      </p>
+      <p className="text-sm text-ink-muted">{COPY.recordIntro}</p>
 
       <form className="mt-4 space-y-4" noValidate onSubmit={valid.onSubmit(form.submit)}>
-        <Field label="Their number" htmlFor="consent-phone">
+        <Field label={COPY.numberLabel} htmlFor="consent-phone">
           <input
-            {...valid.field("phone", "Enter their number.")}
+            {...valid.field("phone", COPY.numberMissing)}
             id="consent-phone"
             required
             value={form.phone}
@@ -72,21 +69,17 @@ export function RecordConsent({ form }: { form: ConsentForm }) {
             that a real person agreed). */}
         <RadioGroup
           name="answer"
-          label="What did they say?"
+          label={COPY.saidLabel}
           value={form.answer}
           onChange={(next) => form.chooseAnswer(next === "yes" ? "yes" : "no")}
           options={[
-            { value: "yes", label: "They agreed to be messaged", hint: STATUS_COPY.granted.hint },
-            {
-              value: "no",
-              label: "They do not want messages",
-              hint: "A refusal is never held up: it needs no evidence and can be recorded by anyone here.",
-            },
+            { value: "yes", label: COPY.saidYes, hint: STATUS_COPY.granted.hint },
+            { value: "no", label: COPY.saidNo, hint: COPY.saidNoHint },
           ]}
         />
 
         {form.answer === "no" && (
-          <Field label="Which kind of no?" htmlFor="consent-status">
+          <Field label={COPY.whichNo} htmlFor="consent-status">
             <select
               id="consent-status"
               value={form.status}
@@ -103,7 +96,7 @@ export function RecordConsent({ form }: { form: ConsentForm }) {
           </Field>
         )}
 
-        <Field label="How do you know?" htmlFor="consent-source">
+        <Field label={COPY.howKnow} htmlFor="consent-source">
           <select
             id="consent-source"
             value={form.source}
@@ -120,26 +113,21 @@ export function RecordConsent({ form }: { form: ConsentForm }) {
           {/* Said once, where someone would otherwise go looking for the missing
               option: your own staff cannot assert an opt-in on a customer's behalf. */}
           {form.answer === "yes" && (
-            <p className="mt-1 text-xs text-ink-muted">
-              Recording it on a customer&apos;s behalf is not on this list — an
-              opt-in has to come from the customer.
-            </p>
+            <p className="mt-1 text-xs text-ink-muted">{COPY.notOnBehalf}</p>
           )}
         </Field>
 
         {spec.requiresCallId && (
-          <Field label="Which call?" htmlFor="consent-call">
+          <Field label={COPY.whichCall} htmlFor="consent-call">
             <input
               id="consent-call"
               value={form.callId}
               onChange={(e) => form.setCallId(e.target.value)}
-              placeholder="Call ID from the Calls page"
+              placeholder={COPY.callPlaceholder}
               className={`${FIELD_INLINE} w-full max-w-md font-mono`}
             />
             <p className="mt-1 text-xs text-ink-muted">
-              {form.answer === "yes"
-                ? "Required: a spoken opt-in has to name the call it was spoken on."
-                : "Optional for a refusal."}
+              {form.answer === "yes" ? COPY.callRequired : COPY.callOptional}
             </p>
           </Field>
         )}
@@ -157,7 +145,7 @@ export function RecordConsent({ form }: { form: ConsentForm }) {
             />
             <p className="mt-1 text-xs text-ink-muted">
               {field.hint}
-              {form.answer === "no" && " Optional here."}
+              {form.answer === "no" && COPY.optionalHere}
             </p>
           </Field>
         ))}
@@ -169,10 +157,11 @@ export function RecordConsent({ form }: { form: ConsentForm }) {
             type="submit"
             status={form.recordFeedback.status}
             disabled={form.blocked !== null}
-            successLabel="Recorded"
+            successLabel={COPY.recorded}
+            className="max-sm:w-full max-sm:justify-center"
           >
             <BadgeCheck aria-hidden className="h-4 w-4" />
-            {form.answer === "yes" ? "Record their opt-in" : "Record their refusal"}
+            {form.answer === "yes" ? COPY.recordYes : COPY.recordNo}
           </ActionButton>
           {/* The refusal, given before the click rather than as a 422 after it. */}
           {form.blocked && (
@@ -193,9 +182,7 @@ export function RecordConsent({ form }: { form: ConsentForm }) {
       )}
       {record.data && (
         <div className="mt-4">
-          <p className="mb-2 text-sm font-medium text-ink">
-            Recorded. This is where that number now stands:
-          </p>
+          <p className="mb-2 text-sm font-medium text-ink">{COPY.nowStands}</p>
           <Verdict state={record.data} />
         </div>
       )}
@@ -221,4 +208,4 @@ function Field({
     </div>
   );
 }
-
+

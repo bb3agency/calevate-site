@@ -9,7 +9,6 @@ import {
   NoticeBox,
   ProblemNotice,
   RestrictionNote,
-  formatCount,
   formatCountOf,
   formatIST,
   istDateStamp,
@@ -19,7 +18,10 @@ import { downloadJson, useSubjectExport } from "@/lib/api/dataRights";
 import { type Session } from "@/lib/api/client";
 
 import { useSubjectExportAccess } from "./access";
-import { Fact, Field } from "./fields";
+import { WhyTip } from "../agreements/_ui/WhyTip";
+import { CountChips } from "./_ui/CountChips";
+import { DATA_RIGHTS_COPY as COPY, audioHeld, erasedOn } from "./copy";
+import { Field } from "./fields";
 
 /**
  * Subject access (DPDP §11) — the file a client hands to the person who asked.
@@ -53,17 +55,18 @@ export function SubjectExport({ session }: { session: Session }) {
         // may later have to place.
         `subject-access-export-${istDateStamp()}.json`,
       ),
-    { errorTitle: "Could not save the file" },
+    { errorTitle: COPY.saveFailed },
   );
   const [phone, setPhone] = useState("");
   const valid = useFormValidation();
 
   return (
     <div>
-      <p className="text-sm text-ink-muted">
-        Builds one file containing everything this account holds against a phone number:
-        their calls, the redacted transcripts, their record in your CRM and their consent
-        history. Hand that file to the person who asked for it.
+      <p className="flex flex-wrap items-center gap-x-1 text-sm text-ink-muted">
+        {COPY.exportIntro}
+        <WhyTip about="the export file" label="What is in it?">
+          <p>{COPY.exportWhy}</p>
+        </WhyTip>
       </p>
 
       <div className="mt-3">
@@ -79,15 +82,11 @@ export function SubjectExport({ session }: { session: Session }) {
       >
         <Field
           id="subject-export-phone"
-          label="Their phone number"
-          hint="Ten digits, or the full number starting with +. We send it privately — it never appears in the web address at the top of your browser, and never in your history."
+          label={COPY.exportField}
+          hint={COPY.exportHint}
         >
           <input
-            {...valid.field(
-              "phone",
-              "Enter their phone number.",
-              "subject-export-phone-hint",
-            )}
+            {...valid.field("phone", COPY.exportFieldMissing, "subject-export-phone-hint")}
             required
             id="subject-export-phone"
             value={phone}
@@ -114,11 +113,12 @@ export function SubjectExport({ session }: { session: Session }) {
           status={exportFeedback.status}
           title={access.reason ?? undefined}
           disabled={!access.allowed}
-          pendingLabel="Building…"
-          successLabel="Built"
+          pendingLabel={COPY.building}
+          successLabel={COPY.built}
+          className="max-sm:w-full max-sm:justify-center"
         >
           <FileDown aria-hidden className="h-4 w-4" />
-          Build the export
+          {COPY.build}
         </ActionButton>
       </form>
 
@@ -133,56 +133,54 @@ export function SubjectExport({ session }: { session: Session }) {
           do not have. */}
       {exportDocument.data !== undefined && exportDocument.error == null && (
         <div className="mt-4">
-          <NoticeBox
-            tone="ok"
-            title="The export is ready"
-          >
-            <p>
-              Save it and send it to the person who asked. If we hold nothing about that
-              number, the file says so, which fully answers their request.
+          <NoticeBox tone="ok" title={COPY.ready}>
+            <p className="flex flex-wrap items-center gap-x-1">
+              {COPY.readyBody}
+              <WhyTip about="an empty export" label="Why?">
+                <p>{COPY.readyWhy}</p>
+              </WhyTip>
             </p>
             {/* Counts, and deliberately only counts: they let a client check the file
                 is about the person they meant before handing it over, and they are the
                 one part of the document that is not itself that person's data. */}
-            <dl className="mt-3 grid grid-cols-1 gap-2 text-xs sm:grid-cols-2">
-              <Fact label="Calls" value={formatCount(exportDocument.data.counts.calls)} />
-              <Fact
-                label="Transcript turns"
-                value={formatCount(exportDocument.data.counts.transcript_turns)}
+            <div className="mt-3">
+              <CountChips
+                counts={[
+                  [COPY.calls, exportDocument.data.counts.calls],
+                  [COPY.turns, exportDocument.data.counts.transcript_turns],
+                  [COPY.leads, exportDocument.data.counts.leads],
+                  [COPY.consents, exportDocument.data.counts.consent_records],
+                ]}
               />
-              <Fact
-                label="CRM records"
-                value={formatCount(exportDocument.data.counts.leads)}
-              />
-              <Fact
-                label="Consent records"
-                value={formatCount(exportDocument.data.counts.consent_records)}
-              />
-            </dl>
+            </div>
             {/* An erasure empties every column that carries the number, so a subject who
                 has already been erased gets a file of zeros — which reads as "we never
                 had anything" and is not what happened. This says which of the two it is,
                 and whether any audio is still lawfully held. It is a fact about our
                 processing, not the person's data, so it belongs beside the counts. */}
             {exportDocument.data.erasure !== null && (
-              <p className="mt-3 text-xs text-ink-muted">
-                An erasure for this number completed on{" "}
-                {formatIST(exportDocument.data.erasure.completed_at)}, which is why the
-                counts above are what they are.
+              <div className="mt-3 space-y-0.5 text-xs text-ink-muted">
+                <p>{erasedOn(formatIST(exportDocument.data.erasure.completed_at))}</p>
                 {exportDocument.data.erasure.recordings_pending_destruction > 0 &&
-                  exportDocument.data.erasure.recordings_destroyed_by !== null &&
-                  ` ${formatCountOf(exportDocument.data.erasure.recordings_pending_destruction, "recording")} ${exportDocument.data.erasure.recordings_pending_destruction === 1 ? "is" : "are"} still held under the mandatory retention period and are destroyed by ${formatIST(exportDocument.data.erasure.recordings_destroyed_by)}.`}
-              </p>
+                  exportDocument.data.erasure.recordings_destroyed_by !== null && (
+                    <p>
+                      {audioHeld(
+                        formatCountOf(exportDocument.data.erasure.recordings_pending_destruction, "recording"),
+                        formatIST(exportDocument.data.erasure.recordings_destroyed_by),
+                      )}
+                    </p>
+                  )}
+              </div>
             )}
             <ActionButton
               variant="secondary-sm"
               status={save.status}
               onClick={() => save.run()}
-              successLabel="Saved"
+              successLabel={COPY.saved}
               className="mt-3"
             >
               <Download aria-hidden className="h-4 w-4" />
-              Save the file
+              {COPY.save}
             </ActionButton>
           </NoticeBox>
         </div>

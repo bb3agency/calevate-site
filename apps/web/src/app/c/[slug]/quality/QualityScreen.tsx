@@ -6,13 +6,16 @@ import { EmptyState } from "@/components/console/emptyState";
 import { InfoTip } from "@/components/console/infoTip";
 import { PageHeader } from "@/components/console/pageHeader";
 import { SegmentedControl } from "@/components/interior/segmented-control";
-import { NoticeBox, ProblemNotice, Skeleton } from "@/components/ui";
+import { RotateCw } from "lucide-react";
+
+import { NoticeBox, ProblemNotice, SECONDARY_BUTTON, Skeleton } from "@/components/ui";
 import { useQualityReports } from "@/lib/api/quality";
 import { useClientSession } from "@/lib/api/session";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
 
 import { QualityReport, VerdictPill, monthLabel } from "./QualityReport";
+import { QUALITY_COPY as COPY } from "./copy";
 
 /**
  * The monthly quality report, in-app (SURFACES §2 trust surfaces, D-15).
@@ -132,13 +135,9 @@ export function QualityScreen() {
         status={shown ? <VerdictPill report={shown} /> : undefined}
         description={
           <>
-            Our test scenarios, replayed on your agent. No real calls.{" "}
+            {COPY.description}{" "}
             <InfoTip label="this report" className="-my-3">
-              <p>
-                Before any change to your agent — a new script, a new model, new facts or
-                files — we replay a fixed set of recorded call scenarios against it and check
-                what it did. This is that run. It contains nothing from any real call.
-              </p>
+              <p>{COPY.descriptionTip}</p>
             </InfoTip>
           </>
         }
@@ -146,7 +145,7 @@ export function QualityScreen() {
           shown && all.length > 1 ? (
             /* D-655: each month is a complete report and the reader picks one. */
             <SegmentedControl
-              label="Choose a month"
+              label={COPY.monthPicker}
               value={shown.as_of}
               onValueChange={setMonth}
               options={all.map((report) => ({
@@ -163,27 +162,30 @@ export function QualityScreen() {
       )}
 
       {reports.isLoading ? (
-        <Skeleton rows={6} label="Loading your quality reports" />
+        <Skeleton rows={6} label={COPY.loading} />
       ) : reports.error || !reports.data ? (
         /* Deliberately NOT the empty state. "No report yet" is a claim about the account,
            and a failed read is not evidence for it. `|| !reports.data` because a query
            TanStack has PAUSED (browser offline) has no error and no data either. */
         <NoticeBox
           tone="warn"
-          title="Your quality reports could not be loaded"
+          title={COPY.failed}
+          action={
+            <button type="button" onClick={() => void reports.refetch()} className={SECONDARY_BUTTON}>
+              <RotateCw aria-hidden className="h-4 w-4" />
+              {COPY.retry}
+            </button>
+          }
         >
-          Reload the page. This does not mean there are none. Tell us if it keeps happening.
+          {COPY.failedBody}
         </NoticeBox>
       ) : !shown ? (
         <EmptyState
           className="border-y border-line"
           message={
             <>
-              <span className="block font-medium text-ink">No quality report yet</span>
-              <span className="mt-1 block">
-                Your first report appears after our first test run — usually monthly, and
-                always before we change your agent.
-              </span>
+              <span className="block font-medium text-ink">{COPY.emptyTitle}</span>
+              <span className="mt-1 block">{COPY.emptyBody}</span>
             </>
           }
         />

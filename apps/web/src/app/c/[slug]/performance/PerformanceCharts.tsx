@@ -7,6 +7,7 @@ import type { Durations } from "@/lib/api/analytics";
 import type { Performance } from "@/lib/api/performance";
 
 import { outcomeWords } from "../OutcomeSplit";
+import { PERFORMANCE_COPY as COPY } from "./copy";
 
 /**
  * How the report's server figures become chart props. One subject: how the numbers are
@@ -44,7 +45,7 @@ export function Funnel({ funnel, days }: { funnel: Performance["funnel"]; days: 
   ];
   return (
     <BarChart
-      title="From calls to customers"
+      title={COPY.funnelTitle}
       hideTitle
       description={`Last ${formatCount(days)} days`}
       orientation="horizontal"
@@ -58,7 +59,7 @@ export function Funnel({ funnel, days }: { funnel: Performance["funnel"]; days: 
           display: stages.map((stage) => formatCount(stage.count)),
         },
       ]}
-      empty="No calls in this period. Once your agent takes or makes calls, they appear here."
+      empty={COPY.funnelEmpty}
     />
   );
 }
@@ -70,7 +71,7 @@ export function Outcomes({ outcomes, days }: { outcomes: Record<string, number>;
     .sort(([, a], [, b]) => b - a);
   return (
     <BarChart
-      title="How calls ended"
+      title={COPY.outcomesTitle}
       hideTitle
       description={`Last ${formatCount(days)} days`}
       orientation="horizontal"
@@ -84,7 +85,7 @@ export function Outcomes({ outcomes, days }: { outcomes: Record<string, number>;
           display: rows.map(([, count]) => formatCount(count)),
         },
       ]}
-      empty="Nothing to show yet. Call results appear after your first calls."
+      empty={COPY.outcomesEmpty}
     />
   );
 }

@@ -322,7 +322,7 @@ describe("data rights — filing an erasure", () => {
     fireEvent.click(
       screen.getByRole("button", { name: /Check whose record this is first/ }),
     );
-    await screen.findByText(/check the digits/);
+    await screen.findByText(/Check the digits/);
   });
 
   it("shows the certificate with what survived the erasure, not only what it cleared", async () => {
@@ -380,7 +380,7 @@ describe("data rights — filing an erasure", () => {
       screen.getByRole("button", { name: /Erase this person's data/ }),
     );
 
-    expect(await screen.findByText(/already running/)).toBeTruthy();
+    expect(await screen.findByText(/Already being erased/)).toBeTruthy();
     expect(screen.queryByRole("alert")).toBeNull();
   });
 });
@@ -414,7 +414,7 @@ describe("data rights — §52: a failed status read is a refusal, never an answ
     );
 
     expect(
-      await screen.findByText(/We could not check what you are allowed to see/),
+      await screen.findByText(/We could not check your access/),
     ).toBeTruthy();
     expect(
       (
@@ -521,7 +521,7 @@ describe("data rights — permissions", () => {
 
     expect(
       await screen.findByText(
-        /Only an account owner can build a subject access export/,
+        /Only the account owner can export data/,
       ),
     ).toBeTruthy();
     expect(
@@ -613,7 +613,7 @@ describe("data rights — the obligations printed on the screen", () => {
     ).toBeTruthy();
     expect(
       screen.getByText(
-        /do not tell them it is done on the strength of this panel alone/,
+        /Do not tell the person it is done yet/,
       ),
     ).toBeTruthy();
   });

@@ -14,6 +14,8 @@ import {
 } from "@/components/ui";
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { InfoTip } from "@/components/console/infoTip";
+
+import { WhyTip } from "../agreements/_ui/WhyTip";
 import {
   MAX_NUMBERS_PER_ADD,
   useAddDncNumbers,
@@ -23,6 +25,7 @@ import {
 import { type Session } from "@/lib/api/client";
 
 import { SOURCE_OPTIONS } from "./sources";
+import { DNC_COPY as COPY, DNC_KEPT as KEPT, addLabel, manyNumbers, tooMany as tooManyLine } from "./copy";
 
 /**
  * Check a number, or add numbers: one field, because both start from "here is a number".
@@ -84,13 +87,9 @@ export function NumberField({
       <div>
         <div className="flex items-center gap-1.5">
           <label htmlFor={fieldId} className="text-meta font-medium text-ink">
-            Phone numbers
+            {COPY.fieldLabel}
           </label>
-          <InfoTip label="About checking a number">
-            This asks the same question the system asks itself before it dials, so the
-            answer cannot disagree with what actually happens. Anyone with access to this
-            account can check.
-          </InfoTip>
+          <InfoTip label="About checking a number">{COPY.fieldTip}</InfoTip>
         </div>
         <textarea
           id={fieldId}
@@ -115,13 +114,11 @@ export function NumberField({
           className={`${FIELD} max-h-60 resize-none font-mono field-sizing-content`}
         />
         <p id={`${fieldId}-hint`} className="mt-1 text-meta text-ink-faint">
-          {many
-            ? `${formatCount(parsed.length)} numbers. Check works one number at a time.`
-            : "Paste one or many: one per line, or separated by commas."}
+          {many ? manyNumbers(formatCount(parsed.length)) : COPY.fieldHint}
         </p>
         {empty && (
           <p role="alert" className="mt-1 text-meta font-medium text-danger">
-            Enter the number to check.
+            {COPY.enterNumber}
           </p>
         )}
       </div>
@@ -129,7 +126,7 @@ export function NumberField({
       {canAdd && parsed.length > 0 && (
         <div className="flex flex-wrap items-center gap-2">
           <label htmlFor="dnc-source" className="text-meta text-ink-muted">
-            Reason
+            {COPY.reason}
           </label>
           <select
             id="dnc-source"
@@ -152,15 +149,14 @@ export function NumberField({
 
       {tooMany && (
         <p className="text-meta text-warn">
-          That is {formatCount(parsed.length)} numbers. Add up to {formatCount(MAX_NUMBERS_PER_ADD)} at a
-          time.
+          {tooManyLine(formatCount(parsed.length), formatCount(MAX_NUMBERS_PER_ADD))}
         </p>
       )}
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2 max-sm:[&>*]:flex-1 max-sm:[&>*]:justify-center">
         {!many && (
-          <ActionButton onClick={runCheck} status={checkFeedback.status} successLabel="Checked">
-            Check
+          <ActionButton onClick={runCheck} status={checkFeedback.status} successLabel={COPY.checked}>
+            {COPY.check}
           </ActionButton>
         )}
         {canAdd && parsed.length > 0 && (
@@ -169,9 +165,9 @@ export function NumberField({
             status={addFeedback.status}
             disabled={tooMany}
             variant={many ? "primary" : "secondary"}
-            successLabel="Added"
+            successLabel={COPY.added}
           >
-            {parsed.length === 1 ? "Add 1 number" : `Add ${formatCount(parsed.length)} numbers`}
+            {addLabel(parsed.length, formatCount(parsed.length))}
           </ActionButton>
         )}
       </div>
@@ -191,25 +187,22 @@ function CheckVerdict({ result }: { result: { valid: boolean; suppressed: boolea
   if (!result.valid) {
     return (
       <Verdict tone="warn" icon={<ShieldAlert className="h-4 w-4" />}>
-        That does not look like a phone number we can dial. Indian mobiles work as ten
-        digits, or write the full number starting with +.
+        <span className="block font-medium">{COPY.invalid}</span>
+        <span className="block text-ink-muted">{COPY.invalidHint}</span>
       </Verdict>
     );
   }
   if (result.suppressed) {
     return (
       <Verdict tone="stop" icon={<PhoneOff className="h-4 w-4" />}>
-        This number is suppressed, so no agent will call it.
-        {result.scope === "global"
-          ? " Calevate has suppressed it across the whole platform, so it cannot be removed from this account."
-          : " It was added to your account's list."}
+        {KEPT.suppressed}
+        {result.scope === "global" ? KEPT.suppressedGlobal : KEPT.suppressedTenant}
       </Verdict>
     );
   }
   return (
     <Verdict tone="ok" icon={<CheckCircle2 className="h-4 w-4" />}>
-      This number is not on the do-not-call list. Other checks, such as calling hours and
-      consent, still apply to any actual call.
+      {KEPT.clear}
     </Verdict>
   );
 }
@@ -231,9 +224,9 @@ function Verdict({ tone, icon, children }: { tone: NoticeTone; icon: ReactNode; 
 /** Counts only: the API never says which number went where, and this must not imply it could. */
 function AddResult({ result }: { result: { added: number; already_suppressed: number; malformed: number } }) {
   const counts = [
-    { label: "Added", value: result.added, hint: "Suppressed from now on." },
-    { label: "Already on the list", value: result.already_suppressed, hint: "Nothing to do — they were suppressed already." },
-    { label: "Not a usable number", value: result.malformed, hint: "Skipped rather than guessed at." },
+    { label: COPY.countAdded, value: result.added, hint: "Suppressed from now on." },
+    { label: COPY.countAlready, value: result.already_suppressed, hint: "Nothing to do — they were suppressed already." },
+    { label: COPY.countMalformed, value: result.malformed, hint: "Skipped rather than guessed at." },
   ];
   return (
     <div className="settings-enter space-y-2">
@@ -245,9 +238,11 @@ function AddResult({ result }: { result: { added: number; already_suppressed: nu
           </div>
         ))}
       </dl>
-      <p className="text-meta text-ink-faint">
-        We report totals, not which number went where: a list of who asked us to stop calling
-        them is itself personal data. Check one number above if you need to confirm it.
+      <p className="flex flex-wrap items-center gap-x-1 text-meta text-ink-faint">
+        {COPY.totalsOnly}
+        <WhyTip about="why only totals" label="Why?">
+          <p>{COPY.totalsWhy}</p>
+        </WhyTip>
       </p>
     </div>
   );

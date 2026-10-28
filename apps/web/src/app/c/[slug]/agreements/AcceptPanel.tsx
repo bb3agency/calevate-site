@@ -8,6 +8,9 @@ import { ProblemNotice, RestrictionNote } from "@/components/ui";
 import { needsAction, useAcceptAgreement, type LegalReadiness } from "@/lib/api/agreements";
 import { useClientSession } from "@/lib/api/session";
 
+import { AGREEMENTS_COPY as COPY, acceptLabel } from "./copy";
+import { WhyTip } from "./_ui/WhyTip";
+
 /**
  * The tick and the button — or the sentence saying why there is neither.
  *
@@ -28,10 +31,12 @@ export function AcceptPanel({ readiness }: { readiness: LegalReadiness }) {
 
   if (outstanding.length === 0) {
     return (
-      <p className="mt-4 flex items-start gap-2 text-meta text-ink-muted">
-        <CircleCheck className="mt-px h-4 w-4 shrink-0 text-brand-strong" aria-hidden="true" />
-        All accepted at their current version. We will ask again if one changes in a way
-        that needs it.
+      <p className="mt-4 flex flex-wrap items-center gap-x-2 text-meta text-ink-muted">
+        <CircleCheck className="h-4 w-4 shrink-0 text-brand-strong" aria-hidden="true" />
+        {COPY.allAccepted}
+        <WhyTip about="when we ask again" label="More">
+          <p>{COPY.allAcceptedWhy}</p>
+        </WhyTip>
       </p>
     );
   }
@@ -83,8 +88,11 @@ export function AcceptPanel({ readiness }: { readiness: LegalReadiness }) {
         if (ticked && !accept.isPending) void submit();
       }}
     >
-      {/* The whole sentence is the tap target, not the 20px box beside it. */}
-      <label className="-m-2 flex cursor-pointer items-start gap-3 rounded-md p-2 text-body text-ink hover:bg-ink/[0.03]">
+      <h3 className="text-meta font-semibold text-ink-muted">{COPY.agreeHeading}</h3>
+      {/* The statement is legal text: shown whole, word for word, never shortened. The
+          whole sentence is the tap target, not the 20px box beside it, and the box scrolls
+          inside itself if a future statement runs long on a phone. */}
+      <label className="mt-2 flex max-h-72 cursor-pointer items-start gap-3 overflow-y-auto overscroll-contain rounded-md border border-line p-3 text-body leading-relaxed text-ink hover:bg-ink/[0.03]">
         <input
           type="checkbox"
           checked={ticked}
@@ -100,17 +108,17 @@ export function AcceptPanel({ readiness }: { readiness: LegalReadiness }) {
       ) : null}
       <div className="mt-4 flex flex-wrap items-center justify-end gap-x-5 gap-y-3 border-t border-line pt-4">
         <p className="mr-auto min-w-0 basis-56 grow text-meta text-ink-muted">
-          We record which documents you accepted, at which version, and when.
+          {COPY.recordNote}
         </p>
         <ActionButton
           type="submit"
           status={acceptFeedback.status}
           disabled={!ticked}
-          pendingLabel="Recording…"
-          successLabel="Accepted"
+          pendingLabel={COPY.pending}
+          successLabel={COPY.success}
           className="max-sm:w-full"
         >
-          {`Accept ${outstanding.length} agreement${outstanding.length === 1 ? "" : "s"}`}
+          {acceptLabel(outstanding.length)}
         </ActionButton>
       </div>
     </form>

@@ -4,13 +4,7 @@ import { useState } from "react";
 import { Trash2 } from "lucide-react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
-import {
-  FIELD,
-  NoticeBox,
-  ProblemNotice,
-  RestrictionNote,
-  formatCount,
-} from "@/components/ui";
+import { FIELD, NoticeBox, ProblemNotice, RestrictionNote } from "@/components/ui";
 import { TypedConfirmation } from "@/components/typedConfirmation";
 import { useFormValidation } from "@/components/formValidation";
 import { useFileErasure, useSubjectExport } from "@/lib/api/dataRights";
@@ -18,6 +12,9 @@ import { useActAccess } from "@/lib/api/hooks";
 import { type Session } from "@/lib/api/client";
 
 import { useSubjectExportAccess } from "./access";
+import { CountChips } from "./_ui/CountChips";
+import { WhyTip } from "../agreements/_ui/WhyTip";
+import { DATA_RIGHTS_COPY as COPY, DATA_RIGHTS_KEPT as KEPT } from "./copy";
 import { Field } from "./fields";
 
 /** Typed to arm the erasure. Uppercase and unambiguous — nobody types this by accident. */
@@ -71,22 +68,21 @@ export function Erasure({
 
   return (
     <div>
-      <NoticeBox
-        tone="stop"
-        title="This cannot be undone"
-      >
-        <p className="mt-1">
-          Every call, transcript, extracted field and CRM record we hold for this number
-          is erased, and the calls themselves survive only as rows with the personal
-          details stripped out. Nothing restores them. If this person is still a
-          customer, you are erasing your own record of them too.
-        </p>
-        <p className="mt-1">
-          Some things are kept, and the certificate names each one with the rule that
-          required it: the consent ledger that proves the calls were lawful, the
-          billing ledger, any do-not-call entry, and the call audio, which Indian
-          telecom rules require to be retained.
-        </p>
+      {/* The consequences stay ABOVE the control and in the open (UX-DOCTRINE §3: high
+          consequence never discloses), one claim per line so they scan. Only the itemised
+          list of what survives is behind the tap; the line that says things survive is not. */}
+      <NoticeBox tone="stop" title={COPY.eraseTitle}>
+        <ul className="mt-1 list-disc space-y-1 pl-4">
+          <li>{KEPT.erased}</li>
+          <li className="font-medium text-ink">{KEPT.noRestore}</li>
+          <li>{KEPT.ownRecord}</li>
+          <li>
+            {KEPT.kept}{" "}
+            <WhyTip about="what an erasure keeps" label={COPY.whatIsKept} className="-my-2 align-middle">
+              <p>{KEPT.keptList}</p>
+            </WhyTip>
+          </li>
+        </ul>
       </NoticeBox>
 
       <div className="mt-3">
@@ -115,11 +111,11 @@ export function Erasure({
             never be confusable, by eye or by screen reader, when one of them is erasure. */}
         <Field
           id="erasure-phone"
-          label="Number to erase permanently"
-          hint="Check it twice. We erase whoever this number belongs to, and there is no undo."
+          label={COPY.eraseField}
+          hint={COPY.eraseHint}
         >
           <input
-            {...valid.field("phone", "Enter the number to erase.", "erasure-phone-hint")}
+            {...valid.field("phone", COPY.eraseFieldMissing, "erasure-phone-hint")}
             required
             id="erasure-phone"
             value={phone}
@@ -146,48 +142,40 @@ export function Erasure({
                 variant="secondary-sm"
                 status={previewFeedback.status}
                 onClick={() => previewFeedback.run(phone.trim())}
-                pendingLabel="Checking…"
-                successLabel="Checked"
+                pendingLabel={COPY.checking}
+                successLabel={COPY.checked}
               >
-                Check whose record this is first
+                {COPY.checkWhose}
               </ActionButton>
             )}
             {preview.error != null && <ProblemNotice error={preview.error} />}
             {preview.data !== undefined && preview.error == null && (
-              <p className="text-sm text-ink" aria-live="polite">
+              <div className="text-sm text-ink" aria-live="polite">
                 {preview.data.counts.calls +
                   preview.data.counts.leads +
                   preview.data.counts.transcript_turns +
                   preview.data.counts.consent_records ===
                 0 ? (
                   <>
-                    We hold <span className="font-semibold">nothing</span> for this
-                    number. If you expected a record, check the digits — this is the
-                    strongest sign they are wrong.
+                    <p className="font-semibold">{COPY.holdNothing}</p>
+                    <p className="text-ink-muted">{COPY.holdNothingHint}</p>
                   </>
                 ) : (
                   <>
-                    We hold{" "}
-                    <span className="font-semibold tabular-nums">
-                      {formatCount(preview.data.counts.calls)}
-                    </span>{" "}
-                    {preview.data.counts.calls === 1 ? "call" : "calls"},{" "}
-                    <span className="font-semibold tabular-nums">
-                      {formatCount(preview.data.counts.transcript_turns)}
-                    </span>{" "}
-                    {preview.data.counts.transcript_turns === 1 ? "transcript turn" : "transcript turns"},{" "}
-                    <span className="font-semibold tabular-nums">
-                      {formatCount(preview.data.counts.leads)}
-                    </span>{" "}
-                    {preview.data.counts.leads === 1 ? "CRM record" : "CRM records"} and{" "}
-                    <span className="font-semibold tabular-nums">
-                      {formatCount(preview.data.counts.consent_records)}
-                    </span>{" "}
-                    {preview.data.counts.consent_records === 1 ? "consent record" : "consent records"} for this number.
-                    All of it will be erased.
+                    {/* The four counts as figures, so the owner can see at a glance whose
+                        record this is before arming the erasure. */}
+                    <CountChips
+                      counts={[
+                        [COPY.calls, preview.data.counts.calls],
+                        [COPY.turns, preview.data.counts.transcript_turns],
+                        [COPY.leads, preview.data.counts.leads],
+                        [COPY.consents, preview.data.counts.consent_records],
+                      ]}
+                    />
+                    <p className="mt-2 font-semibold">{COPY.allErased}</p>
                   </>
                 )}
-              </p>
+              </div>
             )}
           </div>
         )}
@@ -207,11 +195,12 @@ export function Erasure({
           status={fileFeedback.status}
           title={access.reason ?? undefined}
           disabled={!access.allowed || !armed}
-          pendingLabel="Filing…"
-          successLabel="Filed"
+          pendingLabel={COPY.filing}
+          successLabel={COPY.filed}
+          className="max-sm:w-full max-sm:justify-center"
         >
           <Trash2 aria-hidden className="h-4 w-4" />
-          Erase this person&apos;s data
+          {COPY.eraseSubmit}
         </ActionButton>
       </form>
 
@@ -226,10 +215,7 @@ export function Erasure({
           not an error, and telling the client it was would send them chasing a fault
           that does not exist. */}
       {file.data?.already_open === true && (
-        <p className="mt-3 text-sm text-ink-muted">
-          An erasure for this person was already running, so nothing new was filed. Its
-          progress is below.
-        </p>
+        <p className="mt-3 text-sm text-ink-muted">{COPY.alreadyOpen}</p>
       )}
     </div>
   );

@@ -28,15 +28,14 @@ export function useSubjectExportAccess(session: Session): {
   if (me.error) {
     return {
       allowed: false,
-      reason: "We could not check what you are allowed to see. Reload the page to try again.",
+      reason: "We could not check your access. Reload the page.",
     };
   }
   if (!me.data) return { allowed: false, reason: null };
   if (!me.data.permissions.includes("calls:read_raw")) {
     return {
       allowed: false,
-      reason:
-        "Only an account owner can build a subject access export. Ask them to run it, or to give you owner access.",
+      reason: "Only the account owner can export data.",
     };
   }
   return { allowed: true, reason: null };

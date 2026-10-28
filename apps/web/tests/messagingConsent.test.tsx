@@ -122,7 +122,7 @@ describe("the lookup answers, or says it could not", () => {
     await screen.findByText("Not messageable — nobody has asked them yet.");
     expect(screen.queryByRole("alert")).toBeNull();
     expect(container.textContent).toContain(
-      "Campaign follow-ups will skip this number until someone records what they said",
+      "Campaign follow-ups will skip this number",
     );
   });
 
@@ -317,7 +317,7 @@ describe("recording an answer", () => {
       screen.getByRole("button", { name: /Record their refusal/ }),
     );
 
-    await screen.findByText("Recorded. This is where that number now stands:");
+    await screen.findByText("Saved. Where this number stands now:");
     const posted = calls.filter(
       (c) => c.path === RECORD_PATH && c.method === "POST",
     );
@@ -354,7 +354,7 @@ describe("recording an answer", () => {
 
     expect(await screen.findByRole("alert")).toBeTruthy();
     expect(container.textContent).not.toContain(
-      "Recorded. This is where that number now stands:",
+      "Saved. Where this number stands now:",
     );
   });
 

@@ -20,6 +20,8 @@ import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 
 import { Row, StateNotice } from "./notices";
+import { WhyTip } from "../agreements/_ui/WhyTip";
+import { AI_ASSIST_COPY as COPY, aboutMore, ofAbout, overBy, prepJobs } from "./copy";
 
 /**
  * AI help: what this month includes, what it has used, and what more costs (D-127 —
@@ -139,7 +141,7 @@ export function AiAssistScreen() {
   const refused = me.data !== undefined && !me.data.permissions.includes("billing:read");
   if (refused) {
     return (
-      <RestrictionNote reason="AI help and what it costs are limited to the account owner. Ask them to check this month's allowance, or to give you owner access." />
+      <RestrictionNote reason={COPY.refused} />
     );
   }
 
@@ -151,7 +153,7 @@ export function AiAssistScreen() {
         description={
           data
             ? formatBillingMonth(data.month)
-            : "What AI help this account has used this month."
+            : COPY.loadingDescription
         }
       />
 
@@ -159,7 +161,7 @@ export function AiAssistScreen() {
 
       {/* A skeleton is not a number and a failure is not a zero. */}
       {!data ? (
-        quota.error ? null : <Skeleton rows={5} label="Loading this month's AI help" />
+        quota.error ? null : <Skeleton rows={5} label={COPY.loading} />
       ) : (
         <>
           <StateNotice quota={data} session={session} />
@@ -170,17 +172,9 @@ export function AiAssistScreen() {
             <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
               <div>
                 <p className="flex items-center gap-1 text-meta font-medium text-ink-muted">
-                  AI help used
+                  {COPY.used}
                   <InfoTip label="AI help">
-                    <p>
-                      AI help is the assistance built into this console — re-writing a call
-                      summary, reshaping notes, answering a question about a call. It also
-                      covers preparing what you add: when you send us a document or a
-                      photograph of a printed page, we read the text out of it, write a short
-                      English key beside anything in another script, and index both — so your
-                      agent answers from what you approved. Calevate pays for all of it up to
-                      the allowance; past that you can add more for a fixed amount.
-                    </p>
+                    <p>{COPY.usedTip}</p>
                   </InfoTip>
                 </p>
                 <p className="mt-1 flex flex-wrap items-baseline gap-x-2">
@@ -188,7 +182,7 @@ export function AiAssistScreen() {
                     {formatCount(data.requests_used)}
                   </span>
                   <span className="text-body text-ink-muted">
-                    of about {formatCount(data.requests_included)} this month
+                    {ofAbout(formatCount(data.requests_included))}
                   </span>
                 </p>
               </div>
@@ -198,82 +192,69 @@ export function AiAssistScreen() {
                 </span>{" "}
                 left
                 {" · "}
-                {data.requests_remaining > 0
-                  ? `about ${formatCount(data.requests_remaining)} more`
-                  : "none left this month"}
+                {data.requests_remaining > 0 ? aboutMore(formatCount(data.requests_remaining)) : COPY.noneLeft}
               </p>
             </div>
             {data.requests_included > 0 ? (
               <ProgressBar
                 value={data.requests_used}
                 max={data.requests_included}
-                label="Share of this month's included AI help used"
-                completeLabel="All of this month's included AI help is used"
+                label={COPY.meterLabel}
+                completeLabel={COPY.meterDone}
                 /* The figures above already say it in words; the bar's own label row stays
                    for assistive technology (it names the progressbar) but not on screen. */
                 className="[&>div:first-child]:sr-only"
               />
             ) : (
-              <p className="text-body text-ink-muted">No AI help is included on your plan.</p>
+              <p className="text-body text-ink-muted">{COPY.notIncluded}</p>
             )}
           </section>
 
           <div className="grid grid-cols-2 gap-x-6 gap-y-5">
             <Metric
-              label="Preparing what you add"
+              label={COPY.prepLabel}
               value={formatINR(data.kb_used_inr)}
               hint={
                 data.kb_requests_used > 0
-                  ? `part of the amount used — ${formatCount(data.kb_requests_used)} ${
-                      data.kb_requests_used === 1 ? "job" : "jobs"
-                    } on your documents`
-                  : "part of the amount used — nothing added this month"
+                  ? prepJobs(data.kb_requests_used, formatCount(data.kb_requests_used))
+                  : COPY.prepNone
               }
             />
             <Metric
-              label="Extra added"
-              value={
-                data.extra_purchased_inr === null ? "None" : formatINR(data.extra_purchased_inr)
-              }
-              hint={
-                data.extra_purchased_inr === null
-                  ? "Nothing extra bought this month"
-                  : "Taken from your calling credit"
-              }
+              label={COPY.extraLabel}
+              value={data.extra_purchased_inr === null ? COPY.extraNone : formatINR(data.extra_purchased_inr)}
+              hint={data.extra_purchased_inr === null ? COPY.extraNoneHint : COPY.extraHint}
             />
           </div>
 
-          <Section title="How AI help is billed">
+          <Section title={COPY.billedTitle}>
             <dl className="space-y-2 text-body">
-              <Row label="Included with your plan" value={formatINR(data.included_inr)} />
-              <Row label="Used so far" value={formatINR(data.used_inr)} />
+              <Row label={COPY.rowIncluded} value={formatINR(data.included_inr)} />
+              <Row label={COPY.rowUsed} value={formatINR(data.used_inr)} />
               {/* "of which" (D-608): the knowledge line is a COMPONENT of the amount used,
                   so it must never read as a second charge. */}
               <Row
-                label="— of which, preparing what you added"
+                label={COPY.rowPrep}
                 value={formatINR(data.kb_used_inr)}
                 muted
               />
-              <Row label="Available this month" value={formatINR(data.allowance_inr)} emphasis />
+              <Row label={COPY.rowAvailable} value={formatINR(data.allowance_inr)} emphasis />
             </dl>
-            <p className="mt-3 text-meta text-ink-muted">
-              Your calls, campaigns and leads are never affected by this allowance.
-            </p>
+            <p className="mt-3 text-meta text-ink-muted">{COPY.neverAffected}</p>
             {/* THE OVERDRAFT, IN WORDS, ONLY WHEN IT IS REAL (D-608). Uploading is not
                 blocked at the ceiling, so the balance can go negative and `remaining_inr`
                 clamps at zero; saying nothing would hide a number this screen knows. It is
                 not dressed as a demand, because what happens next is undecided. */}
             {data.balance_inr.trimStart().startsWith("-") && (
-              <p className="mt-3 text-meta text-ink-muted">
-                You have used{" "}
-                <strong className="font-semibold text-ink">
-                  {formatINR(data.balance_inr.replace("-", ""))}
-                </strong>{" "}
-                more than this month&apos;s allowance, mostly on preparing what you
-                added. Nothing has been charged for it and nothing has stopped — what you
-                send is still being prepared. We will be in touch before anything about
-                that changes.
-              </p>
+              <div className="mt-3 space-y-0.5 text-meta text-ink-muted">
+                <p className="font-medium text-ink">{overBy(formatINR(data.balance_inr.replace("-", "")))}</p>
+                <p className="flex flex-wrap items-center gap-x-1">
+                  {COPY.overNothing}
+                  <WhyTip about="the overdraft" label="Why?">
+                    <p>{COPY.overWhy}</p>
+                  </WhyTip>
+                </p>
+              </div>
             )}
           </Section>
         </>

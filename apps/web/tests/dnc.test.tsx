@@ -756,7 +756,7 @@ describe("do not call — the compliance notice printed on the screen", () => {
     await screen.findByText(/Nobody is suppressed yet/);
 
     expect(container.textContent).toContain(
-      "checked live before every single call",
+      "Checked live before every single call",
     );
     expect(container.textContent).toContain(
       "including for a campaign that is already running",

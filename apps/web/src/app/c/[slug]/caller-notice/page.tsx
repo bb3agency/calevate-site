@@ -12,13 +12,14 @@ import { useMe } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
-import { blankKeys, fill, toPlainText, valueOf } from "@/lib/noticeDraft/blanks";
+import { blankKeys, fill, toPlainText } from "@/lib/noticeDraft/blanks";
 import { parseNotice } from "@/lib/noticeDraft/blocks";
 import { PRINT_FAILED, usePrintDocument } from "@/lib/printDocument";
 
 import { downloadText } from "./download";
 import { FillPanel } from "./FillPanel";
 import { useBlankValues } from "./useBlankValues";
+import { CALLER_NOTICE_COPY as COPY } from "./copy";
 
 /**
  * The privacy notice a client owes their OWN callers (LEGAL-SURFACE F-8, D-179), as a
@@ -79,7 +80,7 @@ export default function CallerNoticePage() {
   if (!notice.data) {
     return (
       <div className="max-w-[46rem] rounded-sm border border-line bg-surface px-5 py-8 sm:p-8">
-        <Skeleton rows={8} label="Loading your privacy notice" />
+        <Skeleton rows={8} label={COPY.loading} />
       </div>
     );
   }
@@ -98,32 +99,27 @@ function Draft({ notice }: { notice: CallerNotice }) {
   const blocks = useMemo(() => parseNotice(notice.notice_markdown), [notice.notice_markdown]);
   const keys = useMemo(() => blankKeys(notice.notice_markdown), [notice.notice_markdown]);
   const filled = fill(notice.notice_markdown, values);
-  const done = keys.filter((key) => valueOf(values, key) !== null).length;
 
   const print = () => {
-    if (sheet.current) printing.print(printableClone(sheet.current, values), { title: "Privacy notice (draft)" });
+    if (sheet.current) printing.print(printableClone(sheet.current, values), { title: COPY.printTitle });
   };
 
   return (
     <div className="space-y-5 pb-12">
       <PageHeader
-        description={
-          keys.length > 0
-            ? `A draft notice for your callers, built from your settings. ${done} of ${keys.length} blanks filled.`
-            : "A draft notice for your callers, built from your settings."
-        }
+        description={COPY.description}
         actions={
           <>
-            <CopyButton value={filled} label="Copy" variant="text" />
+            <CopyButton value={filled} label={COPY.copy} variant="text" />
             <RowMenu
               label="the draft"
               items={[
-                { id: "txt", label: "Download as text (.txt)", onSelect: () => downloadText(toPlainText(filled), "privacy-notice-draft.txt", "text/plain") },
-                { id: "md", label: "Download as Markdown (.md)", onSelect: () => downloadText(filled, "privacy-notice-draft.md", "text/markdown") },
+                { id: "txt", label: COPY.downloadTxt, onSelect: () => downloadText(toPlainText(filled), "privacy-notice-draft.txt", "text/plain") },
+                { id: "md", label: COPY.downloadMd, onSelect: () => downloadText(filled, "privacy-notice-draft.md", "text/markdown") },
               ]}
             />
             <button type="button" onClick={print} className={PRIMARY_BUTTON}>
-              Print or save as PDF
+              {COPY.print}
             </button>
           </>
         }
@@ -136,7 +132,7 @@ function Draft({ notice }: { notice: CallerNotice }) {
       </p>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_17rem] lg:items-start">
-        <aside aria-label="Your blanks and announcements" className="lg:sticky lg:top-0 lg:col-start-2 lg:row-start-1">
+        <aside aria-label={COPY.panelLabel} className="lg:sticky lg:top-0 lg:col-start-2 lg:row-start-1">
           <FillPanel notice={notice} keys={keys} values={values} onClear={clear} />
         </aside>
         <div className="min-w-0 lg:col-start-1 lg:row-start-1 settings-enter">

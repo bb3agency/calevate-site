@@ -12,6 +12,7 @@ import { ConsentPosture } from "./ConsentPosture";
 import { useDncCopilot } from "./copilot";
 import { NumberField } from "./NumberField";
 import { SuppressedList } from "./SuppressedList";
+import { DNC_COPY as COPY, DNC_KEPT as KEPT } from "./copy";
 
 /**
  * Do not call (SEC-COMP §3, hard rule 5): the suppression list the dispatch gate reads on
@@ -34,7 +35,16 @@ export default function DoNotCallPage() {
 
   return (
     <div className="max-w-4xl space-y-6 pb-12">
-      <PageHeader description="Numbers your agents never dial. The list is checked live before every single call, including for a campaign that is already running." />
+      {/* The live-check line is the compliance notice (it binds a running campaign too),
+          so it stays on screen in its own words under the one-line job. */}
+      <PageHeader
+        description={
+          <>
+            <span className="block font-medium text-ink">{COPY.description}</span>
+            <span className="block text-meta">{KEPT.liveCheck}</span>
+          </>
+        }
+      />
 
       <RestrictionNote reason={write.reason} />
 

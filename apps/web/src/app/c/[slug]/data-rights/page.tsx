@@ -16,6 +16,8 @@ import { useSubjectExportAccess } from "./access";
 import { Erasure } from "./Erasure";
 import { Register } from "./Register";
 import { SubjectExport } from "./SubjectExport";
+import { WhyTip } from "../agreements/_ui/WhyTip";
+import { DATA_RIGHTS_COPY as COPY } from "./copy";
 
 /**
  * Data rights (DPDP §11, SEC-COMP §4): the two requests a data principal can make of a
@@ -80,10 +82,15 @@ export default function DataRightsPage() {
     <div className="max-w-4xl space-y-6 pb-12">
       <PageHeader
         description={
-          <>
-            Answer a person who asks what you hold about them, or asks you to erase it. You
-            are the <Term id="dataFiduciary" />.
-          </>
+          <span className="inline-flex flex-wrap items-center gap-x-1">
+            {COPY.description}
+            <WhyTip about="data rights" label="Why?">
+              <p>{COPY.roleWhy}</p>
+              <p>
+                You are the <Term id="dataFiduciary" />.
+              </p>
+            </WhyTip>
+          </span>
         }
         actions={
           <>
@@ -94,7 +101,7 @@ export default function DataRightsPage() {
               title={exportAccess.reason ?? undefined}
               className={PRIMARY_BUTTON}
             >
-              {"Export someone's data"}
+              {COPY.exportButton}
             </button>
             {/* Never styled like the primary beside it: this one cannot be undone. */}
             <button
@@ -104,7 +111,7 @@ export default function DataRightsPage() {
               title={eraseAccess.reason ?? undefined}
               className={`${SECONDARY_BUTTON} enabled:text-danger`}
             >
-              {"Erase someone's data"}
+              {COPY.eraseButton}
             </button>
           </>
         }
@@ -115,10 +122,10 @@ export default function DataRightsPage() {
 
       <Register session={session} />
 
-      <Drawer open={task === "export"} onClose={() => setTask(null)} title="Export someone's data" width="md">
+      <Drawer open={task === "export"} onClose={() => setTask(null)} title={COPY.exportButton} width="md">
         <SubjectExport session={session} />
       </Drawer>
-      <Drawer open={task === "erase"} onClose={() => setTask(null)} title="Erase someone's data" width="md">
+      <Drawer open={task === "erase"} onClose={() => setTask(null)} title={COPY.eraseButton} width="md">
         <Erasure session={session} onFiled={() => setTask(null)} />
       </Drawer>
     </div>

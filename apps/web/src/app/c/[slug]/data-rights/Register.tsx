@@ -25,6 +25,10 @@ import {
 import { lookup } from "@/lib/lookup";
 import { type Session } from "@/lib/api/client";
 
+import { CopyButton } from "@/components/interior/copy-button";
+
+import { WhyTip } from "../agreements/_ui/WhyTip";
+import { DATA_RIGHTS_COPY as COPY, filedLine } from "./copy";
 import { Fact } from "./fields";
 
 /**
@@ -65,16 +69,13 @@ export function Register({ session }: { session: Session }) {
     <section aria-labelledby="erasure-register-heading" className="space-y-2">
       <div className="flex items-center gap-1.5">
         <h2 id="erasure-register-heading" className="text-heading text-ink">
-          Erasure requests
+          {COPY.registerHeading}
         </h2>
         <InfoTip label="the erasure register">
-          <p>
-            Numbers are never listed here. Each request is identified by a one-way hash of
-            the number it covers.
-          </p>
+          <p>{COPY.registerTip}</p>
         </InfoTip>
       </div>
-      <p className="text-meta text-ink-muted">Every request this account has had, newest first.</p>
+      <p className="text-meta text-ink-muted">{COPY.registerSub}</p>
 
       {requests.isPending && <Skeleton rows={3} />}
 
@@ -85,7 +86,7 @@ export function Register({ session }: { session: Session }) {
       {requests.isSuccess &&
         (requests.data.length === 0 ? (
           <p className="rounded-card border border-line bg-surface px-4 py-8 text-center text-body text-ink-muted">
-            No erasure requests have been filed for this account.
+            {COPY.registerEmpty}
           </p>
         ) : (
           <>
@@ -142,24 +143,10 @@ function RegisterRow({
             ) : (
               <Clock aria-hidden className="h-4 w-4 text-warn" />
             )}
-            {missingProof
-              ? "Complete — no certificate recorded"
-              : done
-                ? "Erasure complete"
-                : "Submitted — waiting to run"}
+            {missingProof ? COPY.statusNoProof : done ? COPY.statusDone : COPY.statusWaiting}
           </p>
           <p className="mt-1 text-xs text-ink-muted">
-            Filed {formatIST(request.requested_at)}
-            {done ? ` · completed ${formatIST(request.completed_at)}` : ""}
-          </p>
-          {/* The two handles a client needs when they come back to this: the request id
-              they can quote to us, and the subject hash that tells one row from another
-              without naming anybody. */}
-          <p className="mt-1 break-all text-xs text-ink-faint">
-            <MonoValue>{request.request_id}</MonoValue>
-          </p>
-          <p className="break-all text-xs text-ink-faint">
-            <MonoValue>{request.subject_ref}</MonoValue>
+            {filedLine(formatIST(request.requested_at), done ? formatIST(request.completed_at) : null)}
           </p>
         </div>
         <button
@@ -169,12 +156,35 @@ function RegisterRow({
           aria-controls={open ? panelId : undefined}
           className={SECONDARY_BUTTON_SM}
         >
-          {open ? "Hide details" : done ? "Show the certificate" : "Show details"}
+          {open ? COPY.hide : done ? COPY.showCertificate : COPY.showDetails}
         </button>
       </div>
 
       {open && (
         <div id={panelId} className="mt-3">
+          {/* The two handles a client needs when they come back to this: the request id
+              they can quote to us, and the subject hash that tells one row from another
+              without naming anybody. Inside the opened row, so the closed list stays one
+              status line per request. */}
+          <dl className="mb-3 space-y-1 text-xs">
+            <div className="flex flex-wrap items-center gap-x-2">
+              <dt className="text-ink-muted">{COPY.requestId}</dt>
+              <dd className="min-w-0 break-all text-ink-faint">
+                <MonoValue>{request.request_id}</MonoValue>
+              </dd>
+            </div>
+            <div className="flex flex-wrap items-center gap-x-2">
+              <dt className="flex items-center text-ink-muted">
+                {COPY.numberCode}
+                <WhyTip about="the number code" label="Why?" className="-my-2">
+                  <p>{COPY.numberCodeWhy}</p>
+                </WhyTip>
+              </dt>
+              <dd className="min-w-0 break-all text-ink-faint">
+                <MonoValue>{request.subject_ref}</MonoValue>
+              </dd>
+            </div>
+          </dl>
           <RequestPanel session={session} requestId={request.request_id} />
         </div>
       )}
@@ -222,28 +232,16 @@ function RequestDetail({ request }: { request: DeletionRequest }) {
 
   return (
     <div>
-      <p className="text-xs text-ink-faint">
-        The subject reference above is a one-way hash of the number. It confirms the
-        erasure to someone who already has the number and tells anyone else nothing.
-      </p>
-
-      {!done && (
-        <p className="mt-3 text-sm text-ink-muted">
-          The erasure runs in the background. This panel refreshes on its own, and the
-          certificate appears here the moment it is written.
-        </p>
-      )}
+      {!done && <p className="text-sm text-ink-muted">{COPY.running}</p>}
 
       {done && request.proof === null && (
         <div className="mt-3">
           <NoticeBox
             tone="warn"
-            title="Completed, but no certificate was recorded"
+            title={COPY.noProofTitle}
+            action={<CopyButton value={request.request_id} label={COPY.noProofAction} variant="text" />}
           >
-            <p>
-              The proof is missing, so we cannot show what it did. Send us this request id,
-              and do not tell them it is done on the strength of this panel alone.
-            </p>
+            <p>{COPY.noProofBody}</p>
           </NoticeBox>
         </div>
       )}
@@ -257,7 +255,7 @@ function RequestDetail({ request }: { request: DeletionRequest }) {
           list a client must read before telling a data principal their data is gone.
           `Certificate` below already refuses the same shortcut in as many words. */}
       <h3 className="mt-3 text-xs font-semibold text-ink">
-        What an erasure cannot do ({formatCount(request.limitations.length)})
+        {COPY.limitsHeading} ({formatCount(request.limitations.length)})
       </h3>
       <ul className="mt-2 list-inside list-disc space-y-1.5 text-xs text-ink-muted">
         {request.limitations.map((limitation) => (
@@ -282,14 +280,14 @@ function Certificate({ proof, requestId }: { proof: ErasureProof; requestId: str
   return (
     <div className="mt-3 rounded-md bg-surface-muted p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold text-ink">Proof certificate</h3>
+        <h3 className="text-sm font-semibold text-ink">{COPY.certificateHeading}</h3>
         <button
           type="button"
           onClick={() => downloadJson(proof, `erasure-certificate-${requestId}.json`)}
           className={SECONDARY_BUTTON_SM}
         >
           <Download aria-hidden className="h-4 w-4" />
-          Save the certificate
+          {COPY.saveCertificate}
         </button>
       </div>
       <p className="mt-1 text-xs text-ink-faint">
@@ -331,14 +329,14 @@ function Certificate({ proof, requestId }: { proof: ErasureProof; requestId: str
           ` That audio is not kept: the last of it is destroyed on ${formatIST(proof.scope.recording_hold_until)}.`}
       </p>
 
-      <h4 className="mt-3 text-xs font-semibold text-ink">Erased</h4>
+      <h4 className="mt-3 text-xs font-semibold text-ink">{COPY.erased}</h4>
       <ul className="mt-1 list-inside list-disc space-y-1 text-xs text-ink-muted">
         {proof.erased.map((line) => (
           <li key={line}>{line}</li>
         ))}
       </ul>
 
-      <h4 className="mt-3 text-xs font-semibold text-ink">Not erased</h4>
+      <h4 className="mt-3 text-xs font-semibold text-ink">{COPY.notErased}</h4>
       <ul className="mt-1 divide-y divide-line border-y border-line text-xs">
         {proof.not_erased.map((limitation) => (
           <li key={limitation.what} className="py-2">
@@ -355,7 +353,7 @@ function Certificate({ proof, requestId }: { proof: ErasureProof; requestId: str
       </ul>
 
       <p className="mt-3 text-xs text-ink-muted">
-        Copies held by the calling system: {engineDeletionCopy(proof.engine_deletion)}.
+        {COPY.vendorCopies}: {engineDeletionCopy(proof.engine_deletion)}.
       </p>
     </div>
   );

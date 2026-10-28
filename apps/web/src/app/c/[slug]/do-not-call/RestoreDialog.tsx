@@ -19,16 +19,18 @@ import {
 } from "@/lib/api/dnc";
 import { useClientRealm } from "@/lib/api/session";
 
+import { DNC_COPY as COPY, DNC_KEPT as KEPT, charsLeft } from "./copy";
+
 const GROUNDS: { value: DncRestoreGround; label: string; hint: string }[] = [
   {
     value: "never_asked",
     label: "They never asked to stop",
-    hint: "It was recorded by mistake — for example they said they were not interested, or asked to end the call.",
+    hint: "Recorded by mistake, e.g. they only said “not interested”.",
   },
   {
     value: "asked_to_be_called",
     label: "They have since asked to be called",
-    hint: "They got in touch and asked you to call them again.",
+    hint: "They got in touch and asked for a call.",
   },
 ];
 
@@ -69,8 +71,8 @@ export function RestoreDialog({
   // A refusal stays inside the dialog; the toast says it happened once the dialog closes.
   const restoreFeedback = useActionFeedback(restore, {
     errorDisplay: "inline",
-    successToast: "Number restored",
-    successDescription: "It is off your do-not-call list, so your agents can ring it again.",
+    successToast: COPY.restoredToast,
+    successDescription: COPY.restoredToastBody,
   });
   const [ground, setGround] = useState<DncRestoreGround | null>(null);
   const [note, setNote] = useState("");
@@ -83,10 +85,10 @@ export function RestoreDialog({
 
   return (
     <ConfirmDialog
-      title="Restore this number?"
-      confirmLabel="Restore this number"
-      pendingLabel="Restoring…"
-      cancelLabel="Keep it on the list"
+      title={COPY.restoreTitle}
+      confirmLabel={COPY.restoreConfirm}
+      pendingLabel={COPY.restoring}
+      cancelLabel={COPY.restoreKeep}
       status={restoreFeedback.status}
       confirmDisabled={!ready}
       error={restore.error}
@@ -109,11 +111,11 @@ export function RestoreDialog({
     >
       <p>
         <MonoValue className="tabular-nums text-ink">{formatPhone(entry.phone_e164)}</MonoValue>{" "}
-        is on your list because this person was recorded as asking not to be called.
+        {KEPT.onYourList}
       </p>
 
-      <section aria-label="What was recorded" className="space-y-2">
-        <h3 className="text-meta font-semibold text-ink">What was recorded</h3>
+      <section aria-label={COPY.recorded} className="space-y-2">
+        <h3 className="text-meta font-semibold text-ink">{COPY.recorded}</h3>
         {evidence.isLoading ? (
           <Skeleton rows={2} />
         ) : evidence.error != null ? (
@@ -130,31 +132,27 @@ export function RestoreDialog({
                     They said: <q className="italic">{record.matched_redacted}</q>
                   </p>
                 ) : (
-                  <p className="mt-1 text-ink-faint">
-                    No words were kept. Open the call to read what was said.
-                  </p>
+                  <p className="mt-1 text-ink-faint">{COPY.noWords}</p>
                 )}
                 {record.call_id && (
                   <Link
                     href={href(`/c/${session.orgSlug}/calls/${record.call_id}`)}
                     className="mt-1 inline-block font-medium text-brand underline-offset-2 hover:underline"
                   >
-                    Open the call
+                    {COPY.openCall}
                   </Link>
                 )}
               </li>
             ))}
           </ul>
         ) : (
-          <p className="text-meta text-ink-faint">
-            No call record is attached — it was added as their request by someone on your team.
-          </p>
+          <p className="text-meta text-ink-faint">{COPY.noCall}</p>
         )}
       </section>
 
       <ChoiceCards
-        legend="Why should it come off?"
-        description="Your choice is kept in this account's records with your name."
+        legend={COPY.restoreWhyHeading}
+        description={COPY.restoreWhyNote}
         name={`${groupId}-ground`}
         value={ground}
         options={GROUNDS}
@@ -164,7 +162,7 @@ export function RestoreDialog({
       {ground === "asked_to_be_called" && (
         <div>
           <label htmlFor={noteId} className="text-meta font-medium text-ink">
-            How and when did they ask?
+            {COPY.restoreNoteLabel}
           </label>
           <textarea
             id={noteId}
@@ -177,17 +175,14 @@ export function RestoreDialog({
             className={`${FIELD} mt-1 resize-none`}
           />
           <p id={`${noteId}-hint`} className="mt-1 text-meta text-ink-faint">
-            A short note, no phone numbers. {RESTORE_NOTE_MAX - note.length} characters left.
+            {charsLeft(RESTORE_NOTE_MAX - note.length)}
           </p>
         </div>
       )}
 
       <p>
-        <strong className="font-semibold text-ink">
-          Calling someone who asked not to be called breaks the law.
-        </strong>{" "}
-        Only restore this number if you are sure. Your agents will be able to ring it again
-        straight away.
+        <strong className="font-semibold text-ink">{KEPT.breaksLaw}</strong>{" "}
+        {COPY.restoreEffect}
       </p>
     </ConfirmDialog>
   );
