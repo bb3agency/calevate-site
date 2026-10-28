@@ -215,7 +215,7 @@ describe("the refusals stated on the page", () => {
   it("says inbound is unaffected before anything else", async () => {
     const { container } = await unverified();
     const text = container.textContent ?? "";
-    const inbound = text.indexOf("Calls coming in are unaffected. Your agent keeps answering the phone.");
+    const inbound = text.indexOf("Incoming calls still work.");
     expect(inbound).toBeGreaterThan(-1);
     expect(inbound).toBeLessThan(text.indexOf("Steps to open outgoing calls"));
     expect(text).toContain("Incoming calls: unaffected, on every plan.");

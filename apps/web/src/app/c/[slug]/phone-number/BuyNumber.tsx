@@ -60,6 +60,7 @@ import {
   formatPhone,
 } from "@/components/ui";
 import { EmptySketch } from "@/components/console/emptySketch";
+import { InfoTip } from "@/components/console/infoTip";
 import { EmptyState } from "@/components/console/emptyState";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useKycRecord } from "@/lib/api/kyc";
@@ -131,17 +132,16 @@ function CannotSupply({
         <p className="text-ink">{detail}</p>
         {remediation && <p className="mt-2 text-ink-muted">{remediation}</p>}
       </NoticeBox>
-      <p className="text-body text-ink-muted">
-        There is nothing for you to do here. We arrange your number with
-        you, and Calevate provides it on our own telephony account, so there is no operator
-        account for you to open.
+      <p className="flex items-center gap-1 text-body text-ink-muted">
+        <span>Nothing to do here. We set it up with you.</span>
+        <InfoTip label="where your number comes from" className="touch:-my-2.5">
+          Calevate provides your number on our own telephony account, so there is no
+          operator account for you to open.
+        </InfoTip>
       </p>
       {unverified && (
         <div className="space-y-2">
-          <p className="text-body text-ink-muted">
-            Getting your number needs your business verified first, and you can do that
-            now.
-          </p>
+          <p className="text-body text-ink-muted">First, verify your business.</p>
           <VerifyLink href={verifyHref} />
         </div>
       )}
@@ -183,10 +183,7 @@ function HolderBlock() {
         <p className="mt-1 text-body text-ink">
           {holder.data.holder_name} ({holder.data.holder_email})
         </p>
-        <p className="mt-1 text-meta text-ink-muted">
-          Recorded once and reused for every number you take. It cannot be changed: the
-          operator who issues the connection holds the same details.
-        </p>
+        <p className="mt-1 text-meta text-ink-muted">Used for every number. Cannot be changed.</p>
       </div>
     );
   }
@@ -196,10 +193,7 @@ function HolderBlock() {
   return (
     <div className="border-l-2 border-line pl-4">
       <p className="text-body font-medium text-ink">Who the number is registered to</p>
-      <p className="mt-1 text-body text-ink-muted">
-        We collect this once and reuse it for every number you take afterwards. It cannot
-        be changed later, so please check it before you save it.
-      </p>
+      <p className="mt-1 text-body text-ink-muted">Set once for all numbers. Check before saving.</p>
 
       <RadioGroup
         className="mt-3"
@@ -214,7 +208,7 @@ function HolderBlock() {
       <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div>
           <label className={FIELD_LABEL} htmlFor="holder-name">
-            Full name, as it appears on the registration
+            Full name, as registered
           </label>
           <input
             id="holder-name"
@@ -226,7 +220,7 @@ function HolderBlock() {
         </div>
         <div>
           <label className={FIELD_LABEL} htmlFor="holder-email">
-            Email address for the operator&apos;s paperwork
+            Email for the paperwork
           </label>
           <input
             id="holder-email"
@@ -356,21 +350,23 @@ export function BuyNumber() {
         </div>
       ) : (
         <div className="space-y-4 p-4">
-          <p className="text-body text-ink-muted">{OWNER_SENTENCE}</p>
+          <p className="flex items-center gap-1 text-body text-ink-muted">
+            <span>Registered to your business, not to us.</span>
+            <InfoTip label="who owns the number" className="touch:-my-2.5">
+              {OWNER_SENTENCE}
+            </InfoTip>
+          </p>
 
           {verified ? (
-            <NoticeBox tone="ok">
-              Your business is verified, so a number you buy can go on an agent right away.
-            </NoticeBox>
+            <NoticeBox tone="ok">Verified. A new number works right away.</NoticeBox>
           ) : (
             <NoticeBox
               tone="warn"
               action={<VerifyLink href={verifyHref} />}
-              info="Indian telecom rules require the holder of a connection to be identified before it carries calls."
+              info="Indian telecom rules require the holder of a connection to be identified before it carries calls. You can buy now; we hold the number for you until then."
               infoLabel="why verification comes first"
             >
-              You can buy a number now. It works once your business is verified, and is held for
-              you until then.
+              A number works once you are verified.
             </NoticeBox>
           )}
 
@@ -381,8 +377,8 @@ export function BuyNumber() {
               action={bought.activated ? undefined : <VerifyLink href={verifyHref} />}
             >
               {bought.activated
-                ? `${formatINR(bought.inr_per_month)} a month from today. Choose the agent that uses it below.`
-                : `${formatINR(bought.inr_per_month)} a month from today. It cannot take or make calls, and cannot be put on an agent, until your business is verified.`}
+                ? `${formatINR(bought.inr_per_month)} a month. Pick its agent below.`
+                : `${formatINR(bought.inr_per_month)} a month. Works once you are verified.`}
             </NoticeBox>
           )}
 
@@ -394,7 +390,7 @@ export function BuyNumber() {
             <EmptyState
               illustration={<EmptySketch kind="numbers" />}
               message="No numbers are free to take right now"
-              hint="Our supplier has none available at the moment. Talk to us and we can source one."
+              hint="Ask us and we will find one."
             />
           ) : (
             <>
@@ -403,14 +399,12 @@ export function BuyNumber() {
                   blockers above come first, each with its one action. */}
               {trial !== null ? (
                 <p className="text-body text-ink-muted">
-                  Free trial until {trialEndsAt(trial)}: the first month is on us. Months that
-                  start after the trial are charged as usual.
+                  First month free. Trial ends {trialEndsAt(trial)}.
                 </p>
               ) : (
                 wallet.data?.prepaid === true && (
                   <p className="text-body text-ink-muted">
-                    Your calling credit is {formatINR(wallet.data.balance_inr)}. The first
-                    month is taken from it when you buy.
+                    Credit {formatINR(wallet.data.balance_inr)}. First month comes from it.
                   </p>
                 )
               )}
@@ -459,21 +453,21 @@ export function BuyNumber() {
                     Buy {formatPhone(chosen.e164)}
                   </h3>
                   <p className="text-body text-ink">
-                    {formatINR(chosen.inr_per_month)} every month, for as long as you keep the
-                    number.{" "}
+                    {formatINR(chosen.inr_per_month)} a month while you keep it.
+                  </p>
+                  <p className="text-body text-ink-muted">
                     {trial !== null
-                      ? `The first month is on us because you're on a free trial until ${trialEndsAt(trial)}.`
-                      : "The first month comes off your calling credit now."}
+                      ? `First month free. Trial ends ${trialEndsAt(trial)}.`
+                      : "First month paid from your credit now."}
                   </p>
                   {trial === null && wallet.data?.prepaid === true && (
                     <p className="text-body text-ink-muted">
-                      Your credit is {formatINR(wallet.data.balance_inr)} before this purchase.
+                      Credit now: {formatINR(wallet.data.balance_inr)}.
                     </p>
                   )}
                   {holder.data?.recorded === true && (
                     <p className="text-body text-ink-muted">
-                      It is registered to {holder.data.holder_name}, and that cannot be changed
-                      afterwards.
+                      Registered to {holder.data.holder_name}. Cannot be changed.
                     </p>
                   )}
 
@@ -486,10 +480,7 @@ export function BuyNumber() {
                   />
 
                   {!verified && (
-                    <p className="text-body text-ink-muted">
-                      It will not be able to make or take calls until your business is verified.
-                      Nothing else about the purchase changes.
-                    </p>
+                    <p className="text-body text-ink-muted">Works once you are verified.</p>
                   )}
 
                   {purchase.error ? <ProblemNotice error={purchase.error} /> : null}
@@ -516,6 +507,7 @@ export function BuyNumber() {
                       status={purchaseFeedback.status}
                       disabled={!canBuy}
                       title={blockedReason ?? undefined}
+                      className="w-full justify-center sm:w-auto"
                       pendingLabel="Buying…"
                       successLabel="Bought"
                       onClick={() =>

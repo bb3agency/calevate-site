@@ -30,6 +30,7 @@ import {
   FIELD_LABEL,
   MonoValue,
   NoticeBox,
+  PRIMARY_BUTTON,
   PRIMARY_BUTTON_SM,
   ProblemNotice,
   RestrictionNote,
@@ -68,26 +69,19 @@ import type { NoticeTone } from "@/components/ui";
 
 /** The refusals this journey can meet, each in the words of what to do next. */
 const REFUSALS: Record<string, string> = {
-  trial_numbers_unavailable:
-    "Phone numbers are available once you add credit and verify your business. Nothing was charged.",
-  engine_workspace_not_provisioned:
-    "Your calling account is still being set up. Nothing was charged. Try again in a few minutes.",
+  trial_numbers_unavailable: "Add credit and verify first. Nothing was charged.",
+  engine_workspace_not_provisioned: "Still setting up. Try again soon. Nothing charged.",
   kyc_not_verified: "Verify your business first. Nothing was charged.",
-  business_details_kyc_not_verified:
-    "Verify your business first. We send the business details once it is verified.",
-  business_details_not_approved:
-    "Your business details are not approved for phone numbers yet. Nothing was charged.",
+  business_details_kyc_not_verified: "Verify your business first.",
+  business_details_not_approved: "Business details not approved yet. Nothing charged.",
   number_price_not_attested: "Numbers are not on sale yet. Nothing was charged.",
   // The server sends this for every refusal of the number itself: it may have been taken,
   // or the business details may still be under check. Nothing tells the two apart.
-  engine_number_unavailable:
-    "That number could not be bought: somebody else may have taken it, or your business details are still being checked. Nothing was charged. Pick another, or try again shortly.",
-  engine_number_purchase_unconfirmed:
-    "We could not confirm the purchase. Press Buy again: it finishes this same purchase and never buys a second number.",
-  engine_number_agent_not_moved:
-    "That agent is not published yet, so the number cannot be put on it. Publish the agent first, then press Buy again. Or buy without an agent and choose one later.",
-  number_insufficient_credit:
-    "There is not enough calling credit for the first month. Top up, then press Buy again.",
+  engine_number_unavailable: "Taken, or your details are in review. Nothing charged.",
+  // Pressing Buy again replays the same request key, so it can never buy a second number.
+  engine_number_purchase_unconfirmed: "Not confirmed. Press Buy again. You won't pay twice.",
+  engine_number_agent_not_moved: "That agent isn't published. Pick no agent, or publish.",
+  number_insufficient_credit: "Not enough credit for the first month. Top up first.",
 };
 
 /** A refusal in plain words where we know the code, and the server's own sentence where not. */
@@ -114,11 +108,11 @@ export function firstPeriodSentence(period: FirstPeriod, inrPerMonth: string | n
     case "charged":
       return inrPerMonth === null
         ? "The first month was charged now."
-        : `${formatINR(inrPerMonth)} charged now for the first month, then monthly.`;
+        : `${formatINR(inrPerMonth)} charged now, then monthly.`;
     case "invoiced":
-      return `${monthly ?? "The monthly charge"}. The first month is added to your next invoice.`;
+      return `${monthly ?? "The monthly charge"}. First month on your next invoice.`;
     case "trial":
-      return `${monthly ?? "The monthly charge"}. Free during your trial; charging starts at the first renewal after it.`;
+      return `${monthly ?? "The monthly charge"}. Free until your trial ends.`;
     case "replayed":
       return "Your earlier try already bought this number.";
     default:
@@ -170,21 +164,22 @@ const KYC_COPY: Record<string, string> = {
   verified: "Your business is verified.",
   submitted: "Your documents are with our review team.",
   in_review: "Your documents are with our review team.",
-  rejected: "We could not verify the business from what was sent. See what to fix.",
-  expired: "Your verification has lapsed. Please verify the business again.",
-  not_started: "Verify your business with its certificate and the owner's ID.",
+  rejected: "Not verified. See what to fix.",
+  expired: "Your verification has lapsed. Verify again.",
+  not_started: "Needs your certificate and the owner's ID.",
 };
 
 /** The business-details application, in the client's words. */
 const DETAILS_COPY: Record<string, string> = {
   none: "Not sent yet.",
   draft: "Started, but not sent yet.",
-  submitted: "Being checked. This usually takes a few minutes.",
-  accepted: "Approved. Phone numbers can be registered in your business's name.",
+  submitted: "Being checked. Usually a few minutes.",
+  accepted: "Approved.",
   rejected: "Not approved.",
-  suspended: "Approval was withdrawn, and it cannot be restored from here. Please contact us and we will sort it out with you.",
-  expired: "The approval has lapsed. Please send the details again.",
-  unknown: "We could not read where this stands. We keep checking.",
+  // A suspension is not resubmittable (`RESUBMITTABLE` on the server), so it says to contact us.
+  suspended: "Approval withdrawn. Please contact us.",
+  expired: "Approval lapsed. Send the details again.",
+  unknown: "Status unclear. We keep checking.",
 };
 
 /**
@@ -198,10 +193,10 @@ function CreditFirst({ status, stage }: { status: OwnNumbersStatus; stage: "tria
   const kycInReview = status.kyc_status === "submitted" || status.kyc_status === "in_review";
   const lead =
     stage === "trial"
-      ? "During your free trial, test calls ring from a shared Calevate number. Add credit, and you can get a phone number in your business's name."
+      ? "Trial calls use a shared number. Add credit for yours."
       : status.trial === "ended"
-        ? "Your free trial has ended. To get a phone number in your business's name, add credit to your account first."
-        : "To get a phone number in your business's name, add credit to your account first.";
+        ? "Your trial has ended. Add credit to get a number."
+        : "Add credit to get your own number.";
 
   return (
     <Section
@@ -213,8 +208,10 @@ function CreditFirst({ status, stage }: { status: OwnNumbersStatus; stage: "tria
     >
       <div className="space-y-4 p-4">
         <p className="text-body text-ink">{lead}</p>
-        {kycDone && <p className="text-body text-ink-muted">Your business is already verified, so that step is done.</p>}
-        <Link href={href(`/c/${session.orgSlug}/billing?tab=credits`)} className={PRIMARY_BUTTON_SM}>
+        <Link
+          href={href(`/c/${session.orgSlug}/billing?tab=credits`)}
+          className={`${PRIMARY_BUTTON} w-full justify-center sm:w-auto`}
+        >
           Add credit
         </Link>
 
@@ -224,20 +221,18 @@ function CreditFirst({ status, stage }: { status: OwnNumbersStatus; stage: "tria
             <StepRow index={1} title="Verify your business" state={kycDone ? "done" : "later"}>
               {!kycDone && (
                 <p>
-                  {kycInReview
-                    ? KYC_COPY.submitted
-                    : "Verify your business with its certificate and the owner's ID."}
+                  {kycInReview ? KYC_COPY.submitted : KYC_COPY.not_started}
                 </p>
               )}
             </StepRow>
             <StepRow index={2} title="Business details for phone numbers" state="later">
-              <p>Your verified business details are sent for approval for phone numbers.</p>
+              <p>We send them for approval.</p>
             </StepRow>
             <StepRow index={3} title="Buy a number" state="later">
               <p>
                 {status.inr_per_month !== null
-                  ? `Choose a number. It costs ${formatINR(status.inr_per_month)} a month, for as long as you keep it.`
-                  : "Choose a number in your business's name."}
+                  ? `${formatINR(status.inr_per_month)} a month per number.`
+                  : "Pick a number in your business's name."}
               </p>
             </StepRow>
           </ol>
@@ -269,14 +264,9 @@ function Journey({ status }: { status: OwnNumbersStatus }) {
   return (
     <Section title="Get a phone number in your business's name">
       <div className="space-y-4 p-4">
-        <p className="text-body text-ink-muted">
-          Your phone numbers are registered in your business&apos;s own name. Three steps get you
-          there, and this shows where each one stands.
-        </p>
-
         {status.step === "workspace" && (
           <NoticeBox tone="neutral" title="Your calling account is being set up">
-            Nothing for you to do. This page moves on by itself when it is ready.
+            Nothing to do. This updates by itself.
           </NoticeBox>
         )}
 
@@ -296,7 +286,7 @@ function Journey({ status }: { status: OwnNumbersStatus }) {
             state={detailsDone ? "done" : status.step === "business_details" ? "now" : "waiting"}
           >
             {!kycDone ? (
-              <p>Once your business is verified, we send its details for approval for phone numbers.</p>
+              <p>Starts after step 1.</p>
             ) : (
               <>
                 <p>{lookup(DETAILS_COPY, detailsStatus) ?? DETAILS_COPY.unknown}</p>
@@ -312,13 +302,9 @@ function Journey({ status }: { status: OwnNumbersStatus }) {
                 {/* Only a rejection is corrected and sent again; a suspension is not
                     (`RESUBMITTABLE` on the server), so its sentence above says to contact us. */}
                 {detailsStatus === "rejected" && (
-                  <p>
-                    Fix and send again: correct the details under{" "}
-                    <Link href={verifyHref} className="font-medium text-ink underline">
-                      Verify your business
-                    </Link>
-                    , then send them again here.
-                  </p>
+                  <Link href={verifyHref} className={SECONDARY_BUTTON_SM}>
+                    Fix the details
+                  </Link>
                 )}
                 {status.can_send_business_details && (
                   <ActionButton
@@ -341,12 +327,12 @@ function Journey({ status }: { status: OwnNumbersStatus }) {
 
           <StepRow index={3} title="Buy a number" state={ready ? "now" : "waiting"}>
             {status.inr_per_month !== null && (
-              <p>A number costs {formatINR(status.inr_per_month)} a month, for as long as you keep it.</p>
+              <p>{formatINR(status.inr_per_month)} a month per number.</p>
             )}
             {status.step === "price" ? (
-              <p>Numbers are not on sale yet. We will let you know when they are.</p>
+              <p>Not on sale yet. We will tell you.</p>
             ) : !ready ? (
-              <p>You can choose a number here once the steps above are done.</p>
+              <p>Opens after steps 1 and 2.</p>
             ) : null}
           </StepRow>
         </ol>
@@ -415,21 +401,16 @@ function BuyOwnNumber({ canBuy }: { canBuy: boolean }) {
             <p className="mt-1">{firstPeriodSentence(bought.first_period, bought.inr_per_month)}</p>
           )}
           {(bought.attachment === "partial" || bought.attachment === "refused") && (
-            <p className="mt-1">
-              We could not put it on the agent yet. Choose the agent on the number below.
-            </p>
+            <p className="mt-1">Not on the agent yet. Pick it on the number below.</p>
           )}
           {bought.attachment === "other_workspace" && (
-            <p className="mt-1">
-              It does not ring that agent yet. Publish the agent again, then choose it on the
-              number below.
-            </p>
+            <p className="mt-1">Publish the agent again, then pick it below.</p>
           )}
         </NoticeBox>
       )}
 
       {cities.data.length === 0 ? (
-        <p className="text-body text-ink-muted">No city has numbers free right now. Please check again later.</p>
+        <p className="text-body text-ink-muted">No numbers free right now. Check again later.</p>
       ) : (
         <form
           noValidate
@@ -553,11 +534,9 @@ function BuyOwnNumber({ canBuy }: { canBuy: boolean }) {
           }
         >
           {chosen.inr_per_month !== null && (
-            <p className="text-ink">
-              {formatINR(chosen.inr_per_month)} every month, for as long as you keep the number.
-            </p>
+            <p className="text-ink">{formatINR(chosen.inr_per_month)} a month while you keep it.</p>
           )}
-          <p>It is registered in your business&apos;s name.</p>
+          <p>Registered in your business&apos;s name.</p>
           <label className="block">
             <span className={FIELD_LABEL}>The agent that answers it (optional)</span>
             <select
@@ -655,9 +634,9 @@ export function ReleaseOwnNumber({ numberId, e164 }: { numberId: string; e164: s
         >
           <NoticeBox tone="warn">
             <ul className="list-disc space-y-1 pl-4">
-              <li>Releasing is permanent. The number stops ringing straight away.</li>
-              <li>It goes back to the pool, and anybody may take it next. You cannot get it back.</li>
-              <li>This month is not refunded. The monthly charge stops.</li>
+              <li>Permanent. It stops ringing now.</li>
+              <li>Anyone may take it next. You cannot get it back.</li>
+              <li>No refund for this month. The monthly charge stops.</li>
             </ul>
           </NoticeBox>
           <OwnNumberProblem error={release.error} />

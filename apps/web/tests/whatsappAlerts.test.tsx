@@ -188,14 +188,12 @@ describe("the client's own WhatsApp alert opt-in", () => {
     );
 
     await waitFor(() => {
-      expect(container.textContent).toContain(
-        "We cannot send WhatsApp messages yet",
-      );
+      expect(container.textContent).toContain("WhatsApp is not ready yet");
     });
     // Present and DEAD, with the reason — not absent, which would read as a broken page.
     const agree = await screen.findByRole("button", { name: /I agree/ });
     expect((agree as HTMLButtonElement).disabled).toBe(true);
-    expect(container.textContent).toContain("This is on our side, not yours");
+    expect(container.textContent).toContain("Our side, not yours");
   });
 
   it("lets an opted-in owner withdraw even when the channel is down", async () => {

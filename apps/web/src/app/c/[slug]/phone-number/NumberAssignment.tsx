@@ -100,11 +100,11 @@ export function NumberAssignment({
 
   return (
     <section className="border-t border-line pt-4">
-      <h3 className="text-body font-semibold text-ink">Put this number on an agent</h3>
+      <h3 className="text-body font-semibold text-ink">Agent for this number</h3>
 
       <div className="mt-3">
         <label className={FIELD_LABEL} htmlFor={`agent-${numberId}`}>
-          The agent that uses it
+          Agent
         </label>
         <select
           id={`agent-${numberId}`}
@@ -115,9 +115,9 @@ export function NumberAssignment({
             setAgentId(event.target.value === NOBODY ? null : event.target.value)
           }
         >
-          <option value={NOBODY}>Nobody (take this number off any agent)</option>
+          <option value={NOBODY}>No agent</option>
           {unlisted !== null && (
-            <option value={unlisted}>The agent it is on now (not in your agent list)</option>
+            <option value={unlisted}>Current agent (not in your list)</option>
           )}
           {agents.data.map((agent) => (
             <option key={agent.id} value={agent.id}>
@@ -169,12 +169,9 @@ export function NumberAssignment({
         <div className="mt-3">
           <NoticeBox tone={result.failed > 0 ? "stop" : "ok"}>
             {result.failed > 0 ? (
-              <p>
-                We could not connect this number to that agent, so it is not on an agent.
-                Try again, and tell us if it keeps happening.
-              </p>
+              <p>Could not connect it to that agent. Try again.</p>
             ) : result.agent_id === null ? (
-              <p>Done. This number is on no agent now and will not be answered.</p>
+              <p>Done. No agent answers this number now.</p>
             ) : (
               <p>Done. That agent now uses this number.</p>
             )}

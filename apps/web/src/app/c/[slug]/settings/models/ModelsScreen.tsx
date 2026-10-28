@@ -114,7 +114,7 @@ export function ModelsScreen({ slug }: { slug: string }) {
       <PageHeader
         description={
           <>
-            The model all your agents use, unless one has its own.{" "}
+            The AI all your agents use.{" "}
             {/* Negative margin: the 44px touch target must not stretch the line it sits in. */}
             <InfoTip label="AI model" align="end" className="touch:-my-2.5">
               <p>

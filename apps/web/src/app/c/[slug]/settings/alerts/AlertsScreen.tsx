@@ -144,7 +144,7 @@ export function AlertsScreen() {
       <PageHeader
         description={
           <>
-            Hot leads always reach you by email. WhatsApp is optional.{" "}
+            Hear about every hot lead fast.{" "}
             <InfoTip label="hot-lead alerts" className="-my-3">
               <p>
                 When a call produces a hot lead, we message the account owner within two
@@ -168,8 +168,8 @@ export function AlertsScreen() {
         <>
           {/* Above the row it explains, so the dead "I agree" below reads as ours to fix. */}
           {!current.delivery_available && (
-            <NoticeBox tone="warn" title="We cannot send WhatsApp messages yet">
-              <p>This is on our side, not yours. Email alerts are unaffected.</p>
+            <NoticeBox tone="warn" title="WhatsApp is not ready yet">
+              <p>Our side, not yours. Email still works.</p>
             </NoticeBox>
           )}
 
@@ -181,15 +181,15 @@ export function AlertsScreen() {
                 hint={
                   current.messageable ? (
                     <>
-                      Sent to the mobile number on your profile, which we never show here.
+                      To your profile mobile.
                       {current.captured_at && (
-                        <> You agreed on {formatIST(current.captured_at)}.</>
+                        <> Agreed {formatIST(current.captured_at)}.</>
                       )}
                     </>
                   ) : current.status === "withdrawn" ? (
-                    "You turned these off. Email alerts continue."
+                    "You turned these off. Email continues."
                   ) : (
-                    "Nobody on this account has agreed to them yet."
+                    "Not turned on yet."
                   )
                 }
                 value={<AlertStatePill on={current.messageable} />}
@@ -219,7 +219,7 @@ export function AlertsScreen() {
                       write.reason ??
                       (current.delivery_available
                         ? null
-                        : "Nothing to agree to until we can send them.")
+                        : "Opens once WhatsApp is ready.")
                     }
                     status={feedbackFor("granted")}
                     onGrant={() =>
@@ -237,23 +237,14 @@ export function AlertsScreen() {
           <Disclosure
             variant="inline"
             headingLevel={2}
-            title="What we send, and what we never send"
-            subtitle="One message per hot lead, to you only. Never marketing, and never to your customers."
+            title="What we send"
+            subtitle="One message per hot lead. Only to you."
           >
             <ul className="space-y-2 text-body text-ink-muted">
-              <li>
-                One message per hot lead, to the owner. Never marketing, and never to your
-                customers. This setting is about messages to you.
-              </li>
-              <li>
-                Whether your agents may message your customers is a different question with
-                its own record, on the Messaging consent screen.
-              </li>
-              <li>
-                Turning this off is a new entry, not a deletion: we keep the record that
-                you agreed and the record that you withdrew, which is what lets us show
-                anyone asking exactly what was on when.
-              </li>
+              <li>One message per hot lead, to the owner.</li>
+              <li>Never marketing. Never to your customers.</li>
+              <li>Messages to customers are set on Messaging consent.</li>
+              <li>We keep a record of each time you turn this on or off.</li>
             </ul>
           </Disclosure>
         </>

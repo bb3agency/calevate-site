@@ -73,10 +73,8 @@ export function OrganizationDefault({
         // the one answering yet. It changes what a call runs on, so it is a notice.
         notice={
           defaults.effective_is_available ? undefined : (
-            <NoticeBox tone="warn">
-              {defaults.effective_tier_label} is not on for your account yet, so
-              calls use our standard model. Ask your Calevate team to turn it
-              on.
+            <NoticeBox tone="warn" title={`${defaults.effective_tier_label} is not on yet`}>
+              Calls use our standard model. Ask us to turn it on.
             </NoticeBox>
           )
         }
@@ -86,7 +84,7 @@ export function OrganizationDefault({
       {defaults.tier_choosable !== false && (
         <Disclosure
           title="How the model is billed"
-          subtitle="A tier's figure is added to your plan's per-minute rate, as its own line on your statement."
+          subtitle="Added to your per-minute rate."
         >
           <ul className="space-y-2 text-body text-ink-muted">
             <li>Changing the model does not change the voice your callers hear.</li>

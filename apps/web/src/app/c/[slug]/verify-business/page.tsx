@@ -78,7 +78,7 @@ export default function VerifyBusinessPage() {
   return (
     <div className="max-w-3xl space-y-8 pb-12">
       <PageHeader
-        description="Outgoing calls open once we verify your business and you accept the no-cold-calls pledge."
+        description="Finish these steps to make outgoing calls."
       />
       <div className="space-y-3">
         <DigiLockerReturn session={session} />
@@ -131,7 +131,7 @@ function nextSentence(step: StepStatus, record: KycRecord, pledge: OutboundPledg
     case "certificate":
       return "Next: upload the business certificate.";
     case "owner":
-      if (record.digilocker_outstanding) return "Next: complete the DigiLocker check we asked for.";
+      if (record.digilocker_outstanding) return "Next: finish the DigiLocker check.";
       return record.status === "rejected" ? "Next: correct it and send the owner's ID again." : "Next: verify the owner's identity.";
     case "pledge":
       return pledge?.accepted_version != null
@@ -159,7 +159,7 @@ function OutgoingSummary({
     const checked = describeVerification(record);
     return (
       <NoticeBox tone="ok" title="Outgoing calls are open">
-        Your business is verified and the no-cold-calls pledge is accepted.{checked ? ` ${checked}` : ""}
+        Verified, and the pledge is accepted.{checked ? ` ${checked}` : ""}
       </NoticeBox>
     );
   }
@@ -178,7 +178,7 @@ function OutgoingSummary({
       }
     >
       <div className="space-y-1.5">
-        <p>Calls coming in are unaffected. Your agent keeps answering the phone.</p>
+        <p>Incoming calls still work.</p>
         {verdict && (
           <p>
             <span>{verdict.headline}</span>
@@ -193,7 +193,7 @@ function OutgoingSummary({
         <p className="text-ink-muted">
           {next
             ? nextSentence(next, record, pledge)
-            : "Nothing for you to do now. We will let you know when our review is done."}
+            : "Nothing to do. We will tell you when it is reviewed."}
         </p>
       </div>
     </NoticeBox>

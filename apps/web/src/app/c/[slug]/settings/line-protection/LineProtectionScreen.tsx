@@ -12,13 +12,14 @@ import { ConfirmDialog } from "@/components/confirmDialog";
 import { EmptyState } from "@/components/console/emptyState";
 import { PageHeader } from "@/components/console/pageHeader";
 import {
+  Disclosure,
   FIELD,
-  NoticeBox,
   PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
   SECONDARY_BUTTON_SM,
   Skeleton,
+  formatCount,
   formatIST,
 } from "@/components/ui";
 import {
@@ -51,7 +52,7 @@ export function LineProtectionScreen() {
   const write = useWriteAccess(session, "org:manage", "change line protection");
   return (
     <div className="max-w-2xl space-y-6 pb-12">
-      <PageHeader description="What your callers get if your agent cannot take calls properly." />
+      <PageHeader description="Keep callers covered if your agent fails." />
       <RestrictionNote reason={write.reason} />
       <BackupPhone session={session} allowed={write.allowed} />
       <Problems session={session} slug={slug} href={href} allowed={write.allowed} />
@@ -95,13 +96,13 @@ function BackupPhone({ session, allowed }: { session: Realm["session"]; allowed:
         >
           <p className="text-body text-ink-muted">
             {phone.data?.forwarding_supported
-              ? "If your agent stops working, we pass callers to this phone while we fix it."
-              : "If your agent stops working, callers hear a short “try again later” message."}
+              ? "If your agent stops, callers ring this phone."
+              : "If your agent stops, callers hear “try again later”."}
           </p>
           <Field
             id="backup-phone"
             label="Indian mobile number"
-            hint="Starts with +91. Use a mobile your team answers."
+            hint="A mobile your team answers."
             error={invalid ? "Enter an Indian mobile number, like +91 98765 43210." : null}
           >
             {(control) => (
@@ -193,21 +194,26 @@ function Problems({
                 {item.state === "open" ? "Since" : "From"} {formatIST(item.opened_at)}
                 {item.resolved_at && <> to {formatIST(item.resolved_at)}</>}
               </p>
+              {/* The server's three sentences: the one the owner acts on stays in view; how
+                  it happened and what we did sit behind a tap (progressive disclosure). */}
               <dl className="space-y-1 text-body">
-                <Sentence term="What happened" text={item.what_happened} />
-                <Sentence term="What we did" text={item.what_we_did} />
-                <Sentence term="What you need to do" text={item.your_part} />
+                <Sentence term="Your part" text={item.your_part} />
               </dl>
+              <Disclosure variant="inline" headingLevel={4} title="What happened">
+                <dl className="space-y-1 text-body">
+                  <Sentence term="What happened" text={item.what_happened} />
+                  <Sentence term="What we did" text={item.what_we_did} />
+                </dl>
+              </Disclosure>
               {item.call_backs.length > 0 && (
                 <div>
-                  <p className="text-body font-medium text-ink">Callers to ring back</p>
-                  <ul className="mt-1 space-y-1">
+                  <p className="text-body font-medium text-ink">
+                    Ring back · {formatCount(item.call_backs.length)}
+                  </p>
+                  <ul className="mt-2 flex flex-wrap gap-2">
                     {item.call_backs.map((call) => (
                       <li key={call.call_id}>
-                        <Link
-                          href={href(`/c/${slug}/calls/${call.call_id}`)}
-                          className="inline-flex items-center gap-1.5 text-body text-brand-strong underline underline-offset-2 touch:min-h-11"
-                        >
+                        <Link href={href(`/c/${slug}/calls/${call.call_id}`)} className={SECONDARY_BUTTON_SM}>
                           <PhoneCall aria-hidden className="h-3.5 w-3.5" />
                           Call at {formatIST(call.at)}
                         </Link>
@@ -219,11 +225,11 @@ function Problems({
               {item.can_restore && (
                 <button
                   type="button"
-                  className={SECONDARY_BUTTON_SM}
+                  className={`${PRIMARY_BUTTON} w-full justify-center sm:w-auto`}
                   disabled={!allowed || restore.isPending}
                   onClick={() => setConfirming(item)}
                 >
-                  Turn the line back on now
+                  Turn line back on
                 </button>
               )}
             </li>
@@ -242,8 +248,7 @@ function Problems({
             restore.mutate(confirming.id, { onSuccess: () => setConfirming(null) })
           }
         >
-          Callers will reach your agent again straight away, even though we have not finished
-          checking it. If calls go wrong again we will step back in.
+          Callers reach your agent again now. If calls fail again, we step back in.
         </ConfirmDialog>
       )}
     </Section>
@@ -298,10 +303,7 @@ function Suggestions({
       : href(`/c/${slug}/agents/${p.agent_id}`);
 
   return (
-    <Section title="Suggested fixes">
-      <NoticeBox tone="neutral">
-        <p>Nothing changes until you approve it.</p>
-      </NoticeBox>
+    <Section title="Suggested fixes" description="Nothing changes until you approve.">
       <ul className="mt-4 divide-y divide-line">
         {pending.map((p) => (
           <li key={p.id} className="space-y-2 py-4 first:pt-0 last:pb-0">

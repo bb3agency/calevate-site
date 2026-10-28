@@ -143,7 +143,7 @@ describe("the client's line protection screen", () => {
         "POST /v1/healer/incidents/inc-1/restore": { ...INCIDENT, state: "resolved", can_restore: false },
       }),
     );
-    fireEvent.click(await screen.findByRole("button", { name: "Turn the line back on now" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Turn line back on" }));
     expect(calls.some((c) => c.method === "POST")).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "Turn it back on" }));
     await waitFor(() =>

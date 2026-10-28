@@ -143,7 +143,7 @@ describe("a deployment that may not supply a number says so", () => {
 
     await screen.findByText(REFUSAL);
     expect(container.textContent).not.toMatch(/account holder|withdraw our access|connection you already hold/i);
-    expect(screen.getByText(/arrange your number with you/i).textContent).not.toMatch(
+    expect(screen.getByText(/We set it up with you/i).textContent).not.toMatch(
       /Plivo|Thinnest/i,
     );
   });
@@ -213,9 +213,9 @@ describe("browsing what is on offer", () => {
     await renderClientPage(<PhoneNumberPage />, routes({ [PATHS.holder]: holder(false) }));
 
     expect(
-      await screen.findByText(/registered to your business, not to Calevate/i),
+      await screen.findByText(/registered to your business, not to us/i),
     ).toBeTruthy();
-    expect(await screen.findByText(/cannot be changed later/i)).toBeTruthy();
+    expect(await screen.findByText(/Set once for all numbers\. Check before saving\./i)).toBeTruthy();
   });
 
   it("will not sell until the registrant is on file", async () => {
@@ -241,7 +241,7 @@ describe("browsing what is on offer", () => {
     fireEvent.change(screen.getByLabelText(/full name/i), {
       target: { value: "Acme Dental" },
     });
-    fireEvent.change(screen.getByLabelText(/email address/i), {
+    fireEvent.change(screen.getByLabelText(/email for the paperwork/i), {
       target: { value: "owner@example.com" },
     });
     fireEvent.click(screen.getByRole("button", { name: /save these details/i }));
@@ -255,14 +255,14 @@ describe("browsing what is on offer", () => {
         holder_email: "owner@example.com",
       });
     });
-    expect(await screen.findByText(/it cannot be changed/i)).toBeTruthy();
+    expect(await screen.findByText(/Used for every number\. Cannot be changed\./i)).toBeTruthy();
   });
 
   it("sells to an unverified client and says what they are getting", async () => {
     await renderClientPage(<PhoneNumberPage />, routes({ "/v1/compliance/kyc": kyc(false) }));
 
     expect(
-      await screen.findByText(/It works once your business is verified/i),
+      await screen.findByText(/A number works once you are verified/i),
     ).toBeTruthy();
     await chooseNumber();
     const buy = screen.getByRole("button", { name: /buy this number/i });
@@ -298,9 +298,9 @@ describe("buying", () => {
     await openConfirmation();
 
     const dialog = confirmation();
-    expect(dialog.textContent).toContain("₹1,49,900 every month");
-    expect(dialog.textContent).toContain("₹2,00,000 before this purchase");
-    expect(dialog.textContent).toMatch(/registered to Acme Dental/);
+    expect(dialog.textContent).toContain("₹1,49,900 a month while you keep it");
+    expect(dialog.textContent).toContain("Credit now: ₹2,00,000");
+    expect(dialog.textContent).toMatch(/Registered to Acme Dental/);
   });
 
   it("sends the number and what it is for", async () => {
@@ -376,7 +376,7 @@ describe("buying", () => {
 
     expect(await screen.findByText("+91 80412 34500 is yours")).toBeTruthy();
     expect(
-      screen.getByText(/cannot be put on an agent, until your business is verified/i),
+      screen.getByText(/a month. Works once you are verified/i),
     ).toBeTruthy();
     expect(
       screen.getAllByRole("link", { name: /verify your business/i })[0].getAttribute("href"),
@@ -413,7 +413,7 @@ describe("choosing what a number is used for", () => {
       }),
     );
 
-    fireEvent.change(await screen.findByLabelText(/the agent that uses it/i), {
+    fireEvent.change(await screen.findByLabelText(/^agent$/i), {
       target: { value: "agent-1" },
     });
     fireEvent.click((await directionOf()).getByRole("radio", { name: /^both$/i }));
@@ -460,7 +460,7 @@ describe("choosing what a number is used for", () => {
       }),
     );
 
-    const select = (await screen.findByLabelText(/the agent that uses it/i)) as HTMLSelectElement;
+    const select = (await screen.findByLabelText(/^agent$/i)) as HTMLSelectElement;
     expect(select.value).toBe("agent-1");
     expect(
       (await directionOf()).getByRole("radio", { name: /^both$/i }).getAttribute("aria-checked"),
@@ -496,10 +496,10 @@ describe("choosing what a number is used for", () => {
       }),
     );
 
-    const select = (await screen.findByLabelText(/the agent that uses it/i)) as HTMLSelectElement;
+    const select = (await screen.findByLabelText(/^agent$/i)) as HTMLSelectElement;
     // Not silently shown as "Nobody", which is the opposite of the truth.
     expect(select.value).toBe("agent-gone");
-    expect(select.selectedOptions[0]?.textContent).toMatch(/not in your agent list/i);
+    expect(select.selectedOptions[0]?.textContent).toMatch(/not in your list/i);
   });
 
   it("does not report a binding the carrier refused", async () => {
@@ -517,7 +517,7 @@ describe("choosing what a number is used for", () => {
       }),
     );
 
-    fireEvent.change(await screen.findByLabelText(/the agent that uses it/i), {
+    fireEvent.change(await screen.findByLabelText(/^agent$/i), {
       target: { value: "agent-1" },
     });
     fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
@@ -525,7 +525,7 @@ describe("choosing what a number is used for", () => {
     // There is no rented "voice platform" any more (D-639); the binding is ours, on the
     // carrier, so the sentence says what failed without naming a layer the client cannot see.
     expect(
-      await screen.findByText(/could not connect this number to that agent, so it is not on an agent/i),
+      await screen.findByText(/could not connect it to that agent/i),
     ).toBeTruthy();
   });
 });
@@ -555,8 +555,8 @@ describe("a number we supplied says which link is missing", () => {
 
     expect(await screen.findByText("No agent on it yet")).toBeTruthy();
     expect(screen.getByText("Not ready yet")).toBeTruthy();
-    expect(container.textContent).toContain("A number with no agent on it cannot take calls.");
-    expect(container.textContent).toContain("we are still connecting it");
+    expect(container.textContent).toContain("Pick an agent below before you forward.");
+    expect(container.textContent).toContain("Still connecting. Nothing to do yet.");
   });
 });
 
@@ -587,11 +587,15 @@ describe("a number on an agent that only makes calls says so, not that we are co
 
     expect(await screen.findByText("Makes calls only")).toBeTruthy();
     await waitFor(() =>
-      expect(container.textContent).toContain("places calls but does not answer them"),
+      expect(container.textContent).toContain("Its agent only calls out. Pick one that answers."),
     );
-    expect(container.textContent).toContain("choose an agent that answers calls");
-    expect(container.textContent).not.toContain("we are still connecting it");
-    expect(container.textContent).not.toContain("nothing for you to do");
+    expect(container.textContent).not.toContain("Still connecting");
+    expect(container.textContent).not.toContain("Nothing to do yet");
+    // How to make it answer is one tap away.
+    fireEvent.click(screen.getByRole("button", { name: /why this number is not answering/i }));
+    expect(
+      await screen.findByText(/Choose an agent that answers calls, or set that agent's What it does/),
+    ).toBeTruthy();
     expect(screen.queryByText("Not ready yet")).toBeNull();
   });
 });

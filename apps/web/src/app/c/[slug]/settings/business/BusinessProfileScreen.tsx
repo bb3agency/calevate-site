@@ -113,7 +113,7 @@ function Profile({
           />
           <SettingRow
             label="Legal name"
-            hint="From your business verification, and changed there."
+            hint="From your verification."
             value={
               profile.legal_name ? (
                 <span className="break-words">{profile.legal_name}</span>

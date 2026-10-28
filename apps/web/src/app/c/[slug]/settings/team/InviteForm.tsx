@@ -12,6 +12,7 @@
 
 import { useState } from "react";
 
+import { InfoTip } from "@/components/console/infoTip";
 import { Section } from "@/components/console/section";
 import { useFormValidation } from "@/components/formValidation";
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
@@ -19,7 +20,7 @@ import { FIELD, FIELD_LABEL, ProblemNotice } from "@/components/ui";
 import { ROLE_COPY, useInviteMember, type CreatedInvitation, type MemberRole } from "@/lib/api/members";
 import { useClientSession } from "@/lib/api/session";
 
-import { ROLES } from "./roles";
+import { ROLES, ROLE_SHORT } from "./roles";
 import { IssuedInvite } from "./teamRows";
 
 export function InviteInline({
@@ -101,13 +102,18 @@ export function InviteInline({
             status={inviteFeedback.status}
             disabled={email.trim().length < 3 && inviteFeedback.status !== "success"}
             successLabel="Sent"
-            className="sm:mt-5"
+            className="w-full justify-center sm:mt-5 sm:w-auto"
           >
             Send invite
           </ActionButton>
         </div>
-        <p className="mt-2 text-meta text-ink-muted">
-          <span className="font-medium text-ink">{ROLE_COPY[role].label}:</span> {ROLE_COPY[role].can}
+        <p className="mt-2 flex items-center gap-1 text-meta text-ink-muted">
+          <span>
+            <span className="font-medium text-ink">{ROLE_COPY[role].label}:</span> {ROLE_SHORT[role]}
+          </span>
+          <InfoTip label={`the ${ROLE_COPY[role].label} role`} className="touch:-my-2.5">
+            <p>{ROLE_COPY[role].can}</p>
+          </InfoTip>
         </p>
         {invite.error != null && (
           <div className="mt-3">

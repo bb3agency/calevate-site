@@ -19,16 +19,16 @@ export function PhoneNumbersNext() {
   const step = status.data.step;
   const sentence =
     numberStage(status.data) !== "journey"
-      ? "Your own phone number comes after you add credit."
+      ? "Add credit first to get your own number."
       : step === "ready"
-        ? "Your business details are approved. You can choose a phone number now."
+        ? "Approved. You can pick a number now."
         : step === "business_details"
-          ? "Next, your business details are approved for phone numbers."
+          ? "Next: approval of your business details."
           : step === "price"
-            ? "Your business is ready for phone numbers. Numbers are not on sale yet."
+            ? "Ready. Numbers are not on sale yet."
             : step === "workspace"
               ? "Your calling account is being set up."
-              : "Verify your business first; then its details are approved for phone numbers.";
+              : "Verify your business first.";
   return (
     <Card title="Phone numbers in your business's name">
       <p className="text-sm text-ink">{sentence}</p>
