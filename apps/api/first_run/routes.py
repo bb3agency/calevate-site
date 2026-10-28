@@ -3,6 +3,8 @@
     GET  /v1/first-run                       where the owner is, and whether it is still due
     PUT  /v1/first-run/job                   the job and the languages
     PUT  /v1/first-run/brief                 the brief; queues the follow-up questions
+    POST /v1/first-run/documents             a knowledge upload added as a brief document
+    DELETE /v1/first-run/documents/{id}      stop reading one for the brief (it stays knowledge)
     POST /v1/first-run/recordings            one spoken piece of the brief (under 30 s)
     GET  /v1/first-run/recordings/{id}       what was heard
     POST /v1/first-run/answers               the follow-up answers, into the business profile
@@ -12,7 +14,9 @@
 
 All `org:manage`: building the account's first agent is the owner's act, the same permission
 `POST /v1/agents` takes. Uploading a recording is NOT the knowledge base's `kb:write`, because
-it teaches no agent anything: its words come back into the brief box. Every write is audited
+it teaches no agent anything: its words come back into the brief box. A DOCUMENT is the
+opposite: it is uploaded through `POST /v1/kb/uploads` under that route's own permission, and
+the documents routes only record that the brief step added it (D-918). Every write is audited
 with names and counts, never the words (hard rule 6).
 """
 
@@ -34,14 +38,23 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
 from apps.api.db.base import uuid7
 from apps.api.first_run import service
-from apps.api.first_run.models import BUILD_STEPS, MAX_BUILD_RUNS, MAX_RECORDINGS, BuildStep
+from apps.api.first_run.models import (
+    BUILD_STEPS,
+    MAX_BUILD_RUNS,
+    MAX_DOCUMENTS,
+    MAX_RECORDINGS,
+    BuildStep,
+)
 from apps.api.first_run.schemas import (
     AnswersIn,
     BriefIn,
     BuildOut,
     BuildStepOut,
+    DocumentIn,
+    DocumentOut,
     FirstRunOut,
     JobIn,
+    LeftOutOut,
     NameIn,
     QuestionOut,
     QuestionsOut,
@@ -67,6 +80,8 @@ def _step_out(step: BuildStep, found: dict[str, Any]) -> BuildStepOut:
         rung=found.get("rung"),
         fallback=found.get("fallback"),
         not_female=bool(found.get("not_female", False)),
+        documents_used=int(found.get("documents_used", 0)),
+        left_out=[LeftOutOut.model_validate(item) for item in found.get("left_out") or []],
     )
 
 
@@ -90,6 +105,18 @@ async def _out(session: AsyncSession, tenant_id: UUID) -> FirstRunOut:
         language_primary=state.language_primary,
         languages_extra=state.languages_extra,
         brief=state.brief,
+        documents=[
+            DocumentOut(
+                upload_id=doc.upload_id,
+                name=doc.name,
+                source_kind=doc.source_kind,
+                state=doc.state,
+                detail=doc.detail,
+                reaches_agents=doc.reaches_agents,
+            )
+            for doc in state.documents
+        ],
+        documents_left=max(0, MAX_DOCUMENTS - len(state.documents)),
         agent_id=state.agent_id,
         questions=QuestionsOut(
             status=state.questions_status, items=items, disclosure=state.questions_disclosure
@@ -190,6 +217,55 @@ async def put_brief(
     await service.save_brief(session, tenant_id=principal.tenant_id, brief=payload.brief)
     await _audit(
         session, principal, request, "first_run.brief", {"characters": len(payload.brief.strip())}
+    )
+    return await _out(session, principal.tenant_id)
+
+
+@router.post(
+    "/documents",
+    response_model=FirstRunOut,
+    openapi_extra=_MANAGE,
+    summary="Add a knowledge upload as one of the brief's documents",
+    description=(
+        f"Up to {MAX_DOCUMENTS}. Upload the file with `POST /v1/kb/uploads` first: it is "
+        "ordinary knowledge, read, reviewed and metered like any upload, and every agent uses "
+        "it. This records that the brief step added it, so the follow-up questions and the "
+        "script are written from its words too (redacted first). Refused with "
+        "`first_run_documents_full` past the bound."
+    ),
+)
+async def post_document(
+    payload: DocumentIn, request: Request, session: Session, principal: Owner
+) -> FirstRunOut:
+    assert principal.tenant_id is not None
+    await service.add_document(session, tenant_id=principal.tenant_id, upload_id=payload.upload_id)
+    await _audit(
+        session,
+        principal,
+        request,
+        "first_run.document_added",
+        {"upload_id": str(payload.upload_id)},
+    )
+    return await _out(session, principal.tenant_id)
+
+
+@router.delete(
+    "/documents/{upload_id}",
+    response_model=FirstRunOut,
+    openapi_extra=_MANAGE,
+    summary="Stop using one document for the brief",
+    description=(
+        "The upload stays in the knowledge base; remove it there with "
+        "`DELETE /v1/kb/uploads/{upload_id}`."
+    ),
+)
+async def delete_document(
+    upload_id: UUID, request: Request, session: Session, principal: Owner
+) -> FirstRunOut:
+    assert principal.tenant_id is not None
+    await service.remove_document(session, tenant_id=principal.tenant_id, upload_id=upload_id)
+    await _audit(
+        session, principal, request, "first_run.document_removed", {"upload_id": str(upload_id)}
     )
     return await _out(session, principal.tenant_id)
 

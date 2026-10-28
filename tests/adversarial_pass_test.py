@@ -914,6 +914,9 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("POST", "/v1/kb/teach/{teaching_id}/discard", {}, {}),
     # D-855: one spoken piece of the brief.
     ("GET", "/v1/first-run/recordings/{recording_id}", {}, {}),
+    # D-918: a neighbour's knowledge upload named as a brief document, added or removed.
+    ("POST", "/v1/first-run/documents", {"upload_id": "{upload_id}"}, {}),
+    ("DELETE", "/v1/first-run/documents/{upload_id}", {}, {}),
     ("GET", "/v1/agents/{agent_id}/script/proposed-rules", {}, {}),
     (
         "POST",

@@ -658,8 +658,9 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
         route: BoundedByConstruction(
             by=(
                 "the ONE first run of the caller's account: at most `MAX_QUESTIONS` questions, "
-                "the four `BUILD_STEPS`, a trade's fixed `TRADE_CHOICES` and at most three "
-                "extra languages."
+                "the four `BUILD_STEPS`, a trade's fixed `TRADE_CHOICES`, at most three "
+                "extra languages and at most `MAX_DOCUMENTS` (three) documents, a CHECK on "
+                "the row."
             )
         )
         for route in (
@@ -671,6 +672,8 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
             "POST /v1/first-run/build",
             "POST /v1/first-run/finish",
             "POST /v1/first-run/dismiss",
+            "POST /v1/first-run/documents",
+            "DELETE /v1/first-run/documents/{upload_id}",
         )
     },
     # The go-live guide (D-859): the account's agents' move, sliced to
