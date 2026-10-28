@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from "react";
 import { Eye, EyeOff, Inbox } from "lucide-react";
 
+import { InfoTip } from "@/components/console/infoTip";
 import { CopyButton } from "@/components/interior/copy-button";
 import { NOTICE_BAR, NOTICE_BASE } from "@/components/ui";
 import { API_BASE } from "@/lib/api/client";
@@ -46,40 +47,42 @@ export function MetaSetupDetails({ setup }: { setup: MetaSetup }) {
       {setup.lead_retrieval_available ? (
         <div className={`${NOTICE_BASE} ${NOTICE_BAR.ok}`}>
           <p className="font-medium">Lead answers will be collected.</p>
-          <p className="mt-1">
-            Once Meta accepts the details below, each verified delivery becomes a lead
-            with the fields the person filled in.
-          </p>
+          <p className="mt-1">Each verified delivery becomes a lead.</p>
         </div>
       ) : (
         <div className={`${NOTICE_BASE} ${NOTICE_BAR.warn}`}>
           <p className="font-medium">
             Read this first: lead answers are not collected yet.
           </p>
-          <p className="mt-1">
-            We verify each notification Meta sends and record it, so you will see every
-            delivery below. But fetching what
-            the person actually typed into your form needs a Meta Page access token for
-            this lead source, and we do not hold one yet — so each lead is recorded as{" "}
+          <p className="mt-1 flex items-center gap-1">
+            <span>Talk to us before running ads. Nothing is lost.</span>
+            <InfoTip label="why answers are not collected">
+              <p>
+                We verify and record each notification Meta sends, so every delivery shows
+                below. Reading what the person typed needs a Meta Page access token for this
+                source, and we do not hold one yet. Each delivery is kept against its Meta
+                lead ID and is claimed once the token is in place. We attach it for you; it
+                takes minutes.
+              </p>
+            </InfoTip>
+          </p>
+          <p className="mt-1 text-meta text-ink-muted">
+            Recorded as{" "}
             <span className="font-mono text-meta">
               {setup.lead_retrieval_reason ?? "unavailable"}
-            </span>{" "}
-            instead of becoming a lead you can call. Nothing is lost: every delivery is
-            kept against its Meta lead ID and is claimed once the token is in place.
-            Talk to us before pointing live ad spend at this — attaching it is a step we
-            do for you, and it takes minutes.
+            </span>
           </p>
         </div>
       )}
 
       <dl className="space-y-3">
-        <SetupRow label="Callback URL" hint="Paste into “Callback URL” in the Meta App Dashboard.">
+        <SetupRow label="Callback URL" hint="Paste into “Callback URL” in Meta.">
           <CopyableValue value={callbackUrl} />
         </SetupRow>
 
         <SetupRow
           label="Verify token"
-          hint="Paste into “Verify token”. It belongs in that field only — never in the URL."
+          hint="Paste into “Verify token” only. Never in the URL."
         >
           <div className="flex flex-wrap items-center gap-2">
             <code className={CODE}>{revealed ? setup.verify_token : "•".repeat(24)}</code>
@@ -97,14 +100,14 @@ export function MetaSetupDetails({ setup }: { setup: MetaSetup }) {
 
         <SetupRow
           label="Subscribe your Page to"
-          hint="The field to tick when you subscribe your Page."
+          hint="Tick this when you subscribe your Page."
         >
           <code className={CODE}>{setup.subscribe_field}</code>
         </SetupRow>
 
         <SetupRow
           label="Signature header"
-          hint="Every delivery is checked against this before we read a single field of it."
+          hint="We check every delivery with this."
         >
           <code className={CODE}>{setup.signature_header}</code>
         </SetupRow>
@@ -116,9 +119,10 @@ export function MetaSetupDetails({ setup }: { setup: MetaSetup }) {
           handshake that never completed. The inbox is the only witness. */}
       <p className="flex items-start gap-2 text-meta text-ink-muted">
         <Inbox className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-        Showing these details does not connect anything, and we cannot see your Meta
-        setup from here. The first row in “Recent deliveries” is what tells you it
-        worked.
+        <span>
+          <span className="block">Showing these details does not connect anything.</span>
+          <span className="block">Your first delivery below proves it.</span>
+        </span>
       </p>
     </div>
   );

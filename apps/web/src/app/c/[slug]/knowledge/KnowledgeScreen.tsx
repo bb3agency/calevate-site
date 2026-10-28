@@ -63,7 +63,7 @@ export function KnowledgeScreen() {
 
   return (
     <div className="max-w-4xl space-y-8 pb-12">
-      <PageHeader description="What your agents tell callers about your business. Every agent shares it." />
+      <PageHeader description="What your agents tell callers. All agents share it." />
 
       <RestrictionNote reason={write.reason} />
       {notes.error && <ProblemNotice error={notes.error} onRetry={() => notes.refetch()} />}

@@ -354,7 +354,7 @@ describe("the Sheets capability", () => {
 
     await choose("sheet");
     expect(document.body.textContent).toContain(
-      "Set up a delivery to your own system instead",
+      "Send to your own system, or ask us to switch it on.",
     );
     // The webhook form is the remediation, so it must still be there and usable.
     await choose("webhook");

@@ -60,13 +60,13 @@ describe("which kinds reach the agents", () => {
   it("never calls a published PDF or link in use while the agents do not get it", () => {
     const pdf = uploadState(upload());
     expect(pdf.label).toBe("Saved, not used yet");
-    expect(pdf.meaning).toContain("Saved — your agents don't use this yet");
-    expect(pdf.meaning).toContain("You and Pip can open it");
+    expect(pdf.meaning).toContain("Agents don't use PDFs yet");
+    expect(pdf.meaning).toContain("Write the key facts instead");
     expect(pdf.tone).toBe("neutral");
 
     const link = uploadState(upload({ source_kind: "url", name: "Prices page", source_url: "https://example.in" }));
     expect(link.label).toBe("Saved, not used yet");
-    expect(link.meaning).toContain("open the page");
+    expect(link.meaning).toContain("Agents don't use links yet");
   });
 
   it("calls a PDF in use once the server says its words reach the agents", () => {
@@ -96,7 +96,7 @@ describe("which kinds reach the agents", () => {
   it("calls a published Word file in use", () => {
     const docx = uploadState(upload({ source_kind: "docx", name: "Price list.docx" }));
     expect(docx.label).toBe("In use");
-    expect(docx.meaning).toContain("Your agents are using this now");
+    expect(docx.meaning).toContain("Your agents use this on calls");
   });
 });
 
@@ -126,9 +126,12 @@ describe("the one Add area (D-874)", () => {
   it("says before a PDF or a link is sent what we do with it, and promises nothing the row may deny", async () => {
     await renderKnowledge();
     fireEvent.click(await screen.findByRole("radio", { name: "File" }));
-    expect(screen.getByText(/We read its words so you and Pip can open and search it/)).toBeTruthy();
+    // One short line each by default; the full sentence sits behind the ⓘ beside it.
+    expect(screen.getByText("PDFs are saved, but agents may not use them.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "About what you can send" })).toBeTruthy();
     fireEvent.click(screen.getByRole("radio", { name: "Link" }));
-    expect(screen.getByText(/We read that one page so you and Pip can open and search it/)).toBeTruthy();
+    expect(screen.getByText("We read that one page. Agents may not use it.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "About links" })).toBeTruthy();
     expect(screen.getByRole("button", { name: /save link/i })).toBeTruthy();
   });
 

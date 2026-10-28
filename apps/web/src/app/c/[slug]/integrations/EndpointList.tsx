@@ -28,6 +28,7 @@ export function EndpointList({
   onStop,
   onRotate,
   onEdit,
+  onAdd,
 }: {
   endpoints: ReturnType<typeof useEndpoints>;
   write: WriteAccess;
@@ -37,6 +38,8 @@ export function EndpointList({
   onRotate: (endpoint: Endpoint) => void;
   /** Change the events and extras of an active destination. */
   onEdit: (endpoint: Endpoint) => void;
+  /** The empty list's button; absent when this viewer cannot add one. */
+  onAdd?: () => void;
 }) {
   const columns: DataColumn<Endpoint>[] = [
     {
@@ -82,7 +85,7 @@ export function EndpointList({
           {endpoint.kind === SHEET_KIND
             ? endpoint.secret_fingerprint
               ? "Google connection ready"
-              : "not connected to Google yet — deliveries will fail until we connect it"
+              : "Not connected to Google yet — deliveries fail"
             : `key ···${endpoint.secret_fingerprint ?? "—"}`}
           {endpoint.previous_secret_expires_at && (
             <span className="block">
@@ -151,7 +154,13 @@ export function EndpointList({
         <EmptyState
           illustration={<EmptySketch kind="deliveries" />}
           message="No endpoints yet."
-          hint="Add the web address your CRM gives you and we'll send each lead as it arrives."
+          action={
+            onAdd ? (
+              <button type="button" className={SECONDARY_BUTTON_SM} onClick={onAdd}>
+                Add your first destination
+              </button>
+            ) : undefined
+          }
         />
       )}
     </div>

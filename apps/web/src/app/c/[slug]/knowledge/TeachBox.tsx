@@ -151,7 +151,7 @@ export function TeachBox({
             />
             {listening ? (
               <span role="status" className="text-meta text-ink-muted">
-                <span className="text-shimmer">Listening to your voice note…</span>
+                <span className="text-shimmer">Listening…</span>
               </span>
             ) : null}
             {saved ? <SavedTick at={saved.at} /> : null}
@@ -160,10 +160,7 @@ export function TeachBox({
           {/* Unframed, the Add area offers files in its own File view, Pip's reading included. */}
           {framed ? (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-line pt-3">
-              <p className="text-meta text-ink-muted">
-                A photo of a price list or menu, or a Word, text, CSV or Excel file: attach it in{" "}
-                {ASSISTANT_NAME}.
-              </p>
+              <p className="text-meta text-ink-muted">Have a photo or file?</p>
               <AskAssistant label={`Let ${ASSISTANT_NAME} read a photo or file`} prompt={READ_FILE_REQUEST} disabled={!allowed} />
             </div>
           ) : null}
@@ -193,7 +190,7 @@ export function TeachBox({
 }
 
 function Working() {
-  const label = `${ASSISTANT_NAME} is sorting it into facts and rules…`;
+  const label = `${ASSISTANT_NAME} is sorting it…`;
   return (
     <div className="space-y-3">
       <p className="flex items-center gap-2 text-sm text-ink-muted" aria-hidden>
@@ -247,7 +244,7 @@ function Review({
     <div className="space-y-4">
       {teaching.note ? <p className="text-meta text-ink-muted">{teaching.note}</p> : null}
       {items.length === 0 ? (
-        <p className="text-sm text-ink-muted">We found nothing to keep in that.</p>
+        <p className="text-sm text-ink-muted">Nothing to keep in that.</p>
       ) : (
         <ul className="divide-y divide-line border-y border-line" aria-label="Check what we found">
           {items.map((item) => (
@@ -280,10 +277,7 @@ function Review({
         </div>
       ) : null}
       {rules > 0 && agentList && agentList.length === 0 ? (
-        <p className="text-meta text-ink-muted">
-          Rules belong to an agent, and you have none yet. Keep them as facts, or add an agent
-          first.
-        </p>
+        <p className="text-meta text-ink-muted">No agents yet. Keep these as facts.</p>
       ) : null}
 
       {save.error ? <ProblemNotice error={save.error} /> : null}
@@ -309,8 +303,8 @@ function Review({
                 onSuccess: (saved) =>
                   onSaved(
                     saved.rules_added > 0
-                      ? "Facts reach your agents in a minute or two. The rules wait in the agent's script until you put it live."
-                      : "Your agents will know this in a minute or two.",
+                      ? "Facts arrive soon. Rules wait until the script is live."
+                      : "Your agents know this in a minute or two.",
                   ),
               },
             )

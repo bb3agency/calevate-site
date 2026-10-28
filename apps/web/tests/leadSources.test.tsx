@@ -431,7 +431,7 @@ describe("the leads we could not read", () => {
     // The deferred one is the bucket with an action attached: press again shortly.
     expect(
       (await screen.findByText(/could not be fetched just now/)).textContent,
-    ).toContain("try again shortly");
+    ).toContain("Try again soon");
   });
 
   it("marks the recoverable row in the delivery log and leaves the others alone", async () => {
@@ -664,7 +664,7 @@ describe("the dry run", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Run again" }));
 
-    await screen.findByText(/doesn't look like valid JSON/);
+    await screen.findByText(/isn't valid JSON/);
     // Only the opening run went out; the broken sample never left the page.
     expect(calls.filter((c) => c.path === TEST_PATH)).toHaveLength(1);
   });
@@ -866,7 +866,7 @@ describe("provisioning a lead source", () => {
         leadSource({ previous_secret_expires_at: "2026-08-14T05:30:00Z" }),
       ),
     });
-    await screen.findByText(/Your previous secret still works until/);
+    await screen.findByText(/Old secret works until/);
     expect(container.textContent).not.toContain("stopped working immediately");
   });
 
@@ -1025,12 +1025,9 @@ describe("the agent that answers a new lead source", () => {
 
     // The refusal is PRESENT — not merely the picker absent, which an empty card also
     // satisfies — and it says what saving anyway would have done.
-    expect(drawer.textContent).toContain(
-      "We could not read your agents just now",
-    );
-    expect(drawer.textContent).toContain(
-      "would create a source that never rings anyone",
-    );
+    expect(drawer.textContent).toContain("Couldn't load your agents.");
+    expect(drawer.textContent).toContain("Saving now would never ring anyone.");
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
     expect(screen.queryByLabelText("Agent to answer these leads")).toBeNull();
     expect(drawer.textContent).not.toContain(
       "Not yet — save leads, don't call",

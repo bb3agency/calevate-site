@@ -16,6 +16,7 @@ import {
   PRIMARY_BUTTON,
   ProblemNotice,
   SECONDARY_BUTTON,
+  SECONDARY_BUTTON_SM,
 } from "@/components/ui";
 import type { useAgents } from "@/lib/api/agents";
 import type { useCreateLeadSource } from "@/lib/api/leadSources";
@@ -26,7 +27,7 @@ import { META_SOURCE, WEBHOOK_KINDS, sourceLabel, sourceLogo } from "./sourceKin
 import { FIELD } from "./styles";
 
 const KINDS = [
-  { value: "webhook", label: "Webhook", hint: "A website form, Zoho, Google Sheets, or anything that can POST." },
+  { value: "webhook", label: "Website or app form", hint: "Your website, Zoho, Sheets or any app." },
   { value: "meta", label: "Meta Lead Ads", hint: "Facebook and Instagram lead forms." },
 ] as const;
 
@@ -174,11 +175,13 @@ export function AddSourceDrawer({
               {agentsUnread ? (
                 // An empty picker over a failed read offers "don't call" as the only choice,
                 // and a client would build a source that never rings anyone.
-                <p className="mt-1 rounded-md border border-line bg-surface px-3 py-2 text-meta text-ink-muted">
-                  We could not read your agents just now, so this cannot be chosen yet — saving
-                  without it would create a source that never rings anyone. Reload the page to try
-                  again.
-                </p>
+                <div className="mt-1 space-y-2 rounded-md border border-line bg-surface px-3 py-2 text-meta text-ink-muted">
+                  <p>Couldn&apos;t load your agents.</p>
+                  <p>Saving now would never ring anyone.</p>
+                  <button type="button" className={SECONDARY_BUTTON_SM} onClick={() => void agents.refetch()}>
+                    Try again
+                  </button>
+                </div>
               ) : (
                 <select
                   aria-label="Agent to answer these leads"
@@ -220,7 +223,7 @@ export function AddSourceDrawer({
                   <FieldMessage id={appSecretErrorId}>{valid.message("appSecret")}</FieldMessage>
                 ) : null}
                 <span className={FIELD_HINT}>
-                  Meta signs every notification with this. Find it under App settings → Basic.
+                  In Meta: App settings → Basic.
                 </span>
               </div>
             )}
@@ -228,8 +231,7 @@ export function AddSourceDrawer({
             {/* Consent is not a formality on this path: a lead that does not affirm it is
                 saved and never dialled (FLOWS §4). The sentence stays visible. */}
             <p className="text-meta text-ink-muted">
-              If your form asks permission to call, name that field — a lead that does not
-              confirm it is saved and never dialled.
+              Leads who don&apos;t agree to calls are never called.
             </p>
             <Disclosure
               variant="inline"

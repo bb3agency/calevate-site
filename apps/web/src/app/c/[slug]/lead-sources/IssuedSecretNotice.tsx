@@ -39,10 +39,7 @@ export function IssuedSecretNotice({ issued }: { issued: IssuedSecret }) {
           />
         </>
       ) : (
-        <p className="font-medium text-ink">
-          Saved. We store your app secret and verify every notification against it — there is
-          nothing new for you to copy.
-        </p>
+        <p className="font-medium text-ink">Saved. Nothing new to copy.</p>
       )}
       {issued.path && (
         <CopyRow

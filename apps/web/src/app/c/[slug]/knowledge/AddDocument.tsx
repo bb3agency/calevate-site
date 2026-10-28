@@ -6,6 +6,7 @@ import { Link2 } from "lucide-react";
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { AskAssistant } from "@/components/copilot/AskAssistant";
 import { FileDrop } from "@/components/fileDrop";
+import { InfoTip } from "@/components/console/infoTip";
 import { FIELD_INLINE, FIELD_LABEL, ProblemNotice } from "@/components/ui";
 import { useFormValidation } from "@/components/formValidation";
 import { useAddLink, useUploadDocument } from "@/lib/api/kb";
@@ -16,9 +17,12 @@ import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { READ_FILE_REQUEST } from "./TeachBox";
 import {
   ACCEPT_ATTRIBUTE,
+  LINK_LINE,
   LINK_NOTE,
   MAX_UPLOAD_MB,
+  PDF_LINE,
   PDF_NOTE,
+  READ_KINDS_LINE,
   READ_KINDS_SENTENCE,
 } from "./uploadCopy";
 
@@ -50,8 +54,8 @@ export function AddFile({ allowed }: { allowed: boolean }) {
     successToast: (sent) => `${sent.name} received`,
     successDescription: (sent) =>
       sent.source_kind === "pdf"
-        ? "It is saved, and we're reading its words now. Its row says whether your agents use it."
-        : "We're reading it now. You'll see it in the list below.",
+        ? "Reading it now. Its row shows if agents use it."
+        : "Reading it now. See the list below.",
   });
 
   const [progress, setProgress] = useState<UploadProgress | null>(null);
@@ -81,15 +85,21 @@ export function AddFile({ allowed }: { allowed: boolean }) {
 
   return (
     <div className="space-y-4">
-      <p className="text-body text-ink-muted [text-wrap:pretty]">
-        {READ_KINDS_SENTENCE}
+      {/* One line by default; the full rule is one tap away (ux-writing, progressive
+          disclosure). */}
+      <p className="flex items-center gap-1 text-body text-ink-muted">
+        <span>{READ_KINDS_LINE}</span>
+        <InfoTip label="what you can send">
+          <p>{READ_KINDS_SENTENCE}</p>
+          <p>{PDF_NOTE}</p>
+        </InfoTip>
       </p>
 
       {upload.error && <ProblemNotice error={upload.error} />}
 
       <FileDrop
         label="Your file or photo"
-        hint={`One at a time, up to ${MAX_UPLOAD_MB} MB.`}
+        hint={`One file, up to ${MAX_UPLOAD_MB} MB.`}
         accept={ACCEPT_ATTRIBUTE}
         validate={sizeProblem}
         disabled={disabled}
@@ -97,12 +107,17 @@ export function AddFile({ allowed }: { allowed: boolean }) {
         sending={sending ? { file: sending, percent } : null}
       />
 
-      <p className="text-meta text-ink-muted [text-wrap:pretty]">{PDF_NOTE}</p>
+      <p className="text-meta text-ink-muted">{PDF_LINE}</p>
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-line pt-4">
-        <p className="text-meta text-ink-muted">
-          Want to check the facts first? {ASSISTANT_NAME} can read a photo or file and sort it
-          into facts you approve one by one.
+        <p className="flex items-center gap-1 text-meta text-ink-muted">
+          <span>Check each fact first?</span>
+          <InfoTip label={`${ASSISTANT_NAME} reading a file`}>
+            <p>
+              {ASSISTANT_NAME} reads the photo or file and sorts it into facts. You keep the
+              ones you want.
+            </p>
+          </InfoTip>
         </p>
         <AskAssistant
           label={`Let ${ASSISTANT_NAME} read a photo or file`}
@@ -126,7 +141,7 @@ export function AddLink({ allowed, reason }: { allowed: boolean; reason: string 
   const linkFeedback = useActionFeedback(link, {
     errorDisplay: "inline",
     successToast: "Link saved",
-    successDescription: "Your agents can't read web pages yet. It is in the list below.",
+    successDescription: "Agents can't read web pages yet.",
   });
   const urlInputId = useId();
   const [url, setUrl] = useState("");
@@ -143,7 +158,12 @@ export function AddLink({ allowed, reason }: { allowed: boolean; reason: string 
         link.mutate({ url: url.trim() }, { onSuccess: () => setUrl("") });
       })}
     >
-      <p className="text-body text-ink-muted [text-wrap:pretty]">{LINK_NOTE}</p>
+      <p className="flex items-center gap-1 text-body text-ink-muted">
+        <span>{LINK_LINE}</span>
+        <InfoTip label="links">
+          <p>{LINK_NOTE}</p>
+        </InfoTip>
+      </p>
       <div>
         <label htmlFor={urlInputId} className={FIELD_LABEL}>
           Web address
@@ -155,7 +175,7 @@ export function AddLink({ allowed, reason }: { allowed: boolean; reason: string 
               className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint"
             />
             <input
-              {...valid.field("url", "Give us the full web address of the page.")}
+              {...valid.field("url", "Enter the full web address.")}
               id={urlInputId}
               type="url"
               inputMode="url"
@@ -195,7 +215,7 @@ export function AddLink({ allowed, reason }: { allowed: boolean; reason: string 
 function sizeProblem(file: File): string | null {
   if (file.size === 0) return "That file is empty.";
   if (file.size > MAX_UPLOAD_MB * 1024 * 1024) {
-    return `That file is over ${MAX_UPLOAD_MB} MB. Split it into smaller documents, or send the price list on its own.`;
+    return `Over ${MAX_UPLOAD_MB} MB. Send a smaller file.`;
   }
   return null;
 }

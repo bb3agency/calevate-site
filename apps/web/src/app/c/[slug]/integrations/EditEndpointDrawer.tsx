@@ -114,7 +114,7 @@ export function EditEndpointDrawer({
         />
         {events.length === 0 && (
           <p className="text-meta text-warn">
-            Choose at least one, or stop sending to this destination instead.
+            Choose at least one, or stop this destination.
           </p>
         )}
         {!sheet && (

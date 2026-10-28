@@ -87,7 +87,7 @@ export function LeadSourcesScreen() {
     errorDisplay: "inline",
     successToast: (_out, vars) => (vars.active ? "Lead source switched on" : "Lead source switched off"),
     successDescription: (_out, vars) =>
-      vars.active ? "New leads from it are taken in again." : "New leads sent to it are not taken in until you switch it back on.",
+      vars.active ? "New leads from it are taken in again." : "New leads from it are turned away for now.",
     undo: (_out, vars) => setActive.mutate({ webhookId: vars.webhookId, active: !vars.active }),
   });
   const testFeedback = useActionFeedback(test, { errorDisplay: "inline" });
@@ -98,7 +98,7 @@ export function LeadSourcesScreen() {
   const releaseFeedback = useActionFeedback(release, {
     errorDisplay: "inline",
     successToast: "Call booked",
-    successDescription: "It is placed now, or at your next opening, after the usual checks.",
+    successDescription: "Calling now, or when you next open.",
   });
   const dropFeedback = useActionFeedback(drop, {
     errorDisplay: "inline",
@@ -128,11 +128,11 @@ export function LeadSourcesScreen() {
     try {
       payload = JSON.parse(text);
     } catch {
-      setJsonError("That doesn't look like valid JSON — check for a missing quote, comma or brace.");
+      setJsonError("That isn't valid JSON. Check quotes, commas and braces.");
       return;
     }
     if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
-      setJsonError("The sample must be a JSON object like the pre-filled example.");
+      setJsonError("Use a JSON object, like the example.");
       return;
     }
     test.mutate({ webhookId: sourceId, payload }, { onSuccess: setResult });
@@ -197,17 +197,8 @@ export function LeadSourcesScreen() {
       <RestrictionNote reason={write.reason} />
       {setActive.error != null && <ProblemNotice error={setActive.error} />}
 
-      <CallingPlan
-        plan={plan}
-        agents={agents.data}
-        canWrite={write.allowed}
-        refusal={write.reason}
-        saveStatus={savePlanFeedback.status}
-        saveError={savePlan.error}
-        savedAgents={savePlan.data?.agents_updated ?? null}
-        onSave={(next) => savePlanFeedback.run(next)}
-      />
-
+      {/* What needs a decision first, then the sources, then the settings folded into
+          rows: the five-part plan used to fill a phone screen before any source showed. */}
       <HeldLeads
         held={held}
         holding={plan.data?.after_hours === "hold"}
@@ -234,6 +225,18 @@ export function LeadSourcesScreen() {
         onAgent={setChoosingAgent}
         onFields={setEditingFields}
         onMeta={(item) => openMeta(item.id)}
+        onAdd={write.allowed ? () => setAdding(true) : undefined}
+      />
+
+      <CallingPlan
+        plan={plan}
+        agents={agents.data}
+        canWrite={write.allowed}
+        refusal={write.reason}
+        saveStatus={savePlanFeedback.status}
+        saveError={savePlan.error}
+        savedAgents={savePlan.data?.agents_updated ?? null}
+        onSave={(next) => savePlanFeedback.run(next)}
       />
 
       <DeliveryLog activity={activity} />

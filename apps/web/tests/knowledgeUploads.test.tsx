@@ -268,10 +268,10 @@ describe("the control the founder could not find", () => {
     const { container } = await renderKnowledge([]);
 
     const text = container.textContent ?? "";
-    expect(text).toContain("a Word document, an Excel or CSV sheet, a text file");
+    expect(text).toContain("Word, Excel, CSV, text, or a photo of a list.");
     expect(text).toContain("20 MB");
     // A PDF is accepted, and said apart: its row says whether the agents use its words.
-    expect(text).toContain("You can save a PDF too");
+    expect(text).toContain("PDFs are saved, but agents may not use them.");
     // The picker's own filter carries the same list, so the file browser greys out a
     // `.doc` rather than letting it be chosen and refused.
     expect(filePicker().accept).toContain(".docx");
@@ -431,7 +431,7 @@ describe("the control the founder could not find", () => {
     fireEvent.click(screen.getByRole("button", { name: /save link/i }));
 
     expect(
-      await screen.findByText(/give us the full web address/i),
+      await screen.findByText(/enter the full web address/i),
     ).toBeTruthy();
   });
 });
@@ -473,7 +473,7 @@ describe("what each state means to the person who sent the file", () => {
 
     await screen.findByText("Price list.docx");
     expect(container.textContent).toContain("In use");
-    expect(container.textContent).toContain("Your agents are using this now");
+    expect(container.textContent).toContain("Your agents use this on calls");
   });
 
   it("says we are reading a file that has just arrived, and how long that takes", async () => {
@@ -486,8 +486,8 @@ describe("what each state means to the person who sent the file", () => {
     ]);
 
     await screen.findByText("Price list.docx");
-    expect(container.textContent).toContain("We are reading your file");
-    expect(container.textContent).toContain("usually takes a minute");
+    expect(container.textContent).toContain("Reading your file");
+    expect(container.textContent).toContain("About a minute");
   });
 
   it("shows the specific reason a conversion failed, and offers no confirmation for it", async () => {
@@ -560,9 +560,9 @@ describe("text a machine read is confirmed by a person before a caller hears it"
     // The label is the feature, not decoration: a fluent transcription that says ₹260
     // where the board says ₹280 looks exactly like a correct one.
     expect(container.textContent).toContain(
-      "what our computer read off your photo",
+      "We read this off your photo",
     );
-    expect(container.textContent).toContain("check the numbers");
+    expect(container.textContent).toContain("Check numbers and spellings");
   });
 
   it("refuses the publish to a view-as operator, by NAMED ACT rather than by permission", async () => {
@@ -647,7 +647,7 @@ describe("text a machine read is confirmed by a person before a caller hears it"
 
     // The consequence, before the irreversible act (`components/confirmDialog.tsx`).
     const dialog = await screen.findByRole("dialog");
-    expect(dialog.textContent).toContain("your agents never see it");
+    expect(dialog.textContent).toContain("Agents never see it");
     fireEvent.click(screen.getByRole("button", { name: /throw it away/i }));
 
     await waitFor(() =>
@@ -698,7 +698,7 @@ describe("a row that moves on its own", () => {
     await screen.findByText("Price list.docx");
     expect(container.textContent).toContain("Going to your agents");
     expect(container.textContent).toContain(
-      "Your agents are being given this now",
+      "Sending to your agents",
     );
   });
 
@@ -722,7 +722,7 @@ describe("a row that moves on its own", () => {
 
     await screen.findByText("Price list.docx");
     await waitFor(() =>
-      expect(container.textContent).toContain("Your agents are using this now"),
+      expect(container.textContent).toContain("Your agents use this on calls"),
     );
     // ONE item was watched, not the list. A whole-list poll on a four-second timer to see
     // one row change is the shape this deliberately is not.
@@ -771,7 +771,7 @@ describe("removing a document, and reading the original", () => {
 
     const dialog = await screen.findByRole("dialog");
     expect(dialog.textContent).toContain(
-      "Your agents stop using this straight away",
+      "Your agents stop using it now",
     );
     fireEvent.click(screen.getByRole("button", { name: /remove it/i }));
 
@@ -838,7 +838,7 @@ describe("who may add, and what happens to what they add", () => {
 
     await screen.findByText("Add something");
     // D-658: no exception for a photo, and no review for anybody in the account.
-    expect(container.textContent).toContain("Nobody approves what you add, so you never wait for us.");
+    expect(container.textContent).toContain("No approval needed. You never wait for us.");
     expect(container.textContent).not.toContain("read off a photo");
   });
 
@@ -850,7 +850,7 @@ describe("who may add, and what happens to what they add", () => {
 
     await screen.findByText("Add something");
     expect(filePicker().disabled).toBe(true);
-    expect(container.textContent).toContain("Nobody approves what you add");
+    expect(container.textContent).toContain("No approval needed");
     expect(container.textContent).not.toContain("reviewed before your agents start using it");
     expect(container.textContent).toContain(
       "Only an account owner can teach your agents on this account.",

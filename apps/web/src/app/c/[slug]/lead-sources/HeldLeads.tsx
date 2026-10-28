@@ -33,15 +33,13 @@ export function HeldLeads({
   // A failed read still shows: leads held before the plan changed would otherwise vanish.
   if (!holding && !held.error && items.length === 0) return null;
   return (
-    <Card title="Waiting for you" info="Leads held after hours. Nothing is called until you choose.">
+    <Card title="Waiting for you" info="Leads held after hours. Nobody is called until you choose.">
       {held.isLoading ? (
         <Skeleton rows={2} />
       ) : held.error ? (
         <ProblemNotice error={held.error} />
       ) : items.length === 0 ? (
-        <p className="text-sm text-ink-muted">
-          No leads waiting. Leads that arrive after hours will appear here.
-        </p>
+        <p className="text-sm text-ink-muted">No leads waiting.</p>
       ) : (
         <ul className="divide-y divide-line">
           {items.map((item) => (

@@ -92,10 +92,7 @@ export function AgentDrawer({
             </select>
           </label>
         )}
-        <p className="text-meta text-ink-muted">
-          New leads from this source go to the agent you choose. Leads already called are not
-          called again.
-        </p>
+        <p className="text-meta text-ink-muted">New leads go to this agent. Old ones aren&apos;t called again.</p>
       </div>
     </Drawer>
   );

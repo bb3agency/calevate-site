@@ -178,7 +178,7 @@ function NoteRow({
           onCancel={() => setConfirming(false)}
           onConfirm={() => remove.mutate(note.id, { onSuccess: () => setConfirming(false) })}
         >
-          <p>Your agents stop using this note. Callers who ask about it get whatever else you have taught them.</p>
+          <p>Your agents stop using this note.</p>
           <p>We keep it, so you can put it back from Removed notes.</p>
         </ConfirmDialog>
       ) : null}

@@ -118,9 +118,7 @@ export function WhatItKnows({
           message={
             <>
               <span className="block font-medium text-ink">Your agents don&rsquo;t know anything yet</span>
-              <span className="mt-1 block">
-                Start with the questions callers ask most. Every agent uses what you answer.
-              </span>
+              <span className="mt-1 block">Start with what callers ask most.</span>
             </>
           }
           action={
@@ -145,8 +143,7 @@ export function WhatItKnows({
     <div className="space-y-10">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-meta text-ink-muted">
-          {formatCount(total)} {total === 1 ? "thing" : "things"} added, shared by every one of
-          your agents.
+          {formatCount(total)} {total === 1 ? "thing" : "things"} · all agents use them
         </p>
         <SearchField
           label="Search what your agents know"
@@ -179,9 +176,7 @@ export function WhatItKnows({
         status={<FactsStatus state={knows.data.facts_state} any={other.length > 0} />}
       >
         {other.length === 0 ? (
-          <p className="text-meta text-ink-muted">
-            Facts and answers you write above appear here.
-          </p>
+          <p className="text-meta text-ink-muted">Facts you write show here.</p>
         ) : (
           <ul className="divide-y divide-line border-y border-line">
             {shownOther.map((fact) => (
@@ -202,9 +197,7 @@ export function WhatItKnows({
         <>
           <Group title="Files" count={files.length} hidden={filtered && shownFiles.length === 0}>
             {files.length === 0 ? (
-              <p className="text-meta text-ink-muted">
-                Files and photos you send appear here, each with whether your agents can use it.
-              </p>
+              <p className="text-meta text-ink-muted">Files and photos you send show here.</p>
             ) : (
               <ul className="divide-y divide-line border-y border-line">
                 {shownFiles.map((upload) => (
@@ -398,7 +391,7 @@ function PinnedFacts({
         all.length && filtered ? (
           <NoMatch message="No pinned facts match your search." onClear={onClearFilter} />
         ) : (
-          <p className="text-meta text-ink-muted">Nothing pinned yet. Pin a fact when you teach it.</p>
+          <p className="text-meta text-ink-muted">Nothing pinned yet.</p>
         )
       ) : (
         <ul className="divide-y divide-line border-y border-line" aria-label="Pinned facts">

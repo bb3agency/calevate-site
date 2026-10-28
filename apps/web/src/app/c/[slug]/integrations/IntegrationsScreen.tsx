@@ -99,14 +99,15 @@ export function IntegrationsScreen() {
 
   return (
     <div className="max-w-4xl space-y-10 pb-12">
-      <PageHeader description="Accounts your agents use, and where your leads are sent." />
+      <PageHeader description="Accounts your agents use, and where leads go." />
       <RestrictionNote reason={write.reason} />
 
       <ConnectedAccounts session={session} canWrite={write.allowed} />
 
       <Section
         title="Send to your own system"
-        description="Each destination gets your leads and call results as they happen, signed so your system knows they came from us."
+        description="Send leads and call results to your own system."
+        info={<p>Each destination gets them as they happen, signed so your system knows they came from us.</p>}
         action={
           <button
             type="button"
@@ -136,10 +137,9 @@ export function IntegrationsScreen() {
           onStop={setStopping}
           onRotate={setRotating}
           onEdit={setEditing}
+          onAdd={write.allowed && options.data ? () => setAdding(true) : undefined}
         />
-        <p className="mt-3 max-w-prose text-meta text-ink-muted">
-          Another CRM? Add a Zapier, Make or Pabbly webhook here and map the fields there.
-        </p>
+        <p className="mt-3 text-meta text-ink-muted">Another CRM? Use Zapier, Make or Pabbly.</p>
       </Section>
 
       <DeliveryLog
@@ -182,10 +182,7 @@ export function IntegrationsScreen() {
             Your system at <span className="break-all font-mono text-ink">{rotating.url}</span>{" "}
             gets a new secret to check our signature with.
           </p>
-          <p>
-            For the next 24 hours every delivery is signed with both the old and the new
-            secret, so it keeps verifying while you switch. After that only the new one signs.
-          </p>
+          <p>Both secrets work for 24 hours. Then only the new one.</p>
         </ConfirmDialog>
       )}
 
@@ -206,8 +203,8 @@ export function IntegrationsScreen() {
             <CopyRow label="Signing secret" value={issued.secret} copyLabel="Copy signing secret" />
             <p className="text-meta text-ink-muted">
               {issued.previous_secret_expires_at
-                ? `The old secret also signs every delivery until ${formatIST(issued.previous_secret_expires_at)}. Switch your system to the new one before then.`
-                : "The old secret has stopped signing. Switch your system to the new one now."}
+                ? `Old secret works until ${formatIST(issued.previous_secret_expires_at)}. Switch before then.`
+                : "The old secret has stopped. Use the new one now."}
             </p>
           </div>
         )}
@@ -256,9 +253,8 @@ export function IntegrationsScreen() {
             will stop receiving leads and call results immediately.
           </p>
           <p>
-            <strong className="font-semibold text-ink">This cannot be undone here.</strong> There
-            is no way to switch this endpoint back on — you would add the address again, and that
-            issues a NEW signing secret, so your CRM has to be reconfigured with it.
+            <strong className="font-semibold text-ink">This cannot be undone here.</strong> Adding
+            it again gives a NEW signing secret for your CRM.
           </p>
         </ConfirmDialog>
       )}

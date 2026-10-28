@@ -43,7 +43,7 @@ export function StaffCurationSwitch({ write }: { write: WriteAccess }) {
         label="Let staff add to what your agents know"
         hint={
           on
-            ? "Team members with the staff role can add facts, files and links here. Nobody approves what they add, the same as yours."
+            ? "Staff can add here too. No approval needed."
             : "Only owners can add things here."
         }
         checked={on}
@@ -74,9 +74,7 @@ export function SubmissionConsequence() {
   if (!me.data?.role) return null;
   return (
     <p className="text-xs text-ink-muted">
-      <span>
-        Nobody approves what you add, so you never wait for us.
-      </span>
+      <span>No approval needed. You never wait for us.</span>
     </p>
   );
 }

@@ -64,7 +64,7 @@ export function DeliveryLog({ activity }: { activity: ReturnType<typeof useInges
           {item.recoverable && (
             <p className="flex items-center gap-1 text-meta text-ink-muted">
               <RotateCcw className="h-3 w-3 shrink-0" aria-hidden />
-              Recoverable — use “Recover unread leads” in this source&apos;s Meta setup.
+              Recoverable — use “Recover unread leads” in Meta setup
             </p>
           )}
         </div>
@@ -120,7 +120,7 @@ export function DeliveryLog({ activity }: { activity: ReturnType<typeof useInges
           getRowId={(row) => row.key}
         />
       ) : (
-        <EmptyState illustration={<EmptySketch kind="deliveries" />} message="No deliveries yet. Each lead your form or ad account sends appears here, accepted or not." />
+        <EmptyState illustration={<EmptySketch kind="deliveries" />} message="No deliveries yet. Every lead sent shows here." />
       )}
     </Section>
   );

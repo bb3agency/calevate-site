@@ -102,8 +102,8 @@ export function AddDestinationDrawer({
             // refusal names, so a client who meets both hears one story.
             <SheetsUnavailable
               headline="Google Sheets delivery is not switched on for your account."
-              remediation="Set up a delivery to your own system instead, or ask us to switch Google Sheets on for you."
-              footnote="There is nothing to fill in here yet — this form appears on its own once Sheets is enabled for your account."
+              remediation="Send to your own system, or ask us to switch it on."
+              footnote="This form appears once Sheets is on."
             />
           )}
         </div>
