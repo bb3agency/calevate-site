@@ -2765,7 +2765,14 @@ async def publish_agent(
     # Raises rather than returning a blocker because this is a single action with a single
     # answer; the campaign gates return `agreements_not_accepted` as a to-do row under the
     # same rule name from the same implementation.
-    await assert_agreements_accepted(session, tenant_id=tenant_id)
+    #
+    # Not asked of a republish of an agent already live (D-926): it puts nothing new on
+    # the phone, and refusing it only keeps the agent answering on older text — older
+    # call rules and notices included — while it carries on taking calls. A document
+    # re-accepted at a new version still gates going live, a test copy and outbound
+    # dialling (`agreements_blocker`).
+    if onto_test_copy or agent["status"] != "live":
+        await assert_agreements_accepted(session, tenant_id=tenant_id)
     # A FREE-TRIAL ACCOUNT'S AGENT PLACES TEST CALLS AND ANSWERS NOTHING (D-697): it has no
     # number until it pays, so an answer-only agent is refused with the step that unlocks it.
     trial_account = await restricting_trial(session, tenant_id=tenant_id) is not None

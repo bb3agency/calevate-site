@@ -293,8 +293,37 @@ async def queue_platform_prompt_apply(session: AsyncSession) -> UUID | None:
         )
     ).first()
     if seen is not None:
+        await _retry_platform_failures(session, reason)
         return None
     return await queue_live_apply(session, scope="platform", reason=reason)
+
+
+async def _retry_platform_failures(session: AsyncSession, reason: str) -> None:
+    """Each agent this revision's walk could not update is tried once more, at the next
+    worker start: a cause a later deploy fixed (D-926) reaches it without waiting for the
+    next platform text change. Once per agent, so one that still fails is not walked again
+    on every start; its failure stays on the console and in the alarm."""
+    retry = f"{reason}:retry"
+    failed = (
+        await session.execute(
+            text(
+                "SELECT DISTINCT f->>'tenant_id', f->>'agent_id' FROM live_apply_runs r "
+                "CROSS JOIN LATERAL jsonb_array_elements(r.failures) f "
+                "WHERE r.reasons ? :reason AND NOT EXISTS (SELECT 1 FROM live_apply_runs a "
+                "WHERE a.scope = 'agent' AND a.agent_id = CAST(f->>'agent_id' AS uuid) "
+                "AND a.reasons ? :retry)"
+            ),
+            {"reason": reason, "retry": retry},
+        )
+    ).all()
+    for tenant_id, agent_id in failed:
+        await queue_live_apply(
+            session,
+            scope="agent",
+            reason=retry,
+            tenant_id=UUID(tenant_id),
+            agent_id=UUID(agent_id),
+        )
 
 
 # The worker's own enqueues live here, beside the job names they spell, so every

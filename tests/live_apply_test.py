@@ -7,6 +7,7 @@ These cases run the worker's own jobs directly (the dispatcher is not running in
 
 from __future__ import annotations
 
+import json
 import uuid
 from typing import Any
 
@@ -150,6 +151,71 @@ async def test_every_live_agent_is_republished_and_a_draft_is_not() -> None:
             await session.execute(text("SELECT status FROM agents WHERE id = :a"), {"a": draft_id})
         ).scalar()
     assert status == "draft"
+
+
+async def test_a_live_agent_takes_an_update_while_its_account_owes_an_agreement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D-926: two live agents kept old text on 28 Oct because their accounts had a document
+    to re-accept. The agent is already on the phone; only going live waits on agreements."""
+    from apps.api.legal import service as legal
+
+    tenant_id, agent_id, _bearer = await _tenant()
+    await _published(tenant_id, agent_id)
+    draft_id = await _second_agent(tenant_id)
+
+    async def owed(_session: Any, *, tenant_id: uuid.UUID) -> tuple[str, str]:
+        return (legal.AGREEMENTS_RULE, legal.AGREEMENTS_REASON)
+
+    monkeypatch.setattr(legal, "agreements_blocker", owed)
+    run_id = await _queue(tenant_id)
+    assert await drain_live_apply(tenant_id) == ["walked applied=1"]
+    assert (await _run(run_id)).failed == 0
+
+    from apps.api.agents.service import publish_agent
+
+    async with tenant_session(tenant_id) as session:
+        with pytest.raises(ProblemError) as refused:
+            await publish_agent(session, tenant_id=tenant_id, agent_id=draft_id)
+    assert refused.value.code == legal.AGREEMENTS_RULE
+
+
+async def test_an_agent_the_platform_walk_failed_is_tried_once_more_at_the_next_start(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id, agent_id, _bearer = await _tenant()
+    await _published(tenant_id, agent_id)
+    revision = uuid.uuid4().hex[:16]
+    monkeypatch.setattr(live_apply, "platform_prompt_revision", lambda: revision)
+    async with untenanted_session() as session:
+        run_id = await live_apply.queue_platform_prompt_apply(session)
+        failure = {"tenant_id": str(tenant_id), "agent_id": str(agent_id), "code": "x"}
+        await session.execute(
+            text(
+                "UPDATE live_apply_runs SET status = 'done', finished_at = now(), "
+                "walked_at = now(), failures = CAST(:f AS jsonb) WHERE id = :id"
+            ),
+            {"f": json.dumps([failure]), "id": run_id},
+        )
+
+    async def agent_runs() -> list[Any]:
+        async with untenanted_session() as session:
+            return list(
+                (
+                    await session.execute(
+                        text(
+                            "SELECT reasons FROM live_apply_runs "
+                            "WHERE scope = 'agent' AND agent_id = :a"
+                        ),
+                        {"a": agent_id},
+                    )
+                ).scalars()
+            )
+
+    for _start in range(2):
+        async with untenanted_session() as session:
+            assert await live_apply.queue_platform_prompt_apply(session) is None
+    assert await agent_runs() == [[f"platform_prompt:{revision}:retry"]]
 
 
 async def test_a_platform_wide_change_is_walked_in_bounded_batches_from_a_cursor(
