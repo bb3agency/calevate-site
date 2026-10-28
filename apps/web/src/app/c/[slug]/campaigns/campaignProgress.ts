@@ -60,7 +60,7 @@ export function campaignRun(progress: CampaignProgress): CampaignRun {
     },
     {
       id: "checks",
-      label: "Compliance checks passed",
+      label: "Checks passed",
       meta: progress.launched_at ? `Started ${formatIST(progress.launched_at)}` : undefined,
     },
     {
@@ -72,7 +72,7 @@ export function campaignRun(progress: CampaignProgress): CampaignRun {
       ? [
           {
             id: "retry",
-            label: "Retrying people who didn't pick up",
+            label: "Trying again: no answer",
             meta:
               retriesWaiting > 0
                 ? `${formatCount(retriesWaiting)} waiting${progress.next_retry_at ? ` · next ${formatIST(progress.next_retry_at)}` : ""}`
@@ -120,7 +120,7 @@ export function campaignRun(progress: CampaignProgress): CampaignRun {
 export function runSentence(progress: CampaignProgress, run: CampaignRun): string {
   switch (progress.status) {
     case "completed":
-      return "Finished. Everyone on the list was called as many times as you allowed.";
+      return "Finished. Every try has been made.";
     case "cancelled":
       return run.notCalled > 0
         ? `Stopped. ${formatCount(run.notCalled)} ${run.notCalled === 1 ? "person was" : "people were"} never called.`
@@ -131,11 +131,11 @@ export function runSentence(progress: CampaignProgress, run: CampaignRun): strin
       if (progress.not_calling.length > 0) return "Not calling anyone right now.";
       if (progress.waiting_for_calling_hours) {
         const hours = progress.calling_hours;
-        return `Waiting for calling hours. Calls go out ${hours ? `${hours.start}–${hours.end}` : "9am–9pm"} IST.`;
+        return `Waiting for calling hours (${hours ? `${hours.start}–${hours.end}` : "9am–9pm"} IST).`;
       }
       if (run.onCallNow > 0) {
         return `Calling now: ${formatCount(run.onCallNow)} ${run.onCallNow === 1 ? "call" : "calls"} in progress.`;
       }
-      return "Calling. The next calls go out shortly.";
+      return "Calling. More calls go out shortly.";
   }
 }

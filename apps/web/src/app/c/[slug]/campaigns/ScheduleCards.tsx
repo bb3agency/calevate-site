@@ -8,7 +8,8 @@ import { FIELD_HINT, Skeleton, formatIST } from "@/components/ui";
 import { lookup } from "@/lib/lookup";
 import type { useCampaignProgress } from "@/lib/api/campaigns";
 
-import { FireTimeRefusal, SKIP_COPY, describeRepeat, formatOccurrence } from "./scheduleCopy";
+import { Why } from "./_ui/Why";
+import { FireTimeRefusal, SKIP_COPY, START_GIVES_UP, describeRepeat, formatOccurrence } from "./scheduleCopy";
 
 /**
  * WHEN THIS CAMPAIGN DIALS NEXT — the two armed-schedule cards.
@@ -70,10 +71,12 @@ export function ScheduleCards({
                       className="mt-0.5 h-4 w-4 shrink-0 text-warn"
                     />
                     <span>
-                      We skipped the run due{" "}
-                      {formatOccurrence(recurrence.last_skipped_at)} IST.{" "}
-                      {lookup(SKIP_COPY, recurrence.last_skipped_reason) ??
-                        "The next one is unaffected."}
+                      Skipped {formatOccurrence(recurrence.last_skipped_at)} IST.{" "}
+                      {lookup(SKIP_COPY, recurrence.last_skipped_reason) ? (
+                        <Why>{lookup(SKIP_COPY, recurrence.last_skipped_reason)}</Why>
+                      ) : (
+                        "The next one is unaffected."
+                      )}
                     </span>
                   </p>
                 )}
@@ -86,9 +89,8 @@ export function ScheduleCards({
                       className="mt-0.5 h-4 w-4 shrink-0 text-warn"
                     />
                     <span>
-                      We tried to start this run and could not. The reasons are
-                      listed below — fix them and it will start on the next
-                      attempt.
+                      <span className="block text-ink">Couldn&rsquo;t start. Fix the items below.</span>
+                      <span className="block">Once fixed, it starts on the next attempt.</span>
                     </span>
                   </p>
                 )}
@@ -109,10 +111,7 @@ export function ScheduleCards({
                 >
                   Stop repeating
                 </ActionButton>
-                <p className={FIELD_HINT}>
-                  Stopping ends the repeat only. Calls already going out are not
-                  affected — pause the campaign for that.
-                </p>
+                <p className={FIELD_HINT}>Ends the repeat only. Pause to stop today&rsquo;s calls.</p>
               </div>
             </Section>
           )}
@@ -141,10 +140,8 @@ export function ScheduleCards({
                         className="mt-0.5 h-4 w-4 shrink-0 text-warn"
                       />
                       <span>
-                        We tried to start this campaign and could not. The
-                        reasons are listed below — fix them and it will start on
-                        the next attempt. If they are still outstanding a day
-                        after the start time, the campaign goes back to draft.
+                        <span className="block text-ink">Couldn&rsquo;t start. Fix the items below.</span>
+                        <span className="block">{START_GIVES_UP}</span>
                       </span>
                     </p>
                   )}

@@ -56,7 +56,7 @@ export function CampaignSettings({
           label="Calls at the same time"
           hint={
             limited
-              ? `Set to ${progress.concurrency}; your plan and the lines kept free for people calling you allow ${progress.effective_concurrency}.`
+              ? `You set ${progress.concurrency}. Your plan allows ${progress.effective_concurrency}.`
               : undefined
           }
           value={`Up to ${progress.effective_concurrency}`}

@@ -65,7 +65,7 @@ export function CampaignTimeline({ campaignId, launchedAt }: { campaignId: strin
 
   // Loaded and nothing dialled: a sentence, not a flat line at zero.
   if (timelines.data && (series === null || allZero)) {
-    return <p className="text-body text-ink-muted">No calls have gone out yet. Each day&rsquo;s calls show here once they do.</p>;
+    return <p className="text-body text-ink-muted">No calls have gone out yet.</p>;
   }
 
   return (
@@ -80,7 +80,7 @@ export function CampaignTimeline({ campaignId, launchedAt }: { campaignId: strin
         // The window is read once on mount, so the chart starts again when the days arrive.
         key={buckets.length}
         title={`${chosen.series} per day`}
-        description="India time. Drag the window under the chart, or its edges, to choose the days."
+        description="India time. Drag under the chart to pick days."
         seriesLabel={chosen.series}
         labels={labels}
         values={values}
@@ -92,7 +92,7 @@ export function CampaignTimeline({ campaignId, launchedAt }: { campaignId: strin
         loadingLabel="Loading this campaign's days"
         error={
           timelines.error
-            ? "We could not load this campaign's day-by-day figures. The totals above are unaffected."
+            ? "Couldn't load the daily figures. Totals above are fine."
             : undefined
         }
       />

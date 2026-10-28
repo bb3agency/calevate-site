@@ -220,10 +220,7 @@ export function ContactResults({
         />
       ) : data.items.length === 0 ? (
         all === 0 ? (
-          <EmptyState
-            message="Nobody is on this campaign yet."
-            hint={editable ? "Press Add people to paste a list or choose people from your leads." : undefined}
-          />
+          <EmptyState message="Nobody is on this campaign yet." />
         ) : (
           <EmptyState variant="filtered" message="Nobody matches." onClear={clearAll} clearLabel="Show everyone" />
         )

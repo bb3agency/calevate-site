@@ -116,9 +116,9 @@ export function CampaignHeaderActions({
       successLabel: "Resumed",
       disabled: !canWrite || reviewOwed,
       hint: reviewOwed
-        ? "Confirm you have reviewed the opt-outs first."
+        ? "Review the opt-outs first."
         : held
-          ? "Clear the reason above first."
+          ? "Fix the reason above first."
           : ownerOnly,
       onSelect: () => setStatusFeedback.run("resume"),
     });
@@ -188,9 +188,10 @@ export function CampaignHeaderActions({
           }}
           onConfirm={() => stop.mutate(undefined, { onSuccess: () => setConfirming(null) })}
         >
-          Nobody else on the list is called
-          {remaining ? ` (${formatCount(remaining)} still waiting)` : ""}. A call already ringing
-          finishes. It can&rsquo;t be restarted; Duplicate makes a new draft from it.
+          <span className="block">
+            Nobody else is called{remaining ? ` (${formatCount(remaining)} waiting)` : ""}.
+          </span>
+          <span className="block">Calls ringing now finish. It can&rsquo;t restart.</span>
         </ConfirmDialog>
       )}
       {confirming === "delete" && (
@@ -207,8 +208,8 @@ export function CampaignHeaderActions({
           }}
           onConfirm={() => remove.mutate(undefined, { onSuccess: onGone })}
         >
-          The draft and its list are removed. If calls or records already name it, it is kept as
-          stopped instead.
+          <span className="block">The draft and its list are removed.</span>
+          <span className="block">If calls already used it, it is kept as stopped.</span>
         </ConfirmDialog>
       )}
     </>

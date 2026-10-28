@@ -38,7 +38,7 @@ export const CONSENT_SOURCES: { value: ConsentSource; label: string; hint: strin
     {
       value: "inbound_enquiry",
       label: "People who contacted us",
-      hint: "Enquiries by phone, message or walk-in that we're following up.",
+      hint: "Enquiries by phone, message or walk-in we're following up.",
     },
     {
       value: "web_form_optin",
@@ -48,12 +48,12 @@ export const CONSENT_SOURCES: { value: ConsentSource; label: string; hint: strin
     {
       value: "offline_form_optin",
       label: "Signed up on paper",
-      hint: "A form, register or slip filled in at our shop, office or an event.",
+      hint: "A form or register filled in at our shop, office or event.",
     },
     {
       value: "purchased_list",
       label: "Bought or rented list",
-      hint: "Contacts supplied by a data vendor, broker or another business.",
+      hint: "Contacts from a data vendor, broker or another business.",
     },
   ];
 
@@ -92,7 +92,7 @@ export const CLASSIFICATIONS: {
     label: "Promotional",
     hint: (
       <>
-        Offers and marketing. TRAI expects these from a <Term id="series140" /> number.
+        Offers and marketing. Expected from a <Term id="series140" /> number.
       </>
     ),
   },
@@ -101,8 +101,7 @@ export const CLASSIFICATIONS: {
     label: "Service",
     hint: (
       <>
-        Reminders and updates to your own customers. TRAI expects these from a{" "}
-        <Term id="series160" /> number.
+        Reminders to your own customers. Expected from a <Term id="series160" /> number.
       </>
     ),
   },

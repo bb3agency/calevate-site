@@ -49,9 +49,9 @@ import { describeRepeat } from "./scheduleCopy";
 export const PLATFORM_WINDOW = { start: "09:00", end: "21:00" } as const;
 
 export function windowRefusal(start: string, end: string): string | null {
-  if (start >= end) return "The calling window has to start before it ends.";
+  if (start >= end) return "The hours must start before they end.";
   if (start < PLATFORM_WINDOW.start || end > PLATFORM_WINDOW.end) {
-    return "Calls can only go out between 9am and 9pm IST. Choose a window inside those hours.";
+    return "Pick hours between 9am and 9pm IST.";
   }
   return null;
 }
@@ -111,20 +111,20 @@ export function NewCampaignFlow({
     }
     if (index === 1) {
       if (counts.ready === 0 && !form.fromLeads) {
-        return "Add at least one number we can call, or choose people from your leads.";
+        return "Add at least one number, or pick from your leads.";
       }
-      if (form.fromLeads && leadsMatching === undefined) return "Wait a moment while your leads are counted.";
+      if (form.fromLeads && leadsMatching === undefined) return "One moment: counting your leads.";
       if (form.fromLeads && leadsMatching === 0 && counts.ready === 0) {
-        return "No leads match these filters. Change them, or add numbers above.";
+        return "No leads match. Change the filters.";
       }
       if (refusal) return refusal;
       if (!form.provenanceAnswered) {
-        return "Answer both questions about your list — a campaign without them can't be launched.";
+        return "Answer both questions about your list.";
       }
       return null;
     }
     if (index === 2) {
-      if (form.concurrency < 1 || form.concurrency > 10) return "Choose between 1 and 10 calls at the same time.";
+      if (form.concurrency < 1 || form.concurrency > 10) return "Choose 1 to 10 calls at once.";
       if (form.restrictHours && (!form.windowStart || !form.windowEnd)) return "Choose both a start and an end time.";
       if (form.restrictHours) {
         const window = windowRefusal(form.windowStart, form.windowEnd);
@@ -132,7 +132,7 @@ export function NewCampaignFlow({
       }
       if (schedule.startMode === "later" && !schedule.startIso) return "Choose the date and time it should start.";
       if (schedule.startMode === "weekly" && schedule.repeatDays.length === 0) {
-        return "Choose at least one day for this campaign to repeat on.";
+        return "Choose at least one day to repeat on.";
       }
     }
     return null;
@@ -169,7 +169,7 @@ export function NewCampaignFlow({
       id: "basics",
       label: STEP_NAMES[0],
       content: (
-        <Section title="The basics" description="Name it, choose who calls, and what kind of call it is.">
+        <Section title="The basics">
           <BasicsStep
             form={form}
             agents={agents}
@@ -189,7 +189,6 @@ export function NewCampaignFlow({
       content: (
         <Section
           title="Who should we call?"
-          description="Paste, import or add your contacts, then tell us where the list came from."
         >
           <div className="space-y-6">
             <ContactEditor
@@ -227,7 +226,7 @@ export function NewCampaignFlow({
       content: (
         <Section
           title="Check it, then create it"
-          description="It is created as a draft. Nothing is called until you launch it from its checklist."
+          description="Saved as a draft. Nothing is called yet."
         >
           <SettingRows className="border-y border-line">
             <ReviewRow label="Name" value={form.name.trim() || "Not named yet"} onChange={() => goTo(0)} />
@@ -266,7 +265,7 @@ export function NewCampaignFlow({
               onChange={() => goTo(2)}
             />
             <ReviewRow label="Calls at the same time" value={String(form.concurrency)} onChange={() => goTo(2)} />
-            <ReviewRow label="No answer, busy or voicemail" value={describeRetry(form.retry)} onChange={() => goTo(2)} />
+            <ReviewRow label="If nobody answers" value={describeRetry(form.retry)} onChange={() => goTo(2)} />
           </SettingRows>
         </Section>
       ),

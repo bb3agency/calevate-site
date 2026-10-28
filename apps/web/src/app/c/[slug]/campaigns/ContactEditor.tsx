@@ -4,6 +4,7 @@ import { useId, useMemo, useState, type DragEvent } from "react";
 import { ClipboardPaste, Download, FileUp, Plus, Trash2, X } from "lucide-react";
 
 import { SearchField } from "@/components/arc/search-field";
+import { HowItWorks } from "@/components/console/howItWorks";
 import { FileDrop } from "@/components/fileDrop";
 import { LANGUAGE_NAMES } from "@/lib/agentState";
 import { lookup } from "@/lib/lookup";
@@ -34,10 +35,15 @@ import {
  * never a fixed one: a Hindi agent's owner is not told to write Telugu. English names need
  * no script note, and before an agent is chosen none is named.
  */
-export function fileHint(agentLanguage: string | null | undefined): string {
+export const FILE_HINT = "A CSV with a phone column. Up to 4 MB.";
+
+/** The tips behind "File tips": what else a list can carry, and how names are said best. */
+export function fileTips(agentLanguage: string | null | undefined): string[] {
   const name = agentLanguage && agentLanguage !== "en-IN" ? lookup(LANGUAGE_NAMES, agentLanguage) : undefined;
-  const script = name ? ` A name is said best written in your agent's language, in ${name} script.` : "";
-  return `A CSV with a column called phone is all it needs.${script} The agent hears your other columns on each call, so add what it should know about each person. Up to 4 MB.`;
+  return [
+    "Add other columns for what the agent should know about each person. It hears them on the call.",
+    ...(name ? [`Names are said best written in ${name} script.`] : []),
+  ];
 }
 
 const PAGE = 50;
@@ -102,7 +108,7 @@ export function ContactEditor({
     setNotice(
       `Added ${formatCount(added.length)} ${added.length === 1 ? "row" : "rows"} from ${source}.` +
         (dropped.length
-          ? ` Columns not kept: ${dropped.join(", ")} (a contact holds up to 10 extra columns, and none may be called phone or name).`
+          ? ` Skipped columns: ${dropped.join(", ")} (max 10 extra).`
           : ""),
     );
     setPage(1);
@@ -111,7 +117,7 @@ export function ContactEditor({
   const readFile = async (file: File | undefined) => {
     if (!file) return;
     if (file.size > MAX_FILE_BYTES) {
-      setNotice(`${file.name} is larger than 4 MB. Split it, and add the rest from the campaign afterwards.`);
+      setNotice(`${file.name} is over 4 MB. Split it into smaller files.`);
       return;
     }
     let text: string;
@@ -119,7 +125,7 @@ export function ContactEditor({
       text = await file.text();
     } catch {
       // A file moved or locked after it was picked cannot be read.
-      setNotice(`${file.name} could not be opened. Pick it again, or save a fresh copy first.`);
+      setNotice(`${file.name} could not be opened. Pick it again.`);
       return;
     }
     append(text, file.name);
@@ -269,11 +275,11 @@ export function ContactEditor({
       {entries.length === 0 ? (
         <FileDrop
           label="Your contacts file"
-          hint={fileHint(agentLanguage)}
+          hint={FILE_HINT}
           accept={CSV_ACCEPT}
           validate={(file) =>
             file.size > MAX_FILE_BYTES
-              ? "That file is larger than 4 MB. Split it, and add the rest from the campaign afterwards."
+              ? "That file is over 4 MB. Split it into smaller files."
               : null
           }
           onFiles={([file]) => void readFile(file)}
@@ -332,10 +338,10 @@ export function ContactEditor({
         </div>
       )}
 
-      <p className="text-xs text-ink-faint">
-        Numbers on your do-not-call list are never dialled. One upload takes up to{" "}
-        {MAX_CONTACTS_PER_UPLOAD.toLocaleString("en-IN")} contacts.
+      <p className="text-xs text-ink-muted">
+        Do-not-call numbers are never dialled. Max {MAX_CONTACTS_PER_UPLOAD.toLocaleString("en-IN")} per upload.
       </p>
+      <HowItWorks title="File tips" className="mt-0" items={fileTips(agentLanguage)} />
     </section>
   );
 }

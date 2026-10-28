@@ -20,18 +20,17 @@ import {
  * The control that stands where a launch begins — whichever of the two it is.
  *
  * There is exactly ONE at a time and the branches are mutually exclusive: a campaign with
- * outstanding blockers gets a dead button labelled with the thing it may not do ("Launch
- * campaign"), and a campaign the gate has cleared gets the live opener of the
- * confirmation (`LaunchConfirm`'s "Review this launch"). Matching both is what keeps every
- * assertion below about the SAME question — may this person start dialling, and are they
- * told why not — rather than about which label the branch happens to carry.
+ * outstanding blockers gets a dead "Launch campaign", and a campaign the gate has cleared
+ * gets a live "Launch campaign" that opens the confirmation (`LaunchConfirm`). One label
+ * keeps every assertion below about the SAME question — may this person start dialling,
+ * and are they told why not.
  *
  * Not `toBeDisabled()`: `@testing-library/jest-dom` is deliberately not a dependency
  * (see vitest.config.mts), and `disabled` is the property the browser actually acts on.
  */
 function launchButton(): HTMLButtonElement {
   return screen.getByRole("button", {
-    name: /^(Launch campaign|Review this launch)$/,
+    name: /^Launch campaign$/,
   }) as HTMLButtonElement;
 }
 
@@ -174,7 +173,7 @@ describe("the launch panel with blockers outstanding", () => {
     // launch, and meets a refusal for the one that was dropped.
     expect(container.querySelectorAll("li")).toHaveLength(3);
     expect(container.textContent).toContain("Add the people to call.");
-    expect(container.textContent).toContain("Your agent has to be published");
+    expect(container.textContent).toContain("Publish your agent first.");
     expect(container.textContent).toContain("Accept the no-cold-calls pledge first.");
 
     // Disabled WITH the reasons, never absent. There is exactly one launch control and
@@ -241,14 +240,17 @@ describe("the launch panel with blockers outstanding", () => {
     );
 
     const text = container.textContent ?? "";
-    expect(text).toContain("Your calling credit has run out");
+    expect(text).toContain("Out of credit.");
     // ⚠ THIS USED TO ASSERT "People ringing you still get through", which D-551 withdrew:
     // an empty wallet now silences answering as well as dialling, so the campaign panel
     // says both halves and says a top-up undoes both. The `spend_cap` test below still
     // asserts the reassurance, because for a CAP it is still true.
     expect(text).not.toContain("still get through");
-    expect(text).toContain("no longer answering incoming ones");
-    expect(text).toContain("start again straight away");
+    // Both halves on the one default line: inbound stops with outbound.
+    expect(text).toContain("Calls in and out have stopped.");
+    // That a top-up undoes both is behind "Why?".
+    fireEvent.click(screen.getAllByRole("button", { name: "Why?" })[0]);
+    expect(container.textContent).toContain("start again straight away");
     // Not a queue to wait in — a two-minute fix, with the screen that does it attached.
     expect(text).toContain("You can fix this");
     expect(text).not.toContain("We handle this");
@@ -267,12 +269,12 @@ describe("the launch panel with blockers outstanding", () => {
     );
 
     const text = container.textContent ?? "";
-    expect(text).toContain("spent up to its monthly limit");
-    expect(text).toContain("People ringing you still get through");
+    expect(text).toContain("Monthly spending limit reached.");
+    expect(text).toContain("Calls to you still work.");
     // The limit is the client's own (D-34 R-11), so the destination is their screen.
     expect(
       screen
-        .getByRole("link", { name: /monthly spending limit/ })
+        .getByRole("link", { name: /Raise spending limit/ })
         .getAttribute("href"),
     ).toContain("/billing?tab=usage");
     expect(text).not.toContain("spend_cap");
@@ -287,7 +289,7 @@ describe("the launch panel with blockers outstanding", () => {
     );
 
     expect(container.textContent).toContain(
-      "Calevate doesn't call purchased lists",
+      "We don't call bought or rented lists.",
     );
     expect(container.textContent).not.toContain("consent_source_refused");
     // This one the client CAN act on — the correction form is the point of the badge.
@@ -437,7 +439,7 @@ describe("the confirmation in front of a launch", () => {
       [`/v1/campaigns/${CAMPAIGN_ID}`]: READY_PROGRESS,
       [LAUNCH_ROUTE]: LAUNCHED,
     });
-    fireEvent.click(screen.getByRole("button", { name: "Review this launch" }));
+    fireEvent.click(screen.getByRole("button", { name: "Launch campaign" }));
     return rendered;
   }
 
@@ -450,11 +452,11 @@ describe("the confirmation in front of a launch", () => {
     // The count is stated, from the server's `total` and never from the create form.
     expect(container.textContent).toContain("This starts calling 120 people.");
     // The irreversibility is named, because that is the thing being agreed to.
-    expect(container.textContent).toContain("cannot be recalled");
+    expect(container.textContent).toContain("can’t be taken back");
     // The bound every campaign is under, and the concurrency this one carries.
-    expect(container.textContent).toContain("between 9am and 9pm IST");
+    expect(container.textContent).toContain("9am–9pm IST");
     expect(container.textContent).toContain(
-      "Up to 3 calls run at the same time",
+      "Up to 3 calls at once.",
     );
   });
 
@@ -472,11 +474,11 @@ describe("the confirmation in front of a launch", () => {
       },
       [LAUNCH_ROUTE]: LAUNCHED,
     });
-    fireEvent.click(screen.getByRole("button", { name: "Review this launch" }));
+    fireEvent.click(screen.getByRole("button", { name: "Launch campaign" }));
 
     // The platform bound is stated ANYWAY — a narrowing is additional, never a
     // replacement, because the legal window is true of every campaign.
-    expect(container.textContent).toContain("between 9am and 9pm IST");
+    expect(container.textContent).toContain("9am–9pm IST");
     expect(container.textContent).toContain("10:00");
     expect(container.textContent).toContain("18:00");
     // Written for a reader through `formatPhone`, like every number on a screen.
@@ -494,9 +496,9 @@ describe("the confirmation in front of a launch", () => {
       },
       [LAUNCH_ROUTE]: LAUNCHED,
     });
-    fireEvent.click(screen.getByRole("button", { name: "Review this launch" }));
+    fireEvent.click(screen.getByRole("button", { name: "Launch campaign" }));
 
-    expect(container.textContent).toContain("no number of its own");
+    expect(container.textContent).toContain("They see your agent's own number.");
   });
 
   it("keeps the danger button dead until the count has been typed", async () => {
@@ -552,7 +554,7 @@ describe("the confirmation in front of a launch", () => {
     await screen.findByRole("alert");
 
     expect(
-      screen.queryByRole("button", { name: "Review this launch" }),
+      screen.queryByRole("button", { name: "Launch campaign" }),
     ).toBeNull();
     expect(screen.queryByRole("button", { name: /^Call \d/ })).toBeNull();
     expect(container.textContent).not.toContain("Everything checks out.");

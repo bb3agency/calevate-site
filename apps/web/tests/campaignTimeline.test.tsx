@@ -96,6 +96,6 @@ describe("a launched campaign's day-by-day chart", () => {
 
   it("says the read failed in words, never as zeros", async () => {
     await renderClientPage(campaignPage(), routes(problem(503, { title: "Unavailable" })));
-    expect(await screen.findByText(/could not load this campaign's day-by-day figures/)).toBeTruthy();
+    expect(await screen.findByText(/Couldn't load the daily figures/)).toBeTruthy();
   });
 });

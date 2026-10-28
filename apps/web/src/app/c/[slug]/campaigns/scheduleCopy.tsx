@@ -60,10 +60,7 @@ export function describeRepeat(recurrence: Pick<CampaignRecurrence, "days" | "at
  * `campaigns/scheduling.py` decision 2 makes on their behalf.
  */
 export const SKIP_COPY: Record<string, string> = {
-  missed: [
-    "We could not start it close enough to the time you picked, so we waited for the",
-    "next one rather than calling people at a different time of day.",
-  ].join(" "),
+  missed: "It couldn't start near your time, so we waited rather than call late.",
 };
 
 /**
@@ -111,23 +108,34 @@ export function FireTimeRefusal({
 }) {
   return (
     <p className="flex gap-2.5 text-sm text-ink-muted">
-      <CircleAlert
-        aria-hidden
-        className="mt-0.5 h-4 w-4 shrink-0 text-warn"
-      />
+      <CircleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-warn" />
       <span>
-        As things stand{" "}
-        {kind === "start"
-          ? "this campaign would not start"
-          : "the next run would not start"}
-        .{" "}
-        {when === "arming"
-          ? "You can still set a time — the same check runs again at the moment it does, so anything you clear before then is enough. If the reasons above are still outstanding then, "
-          : "The reasons are listed below. Clear them before the time comes and it goes ahead as planned; if they are still outstanding then, "}
-        {kind === "start"
-          ? "no calls go out, and after a day of trying the campaign goes back to draft."
-          : "that run is skipped rather than dialled at a different time of day, and the repeat itself carries on."}
+        <span className="block text-ink">{fireTimeLine(kind, when)}</span>
+        <span className="block">
+          {kind === "start" ? START_GIVES_UP : REPEAT_SKIPS}
+        </span>
       </span>
     </p>
   );
 }
+
+/**
+ * The first line of `FireTimeRefusal`. While arming, setting a time is allowed and is not a
+ * promise (the reasons are in the checklist above the form); once armed, the reasons are
+ * the checklist below the schedule card.
+ */
+export function fireTimeLine(kind: "start" | "repeat", when: "arming" | "armed"): string {
+  if (when === "arming") {
+    return kind === "start"
+      ? "You can set a time. Fix the items above before then."
+      : "You can set a repeat. Fix the items above before it runs.";
+  }
+  return kind === "start"
+    ? "Won't start until the items below are fixed."
+    : "Next run won't start until items below are fixed.";
+}
+
+/** What the server does with a one-time start it cannot fire (`scheduling._expire`). */
+export const START_GIVES_UP = "After a day of trying, it goes back to draft.";
+/** …and with a repeat's occurrence (`scheduling._skip_occurrence`). */
+export const REPEAT_SKIPS = "That run is skipped. The repeat carries on.";

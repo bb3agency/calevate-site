@@ -122,9 +122,7 @@ export function LaunchConfirm({
   if (contacts === undefined) {
     return (
       <p className="text-sm text-ink-muted">
-        We could not read how many contacts this campaign has, so it cannot be
-        launched from here yet — a launch has to be able to say how many people
-        it will call.
+        We can&rsquo;t count this list yet, so launch is off.
       </p>
     );
   }
@@ -141,9 +139,9 @@ export function LaunchConfirm({
           title={writeReason}
           disabled={!canWrite || pending}
           onClick={() => setConfirming(true)}
-          className={PRIMARY_BUTTON}
+          className={`${PRIMARY_BUTTON} w-full sm:w-auto`}
         >
-          Review this launch
+          Launch campaign
         </button>
       </div>
     );
@@ -159,40 +157,32 @@ export function LaunchConfirm({
         </p>
         <ul className="mt-2 list-disc space-y-1 pl-5 text-ink-muted">
           <li>
-            Calls go out between 9am and 9pm IST only
             {callingHours ? (
               <>
-                , and this campaign narrows that further to{" "}
+                Calls only between{" "}
                 <strong>
                   {callingHours.start}&ndash;{callingHours.end} IST
-                </strong>
+                </strong>{" "}
+                (never outside 9am&ndash;9pm IST).
               </>
-            ) : null}
-            . If anyone asks whether it is an AI or whether the call is recorded, your agent
-            says so truthfully.
+            ) : (
+              "Calls only between 9am–9pm IST."
+            )}
           </li>
+          <li>Asked if it&rsquo;s an AI or recorded, your agent tells the truth.</li>
           <li>
             {numberE164 ? (
               <>
-                They will show <strong>{formatPhone(numberE164)}</strong> on the handset.
+                They see <strong>{formatPhone(numberE164)}</strong> on their phone.
               </>
             ) : (
-              "This campaign has no number of its own, so calls show the number your agent dials from."
+              "They see your agent's own number."
             )}
           </li>
-          {concurrency !== undefined && (
-            <li>
-              Up to {formatCount(concurrency)} calls run at the same time.
-            </li>
-          )}
+          {concurrency !== undefined && <li>Up to {formatCount(concurrency)} calls at once.</li>}
+          <li>People on your do-not-call list are skipped.</li>
           <li>
-            Anyone already on your do-not-call list is dropped as it starts, and
-            we tell you how many.
-          </li>
-          <li>
-            <strong>A call that has been placed cannot be recalled.</strong> You
-            can pause the campaign, which stops the calls that have not been
-            made yet.
+            <strong>A call made can&rsquo;t be taken back.</strong> Pause stops the rest.
           </li>
         </ul>
         <div className="mt-3">

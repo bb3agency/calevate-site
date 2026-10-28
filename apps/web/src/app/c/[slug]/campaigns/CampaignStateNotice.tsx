@@ -20,6 +20,7 @@ import {
 import { useClientRealm } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
 
+import { Why } from "./_ui/Why";
 import { BLOCKER_COPY, PAUSE_COPY, blockerDestination } from "./blockerCopy";
 
 /**
@@ -53,7 +54,7 @@ export function CampaignStateNotice({
       progress.pause_reason === "out_of_credit"
         ? { href: at("/billing?tab=credits"), label: "Add credit" }
         : progress.pause_reason === "spend_cap"
-          ? { href: at("/billing?tab=usage"), label: "See your monthly spending limit" }
+          ? { href: at("/billing?tab=usage"), label: "Raise spending limit" }
           : undefined;
     return (
       <div role="status" className={`${NOTICE_BASE} ${NOTICE_BAR.warn}`}>
@@ -84,25 +85,26 @@ export function CampaignStateNotice({
     return (
       <div role="status" className={`${NOTICE_BASE} ${NOTICE_BAR.stop}`}>
         <p className="font-semibold">Not calling anyone right now</p>
-        <ul className="space-y-2">
+        <ul className="space-y-3">
           {progress.not_calling.map((blocker) => {
             const fix = blockerDestination(blocker.rule, at, campaignId);
+            const note = lookup(BLOCKER_COPY, blocker.rule);
             return (
-              <li key={blocker.rule} className="text-ink-muted">
-                {lookup(BLOCKER_COPY, blocker.rule)?.text ?? blocker.reason}
+              <li key={blocker.rule} className="space-y-1.5">
+                <p className="text-ink">
+                  {note?.text ?? blocker.reason} {note?.why ? <Why>{note.why}</Why> : null}
+                </p>
                 {fix && (
-                  <>
-                    {" "}
-                    <Link href={fix.href} className="font-medium text-ink underline underline-offset-2">
-                      {fix.label}
-                    </Link>
-                  </>
+                  // The fix is the one thing to do here, so it is a button, not a link in a sentence.
+                  <Link href={fix.href} className={SECONDARY_BUTTON_SM}>
+                    {fix.label}
+                  </Link>
                 )}
               </li>
             );
           })}
         </ul>
-        <p className="text-meta text-ink-muted">It starts calling again by itself once this is cleared.</p>
+        <p className="text-meta text-ink-muted">It restarts by itself once fixed.</p>
       </div>
     );
   }
@@ -179,9 +181,7 @@ function ComplaintReview({
               onChange={(e) => setRead(e.target.checked)}
               className="mt-0.5 h-4 w-4 rounded border-line accent-brand"
             />
-            <span>
-              I have read what these people said, and I am sure the rest of this list agreed to be called.
-            </span>
+            <span>I&rsquo;ve read these, and the rest agreed to be called.</span>
           </label>
           {review.error ? <ProblemNotice error={review.error} /> : null}
           <ActionButton
@@ -197,7 +197,7 @@ function ComplaintReview({
         </div>
       ) : (
         <p className="text-meta text-ink-muted">
-          Reviewed {reviewedAt ? formatIST(reviewedAt) : ""}. You can resume the campaign.
+          Reviewed {reviewedAt ? formatIST(reviewedAt) : ""}. You can resume now.
         </p>
       )}
     </div>
