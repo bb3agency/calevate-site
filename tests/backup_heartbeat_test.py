@@ -120,11 +120,24 @@ echo "LastTriggerUSec=n/a"
 """
 
 
-def _walg_healthy() -> str:
+#: `wal-verify integrity timeline --json` as wal-g's docs/PostgreSQL.md prints it (read 29 Oct
+#: 2026): each check's verdict at the top, a per-range `status` inside `details`.
+WAL_VERIFY_DOCS_EXAMPLE = (
+    '{"integrity":{"status":"OK","details":['
+    '{"timeline_id":3,"start_segment":"000000030000000000000006",'
+    '"end_segment":"000000030000000000000008","segments_count":3,"status":"FOUND"},'
+    '{"timeline_id":4,"start_segment":"000000040000000000000008",'
+    '"end_segment":"00000004000000000000000B","segments_count":4,"status":"FOUND"}]},'
+    '"timeline":{"status":"OK","details":'
+    '{"current_timeline_id":4,"highest_storage_timeline_id":4}}}'
+)
+
+
+def _walg_healthy(wal_verify: str = WAL_VERIFY_DOCS_EXAMPLE) -> str:
     now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     return f"""#!/bin/sh
 case "$1" in
-  wal-verify)  echo '{{"integrity_check":{{"status":"OK"}},"timeline_check":{{"status":"OK"}}}}' ;;
+  wal-verify)  echo '{wal_verify}' ;;
   backup-list) echo '[{{"finish_time":"{now}"}}]' ;;
   *)           exit 1 ;;
 esac
@@ -142,6 +155,7 @@ def _run_health(
     *,
     systemctl: str = SYSTEMCTL_ARMED,
     heartbeat_url: str | None,
+    wal_verify: str = WAL_VERIFY_DOCS_EXAMPLE,
     **extra: str,
 ) -> subprocess.CompletedProcess[str]:
     """`backup-health.sh` on a host where everything is stubbed healthy unless a test
@@ -149,7 +163,7 @@ def _run_health(
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(exist_ok=True)
     _stub(bin_dir, "psql", PSQL_HEALTHY)
-    _stub(bin_dir, "wal-g", _walg_healthy())
+    _stub(bin_dir, "wal-g", _walg_healthy(wal_verify))
     _stub(bin_dir, "systemctl", systemctl)
     # The alert path is not the subject here, and the real default relay would start an
     # interpreter per alert. Recording them keeps the failure test honest about WHY it
@@ -218,6 +232,41 @@ def test_a_run_with_a_failing_check_feeds_the_dead_man_nothing_at_all(
     assert proc.returncode == 1, proc.stderr
     assert "backup_timer_inactive" in proc.stderr
     assert monitor.received == [], "a failing backup run must never feed the dead man"
+
+
+@requires_posix_shell
+def test_a_found_range_inside_a_healthy_archive_is_no_alarm(tmp_path: Path) -> None:
+    """Production, 29 Oct 2026: the per-range FOUND paged `wal_chain_broken` on a healthy
+    archive ("OK,FOUND,OK"). Only each check's own verdict counts."""
+    proc = _run_health(tmp_path, heartbeat_url=None)
+    assert proc.returncode == 0, proc.stderr
+    assert "wal_chain" not in proc.stderr
+
+
+@requires_posix_shell
+@pytest.mark.parametrize(
+    ("integrity", "timeline", "code", "fails"),
+    [
+        # Said but not a failed run: `basebackup.sh` runs this check just after its own
+        # WAL switch, when a range is MISSING_UPLOADING, and exits on a non-zero status.
+        ("WARNING", "OK", "wal_chain_warning", False),
+        ("OK", "WARNING", "wal_chain_warning", False),
+        ("FAILURE", "OK", "wal_chain_broken", True),
+        ("WARNING", "FAILURE", "wal_chain_broken", True),
+    ],
+)
+def test_a_check_verdict_other_than_ok_alarms_by_its_severity(
+    tmp_path: Path, integrity: str, timeline: str, code: str, fails: bool
+) -> None:
+    verify = (
+        f'{{"integrity":{{"status":"{integrity}","details":[{{"status":"MISSING_DELAYED"}}]}},'
+        f'"timeline":{{"status":"{timeline}","details":{{}}}}}}'
+    )
+    proc = _run_health(tmp_path, heartbeat_url=None, wal_verify=verify)
+    assert code in proc.stderr
+    assert (proc.returncode != 0) is fails
+    other = "wal_chain_broken" if code == "wal_chain_warning" else "wal_chain_warning"
+    assert other not in proc.stderr
 
 
 def test_the_dead_man_is_fed_by_the_backup_path_itself_not_by_a_second_schedule() -> None:

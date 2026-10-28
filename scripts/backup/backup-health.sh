@@ -177,19 +177,28 @@ if command -v wal-g >/dev/null && [[ -r "$WALG_CONFIG_PATH" ]]; then
 
   if (( now - last_verify >= WAL_VERIFY_INTERVAL_S )); then
     if verify_json=$(wal-g wal-verify integrity timeline --json 2>/dev/null); then
-      # Parsed structurally rather than by field name: wal-g's JSON shape for wal-verify
-      # is NOT pinned by any version-stable contract we have verified, so this collects
-      # every `status` field anywhere in the document and requires all of them to be OK.
-      # If a future version renames the checks, this still works; if it renames `status`,
-      # the extraction returns nothing and the `-z` branch below alerts rather than
-      # silently passing. Failing loud on an unrecognised shape is the whole point.
-      statuses=$(printf '%s' "$verify_json" | jq -r '[.. | objects | select(has("status")) | .status] | .[]' 2>/dev/null)
+      # Only each CHECK's verdict: the `status` of every top-level object (`integrity`,
+      # `timeline`). Nested `details` entries carry a per-segment-range status too (FOUND,
+      # MISSING_DELAYED, ...), and reading those as verdicts paged `wal_chain_broken` on
+      # a healthy archive ("OK,FOUND,OK", production, 29 Oct 2026). Verdicts per wal-g's
+      # docs/PostgreSQL.md (read 29 Oct 2026): OK; WARNING = segments missing but none lost
+      # (normal just after a WAL switch) or the timeline undetermined; FAILURE = a segment
+      # lost or the timeline diverged. Keyed by position, not name, so a renamed check still
+      # counts; a renamed `status` yields nothing and alerts unparseable rather than passing.
+      statuses=$(printf '%s' "$verify_json" \
+        | jq -r '[.[]? | objects | select(has("status")) | .status] | .[]' 2>/dev/null)
       if [[ -z "$statuses" ]]; then
         alert wal_verify_unparseable \
           "wal-g wal-verify returned JSON with no recognisable status field; the archive is UNVERIFIED"
-      elif printf '%s' "$statuses" | grep -qv '^OK$'; then
+      elif printf '%s' "$statuses" | grep -qv -e '^OK$' -e '^WARNING$'; then
         alert wal_chain_broken \
           "wal-g wal-verify reports a gap or a timeline problem: point-in-time recovery across that gap is impossible" \
+          "statuses=$(printf '%s' "$statuses" | tr '\n' ',')"
+      elif printf '%s' "$statuses" | grep -q '^WARNING$'; then
+        # Said, not counted as a failure: `basebackup.sh` runs this right after its own WAL
+        # switch, when MISSING_UPLOADING is expected, and exits on a non-zero status.
+        "$notify" wal_chain_warning \
+          "wal-g wal-verify found WAL not yet in storage but none lost, or could not settle the timeline; re-checked next run" \
           "statuses=$(printf '%s' "$statuses" | tr '\n' ',')"
       fi
     else

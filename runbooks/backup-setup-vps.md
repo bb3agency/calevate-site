@@ -175,9 +175,10 @@ sudo install -o root -g postgres -m 0640 /dev/null /etc/calevate/alerts.env
 sudo editor /etc/calevate/alerts.env
 ```
 
-Put in it (values from the password manager; never the app's `.env`, see README §5):
-`ALERTS_EMAIL`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`,
-`BACKUP_HEARTBEAT_URL`, plus the four `Settings` needs to start: `APP_ENV=prod`,
+Put in it (values from the password manager; never source the app's `.env`, see README §5):
+`ALERTS_EMAIL`, the email transport production uses — `EMAIL_PROVIDER=resend` and
+`RESEND_API_KEY` (the same value the app's `.env` holds; `SMTP_*` only on a host that sends
+by SMTP) — `BACKUP_HEARTBEAT_URL`, plus the four `Settings` needs to start: `APP_ENV=prod`,
 `DATABASE_URL`, `REDIS_URL`, `OBJECT_STORE_ENDPOINT`, `OBJECT_STORE_BUCKET` (copied as
 strings; nothing connects to them). Then prove delivery:
 
@@ -185,8 +186,8 @@ strings; nothing connects to them). Then prove delivery:
 sudo -u postgres bash -c 'set -a; . /etc/calevate/alerts.env; set +a; exec /var/www/calevate/scripts/backup/notify.sh probe "delivery test"'
 ```
 
-It must print `host_alert delivered`, and the mail must arrive. Remember: `SMTP_PASSWORD`
-now lives in two places (console and this file) — rotate both together.
+It must print `host_alert delivered`, and the mail must arrive. Remember: `RESEND_API_KEY`
+now lives in two places (the app's `.env` and this file) — rotate both together.
 
 ---
 

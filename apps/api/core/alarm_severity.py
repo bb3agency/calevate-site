@@ -847,6 +847,9 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # Keeps growing and the cluster stops accepting writes.
     "pg_wal_backlog": "page",
     "wal_chain_broken": "page",
+    # Segments not yet uploaded (none lost) right after a WAL switch, or an undetermined
+    # timeline: normal for one run, a problem only if it persists.
+    "wal_chain_warning": "attention",
     # UNVERIFIED, not broken: the base backups exist and restore to their own timestamps.
     # What is unproven is point-in-time recovery across the archive.
     "wal_verify_failed": "attention",
