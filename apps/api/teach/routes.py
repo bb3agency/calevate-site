@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.script_builder import assert_agent_visible
 from apps.api.agents.test_conversations import readiness
+from apps.api.agents.test_titles import short_title
 from apps.api.billing.ai_quota import require_ai_assist
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import assert_view_as_may, client_request_ip, requires
@@ -828,7 +829,10 @@ class TestCaseOut(Strict):
     id: UUID
     agent_id: UUID
     source_call_id: UUID | None
+    #: The test's full name, as saved.
     title: str
+    #: The name in the list: `title` in at most six words (`test_titles.short_title`, D-917).
+    short_title: str
     caller_lines: list[str]
     expected: str
     #: `idle` · `queued` · `running`.
@@ -848,6 +852,7 @@ def _case_out(case: test_cases.TestCase) -> TestCaseOut:
         agent_id=case.agent_id,
         source_call_id=case.source_call_id,
         title=case.title,
+        short_title=short_title(case.title),
         caller_lines=case.caller_lines,
         expected=case.expected,
         status=case.status,

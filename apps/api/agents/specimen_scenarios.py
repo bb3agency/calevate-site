@@ -47,7 +47,7 @@ def _turns(*lines: Lines) -> tuple[Lines, ...]:
 CLASSES: Final[tuple[SpecimenClass, ...]] = (
     SpecimenClass(
         key="specimen_done_without_action",
-        title="Wants to go ahead (nothing may be claimed as done)",
+        title="Wants to go ahead",
         turns={
             "retail": _turns(
                 {
@@ -145,7 +145,7 @@ CLASSES: Final[tuple[SpecimenClass, ...]] = (
     ),
     SpecimenClass(
         key="specimen_goodbye_mid_question",
-        title="Still has a question at the end",
+        title="Has a question at the end",
         turns={
             _DEFAULT: _turns(
                 {"te-IN": "సరే అండి.", "hi-IN": "ठीक है जी।", "en-IN": "Alright."},
@@ -185,7 +185,7 @@ CLASSES: Final[tuple[SpecimenClass, ...]] = (
     ),
     SpecimenClass(
         key="specimen_fact_not_in_knowledge",
-        title="Asks what a product is or how it is made",
+        title="Asks what a product is",
         turns={
             "retail": _turns(
                 {
@@ -250,7 +250,7 @@ CLASSES: Final[tuple[SpecimenClass, ...]] = (
     # `docs/evidence/call-quality-vs-outpero-2026-10-23.md`).
     SpecimenClass(
         key="specimen_half_answer",
-        title="Breaks off half way through an answer",
+        title="Cuts in mid-answer",
         turns={
             "retail": _turns(
                 {

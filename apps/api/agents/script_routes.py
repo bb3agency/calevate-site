@@ -62,6 +62,7 @@ from apps.api.agents import (
     script_publish,
     starters,
     test_conversations,
+    test_titles,
     trial_results,
 )
 from apps.api.agents.engine_limits import too_long_sentence
@@ -493,7 +494,10 @@ class TestResultOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     key: str
+    #: The test's full name, as written; "Why?" shows it when the card's is cut.
     title: str
+    #: The name on the card: `title` in at most six words (`test_titles.short_title`, D-917).
+    short_title: str
     #: `business` · `edge` · `objection` · `compliance`.
     category: str
     #: `ai` · `recording` · `stop_calling` · `person` for a compliance probe, else null.
@@ -855,9 +859,11 @@ def _result_out(
         )
         for t in stored_tries
     ] or [TestTryOut(verdict=verdict, reason=str(raw.get("reason") or ""), turns=turns)]
+    title = " ".join(str(raw.get("title", "")).split())
     return TestResultOut(
         key=str(raw.get("key", "")),
-        title=str(raw.get("title", "")),
+        title=title,
+        short_title=test_titles.short_title(title),
         category=str(raw.get("category") or "business"),
         probe=raw.get("probe") or None,
         source=str(raw.get("source") or "standard"),

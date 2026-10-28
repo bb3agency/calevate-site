@@ -56,7 +56,7 @@ async def test_an_agent_with_enough_real_calls_is_tested_on_them_alone(
     assert callers == [] and note == worker.FROM_REAL_CALLS_NOTE
     real = real_call_scenarios(brief)
     assert [s.turns for s in real] == [("Kukatpally ki delivery undha?",)]
-    assert real[0].source == "real" and real[0].title == "Asked on a real call: Delivery"
+    assert real[0].source == "real" and real[0].title == "Real call: Delivery"
     assert real_call_scenarios(brief, skip=frozenset({real[0].key})) == []
 
 

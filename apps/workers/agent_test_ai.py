@@ -60,6 +60,7 @@ from apps.api.agents.test_conversations import (
     clean_turns,
     without_notices,
 )
+from apps.api.agents.test_titles import MAX_TITLE_WORDS, short_title, title_problem
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from apps.api.teach.models import MAX_PINNED_ANSWER_CHARS, MAX_PINNED_QUESTION_CHARS
@@ -220,7 +221,9 @@ GENERATE_INSTRUCTION: Final = (
     "formal form; the tags and fillers callers use; prices, quantities and times said the "
     'way people say them; short lines and a "?" on questions. Never put a real name, phone '
     "number, address or other personal detail in a line.\n"
-    "For each scenario give: title (short, English, what the caller does), category "
+    f"For each scenario give: title ({MAX_TITLE_WORDS} words or fewer, plain English, the "
+    'caller\'s need, never starting "The agent" or "The caller", e.g. "Wants a visit on '
+    'Sunday"), category '
     "(business, edge, objection or compliance), probe (ai, recording, stop_calling, person "
     "or none), caller_turns, and expect: one plain-English sentence on what a good agent "
     "does, using only the facts and actions given, so a test is one the agent can pass from "
@@ -231,8 +234,14 @@ GENERATE_INSTRUCTION: Final = (
 
 _STR: Final[dict[str, object]] = {"type": "string"}
 
+#: Azure's strict schema rejects `maxLength` on a string (learn.microsoft.com/azure/
+#: ai-foundry/openai/how-to/structured-outputs, "Unsupported type-specific keywords", page
+#: dated 24 Aug 2026), so the bound is a `description` here and `title_problem` server-side.
 _SCENARIO_PROPERTIES: Final[dict[str, object]] = {
-    "title": _STR,
+    "title": {
+        "type": "string",
+        "description": f"The caller's need in {MAX_TITLE_WORDS} words or fewer.",
+    },
     "category": {"type": "string", "enum": list(CATEGORIES)},
     "probe": {"type": "string", "enum": [*PROBES, "none"]},
     "caller_turns": {"type": "array", "items": _STR},
@@ -272,12 +281,15 @@ def scenarios_from_model(
 
     A caller line with a textbook word no real caller says (`spoken_guard.textbook_problem`)
     sends the answer back once with `send_back_language`; on the repaired answer that
-    scenario is left out instead."""
+    scenario is left out instead. A title too long for a card (`test_titles.title_problem`)
+    is sent back the same way; on the repaired answer it is cut (`short_title`), never
+    dropped, because the caller lines are what the test is."""
     rows = raw.get("scenarios")
     if not isinstance(rows, list):
         return None
     out: list[Scenario] = []
     wording: list[str] = []
+    long_titles: list[str] = []
     for index, row in enumerate(rows):
         if not isinstance(row, dict):
             continue
@@ -285,6 +297,9 @@ def scenarios_from_model(
         title = " ".join(str(row.get("title") or "").split())[:120]
         if not turns or not title:
             continue
+        if (too_long := title_problem(title)) is not None:
+            long_titles.append(f"scenarios.{index}.title: {too_long}")
+            title = short_title(title)
         worded = [
             problem
             for line, said in enumerate(turns)
@@ -309,8 +324,8 @@ def scenarios_from_model(
                 probe=probe if probe in PROBES else None,
             )
         )
-    if wording and send_back_language:
-        raise UnusableAnswerError("; ".join(wording[:8]))
+    if (wording or long_titles) and send_back_language:
+        raise UnusableAnswerError("; ".join([*wording[:8], *long_titles[:12]]))
     return out[: MAX_GENERATED + 4] or None
 
 

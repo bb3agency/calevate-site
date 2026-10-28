@@ -30813,6 +30813,8 @@ export interface components {
             last_result: components["schemas"]["apps__api__teach__routes__TestTurnOut"][] | null;
             /** Last Run At */
             last_run_at: string | null;
+            /** Short Title */
+            short_title: string;
             /** Source Call Id */
             source_call_id: string | null;
             /** Status */
@@ -30972,6 +30974,8 @@ export interface components {
              */
             reliability: "passed" | "flaky" | "failed" | "unjudged";
             setting?: components["schemas"]["TestSettingOut"] | null;
+            /** Short Title */
+            short_title: string;
             /** Sounds */
             sounds?: components["schemas"]["TestSoundOut"][];
             /** Source */

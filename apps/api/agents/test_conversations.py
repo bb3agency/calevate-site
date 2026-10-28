@@ -266,7 +266,7 @@ PROBE_LINES: Final[dict[str, dict[str, str]]] = {
 }
 
 PROBE_TITLES: Final[dict[str, str]] = {
-    "ai": "Asks if it is talking to a person",
+    "ai": "Asks if it is an AI",
     "recording": "Asks if the call is recorded",
     "stop_calling": "Asks not to be called again",
     "person": "Asks to speak to a person",
@@ -407,7 +407,7 @@ def standard_scenarios(language: str, direction: str) -> list[Scenario]:
     out = [
         Scenario(
             key="asks_about_products",
-            title="Asks what you sell and what it costs",
+            title="Asks about products and prices",
             category="business",
             turns=(_in(_STANDARD_BUSINESS, language),),
             expect=(
@@ -1036,7 +1036,7 @@ def real_call_scenarios(brief: AgentBrief, *, skip: frozenset[str] = frozenset()
         out.append(
             Scenario(
                 key=key,
-                title=f"Asked on a real call: {topic}"[:120],
+                title=f"Real call: {topic}"[:120],
                 category="business",
                 turns=(line,),
                 expect=REAL_QUESTION_EXPECT,

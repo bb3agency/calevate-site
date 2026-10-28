@@ -203,6 +203,7 @@ describe("a test written by hand", () => {
         agent_id: "agent-1",
         source_call_id: null,
         title: "Do you open on Sunday?",
+        short_title: "Do you open on Sunday?",
         caller_lines: ["Do you open on Sunday?", "What time?"],
         expected: "Says no, Monday to Saturday.",
         status: "idle",
@@ -223,8 +224,9 @@ describe("a test written by hand", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save test" }));
     await waitFor(() => expect(calls.some((c) => c.method === "POST")).toBe(true));
     const sent = calls.find((c) => c.method === "POST");
+    // No title: the server names it from the first line, in six words (D-917).
     expect(JSON.parse(sent!.body!)).toEqual({
-      title: "Do you open on Sunday?",
+      title: "",
       caller_lines: ["Do you open on Sunday?", "What time?"],
       expected: "Says no, Monday to Saturday.",
     });

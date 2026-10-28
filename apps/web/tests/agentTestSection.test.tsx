@@ -243,6 +243,25 @@ describe("the practice tests in Training", () => {
     expect(calls.some((c) => c.method === "POST")).toBe(false);
   });
 
+  it("names a test by its short title on the card and keeps the full one behind Why? (D-917)", async () => {
+    const long = "Takes the caller's full phone number before booking an appointment for tomorrow morning";
+    const shortName = "Takes the caller's full phone number…";
+    await page(tests(run({ results: [{ ...PRICE, key: "gen_1", title: long, short_title: shortName }] })));
+    const named = (await screen.findByText(shortName)).closest("li") as HTMLElement;
+    expect(named.textContent).not.toContain(long);
+    // No clamp: the server already made it short.
+    expect(within(named).getByText(shortName).className).not.toContain("line-clamp");
+    fireEvent.click(within(named).getByRole("button", { name: "Why?" }));
+    expect(within(named).getByText(long)).toBeTruthy();
+  });
+
+  it("shows a short title whole, with no second copy behind Why?", async () => {
+    await page(tests(run({ results: [{ ...PRICE, short_title: PRICE.title }] })));
+    const named = (await screen.findByText("Asked on a real call: Delivery")).closest("li") as HTMLElement;
+    fireEvent.click(within(named).getByRole("button", { name: "Why?" }));
+    expect(within(named).getAllByText("Asked on a real call: Delivery")).toHaveLength(1);
+  });
+
   it("shows another try's conversation on demand", async () => {
     await page(tests(run({ results: [FLAKY] })));
     fireEvent.click(await screen.findByRole("button", { name: "See the chat" }));

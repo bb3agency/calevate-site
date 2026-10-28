@@ -456,7 +456,7 @@ async def _plan_add(session: AsyncSession, actor: ToolActor, args: Mapping[str, 
         for line in parsed.caller_lines
     ]
     expected = _owner_words(parsed.expected, limit=MAX_CASE_EXPECTED_CHARS, what="expected")
-    title = " ".join(strip_invisible(parsed.title or "").split())[: test_cases.MAX_TITLE_CHARS]
+    title = test_cases.written_title(strip_invisible(parsed.title or ""))
     return Plan(
         object_id=str(parsed.agent_id),
         title="Save a practice test",
@@ -483,7 +483,8 @@ async def _execute_add(
         tenant_id=actor.tenant_id,
         call_id=None,
         agent_id=parsed.agent_id,
-        title=parsed.title or "Test written by hand",
+        # No title: `create_case` names it from the first caller line.
+        title=parsed.title or "",
         caller_lines=parsed.caller_lines,
         expected=parsed.expected,
         created_by=actor.user_id,
@@ -547,7 +548,7 @@ AGENT_TEST_ADD: Final = ActionTool(
             "agent_id": {"type": "string"},
             "caller_lines": {"type": "array", "items": {"type": "string"}},
             "expected": {"type": "string"},
-            "title": _NULLABLE_TEXT,
+            "title": {**_NULLABLE_TEXT, "description": test_cases.TITLE_HINT},
         },
     ),
     plan=_plan_add,

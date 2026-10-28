@@ -95,7 +95,8 @@ export function ImprovementReview({
   );
   const [pressed, setPressed] = useState<"draft" | "live">("draft");
 
-  const titles = new Map(run.results.map((r) => [r.key, r.title]));
+  // The name the test's card shows (D-917), so "Fixes:" points at a card the owner saw.
+  const titles = new Map(run.results.map((r) => [r.key, r.short_title || r.title]));
   const working: CallScript | undefined = loaded.data?.draft?.script ?? loaded.data?.script ?? undefined;
   const keptFacts = facts.filter((f) => f.keep);
   // "Keep and put live" only when there is no other unpublished draft, so pressing it can
