@@ -62,7 +62,7 @@ describe("the monthly platform fee card", () => {
     await screen.findByText("Monthly platform fee");
     expect(container.textContent).toContain("paid separately from your calling credit");
     expect(container.textContent).toContain("Outgoing calls are paused");
-    expect(container.textContent).toContain("Incoming calls keep being answered");
+    expect(container.textContent).toContain("Incoming calls still answered");
     expect(screen.getByRole("button", { name: /Pay ₹1,999/ })).toBeTruthy();
   });
 

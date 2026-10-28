@@ -109,10 +109,7 @@ export function WalletLedgerPanel({
                 <span className="block font-medium text-ink">
                   Nothing has moved on your credit yet
                 </span>
-                <span className="mt-1 block">
-                  Payments you make and calls your agents handle will both show up here,
-                  newest first.
-                </span>
+                <span className="mt-1 block">Payments and calls will show here.</span>
               </>
             }
           />
@@ -125,7 +122,7 @@ export function WalletLedgerPanel({
             </div>
             {shown.length === 0 ? (
               <p className="py-6 text-body text-ink-muted">
-                Nothing of this kind in your latest {ledger.data.entries.length} entries.
+                None in your latest {ledger.data.entries.length} entries.
               </p>
             ) : (
             <ScrollRegion label="Credit history">
@@ -170,8 +167,7 @@ export function WalletLedgerPanel({
                  entry from six months ago has to be told it is not missing — it is off
                  the end. Saying nothing is how a support ticket starts. */
               <p className="mt-3 text-meta text-ink-muted">
-                Showing your {WALLET_LEDGER_LIMIT} most recent entries. Ask us if you need
-                anything older.
+                Your latest {WALLET_LEDGER_LIMIT} entries. Ask us for older ones.
               </p>
             )}
           </>
@@ -304,7 +300,7 @@ function splitSentence(
     return `${formatINR(split.credits)} of extra AI help, from credit bought earlier`;
   }
   const quality = labels ? ` on ${labels[split.voice_tier]}` : "";
-  return `${formatINR(split.credits)} — ${formatDecimal(split.minutes)} min at ${formatINR(
+  return `${formatINR(split.credits)} · ${formatDecimal(split.minutes)} min at ${formatINR(
     split.inr_per_min,
-  )}/min${quality}, from credit bought at that rate`;
+  )}/min${quality}`;
 }

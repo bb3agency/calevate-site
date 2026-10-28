@@ -34,6 +34,8 @@ import { rupeeProblem } from "@/lib/api/credits";
 import { lookup } from "@/lib/lookup";
 import { openRazorpayCheckout } from "@/lib/razorpayCheckout";
 
+import { Why } from "./_ui/Why";
+
 /**
  * Auto top-up (D-699): approve UPI Autopay or a card once, then choose when we top up, by
  * how much, and the most in a month. One collapsed card on the billing screen; the state
@@ -181,7 +183,7 @@ export function AutoRechargePanel({
       subtitle={
         data.enabled
           ? `Adds ${formatPayableINR(data.amount_inr)} when credit falls below ${formatINR(data.threshold_inr)}`
-          : "Refill your credit automatically when it runs low"
+          : "Refill credit automatically when it runs low"
       }
       showLabel={confirmed ? "Change" : "Set up"}
       hideLabel="Close"
@@ -306,11 +308,13 @@ export function AutoRechargePanel({
         {fieldProblem && <p className="text-meta text-ink-muted">{fieldProblem}</p>}
         <ProblemNotice error={save.error ?? start.error ?? checkoutProblem ?? confirm.error} />
 
-        <p className="max-w-prose text-meta text-ink-muted">
-          Your bank or UPI app tells you at least a day before each debit, so the credit
-          arrives one to two days later; calls keep running meanwhile. Turn it off or
-          withdraw the approval at any time.
-        </p>
+        <Why label="How this works">
+          <p>
+            Your bank or UPI app tells you at least a day before each debit, so the credit
+            arrives one to two days later; calls keep running meanwhile. Turn it off or
+            withdraw the approval at any time.
+          </p>
+        </Why>
 
         {charges.data && charges.data.length > 0 && (
           <div>
@@ -356,8 +360,7 @@ export function AutoRechargePanel({
 }
 
 /** Said wherever the card would otherwise offer a payment method this account cannot use. */
-const UNAVAILABLE =
-  "Automatic top-up needs online payment, which isn't on for your account yet. Talk to us to add credit by bank transfer.";
+const UNAVAILABLE = "Needs online payment, which isn't on yet.";
 
 /**
  * The server's amount as `MoneyInput`'s canonical form ("500.00"), so an untouched field

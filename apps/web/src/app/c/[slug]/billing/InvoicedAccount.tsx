@@ -17,11 +17,8 @@ export function InvoicedAccount() {
     // One notice, not a notice and a stray line under its border: the reassurance belongs
     // to the same message.
     <NoticeBox tone="neutral" title="Moving to prepaid calling credit">
-      <p>
-        Invoices we already sent stay valid and are honoured as issued. No new monthly invoices
-        are raised.
-      </p>
-      <p className="mt-1 text-ink-muted">We will finish the move with you. Nothing on your account is lost.</p>
+      <p>Invoices already sent stay valid. No new ones.</p>
+      <p className="mt-1 text-ink-muted">Nothing on your account is lost.</p>
     </NoticeBox>
   );
 }

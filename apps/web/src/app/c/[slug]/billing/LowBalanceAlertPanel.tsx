@@ -47,7 +47,7 @@ export function LowBalanceAlertPanel({ session, wallet }: { session: Session; wa
           ? `Below ${formatINR(wallet.low_balance_threshold_inr)}`
           : "Off"
       }
-      subtitle="We email the owner once when the balance drops below this line"
+      subtitle="Emails the owner when credit drops below this"
       showLabel="Change"
       hideLabel="Close"
     >
@@ -96,7 +96,7 @@ export function LowBalanceAlertPanel({ session, wallet }: { session: Session; wa
             (off
               ? "Only the warning that credit has run out will be sent."
               : wallet.low_balance_alert_chosen
-                ? "Your own choice. Running out is always emailed, whatever this says."
+                ? "Your own choice. Running out is always emailed."
                 : `Calevate's usual line, ${formatINR(wallet.low_balance_threshold_inr)}. Running out is always emailed.`)}
         </p>
         {save.error ? <ProblemNotice error={save.error} /> : null}

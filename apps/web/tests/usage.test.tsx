@@ -276,7 +276,7 @@ describe("the usage panel", () => {
     );
 
     await screen.findByText("Extra charges");
-    const link = screen.getByRole("link", { name: "AI model" });
+    const link = screen.getByRole("link", { name: "Change AI model" });
     expect(link.getAttribute("href")).toBe("/c/acme/settings/models");
     expect(container.textContent).toContain("ran a model you chose");
   });
@@ -285,7 +285,7 @@ describe("the usage panel", () => {
     await renderBillingHub(routes(), "Usage");
 
     await screen.findByText("Extra charges");
-    expect(screen.queryByRole("link", { name: "AI model" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Change AI model" })).toBeNull();
   });
 
   /**
@@ -389,7 +389,7 @@ describe("the usage panel", () => {
       "Usage",
     );
 
-    await screen.findByText(/limited to the account owner/);
+    await screen.findByText("Only the account owner can see spending.");
     expect(
       screen.queryByRole("alert"),
       "a permission is not a fault",
@@ -427,7 +427,8 @@ describe("the usage panel", () => {
       "Usage",
     );
 
-    await screen.findByText(/Outgoing calls are paused for this month/);
+    await screen.findByText("Outgoing calls paused. Spending limit reached.");
+    expect(screen.getByRole("link", { name: "Raise my limit" }).getAttribute("href")).toBe("#spending-limit");
     // The sentence that prevents the support call: a stopped account looks like an
     // outage until someone says which half of it stopped.
     expect(container.textContent).toContain(

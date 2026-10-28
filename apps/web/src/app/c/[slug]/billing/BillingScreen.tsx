@@ -349,7 +349,7 @@ export function BillingScreen({ slug }: { slug: string }) {
   const refused = me.data !== undefined && !me.data.permissions.includes("wallet:read");
   if (refused) {
     return (
-      <RestrictionNote reason="Your account's billing is limited to people with access to it. Ask the account owner to share the balance, or to give you access." />
+      <RestrictionNote reason="Only the account owner can open billing." />
     );
   }
   const billingRefused = me.data !== undefined && !me.data.permissions.includes("billing:read");
@@ -396,7 +396,7 @@ export function BillingScreen({ slug }: { slug: string }) {
             </button>
           }
         />
-        <UnfinishedPayments session={session} />
+        <UnfinishedPayments session={session} onAddCredit={() => setAddingCredit(true)} />
         {!billingRefused && (
           <div className="space-y-3">
             <AutoTopUp session={session} />

@@ -23,6 +23,8 @@ import {
 } from "@/lib/api/billingHistory";
 import type { Session } from "@/lib/api/client";
 
+import { OWNER_ONLY_SPENDING } from "./UsageTab";
+
 const WINDOWS: SpendWindowDays[] = [7, 30, 90];
 
 /** "2026-10-01" → "1 Oct", built and read in UTC so the day is the one the string names. */
@@ -61,7 +63,7 @@ export function SpendOverTime({ session, allowed }: { session: Session; allowed:
 
   if (allowed === false) {
     return (
-      <RestrictionNote reason="Spending and usage are limited to the account owner. Ask them to share this month's figures, or to give you owner access." />
+      <RestrictionNote reason={OWNER_ONLY_SPENDING} />
     );
   }
 
@@ -72,8 +74,8 @@ export function SpendOverTime({ session, allowed }: { session: Session; allowed:
       info={
         <p>
           What left your calling credit each day, in Indian Standard Time: calls, phone
-          number rental, extra AI help you accepted, and any correction we made. Money you added is not spending, so
-          it is not drawn here.
+          number rental, extra AI help you accepted, and any correction we made. Money you
+          added is not spending, so it is not drawn here.
         </p>
       }
       action={

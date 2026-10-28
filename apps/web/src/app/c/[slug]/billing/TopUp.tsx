@@ -36,6 +36,7 @@ import { CREDIT_WAIT_MS, useCreditLanding, type AwaitedCredit } from "@/lib/api/
 import { openRazorpayCheckout, paymentFailedProblem } from "@/lib/razorpayCheckout";
 import type { ApiProblem, Session } from "@/lib/api/client";
 
+import { Why } from "./_ui/Why";
 import {
   VOICE_TIERS,
   formatWhole,
@@ -203,9 +204,9 @@ export function TopUp({ session }: { session: Session }) {
         {stage.at === "verified" && (
           <NoticeBox tone="ok" title="Payment received">
             {creditLanded ? (
-              <p role="status">The credit has been added to your balance.</p>
+              <p role="status">Credit added to your balance.</p>
             ) : (
-              <p>Your balance updates when the payment is confirmed, usually within a minute.</p>
+              <p>Balance updates within about a minute.</p>
             )}
           </NoticeBox>
         )}
@@ -214,11 +215,13 @@ export function TopUp({ session }: { session: Session }) {
             {/* The server owns this wording: a compliance-shaped refusal about money. */}
             <ProblemNotice error={confirm.error} />
             <NoticeBox tone="warn" title="Do not pay again">
-              <p>
-                We could not confirm this payment here. If the money has left your account,
-                the credit is added when the payment is confirmed. Send us the reference
-                below if your balance does not move.
-              </p>
+              <p>We couldn&rsquo;t confirm this payment here.</p>
+              <Why>
+                <p>
+                  If the money has left your account, the credit is added when the payment is
+                  confirmed. Send us the reference below if your balance does not move.
+                </p>
+              </Why>
             </NoticeBox>
           </div>
         )}
@@ -258,16 +261,25 @@ export function TopUp({ session }: { session: Session }) {
         )}
 
         {bankOnly && (
+          /* Honest and compact: no payment method and no contact channel is invented here,
+             because none has been chosen yet. */
           <div
             role="note"
+            aria-label="Pay by bank transfer"
             className="flex gap-3 rounded-card border border-line bg-surface-muted px-4 py-3 text-body"
           >
             <Landmark aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-muted" />
-            <p className="text-ink-muted">
-              <span className="font-medium text-ink">Pay by bank transfer.</span> Card and
-              UPI payment isn&rsquo;t on for your account yet. Talk to us for our bank
-              details; the credit appears here once the transfer lands.
-            </p>
+            <div className="min-w-0 space-y-0.5">
+              <p className="font-medium text-ink">{TOPUP_COPY.bankTitle}</p>
+              <p className="text-ink-muted">{TOPUP_COPY.bankOff}</p>
+              <p className="text-ink-muted">{TOPUP_COPY.bankDetails}</p>
+              {/* SLOT: the "Get bank details" button goes here, full width on a phone,
+                  once the founder chooses how bank details are sent. Until then nothing
+                  is offered, because a button with nowhere to go is worse than none. */}
+              <Why label="How it works">
+                <p>The credit appears here once the transfer lands.</p>
+              </Why>
+            </div>
           </div>
         )}
 
@@ -317,6 +329,13 @@ export function TopUp({ session }: { session: Session }) {
     </div>
   );
 }
+
+/** The bank-transfer state's words, short enough for one phone line each. */
+export const TOPUP_COPY = {
+  bankTitle: "Pay by bank transfer",
+  bankOff: "Card and UPI payment isn't on yet.",
+  bankDetails: "We'll share our bank details with you.",
+} as const;
 
 /** The value of `choice` that means "Other amount", distinct from any pack id. */
 const CUSTOM = "__custom__";
@@ -388,23 +407,28 @@ function OrderPanel({
     <div className="settings-enter rounded-card border border-line px-4 py-3.5 text-body text-ink-muted">
       <p className="font-semibold text-ink">
         {formatPayableINR(order.amount_inr)}
-        {paid ? " — paid." : " — nothing has been charged yet."}
+        {paid ? " · paid" : " · nothing charged yet"}
       </p>
       {order.provider_order_id === null ? (
-        <p className="mt-1">
-          Card and UPI payment isn&rsquo;t on for your account yet. Transfer{" "}
-          <strong className="font-semibold text-ink">{formatPayableINR(order.amount_inr)}</strong> to
-          us by bank transfer quoting the reference below, and the credit is added once the
-          payment lands. Your balance will not change until then.
-        </p>
-      ) : paid ? (
-        <p className="mt-1">Quote the references below if you need to ask us about this payment.</p>
-      ) : (
         <>
           <p className="mt-1">
-            The payment window opens on this page; your balance changes once the payment is
-            confirmed.
+            Transfer{" "}
+            <strong className="font-semibold text-ink">{formatPayableINR(order.amount_inr)}</strong> by
+            bank. Quote the ref below.
           </p>
+          <Why label="How it works">
+            <p>
+              Card and UPI payment isn&rsquo;t on for your account yet. Pay us by bank transfer
+              quoting the reference below, and the credit is added once the payment lands.
+              Your balance will not change until then.
+            </p>
+          </Why>
+        </>
+      ) : paid ? (
+        <p className="mt-1">Quote these refs if you ask us about it.</p>
+      ) : (
+        <>
+          <p className="mt-1">Pay in the window that opens here.</p>
           <div className="mt-3">{payNow}</div>
         </>
       )}
@@ -477,7 +501,7 @@ function PackPicker({
           Minutes you call in a month
         </label>
         <span id={hintId} className={FIELD_HINT}>
-          Optional — we&rsquo;ll pick the pack that covers it.
+          Optional. We&rsquo;ll pick a pack for you.
         </span>
         <div className={`${FIELD_GROUP} mt-2 w-full max-w-56`}>
           <input
@@ -509,7 +533,7 @@ function PackPicker({
           key={match ? `${match.pack.pack_id}-${match.short}` : monthly.trim() === "" ? "empty" : "bad"}
         >
           {monthly.trim() !== "" && wanted === null
-            ? "Enter the minutes as digits, like 600."
+            ? "Digits only, like 600."
             : match && wanted !== null
               ? matchSentence(match, wanted)
               : ""}
@@ -583,46 +607,57 @@ function PackPicker({
           or not printed at all. */}
       <div className="space-y-1.5 text-body text-ink-muted">
         <p role="status" aria-label="What this amount buys" className="text-ink">
-          {selected && labels ? <RatesSentence selected={selected} labels={labels} /> : null}
+          {selected && labels ? <RatesLine selected={selected} labels={labels} /> : null}
         </p>
-        {labels && (
-          /* The client sets the voice themselves (D-586): `PATCH /v1/agents/{id}/voice` is
-             on `owner` and `staff`, with the picker on their own agent screen. */
+        {lapse && (
+          /* D-900: the term and its date are on screen before the button; what it does not
+             change (credit already held) is one tap away. */
           <p>
-            Every pack buys both voice qualities, and the rate a call uses is set per agent —
-            you choose that on each agent&rsquo;s own screen.
+            Lasts {card.credit_expiry_months} months, until {lapse}
           </p>
         )}
-        {lapse && (
-          <p>
-            Credit you buy now lasts {card.credit_expiry_months} months, until {lapse}. Credit
-            you already hold keeps the terms it was bought on.
-          </p>
+        {(labels || lapse) && (
+          <Why label="Details">
+            {selected && labels && (
+              <p>These rates stay with this credit until it is spent.</p>
+            )}
+            {labels && (
+              /* The client sets the voice themselves (D-586): `PATCH /v1/agents/{id}/voice`
+                 is on `owner` and `staff`, with the picker on their own agent screen. */
+              <p>
+                Every pack buys both voice qualities, and the rate a call uses is set per
+                agent. You choose that on each agent&rsquo;s own screen.
+              </p>
+            )}
+            {lapse && <p>Credit you already hold keeps the terms it was bought on.</p>}
+          </Why>
         )}
       </div>
     </div>
   );
 }
 
-function RatesSentence({ selected, labels }: { selected: Selection; labels: TierLabels }) {
+/**
+ * The rate pair for the selection on one line ("₹5/min on Clear · ₹7/min on Studio"), and for
+ * a free amount, whose rates it borrows, on a second.
+ */
+function RatesLine({ selected, labels }: { selected: Selection; labels: TierLabels }) {
   return (
     <>
-      {formatPayableINR(selected.amount)} buys calling at{" "}
       {VOICE_TIERS.map((tier, index) => (
         <span key={tier}>
-          {index > 0 ? " and " : ""}
+          {index > 0 ? " · " : ""}
           <strong className="font-semibold tabular-nums">
             {formatINR(packRate(selected.pack, tier))}/min
           </strong>{" "}
           on {labels[tier]}
         </span>
       ))}
-      {selected.kind === "custom" ? (
-        <> — the {formatINR(selected.pack.amount_inr)} pack&rsquo;s rates.</>
-      ) : (
-        "."
-      )}{" "}
-      <span className="text-ink-muted">They stay with this credit until it is spent.</span>
+      {selected.kind === "custom" && (
+        <span className="block text-ink-muted">
+          At the {formatINR(selected.pack.amount_inr)} pack&rsquo;s rates
+        </span>
+      )}
     </>
   );
 }
@@ -658,9 +693,9 @@ function wantedMinutes(raw: string): number | null {
 function matchSentence(match: { pack: CreditPack; short: boolean }, wanted: number): string {
   const amount = formatINR(match.pack.amount_inr);
   if (match.short) {
-    return `${formatCount(wanted)} minutes a month is more than one pack. The largest is ${amount} — add credit more than once, or turn on auto top-up.`;
+    return `Over our largest pack, ${amount}. Try auto top-up.`;
   }
-  return `${amount} covers ${formatCount(wanted)} minutes a month on either voice.`;
+  return `${amount} covers ${formatCount(wanted)} min a month.`;
 }
 
 /**

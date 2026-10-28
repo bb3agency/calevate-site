@@ -115,7 +115,7 @@ export function WhatCallsCost({
     <Disclosure
       title="What calls cost"
       icon={<ReceiptText className="h-4 w-4" />}
-      subtitle="1 credit is ₹1, calls are billed in 30-second steps, unanswered calls are free"
+      subtitle="1 credit = ₹1 · 30-second steps · missed calls free"
       showLabel="Show"
       hideLabel="Hide"
     >
@@ -130,8 +130,8 @@ export function WhatCallsCost({
           icon={<Waves className="h-4 w-4" aria-hidden />}
           claim={
             labels
-              ? `Two voice qualities — ${labels.clear} and ${labels.studio} — and each agent speaks with one of them`
-              : "Two voice qualities, and each agent speaks with one of them"
+              ? `Two voices, ${labels.clear} and ${labels.studio}, set per agent`
+              : "Two voices, set per agent"
           }
         >
           {/* The client holds this control themselves (D-586): `PATCH /v1/agents/

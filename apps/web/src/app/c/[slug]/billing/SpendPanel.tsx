@@ -30,6 +30,8 @@ import {
 import { lookup } from "@/lib/lookup";
 import type { Session } from "@/lib/api/client";
 
+import { Why } from "./_ui/Why";
+
 /**
  * WHERE THE MONEY WENT — one month's calling charge, per agent and per call.
  *
@@ -106,16 +108,12 @@ function SpendBreakdown({ data, slug }: { data: Spend; slug: string }) {
         <Metric
           label={`Calling charge · ${data.month}`}
           value={formatINR(data.period_charge_inr)}
-          hint="What your calls cost this month, before the monthly fee below."
+          hint="Before the monthly fee"
         />
         <Metric
           label="Monthly fee"
           value={data.retainer_inr === null ? "None" : formatINR(data.retainer_inr)}
-          hint={
-            data.retainer_inr === null
-              ? "Your plan has no monthly fee — you pay for what you use."
-              : "Buys the account rather than any particular call, so it is not split across the calls below."
-          }
+          hint={data.retainer_inr === null ? "You pay for what you use" : "Not split across calls"}
         />
         {/* THE MONTH IS IN THE LABEL, and that is not decoration. This panel sits under
             the month's own totals on the Usage tab (D-525), which report the OPEN month
@@ -125,7 +123,7 @@ function SpendBreakdown({ data, slug }: { data: Spend; slug: string }) {
         <Metric
           label={`Minutes used · ${data.month}`}
           value={formatDecimal(data.minutes_used)}
-          hint="Your statement shows the exact figure."
+          hint="Exact figure on your statement"
         />
         <Metric
           label={`Calls · ${data.month}`}
@@ -135,10 +133,12 @@ function SpendBreakdown({ data, slug }: { data: Spend; slug: string }) {
 
       {/* WHICH KIND OF NUMBER every figure below is — said once, above the tables, rather
           than repeated as a column header nobody reads. */}
-      <p className="text-body text-ink-muted">
-        <strong className="font-semibold text-ink">{basis.label}.</strong>{" "}
-        {basis.hint || "Ask us how this month is priced."}
-      </p>
+      <div className="text-body text-ink-muted">
+        <p className="font-semibold text-ink">{basis.label}</p>
+        <Why label="How this works">
+          <p>{basis.hint || "Ask us how this month is priced."}</p>
+        </Why>
+      </div>
 
       <Residual data={data} />
 
@@ -146,8 +146,8 @@ function SpendBreakdown({ data, slug }: { data: Spend; slug: string }) {
         {data.by_agent.length === 0 ? (
           <div className="p-6">
             <EmptyState illustration={<EmptySketch kind="deliveries" />}
-              message="No calls to attribute this month"
-              hint="Once your agents start taking and making calls, each one's share of the charge appears here."
+              message="No calls this month"
+              hint="Each agent's share will show here."
             />
           </div>
         ) : (
@@ -191,7 +191,7 @@ function SpendBreakdown({ data, slug }: { data: Spend; slug: string }) {
           <div className="p-6">
             <EmptyState illustration={<EmptySketch kind="deliveries" />}
               message="No calls this month"
-              hint="Calls appear here as soon as they are metered, most expensive first."
+              hint="Costliest calls will show here first."
             />
           </div>
         ) : (
@@ -238,10 +238,12 @@ function Residual({ data }: { data: Spend }) {
         The calls below add up to {formatINR(data.itemised_charge_inr)} of{" "}
         {formatINR(data.period_charge_inr)}
       </p>
-      <p className="mt-1 text-ink-muted">{sentence}</p>
       <p className="mt-1 text-ink-muted">
-        Difference: {formatINR(data.itemisation_residual_inr)}.
+        Difference: {formatINR(data.itemisation_residual_inr)}
       </p>
+      <Why>
+        <p>{sentence}</p>
+      </Why>
     </div>
   );
 }
