@@ -34,7 +34,7 @@ import { rupeeProblem } from "@/lib/api/credits";
 import { lookup } from "@/lib/lookup";
 import { openRazorpayCheckout } from "@/lib/razorpayCheckout";
 
-import { Why } from "./_ui/Why";
+import { Why } from "@/components/why";
 
 /**
  * Auto top-up (D-699): approve UPI Autopay or a card once, then choose when we top up, by

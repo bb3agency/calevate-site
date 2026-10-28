@@ -14,7 +14,7 @@ import {
 } from "@/lib/api/wallet";
 
 import { TierRunwayLines } from "./LotsPanel";
-import { Why } from "./_ui/Why";
+import { Why } from "@/components/why";
 import { firstLapse, formatISTDate, type WalletLots } from "./lots";
 
 /**

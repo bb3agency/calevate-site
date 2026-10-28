@@ -12,7 +12,7 @@ import { lookup } from "@/lib/lookup";
 
 import { ConsentProvenanceAnswer, listSourceId } from "./ConsentProvenance";
 import { LaunchConfirm } from "./LaunchConfirm";
-import { Why } from "./_ui/Why";
+import { Why } from "@/components/why";
 import {
   BLOCKER_COPY,
   OWNER_BADGE,
@@ -91,7 +91,7 @@ export function LaunchGate({
       note?.owner || note?.why ? (
         <>
           {note.owner ? <span className="mr-3">{OWNER_BADGE[note.owner]}</span> : null}
-          {note.why ? <Why>{note.why}</Why> : null}
+          {note.why ? <Why inline>{note.why}</Why> : null}
         </>
       ) : undefined;
     return {

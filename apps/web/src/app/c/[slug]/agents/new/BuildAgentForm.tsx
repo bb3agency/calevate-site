@@ -13,7 +13,7 @@ import { Disclosure, Skeleton, formatCallCap } from "@/components/ui";
 import type { useLanes } from "@/lib/api/publishing";
 
 import { NEW_AGENT } from "../../setup/_ui/copy";
-import { Why } from "../../setup/_ui/Why";
+import { Why } from "@/components/why";
 
 /**
  * The cost-runaway guard, asked at creation in minutes, closed by default with the

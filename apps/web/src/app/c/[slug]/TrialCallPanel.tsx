@@ -26,7 +26,7 @@ import { usePlaceTrialCall, useRecentTestCalls, type TrialPanel } from "@/lib/ap
 
 import { EarlierTestCalls, TestCallFollow } from "./TestCallStatus";
 import { HOME, TRIAL } from "./setup/_ui/copy";
-import { Why } from "./setup/_ui/Why";
+import { Why } from "@/components/why";
 
 /**
  * THE FREE TRIAL, on the dashboard (D-697): what is left of it, a test call, and the one

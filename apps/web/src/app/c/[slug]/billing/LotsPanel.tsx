@@ -4,7 +4,7 @@ import { CARD } from "@/components/console/dataTable";
 import { Section } from "@/components/console/section";
 import { NOTICE_BAR, NOTICE_BASE, ScrollRegion, formatINR, formatIST, formatISTDate } from "@/components/ui";
 
-import { Why } from "./_ui/Why";
+import { Why } from "@/components/why";
 import { formatWhole, isVoiceTier, lotRate, type WalletLots } from "./lots";
 
 /**

@@ -9,7 +9,7 @@ import { recurrenceUntil, type NewRecurrence, type useLaunchCheck } from "@/lib/
 
 import { RepeatFields, StartAtFields } from "./ScheduleFields";
 import { FireTimeRefusal } from "./scheduleCopy";
-import { Why } from "./_ui/Why";
+import { Why } from "@/components/why";
 import type { ScheduleFormState } from "./campaignForm";
 
 /** Said under the start date when the chosen moment cannot be armed; `null` when it can. */
@@ -130,7 +130,7 @@ export function ArmingForms({
         </ActionButton>
         <p className={FIELD_HINT}>
           A missed run is skipped, never called late.{" "}
-          <Why>
+          <Why inline>
             A run can be missed by a fault on our side, or because the last run is still going.
             We wait for the next one rather than call people at a different time of day.
           </Why>

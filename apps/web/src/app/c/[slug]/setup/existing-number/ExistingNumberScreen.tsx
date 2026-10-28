@@ -12,7 +12,7 @@ import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
 
 import { SETUP } from "../_ui/copy";
-import { Why } from "../_ui/Why";
+import { Why } from "@/components/why";
 
 /**
  * ONBOARDING: "Use your existing number" (D-746), offered once the business has its

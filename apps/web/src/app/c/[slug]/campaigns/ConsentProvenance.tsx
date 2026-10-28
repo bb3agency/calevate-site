@@ -17,7 +17,7 @@ import {
 } from "@/lib/api/campaigns";
 
 import { CONSENT_SOURCES } from "./choices";
-import { Why } from "./_ui/Why";
+import { Why } from "@/components/why";
 
 /** The answer form's element id, so the launch checklist's "Answer" button can jump to it. */
 export function listSourceId(campaignId: string): string {
@@ -63,7 +63,7 @@ export function ConsentProvenanceFields({
           description={
             <>
               This goes on the record. Pick the true one.{" "}
-              <Why>It is how we show, later, that these people agreed to hear from you.</Why>
+              <Why inline>It is how we show, later, that these people agreed to hear from you.</Why>
             </>
           }
           name={`${idPrefix}-consent-source`}

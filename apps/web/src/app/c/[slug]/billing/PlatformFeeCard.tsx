@@ -31,7 +31,7 @@ import { openRazorpayCheckout } from "@/lib/razorpayCheckout";
 import { ApiProblem, type Session } from "@/lib/api/client";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { Why } from "./_ui/Why";
+import { Why } from "@/components/why";
 
 /**
  * The monthly platform fee (D-707), on the client's billing screen.

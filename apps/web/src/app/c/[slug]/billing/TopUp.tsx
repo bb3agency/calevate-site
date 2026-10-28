@@ -36,7 +36,7 @@ import { CREDIT_WAIT_MS, useCreditLanding, type AwaitedCredit } from "@/lib/api/
 import { openRazorpayCheckout, paymentFailedProblem } from "@/lib/razorpayCheckout";
 import type { ApiProblem, Session } from "@/lib/api/client";
 
-import { Why } from "./_ui/Why";
+import { Why } from "@/components/why";
 import {
   VOICE_TIERS,
   formatWhole,

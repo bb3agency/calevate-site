@@ -8,7 +8,7 @@ import { FIELD_HINT, Skeleton, formatIST } from "@/components/ui";
 import { lookup } from "@/lib/lookup";
 import type { useCampaignProgress } from "@/lib/api/campaigns";
 
-import { Why } from "./_ui/Why";
+import { Why } from "@/components/why";
 import { FireTimeRefusal, SKIP_COPY, START_GIVES_UP, describeRepeat, formatOccurrence } from "./scheduleCopy";
 
 /**
@@ -73,7 +73,7 @@ export function ScheduleCards({
                     <span>
                       Skipped {formatOccurrence(recurrence.last_skipped_at)} IST.{" "}
                       {lookup(SKIP_COPY, recurrence.last_skipped_reason) ? (
-                        <Why>{lookup(SKIP_COPY, recurrence.last_skipped_reason)}</Why>
+                        <Why inline>{lookup(SKIP_COPY, recurrence.last_skipped_reason)}</Why>
                       ) : (
                         "The next one is unaffected."
                       )}

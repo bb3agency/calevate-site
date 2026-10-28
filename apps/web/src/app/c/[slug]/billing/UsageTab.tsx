@@ -32,7 +32,7 @@ import { formatBillingMonth } from "@/lib/billingMonth";
 import type { Session } from "@/lib/api/client";
 
 import { SpendPanel } from "./SpendPanel";
-import { Why } from "./_ui/Why";
+import { Why } from "@/components/why";
 import { voiceUsage } from "./lots";
 
 /** Said wherever a staff session meets the owner's spending figures. */

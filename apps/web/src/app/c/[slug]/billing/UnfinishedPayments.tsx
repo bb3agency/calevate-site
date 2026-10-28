@@ -16,7 +16,7 @@ import { lookup } from "@/lib/lookup";
 import { useTopUpAttempts, type TopUpAttempt } from "@/lib/api/wallet";
 import type { Session } from "@/lib/api/client";
 
-import { Why } from "./_ui/Why";
+import { Why } from "@/components/why";
 
 /**
  * Payments that were started and did not become credit — and what to do about each.

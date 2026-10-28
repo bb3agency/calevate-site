@@ -30,7 +30,7 @@ import {
 import { lookup } from "@/lib/lookup";
 import type { Session } from "@/lib/api/client";
 
-import { Why } from "./_ui/Why";
+import { Why } from "@/components/why";
 
 /**
  * WHERE THE MONEY WENT — one month's calling charge, per agent and per call.

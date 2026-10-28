@@ -34,7 +34,7 @@ import { TestCallTranscript } from "../../TestCallTranscript";
 import { CallStage } from "./LiveStage";
 import { StepScreen } from "./shell";
 import { FIRST } from "../../setup/_ui/copy";
-import { Why } from "../../setup/_ui/Why";
+import { Why } from "@/components/why";
 
 /** A call that did not connect has nothing to show; it gets "Try again" instead. */
 const NOT_CONNECTED: Record<string, string> = {

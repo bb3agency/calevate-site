@@ -20,7 +20,7 @@ import {
 import { useClientRealm } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
 
-import { Why } from "./_ui/Why";
+import { Why } from "@/components/why";
 import { BLOCKER_COPY, PAUSE_COPY, blockerDestination } from "./blockerCopy";
 
 /**
@@ -92,7 +92,7 @@ export function CampaignStateNotice({
             return (
               <li key={blocker.rule} className="space-y-1.5">
                 <p className="text-ink">
-                  {note?.text ?? blocker.reason} {note?.why ? <Why>{note.why}</Why> : null}
+                  {note?.text ?? blocker.reason} {note?.why ? <Why inline>{note.why}</Why> : null}
                 </p>
                 {fix && (
                   // The fix is the one thing to do here, so it is a button, not a link in a sentence.

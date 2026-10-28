@@ -27,7 +27,7 @@ import { useClientRealm } from "@/lib/api/session";
 
 import { StepRail, StepScreen } from "../agents/first/shell";
 import { GO_LIVE } from "../setup/_ui/copy";
-import { Why } from "../setup/_ui/Why";
+import { Why } from "@/components/why";
 
 /** The route this screen lives on, for links into it. */
 export const GO_LIVE_ROUTE = "/c/{slug}/go-live";

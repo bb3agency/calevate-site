@@ -38,7 +38,7 @@ import { noFill } from "@/lib/copilot/types";
 
 import { SetupDone } from "./SetupDone";
 import { SETUP } from "./_ui/copy";
-import { Why } from "./_ui/Why";
+import { Why } from "@/components/why";
 
 const EASE = [0.23, 1, 0.32, 1] as const;
 

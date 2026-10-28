@@ -26,7 +26,7 @@ import { useVerticalExamples } from "@/lib/useVerticalExamples";
 
 import { StepScreen } from "./shell";
 import { FIRST } from "../../setup/_ui/copy";
-import { Why } from "../../setup/_ui/Why";
+import { Why } from "@/components/why";
 
 /** The server's cap (`first_run/models.MAX_BRIEF_CHARS`). */
 const MAX_BRIEF_CHARS = 4000;
