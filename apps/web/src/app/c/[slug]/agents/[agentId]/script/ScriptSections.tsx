@@ -305,16 +305,32 @@ export function OpeningEditor({
   previewAction?: ReactNode;
 }) {
   const calls = direction === "outbound" || direction === "both";
+  // A "both" agent has two openings (D-920): the one it answers with and one for the calls
+  // it places, so neither thanks a person it rang for calling.
+  const both = direction === "both";
   const sections = [
     {
       id: "opening_line",
-      title: "Opening line",
-      hint: "Its first words, after any notices. Keep it short.",
+      title: both ? "When it answers" : "Opening line",
+      hint: both ? "Its first words to a caller. Keep it short." : "Its first words, after any notices. Keep it short.",
       value: script.opening_line,
       maxChars: room,
       placeholder: "For example: Namaskaram andi, cheppandi, em kavali?",
       rows: 2,
     },
+    ...(both
+      ? [
+          {
+            id: "outbound_opening_line",
+            title: "When it calls",
+            hint: "Who it is, the business and why it calls.",
+            value: script.outbound_opening_line ?? "",
+            maxChars: undefined,
+            placeholder: "For example: Namaskaram andi, mee enquiry gurinchi.",
+            rows: 2,
+          },
+        ]
+      : []),
     ...(calls
       ? [
           {
@@ -341,7 +357,12 @@ export function OpeningEditor({
       </div>
       <ScriptEditor
         sections={sections}
-        onChange={(id, value) => set(id === "outbound_purpose" ? "outbound_purpose" : "opening_line", value)}
+        onChange={(id, value) =>
+          set(
+            id === "outbound_purpose" || id === "outbound_opening_line" ? id : "opening_line",
+            value,
+          )
+        }
         variables={scriptVariables(standardVariables, script.variables)}
         previewAction={previewAction}
         strings={{

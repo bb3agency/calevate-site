@@ -48,6 +48,7 @@ export function canonicalScript(script: CallScript): string {
     script.identity ?? "",
     script.goal ?? "",
     script.outbound_purpose ?? "",
+    script.outbound_opening_line ?? "",
     script.style
       ? [
           script.style.tone,
@@ -166,6 +167,7 @@ export function hasContent(script: CallScript): boolean {
   if (script.raw_override !== null) return script.raw_override.trim() !== "";
   return Boolean(
     script.opening_line.trim() ||
+      script.outbound_opening_line?.trim() ||
       script.business_line?.trim() ||
       script.identity?.trim() ||
       script.goal?.trim() ||

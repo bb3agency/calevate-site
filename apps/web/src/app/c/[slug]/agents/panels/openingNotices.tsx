@@ -91,6 +91,7 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
   const locked = setDisclosure.isPending || !write.allowed;
   const opening = agent.script_opening_line.trim();
   const firstWords = agent.first_words;
+  const calling = agent.first_words_when_calling ?? null;
   const promise = splitPromise(agent.truthful_answer_rule);
   // The switch last turned on, so a refusal for want of room can offer the room that
   // switch needs and turn the same one on again once the line is shorter.
@@ -170,7 +171,13 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
 
       <div className="mt-4">
         <p className="text-xs font-medium text-ink-muted">What callers hear first</p>
-        {firstWords.trim() ? (
+        {calling !== null ? (
+          // A "both" agent opens the calls it places with a line of their own (D-920).
+          <dl className="mt-2 space-y-3">
+            <FirstWords label="When it answers" words={firstWords} />
+            <FirstWords label="When it calls" words={calling} />
+          </dl>
+        ) : firstWords.trim() ? (
           <blockquote className="mt-2 border-l-2 border-brand pl-3 text-sm italic text-ink">
             “{firstWords}”
           </blockquote>
@@ -183,7 +190,11 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
           className={`${SECONDARY_BUTTON_SM} mt-3 w-full justify-center sm:w-auto`}
         >
           <PenLine aria-hidden className="h-4 w-4" />
-          {opening ? "Edit the opening line" : "Write an opening line"}
+          {calling !== null
+            ? "Edit the opening lines"
+            : opening
+              ? "Edit the opening line"
+              : "Write an opening line"}
         </Link>
       </div>
 
@@ -196,6 +207,22 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
         <NoticeDetails agent={agent} promiseRest={promise.rest} hasOpening={opening !== ""} />
       </Disclosure>
     </section>
+  );
+}
+
+/** One of a "both" agent's two first turns, labelled by the call it opens. */
+function FirstWords({ label, words }: { label: string; words: string }) {
+  return (
+    <div>
+      <dt className="text-xs text-ink-muted">{label}</dt>
+      <dd className="mt-1">
+        {words.trim() ? (
+          <blockquote className="border-l-2 border-brand pl-3 text-sm italic text-ink">“{words}”</blockquote>
+        ) : (
+          <span className="text-sm text-ink-muted">Nothing yet.</span>
+        )}
+      </dd>
+    </div>
   );
 }
 

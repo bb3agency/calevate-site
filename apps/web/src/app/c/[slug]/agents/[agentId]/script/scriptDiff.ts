@@ -20,6 +20,7 @@ export type PartKey =
   | "goal"
   | "outbound_purpose"
   | "opening_line"
+  | "outbound_opening_line"
   | "style"
   | "objections"
   | "ending"
@@ -32,6 +33,7 @@ const PARTS: { key: PartKey; label: string }[] = [
   { key: "goal", label: "The goal" },
   { key: "outbound_purpose", label: "Why you are calling" },
   { key: "opening_line", label: "Opening line" },
+  { key: "outbound_opening_line", label: "Opening line when it calls" },
   { key: "style", label: "How it talks" },
   { key: "objections", label: "When callers push back" },
   { key: "ending", label: "How it ends the call" },
