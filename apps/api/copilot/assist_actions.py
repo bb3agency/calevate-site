@@ -361,9 +361,7 @@ def _pending_of(parsed: _CallTestArgs) -> test_cases.PendingCase:
         expected=test_cases.clean_pending_text(
             strip_invisible(parsed.expected or ""), MAX_CASE_EXPECTED_CHARS
         ),
-        title=test_cases.clean_pending_text(
-            strip_invisible(parsed.title or ""), test_cases.MAX_TITLE_CHARS
-        ),
+        title=test_cases.written_title(strip_invisible(parsed.title or "")),
     )
 
 
@@ -482,7 +480,7 @@ CALL_TEST_PREPARE: Final = ActionTool(
         {
             "call_id": {"type": "string", "description": "From SCREEN STATE or `calls_recent`."},
             "expected": {**_NULLABLE_TEXT, "description": "What the agent should do, or null."},
-            "title": _NULLABLE_TEXT,
+            "title": {**_NULLABLE_TEXT, "description": test_cases.TITLE_HINT},
         },
     ),
     plan=_plan_call_test,

@@ -130,9 +130,14 @@ function Chevron({ className = "" }: { className?: string }) {
   );
 }
 
+/** The name on a card: the server's six-word form (D-917), or the title on an older reply. */
+export function cardTitle(result: Pick<TestResult, "title" | "short_title">): string {
+  return result.short_title || result.title;
+}
+
 /**
- * One test as a card. Closed: the title (the server's words, at most two lines), one status
- * and the buttons. "Why?" opens the judge's reason, a good answer, how often it was OK and
+ * One test as a card. Closed: the short title (the server cuts it to six words, D-917, so
+ * the card needs no clamp), one status and the buttons; a cut title is whole under "Why?". "Why?" opens the judge's reason, a good answer, how often it was OK and
  * "Not a problem"; "See the chat" opens the conversation. Both are plain toggles
  * (`aria-expanded`), so the card's buttons stay buttons and are never nested in a summary.
  */
@@ -157,13 +162,15 @@ function TestCard({ result, actions, compact = false }: { result: TestResult; ac
       : [{ verdict: result.verdict, reason: result.reason, turns: result.turns }];
   // A test that broke since the last run says so in its one status; it is why Undo leads.
   const status = result.change === "broken" ? { label: CHANGE.broken ?? look.label, tone: "stop" as const } : look;
-  const hasWhy = !compact || Boolean(result.reason);
+  const shown = cardTitle(result);
+  const cut = shown !== result.title;
+  const hasWhy = !compact || Boolean(result.reason) || cut;
 
   return (
     <li className="rounded-card border border-line bg-surface p-3 sm:p-4">
       <div className="flex items-start justify-between gap-3">
-        <p data-user-text className="line-clamp-2 min-w-0 text-body font-medium text-ink [overflow-wrap:anywhere]">
-          {result.title}
+        <p data-user-text className="min-w-0 text-body font-medium text-ink [overflow-wrap:anywhere]">
+          {shown}
         </p>
         {!compact && (
           <StatusPill tone={status.tone} className="mt-0.5">
@@ -256,10 +263,19 @@ function WhyDetails({
   const change = result.change ? CHANGE[result.change] : null;
   const tag = result.probe ? PROBE_TAG : (lookup(TAG, result.source) ?? null);
   const facts = [triesLine(result), change, tag].filter((part): part is string => Boolean(part));
+  const fullTitle = cardTitle(result) !== result.title ? result.title : null;
   return (
     <>
-      {(result.reason || (result.expect && attention) || setting) && (
+      {(fullTitle || result.reason || (result.expect && attention) || setting) && (
         <dl className="max-w-prose space-y-2.5">
+          {fullTitle && (
+            <div>
+              <dt className="text-meta font-medium text-ink-muted">The test</dt>
+              <dd data-user-text className="text-ink [overflow-wrap:anywhere]">
+                {fullTitle}
+              </dd>
+            </div>
+          )}
           {result.reason && (
             <div>
               <dt className="text-meta font-medium text-ink-muted">What happened</dt>

@@ -49269,6 +49269,10 @@
             ],
             "title": "Last Run At"
           },
+          "short_title": {
+            "title": "Short Title",
+            "type": "string"
+          },
           "source_call_id": {
             "anyOf": [
               {
@@ -49295,6 +49299,7 @@
           "agent_id",
           "source_call_id",
           "title",
+          "short_title",
           "caller_lines",
           "expected",
           "status",
@@ -49704,6 +49709,10 @@
               }
             ]
           },
+          "short_title": {
+            "title": "Short Title",
+            "type": "string"
+          },
           "sounds": {
             "items": {
               "$ref": "#/components/schemas/TestSoundOut"
@@ -49772,6 +49781,7 @@
         "required": [
           "key",
           "title",
+          "short_title",
           "category",
           "probe",
           "source",

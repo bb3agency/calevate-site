@@ -21,6 +21,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.test_conversations import readiness
+from apps.api.agents.test_titles import MAX_TITLE_WORDS, short_title
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
 from apps.api.reliability.service import enqueue_outbox
@@ -37,6 +38,11 @@ RUN_CASES_JOB: Final = "run_agent_test_cases"
 #: The most saved tests one agent keeps; each run sends every line of every test.
 MAX_CASES_PER_AGENT: Final = 20
 MAX_TITLE_CHARS: Final = MAX_CASE_TITLE_CHARS
+#: A test with no title of its own, when there is nothing to name it from.
+UNTITLED: Final = "Test from a call"
+#: What Pip's tools say about a title. A strict tool schema takes no length bound, so the
+#: words ask for it and `written_title` holds it.
+TITLE_HINT: Final = f"The caller's need in {MAX_TITLE_WORDS} words or fewer, or null."
 
 #: A test still queued or running this long after its last write lost its job (the worker
 #: runs one test per job, well inside the 300 s job limit, and a timed-out job is not
@@ -94,6 +100,13 @@ def _case_of(row: Any) -> TestCase:
     )
 
 
+def written_title(value: str | None) -> str | None:
+    """A title WE write, from a call's headline, a first caller line or Pip's words: the
+    card's short form (`test_titles.short_title`), or None when there is nothing to say.
+    A title the owner sends is kept whole instead; the card shortens it when served."""
+    return short_title(" ".join((value or "").split())[:MAX_TITLE_CHARS]) or None
+
+
 def clean_lines(lines: list[str]) -> list[str]:
     cleaned = [" ".join(line.split())[:MAX_CASE_LINE_CHARS] for line in lines]
     cleaned = [line for line in cleaned if line]
@@ -144,7 +157,7 @@ async def draft_from_call(session: AsyncSession, call_id: UUID) -> CaseDraft:
         )
     ).scalars()
     lines = [" ".join(str(t).split())[:MAX_CASE_LINE_CHARS] for t in turns]
-    title = (call[3] or "Test from a call")[:MAX_TITLE_CHARS]
+    title = written_title(call[3]) or UNTITLED
     return CaseDraft(
         call_id=call[0], agent_id=call[1], agent_name=call[2], caller_lines=lines, title=title
     )
@@ -184,7 +197,8 @@ async def create_case(
             f"This agent already has {MAX_CASES_PER_AGENT} saved tests.",
             remediation="Delete a test that no longer matters, then save this one.",
         )
-    clean_title = " ".join(title.split())[:MAX_TITLE_CHARS] or "Test from a call"
+    lines = clean_lines(caller_lines)
+    clean_title = " ".join(title.split())[:MAX_TITLE_CHARS] or written_title(lines[0]) or UNTITLED
     row = (
         await session.execute(
             text(
@@ -199,7 +213,7 @@ async def create_case(
                 "aid": agent_id,
                 "call": call_id,
                 "title": clean_title,
-                "lines": json.dumps(clean_lines(caller_lines)),
+                "lines": json.dumps(lines),
                 "expected": clean_expected(expected),
                 "by": created_by,
             },

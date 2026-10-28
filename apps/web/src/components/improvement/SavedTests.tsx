@@ -192,7 +192,8 @@ function WriteATest({ agentId }: { agentId: string }) {
       className="mt-4 space-y-3"
       onSubmit={valid.onSubmit(() =>
         create.mutate(
-          { title: lines[0]?.slice(0, 120) ?? "", caller_lines: lines.slice(0, MAX_CALLER_LINES), expected: expected.trim() },
+          // No title: the server names the test from the first line, in six words (D-917).
+          { title: "", caller_lines: lines.slice(0, MAX_CALLER_LINES), expected: expected.trim() },
           {
             onSuccess: () => {
               setSaid("");
@@ -274,7 +275,7 @@ function CaseRow({
     <li className="space-y-2 py-3">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h4 className="min-w-0 text-sm font-semibold text-ink [overflow-wrap:anywhere]">
-          {testCase.title}
+          {testCase.short_title}
         </h4>
         <span className="text-meta text-ink-faint">
           {testCase.status !== "idle"

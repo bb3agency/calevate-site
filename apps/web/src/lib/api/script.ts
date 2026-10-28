@@ -563,7 +563,11 @@ export interface TestSetting {
 
 export interface TestResult {
   key: string;
+  /** The test's full name; "Why?" shows it when the card's is cut. */
   title: string;
+  /** The card's name: `title` in six words or fewer (D-917). Optional so a reply cached
+   * from the release before still renders, with `title`. */
+  short_title?: string;
   category: string;
   /** `ai` · `recording` · `stop_calling` · `person` for a rule every agent must answer. */
   probe: string | null;
