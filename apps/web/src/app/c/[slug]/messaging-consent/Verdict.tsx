@@ -10,11 +10,9 @@ import {
 
 import { MonoValue, NOTICE_BAR, NOTICE_BASE, formatIST, type NoticeTone } from "@/components/ui";
 import { lookup } from "@/lib/lookup";
-import {
-  CONSENT_SOURCES,
-  CONSENT_VALIDITY_DAYS,
-  type MessagingConsent,
-} from "@/lib/api/messagingConsent";
+import { CONSENT_SOURCES, type MessagingConsent } from "@/lib/api/messagingConsent";
+
+import { CONSENT_COPY as COPY, lapsedOn } from "./copy";
 
 /**
  * The verdict, rendered from `messageable` and never recomputed from `status`.
@@ -28,10 +26,8 @@ export function Verdict({ state }: { state: MessagingConsent }) {
   if (state.messageable) {
     return (
       <Box tone="ok" icon={<BadgeCheck className="h-4 w-4" />}>
-        <p className="font-medium">You may send this person WhatsApp messages.</p>
-        <p className="mt-1">
-          {describeCapture(state)} This stays current until {formatIST(state.expires_at)}.
-        </p>
+        <p className="font-medium">{COPY.yes}</p>
+        <Lines lines={[describeCapture(state), `${COPY.until} ${formatIST(state.expires_at)}.`]} />
       </Box>
     );
   }
@@ -39,12 +35,8 @@ export function Verdict({ state }: { state: MessagingConsent }) {
   if (state.status === "granted") {
     return (
       <Box tone="warn" icon={<CalendarClock className="h-4 w-4" />}>
-        <p className="font-medium">Not messageable — their opt-in has expired.</p>
-        <p className="mt-1">
-          {describeCapture(state)} An opt-in stays current for {CONSENT_VALIDITY_DAYS}{" "}
-          days, and this one lapsed on {formatIST(state.expires_at)}. Ask again before
-          messaging them.
-        </p>
+        <p className="font-medium">{COPY.expired}</p>
+        <Lines lines={[describeCapture(state), lapsedOn(formatIST(state.expires_at)), COPY.askAgain]} />
       </Box>
     );
   }
@@ -53,11 +45,9 @@ export function Verdict({ state }: { state: MessagingConsent }) {
     return (
       <Box tone="stop" icon={<MessageSquareOff className="h-4 w-4" />}>
         <p className="font-medium">
-          {state.status === "withdrawn"
-            ? "Not messageable — they asked us to stop."
-            : "Not messageable — they were asked and said no."}
+          {state.status === "withdrawn" ? COPY.stopped : COPY.declined}
         </p>
-        <p className="mt-1">{describeCapture(state)}</p>
+        <Lines lines={[describeCapture(state)]} />
       </Box>
     );
   }
@@ -68,11 +58,8 @@ export function Verdict({ state }: { state: MessagingConsent }) {
   if (state.status === "none") {
     return (
       <Box tone="neutral" icon={<CircleHelp className="h-4 w-4" />}>
-        <p className="font-medium">Not messageable — nobody has asked them yet.</p>
-        <p className="mt-1">
-          Campaign follow-ups will skip this number until someone records what they said.
-          Recording it needs the customer&apos;s own answer, not an assumption.
-        </p>
+        <p className="font-medium">{COPY.none}</p>
+        <Lines lines={[COPY.noneSkip, COPY.noneHow]} />
       </Box>
     );
   }
@@ -85,11 +72,10 @@ export function Verdict({ state }: { state: MessagingConsent }) {
      understand, and shows the value so support can. */
   return (
     <Box tone="neutral" icon={<CircleHelp className="h-4 w-4" />}>
-      <p className="font-medium">Not messageable — this record is one we cannot read.</p>
+      <p className="font-medium">{COPY.unknown}</p>
       <p className="mt-1">
-        The system will not message this number. Quote{" "}
-        <MonoValue className="text-xs">{state.status}</MonoValue> to us and we will
-        explain what it means.
+        {COPY.unknownQuote} <MonoValue className="text-xs">{state.status}</MonoValue>{" "}
+        {COPY.unknownTail}
       </p>
     </Box>
   );
@@ -108,9 +94,22 @@ function describeCapture(state: MessagingConsent): string {
   // the verdict itself comes from `messageable` and is unaffected either way.
   const source = lookup(CONSENT_SOURCES, state.source);
   const when = state.captured_at ? formatIST(state.captured_at) : null;
-  if (source && when) return `Recorded ${when} — ${source.label.toLowerCase()}.`;
+  if (source && when) return `Recorded ${when}, ${source.label.toLowerCase()}.`;
   if (when) return `Recorded ${when}.`;
   return "";
+}
+
+/** The detail under a verdict, one short line each, blanks dropped. */
+function Lines({ lines }: { lines: string[] }) {
+  const shown = lines.filter((line) => line.trim() !== "");
+  if (shown.length === 0) return null;
+  return (
+    <div className="mt-1 space-y-0.5 text-ink-muted">
+      {shown.map((line) => (
+        <p key={line}>{line}</p>
+      ))}
+    </div>
+  );
 }
 
 /**

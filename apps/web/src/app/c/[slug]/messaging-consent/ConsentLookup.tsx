@@ -9,6 +9,7 @@ import { useFormValidation } from "@/components/formValidation";
 
 import { Verdict } from "./Verdict";
 import { type ConsentForm } from "./consentForm";
+import { CONSENT_COPY as COPY } from "./copy";
 
 /**
  * "Can we message this number?" — the question people arrive with, and the one thing
@@ -32,12 +33,9 @@ export function ConsentLookup({
     <section aria-labelledby="consent-lookup-heading">
       <div className="flex items-center gap-1.5">
         <h2 id="consent-lookup-heading" className="text-heading text-ink">
-          Can we message this number?
+          {COPY.lookupHeading}
         </h2>
-        <InfoTip label="About this check">
-          Asks the same question the system asks itself before it sends a follow-up, so the
-          answer cannot disagree with what actually happens.
-        </InfoTip>
+        <InfoTip label="About this check">{COPY.lookupTip}</InfoTip>
       </div>
       <form
         className="mt-3 flex flex-wrap items-center gap-2"
@@ -50,9 +48,9 @@ export function ConsentLookup({
             `min-width: auto` — so it took the search input's intrinsic width
             and would not shrink into a 320px phone's row. The input's own
             `max-w-full` can only cap it once the wrapper is allowed to give. */}
-        <div className="min-w-0">
+        <div className="min-w-0 max-sm:w-full">
           <input
-            {...valid.field("lookupPhone", "Enter the number to check.")}
+            {...valid.field("lookupPhone", COPY.lookupMissing)}
             required
             value={form.lookupPhone}
             onChange={(e) => {
@@ -67,15 +65,20 @@ export function ConsentLookup({
             inputMode="tel"
             autoComplete="off"
             placeholder="9876543210 or +919876543210"
-            aria-label="Phone number to check"
-            className={`${FIELD_INLINE} w-80 max-w-full font-mono`}
+            aria-label={COPY.lookupLabel}
+            className={`${FIELD_INLINE} w-80 max-w-full font-mono max-sm:w-full`}
           />
           {valid.error("lookupPhone")}
         </div>
         {/* Not disabled by the length rule: a button that is dead at seven digits explains
             nothing, and pressing it says what is wrong. */}
-        <ActionButton type="submit" status={form.lookupFeedback.status} successLabel="Checked">
-          Check
+        <ActionButton
+          type="submit"
+          status={form.lookupFeedback.status}
+          successLabel={COPY.checked}
+          className="max-sm:w-full max-sm:justify-center"
+        >
+          {COPY.check}
         </ActionButton>
       </form>
 

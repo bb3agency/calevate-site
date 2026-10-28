@@ -5,7 +5,9 @@ import { useState } from "react";
 import { Drawer } from "@/components/console/drawer";
 import { InfoTip } from "@/components/console/infoTip";
 import { PageHeader } from "@/components/console/pageHeader";
-import { RestrictionNote, SECONDARY_BUTTON } from "@/components/ui";
+import { PenLine } from "lucide-react";
+
+import { PRIMARY_BUTTON, RestrictionNote, SECONDARY_BUTTON } from "@/components/ui";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 
@@ -14,6 +16,7 @@ import { useConsentForm } from "./consentForm";
 import { useConsentCopilot } from "./copilot";
 import { HowItWorks } from "./HowItWorks";
 import { RecordConsent } from "./RecordConsent";
+import { CONSENT_COPY as COPY } from "./copy";
 
 /**
  * Messaging consent (SEC-COMP §4): the record of who said we may message them.
@@ -52,19 +55,21 @@ export default function MessagingConsentPage() {
       <PageHeader
         description={
           <>
-            Who agreed to get your WhatsApp messages. This is a separate permission from calling.{" "}
-            <InfoTip label="messaging consent" className="-my-3">
-              <p>
-                Campaign follow-ups are sent only to people recorded here. Calling is governed
-                by the do-not-call list.
-              </p>
-            </InfoTip>
+            <span className="block font-medium text-ink">{COPY.description}</span>
+            {/* The one line that keeps a WhatsApp opt-in from reading as permission to CALL. */}
+            <span className="block text-meta">
+              {COPY.separate}{" "}
+              <InfoTip label="messaging consent" className="-my-3">
+                <p>{COPY.descriptionTip}</p>
+              </InfoTip>
+            </span>
           </>
         }
         actions={
           write.allowed ? (
             <button type="button" onClick={openRecord} className={SECONDARY_BUTTON}>
-              Record an answer
+              <PenLine aria-hidden className="h-4 w-4" />
+              {COPY.recordAnswer}
             </button>
           ) : undefined
         }
@@ -77,12 +82,9 @@ export default function MessagingConsentPage() {
         form={form}
         recordAction={
           write.allowed ? (
-            <button
-              type="button"
-              onClick={openRecord}
-              className="rounded-sm text-meta font-medium text-brand-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
-            >
-              Record what they said
+            <button type="button" onClick={openRecord} className={`${PRIMARY_BUTTON} max-sm:w-full max-sm:justify-center`}>
+              <PenLine aria-hidden className="h-4 w-4" />
+              {COPY.recordWhatTheySaid}
             </button>
           ) : undefined
         }
@@ -93,7 +95,7 @@ export default function MessagingConsentPage() {
       <Drawer
         open={recording && write.allowed}
         onClose={() => setRecording(false)}
-        title="Record what a customer said"
+        title={COPY.drawerTitle}
         width="md"
       >
         <RecordConsent form={form} />

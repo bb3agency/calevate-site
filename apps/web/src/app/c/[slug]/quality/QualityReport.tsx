@@ -8,6 +8,9 @@ import { Disclosure } from "@/components/ui";
 import { BASIS_NOTE, renderMeasurement, type QaReport } from "@/lib/api/quality";
 import { StatusPill } from "@/components/console/statusPill";
 
+import { WhyTip } from "../agreements/_ui/WhyTip";
+import { QUALITY_COPY as COPY, monthEnding, tricky, verdictLine } from "./copy";
+
 type ScenarioRow = NonNullable<QaReport["scenario_classes"]>[number];
 type LimitRow = NonNullable<QaReport["known_limits"]>[number];
 
@@ -21,9 +24,7 @@ export function VerdictPill({ report }: { report: QaReport }) {
   const clean = report.defects === 0;
   return (
     <StatusPill tone={clean ? "ok" : "stop"}>
-      {clean
-        ? `No defects found across ${report.scenarios_total} scenarios`
-        : `${report.defects} of ${report.scenarios_total} scenarios found a defect`}
+      {verdictLine(report.defects, report.scenarios_total)}
     </StatusPill>
   );
 }
@@ -31,7 +32,7 @@ export function VerdictPill({ report }: { report: QaReport }) {
 const SCENARIO_COLUMNS: DataColumn<ScenarioRow>[] = [
   {
     id: "label",
-    header: "What it tests",
+    header: COPY.colTests,
     cell: (row) => (
       <>
         <span className="font-medium text-ink">{row.label}</span>
@@ -40,20 +41,20 @@ const SCENARIO_COLUMNS: DataColumn<ScenarioRow>[] = [
       </>
     ),
   },
-  { id: "count", header: "Scenarios", align: "right", cell: (row) => row.count },
+  { id: "count", header: COPY.colCount, align: "right", cell: (row) => row.count },
   {
     id: "meaning",
-    header: "What a pass means",
+    header: COPY.colMeaning,
     hideBelow: "md",
     cell: (row) => <span className="text-ink-muted">{row.meaning}</span>,
   },
 ];
 
 const LIMIT_COLUMNS: DataColumn<LimitRow>[] = [
-  { id: "label", header: "Your column", cell: (row) => row.label },
+  { id: "label", header: COPY.colDetail, cell: (row) => row.label },
   {
     id: "scenarios",
-    header: "Scenarios where it was not picked up",
+    header: COPY.colMissed,
     align: "right",
     cell: (row) => row.scenarios,
   },
@@ -69,32 +70,23 @@ export function QualityReport({ report }: { report: QaReport }) {
       <div className="space-y-6">
         <div className="space-y-1 text-meta text-ink-muted">
           {!clean && (
-            <p className="font-medium text-danger">
-              These are being fixed and this report will be reissued.
-            </p>
+            <p className="font-medium text-danger">{COPY.fixing}</p>
           )}
-          <p>
-            For the month ending {monthEndLabel(report.as_of)} · {report.model} model
-          </p>
+          <p>{monthEnding(monthEndLabel(report.as_of))}</p>
         </div>
 
         <div className="grid grid-cols-2 gap-x-6 gap-y-5 sm:grid-cols-3 sm:gap-x-10">
-          <Metric label="Defects" value={String(report.defects)} />
-          <Metric label="Everything captured" value={renderMeasurement(report.everything_captured)} />
+          <Metric label={COPY.problems} value={String(report.defects)} />
+          <Metric label={COPY.captured} value={renderMeasurement(report.everything_captured)} />
           <Metric
             className="col-span-2 sm:col-span-1"
-            label="A field came back blank"
+            label={COPY.blank}
             value={renderMeasurement(report.field_left_blank)}
             hint={
               <span className="inline-flex items-center gap-1">
-                A detail missed, not a wrong one
+                {COPY.blankHint}
                 <InfoTip label="a blank field">
-                  <p>
-                    A blank field is not a failure of the call — it is a detail the agent did
-                    not pick up, listed by column below. The two figures add up to every
-                    scenario, and the first one is the one that matters: nothing was recorded
-                    wrongly.
-                  </p>
+                  <p>{COPY.blankTip}</p>
                 </InfoTip>
               </span>
             }
@@ -105,51 +97,46 @@ export function QualityReport({ report }: { report: QaReport }) {
           {report.everything_captured.basis !== "measured" && (
             <p>{BASIS_NOTE[report.everything_captured.basis]}</p>
           )}
-          <p>Change since last month: {BASIS_NOTE[report.trend] || "no change to report."}</p>
+          <p>
+            {COPY.sinceLast} {BASIS_NOTE[report.trend] || COPY.noChange}
+          </p>
         </div>
       </div>
 
       <Section
-        title="What we tested"
+        title={COPY.testedTitle}
         action={
           <p className="flex items-center gap-1 text-meta text-ink-muted">
-            {report.red_team} of those scenarios are adversarial
-            <InfoTip label="adversarial scenarios" align="end">
-              <p>
-                A caller trying to talk the agent into skipping the recording notice, into
-                reading out another customer&apos;s details, into ignoring an opt-out, or into
-                writing something false into your leads list. Each one is checked against
-                what the system did rather than against how the conversation sounded.
-              </p>
+            {tricky(report.red_team)}
+            <InfoTip label="trick calls" align="end">
+              <p>{COPY.trickyTip}</p>
             </InfoTip>
           </p>
         }
       >
         <DataTable
           className="border-y border-line"
-          label="Scenario classes replayed against your agent, and what a pass proves"
+          label={COPY.tableLabel}
           columns={SCENARIO_COLUMNS}
           rows={scenarioClasses}
           getRowId={(row) => String(row.scenario)}
         />
       </Section>
 
-      <Section title="Known limits">
+      <Section title={COPY.limitsTitle}>
         {knownLimits.length === 0 ? (
-          <p className="text-meta text-ink-muted">
-            None. Every field in your leads list was captured on every scenario that contained
-            it.
-          </p>
+          <p className="text-meta text-ink-muted">{COPY.limitsNone}</p>
         ) : (
           <div className="space-y-4">
-            <p className="text-meta text-ink-muted">
-              Fields the agent does not yet reliably pick up. They come back{" "}
-              <strong>blank</strong>, never wrong — a blank column is a call your staff can
-              follow up, and a wrong one is a call they cannot.
+            <p className="flex flex-wrap items-center gap-x-1 text-meta text-ink-muted">
+              {COPY.limitsIntro}
+              <WhyTip about="blank details" label="Why?">
+                <p>{COPY.limitsWhy}</p>
+              </WhyTip>
             </p>
             <DataTable
               className="border-y border-line"
-              label="Fields the agent does not yet reliably pick up"
+              label={COPY.limitsLabel}
               columns={LIMIT_COLUMNS}
               rows={knownLimits}
               getRowId={(row) => row.label}
@@ -162,8 +149,8 @@ export function QualityReport({ report }: { report: QaReport }) {
         <Disclosure
           variant="inline"
           headingLevel={2}
-          title="What counts as a defect"
-          subtitle="A wrong or invented detail, a missing recording and AI notice or opt-out, or an unmasked detail."
+          title={COPY.defectTitle}
+          subtitle={COPY.defectSubtitle}
         >
           <ul className="mb-3 list-disc space-y-1 pl-5 text-body text-ink-muted">
             <li>
@@ -189,8 +176,8 @@ export function QualityReport({ report }: { report: QaReport }) {
         <Disclosure
           variant="inline"
           headingLevel={2}
-          title="What this report does not tell you"
-          subtitle="It is not a measure of your live calls, holds no real call data, and is not a trend yet."
+          title={COPY.notTitle}
+          subtitle={COPY.notSubtitle}
         >
           <ul className="mb-3 list-disc space-y-2 pl-5 text-body text-ink-muted">
             <li>

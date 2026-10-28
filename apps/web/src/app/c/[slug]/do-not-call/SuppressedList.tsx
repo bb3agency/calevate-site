@@ -27,6 +27,7 @@ import { lookup } from "@/lib/lookup";
 
 import { RestoreDialog } from "./RestoreDialog";
 import { SOURCE_COPY } from "./sources";
+import { DNC_COPY as COPY, entriesLabel, showingLatest } from "./copy";
 
 /**
  * Every number this account will not dial, and the one control that takes one off.
@@ -64,8 +65,8 @@ export function SuppressedList({
   // confirms the removal after the dialog has gone, since the row simply disappears.
   const removeFeedback = useActionFeedback(remove, {
     errorDisplay: "inline",
-    successToast: "Number taken off the list",
-    successDescription: "Your agents can ring it again.",
+    successToast: COPY.removedToast,
+    successDescription: COPY.removedToastBody,
   });
 
   /**
@@ -114,9 +115,7 @@ export function SuppressedList({
           {entry.scope === "global" && (
             // Shown, never removable: it is not this account's entry, and hiding it would
             // leave a client wondering why a number they can't find is never dialled.
-            <span className="text-meta text-ink-muted">
-              platform-wide
-            </span>
+            <span className="text-meta text-ink-muted">{COPY.platformWide}</span>
           )}
         </span>
       ),
@@ -128,7 +127,7 @@ export function SuppressedList({
       sort: { value: (entry) => lookup(SOURCE_COPY, entry.source)?.label ?? entry.source ?? "" },
       cell: (entry) => (
         <span className="text-ink-muted">
-          {lookup(SOURCE_COPY, entry.source)?.label ?? entry.source ?? "unknown reason"}
+          {lookup(SOURCE_COPY, entry.source)?.label ?? entry.source ?? COPY.unknownReason}
         </span>
       ),
     },
@@ -160,15 +159,15 @@ export function SuppressedList({
       <div className="space-y-2">
         <div className="flex items-baseline justify-between gap-3">
           <h2 id="dnc-list-heading" className="text-heading text-ink">
-            Suppressed numbers
+            {COPY.listHeading}
           </h2>
           {/* No count until the server has sent one: "0 entries" while the first request is
               in flight is a statement about the client's compliance posture. */}
           {rows && (
             <span className="text-meta text-ink-faint">
               {truncated
-                ? `Showing the ${formatCount(DNC_LIST_LIMIT)} most recently added`
-                : `${formatCount(rows.length)} ${rows.length === 1 ? "entry" : "entries"}`}
+                ? showingLatest(formatCount(DNC_LIST_LIMIT))
+                : entriesLabel(rows.length, formatCount(rows.length))}
             </span>
           )}
         </div>
@@ -196,13 +195,8 @@ export function SuppressedList({
         ) : (
           <div className="rounded-card border border-line bg-surface">
             <EmptyState illustration={<EmptySketch kind="leads" />}
-              message="Nobody is suppressed yet"
-              action={
-                <p className="max-w-md text-meta text-ink-faint">
-                  Anyone who tells an agent to stop calling is added here automatically. You
-                  can also add numbers yourself.
-                </p>
-              }
+              message={COPY.emptyTitle}
+              action={<p className="max-w-md text-meta text-ink-faint">{COPY.emptyHint}</p>}
             />
           </div>
         )}
@@ -213,10 +207,10 @@ export function SuppressedList({
           number suppressed, and closing would imply it no longer was. */}
       {unsuppressing && (
         <ConfirmDialog
-          title="Let agents call this number again?"
-          confirmLabel="Un-suppress this number"
-          pendingLabel="Removing…"
-          cancelLabel="Keep it suppressed"
+          title={COPY.unsuppressTitle}
+          confirmLabel={COPY.unsuppressConfirm}
+          pendingLabel={COPY.removing}
+          cancelLabel={COPY.unsuppressKeep}
           status={removeFeedback.status}
           error={remove.error}
           onCancel={() => {
@@ -231,16 +225,12 @@ export function SuppressedList({
             <MonoValue className="tabular-nums text-ink">
               {formatPhone(unsuppressing.phone_e164)}
             </MonoValue>{" "}
-            comes off your do-not-call list.
+            {COPY.unsuppressLine}
           </p>
           <p>
-            This list is checked live before every single call, so the change takes effect
-            straight away:{" "}
-            <strong className="font-semibold text-ink">
-              your agents will be able to ring this person again
-            </strong>
-            . Only do this if you know they are happy to be called.
+            <strong className="font-semibold text-ink">{COPY.unsuppressEffect}</strong>, straight away.
           </p>
+          <p>{COPY.unsuppressSure}</p>
         </ConfirmDialog>
       )}
       {restoring && (
@@ -273,7 +263,7 @@ function RowAction({
       return (
         <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-meta text-ink-faint">
           <Lock className="h-3.5 w-3.5" aria-hidden />
-          opt-out — an owner can restore it
+          {COPY.ownerCanRestore}
         </span>
       );
     }
@@ -285,7 +275,7 @@ function RowAction({
         className="press inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-meta font-medium text-ink-muted enabled:hover:bg-ink/[0.05] enabled:hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
       >
         <RotateCcw className="h-3.5 w-3.5" aria-hidden />
-        Restore
+        {COPY.restore}
       </button>
     );
   }
@@ -293,7 +283,7 @@ function RowAction({
     return (
       <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-meta text-ink-faint">
         <Lock className="h-3.5 w-3.5" aria-hidden />
-        {entry.scope === "global" ? "removed by operations only" : "opt-out — cannot be undone"}
+        {entry.scope === "global" ? COPY.opsOnly : COPY.permanent}
       </span>
     );
   }
@@ -308,7 +298,7 @@ function RowAction({
       className="press inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-meta font-medium text-ink-muted enabled:hover:bg-ink/[0.05] enabled:hover:text-danger disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
     >
       <Trash2 className="h-3.5 w-3.5" aria-hidden />
-      {removing ? "Removing…" : "Remove"}
+      {removing ? COPY.removing : COPY.remove}
     </button>
   );
 }

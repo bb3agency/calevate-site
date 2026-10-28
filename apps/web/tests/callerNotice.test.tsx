@@ -128,7 +128,7 @@ describe("the caller-notice draft", () => {
     await screen.findByText("Your name");
 
     expect(
-      screen.getByText("These agents do not announce that they are AI"),
+      screen.getByText("That they are AI"),
     ).toBeTruthy();
     // NAMED, not counted — with the announcement off the obligation lands on the written
     // notice, and "one agent" does not tell the client which one to describe.
@@ -166,11 +166,11 @@ describe("the caller-notice draft", () => {
       },
     });
 
-    expect(await screen.findByText("Nothing itemised yet")).toBeTruthy();
+    expect(await screen.findByText("No caller details listed yet.")).toBeTruthy();
     // The announcement card renders only when something is off. With both lists empty it
     // must be absent rather than present-and-empty, which would read as a finding.
     expect(
-      screen.queryByText("Announcements your agents do not make"),
+      screen.queryByText("Not said at the start of a call"),
     ).toBeNull();
   });
 
@@ -185,7 +185,7 @@ describe("the caller-notice draft", () => {
 
     expect(await screen.findByText(/could not build your draft/i)).toBeTruthy();
     // Nothing that could be mistaken for the answer: no empty state, no document card.
-    expect(screen.queryByText("Nothing itemised yet")).toBeNull();
+    expect(screen.queryByText("No caller details listed yet.")).toBeNull();
     expect(screen.queryByRole("button", { name: /copy/i })).toBeNull();
   });
 

@@ -1,10 +1,16 @@
 "use client";
 
+import { Eraser } from "lucide-react";
+
 import { Checklist } from "@/components/console/checklist";
+import { SECONDARY_BUTTON_SM } from "@/components/ui";
 import type { CallerNotice } from "@/lib/api/callerNotice";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 
 import { blankLabel, valueOf, type BlankValues } from "@/lib/noticeDraft/blanks";
+
+import { WhyTip } from "../agreements/_ui/WhyTip";
+import { CALLER_NOTICE_COPY as COPY, CALLER_NOTICE_KEPT as KEPT } from "./copy";
 
 // Below `lg` the panel sits ABOVE the sheet, so it starts closed there: its summary still
 // says "N of M done", and an open list of five rows would push the document off the screen.
@@ -44,7 +50,7 @@ export function FillPanel({
       {keys.length > 0 && (
         <div>
           <Checklist
-            label="Fill the blanks"
+            label={COPY.fillHeading}
             headingLevel={2}
             collapsible
             defaultOpen={!stacked}
@@ -59,33 +65,27 @@ export function FillPanel({
                   aria-label={`Go to the blank: ${blankLabel(key)}`}
                   className="press rounded-md px-2 py-1 text-meta font-medium text-brand-strong hover:bg-brand-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
                 >
-                  {valueOf(values, key) !== null ? "Edit" : "Fill in"}
+                  {valueOf(values, key) !== null ? COPY.edit : COPY.fill}
                 </button>
               ),
             }))}
           />
-          <p className="mt-3 text-meta leading-snug text-ink-faint">
-            What you type stays in this browser. Nothing is sent to Calevate.
-            {anyFilled && (
-              <>
-                {" "}
-                <button
-                  type="button"
-                  onClick={onClear}
-                  className="rounded-sm font-medium text-ink-muted underline underline-offset-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
-                >
-                  Clear what I typed
-                </button>
-              </>
-            )}
-          </p>
+          <p className="mt-3 text-meta leading-snug text-ink-faint">{COPY.localOnly}</p>
+          {anyFilled && (
+            <button type="button" onClick={onClear} className={`${SECONDARY_BUTTON_SM} mt-2`}>
+              <Eraser aria-hidden className="h-3.5 w-3.5" />
+              {COPY.clear}
+            </button>
+          )}
         </div>
       )}
 
       {notice.collected.length === 0 && (
-        <p className="text-meta text-ink-muted">
-          <span className="font-medium text-ink">Nothing itemised yet</span>: once a live agent
-          collects details from calls, each one appears in the notice.
+        <p className="flex flex-wrap items-center gap-x-1 text-meta font-medium text-ink">
+          {COPY.nothingListed}
+          <WhyTip about="caller details in the notice" label="Why?">
+            <p>{COPY.nothingListedWhy}</p>
+          </WhyTip>
         </p>
       )}
 
@@ -101,12 +101,8 @@ export function FillPanel({
  */
 function AnnouncementsOff({ notice }: { notice: CallerNotice }) {
   const groups = [
-    { key: "ai", label: "These agents do not announce that they are AI", agents: notice.ai_disclosure_off },
-    {
-      key: "recording",
-      label: "These agents do not announce that the call is recorded",
-      agents: notice.recording_notice_off,
-    },
+    { key: "ai", label: COPY.offAi, agents: notice.ai_disclosure_off },
+    { key: "recording", label: COPY.offRecording, agents: notice.recording_notice_off },
   ].filter((group) => group.agents.length > 0);
 
   if (groups.length === 0) return null;
@@ -114,16 +110,18 @@ function AnnouncementsOff({ notice }: { notice: CallerNotice }) {
   return (
     <section aria-labelledby="announcements-off" className="border-t border-line pt-5">
       <h2 id="announcements-off" className="text-heading text-ink">
-        Announcements your agents do not make
+        {COPY.offHeading}
       </h2>
+      {/* The guarantee first and on screen (UX-DOCTRINE §8.7): "announcement off" read alone
+          describes a product that conceals. Both sentences keep their words; only the
+          explanation of what the switches cover sits behind the tap. */}
       <div className="mt-1.5 space-y-1.5 text-meta leading-relaxed text-ink-muted">
-        <p>
-          Every agent still answers truthfully whenever a caller asks whether they are
-          speaking to an AI or whether the call is recorded. That cannot be switched off.
-        </p>
-        <p>
-          These settings only cover what is said unprompted at the start of a call. Where one
-          is off, your written notice is where the obligation lands.
+        <p>{KEPT.guarantee}</p>
+        <p className="flex flex-wrap items-center gap-x-1">
+          {KEPT.obligation}
+          <WhyTip about="what these settings cover" label="Why?">
+            <p>{COPY.offWhy}</p>
+          </WhyTip>
         </p>
       </div>
       <div className="mt-3 space-y-3">

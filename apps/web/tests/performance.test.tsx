@@ -261,7 +261,7 @@ describe("the performance report", () => {
       [PATHS.summary]: problem(403, { title: "Forbidden" }),
       [PATHS.groups]: problem(403, { title: "Forbidden" }),
     });
-    await screen.findByText(/permission to read call records/);
+    await screen.findByText(/access to call records/);
     expect(screen.queryByRole("alert"), "a permission is not a fault").toBeNull();
     expect(container.textContent).not.toContain("Answer rate");
   });

@@ -7,6 +7,8 @@ import { StatusPill } from "@/components/console/statusPill";
 import { formatIST, type NoticeTone } from "@/components/ui";
 import type { DocumentState, LegalDocumentState } from "@/lib/api/agreements";
 
+import { AGREEMENTS_COPY as COPY, inForceFrom } from "./copy";
+
 /**
  * The server-decided states, as the status each one wears. `not_required` wears none: its
  * section's heading already says there is nothing to accept.
@@ -36,8 +38,8 @@ export function DocumentRows({ docs }: { docs: LegalDocumentState[] }) {
  * a screen that forgot to print it.
  */
 function effectiveLine(date: string | null): string {
-  if (!date) return "No effective date yet";
-  return `In force from ${isISODate(date) ? formatDateShort(date) : date}`;
+  if (!date) return COPY.noDate;
+  return inForceFrom(isISODate(date) ? formatDateShort(date) : date);
 }
 
 function DocumentRow({ doc }: { doc: LegalDocumentState }) {

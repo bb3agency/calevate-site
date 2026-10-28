@@ -13,12 +13,14 @@ import { needsAction, type LegalReadiness, type ReadinessBlocker } from "@/lib/a
 import { useClientRealm } from "@/lib/api/session";
 
 import { AcceptPanel } from "./AcceptPanel";
+import { AGREEMENTS_COPY as COPY } from "./copy";
 import { DocumentRows } from "./documents";
+import { WhyTip } from "./_ui/WhyTip";
 
 /** Whose move a blocker is, in the two words its status says. */
 const ACTOR_STATUS: Record<ReadinessBlocker["actor"], { label: string; tone: NoticeTone }> = {
-  client: { label: "Your move", tone: "warn" },
-  calevate: { label: "Ours to do", tone: "neutral" },
+  client: { label: COPY.yourMove, tone: "warn" },
+  calevate: { label: COPY.oursToDo, tone: "neutral" },
 };
 
 /** The server's rule name for the blocker this screen can clear itself. */
@@ -38,15 +40,16 @@ type NextAction = { href: string; label: string; internal: boolean };
 /**
  * The whole screen, over an answer that has already arrived.
  *
- * Top: the server's verdict and what stands in the way, a row per blocker with whose move
- * it is and the server's reason behind its ⓘ. Under the list sits ONE primary action, the
- * first thing the owner can do; a second, different action is a quiet link beside it, so
- * the rows themselves carry no controls and stay one line on a phone. The agreements row
- * is always listed because this screen is where they are cleared; its "done" is the
- * ABSENCE of its blocker in the same response, so nothing here re-derives the gate's
- * verdict.
+ * Top: a status chip and the server's verdict, then a short "Before calls can start" list,
+ * one row per blocker with whose move it is and the server's reason behind its ⓘ. Under
+ * the list sits ONE primary button, the first thing the owner can do; a second, different
+ * action is a quiet link beside it, so the rows carry no controls and stay one line on a
+ * phone. The agreements row is always listed because this screen is where they are
+ * cleared; its "done" is the ABSENCE of its blocker in the same response, so nothing here
+ * re-derives the gate's verdict.
  *
- * Inbound is said once, under the list.
+ * Inbound is said once, under the list, in one line: it is the reassurance a blocked owner
+ * needs, so it is not behind a tap.
  */
 export function Readiness({ readiness }: { readiness: LegalReadiness }) {
   const { href, session } = useClientRealm();
@@ -61,12 +64,12 @@ export function Readiness({ readiness }: { readiness: LegalReadiness }) {
     if (row.rule === AGREEMENTS_RULE) {
       return {
         href: "#accept",
-        label: readiness.can_accept ? "Review and accept" : "See the agreements",
+        label: readiness.can_accept ? COPY.reviewAndAccept : COPY.seeAgreements,
         internal: true,
       };
     }
     if (VERIFY_BUSINESS_RULES.has(row.rule)) {
-      return { href: href(`/c/${session.orgSlug}/verify-business`), label: "Verify your business", internal: false };
+      return { href: href(`/c/${session.orgSlug}/verify-business`), label: COPY.verifyBusiness, internal: false };
     }
     return null;
   };
@@ -83,19 +86,19 @@ export function Readiness({ readiness }: { readiness: LegalReadiness }) {
         <PageHeader
           status={
             <StatusPill tone={readiness.may_operate ? "ok" : "stop"}>
-              {readiness.may_operate ? "This account is ready to make calls." : "Outgoing calls are blocked."}
+              {readiness.may_operate ? COPY.ready : COPY.blocked}
             </StatusPill>
           }
           description={readiness.verdict}
         />
 
         <div className="rounded-card border border-line bg-surface px-4 pb-4 pt-1 sm:px-5">
-          <h2 className="sr-only">Before outgoing calls can start</h2>
+          <h2 className="pt-3 text-meta font-semibold text-ink-muted">{COPY.todoHeading}</h2>
           <ul className="divide-y divide-line">
             {agreements ? (
               <BlockerRow row={agreements} />
             ) : (
-              <StatusRow label="Agreements accepted" status="Done" tone="ok" />
+              <StatusRow label={COPY.agreementsDone} status={COPY.done} tone="ok" />
             )}
             {others.map((row) => (
               <BlockerRow key={row.rule} row={row} />
@@ -110,11 +113,13 @@ export function Readiness({ readiness }: { readiness: LegalReadiness }) {
           )}
 
           <div className={`space-y-1 text-meta text-ink-muted ${primary ? "mt-3" : "mt-2 border-t border-line pt-3"}`}>
-            {!readiness.may_operate && <p>Calls coming in are unaffected. Your agent keeps answering.</p>}
+            {!readiness.may_operate && <p>{COPY.inboundFine}</p>}
             {others.length === 0 && (
-              <p>
-                Nothing else at the account level is holding up outgoing calls. A campaign may have its own
-                conditions, shown on the campaign.
+              <p className="flex flex-wrap items-center gap-x-1">
+                {COPY.nothingElse}
+                <WhyTip about="campaign checks" label="More">
+                  <p>{COPY.nothingElseWhy}</p>
+                </WhyTip>
               </p>
             )}
           </div>
@@ -124,17 +129,17 @@ export function Readiness({ readiness }: { readiness: LegalReadiness }) {
       {/* The jump target of "Review and accept". */}
       <div id="accept" className="scroll-mt-4">
         <Section
-          title="Agreements that bind your business"
+          title={COPY.sectionTitle}
           description={
             !outstanding
-              ? "Open any of them to read it again."
+              ? COPY.sectionReadAgain
               : readiness.can_accept
-                ? "Read each one, then accept them together below."
-                : "Read each one. The account owner accepts them."
+                ? COPY.sectionAccept
+                : COPY.sectionOwner
           }
         >
           {readiness.provisional_notice && (
-            <NoticeBox tone="warn" title="These are drafts" className="mb-4">
+            <NoticeBox tone="warn" title={COPY.drafts} className="mb-4">
               {readiness.provisional_notice}
             </NoticeBox>
           )}
@@ -144,10 +149,7 @@ export function Readiness({ readiness }: { readiness: LegalReadiness }) {
       </div>
 
       {readable.length > 0 && (
-        <Section
-          title="Also published, nothing to accept"
-          description="Notices we owe you, not promises you make us."
-        >
+        <Section title={COPY.alsoTitle} description={COPY.alsoNote}>
           <DocumentRows docs={readable} />
         </Section>
       )}

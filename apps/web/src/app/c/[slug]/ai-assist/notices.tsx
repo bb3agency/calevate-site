@@ -14,6 +14,8 @@ import { useBuyAiExtra, type AiQuota } from "@/lib/api/aiQuota";
 import { useWriteAccess } from "@/lib/api/hooks";
 import type { Session } from "@/lib/api/client";
 
+import { AI_ASSIST_COPY as COPY, addedLine } from "./copy";
+
 /**
  * What state this month is in, in the SERVER's own words.
  *
@@ -26,18 +28,18 @@ export function StateNotice({ quota, session }: { quota: AiQuota; session: Sessi
     return (
       <NoticeBox
         tone="warn"
-        title="AI help is paused right now"
-        info="We paused AI help across Calevate while we check unusually high usage. It comes back on its own. Ask us if you need it sooner."
+        title={COPY.pausedTitle}
+        info={COPY.pausedTip}
       >
-        Your calls, campaigns and leads are unaffected, and nothing has been charged.
+        {COPY.pausedBody}
       </NoticeBox>
     );
   }
 
   if (quota.state === "exhausted") {
     return (
-      <NoticeBox tone="stop" title="This month's AI help is finished">
-        It starts again next month. Talk to us if you need more before then.
+      <NoticeBox tone="stop" title={COPY.finishedTitle}>
+        {COPY.finishedBody}
       </NoticeBox>
     );
   }
@@ -62,8 +64,9 @@ function CeilingReached({ quota, session }: { quota: AiQuota; session: Session }
 
   return (
     <>
-      <NoticeBox tone="warn" title="You have used this month's included AI help">
-        <p>AI help is off until next month. Calls, campaigns and leads carry on as before.</p>
+      <NoticeBox tone="warn" title={COPY.ceilingTitle}>
+        <p>{COPY.ceilingOff}</p>
+        <p>{COPY.ceilingCarryOn}</p>
         {quota.extra_available ? (
           <>
             <div className="mt-3">
@@ -71,11 +74,11 @@ function CeilingReached({ quota, session }: { quota: AiQuota; session: Session }
             </div>
             <button
               type="button"
-              className={`${PRIMARY_BUTTON} mt-3`}
+              className={`${PRIMARY_BUTTON} mt-3 max-sm:w-full max-sm:justify-center`}
               disabled={!write.allowed}
               onClick={() => setAsking(true)}
             >
-              See what more AI help costs
+              {COPY.seePrice}
             </button>
           </>
         ) : (
@@ -102,11 +105,8 @@ function CeilingReached({ quota, session }: { quota: AiQuota; session: Session }
 
       {buy.data && !asking && (
         <div role="status">
-          <NoticeBox tone="ok" title="Added">
-            <p className="mt-1">
-              {formatINR(buy.data.extra_block_inr)} was taken from your calling credit and
-              AI help is available again for the rest of {buy.data.month}.
-            </p>
+          <NoticeBox tone="ok" title={COPY.addedTitle}>
+            <p className="mt-1">{addedLine(formatINR(buy.data.extra_block_inr))}</p>
           </NoticeBox>
         </div>
       )}

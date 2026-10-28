@@ -99,7 +99,7 @@ describe("the client's quality report", () => {
     );
     expect(container.textContent).toContain("Budget (lakhs)");
     expect(container.textContent).toContain(
-      "11 of those scenarios are adversarial",
+      "11 of these are trick calls",
     );
   });
 
