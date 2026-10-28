@@ -49,7 +49,7 @@ from typing import Annotated, Any, Final, Literal
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
-from calevate_shared.call_script import opening_line_of
+from calevate_shared.call_script import opening_line_of, outbound_opening_of
 from calevate_shared.languages import offered_language_tags
 from calevate_shared.spoken_guard import textbook_problem
 from pydantic import BaseModel, ConfigDict, Field
@@ -1549,11 +1549,13 @@ class _AgentEditArgs(BaseModel):
     recording_notice_enabled: bool | None
     #: The script's opening line (D-854). `OpeningLineIn`'s bound; absent on older records.
     opening_line: Annotated[str, Field(max_length=1000)] | None = None
+    #: A "both" agent's opening on the calls it places (D-920); absent on older records.
+    outbound_opening_line: Annotated[str, Field(max_length=1000)] | None = None
 
 
 _AGENT_EDIT_COLUMNS: Final = (
     "a.status, a.language_primary, a.engine_voice_id, a.ai_disclosure_enabled, "
-    "a.recording_notice_enabled, pv.body"
+    "a.recording_notice_enabled, pv.body, a.direction"
 )
 
 
@@ -1580,6 +1582,8 @@ async def _agent_settings(session: AsyncSession, agent_id: UUID) -> dict[str, An
         "ai_disclosure_enabled": bool(row[3]),
         "recording_notice_enabled": bool(row[4]),
         "opening_line": opening_line_of(row[5]),
+        "outbound_opening_line": outbound_opening_of(row[5]),
+        "direction": str(row[6]),
     }
 
 
@@ -1609,15 +1613,22 @@ def _describe_edit(parsed: _AgentEditArgs, current: dict[str, Any]) -> tuple[lis
     if parsed.opening_line is not None:
         was.append(f"opens with “{current['opening_line'] or 'nothing written yet'}”")
         becomes.append(f"opens with “{strip_invisible(parsed.opening_line.strip())}”")
+    if parsed.outbound_opening_line is not None:
+        placed = current["outbound_opening_line"] or "nothing written yet"
+        was.append(f"opens calls it places with “{placed}”")
+        line = strip_invisible(parsed.outbound_opening_line.strip())
+        becomes.append(f"opens calls it places with “{line}”")
     return was, becomes
 
 
-def _opening_line_problem(line: str, current: dict[str, Any], language: str) -> str | None:
+def _opening_line_problem(
+    line: str, current: dict[str, Any], language: str, *, field: str = "opening_line"
+) -> str | None:
     """Why Pip may not write this opening line, or None: blank, or a textbook word callers do
     not say (D-832's spoken-style list). A word the line already had is the owner's."""
     if not line:
-        return "the `opening_line` was blank, so ask the person what the agent should say first"
-    return textbook_problem("opening_line", line, language, allowed=current["opening_line"])
+        return f"the `{field}` was blank, so ask the person what the agent should say first"
+    return textbook_problem(field, line, language, allowed=current[field])
 
 
 _TRUTHFUL_ANYWAY: Final = (
@@ -1655,6 +1666,22 @@ async def _plan_agent_edit_common(
         )
         if problem is not None:
             raise WriteRefusedError(problem)
+    outbound_opening_line = None
+    if parsed.outbound_opening_line is not None:
+        if current["direction"] != "both":
+            raise WriteRefusedError(
+                "only an agent that answers calls and also places them has an opening line "
+                "for the calls it places; change `opening_line` instead"
+            )
+        outbound_opening_line = strip_invisible(parsed.outbound_opening_line.strip())
+        problem = _opening_line_problem(
+            outbound_opening_line,
+            current,
+            parsed.language_primary or current["language_primary"],
+            field="outbound_opening_line",
+        )
+        if problem is not None:
+            raise WriteRefusedError(problem)
     plan = Plan(
         object_id=str(parsed.agent_id),
         title="Change this agent" if not live else "Change this live agent",
@@ -1686,6 +1713,7 @@ async def _plan_agent_edit_common(
             "ai_disclosure_enabled": parsed.ai_disclosure_enabled,
             "recording_notice_enabled": parsed.recording_notice_enabled,
             "opening_line": opening_line,
+            "outbound_opening_line": outbound_opening_line,
         },
     )
     return parsed, plan
@@ -1701,6 +1729,7 @@ async def _apply_agent_settings(
     ai_disclosure_enabled: bool | None,
     recording_notice_enabled: bool | None,
     opening_line: str | None = None,
+    outbound_opening_line: str | None = None,
 ) -> None:
     """The console buttons, in the order their transactions allow (module docstring):
     `set_disclosure_posture` owns its session and goes first, then `lifecycle.update_agent`
@@ -1710,7 +1739,12 @@ async def _apply_agent_settings(
     from apps.api.agents.publishing import set_disclosure_posture
 
     notices = ai_disclosure_enabled is not None or recording_notice_enabled is not None
-    rest = language_primary is not None or voice_id is not None or opening_line is not None
+    rest = (
+        language_primary is not None
+        or voice_id is not None
+        or opening_line is not None
+        or outbound_opening_line is not None
+    )
     # The notices commit in their own transaction, before the voice or opening line can be
     # refused. A refusal there would leave the notices changed behind an action reported as
     # failed and with no Undo, so they are put back before the refusal is reported. The rest
@@ -1734,6 +1768,7 @@ async def _apply_agent_settings(
                 language_primary=language_primary,
                 voice_id=voice_id,
                 opening_line=opening_line,
+                outbound_opening_line=outbound_opening_line,
             )
     except Exception:
         if prior is not None:
@@ -1754,6 +1789,7 @@ async def _apply_voice_and_opening(
     language_primary: str | None,
     voice_id: str | None,
     opening_line: str | None,
+    outbound_opening_line: str | None = None,
 ) -> None:
     from apps.api.agents.script_builder import replace_opening_line
 
@@ -1774,6 +1810,15 @@ async def _apply_voice_and_opening(
             opening_line=opening_line,
             created_by=actor.user_id,
         )
+    if outbound_opening_line is not None:
+        await replace_opening_line(
+            session,
+            tenant_id=actor.tenant_id,
+            agent_id=agent_id,
+            opening_line=outbound_opening_line,
+            created_by=actor.user_id,
+            placed=True,
+        )
 
 
 async def _execute_agent_edit(
@@ -1790,6 +1835,7 @@ async def _execute_agent_edit(
         ai_disclosure_enabled=parsed.ai_disclosure_enabled,
         recording_notice_enabled=parsed.recording_notice_enabled,
         opening_line=parsed.opening_line,
+        outbound_opening_line=parsed.outbound_opening_line,
     )
     after = await _agent_settings(session, parsed.agent_id)
     changed = sorted(key for key in before if key != "status" and before[key] != after[key])
@@ -1855,6 +1901,11 @@ async def _invert_agent_edit(session: AsyncSession, actor: ToolActor, record: Un
             "the agent had no opening line before, so there is none to put back — change it "
             "on the Script screen"
         )
+    if "outbound_opening_line" in changed and not prior["outbound_opening_line"]:
+        raise UndoRefusedError(
+            "the agent had no opening line of its own for the calls it places, so there is "
+            "none to put back — change it on the Script screen"
+        )
     await _apply_agent_settings(
         session,
         actor,
@@ -1868,6 +1919,9 @@ async def _invert_agent_edit(session: AsyncSession, actor: ToolActor, record: Un
             prior["recording_notice_enabled"] if "recording_notice_enabled" in changed else None
         ),
         opening_line=prior["opening_line"] if "opening_line" in changed else None,
+        outbound_opening_line=(
+            prior["outbound_opening_line"] if "outbound_opening_line" in changed else None
+        ),
     )
     return "The agent's settings are back as they were."
 
@@ -1894,6 +1948,13 @@ _AGENT_EDIT_PROPERTIES: Final[dict[str, Any]] = {
         "anyOf": [{"type": "string"}, {"type": "null"}],
         "description": "The script's first line, in its language, or null to leave it.",
     },
+    "outbound_opening_line": {
+        "anyOf": [{"type": "string"}, {"type": "null"}],
+        "description": (
+            "For an agent that answers and places calls only: its first line on a call it "
+            "places (who, which business, why it calls), or null to leave it."
+        ),
+    },
 }
 
 AGENT_EDIT: Final = ActionTool(
@@ -1906,7 +1967,7 @@ AGENT_EDIT: Final = ActionTool(
     where="under Agents in your dashboard",
     schema=action_schema(
         "agent_edit",
-        "Change a DRAFT or PAUSED agent's language, voice, opening line, or opening notices "
+        "Change a DRAFT or PAUSED agent's language, voice, opening lines, or opening notices "
         "(saying it is an AI, saying the call is recorded). A notice switched on is said "
         "after the opening line. For a LIVE agent use `agent_edit_live`." + DOES_IT,
         _AGENT_EDIT_PROPERTIES,
@@ -1925,7 +1986,7 @@ AGENT_EDIT_LIVE: Final = ActionTool(
     where="under Agents in your dashboard",
     schema=action_schema(
         "agent_edit_live",
-        "Propose changing a LIVE agent's language, voice, opening line, or opening notices. "
+        "Propose changing a LIVE agent's language, voice, opening lines, or opening notices. "
         "Callers hear "
         "the change from their next call. For a draft or paused agent use `agent_edit`."
         + PROPOSES_ONLY,

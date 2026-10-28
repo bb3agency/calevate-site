@@ -4193,8 +4193,8 @@ export interface paths {
         };
         get?: never;
         /**
-         * Replace the opening line in the script callers hear, and put it live
-         * @description For shortening the opening line where a notice switch was refused for want of room (D-846). The rest of the script is kept. Refused while other script changes are waiting to go live, and when the line would not fit after the notices switched on.
+         * Replace an opening line in the script callers hear, and put it live
+         * @description For shortening the opening line where a notice switch was refused for want of room (D-846), and for setting the line an agent that answers and places calls opens the calls it places with (`when: calls`, D-920). The rest of the script is kept. Refused while other script changes are waiting to go live, and when the line would not fit after the notices switched on.
          */
         put: operations["replace_opening_line_v1_agents__agent_id__script_opening_line_put"];
         post?: never;
@@ -13706,6 +13706,8 @@ export interface components {
              * @default
              */
             first_words: string;
+            /** First Words When Calling */
+            first_words_when_calling?: string | null;
             greeting_budget?: components["schemas"]["GreetingBudgetOut"] | null;
             /**
              * Id
@@ -13752,6 +13754,8 @@ export interface components {
              * @default
              */
             script_opening_line: string;
+            /** Script Outbound Opening Line */
+            script_outbound_opening_line?: string | null;
             /**
              * Status
              * @enum {string}
@@ -15882,6 +15886,11 @@ export interface components {
              * @default
              */
             opening_line: string;
+            /**
+             * Outbound Opening Line
+             * @default
+             */
+            outbound_opening_line: string;
             /**
              * Outbound Purpose
              * @default
@@ -25054,6 +25063,12 @@ export interface components {
         OpeningLineIn: {
             /** Opening Line */
             opening_line: string;
+            /**
+             * When
+             * @default answers
+             * @enum {string}
+             */
+            when: "answers" | "calls";
         };
         /** OpeningLineOut */
         OpeningLineOut: {
@@ -25061,6 +25076,12 @@ export interface components {
             opening_line: string;
             /** Version */
             version: number | null;
+            /**
+             * When
+             * @default answers
+             * @enum {string}
+             */
+            when: "answers" | "calls";
         };
         /** OpeningRewrittenOut */
         OpeningRewrittenOut: {

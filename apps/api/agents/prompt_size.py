@@ -57,6 +57,7 @@ SCRIPT_SECTION_LABELS: Final[dict[str, str]] = {
     "[IDENTITY]": "Who the agent is",
     "[GOAL]": "Goal",
     "[OPENING]": "Opening line",
+    "[OPENING ON CALLS YOU PLACE]": "Opening line when it calls",
     "[SPEAKING STYLE]": "Speaking style",
     "[CONVERSATION]": "Steps",
     "[TASK FLOW]": "Steps",

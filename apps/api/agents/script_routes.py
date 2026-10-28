@@ -1497,12 +1497,17 @@ class OpeningLineIn(BaseModel):
 
     #: The new opening line, in the agent's main language. `CallScript.opening_line`'s bound.
     opening_line: str = Field(min_length=1, max_length=1000)
+    #: Which opening: `answers`, the line callers who ring the agent hear; `calls`, the line a
+    #: "both" agent opens the calls it places with (`CallScript.outbound_opening_line`,
+    #: D-920), refused for an agent of one direction.
+    when: Literal["answers", "calls"] = "answers"
 
 
 class OpeningLineOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     opening_line: str
+    when: Literal["answers", "calls"] = "answers"
     #: The new version of the script, or null when it already had this line.
     version: int | None
 
@@ -1511,11 +1516,13 @@ class OpeningLineOut(BaseModel):
     "/opening-line",
     response_model=OpeningLineOut,
     openapi_extra=permission_meta("org:manage"),
-    summary="Replace the opening line in the script callers hear, and put it live",
+    summary="Replace an opening line in the script callers hear, and put it live",
     description=(
         "For shortening the opening line where a notice switch was refused for want of room "
-        "(D-846). The rest of the script is kept. Refused while other script changes are "
-        "waiting to go live, and when the line would not fit after the notices switched on."
+        "(D-846), and for setting the line an agent that answers and places calls opens the "
+        "calls it places with (`when: calls`, D-920). The rest of the script is kept. "
+        "Refused while other script changes are waiting to go live, and when the line would "
+        "not fit after the notices switched on."
     ),
 )
 async def replace_opening_line(
@@ -1529,6 +1536,7 @@ async def replace_opening_line(
             agent_id=agent_id,
             opening_line=payload.opening_line,
             created_by=principal.user_id,
+            placed=payload.when == "calls",
         )
         if done.version is not None:
             await write_audit(
@@ -1539,9 +1547,9 @@ async def replace_opening_line(
                 object_type="agent",
                 object_id=str(agent_id),
                 ip=client_request_ip(request),
-                summary={"version": done.version},
+                summary={"version": done.version, "when": payload.when},
             )
-    return OpeningLineOut(opening_line=done.opening_line, version=done.version)
+    return OpeningLineOut(opening_line=done.opening_line, when=payload.when, version=done.version)
 
 
 class ApplyScriptIn(BaseModel):

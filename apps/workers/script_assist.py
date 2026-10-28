@@ -252,9 +252,17 @@ def _instruction_fields(script: CallScript) -> list[tuple[str, str]]:
     return fields
 
 
+#: The lines the engine speaks word for word as an opening: the answering one and a "both"
+#: agent's one for the calls it places (D-920), held to the same opening rules.
+_OPENING_PATHS: Final = frozenset({"opening_line", "outbound_opening_line"})
+
+
 def _spoken_fields(script: CallScript) -> list[tuple[str, str]]:
     """(path, text) of every line the agent says, or that shows how a caller sounds."""
-    fields = [("opening_line", script.opening_line)]
+    fields = [
+        ("opening_line", script.opening_line),
+        ("outbound_opening_line", script.outbound_opening_line),
+    ]
     for i, stage in enumerate(script.stages):
         fields.append((f"stages.{i}.sounds_like", stage.sounds_like))
         if stage.mode == "say":
@@ -318,12 +326,12 @@ def language_problems(
                 # example line is not the agent's to keep, and the owner's own line is theirs.
                 None
                 if path in callers or owners
-                else said_line_problem(path, text, opening=path == "opening_line"),
+                else said_line_problem(path, text, opening=path in _OPENING_PATHS),
                 latin_word_problem(path, text, language, names=names)
-                if path == "opening_line" and not owners
+                if path in _OPENING_PATHS and not owners
                 else None,
                 introduced_opening_problem(path, text, names=names)
-                if path == "opening_line" and introduced and not owners
+                if path in _OPENING_PATHS and introduced and not owners
                 else None,
             )
             if problem
@@ -339,10 +347,14 @@ def drafted_script(
     instructions: bool = True,
     names: Sequence[str] = (),
     introduced: bool = False,
+    direction: str = "both",
 ) -> CallScript:
     """A whole draft (or a conversion) as `_script_from_model_json` reads it, refused with
-    the language problems for the one repair when it breaks the language rules."""
+    the language problems for the one repair when it breaks the language rules. An agent of
+    one direction keeps no outbound opening, whatever the model wrote (D-920)."""
     script = _script_from_model_json(raw)
+    if direction != "both":
+        script = script.model_copy(update={"outbound_opening_line": ""})
     problems = language_problems(
         script,
         language,
@@ -426,6 +438,7 @@ _DRAFT_PROPERTIES: Final[dict[str, object]] = {
     "goal": _STR,
     "outbound_purpose": _STR,
     "opening_line": _STR,
+    "outbound_opening_line": _STR,
     "tone": _STR,
     "address_form": _STR,
     "code_mix": {"type": "string", "enum": ["light", "natural", "heavy"]},
@@ -471,9 +484,10 @@ OWNER_QUESTIONS: Final[dict[str, str]] = {
 #: instructions carry `OPENING_LINE_RULE`, which names this case; the brief says it applies.
 INTRODUCED_OPENING_NOTE: Final = (
     "The agent introduces itself just before its opening line: a short greeting, its name, "
-    "the business and that it is an AI assistant. So the opening_line does NOT greet and "
-    "does NOT say the agent's or the business's name: it says why the call is made (an "
-    "agent that answers calls thanks the caller) and asks one short question."
+    "the business and that it is an AI assistant. So the opening_line (and any "
+    "outbound_opening_line) does NOT greet and does NOT say the agent's or the business's "
+    "name: it says why the call is made (an agent that answers calls thanks the caller) and "
+    "asks one short question."
 )
 
 _DIRECTION_SENTENCES: Final[dict[str, str]] = {
@@ -647,6 +661,7 @@ def _script_from_model_json(raw: dict[str, Any]) -> CallScript:
         goal=_text(raw, "goal", 1000),
         outbound_purpose=_text(raw, "outbound_purpose", 300),
         opening_line=_text(raw, "opening_line", 1000),
+        outbound_opening_line=_text(raw, "outbound_opening_line", 1000),
         style=SpeakingStyle(
             tone=_text(raw, "tone", 300),
             address_form=_text(raw, "address_form", 200),
@@ -1239,6 +1254,7 @@ async def draft_script(
             instructions=not converting,
             names=names,
             introduced=full.introduced,
+            direction=full.direction,
         )
     answer = await ask_json(
         description,

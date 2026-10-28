@@ -37,11 +37,12 @@ from dataclasses import asdict
 from typing import Any, cast
 from uuid import UUID
 
-from calevate_shared.call_script import opening_line_of
+from calevate_shared.call_script import opening_line_of, outbound_opening_of
 from calevate_shared.engine import (
     DisclosurePosture,
     compose_opening_line,
     join_first_words,
+    placed_call_first_words,
     spoken_ai_notice,
 )
 from calevate_shared.lead_fields import business_only
@@ -103,7 +104,10 @@ AGENT_ROSTER_SQL = (
     # The caller-memory statement this account accepted, appended for the reason above.
     "o.caller_memory_attestation_version, "
     # Whether the caller follows along on a screen (D-906), appended for the reason above.
-    "a.caller_has_screen "
+    "a.caller_has_screen, "
+    # The business a "both" agent's composed opening for the calls it places names (D-920),
+    # appended for the reason above.
+    "o.name "
     "FROM agents a LEFT JOIN extraction_schemas es ON es.id = a.extraction_schema_id "
     "LEFT JOIN organizations o ON o.id = a.tenant_id "
     "LEFT JOIN prompt_versions pv ON pv.id = COALESCE(a.live_prompt_id, a.system_prompt_id) "
@@ -191,6 +195,16 @@ def agent_out(r: Any) -> AgentOut:
         first_words=join_first_words(
             notices, opening, ai_notice=spoken_ai_notice(posture), language=str(r[4])
         ),
+        script_outbound_opening_line=outbound_opening_of(r[21]) if r[2] == "both" else None,
+        first_words_when_calling=placed_call_first_words(
+            body=r[21],
+            notices=notices,
+            ai_notice=spoken_ai_notice(posture),
+            language=str(r[4]),
+            business=str(r[26] or ""),
+        )
+        if r[2] == "both"
+        else None,
         greeting_budget=None if budget is None else GreetingBudgetOut(**asdict(budget)),
         truthful_answer_rule=truthful_answer_promise(call_is_recorded=recorded),
     )

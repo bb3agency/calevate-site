@@ -495,6 +495,14 @@ async def _write_script(
             + f"The agent's name is {name}; it gives this name when it introduces itself or is "
             "asked. Keep the opening line under "
             f"{GREETING_MAX_CHARS} characters, ending with a question to the person."
+            + (
+                " It answers calls and places them, so write both openings (D-920): "
+                "opening_line for a call it answers and outbound_opening_line for a call it "
+                "places, saying why it is calling, each under "
+                f"{GREETING_MAX_CHARS} characters and ending with a question."
+                if direction_of_jobs(jobs) == "both"
+                else ""
+            )
         )
         try:
             draft = await draft_script(

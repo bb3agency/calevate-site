@@ -117,6 +117,7 @@ from calevate_shared.engine import (
     introduces_itself,
     join_first_words,
     notice_fields,
+    placed_call_first_words,
     spoken_ai_notice,
     truthful_answer_directive,
 )
@@ -3823,8 +3824,8 @@ def trial_call_first_words(agent: AgentRow, *, call_is_recorded: bool) -> str | 
     call (founder, 23 Oct 2026): who it is, from which business, why it rings and whether now
     suits, then the notices its switches turn on, in the order its greeting carries them
     (D-861). When its AI notice introduces it (D-865), the line after the introduction says
-    only why it rings and whether now suits. None for an agent that calls out (its greeting
-    already does) or a language with no such line (its greeting is spoken)."""
+    only why it rings and whether now suits. None for an agent that calls out (`dial_first_words`
+    decides its first words) or a language with no such line (its greeting is spoken)."""
     if agent["direction"] != "inbound":
         return None
     posture = posture_of(agent)
@@ -3840,6 +3841,27 @@ def trial_call_first_words(agent: AgentRow, *, call_is_recorded: bool) -> str | 
         return None
     notices = compose_opening_line(posture, call_is_recorded=call_is_recorded)
     return join_first_words(notices, line, ai_notice=ai_notice, language=language)
+
+
+def dial_first_words(agent: AgentRow, *, test_call: bool, call_is_recorded: bool) -> str | None:
+    """The first words of a call this agent places, or None for its greeting.
+
+    A "both" agent opens EVERY call it places, test calls included, with its outbound opening
+    (D-920): its greeting thanks the person for calling, which on the founder's call of
+    28 Oct 2026 it said to the person it had rung. An answering agent rings out with the
+    test-call line on a test call only; an outbound agent's greeting is its opening."""
+    if agent["direction"] == "both":
+        posture = posture_of(agent)
+        return placed_call_first_words(
+            body=str(agent.get("prompt") or ""),
+            notices=compose_opening_line(posture, call_is_recorded=call_is_recorded),
+            ai_notice=spoken_ai_notice(posture),
+            language=str(agent["language_primary"]),
+            business=str(agent.get("business_name") or ""),
+        )
+    if test_call:
+        return trial_call_first_words(agent, call_is_recorded=call_is_recorded)
+    return None
 
 
 async def dispatch_call(
@@ -4097,11 +4119,11 @@ async def dispatch_call(
                     if owner_test is not None
                     else None
                 ),
-                opening=trial_call_first_words(
-                    agent, call_is_recorded=engine.capabilities.records_audio
-                )
-                if trial is not None or owner_test is not None
-                else None,
+                opening=dial_first_words(
+                    agent,
+                    test_call=trial is not None or owner_test is not None,
+                    call_is_recorded=engine.capabilities.records_audio,
+                ),
                 rings_at_any_hour=rings_at_any_hour,
             ),
         )

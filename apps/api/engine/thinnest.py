@@ -3342,7 +3342,10 @@ class ThinnestEngine:
         # brings its own first words (`CallContext.opening`) needs no change to the agent.
         # Too long for `purpose` (a long business name beside both notices), the agent's own
         # greeting is spoken instead: a test call with the wrong first line is better than none.
-        opening = _tidy_spoken(ctx.opening or "")
+        # Its `{{name}}` fields are filled here, as `_outbound_opening` fills the greeting's: a
+        # "both" agent's outbound opening may name the person (D-920).
+        values: dict[str, str | None] = {**variables}
+        opening = _tidy_spoken(substitute_variables(ctx.opening or "", values))
         if len(opening) > PURPOSE_MAX_CHARS:
             log.warning("thinnest_call_opening_too_long", extra={"length": len(opening)})
             opening = ""
