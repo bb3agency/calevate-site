@@ -4,10 +4,10 @@ When: the database is corrupt, a migration or a bad deploy destroyed data, someo
 dropped or truncated something, or the VPS is gone. Also: the quarterly drill, which runs
 this document verbatim against a scratch host (`runbooks/backup-restore-drill.md`).
 
-**Targets from OPERATIONS §5–6: RTO 4 hours, RPO 15 minutes.** RPO is bounded by
-`archive_timeout = 300` plus upload time, so expect to lose at most ~6 minutes of writes,
-not 15. If you find yourself losing more, that is the finding, and it goes in the
-postmortem.
+**Targets from OPERATIONS §5–6: RTO 4 hours, RPO 30 minutes (D-928).** RPO is bounded by
+`archive_timeout` (1800 s) plus upload time, so on a quiet stretch expect to lose up to ~30
+minutes of writes; a busy database fills segments sooner and loses less. If you find
+yourself losing more, that is the finding, and it goes in the postmortem.
 
 > **UNVALIDATED.** No step below has been executed against a real cluster or a real
 > bucket — the mechanism was written without credentials or network (`infra/backup/README.md`

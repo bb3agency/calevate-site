@@ -229,6 +229,25 @@ Until a restore has worked once, these are backups we believe in, not backups we
 Follow `runbooks/backup-restore-drill.md` on a scratch machine: restore last night's base
 backup plus WAL to a point in time.
 
+## Changing the archive interval
+
+How often WAL is forced to the bucket is `archive_timeout` in
+`infra/backup/postgresql-archiving.conf` (1800 s = 30 min since D-928). It is the worst-case
+writes lost if the server dies. Change the number in the repo, push, then on the VPS as
+`d_user` (no restart: PostgreSQL applies it on reload):
+
+```sh
+cd /var/www/calevate && sudo -u calevate git pull --ff-only
+sudo install -o postgres -g postgres -m 0644 /var/www/calevate/infra/backup/postgresql-archiving.conf /etc/postgresql/16/main/conf.d/
+sudo -u postgres psql -c "SELECT pg_reload_conf()"
+sudo -u postgres psql -Atc "SHOW archive_timeout"     # must print the new value, e.g. 30min
+```
+
+Nothing else changes: `backup-health.sh` reads the live value and alarms after three
+missed intervals.
+
+---
+
 ## Afterwards
 
 Record in ROADMAP §6 the decisions README §8 step 12 names (35-day retention as a DPDP

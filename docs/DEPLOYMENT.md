@@ -1193,7 +1193,7 @@ ranges so the raw IP serves nothing; MX/TXT/DKIM independent of proxy status.
 
 ## 7. Backups / DR (host-PG consequence — this closes the RPO gap)
 
-D-26 (host PG) breaks OPERATIONS §5's RPO 15min if we only do nightly dumps.
+D-26 (host PG) breaks OPERATIONS §5's RPO (30 min since D-928) if we only do nightly dumps.
 
 > **STATUS (28 Oct 2026): the mechanism exists in the repo and the continuous backups have
 > never run on the VPS.** It lives in **`infra/backup/`** — read `infra/backup/README.md`
@@ -1208,8 +1208,8 @@ D-26 (host PG) breaks OPERATIONS §5's RPO 15min if we only do nightly dumps.
 What is in the repo, and where:
 
 - **Chain A — continuous WAL archiving, wal-g → R2.** `infra/backup/postgresql-archiving.conf`
-  (the `archive_command`, and the `archive_timeout = 300` that is what actually makes RPO
-  15min true on a quiet night), `infra/backup/walg.json.template` (every secret a
+  (the `archive_command`, and the `archive_timeout` — 1800 s, D-928 — that is what actually
+  bounds the RPO, 30 min, on a quiet night), `infra/backup/walg.json.template` (every secret a
   reference), `scripts/backup/basebackup.sh` (nightly base + `delete retain FULL 35`).
   REQUIRED, not optional, per D-26.
 - **Chain B — nightly logical dump offsite.** `scripts/backup/dump-offsite.sh`:

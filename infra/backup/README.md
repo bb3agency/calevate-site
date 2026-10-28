@@ -12,7 +12,7 @@
 D-26 (ROADMAP §6) chose host PostgreSQL 16 over managed Postgres and closed the decision
 by accepting a consequence, in its own words:
 
-> nightly dumps alone would break OPERATIONS §5's RPO 15min, so continuous WAL archiving
+> nightly dumps alone would break OPERATIONS §5's RPO 15min [30 min since D-928], so continuous WAL archiving
 > (wal-g → R2) is REQUIRED, plus nightly pg_dump offsite + quarterly restore drills.
 
 None of it existed. `infra/` held Terraform and the recordings lifecycle policy and
@@ -129,8 +129,9 @@ Four detectors, arranged so each covers the one above's blind spot
    restarted by the postmaster and *the failure is not reported in `pg_stat_archiver`*.
    Delete the wal-g binary and this check stays green.
 2. **Freshness of `last_archived_time`** — catches (1)'s blind spot locally: whatever the
-   reason, the "when did a segment last leave" clock stops. Threshold 15 minutes, which is
-   the RPO, so the alert fires exactly when the promise starts breaking. Blind spot: it
+   reason, the "when did a segment last leave" clock stops. Threshold three `archive_timeout`
+   intervals, read from the live server (90 min at the shipped 1800 s, D-928), so a quiet
+   stretch is not a stall. Blind spot: it
    believes PostgreSQL that the segment left.
 3. **`wal-g wal-verify integrity timeline`** against the bucket — the only check that looks
    at where the data actually has to be, and the only one that catches "`archive_command`
@@ -350,10 +351,9 @@ flat ~€3.20/month for 1 TB with unmetered traffic.
 Worked example at a 20 GB database, compressed roughly 4:1, nightly fulls for 35 days:
 
 - Chain A bases: 20 GB ÷ 4 × 35 ≈ **175 GB** ≈ $2.6/month.
-- Chain A WAL: 288 forced segments/day × 16 MB = 4.6 GB/day **uncompressed worst case**;
-  forced segments are mostly zeroes and compress hard, so the real figure should be a small
-  fraction of that. **This ratio is UNMEASURED** — measure it in week one (§9) and revisit
-  `archive_timeout` downward if it is as cheap as expected.
+- Chain A WAL: at `archive_timeout = 1800` (D-928), 48 forced segments/day × 16 MB = 768 MB/day
+  **uncompressed worst case**; forced segments are mostly zeroes and compress hard, so the
+  real figure should be a small fraction of that. **This ratio is UNMEASURED.**
 - Chain B: another ~175 GB at B2 ≈ $1/month, or inside a €3.20 Storage Box.
 - Operations: ~300 Class A puts/day ≈ 9k/month, inside R2's 1M free tier.
 

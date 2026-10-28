@@ -156,13 +156,14 @@ def _run_health(
     systemctl: str = SYSTEMCTL_ARMED,
     heartbeat_url: str | None,
     wal_verify: str = WAL_VERIFY_DOCS_EXAMPLE,
+    psql: str = PSQL_HEALTHY,
     **extra: str,
 ) -> subprocess.CompletedProcess[str]:
     """`backup-health.sh` on a host where everything is stubbed healthy unless a test
     says otherwise. Returns the completed process; stderr is where the script talks."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(exist_ok=True)
-    _stub(bin_dir, "psql", PSQL_HEALTHY)
+    _stub(bin_dir, "psql", psql)
     _stub(bin_dir, "wal-g", _walg_healthy(wal_verify))
     _stub(bin_dir, "systemctl", systemctl)
     # The alert path is not the subject here, and the real default relay would start an
@@ -267,6 +268,28 @@ def test_a_check_verdict_other_than_ok_alarms_by_its_severity(
     assert (proc.returncode != 0) is fails
     other = "wal_chain_broken" if code == "wal_chain_warning" else "wal_chain_warning"
     assert other not in proc.stderr
+
+
+@requires_posix_shell
+@pytest.mark.parametrize(
+    ("timeout_s", "age_s", "stale"),
+    [("1800", "5000", False), ("1800", "5500", True), ("300", "1000", True), ("", "5000", False)],
+)
+def test_the_stall_alarm_follows_the_live_archive_interval(
+    tmp_path: Path, timeout_s: str, age_s: str, stale: bool
+) -> None:
+    """D-928: three missed `archive_timeout` intervals, read from the server, so changing
+    the interval needs no edit here. Unreadable falls back to 5400 s."""
+    psql = f"""#!/bin/sh
+case "$*" in
+  *pg_settings*)      echo "{timeout_s}" ;;
+  *pg_stat_archiver*) echo "4200|0|{age_s}|f" ;;
+  *pg_ls_waldir*)     echo "3" ;;
+  *)                  echo "" ;;
+esac
+"""
+    proc = _run_health(tmp_path, heartbeat_url=None, psql=psql)
+    assert ("archive_stale" in proc.stderr) is stale, proc.stderr
 
 
 def test_the_dead_man_is_fed_by_the_backup_path_itself_not_by_a_second_schedule() -> None:

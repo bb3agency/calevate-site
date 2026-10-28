@@ -2332,7 +2332,7 @@ otherwise implemented in our layer via engine_staging_ref).
 ## 12. Non-Functional Requirements
 
 Availability: 99.5% for voice-runtime webhooks (v1). Recovery: PG PITR + nightly
-snapshots; storage versioning; RTO 4h / RPO 15min. Load: 20 concurrent calls v1 headroom
+snapshots; storage versioning; RTO 4h / RPO 30min (D-928). Load: 20 concurrent calls v1 headroom
 (engine handles media; our webhook path must be O(ms)). All external calls have timeouts +
 circuit breakers; webhook handlers ack fast and defer to workers. Everything (including
 DLT template text and system prompts) lives in git.

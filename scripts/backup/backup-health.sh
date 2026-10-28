@@ -58,12 +58,10 @@ notify="$here/notify.sh"
 WALG_CONFIG_PATH=${WALG_CONFIG_PATH:-/etc/wal-g/walg.json}
 export WALG_CONFIG_PATH
 
-# Thresholds. The archive-age one is derived, not chosen: `archive_timeout = 300` means a
-# segment is forced out at least every 5 minutes even on an idle database, so three
-# consecutive misses (15 min) is a real stall rather than a quiet hour. It is also exactly
-# the RPO in OPERATIONS §5 — by construction, this alert fires at the moment the promise
-# starts being broken, not after.
-MAX_ARCHIVE_AGE_S=${MAX_ARCHIVE_AGE_S:-900}
+# Thresholds. The archive-age one (MAX_ARCHIVE_AGE_S) is derived below from the live
+# `archive_timeout`, once psql is set up: three missed intervals is a real stall rather
+# than a quiet stretch, and the threshold follows the interval when it is changed (D-928).
+# Set MAX_ARCHIVE_AGE_S to override.
 # One nightly base backup, so 36h allows a single missed night to be noticed as a warning
 # rather than a surprise, and does not fire because the timer ran at 03:05 instead of 02:55.
 MAX_BASEBACKUP_AGE_S=${MAX_BASEBACKUP_AGE_S:-129600}
@@ -95,6 +93,18 @@ MAX_HEALTH_GAP_S=${MAX_HEALTH_GAP_S:-2700}
 BACKUP_TIMERS=${BACKUP_TIMERS:-calevate-basebackup.timer:129600 calevate-backup-health.timer:3600}
 
 PSQL=(psql --no-psqlrc --tuples-only --no-align --quiet --dbname "${HEALTH_DB:-postgres}")
+
+# `pg_settings.setting` for archive_timeout is in seconds. Unreadable or 0 (off) falls back
+# to three times the shipped 1800, so a dead connection still leaves a threshold and the
+# unreachable database is reported by its own check below.
+if [[ -z "${MAX_ARCHIVE_AGE_S:-}" ]]; then
+  archive_timeout_s=$("${PSQL[@]}" -c "SELECT setting FROM pg_settings WHERE name = 'archive_timeout'" 2>/dev/null || true)
+  if [[ "$archive_timeout_s" =~ ^[0-9]+$ ]] && (( archive_timeout_s > 0 )); then
+    MAX_ARCHIVE_AGE_S=$(( archive_timeout_s * 3 ))
+  else
+    MAX_ARCHIVE_AGE_S=5400
+  fi
+fi
 
 failures=0
 alert() { "$notify" "$@"; failures=$((failures + 1)); }
@@ -151,7 +161,7 @@ else
       "pg_stat_archiver has no last_archived_time: archiving has never succeeded on this cluster"
   elif [[ "$archive_age" -gt "$MAX_ARCHIVE_AGE_S" ]]; then
     alert archive_stale \
-      "no WAL segment has been archived recently; RPO 15min (OPERATIONS §5) is being missed right now" \
+      "no WAL segment archived in over $(( MAX_ARCHIVE_AGE_S / 60 )) min (three archive intervals); recent writes are not backed up" \
       "archive_age_s=$archive_age" "threshold_s=$MAX_ARCHIVE_AGE_S"
   fi
 fi

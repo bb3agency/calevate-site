@@ -610,6 +610,11 @@ Lead visible post-hangup ≤ 2 min (99%); webhook ack < 500ms; dashboard p95 < 8
 voice p50 ≤ 1.1s; monthly voice-runtime availability 99.5%. Review monthly; tighten with
 scale.
 
+**Database recovery: RTO 4h, RPO 30 min** (D-928, founder 29 Oct 2026; was 15 min). The RPO
+is `archive_timeout` in `infra/backup/postgresql-archiving.conf` (1800 s) plus upload time:
+a server lost outright can take up to ~30 minutes of writes with it. That line is the one
+knob; `backup-health.sh` derives its stall alarm from the live value (three intervals).
+
 **`webhook_ack_slow` is usually a CAPACITY alert, not a bug (D-55).** The receiver's
 per-delivery cost is fixed and asserted in CI; what moves the ack is how many deliveries
 are in flight on one process, and `ack_p50 ≈ in-flight ÷ acks-per-second-per-process`
@@ -635,7 +640,7 @@ this order:
 Daily: alert triage; pipeline DLQ empty; spend anomalies. Weekly: regression nightly
 results review; knowledge-gap report → KB updates; pipeline/latency trend. Monthly:
 invoice run; margin per client; rate-card check. Quarterly: restore drill (prove RTO 4h/
-RPO 15min) — `runbooks/backup-restore-drill.md`, from the R2 PITR chain (the only chain,
+RPO 30min) — `runbooks/backup-restore-drill.md`, from the R2 PITR chain (the only chain,
 D-927), result recorded in `docs/evidence/`; access review; secret rotation
 (**one credential lives in two places and both must move together** — the host backup
 relay reads `SMTP_PASSWORD` from `/etc/calevate/alerts.env`, not from the console, because
