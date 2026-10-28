@@ -98,7 +98,7 @@ export function MoreFilters({
                 cannot match, because leads are owned by the client's own team. */}
             {impersonating && (
               <p className="text-meta text-ink-muted">
-                You are viewing this account as Calevate operations, so no lead here is assigned to you.
+                Operator view: no leads are yours.
               </p>
             )}
           </div>
@@ -143,7 +143,7 @@ export function MoreFilters({
 function staleNotice(view: SavedView): string | null {
   const lost = [...view.stale_filter_keys, ...view.stale_column_keys];
   if (!lost.length) return null;
-  return `“${view.name}” also referred to ${lost.join(", ")}, which your agent's capture list no longer has. Those parts are not being applied. Update the view to save it without them.`;
+  return `Skipping removed fields: ${lost.join(", ")}. Update “${view.name}” to drop them.`;
 }
 
 /** "came in the last 7 days, last call missed, not handled yet" — the call half of a view. */

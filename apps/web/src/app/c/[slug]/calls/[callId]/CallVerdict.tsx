@@ -98,13 +98,13 @@ function Summary({ detail }: { detail: CallDetail }) {
   if (detail.summary_state === "failed" && !detail.summary) {
     return (
       <p className="max-w-prose text-body text-ink-muted">
-        The summary could not be written for this call.
-        {detail.transcript?.length ? " The conversation below is complete." : ""}
+        Couldn&apos;t write a summary.
+        {detail.transcript?.length ? " The full chat is below." : ""}
       </p>
     );
   }
   if (!detail.summary && !detail.summary_local) {
-    return <p className="text-body text-ink-muted">Nothing was said on this call, so there is no summary.</p>;
+    return <p className="text-body text-ink-muted">Nothing was said, so no summary.</p>;
   }
 
   const showLocal = !detail.summary;

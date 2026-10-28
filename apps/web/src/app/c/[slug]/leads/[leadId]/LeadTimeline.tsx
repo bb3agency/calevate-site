@@ -127,7 +127,7 @@ export function LeadTimeline({
             <EmptyState
               illustration={<EmptySketch kind="calls" />}
               message="Nothing has happened yet"
-              hint="Calls, status changes, alerts and blocked dials all appear here."
+              hint="Calls, stage changes and alerts show here."
             />
           </div>
         )}
@@ -137,7 +137,7 @@ export function LeadTimeline({
             {/* D-587: a view-as session can change this lead. What the reader needs to know
                 is no longer "you cannot" but "you are acting as an operator", said where the
                 controls are. */}
-            You are working inside this account as an operator.
+            Operator view of this account.
           </p>
         )}
       </section>

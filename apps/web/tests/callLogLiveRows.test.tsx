@@ -171,7 +171,7 @@ describe("the call log's live rows", () => {
       page,
       routes([dialling()], { "/v1/calls/live?ids=live1": problem(503, { title: "Service unavailable" }) }),
     );
-    expect(await screen.findByText(/could not check how your live calls are going/)).toBeTruthy();
+    expect(await screen.findByText(/Live status paused/)).toBeTruthy();
     expect(screen.getAllByText("Dialling…").length).toBeGreaterThan(0);
   });
 

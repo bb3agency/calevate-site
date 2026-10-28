@@ -88,10 +88,8 @@ export function exportRefusal(
   exportReason: string | null,
 ): string | null {
   if (askTerm) {
-    return (
-      "A question ranks the best matches rather than selecting a complete set, " +
-      "so it cannot be exported. Clear it to export by the filters instead."
-    );
+    // A question ranks the best matches rather than selecting a complete set.
+    return "A question can't be exported. Clear it first.";
   }
   if (!mayExport) return exportReason;
   return null;

@@ -51,7 +51,7 @@ describe("calling off a call-back", () => {
   it("is offered to a role that holds leads:dispatch", async () => {
     await renderClientPage(<CallbacksPage />, { "/v1/me": OWNER, [LIST]: [WAITING] });
 
-    fireEvent.click(await screen.findByRole("button", { name: "Call it off" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Call off" }));
     expect(await screen.findByText("Call this off?")).toBeTruthy();
   });
 
@@ -65,7 +65,7 @@ describe("calling off a call-back", () => {
     expect(
       await screen.findByText("Only an account owner can move or call off a call-back."),
     ).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Call it off" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Call off" })).toBeNull();
     expect(calls.some((call) => call.method === "DELETE")).toBe(false);
   });
 });
@@ -81,8 +81,8 @@ describe("a call-back's note", () => {
     expect(screen.queryByText(/They said/)).toBeNull();
 
     // Nor does the confirmation say the person asked: a retry or a team's booking did not.
-    fireEvent.click(screen.getByRole("button", { name: "Call it off" }));
-    expect(await screen.findByText(/is due a call back at/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Call off" }));
+    expect(await screen.findByText(/· due/)).toBeTruthy();
     expect(screen.queryByText(/asked to be rung back/)).toBeNull();
   });
 });

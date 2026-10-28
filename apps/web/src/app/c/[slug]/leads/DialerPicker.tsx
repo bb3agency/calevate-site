@@ -1,5 +1,7 @@
 "use client";
 
+import { ShieldCheck } from "lucide-react";
+
 import { FIELD_INLINE } from "@/components/ui";
 
 /**
@@ -25,7 +27,7 @@ export function DialerPicker({
   if (!canCall) return null;
   return (
     <div className="flex flex-wrap items-center gap-2 text-meta text-ink-muted">
-      <span>Calls from this table are placed by</span>
+      <span>Calls go from</span>
       {dialers !== undefined && dialers.length > 1 ? (
         <select
           value={selectedAgentId}
@@ -42,9 +44,10 @@ export function DialerPicker({
       ) : (
         <span className="font-semibold text-ink">{dialers?.[0]?.name}</span>
       )}
-      <span>
-        · every call still goes through the do-not-call, calling-hours and consent checks, and
-        can be refused.
+      {/* What every call from here is subject to: a compliance qualifier, never folded. */}
+      <span className="inline-flex basis-full items-center gap-1 sm:basis-auto">
+        <ShieldCheck aria-hidden className="h-3.5 w-3.5 shrink-0 text-brand-strong" />
+        Checked first: do-not-call, hours, consent.
       </span>
     </div>
   );

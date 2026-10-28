@@ -212,21 +212,21 @@ export function BulkActionBar({
           set is chosen, because "1,240 leads selected" alone does not say which 1,240. */}
       {selection.wholeQuery && count !== undefined ? (
         <p className="rounded-md bg-ink/[0.03] px-4 py-2.5 text-body text-ink-muted">
-          All {formatCount(count)} {count === 1 ? "lead" : "leads"} matching these filters are selected, including{" "}
-          {formatCount(Math.max(count - pageSize, 0))} not on this page.
+          All {formatCount(count)} matching {count === 1 ? "lead" : "leads"} selected (
+          {formatCount(Math.max(count - pageSize, 0))} on other pages).
         </p>
       ) : !selection.wholeQuery &&
         filteredTotal !== undefined &&
         selection.ids.length === pageSize &&
         filteredTotal > pageSize ? (
         <p className="rounded-md bg-ink/[0.03] px-4 py-2.5 text-body text-ink-muted">
-          All {formatCount(pageSize)} leads on this page are selected.{" "}
+          All {formatCount(pageSize)} on this page selected.{" "}
           <button
             type="button"
             onClick={onSelectWholeQuery}
             className="rounded-sm font-semibold text-brand-strong underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 dark:text-brand-bright touch:min-h-11"
           >
-            Select all {formatCount(filteredTotal)} leads matching these filters
+            Select all {formatCount(filteredTotal)} matching
           </button>
         </p>
       ) : null}
@@ -237,8 +237,8 @@ export function BulkActionBar({
           say WHICH n. */}
       <SelectionBar
         count={count ?? pageSize}
-        noun={selection.wholeQuery ? "lead matching these filters" : "lead on this page"}
-        nounPlural={selection.wholeQuery ? "leads matching these filters" : "leads on this page"}
+        noun={selection.wholeQuery ? "matching lead" : "lead on this page"}
+        nounPlural={selection.wholeQuery ? "matching leads" : "leads on this page"}
         onClear={onClear}
       >
         <select
@@ -288,12 +288,12 @@ export function BulkActionBar({
           title={writeReason ?? undefined}
           onClick={() => setConfirming(true)}
         >
-          Review this change
+          Review
         </ActionButton>
       </SelectionBar>
       {count === undefined ? (
         <p className="text-meta text-ink-muted">
-          We could not read how many leads these filters match, so this action cannot say what it would change.
+          Couldn&apos;t count the matching leads. Reload to try again.
         </p>
       ) : null}
 
@@ -312,15 +312,10 @@ export function BulkActionBar({
           onConfirm={run}
         >
           <p className="font-medium text-ink">
-            {selection.wholeQuery
-              ? "Every lead matching these filters, not only the ones on screen."
-              : "The leads you have ticked on this page."}
+            {selection.wholeQuery ? "Every matching lead, not just this page." : "The leads you ticked."}
           </p>
-          <p>
-            Each lead&rsquo;s history records the change. Leads that are already{" "}
-            {action === "status" ? "at that stage" : "owned by that person"} are left alone and reported
-            separately.
-          </p>
+          <p>Saved in each lead&rsquo;s history.</p>
+          <p>{action === "status" ? "Leads already at that stage are skipped." : "Leads they already own are skipped."}</p>
           {needsTyping && (
             <TypedConfirmation phrase={String(count)} value={typed} onChange={setTyped} inputMode="numeric" />
           )}
@@ -353,8 +348,7 @@ function BulkResultSummary({
   onDismiss: () => void;
 }) {
   const noun = (n: number) => (n === 1 ? "lead" : "leads");
-  const scope =
-    result.scope === "filter" ? "matching those filters" : "of the ones you had ticked";
+  const scope = result.scope === "filter" ? "matching" : "ticked";
   // THE COUNT COMES FROM THE INVARIANT, NOT FROM THE ARRAY'S LENGTH, and the generated
   // types are what forced the distinction into the open: `failures` is optional on the
   // wire (a server-side default), so reading `result.failures.length` would render an
@@ -380,10 +374,8 @@ function BulkResultSummary({
               cannot claim a set the request did not run over. */}
           <span>
             {formatCount(result.changed)} {noun(result.changed)} changed
-            {result.unchanged > 0 &&
-              `, ${formatCount(result.unchanged)} ${noun(result.unchanged)} were already there`}
-            {failed > 0 && `, ${formatCount(failed)} could not be changed`} — out of{" "}
-            {formatCount(result.requested)} {scope}.
+            {result.unchanged > 0 && `, ${formatCount(result.unchanged)} already there`}
+            {failed > 0 && `, ${formatCount(failed)} failed`} · of {formatCount(result.requested)} {scope}
           </span>
         </p>
         <button

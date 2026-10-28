@@ -258,7 +258,7 @@ describe("the CSV export offers itself only to a session that may use it", () =>
     await renderClientPage(<LeadsPage />, routes({ "/v1/me": staff }));
 
     const button = (await screen.findByRole("button", {
-      name: /Export this view as CSV/,
+      name: /Export CSV/,
     })) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
     expect(button.title).toContain("account owner");
@@ -267,7 +267,7 @@ describe("the CSV export offers itself only to a session that may use it", () =>
   it("enables it for a session the server would accept", async () => {
     await renderClientPage(<LeadsPage />, routes());
     const button = (await screen.findByRole("button", {
-      name: /Export this view as CSV/,
+      name: /Export CSV/,
     })) as HTMLButtonElement;
     expect(button.disabled).toBe(false);
   });
@@ -284,7 +284,7 @@ describe("the CSV export offers itself only to a session that may use it", () =>
     );
 
     const button = (await screen.findByRole("button", {
-      name: /Export this view as CSV/,
+      name: /Export CSV/,
     })) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
     expect(button.title).toContain("could not check");
@@ -519,9 +519,9 @@ describe("the D-21 dispatch verdict, per lead", () => {
 
     await screen.findAllByText(/no calling credit left/);
     expect(container.textContent).not.toContain("still get through");
-    expect(container.textContent).toContain(
-      "Add credit on the Credits & billing screen and both start again straight away",
-    );
+    // The remedy is a button to the screen that fixes it, not a sentence about it.
+    const fix = await screen.findByRole("link", { name: "Add credit" });
+    expect(fix.getAttribute("href")).toContain("/c/acme/billing");
     // The gate's own name is not what the person who was refused reads.
     expect(container.textContent).not.toContain("no_credits");
   });
@@ -618,13 +618,13 @@ describe("the counts come from the server or are not shown", () => {
     // filtered page lands.
     await vi.waitFor(async () => {
       expect(await readInfoTip("the CSV export")).toContain(
-        "The CSV export contains these 2 leads",
+        "2 leads: name, full phone",
       );
     });
     expect(container.textContent).not.toContain(
       "the export ignores this filter",
     );
-    expect(await readInfoTip("the CSV export")).not.toContain("every lead in the account");
+    expect(await readInfoTip("the CSV export")).not.toContain("Stage counts cover every lead.");
   });
 
   it("sends the SAME filters to the export that it sent to the list", async () => {
@@ -635,7 +635,7 @@ describe("the counts come from the server or are not shown", () => {
     await screen.findByText(/Showing/);
 
     fireEvent.click(
-      screen.getByRole("button", { name: /Export this view as CSV/ }),
+      screen.getByRole("button", { name: /Export CSV/ }),
     );
     const exportCall = await vi.waitFor(() => {
       const found = calls.find((c) => c.path === "/v1/leads/export.csv");
@@ -687,7 +687,7 @@ describe("the counts come from the server or are not shown", () => {
     });
 
     fireEvent.click(
-      screen.getByRole("button", { name: /Export this view as CSV/ }),
+      screen.getByRole("button", { name: /Export CSV/ }),
     );
     await vi.waitFor(() => {
       expect(calls.some((c) => c.path === "/v1/leads/export.csv")).toBe(true);
@@ -761,12 +761,12 @@ describe("the counts come from the server or are not shown", () => {
     // Awaited rather than read off `container` synchronously: the searched page is a
     // second request, and the sentence is about ITS total.
     await vi.waitFor(async () => {
-      expect(await readInfoTip("the CSV export")).toMatch(/The CSV export contains this 1 lead/);
+      expect(await readInfoTip("the CSV export")).toMatch(/^1 lead: name, full phone/);
     });
-    expect(container.textContent).not.toContain("every lead in the account");
+    expect(container.textContent).not.toContain("Stage counts cover every lead.");
     // The searched population is still stated — as the search's own count, where it is
     // true — and the stage counts say they are over these filters.
-    expect(await readInfoTip("these counts")).toContain("Matching these filters, by stage:");
+    expect(await readInfoTip("these counts")).toContain("Stage counts follow your other filters.");
   });
 
   it("does not count the assignee filter off the page either", async () => {
@@ -1123,7 +1123,7 @@ describe("who owns a lead", () => {
     );
 
     await screen.findByRole("button", { name: "Assigned to me" });
-    expect(container.textContent).toContain("as Calevate operations");
+    expect(container.textContent).toContain("Operator view: no leads are yours.");
   });
 
   it("links each lead to its own screen by id, never by number", async () => {
@@ -1172,14 +1172,14 @@ describe("dispatching a call from the table, when a read did not answer", () => 
 
     await screen.findByRole("link", { name: /Ramesh Kumar/ });
     expect(container.textContent).toContain(
-      "We could not read your agents just now",
+      "Couldn't load your agents.",
     );
     expect(container.textContent).toContain(
-      "no call can be placed from this table",
+      "Reload to call.",
     );
     expect(screen.queryByRole("button", { name: /Call with AI/ })).toBeNull();
     expect(container.textContent).not.toContain(
-      "Calls from this table are placed by",
+      "Calls go from",
     );
   });
 
@@ -1197,14 +1197,14 @@ describe("dispatching a call from the table, when a read did not answer", () => 
 
     await screen.findByRole("link", { name: /Ramesh Kumar/ });
     expect(container.textContent).toContain(
-      "We could not check who you are signed in as",
+      "Couldn't check your sign-in.",
     );
     expect(screen.queryByRole("button", { name: /Call with AI/ })).toBeNull();
     // The owner filter goes with it, and the same sentence covers it — the chip used to
     // vanish on its own, which reads as "there is no such filter".
     expect(screen.queryByRole("button", { name: "Assigned to me" })).toBeNull();
     expect(container.textContent).toContain(
-      "“Assigned to me” filter are closed",
+      "Couldn't check your sign-in. Reload to call.",
     );
   });
 
@@ -1220,10 +1220,10 @@ describe("dispatching a call from the table, when a read did not answer", () => 
       await screen.findByRole("button", { name: /Call with AI/ }),
     ).toBeDefined();
     expect(container.textContent).toContain(
-      "Calls from this table are placed by",
+      "Calls go from",
     );
     expect(container.textContent).not.toContain(
-      "We could not read your agents just now",
+      "Couldn't load your agents.",
     );
   });
 

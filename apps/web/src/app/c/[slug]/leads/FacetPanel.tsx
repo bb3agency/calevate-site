@@ -125,9 +125,8 @@ export function FacetPanel({
 
       {facets.omitted_field_count > 0 && (
         <p className="text-meta text-ink-faint">
-          {formatCount(facets.omitted_field_count)} more capture{" "}
-          {facets.omitted_field_count === 1 ? "field is" : "fields are"} filterable but not shown
-          here — ask us to reorder your capture list if you need one of them.
+          {formatCount(facets.omitted_field_count)} more {facets.omitted_field_count === 1 ? "field" : "fields"} not
+          shown. Ask us to add one.
         </p>
       )}
       </div>

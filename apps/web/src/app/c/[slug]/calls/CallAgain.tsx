@@ -35,7 +35,7 @@ import { useProposePlan } from "@/lib/copilot/plans";
 const CONSENT = [
   { value: "inbound_enquiry", label: "They contacted us first" },
   { value: "existing_customer", label: "They are our customers" },
-  { value: "web_form_optin", label: "They filled in a form on our website" },
+  { value: "web_form_optin", label: "They filled in our website form" },
   { value: "offline_form_optin", label: "They signed a form in person" },
 ] as const;
 
@@ -86,8 +86,8 @@ export function CallAgain({
         }
       >
         {dialers && dialers.length === 0
-          ? "None of your agents places calls right now, so nobody can be called again."
-          : "People whose latest call was not answered. You see who and the cost before anyone is rung."}
+          ? "No agent can call out right now."
+          : "You see who and the cost first."}
       </NoticeBox>
       {open && dialers && dialers.length > 0 ? (
         <CallAgainDialog
@@ -152,7 +152,7 @@ function CallAgainDialog({
   return (
     <ModalDialog
       title="Call them again"
-      description="Your agent rings each person whose latest call was not answered, inside calling hours. Next you see who, the cost and who is left out, and nothing happens until you approve."
+      description="Next you see who, and the cost. Nothing runs until you approve."
       onClose={onClose}
       actions={
         <>

@@ -28,8 +28,7 @@ export function AssistCard({ session }: { session: Session }) {
     <Disclosure variant="inline" title="A second reading of this call" className="border-t border-line">
       <div className="space-y-3 pb-3">
         <p className="text-meta text-ink-muted">
-          {ASSISTANT_NAME} reads the transcript again with numbers hidden and writes a fresh
-          summary for you. It uses your AI allowance and changes nothing saved here.
+          A fresh summary, numbers hidden. Uses AI allowance.
         </p>
         <RestrictionNote reason={write.reason} />
         <AskAssistant

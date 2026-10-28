@@ -95,7 +95,7 @@ export function useRawTranscriptAccess(session: Session): RawTranscriptAccess {
   if (me.error) {
     return {
       allowed: false,
-      reason: "We could not check what you are allowed to see. Reload the page to try again.",
+      reason: "Couldn't check your access. Reload to try again.",
     };
   }
   if (!me.data) return { allowed: false, reason: null };
@@ -189,7 +189,7 @@ export function useRecordingDownload(session: Session, callId: string) {
  */
 function downloadRefusal(error: unknown): string {
   if (error instanceof ApiProblem) return error.message;
-  return "The recording could not be downloaded just now. Try again in a moment.";
+  return "Download failed. Try again in a moment.";
 }
 
 /** "Download recording", beside the player's speed and volume. Owner-only, like playing. */

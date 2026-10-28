@@ -1,10 +1,12 @@
 "use client";
 
 import { type ReactNode } from "react";
-import { CheckCircle2, PhoneOutgoing, ShieldAlert } from "lucide-react";
+import Link from "next/link";
+import { CheckCircle2, PhoneOutgoing, ShieldAlert, Wallet } from "lucide-react";
 
 import { SECONDARY_BUTTON_SM } from "@/components/ui";
 import { type CallLeadResult } from "@/lib/api/client";
+import { useClientRealm } from "@/lib/api/session";
 
 /**
  * CALL THIS LEAD — the dispatch control, and the one thing a refusal adds to the
@@ -49,24 +51,27 @@ function blockedRemedy(rule: string | null | undefined): ReactNode {
   // well as dialling (D-551). The server's own sentence
   // (`compliance.service.NO_CREDITS_REASON`) already says both halves stopped, so this adds
   // only what it cannot know — where the button is, and that one payment undoes both.
-  if (rule === "no_credits") {
-    return (
-      <>
-        {" "}
-        Add credit on the Credits &amp; billing screen and both start again straight away.
-      </>
-    );
-  }
+  if (rule === "no_credits") return <BillingLink label="Add credit" />;
   if (rule === "spend_cap") {
     return (
       <>
-        {" "}
-        People ringing you still get through. Your monthly limit is on Credits &amp;
-        billing.
+        <span className="block">Callers still get through.</span>
+        <BillingLink label="See your limit" />
       </>
     );
   }
   return null;
+}
+
+/** The way to the screen that fixes a money refusal, as a button rather than a sentence. */
+function BillingLink({ label }: { label: string }) {
+  const { session, href } = useClientRealm();
+  return (
+    <Link href={href(`/c/${session.orgSlug}/billing`)} className={`${SECONDARY_BUTTON_SM} mt-1.5 whitespace-nowrap`}>
+      <Wallet aria-hidden className="h-3.5 w-3.5 shrink-0" />
+      {label}
+    </Link>
+  );
 }
 
 export function CallControl({
@@ -90,7 +95,7 @@ export function CallControl({
     return (
       <span className="flex items-start gap-1.5 text-meta text-warn">
         <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-        <span>
+        <span className="min-w-0">
           {result.blocked_reason ?? "This call was not allowed."}
           {/* NEVER PRINT THE RULE NAME to the client — "This account has no calling credit
               left. (no_credits)" hands the platform's own vocabulary to the person it

@@ -111,7 +111,7 @@ describe("the verdict", () => {
     expect(screen.getAllByText("Lakshmi")[0].closest("section")).toBeNull();
     expect(screen.getByText("+91 98765 43210")).toBeTruthy();
     // ONE filled action, its label the consequence, and the lead one quiet link away.
-    const action = screen.getByRole("button", { name: "Have the agent call back now" });
+    const action = screen.getByRole("button", { name: "Call back now" });
     expect(action.className).toContain("bg-brand-strong");
     expect(screen.getByRole("link", { name: "Open Lakshmi's lead" })).toBeTruthy();
     // The verdict comes before the conversation.
@@ -187,7 +187,7 @@ describe("the verdict", () => {
 
     await renderClientPage(page, routes(detail({ summary: null, summary_state: "failed" })));
     expect(
-      await screen.findByText("The summary could not be written for this call. The conversation below is complete."),
+      await screen.findByText("Couldn't write a summary. The full chat is below."),
     ).toBeTruthy();
   });
 
@@ -259,9 +259,9 @@ describe("the conversation", () => {
       ),
     );
     const note = await screen.findByText(
-      "The caller spoke over this, so they may not have heard all of it.",
+      "Caller spoke over this part.",
     );
-    expect(screen.getAllByText(/the caller spoke over this/i)).toHaveLength(1);
+    expect(screen.getAllByText(/caller spoke over this/i)).toHaveLength(1);
     // Under the agent's line, not inside it.
     expect(note.closest("li")?.textContent).toContain("ఎలా సహాయం చేయగలను?");
     expect(note.closest("button")).toBeNull();
@@ -301,7 +301,7 @@ describe("the conversation", () => {
       }),
     );
     fireEvent.click(await screen.findByRole("radio", { name: "English" }));
-    expect(screen.getByText("The English for this call could not be prepared.")).toBeTruthy();
+    expect(screen.getByText("Couldn't prepare the English.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(await screen.findByText(/English is being prepared/)).toBeTruthy();
     expect(calls.filter((c) => c.method === "POST" && c.path === "/v1/calls/c1/translation")).toHaveLength(1);
@@ -310,7 +310,7 @@ describe("the conversation", () => {
   it("names a call from before English existed, and keeps the action from a role that cannot pay for it", async () => {
     await renderClientPage(page, routes(detail({ translation_state: "unavailable", transcript: TELUGU_ONLY })));
     fireEvent.click(await screen.findByRole("radio", { name: "English" }));
-    expect(screen.getByText("This call came in before English was added to call reviews.")).toBeTruthy();
+    expect(screen.getByText("This call is older than English reviews.")).toBeTruthy();
     const button = screen.getByRole("button", { name: "Prepare the English" }) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
   });

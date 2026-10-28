@@ -277,7 +277,7 @@ describe("the column chooser reaches the table AND the file", () => {
     });
 
     fireEvent.click(
-      screen.getByRole("button", { name: /Export this view as CSV/ }),
+      screen.getByRole("button", { name: /Export CSV/ }),
     );
     // THE MIRRORING, at the seam: the file's columns are the table's columns.
     expect(await lensSentTo(calls, "/v1/leads/export.csv")).toEqual({
@@ -296,7 +296,7 @@ describe("the column chooser reaches the table AND the file", () => {
       name: /Columns/,
     })) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
-    expect(button.title).toContain("could not read this table's columns");
+    expect(button.title).toContain("Couldn't load columns");
   });
 });
 
@@ -341,7 +341,7 @@ describe("the facet rail is the extraction schema, and its filters reach the fil
     });
 
     fireEvent.click(
-      screen.getByRole("button", { name: /Export this view as CSV/ }),
+      screen.getByRole("button", { name: /Export CSV/ }),
     );
     expect(await lensSentTo(calls, "/v1/leads/export.csv")).toEqual({
       f: ["budget_band:over_50l"],
@@ -437,7 +437,7 @@ describe("saved views", () => {
     fireEvent.change(await screen.findByLabelText("Saved view"), {
       target: { value: "view-1" },
     });
-    expect(await screen.findByText(/no longer has/)).toBeTruthy();
+    expect(await screen.findByText(/Skipping removed fields/)).toBeTruthy();
   });
 
   it("REFUSES rather than saying 'you have no saved views' when the list fails", async () => {

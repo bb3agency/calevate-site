@@ -104,7 +104,7 @@ export function RecordingCard({
           }}
         />
         <p className="text-meta text-ink-faint">
-          The link is private to this page and is refreshed automatically while you listen.
+          Private to this page.
         </p>
       </div>
     );
