@@ -48,10 +48,12 @@ ENGINE: Final = "thinnest"
 #: (customers.md:52-57).
 NAME_MAX: Final = 120
 
-#: How many customer workspaces each plan allows (customers.md:191-198). Vendor facts,
-#: VERIFIED-VENDOR-DOCS 2026-10-08; which plan we are on is an operator setting.
+#: How many customer workspaces each plan allows (customers.md:191-198, VERIFIED-VENDOR-DOCS
+#: 2026-10-08); which plan we are on is an operator setting. `payg` is OUR account's raised
+#: limit, not the published 3: ThinnestAI set it to 100 on 23 Oct 2026 and a plan change
+#: never lowers it (VENDOR-STATED, `docs/vendor/thinnest-replies-2026-10-12.md` §28.1).
 PLAN_CUSTOMER_CAPS: Final[dict[str, int]] = {
-    "payg": 3,
+    "payg": 100,
     "pro": 100,
     "scale": 1_000,
     "enterprise": 10_000,
