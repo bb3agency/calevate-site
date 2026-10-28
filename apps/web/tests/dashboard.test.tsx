@@ -339,7 +339,7 @@ describe("the home screen ranks the day's work (ux-audit D2)", () => {
       }),
     );
     const link = await screen.findByRole("link", {
-      name: /things need your attention/,
+      name: /things need you/,
     });
     expect(link.getAttribute("href")).toContain("/c/acme/attention");
     expect(container.textContent).toContain("3");
@@ -387,7 +387,7 @@ describe("the home screen ranks the day's work (ux-audit D2)", () => {
     // was not applied one line up.
     await within(failed.container).findByRole("heading", { name: "This week" });
     expect(failed.container.textContent).toContain(
-      "We could not check whether anything needs your attention",
+      "Couldn't check your to-do list",
     );
     // `findAllByRole`, because a transport-level failure banner carries its own "Try
     // again" and the singular query throws on two matches rather than on an absent one —
@@ -434,7 +434,7 @@ describe("the dashboard renders what the server said, or says it could not", () 
 
     // A week with no calls is said as none, not drawn as a healthier number.
     const week = (await screen.findByRole("heading", { name: "This week" })).closest("section");
-    expect(week?.textContent).toContain("No calls in the last 7 days.");
+    expect(week?.textContent).toContain("No calls this week");
     expect(container.textContent).not.toContain("5,430");
     expect(container.textContent).toContain("No calls yet");
   });
@@ -534,7 +534,16 @@ describe("the dashboard renders what the server said, or says it could not", () 
     // skeleton first, and an empty container would pass a `not.toContain` for the
     // wrong reason.
     await screen.findByText("Captured after hours");
-    expect(guessed.textContent).toContain("add your opening hours");
+    expect(guessed.textContent).toContain("Using 9am–9pm");
+    // The fix is a button to the hours step of business setup, offered only to a role that
+    // may edit it: this reader holds no `org:manage`.
+    expect(screen.queryByRole("link", { name: "Add your hours" })).toBeNull();
+    cleanup();
+    await renderClientPage(page, routes({ "/v1/me": { ...ME, permissions: [...ME.permissions, "org:manage"] } }));
+    expect((await screen.findByRole("link", { name: "Add your hours" })).getAttribute("href")).toBe(
+      "/c/acme/setup?step=hours",
+    );
+    cleanup();
 
     const { container: measured } = await renderClientPage(
       page,
@@ -545,9 +554,9 @@ describe("the dashboard renders what the server said, or says it could not", () 
         },
       }),
     );
-    await screen.findByText("Using your recorded opening hours");
-    expect(measured.textContent).toContain("Using your recorded opening hours");
-    expect(measured.textContent).not.toContain("add your opening hours");
+    await screen.findByText("Using your opening hours");
+    expect(measured.textContent).toContain("Using your opening hours");
+    expect(measured.textContent).not.toContain("Add your hours");
   });
 
   it("draws one column per IST day the API sent, silent days included", async () => {
@@ -679,7 +688,7 @@ describe("a held number (D-860)", () => {
   it("says it could not check, rather than nothing, when the numbers do not load", async () => {
     await renderClientPage(page, routes({ "/v1/campaigns/numbers": problem(503) }));
     expect(
-      await screen.findByText("We could not check whether your phone numbers are answering."),
+      await screen.findByText("Couldn't check your numbers"),
     ).toBeTruthy();
   });
 
@@ -821,7 +830,7 @@ describe("the calling credit tile", () => {
     // past; "calls have stopped" is not — and since D-551 the INCOMING half travels with
     // it, because a client who does not know their phone has gone quiet loses a day.
     expect(tile?.textContent).toContain(
-      "Calls have stopped, outgoing and incoming",
+      "Calls in and out stopped. Add credit",
     );
     expect(tile?.textContent).not.toContain("still get through");
   });
@@ -859,10 +868,10 @@ describe("the calling credit tile", () => {
 
     const tile = (await screen.findByText("Calling credit left")).parentElement;
     expect(tile?.textContent).toContain(
-      "Free trial: calls are on us until 10 Oct, 10:58 pm IST",
+      "Free trial until 10 Oct, 10:58 pm IST",
     );
     expect(tile?.textContent).not.toContain("Running low");
-    expect(tile?.textContent).not.toContain("Calls have stopped");
+    expect(tile?.textContent).not.toContain("stopped");
   });
 
   it("asks for a top-up on the last day of the trial", async () => {
@@ -880,8 +889,8 @@ describe("the calling credit tile", () => {
     );
 
     const tile = (await screen.findByText("Calling credit left")).parentElement;
-    expect(tile?.textContent).toMatch(/Free trial ends .* IST \((5|6) hours left\)/);
-    expect(tile?.textContent).toContain("Add credit so calls carry on after it");
+    expect(tile?.textContent).toMatch(/Trial: (5|6) hours left\. Add credit/);
+    expect(within(tile as HTMLElement).getByRole("link", { name: /Add credit/ })).toBeTruthy();
   });
 
   it("says this month's calling is free during a trial, and what it was worth", async () => {
@@ -899,7 +908,7 @@ describe("the calling credit tile", () => {
 
     const tile = (await screen.findByText("Spend this month")).parentElement;
     expect(tile?.textContent).toContain("₹0");
-    expect(tile?.textContent).toContain("120.5 min used, free during your trial (worth ₹602.5)");
+    expect(tile?.textContent).toContain("120.5 min free in trial (worth ₹602.5)");
   });
 
   it("refuses rather than printing a dash when the balance cannot be read", async () => {
@@ -1003,12 +1012,13 @@ describe("this week", () => {
     expect(within(card).queryByText("Calls")).toBeNull();
   });
 
-  it("says a quiet week in one sentence instead of a row of zeroes", async () => {
+  it("says a quiet week in a few chips instead of a row of zeroes", async () => {
     const card = await recap({
       "/v1/dashboard": { ...EMPTY_DASHBOARD, calls_prev_7d: 5 },
       "/v1/agents": [agentRow()],
     });
-    expect(card.textContent).toContain("No calls in the last 7 days. The week before had 5 calls.");
+    expect(card.textContent).toContain("No calls this week");
+    expect(card.textContent).toContain("5 calls last week");
     expect(within(card).queryByText("Connected")).toBeNull();
     // Nothing calls for an action, so nothing is filled.
     expect(await actions(card)).toEqual([
@@ -1019,7 +1029,7 @@ describe("this week", () => {
 
   it("leads with creating an agent when there is none", async () => {
     const card = await recap({ "/v1/agents": [] });
-    expect(card.textContent).toContain("You have no agent yet");
+    expect(card.textContent).toContain("No agent yet");
     const buttons = await actions(card);
     expect(buttons[0]).toEqual({ name: "Meet your agent", primary: true });
     expect(buttons.map((b) => b.name)).not.toContain("Open campaigns");
@@ -1030,7 +1040,7 @@ describe("this week", () => {
     const invite = (await screen.findByRole("heading", { name: "Meet your agent", level: 2 })).closest(
       "section",
     ) as HTMLElement;
-    expect(within(invite).getByRole("link", { name: /Start/ }).getAttribute("href")).toBe("/c/acme/agents/first");
+    expect(within(invite).getByRole("link", { name: /Build my agent/ }).getAttribute("href")).toBe("/c/acme/agents/first");
   });
 
   it("offers a first run already begun before any setup list", async () => {
@@ -1178,7 +1188,7 @@ describe("unanswered questions", () => {
     last_seen_at: "2026-10-22T04:30:00Z",
   };
   const needsYou = async () =>
-    (await screen.findByRole("heading", { name: "What needs you today" })).closest("section") as HTMLElement;
+    (await screen.findByRole("heading", { name: "What needs you" })).closest("section") as HTMLElement;
 
   it("counts one agent's open questions and links to its Training tab", async () => {
     await renderClientPage(
@@ -1188,9 +1198,9 @@ describe("unanswered questions", () => {
       }),
     );
     const card = await needsYou();
-    expect(card.textContent).toContain("2 questions your agents could not answer");
+    expect(card.textContent).toContain("2 questions not answered");
     // One topic: the list opens on that question, never on a blank page (D-893).
-    expect(within(card).getByRole("link", { name: "Teach the answers" }).getAttribute("href")).toBe(
+    expect(within(card).getByRole("link", { name: "Teach answers" }).getAttribute("href")).toBe(
       "/c/acme/agents/agent-1?section=training&question=pricing",
     );
   });
@@ -1207,7 +1217,7 @@ describe("unanswered questions", () => {
       }),
     );
     const card = await needsYou();
-    expect(within(card).getByRole("link", { name: "Teach the answers" }).getAttribute("href")).toBe(
+    expect(within(card).getByRole("link", { name: "Teach answers" }).getAttribute("href")).toBe(
       "/c/acme/knowledge?tab=questions",
     );
   });
@@ -1224,7 +1234,7 @@ describe("unanswered questions", () => {
       }),
     );
     const card = await needsYou();
-    expect(within(card).getByRole("link", { name: "Teach the answers" }).getAttribute("href")).toBe(
+    expect(within(card).getByRole("link", { name: "Teach answers" }).getAttribute("href")).toBe(
       "/c/acme/knowledge?question=pricing",
     );
   });
@@ -1235,9 +1245,9 @@ describe("unanswered questions", () => {
       routes({ "/v1/knowledge-gaps?status=open&limit=20": problem(503, { title: "Service unavailable" }) }),
     );
     const card = await needsYou();
-    expect(card.textContent).toContain("We could not check for questions your agents could not answer");
+    expect(card.textContent).toContain("Couldn't check unanswered questions");
     expect(within(card).getByRole("button", { name: "Try again" })).toBeTruthy();
-    expect(card.textContent).not.toContain("Nothing needs you right now");
+    expect(card.textContent).not.toContain("All clear. Nothing needs you.");
   });
 });
 

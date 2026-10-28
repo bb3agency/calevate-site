@@ -14,6 +14,7 @@ import {
   FIELD_LABEL,
   ProblemNotice,
   RestrictionNote,
+  SECONDARY_BUTTON,
   Skeleton,
 } from "@/components/ui";
 import { LANGUAGE_CHOICES, LANGUAGE_NAMES } from "@/lib/agentState";
@@ -29,6 +30,8 @@ import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
 import { hasKey } from "@/lib/lookup";
 
+import { NEW_AGENT } from "../../setup/_ui/copy";
+
 /**
  * PICK A JOB, SEE THE READY AGENT, CREATE IT (founder, REDESIGN-2).
  *
@@ -39,23 +42,23 @@ import { hasKey } from "@/lib/lookup";
  * publishing. Nothing here is generated in the browser; the preview is the server's.
  */
 
-const JOBS: { job: StarterJob; title: string; line: string; icon: typeof PhoneIncoming }[] = [
+export const JOBS: { job: StarterJob; title: string; line: string; icon: typeof PhoneIncoming }[] = [
   {
     job: "answer_calls",
     title: "Answer my calls",
-    line: "It picks up when people ring your number, answers their questions and takes their details.",
+    line: "Picks up, answers questions, takes details.",
     icon: PhoneIncoming,
   },
   {
     job: "call_new_leads",
     title: "Call new leads instantly",
-    line: "It rings each new enquiry within minutes, while they are still interested, and notes what they want.",
+    line: "Rings each new enquiry within minutes.",
     icon: Zap,
   },
   {
     job: "call_leads",
     title: "Run calling campaigns",
-    line: "It rings the people on your list, follows up on what they asked about and notes what they want.",
+    line: "Rings your list and follows up.",
     icon: PhoneOutgoing,
   },
 ];
@@ -72,10 +75,7 @@ export function StartFromJob({ slug, onBlank }: { slug: string; onBlank: () => v
       <div className="space-y-6">
         <div>
           <h2 className="text-title text-ink">What should your new agent do?</h2>
-          <p className="mt-1 text-body text-ink-muted">
-            Pick one. It comes ready for your business, and you review everything before anyone
-            hears it.
-          </p>
+          <p className="mt-1 text-body text-ink-muted">{NEW_AGENT.jobsHint}</p>
         </div>
         <Chooser label="Jobs an agent can do">
           {JOBS.map((j) => (
@@ -191,7 +191,7 @@ function StarterPreviewStep({
         <IconTile icon={job.icon} />
         <div>
           <h2 className="text-title text-ink">{job.title}</h2>
-          <p className="mt-1 text-body text-ink-muted">This is the agent you get. You can change any of it.</p>
+          <p className="mt-1 text-body text-ink-muted">Your agent. Change any of it later.</p>
         </div>
       </div>
 
@@ -202,9 +202,12 @@ function StarterPreviewStep({
       ) : starter.isError ? (
         <ProblemNotice error={starter.error} onRetry={() => void starter.refetch()} />
       ) : preview === null ? (
-        <p className="text-body text-ink-muted">
-          This job is not available for your account yet. Start from a blank agent instead.
-        </p>
+        <div className="flex flex-wrap items-center gap-3">
+          <p className="text-body text-ink-muted">{NEW_AGENT.jobUnavailable}</p>
+          <button type="button" className={SECONDARY_BUTTON} onClick={onBack}>
+            Pick another job
+          </button>
+        </div>
       ) : (
         <form
           noValidate

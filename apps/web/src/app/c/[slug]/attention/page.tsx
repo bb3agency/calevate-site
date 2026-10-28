@@ -14,6 +14,7 @@ import { lookup } from "@/lib/lookup";
 
 import { useAttentionCopilot } from "./copilot";
 import { KIND_COPY, Row, byUrgency } from "./rows";
+import { ATTENTION } from "../setup/_ui/copy";
 
 const ALL = "all";
 
@@ -54,7 +55,7 @@ export default function AttentionPage({ params }: { params: Promise<{ slug: stri
   const refused = me.data !== undefined && !me.data.permissions.includes("leads:read");
   if (refused) {
     return (
-      <RestrictionNote reason="This queue needs permission to read leads, which this account does not have. Ask your account owner for access." />
+      <RestrictionNote reason={ATTENTION.refused} />
     );
   }
 
@@ -64,7 +65,7 @@ export default function AttentionPage({ params }: { params: Promise<{ slug: stri
 
   return (
     <div className="max-w-4xl space-y-6 pb-12">
-      <PageHeader description="What needs you, most urgent first, and what to do next." />
+      <PageHeader description={ATTENTION.description} />
 
       {queue.error && <ProblemNotice error={queue.error} onRetry={() => void queue.refetch()} />}
 
@@ -100,8 +101,8 @@ export default function AttentionPage({ params }: { params: Promise<{ slug: stri
         <div className="border-y border-line">
           <EmptyState
             illustration={<EmptySketch kind="attention" />}
-            message="Nothing needs you right now."
-            hint="Blocked calls, failed deliveries and stalled campaigns will appear here."
+            message={ATTENTION.empty}
+            hint={ATTENTION.emptyHint}
           />
         </div>
       ) : (
@@ -115,8 +116,7 @@ export default function AttentionPage({ params }: { params: Promise<{ slug: stri
               OLDEST; `total` is the server's count of the whole set, never `items.length`. */}
           {data.total > data.items.length && (
             <p className="border-t border-line py-3 text-meta text-ink-faint">
-              Showing the {formatCount(data.items.length)} most recent of {formatCount(data.total)}. Older
-              items are not listed.
+              {ATTENTION.more(formatCount(data.items.length), formatCount(data.total))}
             </p>
           )}
         </div>

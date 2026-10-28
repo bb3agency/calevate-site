@@ -25,13 +25,15 @@ import { examplesFor } from "@/lib/verticalExamples";
 import { useVerticalExamples } from "@/lib/useVerticalExamples";
 
 import { StepScreen } from "./shell";
+import { FIRST } from "../../setup/_ui/copy";
+import { Why } from "../../setup/_ui/Why";
 
 /** The server's cap (`first_run/models.MAX_BRIEF_CHARS`). */
 const MAX_BRIEF_CHARS = 4000;
 
-const HEARD_FAILURES: Record<string, string> = {
-  voice_unreadable: "We could not make out that recording. Try again somewhere quieter, or type it.",
-  nothing_heard: "We did not hear any words. Try again a little closer to the microphone.",
+export const HEARD_FAILURES: Record<string, string> = {
+  voice_unreadable: "Couldn't make that out. Try somewhere quieter.",
+  nothing_heard: "No words heard. Hold the phone closer.",
 };
 
 /**
@@ -79,7 +81,12 @@ export function BriefStep({
   return (
     <StepScreen
       title="Tell it about your business"
-      hint="In your own words: what you offer, who calls, and what a good call ends with. Your agent's script is written from this."
+      hint={
+        <>
+          {FIRST.briefHint}
+          <Why>Use your own words. Your agent&apos;s script is written from this.</Why>
+        </>
+      }
       onBack={onBack}
       primary={
         <>
@@ -199,10 +206,7 @@ function SpokenBrief({
   return (
     <div className="rounded-card border border-line p-4">
       <p className="text-heading text-ink">Or say it</p>
-      <p className="mt-0.5 text-meta text-ink-muted">
-        Speak in {languageLabel(language)} or mix in English. Up to {piecesLeft === 1 ? "one more piece" : `${piecesLeft} pieces`} of 30
-        seconds; the words appear in the box for you to check.
-      </p>
+      <p className="mt-0.5 text-meta text-ink-muted">{FIRST.sayIt(languageLabel(language), piecesLeft)}</p>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {piecesLeft > 0 ? (
           <VoiceButton
@@ -215,7 +219,7 @@ function SpokenBrief({
             onTypeInstead={onTypeInstead}
           />
         ) : (
-          <p className="text-meta text-ink-muted">You have recorded all three pieces. Type anything else into the box.</p>
+          <p className="text-meta text-ink-muted">{FIRST.briefDone}</p>
         )}
         {busy ? (
           <span role="status" className="text-meta text-ink-muted">
@@ -230,11 +234,11 @@ function SpokenBrief({
       </div>
       {status === "failed" ? (
         <p role="alert" className="mt-2 text-meta text-ink">
-          {lookup(HEARD_FAILURES, heard.data?.error_code ?? "") ?? "We could not hear that recording. Type it instead."}
+          {lookup(HEARD_FAILURES, heard.data?.error_code ?? "") ?? "Couldn't hear that. Type it instead."}
         </p>
       ) : null}
       {record.error ? <ProblemNotice error={record.error} /> : null}
-      <p className="mt-3 text-meta text-ink-faint">Your recording is turned into text. The audio is not kept.</p>
+      <p className="mt-3 text-meta text-ink-faint">{FIRST.audioNotKept}</p>
     </div>
   );
 }

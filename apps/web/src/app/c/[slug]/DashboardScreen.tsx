@@ -1,9 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 
-import { ProblemNotice, Skeleton, formatCount, formatINR } from "@/components/ui";
+import { ProblemNotice, SECONDARY_BUTTON_SM, Skeleton, formatCount, formatINR } from "@/components/ui";
 import { Section } from "@/components/console/section";
 import { Metric } from "@/components/console/metric";
 import { useAgentStats, useAgents } from "@/lib/api/agents";
@@ -39,6 +40,7 @@ import { TrialCallPanel } from "./TrialCallPanel";
 import { WhatNeedsYou } from "./WhatNeedsYou";
 import { WeekRecap } from "./WeekRecap";
 import { ExistingNumberPrompt } from "@/components/forwarding/ExistingNumberPrompt";
+import { HOME } from "./setup/_ui/copy";
 
 /**
  * The client's home screen.
@@ -269,8 +271,11 @@ export function DashboardScreen({ slug }: { slug: string }) {
       <div className="space-y-4 empty:hidden">
         <LineNotice session={session} href={href(`/c/${slug}/settings/line-protection`)} />
         {numbers.isError ? (
-          <p className="rounded-md bg-surface-muted px-4 py-3 text-body text-ink-muted">
-            We could not check whether your phone numbers are answering.
+          <p className="flex items-center justify-between gap-3 rounded-md bg-surface-muted px-4 py-2.5 text-body text-ink-muted">
+            {HOME.numbersFailed}
+            <button type="button" onClick={() => void numbers.refetch()} className={`${SECONDARY_BUTTON_SM} shrink-0`}>
+              {HOME.tryAgain}
+            </button>
           </p>
         ) : numbers.data ? (
           <HeldNumberNotice numbers={numbers.data} topUpHref={href(`/c/${slug}/billing?tab=credits`)} />
@@ -348,9 +353,19 @@ export function DashboardScreen({ slug }: { slug: string }) {
                 value={formatCount(data.after_hours_captured_7d)}
                 flashValue={String(data.after_hours_captured_7d)}
                 hint={
-                  data.after_hours_basis === "business_hours"
-                    ? "Using your recorded opening hours"
-                    : "Using 9am–9pm IST — add your opening hours for a real figure"
+                  data.after_hours_basis === "business_hours" ? (
+                    HOME.afterHoursOwn
+                  ) : (
+                    <>
+                      <span className="block">{HOME.afterHoursDefault}</span>
+                      {/* The hours step of business setup, offered to the roles that may edit it. */}
+                      {agentAccess.allowed ? (
+                        <Link href={href(`/c/${slug}/setup?step=hours`)} className={`${SECONDARY_BUTTON_SM} mt-2`}>
+                          {HOME.afterHoursAdd}
+                        </Link>
+                      ) : null}
+                    </>
+                  )
                 }
               />
             </div>

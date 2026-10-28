@@ -151,7 +151,7 @@ describe("the test-call panel", () => {
     const text = page.container.textContent ?? "";
     expect(text).toContain("26 of 30");
     expect(text).toContain("2 of 10");
-    expect(text).toContain("ends after 3 minutes");
+    expect(text).toContain("up to 3 minutes each");
     await screen.findByRole("option", { name: "Caller" });
     fireEvent.change(screen.getByPlaceholderText("9876543210 or +919876543210"), {
       target: { value: "9876543210" },
@@ -185,7 +185,7 @@ describe("the test-call panel", () => {
     fireEvent.change(screen.getByPlaceholderText("9876543210 or +919876543210"), {
       target: { value: "9876543210" },
     });
-    fireEvent.click(screen.getByRole("checkbox", { name: /This number is my own/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /This is my own number/ }));
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Make a test call" }));
     });
@@ -201,10 +201,10 @@ describe("the test-call panel", () => {
       />,
       { "/v1/agents": [agentRow({ direction: "outbound" })] },
     );
-    expect(screen.getByText("One step before your first test call")).toBeTruthy();
+    expect(screen.getByText("Accept the no-cold-calls promise")).toBeTruthy();
     const button = screen.getByRole("button", { name: "Make a test call" }) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
-    expect(screen.getByRole("link", { name: "Add credit to go live" }).getAttribute("href")).toBe(CREDITS);
+    expect(screen.getByRole("link", { name: "Add credit" }).getAttribute("href")).toBe(CREDITS);
   });
 });
 

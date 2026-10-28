@@ -176,10 +176,10 @@ describe("the setup wizard", () => {
       "/v1/business-profile": profile({ required_steps: ["hours", "branches", "services"] }),
     });
     await screen.findByRole("heading", { name: "When are you open?" });
-    expect(screen.getByText("Needed before your agent takes calls.")).toBeTruthy();
+    expect(screen.getByText("Needed for calls")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /People who take calls/ }));
     await screen.findByRole("heading", { name: "Who can take a call?" });
-    expect(screen.queryByText("Needed before your agent takes calls.")).toBeNull();
+    expect(screen.queryByText("Needed for calls")).toBeNull();
   });
 });
 

@@ -135,7 +135,7 @@ describe("Use your existing number (onboarding)", () => {
       "/v1/me": ME,
       "/v1/forwarding": { ...READY_TO_FORWARD, calevate_numbers: [] },
     });
-    expect(await screen.findByText("Get your Calevate number first.")).toBeTruthy();
+    expect(await screen.findByText("Get your Calevate number first")).toBeTruthy();
   });
 });
 

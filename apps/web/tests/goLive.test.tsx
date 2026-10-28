@@ -98,7 +98,7 @@ describe("what the guide derives", () => {
 describe("the guide", () => {
   it("shows the real move, agent by agent, and names no provider", async () => {
     await renderClientPage(page, routes());
-    expect(await screen.findByRole("heading", { name: "Moving your agents to your own account…" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Moving your agents…" })).toBeTruthy();
     expect(screen.getByText("Sravani")).toBeTruthy();
     expect(screen.getByText("Ravi")).toBeTruthy();
     expect(document.body.textContent).not.toMatch(/ThinnestAI|workspace/i);
@@ -120,7 +120,7 @@ describe("the guide", () => {
     let current = guide({ current: "verify", move: { ...guide().move, state: "done" }, verify: "in_review" });
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     await renderClientPage(page, routes({ "/v1/go-live": () => current }), "acme", client);
-    expect(await screen.findByRole("heading", { name: "We're checking your business details" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "We're checking your details" })).toBeTruthy();
 
     current = { ...current, current: "number", verify: "done", number: "todo" };
     await act(async () => {
@@ -138,7 +138,7 @@ describe("the guide", () => {
         "/v1/agents": [],
       }),
     );
-    expect(await screen.findByText("You have no agent to switch on yet.")).toBeTruthy();
+    expect(await screen.findByText("No agent to switch on yet")).toBeTruthy();
     const make = screen.getByRole("link", { name: "Make an agent" });
     expect(make.getAttribute("href")).toBe("/c/acme/agents/new");
   });

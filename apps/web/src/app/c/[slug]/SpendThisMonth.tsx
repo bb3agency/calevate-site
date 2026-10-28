@@ -63,7 +63,7 @@ export function SpendThisMonth({
  */
 function minutesHint(usage: UsagePanel): string {
   if (usage.trial.active) {
-    return `${formatDecimal(usage.minutes_used)} min used, free during your trial (worth ${formatINR(usage.trial_absorbed_inr)})`;
+    return `${formatDecimal(usage.minutes_used)} min free in trial (worth ${formatINR(usage.trial_absorbed_inr)})`;
   }
   if (usage.included_minutes === 0) return `${formatDecimal(usage.minutes_used)} min used`;
   return `${formatDecimal(usage.minutes_used)} min used of ${formatCount(usage.included_minutes)} included`;

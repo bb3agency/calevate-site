@@ -6,6 +6,8 @@ import { ProblemNotice, Skeleton } from "@/components/ui";
 import type { AccountReadiness } from "@/lib/api/readiness";
 import type { UseQueryResult } from "@tanstack/react-query";
 
+import { HOME } from "./setup/_ui/copy";
+
 /**
  * How ready the account's agents are to take real calls (D-870): the mean of every working
  * agent's 0-100 score, and the fixes worth the most points across them.
@@ -58,10 +60,10 @@ export function ReadinessPanel({
       <Gauge
         value={data.score}
         label={data.agents.length === 1 ? "Your agent's readiness" : "Your agents' readiness"}
-        pendingText="We have not scored your agents yet."
+        pendingText={HOME.readinessPending}
         fixes={fixes}
-        fixesTitle="Raise it next"
-        allDoneText="Nothing left to fix. Your agents are ready."
+        fixesTitle={HOME.readinessFixes}
+        allDoneText={HOME.readinessDone}
         pointsLabel={(points) => `+${points}`}
         size={120}
       />

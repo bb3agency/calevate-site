@@ -8,7 +8,15 @@ import { ArrowRight, Check, FileText, Link2, PencilLine, PhoneCall } from "lucid
 import type { CallAudioPlayerHandle } from "@/components/callAudioPlayer";
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { TEXT_ACTION } from "@/components/console/section";
-import { Disclosure, PRIMARY_BUTTON, ProblemNotice, Skeleton, formatDuration } from "@/components/ui";
+import {
+  Disclosure,
+  PRIMARY_BUTTON,
+  ProblemNotice,
+  SECONDARY_BUTTON,
+  SECONDARY_BUTTON_SM,
+  Skeleton,
+  formatDuration,
+} from "@/components/ui";
 import type { Agent } from "@/lib/api/agents";
 import type { CallSummary } from "@/lib/api/client";
 import type { FirstRun } from "@/lib/api/firstRun";
@@ -25,6 +33,8 @@ import { useRecordingLink } from "../../calls/[callId]/transcriptAccess";
 import { TestCallTranscript } from "../../TestCallTranscript";
 import { CallStage } from "./LiveStage";
 import { StepScreen } from "./shell";
+import { FIRST } from "../../setup/_ui/copy";
+import { Why } from "../../setup/_ui/Why";
 
 /** A call that did not connect has nothing to show; it gets "Try again" instead. */
 const NOT_CONNECTED: Record<string, string> = {
@@ -83,7 +93,7 @@ export function ResultStep({
   return (
     <StepScreen
       title={`That was ${agent.name}'s first call`}
-      hint={`It lasted ${formatDuration(call.duration_s)}. Here is what it heard.`}
+      hint={FIRST.resultHint(formatDuration(call.duration_s))}
       primary={
         <>
           Make it yours
@@ -97,7 +107,6 @@ export function ResultStep({
           Call me again
         </button>
       }
-      barAtEnd
     >
       {detail.isPending ? (
         <Skeleton rows={4} label="Reading your call" />
@@ -181,16 +190,13 @@ function ChangeIt({ scriptHref, callHref }: { scriptHref: string; callHref: stri
       <h3 id="first-call-change" className="text-heading text-ink">
         Want it to say something different?
       </h3>
-      <p className="mt-1 max-w-prose text-meta text-ink-muted">
-        Change its script any time. Open this call to save it as a practice test, and each new version is
-        tried against it.
-      </p>
-      <div className="mt-2 flex flex-wrap gap-x-6 gap-y-1">
-        <Link href={scriptHref} className={TEXT_ACTION}>
+      <Why>Open this call to save it as a practice test. Each new version is tried against it.</Why>
+      <div className="mt-2 flex flex-wrap gap-2">
+        <Link href={scriptHref} className={SECONDARY_BUTTON}>
           <PencilLine aria-hidden className="h-4 w-4" />
           Change its script
         </Link>
-        <Link href={callHref} className={TEXT_ACTION}>
+        <Link href={callHref} className={SECONDARY_BUTTON}>
           <FileText aria-hidden className="h-4 w-4" />
           Open this call
         </Link>
@@ -255,22 +261,28 @@ export function TeamStep({ agent, run, onBack }: { agent: Agent; run: FirstRun; 
       </ul>
 
       {trial?.on_trial ? (
-        <p className="text-body text-ink-muted">
-          {trial.minutes_left ?? 0} free trial minutes left
-          {left !== null ? `, about ${left} more test ${left === 1 ? "call" : "calls"}` : ""}
-          {trial.days_remaining !== null && trial.days_remaining !== undefined
-            ? `, for ${trial.days_remaining} more ${trial.days_remaining === 1 ? "day" : "days"}`
-            : ""}
-          .
-        </p>
+        // What the trial has left, as chips rather than one long sentence.
+        <ul className="flex flex-wrap gap-2" aria-label="Your free trial">
+          {[
+            FIRST.trialMinutes(trial.minutes_left ?? 0),
+            left !== null ? FIRST.trialCalls(left) : null,
+            trial.days_remaining !== null && trial.days_remaining !== undefined
+              ? FIRST.trialDays(trial.days_remaining)
+              : null,
+          ]
+            .filter((chip): chip is string => chip !== null)
+            .map((chip) => (
+              <li key={chip} className="rounded-full bg-surface-muted px-3 py-1 text-meta font-medium tabular-nums text-ink">
+                {chip}
+              </li>
+            ))}
+        </ul>
       ) : null}
 
       {run.jobs.includes("call_new_leads") ? (
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-          <p className="text-body text-ink-muted">
-            Connect your lead form so each new enquiry is called within minutes.
-          </p>
-          <Link href={href(`/c/${session.orgSlug}/lead-sources`)} className={TEXT_ACTION}>
+          <p className="text-body text-ink-muted">{FIRST.leadForm}</p>
+          <Link href={href(`/c/${session.orgSlug}/lead-sources`)} className={SECONDARY_BUTTON_SM}>
             <Link2 aria-hidden className="h-4 w-4" />
             Connect it later
           </Link>

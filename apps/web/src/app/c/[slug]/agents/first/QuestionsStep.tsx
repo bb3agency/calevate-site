@@ -32,6 +32,7 @@ import {
 
 import { ReadingStage } from "./LiveStage";
 import { ChipChoice, StepScreen } from "./shell";
+import { FIRST } from "../../setup/_ui/copy";
 
 /**
  * THE FOLLOW-UP QUESTIONS (D-855; founder, 23 Oct 2026): a few, one at a time, each one
@@ -90,7 +91,7 @@ export function QuestionsStep({
         title={writing ? "A few details next" : "Your description covers it"}
         hint={
           writing
-            ? "Your agent is reading what you wrote, to ask only what a caller would still need."
+            ? FIRST.readingBrief
             : "Nothing else is needed before your agent is built."
         }
         onBack={onBack}
@@ -509,7 +510,7 @@ function HoursAnswerField({ answer, onChange }: { answer: DraftAnswer; onChange:
         <Clock aria-hidden className="h-4 w-4 shrink-0 text-brand-strong" />
         {hoursSummary(hours)}
       </p>
-      <p className="text-meta text-ink-faint">Different hours on some days? Change them later in Business setup.</p>
+      <p className="text-meta text-ink-faint">{FIRST.hoursLater}</p>
     </div>
   );
 }

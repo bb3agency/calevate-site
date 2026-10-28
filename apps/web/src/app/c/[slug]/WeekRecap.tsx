@@ -14,6 +14,7 @@ import { activeTrial, walletState, type Wallet } from "@/lib/api/wallet";
 import { canDialOut, isAnsweringNow, isDeleted } from "@/lib/agentState";
 
 import { statItems } from "./analyticsFigures";
+import { HOME } from "./setup/_ui/copy";
 import { trialUrgency, trialView } from "./TrialBanner";
 
 /** May this reader use the action? `useWriteAccess(...).allowed`, read by the screen. */
@@ -106,19 +107,22 @@ function WeekFigures({ data, stats }: { data: Dashboard; stats: UseQueryResult<S
   );
 }
 
-/** No calls: one sentence instead of a row of zeroes, and new leads only if there were some. */
+/** No calls: a few chips instead of a row of zeroes; last week and new leads only if any. */
 function QuietWeek({ data, noAgent }: { data: Dashboard; noAgent: boolean }) {
+  const chips = [
+    HOME.quietCalls,
+    data.calls_prev_7d > 0 ? HOME.quietLastWeek(data.calls_prev_7d, formatCount(data.calls_prev_7d)) : null,
+    data.leads_new_7d > 0 ? HOME.quietLeads(data.leads_new_7d, formatCount(data.leads_new_7d)) : null,
+    noAgent ? HOME.quietNoAgent : null,
+  ].filter((chip): chip is string => chip !== null);
   return (
-    <p className="max-w-prose text-body text-ink-muted [text-wrap:pretty]">
-      No calls in the last 7 days.
-      {data.calls_prev_7d > 0
-        ? ` The week before had ${formatCount(data.calls_prev_7d)} ${data.calls_prev_7d === 1 ? "call" : "calls"}.`
-        : ""}
-      {data.leads_new_7d > 0
-        ? ` ${formatCount(data.leads_new_7d)} new ${data.leads_new_7d === 1 ? "lead" : "leads"} came in.`
-        : ""}
-      {noAgent ? " You have no agent yet, so nobody is answering or making calls." : ""}
-    </p>
+    <ul className="flex flex-wrap gap-2" aria-label="This week">
+      {chips.map((chip) => (
+        <li key={chip} className="rounded-full bg-surface-muted px-3 py-1 text-meta text-ink-muted">
+          {chip}
+        </li>
+      ))}
+    </ul>
   );
 }
 

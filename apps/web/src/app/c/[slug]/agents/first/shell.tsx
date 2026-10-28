@@ -9,11 +9,14 @@ import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
  * ONE STEP OF "MEET YOUR AGENT": its question as the heading, what it needs, and its one
  * primary action.
  *
- * On a phone the action sits in a bar pinned to the bottom, in the thumb's reach, padded for
- * the home indicator (`env(safe-area-inset-bottom)`); the content keeps room under it so the
- * last field is never hidden. From `lg` up the bar is part of the column and sticks to the
- * bottom of the window, so on a laptop screen the action is in view even when the step runs
- * a little longer than the screen.
+ * On a phone the action sits in an opaque, full-width bar pinned to the bottom, in the thumb's
+ * reach, padded for the home indicator (`env(safe-area-inset-bottom)`); the form keeps
+ * `pb-36` of room under its content, more than the bar is tall, so the last field scrolls
+ * fully clear of it. From `lg` up the bar is NOT pinned: it closes the step, after its last
+ * field, and takes its own space. A bar stuck to the window there covered the step's lower
+ * fields (the language cards on "Its job" showed half-hidden under it) and its tint spanned
+ * only the step's column, so on a wide screen the action is always the last thing in the
+ * step instead.
  *
  * Each step is a form, so Enter in a field is the primary action. Moving to a step puts focus
  * on its heading, so a keyboard or screen-reader user starts at the question.
@@ -34,7 +37,6 @@ export function StepScreen({
   onBack,
   aside,
   eyebrow,
-  barAtEnd = false,
 }: {
   title: string;
   hint?: ReactNode;
@@ -52,10 +54,6 @@ export function StepScreen({
   aside?: ReactNode;
   /** Where the step is within itself, above the question ("Question 2 of 3"). */
   eyebrow?: ReactNode;
-  /** From `lg`, the bar closes the step where its content ends instead of sticking to the
-   *  window: for a step that is read top to bottom, where a stuck bar sits over the lines
-   *  the owner is reading. The phone keeps its pinned bar. */
-  barAtEnd?: boolean;
 }) {
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
@@ -87,7 +85,7 @@ export function StepScreen({
       {hint ? <div className="mt-1 max-w-prose text-body text-ink-muted">{hint}</div> : null}
       <div className="mt-5 space-y-5">{children}</div>
       {primary || aside ? (
-        <div className={`fixed inset-x-0 bottom-0 z-sticky border-t border-line bg-surface/95 px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur supports-[backdrop-filter]:bg-surface/85 ${barAtEnd ? "lg:static lg:mt-6 lg:bg-transparent lg:pt-5 supports-[backdrop-filter]:lg:bg-transparent" : "lg:sticky lg:mt-4 lg:bg-app lg:pt-3 supports-[backdrop-filter]:lg:bg-app"} lg:px-0 lg:pb-4 lg:backdrop-blur-none`}>
+        <div className="fixed inset-x-0 bottom-0 z-sticky border-t border-line bg-surface px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] lg:static lg:mt-6 lg:bg-transparent lg:px-0 lg:pt-5 lg:pb-4">
           <div className="mx-auto flex max-w-xl flex-col gap-1.5 lg:mx-0 lg:flex-row lg:items-center lg:gap-4">
             {primary ? (
               <ActionButton

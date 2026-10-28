@@ -389,14 +389,14 @@ describe("meet your agent", () => {
     expect(telugu.checked && telugu.disabled).toBe(true);
     expect(screen.queryByRole("radio", { name: /Hindi/ })).toBeNull();
     expect((screen.getByRole("checkbox", { name: /English/ }) as HTMLInputElement).disabled).toBe(true);
-    expect(screen.getByText(/Change its languages on its own page/)).toBeTruthy();
+    expect(screen.getByText(/Change languages on its own page/)).toBeTruthy();
   });
 
   it("starts the brief from the trade's example and says the audio is not kept", async () => {
     await renderClientPage(page, routes({ "/v1/first-run": run({ jobs: ["answer_calls"], language_primary: "te-IN" }) }));
     const box = (await screen.findByRole("textbox", { name: "About your business" })) as HTMLTextAreaElement;
     expect(box.value.length).toBeGreaterThan(20);
-    expect(screen.getByText("Your recording is turned into text. The audio is not kept.")).toBeTruthy();
+    expect(screen.getByText("Only the text is kept, not the audio.")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Talk it through with Pip instead/ })).toBeTruthy();
   });
 
@@ -603,7 +603,7 @@ describe("meet your agent", () => {
       }),
     );
     expect(await screen.findByRole("heading", { name: "That was Anjali's first call" })).toBeTruthy();
-    expect(screen.getByText("It lasted 1:12. Here is what it heard.")).toBeTruthy();
+    expect(screen.getByText("1:12 call. Here is what it heard.")).toBeTruthy();
     expect(await screen.findByText("Suresh wants a 3 BHK in Kondapur.")).toBeTruthy();
     expect(screen.getByText("120")).toBeTruthy();
     // The card beside the steps and its counter restate steps 1 and 2; they are gone here.

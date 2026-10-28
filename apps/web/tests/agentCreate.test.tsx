@@ -254,7 +254,7 @@ describe("what the form promises about the agent it is about to build", () => {
     await fillName("Front desk");
     await next();
     await screen.findByText("Check and build");
-    const floor = screen.getByText("What it will say about itself").closest("section");
+    const floor = screen.getByText("What it says about itself").closest("section");
     // D-669: a new agent volunteers neither announcement; it opens with its greeting.
     expect(floor?.textContent).toContain("greeting only");
     expect(floor?.textContent).not.toContain("starts every call by saying it is an AI");
@@ -275,7 +275,7 @@ describe("what the form promises about the agent it is about to build", () => {
     await buildNamed("Front desk");
 
     await screen.findByText("Front desk is created");
-    expect(container.textContent).toContain("not answering or dialling anyone");
+    expect(container.textContent).toContain("Switched off. Next: write what it says.");
     // The primary way on is the BUILDER: an agent with no script cannot be switched on.
     const write = screen.getByRole("link", { name: /Write its script/ });
     expect(write.getAttribute("href")).toBe("/c/acme/agents/agent-9?section=script");
@@ -304,7 +304,7 @@ describe("the call cap is the server's, or it is not offered", () => {
     const field = screen.getByRole("spinbutton", { name: /^Minutes/ });
     expect(field.getAttribute("aria-valuemin")).toBe("2");
     expect(field.getAttribute("aria-valuemax")).toBe("30");
-    expect(container.textContent).toContain("blank for the standard 15 minutes");
+    expect(container.textContent).toContain("Blank means the standard 15 minutes");
     expect(container.textContent).not.toContain("10 minutes");
   });
 
