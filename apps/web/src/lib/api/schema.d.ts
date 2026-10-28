@@ -28572,6 +28572,8 @@ export interface components {
             base_script: components["schemas"]["CallScript"];
             /** Disclosure */
             disclosure: string | null;
+            /** Documents */
+            documents: string[];
             /**
              * Id
              * Format: uuid
@@ -28581,7 +28583,7 @@ export interface components {
              * Mode
              * @enum {string}
              */
-            mode: "change" | "whole" | "steps";
+            mode: "change" | "whole" | "steps" | "knowledge";
             /** Note */
             note: string | null;
             /** Request */

@@ -32,6 +32,9 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.crm import assist as crm_assist
 from apps.api.db.session import tenant_session
+from apps.api.first_run.documents import document_words, read_documents
+from apps.api.kb.service import knowledge_agents
+from apps.workers.first_run import documents_block
 from apps.workers.script_assist import CONVERT_INSTRUCTION, ScriptBrief, ScriptDraft, draft_script
 
 log = get_logger(__name__)
@@ -56,6 +59,39 @@ async def _claim(tenant_id: UUID, agent_id: UUID, proposal_id: UUID) -> bool:
             )
         ).first()
     return claimed is not None
+
+
+#: What a `knowledge` proposal asks of the edit (D-923): what onboarding's writer does with the
+#: owner's documents (`first_run._write_script`), as a change to the script the owner already
+#: has, so their own wording stays wherever the documents do not contradict it.
+KNOWLEDGE_CHANGE: Final = (
+    "The owner added the documents below to the business's knowledge. Work in what they tell "
+    "callers and keep everything already in the script that they do not contradict: add or "
+    "correct quick facts (the faqs list: a question callers ask and a short spoken answer, at "
+    "most eight); update a step's instruction, an objection's answer or the opening line{calls} "
+    "only where the documents change it; where a document contradicts the script, follow the "
+    "document. Leave every other field exactly as it is."
+)
+
+
+def knowledge_change(documents: str, *, both: bool) -> str:
+    """The change a `knowledge` proposal is written from: the ask, then the redacted block."""
+    calls = " and the opening line when it calls" if both else ""
+    return f"{KNOWLEDGE_CHANGE.format(calls=calls)}\n{documents}"
+
+
+async def _documents(tenant_id: UUID, proposal: script_proposals.ScriptProposal) -> str:
+    """The proposal's documents as onboarding's writer reads them (`first_run.documents_block`:
+    redacted, fenced, one shared word budget), whether or not a PDF's words reach the agents
+    on calls, as at onboarding. A document removed since is left out."""
+    async with tenant_session(tenant_id) as session:
+        found = await read_documents(session, proposal.documents)
+        words = [
+            (doc.name, await document_words(session, doc.upload_id))
+            for doc in found
+            if doc.state == "read"
+        ]
+    return documents_block(words)
 
 
 async def _draft(
@@ -84,6 +120,21 @@ async def _draft(
             replace(context, answers=tuple(proposal.answers.items())),
             tenant_leg=tenant_leg,
             quota_exhausted=exhausted,
+        )
+    if proposal.mode == script_proposals.KNOWLEDGE_MODE:
+        documents = await _documents(tenant_id, proposal)
+        if not documents:
+            raise ProblemError.conflict(
+                "knowledge_proposal_no_words",
+                "Your new document has no words we could read.",
+                remediation="Check it on the Knowledge page, then add it again.",
+            )
+        return await draft_script(
+            context,
+            tenant_leg=tenant_leg,
+            quota_exhausted=exhausted,
+            edit_of=base,
+            change=knowledge_change(documents, both=context.direction == "both"),
         )
     return await draft_script(
         context,
@@ -172,4 +223,56 @@ async def draft_script_proposal(ctx: dict[str, Any], payload: dict[str, Any]) ->
     return "ready" if stored else "not_pending"
 
 
-__all__ = ["JOB_NAME", "draft_script_proposal"]
+async def suggest_scripts_from_document(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
+    """A file added to the knowledge after onboarding, live: a `knowledge` proposal for every
+    agent of the client (D-923), so it shapes their scripts as an onboarding document shapes
+    the first agent's, for the owner to keep or dismiss. Queued once per upload by
+    `kb_ingest.ingest_kb_source` once it is published.
+
+    Not for an onboarding document (`first_runs.document_ids`): its words already wrote the
+    first script. Not for a web page: onboarding takes files only."""
+    del ctx
+    tenant_id = UUID(str(payload["tenant_id"]))
+    upload_id = UUID(str(payload["upload_id"]))
+    async with tenant_session(tenant_id) as session:
+        onboarding = (
+            await session.execute(
+                text("SELECT 1 FROM first_runs WHERE :uid = ANY(document_ids)"),
+                {"uid": upload_id},
+            )
+        ).first()
+        if onboarding is not None:
+            return "onboarding_document"
+        found = await read_documents(session, [upload_id])
+        agents = await knowledge_agents(session, tenant_id=tenant_id)
+    if not found or found[0].source_kind == "url":
+        return "not_a_file"
+    document = found[0]
+    if document.state != "read":
+        return "no_words"
+    suggested = 0
+    for agent_id in agents:
+        # One transaction per agent, so one agent's refusal never costs the others theirs.
+        async with tenant_session(tenant_id) as session:
+            made = await script_proposals.request_knowledge_proposal(
+                session,
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                upload_ids=[upload_id],
+                names=[document.name],
+            )
+        suggested += made is not None
+    log.info(
+        "knowledge_script_suggestions_queued",
+        extra={"upload_id": str(upload_id), "agents": len(agents), "suggested": suggested},
+    )
+    return f"suggested:{suggested}"
+
+
+__all__ = [
+    "JOB_NAME",
+    "KNOWLEDGE_CHANGE",
+    "draft_script_proposal",
+    "knowledge_change",
+    "suggest_scripts_from_document",
+]

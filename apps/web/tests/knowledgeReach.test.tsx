@@ -61,7 +61,7 @@ describe("which kinds reach the agents", () => {
     const pdf = uploadState(upload());
     expect(pdf.label).toBe("Saved, not used yet");
     expect(pdf.meaning).toContain("Agents don't use PDFs yet");
-    expect(pdf.meaning).toContain("Write the key facts instead");
+    expect(pdf.meaning).toContain("It still shapes their scripts");
     expect(pdf.tone).toBe("neutral");
 
     const link = uploadState(upload({ source_kind: "url", name: "Prices page", source_url: "https://example.in" }));

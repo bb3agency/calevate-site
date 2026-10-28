@@ -42,6 +42,7 @@ const PART_OF_FIELD: { test: RegExp; part: PartKey }[] = [
   { test: /^business_line$/, part: "business_line" },
   { test: /^outbound_purpose$/, part: "outbound_purpose" },
   { test: /^objection-\d+$/, part: "objections" },
+  { test: /^fact-\d+$/, part: "faqs" },
   { test: /^example-\d+$/, part: "example_exchange" },
   { test: /^pronunciation-\d+$/, part: "style" },
 ];

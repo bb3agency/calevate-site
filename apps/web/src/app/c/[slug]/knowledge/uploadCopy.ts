@@ -88,7 +88,8 @@ const READ_COPY_KINDS: ReadonlySet<string> = new Set(["pdf", "url"]);
 
 /** Said under a PDF or link the agents do not use yet, once its words are read. */
 const NOT_USED_YET: Readonly<Record<string, string>> = {
-  pdf: "Agents don't use PDFs yet. Write the key facts instead.",
+  // A file's words still shape the agents' scripts: at onboarding, or as a suggestion (D-923).
+  pdf: "Agents don't use PDFs yet. It still shapes their scripts.",
   url: "Agents don't use links yet. Write the key facts instead.",
 };
 
@@ -154,7 +155,7 @@ export function uploadState(upload: KbUpload): UploadState {
   if (upload.is_live) {
     return {
       label: "In use",
-      meaning: "Your agents use this on calls.",
+      meaning: isLink ? "Your agents use this on calls." : "Your agents use this on calls and in their scripts.",
       tone: LIVE_TONE,
       working: false,
       awaitingConfirmation: false,

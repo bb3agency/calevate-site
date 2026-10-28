@@ -27,7 +27,7 @@ export function unshownIssues(issues: Issue[], shown: (field: string) => boolean
 }
 
 const SECTION_FIELDS = /^(name|instruction|sounds_like|branch-\d+)$/;
-const PART_FIELDS = /^(business_line|outbound_purpose|objection-\d+|example-\d+|pronunciation-\d+)$/;
+const PART_FIELDS = /^(business_line|outbound_purpose|objection-\d+|fact-\d+|example-\d+|pronunciation-\d+)$/;
 
 export function sectionShows(field: string): boolean {
   return SECTION_FIELDS.test(field);
@@ -185,6 +185,25 @@ export function PartEditor({
               </div>
               <RemoveButton what={`push-back ${i + 1}`}
                 onClick={() => set("objections", script.objections.filter((_, j) => j !== i))} />
+            </div>
+          ))}
+        </div>
+      );
+    case "faqs":
+      return (
+        <div className="space-y-3">
+          {script.faqs.map((f, i) => (
+            <div key={i} className="flex items-start gap-2">
+              <div className="min-w-0 flex-1 space-y-2">
+                <Text id={id(`fact-${i}-question`)} label={`Quick fact ${i + 1}: what callers ask`} maxLength={300}
+                  value={f.question}
+                  onChange={(v) => set("faqs", script.faqs.map((x, j) => (j === i ? { ...x, question: v } : x)))} />
+                <Text id={id(`fact-${i}`)} label="The answer" hint={`In ${language}, as callers should hear it.`} long
+                  maxLength={1000} value={f.answer} issues={on(`fact-${i}`)}
+                  onChange={(v) => set("faqs", script.faqs.map((x, j) => (j === i ? { ...x, answer: v } : x)))} />
+              </div>
+              <RemoveButton what={`quick fact ${i + 1}`}
+                onClick={() => set("faqs", script.faqs.filter((_, j) => j !== i))} />
             </div>
           ))}
         </div>

@@ -17,7 +17,8 @@ tenant scope `agents` already carries.
 The stored shape (JSON): `id`, `mode`, `status` (`drafting` | `ready` | `failed`), `request`
 (the person's change, or null), `answers` (the five owner answers, `whole` only),
 `base_script` (the script it was made from, fixed at request time), `requested_by`,
-`requested_at`; once written `script`, `unplaced` (`steps` only) and `disclosure` (D-127
+`requested_at`, and for `knowledge` (D-923) `documents` and `document_names` (the uploads it
+is written from); once written `script`, `unplaced` (`steps` only) and `disclosure` (D-127
 G-6); on failure `note`, in the owner's words. Every write after the request is a
 compare-and-set on `id`, so a discarded or replaced request is never resurrected by the job
 that was drafting it.
@@ -40,17 +41,26 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents import script_builder
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
-from apps.api.reliability.service import enqueue_outbox
+from apps.api.first_run.models import MAX_DOCUMENTS
+from apps.api.reliability.service import enqueue_outbox, enqueue_outbox_once
 from apps.workers.script_assist import OWNER_QUESTIONS, ScriptBrief
 
 #: The outbox job that writes a requested proposal (`workers/script_proposal.py`).
 PROPOSAL_JOB: Final = "draft_script_proposal"
+#: The outbox job that queues a `knowledge` proposal for every agent once a file added to the
+#: knowledge is live (`workers/script_proposal.suggest_scripts_from_document`, D-923).
+SUGGEST_JOB: Final = "suggest_scripts_from_document"
 
 #: `change`: one change in the person's words to the script in steps. `whole`: the whole
 #: script from the owner's answers to `OWNER_QUESTIONS`. `steps`: a hand-written script
 #: turned into steps (`script_assist.CONVERT_INSTRUCTION`).
 ProposalMode = Literal["change", "whole", "steps"]
 PROPOSAL_MODES: Final[tuple[ProposalMode, ...]] = get_args(ProposalMode)
+#: `knowledge` (D-923): the current script with what newly added documents tell callers worked
+#: in, made by us when a document goes live after onboarding, never asked of Pip. So it is a
+#: stored mode and not a `ProposalMode` a request can name.
+KNOWLEDGE_MODE: Final = "knowledge"
+StoredMode = Literal["change", "whole", "steps", "knowledge"]
 
 ProposalStatus = Literal["drafting", "ready", "failed"]
 
@@ -81,7 +91,7 @@ FAILED_NOTE: Final = (
 @dataclass(frozen=True, slots=True)
 class ScriptProposal:
     id: UUID
-    mode: ProposalMode
+    mode: StoredMode
     status: ProposalStatus
     request: str | None
     answers: dict[str, str]
@@ -92,6 +102,9 @@ class ScriptProposal:
     unplaced: list[str] = field(default_factory=list)
     disclosure: str | None = None
     note: str | None = None
+    #: The knowledge uploads a `knowledge` proposal is written from, and their names.
+    documents: list[UUID] = field(default_factory=list)
+    document_names: list[str] = field(default_factory=list)
 
 
 def _parse(raw: dict[str, Any], *, now: datetime) -> ScriptProposal:
@@ -115,6 +128,8 @@ def _parse(raw: dict[str, Any], *, now: datetime) -> ScriptProposal:
         unplaced=[str(line) for line in raw.get("unplaced") or []],
         disclosure=raw.get("disclosure"),
         note=note,
+        documents=[UUID(str(d)) for d in raw.get("documents") or []],
+        document_names=[str(n) for n in raw.get("document_names") or []],
     )
 
 
@@ -193,6 +208,95 @@ async def request_proposal(
         else {},
         "base_script": base.model_dump(mode="json"),
         "requested_by": str(requested_by),
+        "requested_at": now.isoformat(),
+    }
+    await session.execute(
+        text("UPDATE agents SET script_proposal = CAST(:p AS jsonb) WHERE id = :aid"),
+        {"aid": agent_id, "p": json.dumps(record)},
+    )
+    await enqueue_outbox(
+        session,
+        job=PROPOSAL_JOB,
+        payload={
+            "tenant_id": str(tenant_id),
+            "agent_id": str(agent_id),
+            "proposal_id": str(proposal_id),
+        },
+    )
+    return _parse(record, now=now)
+
+
+async def queue_document_suggestions(
+    session: AsyncSession, *, tenant_id: UUID, upload_id: UUID
+) -> None:
+    """Queue `SUGGEST_JOB` for a file now live in the knowledge, in the caller's transaction.
+    Once per upload, so a re-drive or a re-read of the same upload never suggests it twice."""
+    await enqueue_outbox_once(
+        session,
+        job=SUGGEST_JOB,
+        payload={"tenant_id": str(tenant_id), "upload_id": str(upload_id)},
+        dedupe_key=f"{SUGGEST_JOB}:{upload_id}",
+    )
+
+
+#: The most documents one `knowledge` proposal is written from, the newest kept: onboarding's
+#: limit, so their shared word budget (`first_run.models.DOCUMENT_CHARS`) is never split
+#: thinner than it is there.
+MAX_KNOWLEDGE_DOCUMENTS: Final = MAX_DOCUMENTS
+
+
+async def request_knowledge_proposal(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    agent_id: UUID,
+    upload_ids: list[UUID],
+    names: list[str],
+) -> ScriptProposal | None:
+    """Queue a `knowledge` proposal for one agent (D-923), in the caller's transaction, or
+    None when the agent is gone or a suggestion the owner asked for is waiting.
+
+    A waiting `knowledge` proposal is replaced by one written from its documents and these,
+    so two uploads in a row give one suggestion carrying both. One the owner asked Pip for is
+    never replaced: their request is theirs, and a document can be suggested again by
+    dismissing it and re-adding the file."""
+    found = (
+        await session.execute(
+            text(
+                "SELECT 1 FROM agents WHERE id = :aid AND deleted_at IS NULL "
+                "AND status <> 'archived' FOR UPDATE"
+            ),
+            {"aid": agent_id},
+        )
+    ).first()
+    if found is None:
+        return None
+    pending = await read_proposal(session, agent_id)
+    earlier: dict[UUID, str] = {}
+    if pending is not None:
+        if pending.mode != KNOWLEDGE_MODE and pending.status != "failed":
+            return None
+        if pending.mode == KNOWLEDGE_MODE:
+            earlier = dict(zip(pending.documents, pending.document_names, strict=False))
+    chosen = list({**earlier, **dict(zip(upload_ids, names, strict=True))}.items())
+    chosen = chosen[-MAX_KNOWLEDGE_DOCUMENTS:]
+    base = await working_script(session, agent_id)
+    if base.raw_override:
+        # A script written as one piece has no parts to work a document into; turning it
+        # into steps is the owner's call (`steps`).
+        return None
+    proposal_id = uuid7()
+    now = datetime.now(UTC)
+    record = {
+        "id": str(proposal_id),
+        "mode": KNOWLEDGE_MODE,
+        "status": "drafting",
+        "request": None,
+        "answers": {},
+        "documents": [str(upload) for upload, _ in chosen],
+        "document_names": [name for _, name in chosen],
+        "base_script": base.model_dump(mode="json"),
+        "requested_by": None,
         "requested_at": now.isoformat(),
     }
     await session.execute(
@@ -315,18 +419,23 @@ async def brief_for(session: AsyncSession, tenant_id: UUID, agent_id: UUID) -> S
 __all__ = [
     "DRAFTING_STALE_AFTER",
     "FAILED_NOTE",
+    "KNOWLEDGE_MODE",
     "MAX_ANSWER_CHARS",
     "MAX_CHANGE_CHARS",
+    "MAX_KNOWLEDGE_DOCUMENTS",
     "MIN_REQUEST_CHARS",
     "PROPOSAL_JOB",
     "PROPOSAL_MODES",
     "STALE_NOTE",
+    "SUGGEST_JOB",
     "ProposalMode",
     "ProposalStatus",
     "ScriptProposal",
     "brief_for",
     "discard",
+    "queue_document_suggestions",
     "read_proposal",
+    "request_knowledge_proposal",
     "request_proposal",
     "request_text",
     "store_failed",

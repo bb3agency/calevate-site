@@ -500,8 +500,13 @@ export function useRestoreVersion(
 /** Mirrors `ScriptProposalOut`. */
 export interface ScriptProposal {
   id: string;
-  /** `change` (one change), `whole` (from the owner's answers), `steps` (from hand-writing). */
-  mode: "change" | "whole" | "steps";
+  /**
+   * `change` (one change), `whole` (from the owner's answers), `steps` (from hand-writing),
+   * `knowledge` (files added to the knowledge, worked into the current script, D-923).
+   */
+  mode: "change" | "whole" | "steps" | "knowledge";
+  /** The files a `knowledge` suggestion was written from, by name. */
+  documents: string[];
   status: "drafting" | "ready" | "failed";
   request: string | null;
   /** What it was made from: list the changes against this, apply them to the working copy. */

@@ -150,6 +150,16 @@ describe("AI proposals, kept part by part", () => {
     expect(validate(kept)).toEqual([]);
   });
 
+  it("offers quick facts from a new file as their own row (D-923)", () => {
+    const facts = [{ question: "Site visits?", answer: "Daily, ten to six." }];
+    const proposal: CallScript = { ...current, faqs: facts };
+    const changes = diffScripts(current, proposal);
+    expect(changes.map((c) => c.id)).toEqual(["part:faqs"]);
+    expect(changes[0]).toMatchObject({ label: "Quick facts", after: "Site visits? → Daily, ten to six." });
+    expect(applyChanges(current, proposal, new Set(["part:faqs"])).faqs).toEqual(facts);
+    expect(applyChanges(current, proposal, new Set()).faqs).toEqual([]);
+  });
+
   it("drops a kept way out that points at a discarded addition", () => {
     const proposal = script(stage("greet", "Greet", { branches: [{ when: "ready", target: "pay" }] }), stage("price", "Price"), stage("pay", "Pay"));
     const kept = applyChanges(current, proposal, new Set(["change:greet"]));

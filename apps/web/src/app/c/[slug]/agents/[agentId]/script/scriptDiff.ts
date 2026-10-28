@@ -21,6 +21,7 @@ export type PartKey =
   | "outbound_purpose"
   | "opening_line"
   | "outbound_opening_line"
+  | "faqs"
   | "style"
   | "objections"
   | "ending"
@@ -34,6 +35,7 @@ const PARTS: { key: PartKey; label: string }[] = [
   { key: "outbound_purpose", label: "Why you are calling" },
   { key: "opening_line", label: "Opening line" },
   { key: "outbound_opening_line", label: "Opening line when it calls" },
+  { key: "faqs", label: "Quick facts" },
   { key: "style", label: "How it talks" },
   { key: "objections", label: "When callers push back" },
   { key: "ending", label: "How it ends the call" },
@@ -64,6 +66,8 @@ export function partText(script: CallScript, key: PartKey): string {
     }
     case "objections":
       return (script.objections ?? []).map((o) => `${o.objection} → ${o.response}`).join("\n");
+    case "faqs":
+      return (script.faqs ?? []).map((f) => `${f.question} → ${f.answer}`).join("\n");
     case "example_exchange":
       return (script.example_exchange ?? [])
         .map((l) => `${l.speaker === "caller" ? "Caller" : "Agent"}: ${l.text}`)

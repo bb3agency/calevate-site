@@ -62,6 +62,7 @@ from calevate_shared.document_ingest import (
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.script_proposals import queue_document_suggestions
 from apps.api.billing.ai_quota import new_assist_ref, record_ai_assist_usage
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
@@ -498,6 +499,10 @@ async def ingest_kb_source(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
 
     async with tenant_session(tenant_id) as session:
         await _mark(session, upload_id, UPLOAD_PROCESSED)
+        if version is not None:
+            # Its words shape every agent's script as an onboarding document shapes the
+            # first one's, as a suggestion (D-923).
+            await queue_document_suggestions(session, tenant_id=tenant_id, upload_id=upload_id)
     if version is None:
         # A later approved version of this name got there first (a re-read of a changed
         # page racing the client's own edit); this one is archived, not published over it.

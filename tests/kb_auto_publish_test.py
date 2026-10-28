@@ -371,6 +371,23 @@ async def test_an_account_members_photo_goes_live_without_a_confirmation(
     assert shown["text_provenance"] == "ocr"
     assert (await _source(tenant_id, row["source_id"])).approved_by == owner
 
+    # Live, it is suggested into every agent's script once (D-923), a re-drive included.
+    await kb_ingest.ingest_kb_source(
+        {"job_try": 2},
+        {"tenant_id": str(tenant_id), "source_id": str(row["source_id"]), "may_self_approve": True},
+    )
+    async with untenanted_session() as session:
+        queued = (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM outbox_messages "
+                    "WHERE job = 'suggest_scripts_from_document' AND payload->>'upload_id' = :u"
+                ),
+                {"u": str(row["id"])},
+            )
+        ).scalar_one()
+    assert queued == 1
+
 
 async def _linked_page(
     tenant_id: uuid.UUID, agent_id: uuid.UUID, linker: uuid.UUID

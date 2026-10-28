@@ -76,7 +76,12 @@ export function PipProposal({
       <p role="status" className="flex max-w-3xl items-center gap-2 text-meta text-ink-muted">
         <PipMark size={16} thinking className="shrink-0" />
         <span>
-          <span>{ASSISTANT_NAME} is writing your suggestion…</span> It takes about half a minute.
+          <span>
+            {proposal.mode === "knowledge"
+              ? `${ASSISTANT_NAME} is adding your new file to this script…`
+              : `${ASSISTANT_NAME} is writing your suggestion…`}
+          </span>{" "}
+          It takes about half a minute.
         </span>
       </p>
     );
@@ -123,6 +128,11 @@ export function PipProposal({
       >
         {proposal.request && <p className="text-meta text-ink-muted">You asked: “{proposal.request}”</p>}
         {proposal.mode === "whole" && <p className="text-meta text-ink-muted">Drafted from your answers.</p>}
+        {proposal.mode === "knowledge" && (
+          <p className="text-meta text-ink-muted">
+            From your new file: {proposal.documents.map((name) => `“${name}”`).join(", ")}. Your own lines stay.
+          </p>
+        )}
         {proposal.disclosure && <p className="text-meta text-ink-muted">{proposal.disclosure}</p>}
         {steps &&
           (unplaced.length === 0 ? (

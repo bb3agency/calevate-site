@@ -43252,6 +43252,13 @@
             ],
             "title": "Disclosure"
           },
+          "documents": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Documents",
+            "type": "array"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -43261,7 +43268,8 @@
             "enum": [
               "change",
               "whole",
-              "steps"
+              "steps",
+              "knowledge"
             ],
             "title": "Mode",
             "type": "string"
@@ -43323,6 +43331,7 @@
         "required": [
           "id",
           "mode",
+          "documents",
           "status",
           "request",
           "base_script",

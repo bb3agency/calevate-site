@@ -290,7 +290,7 @@ from apps.workers.retention import (
     execute_tenant_erasure,
     prune_reliability_tables,
 )
-from apps.workers.script_proposal import draft_script_proposal
+from apps.workers.script_proposal import draft_script_proposal, suggest_scripts_from_document
 from apps.workers.studio_voice_key import (
     push_studio_voice_key,
     push_studio_voice_key_to_workspace,
@@ -383,6 +383,9 @@ FUNCTIONS: list[Any] = [
         # The script change Pip was asked for (D-820), from the outbox
         # (`agents/script_proposals.request_proposal`).
         draft_script_proposal,
+        # A file added to the knowledge after onboarding suggests a script change to every
+        # agent (D-923), from the outbox (`kb_ingest.ingest_kb_source`).
+        suggest_scripts_from_document,
         # The teach box (founder decision 9) and saved test cases made from real calls
         # (founder decision 11), both from the outbox (`apps/api/teach/`).
         run_kb_teaching,

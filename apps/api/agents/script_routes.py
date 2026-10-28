@@ -1265,9 +1265,12 @@ class ScriptProposalOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: UUID
-    #: `change` (one change), `whole` (the whole script from the owner's answers) or
-    #: `steps` (a hand-written script turned into steps).
-    mode: Literal["change", "whole", "steps"]
+    #: `change` (one change), `whole` (the whole script from the owner's answers), `steps` (a
+    #: hand-written script turned into steps) or `knowledge` (what files added to the
+    #: knowledge tell callers, worked into the current script, D-923).
+    mode: Literal["change", "whole", "steps", "knowledge"]
+    #: The files a `knowledge` suggestion was written from, by name.
+    documents: list[str]
     #: `drafting` until it is written (poll), then `ready`, or `failed` with `note`.
     status: Literal["drafting", "ready", "failed"]
     #: The change the person asked for, with `change`.
@@ -1308,6 +1311,7 @@ async def get_script_proposal(
         proposal=ScriptProposalOut(
             id=found.id,
             mode=found.mode,
+            documents=found.document_names,
             status=found.status,
             request=found.request,
             base_script=found.base_script,

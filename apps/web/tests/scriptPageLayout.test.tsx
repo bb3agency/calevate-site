@@ -250,6 +250,7 @@ function listenToPip(): AssistantRequest[] {
 const PROPOSAL: ScriptProposal = {
   id: "p1",
   mode: "change",
+  documents: [],
   status: "ready",
   request: "Make the opening line warmer and shorter",
   base_script: FULL,

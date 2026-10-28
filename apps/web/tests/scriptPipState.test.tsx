@@ -45,6 +45,7 @@ const OUT: ScriptOut = {
 const PROPOSAL: ScriptProposal = {
   id: "p1",
   mode: "change",
+  documents: [],
   status: "ready",
   request: "Make the opening line warmer",
   base_script: SCRIPT,
@@ -99,5 +100,24 @@ describe("the Script tab tells Pip where the suggestion and the draft stand", ()
     expect(surface?.fields.find((f) => f.id === "script-opening_line")?.value).toBe(PROPOSAL.script?.opening_line);
     // And the request says how this screen keeps edits, so Pip never sends the owner to a Save button.
     expect(surface && keepingOnWire(surface)).toEqual({ saves: "autosave", live_step: "Put it live" });
+  });
+
+  it("names the new file a suggestion was written from (D-923)", async () => {
+    const fromFile: ScriptProposal = { ...PROPOSAL, mode: "knowledge", request: null, documents: ["prices.pdf"] };
+    await renderClientPage(
+      <ScriptBuilder agentId="agent-1" knowledgeHref="/c/acme/knowledge" trainingHref="/c/acme/agents/agent-1" />,
+      {
+        "/v1/me": OWNER,
+        "/v1/agents/agent-1": agentRow(),
+        "/v1/agents/agent-1/script": OUT,
+        "POST /v1/agents/agent-1/script/preview": { compiled: "x", instructions_chars: 10, instructions_limit: 8000, native_steps: 0 },
+        "/v1/agents/agent-1/script/proposed-rules": [],
+        "/v1/agents/agent-1/pending": settledPending(),
+        "/v1/agents/agent-1/script/proposal": { proposal: fromFile },
+      },
+    );
+    await screen.findByRole("heading", { name: "1 suggested change" });
+    expect(screen.getByText(/From your new file: “prices.pdf”/)).toBeTruthy();
+    expect(screen.queryByText(/You asked/)).toBeNull();
   });
 });
