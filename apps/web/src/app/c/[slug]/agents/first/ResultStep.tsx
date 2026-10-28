@@ -246,8 +246,10 @@ export function TeamStep({ agent, run, onBack }: { agent: Agent; run: FirstRun; 
     : [];
 
   return (
-    <StepScreen title={`${agent.name} is on your team`} hint="Ready for its first real callers." onBack={onBack}>
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start lg:gap-6">
+    <StepScreen title={`${agent.name} is on your team`} hint={<span className="hidden sm:inline">Ready for its first real callers.</span>}
+      onBack={onBack}
+    >
+      <div className="grid grid-cols-1 gap-4 sm:gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start lg:gap-6">
         <section aria-label={`${agent.name}, ready`} className="rounded-card border border-line bg-surface p-4 shadow-card sm:p-5">
           <div className="flex min-w-0 items-center gap-3">
             <Monogram name={agent.name} />
@@ -260,23 +262,18 @@ export function TeamStep({ agent, run, onBack }: { agent: Agent; run: FirstRun; 
               Ready
             </span>
           </div>
-          <div className="mt-4 space-y-4 border-t border-line pt-4">
+          <div className="mt-3 space-y-3 border-t border-line pt-3 sm:mt-4 sm:space-y-4 sm:pt-4">
             <VoiceLine agent={agent} note={null} />
             <OpeningLine agent={agent} lang={agent.language_primary} />
           </div>
-          {chips.length > 0 ? (
-            <ul className="mt-4 flex flex-wrap gap-2" aria-label="Your free trial">
-              {chips.map((chip) => (
-                <li key={chip} className="rounded-full bg-surface-muted px-3 py-1 text-meta font-medium tabular-nums text-ink">
-                  {chip}
-                </li>
-              ))}
-            </ul>
-          ) : null}
+          {/* Beside the agent from `lg`; on a phone they follow Go live, so its button stays
+              on the first screen. */}
+          <TrialChips chips={chips} className="mt-4 hidden lg:flex" />
         </section>
 
         <div className="space-y-4">
           <GoLiveCard agentName={agent.name} statusOf={statusOf} held={held} onGo={finishThen} />
+          <TrialChips chips={chips} className="flex lg:hidden" />
           {run.jobs.includes("call_new_leads") ? (
             <section aria-label={FIRST.leadForm} className="flex items-start gap-3 rounded-card border border-line p-4">
               <span aria-hidden className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-brand-soft text-brand-strong">
@@ -315,6 +312,19 @@ export function TeamStep({ agent, run, onBack }: { agent: Agent; run: FirstRun; 
   );
 }
 
+function TrialChips({ chips, className }: { chips: readonly string[]; className: string }) {
+  if (chips.length === 0) return null;
+  return (
+    <ul className={`flex-wrap gap-2 ${className}`} aria-label="Your free trial">
+      {chips.map((chip) => (
+        <li key={chip} className="rounded-full bg-surface-muted px-3 py-1 text-meta font-medium tabular-nums text-ink">
+          {chip}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 type GoLiveStepId = "credit" | "verify" | "number";
 type StepState = "done" | "current" | "waiting" | "in_review" | "attention";
 
@@ -347,7 +357,7 @@ const STEP_NOTE: Partial<Record<StepState, string>> = { in_review: "In review", 
 
 /**
  * THE GO LIVE CARD (D-918): the screen's one primary next step. Its header band is the
- * auth pages' ASCII voice field, contained (`VoiceWave contained`), quiet behind nothing:
+ * auth pages' ASCII voice field, contained (`VoiceWave contained`), with nothing on it:
  * the steps and the button sit below it on the opaque card, so their contrast is the
  * card's own. The steps come from `GET /v1/go-live`; the current one carries the button.
  */
@@ -369,13 +379,14 @@ function GoLiveCard({
   const steps = guide.isError ? goLiveSteps(undefined) : goLiveSteps(guide.data);
   return (
     <section aria-labelledby="go-live-title" className="overflow-hidden rounded-card border border-brand/30 bg-surface shadow-card">
-      <div className="relative h-20 overflow-hidden border-b border-line bg-surface-muted sm:h-36">
-        <VoiceWave contained className="opacity-70" />
-        <h3 id="go-live-title" className="absolute bottom-3 left-4 rounded-md bg-surface px-2.5 py-1 text-heading text-ink shadow-card sm:left-5">
-          Go live
-        </h3>
+      {/* The band IS the picture: one voice talking, across the card. Nothing sits on it. */}
+      <div className="relative h-16 overflow-hidden border-b border-line sm:h-[6.5rem]">
+        <VoiceWave contained />
       </div>
       <div className="p-4 sm:p-5">
+        <h3 id="go-live-title" className="mb-2 text-heading text-ink sm:mb-3">
+          Go live
+        </h3>
         {guide.isPending ? (
           <Skeleton rows={3} label="Checking where you are" />
         ) : (

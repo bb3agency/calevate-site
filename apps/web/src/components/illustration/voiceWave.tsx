@@ -34,7 +34,8 @@
  *
  * `contained` fills its nearest positioned parent instead of the viewport (the first run's
  * Go live card, D-918). It is absolutely placed, so it still takes no part in layout; it
- * has no viewport mask (the parent dims what sits behind its text) and one fixed density;
+ * has no viewport mask and nothing sits on it; it draws ONE talkative lane as tall as the
+ * band (`voiceField`'s `band`) at one fixed size;
  * and, unlike the fixed field, it can scroll out of view, so an IntersectionObserver stops
  * the frames while it is off screen.
  */
@@ -67,7 +68,7 @@ export function VoiceWave({ className = "", contained = false }: { className?: s
     const draw = (timeS: number) => {
       if (!ctx) return;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      const { lines, centres } = voiceField(cols, rows, timeS);
+      const { lines, centres } = voiceField(cols, rows, timeS, { band: contained });
       inkLayers(lines, centres).forEach((layer, tier) => {
         if (!ctx) return;
         ctx.globalAlpha = INK_ALPHA[tier]!;
@@ -170,7 +171,7 @@ export function VoiceWave({ className = "", contained = false }: { className?: s
       ref={canvasRef}
       aria-hidden="true"
       className={`pointer-events-none block h-full w-full select-none font-mono text-brand-strong ${
-        contained ? "absolute inset-0 text-[6px]" : "voice-field fixed inset-0 z-below text-[10px] sm:text-xs lg:text-[13px]"
+        contained ? "absolute inset-0 text-[12px]" : "voice-field fixed inset-0 z-below text-[10px] sm:text-xs lg:text-[13px]"
       } ${className}`}
     />
   );
