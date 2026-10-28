@@ -109,15 +109,16 @@ def test_fixes_come_biggest_first_with_ties_in_component_order() -> None:
         missed_7d=0,
     )
     out = readiness.score(empty, now=NOW)
-    assert out.score == 23  # knowledge: no gaps, 10 * 25 / 20 = 12.5 → 13; missed 10
+    # knowledge: no gaps, 10 * 25 / 20 = 12.5 → 13; missed 10; not live costs nothing (D-916)
+    assert out.score == 38
     assert [(f.component, f.points) for f in out.fixes] == [
         ("tests", 35),
         ("opening", 15),
-        ("live", 15),
         ("knowledge", 12),
     ]
     assert out.fixes[0].href == f"/agents/{AGENT}?section=training"
-    assert out.fixes[3].href == "/knowledge"
+    assert out.fixes[2].href == "/knowledge"
+    assert _points(out)["live"] == 15
 
 
 def _client() -> AsyncClient:

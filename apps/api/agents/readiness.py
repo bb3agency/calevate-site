@@ -17,13 +17,15 @@ THE FORMULA (five components, 100 points; `score()` is the whole of it and is pu
 | opening    |  15 | 15 when the opening line is set, at most `OPENING_LINE_MAX_CHARS` and  |
 |            |     | fits the greeting budget with the notices as they are; 5 when set but  |
 |            |     | too long; 0 when empty                                                 |
-| live       |  15 | 8 when published and live; 7 more when no draft is waiting and the     |
-|            |     | calling system's copy is not out of sync (`DRIFT_STATES_OUT_OF_SYNC`)  |
+| live       |  15 | 15 when not live (D-916); live: 8, and 7 more when no draft is waiting |
+|            |     | and the calling system's copy is not out of sync                       |
+|            |     | (`DRIFT_STATES_OUT_OF_SYNC`)                                           |
 | missed     |  10 | max(0, 10 - 2 * questions it could not answer in the last 7 days)      |
 
 Why these weights: the practice tests are the closest thing to a real caller and carry the
 most; knowledge and missed questions are the two halves of "does it know the business";
-the opening line is what every caller hears first; being live and in sync is binary.
+the opening line is what every caller hears first; a live agent whose callers hear an
+out-of-date version is not ready, while one not live yet is not marked down for it (D-916).
 
 The opening notices (D-163) are not a component: whether an agent volunteers "I am an AI"
 or "this call is recorded" is the owner's choice and does not make it more or less ready
@@ -69,7 +71,7 @@ COMPONENT_LABELS: Final[dict[ComponentKey, str]] = {
     "tests": "Practice tests",
     "knowledge": "What it knows",
     "opening": "Opening line",
-    "live": "Live and up to date",
+    "live": "Callers hear the latest version",
     "missed": "Questions it missed this week",
 }
 MISSED_WINDOW: Final = timedelta(days=7)
@@ -246,12 +248,9 @@ def score(i: ReadinessInputs, *, now: datetime) -> AgentReadinessOut:
 
     # live
     if not (i.published and i.live):
-        add(
-            "live",
-            0,
-            "Not taking calls yet.",
-            ("Put the agent live so it can answer callers.", base),
-        )
+        # Readiness is whether it is ready to put live, so not being live yet costs nothing
+        # (D-916); only a live agent's callers can hear an out-of-date version.
+        add("live", MAX_POINTS["live"], "Not live yet.", None)
     elif i.draft_waiting or i.out_of_sync:
         add(
             "live",
