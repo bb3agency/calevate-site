@@ -10,6 +10,7 @@ import { useClientRealm } from "@/lib/api/session";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 
 import { wholeRequestFor } from "../[agentId]/script/PipAsk";
+import { NEW_AGENT } from "../../setup/_ui/copy";
 
 /**
  * THE AGENT EXISTS, AND WHAT TO DO NEXT. A plain success state rather than a card: one
@@ -26,10 +27,7 @@ export function CreatedPanel({ agent, slug }: { agent: Agent; slug: string }) {
       <h2 id="agent-created-heading" className="mt-3 text-title text-ink">
         {agent.name} is created
       </h2>
-      <p className="mt-1 max-w-prose text-body text-ink-muted">
-        It is a draft and switched off, so it is not answering or dialling anyone. Next, write
-        what it says.
-      </p>
+      <p className="mt-1 max-w-prose text-body text-ink-muted">{NEW_AGENT.createdHint}</p>
       <div className="mt-6 flex flex-wrap gap-3">
         <Link href={script} className={PRIMARY_BUTTON}>
           Write its script

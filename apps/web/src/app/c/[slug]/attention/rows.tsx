@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 
-import { formatIST } from "@/components/ui";
+import { SECONDARY_BUTTON_SM, formatIST } from "@/components/ui";
 import type { AttentionItem, AttentionKind } from "@/lib/api/attention";
 import { lookup } from "@/lib/lookup";
 
@@ -25,7 +25,7 @@ export const KIND_COPY: Record<AttentionKind, { label: string; dot: string; acti
   delivery_failed: { label: "Delivery failed", dot: "bg-danger", action: "Check the connection", rank: 5 },
   campaign_stalled: { label: "Campaign stalled", dot: "bg-warn", action: "Open campaigns", rank: 6 },
   lead_blocked: { label: "Call blocked", dot: "bg-warn", action: "Open leads", rank: 7 },
-  kb_rejected: { label: "Something you added was not accepted", dot: "bg-ink-faint", action: "Open What your agents know", rank: 8 },
+  kb_rejected: { label: "Upload not accepted", dot: "bg-ink-faint", action: "Open knowledge", rank: 8 },
   // D-746: a forwarded number that normally brings calls has had none for three days.
   forwarded_line_quiet: { label: "No calls on your number", dot: "bg-warn", action: "Test forwarding", rank: 1 },
   // D-900: agents set to remember callers wait on the owner accepting the updated statement.
@@ -75,10 +75,12 @@ export function Row({ item, to }: { item: AttentionItem; to: string | null }) {
           body
         )}
       </div>
+      {/* Drawn as a button, so the fix reads as something to press; the row's link covers
+          it (one target per row), so it is not a second control. */}
       {to && copy && (
-        <span className="inline-flex shrink-0 items-center gap-1 text-body font-medium text-brand-strong dark:text-brand-bright">
+        <span className={`${SECONDARY_BUTTON_SM} pointer-events-none self-start sm:self-center`}>
           {copy.action}
-          <ChevronRight aria-hidden className="h-4 w-4" />
+          <ChevronRight aria-hidden className="h-3.5 w-3.5" />
         </span>
       )}
     </li>

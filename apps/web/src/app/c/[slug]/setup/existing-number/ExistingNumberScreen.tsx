@@ -6,11 +6,13 @@ import { useRouter } from "next/navigation";
 import { ExistingNumberGuide } from "@/components/forwarding/ExistingNumberGuide";
 import { dismissExistingNumberPrompt } from "@/components/forwarding/ExistingNumberPrompt";
 import { PageHeader } from "@/components/console/pageHeader";
-import { TEXT_ACTION } from "@/components/console/section";
-import { NoticeBox, ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
+import { NoticeBox, PRIMARY_BUTTON, ProblemNotice, RestrictionNote, SECONDARY_BUTTON, Skeleton } from "@/components/ui";
 import { useForwarding } from "@/lib/api/forwarding";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
+
+import { SETUP } from "../_ui/copy";
+import { Why } from "../_ui/Why";
 
 /**
  * ONBOARDING: "Use your existing number" (D-746), offered once the business has its
@@ -37,24 +39,23 @@ export function ExistingNumberScreen() {
     body = (
       <NoticeBox
         tone="neutral"
-        title="Get your Calevate number first."
+        title={SETUP.needNumber}
         action={
-          <Link href={href(`/c/${slug}/phone-number`)} className={TEXT_ACTION}>
-            Open phone numbers
+          <Link href={href(`/c/${slug}/phone-number`)} className={PRIMARY_BUTTON}>
+            {SETUP.needNumberAction}
           </Link>
         }
-      >
-        Your existing number forwards its calls to it.
-      </NoticeBox>
+        info="Your existing number forwards its calls to it."
+      />
     );
   } else if (forwarding.data.lines.length > 0) {
     body = (
       <NoticeBox
         tone="ok"
-        title="Your existing number is set up."
+        title={SETUP.existingDone}
         action={
-          <Link href={settings} className={TEXT_ACTION}>
-            Open settings
+          <Link href={settings} className={SECONDARY_BUTTON}>
+            {SETUP.existingSettings}
           </Link>
         }
       />
@@ -76,10 +77,10 @@ export function ExistingNumberScreen() {
 
   return (
     <div className="max-w-2xl space-y-6 pb-12">
-      <PageHeader
-        title="Use your existing number"
-        description="Keep the number your callers already know. Calls reach your agent through call forwarding on your phone."
-      />
+      <div>
+        <PageHeader title={SETUP.existingTitle} description={SETUP.existingHint} />
+        <Why label={SETUP.existingWhy}>Calls reach your agent through call forwarding on your phone.</Why>
+      </div>
       <RestrictionNote reason={write.reason} />
       {body}
     </div>

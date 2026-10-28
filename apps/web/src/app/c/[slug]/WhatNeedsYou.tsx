@@ -4,16 +4,20 @@ import Link from "next/link";
 import { CheckCircle2 } from "lucide-react";
 import type { ReactNode } from "react";
 
-import { Section, TEXT_ACTION } from "@/components/console/section";
+import { Section } from "@/components/console/section";
 import { useEnterClass } from "@/components/live/arrivals";
-import { formatCount } from "@/components/ui";
+import { SECONDARY_BUTTON_SM, formatCount } from "@/components/ui";
 import type { Dashboard } from "@/lib/api/client";
 import type { useAttention } from "@/lib/api/attention";
 import type { useKnowledgeGaps } from "@/lib/api/knowledgeGaps";
 import { QUESTION_PARAM, QUESTIONS_TAB } from "@/lib/api/teachQuestions";
-import { activeTrial, minutesLeftPhrase, walletState, type useWallet } from "@/lib/api/wallet";
+import { activeTrial, walletState, type useWallet } from "@/lib/api/wallet";
 
 import { AttentionBanner } from "./AttentionBanner";
+import { HOME } from "./setup/_ui/copy";
+
+/** Each row's one action, as a button a thumb can hit (`touch:min-h-11`), not a text link. */
+const ROW_ACTION = `${SECONDARY_BUTTON_SM} shrink-0`;
 
 /**
  * WHAT NEEDS YOU TODAY — the first thing on the dashboard (founder, REDESIGN-2): the few
@@ -50,12 +54,12 @@ export function WhatNeedsYou({
       text: (
         <>
           <span className="font-semibold tabular-nums">{formatCount(data.hot_leads_open)}</span>{" "}
-          {data.hot_leads_open === 1 ? "hot lead is" : "hot leads are"} waiting for a call back
+          {HOME.hotLeads(data.hot_leads_open)}
         </>
       ),
       action: (
-        <Link href={href("/leads")} className={TEXT_ACTION}>
-          Open leads
+        <Link href={href("/leads")} className={ROW_ACTION}>
+          {HOME.hotLeadsAction}
         </Link>
       ),
     });
@@ -75,12 +79,12 @@ export function WhatNeedsYou({
       text: (
         <>
           <span className="font-semibold tabular-nums">{formatCount(missed)}</span>{" "}
-          {missed === 1 ? "call" : "calls"} did not connect today
+          {HOME.missed(missed)}
         </>
       ),
       action: (
-        <Link href={href(missedHref)} className={TEXT_ACTION}>
-          See missed calls
+        <Link href={href(missedHref)} className={ROW_ACTION}>
+          {HOME.missedAction}
         </Link>
       ),
     });
@@ -109,12 +113,12 @@ export function WhatNeedsYou({
       text: (
         <>
           <span className="font-semibold tabular-nums">{formatCount(unanswered)}</span>{" "}
-          {unanswered === 1 ? "question" : "questions"} your agents could not answer
+          {HOME.gaps(unanswered)}
         </>
       ),
       action: (
-        <Link href={href(teachHref)} className={TEXT_ACTION}>
-          {unanswered === 1 ? "Teach the answer" : "Teach the answers"}
+        <Link href={href(teachHref)} className={ROW_ACTION}>
+          {HOME.gapsAction(unanswered)}
         </Link>
       ),
     });
@@ -122,10 +126,10 @@ export function WhatNeedsYou({
     // A failed read is not an all-clear (§52): say so, with the retry.
     rows.push({
       key: "gaps",
-      text: "We could not check for questions your agents could not answer",
+      text: HOME.gapsFailed,
       action: (
-        <button type="button" onClick={() => void gaps.refetch()} className={TEXT_ACTION}>
-          Try again
+        <button type="button" onClick={() => void gaps.refetch()} className={ROW_ACTION}>
+          {HOME.tryAgain}
         </button>
       ),
     });
@@ -134,16 +138,13 @@ export function WhatNeedsYou({
   if (wallet.data && activeTrial(wallet.data) === null) {
     const state = walletState(wallet.data);
     if (state === "low" || state === "stopped") {
-      const minutes = minutesLeftPhrase(wallet.data);
       rows.push({
         key: "credit",
-        text:
-          state === "stopped"
-            ? "Calls have stopped, outgoing and incoming, until credit is added"
-            : `Credit is running low${minutes ? `: ${minutes.charAt(0).toLowerCase()}${minutes.slice(1)}` : ""}`,
+        // The minutes left are on the credit tile; this row says only what to do.
+        text: state === "stopped" ? HOME.creditStopped : HOME.creditLow,
         action: (
-          <Link href={href("/billing?tab=credits")} className={TEXT_ACTION}>
-            Add credit
+          <Link href={href("/billing?tab=credits")} className={ROW_ACTION}>
+            {HOME.creditAction}
           </Link>
         ),
       });
@@ -157,7 +158,7 @@ export function WhatNeedsYou({
   const allClear = rows.length === 0 && attention.data !== undefined && !queueWaiting && gaps.data !== undefined;
 
   return (
-    <Section title="What needs you today">
+    <Section title={HOME.needsTitle}>
       <div className="space-y-3">
         {/* The queue's own banner: its count, its link and its "could not check" arm. */}
         <AttentionBanner attention={attention} href={href("/attention")} />
@@ -166,9 +167,9 @@ export function WhatNeedsYou({
             {rows.map((row) => (
               <li
                 key={row.key}
-                className={`flex flex-wrap items-center justify-between gap-x-6 gap-y-1 py-3.5 ${enter(row.key)}`}
+                className={`flex items-center justify-between gap-x-4 py-3 ${enter(row.key)}`}
               >
-                <span className="text-body text-ink">{row.text}</span>
+                <span className="min-w-0 text-body text-ink">{row.text}</span>
                 {row.action}
               </li>
             ))}
@@ -177,7 +178,7 @@ export function WhatNeedsYou({
         {allClear ? (
           <p className="flex items-center gap-2 text-body text-ink-muted">
             <CheckCircle2 aria-hidden className="h-4 w-4 text-brand-strong" />
-            Nothing needs you right now.
+            {HOME.allClear}
           </p>
         ) : null}
       </div>

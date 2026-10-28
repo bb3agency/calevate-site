@@ -25,6 +25,7 @@ import { DIRECTIONS, DirectionPicker } from "../DirectionChoice";
 import { CallCapField, ComplianceFloor, callCapProblem } from "./BuildAgentForm";
 import { CreatedPanel } from "./CreatedPanel";
 import { StartFromJob } from "./StartFromJob";
+import { NEW_AGENT } from "../../setup/_ui/copy";
 
 /**
  * NEW AGENT: PICK A JOB, GET A READY AGENT (founder, REDESIGN-2). The screen opens on the
@@ -239,7 +240,7 @@ export function BlankAgentFlow({ slug, onBack }: { slug: string; onBack?: () => 
           {
             id: "direction",
             title: "What should it do?",
-            hint: "You can run several agents side by side, each on its own number.",
+            hint: NEW_AGENT.directionHint,
             content: <DirectionPicker name="direction" value={direction} onChange={setDirection} />,
           },
           {
@@ -262,7 +263,7 @@ export function BlankAgentFlow({ slug, onBack }: { slug: string; onBack?: () => 
                     onChange={(event) => setName(event.target.value)}
                     className={FIELD}
                   />
-                  <span className={FIELD_HINT}>Only you see this. Callers never hear it.</span>
+                  <span className={FIELD_HINT}>{NEW_AGENT.nameHint}</span>
                 </label>
                 <label className="block max-w-sm">
                   <span className={FIELD_LABEL}>Language</span>
@@ -282,9 +283,7 @@ export function BlankAgentFlow({ slug, onBack }: { slug: string; onBack?: () => 
                       </option>
                     ))}
                   </select>
-                  <span className={FIELD_HINT}>
-                    It greets and answers callers in this language. You can change it later.
-                  </span>
+                  <span className={FIELD_HINT}>{NEW_AGENT.languageHint}</span>
                 </label>
                 <CallCapField lanes={lanes} value={capMinutes} onChange={setCapMinutes} />
               </div>
@@ -301,10 +300,7 @@ export function BlankAgentFlow({ slug, onBack }: { slug: string; onBack?: () => 
                 <ReviewRow label="Speaks">{lookup(LANGUAGE_NAMES, language) ?? language}</ReviewRow>
               </dl>
               <ComplianceFloor />
-              <p className="text-xs text-ink-muted">
-                It is created switched off. Nothing rings anyone until it has a script and you
-                switch it on.
-              </p>
+              <p className="text-xs text-ink-muted">{NEW_AGENT.createdOff}</p>
             </div>
           ),
         }}

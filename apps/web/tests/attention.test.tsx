@@ -13,7 +13,7 @@ import { problem, renderClientPage } from "./harness";
  *
  * Ranked by what a wrong render costs:
  *
- * 1. **"Nothing needs you right now" under a failed request.** The one sentence this
+ * 1. **"All clear. Nothing needs you" under a failed request.** The one sentence this
  *    screen must never say by accident: it sends an owner away from a queue of blocked
  *    calls they have not seen. An empty Card says it just as effectively as the words.
  * 2. **A phone number in a link target.** The queue names a blocked lead by its
@@ -110,9 +110,9 @@ describe("the needs-attention queue", () => {
     );
 
     expect(await screen.findByRole("alert")).toBeTruthy();
-    // THE assertion. "Nothing needs you right now" is a claim about the business; a
+    // THE assertion. "All clear. Nothing needs you" is a claim about the business; a
     // failed request is a fact about us, and the two must never render the same.
-    expect(container.textContent).not.toContain("Nothing needs you right now");
+    expect(container.textContent).not.toContain("All clear. Nothing needs you");
     // The empty panel says it too. A Card with nothing in it, under a notice, reads as a
     // queue with nothing in it.
     expect(
@@ -127,7 +127,7 @@ describe("the needs-attention queue", () => {
       routes({ "/v1/attention": queue({ total: 0, counts: {}, items: [] }) }),
     );
 
-    await screen.findByText("Nothing needs you right now.");
+    await screen.findByText("All clear. Nothing needs you.");
     // No chips either: an all-zeros summary row is noise, not information.
     expect(container.textContent).not.toContain("Call blocked");
     expect(screen.queryByRole("alert")).toBeNull();
@@ -153,10 +153,9 @@ describe("the needs-attention queue", () => {
     // M is the server's count of what EXISTS, not the 2 rows rendered and not the 50-row
     // cap: a screen that recounted its own list would say "2 of 2" and never draw this
     // sentence at all.
-    await screen.findByText(/Showing the 2 most recent of 78/);
-    // And which end is missing, because "showing 2 of 78" alone leaves an owner
+    await screen.findByText(/Showing newest 2 of 78/);
+    // "Newest" says which end is missing, because "showing 2 of 78" alone leaves an owner
     // wondering whether the important one is the one that fell off.
-    expect(container.textContent).toContain("Older items are not listed.");
     // The chips carry the same claim per kind: 40 blocked with one blocked row on screen.
     const summary = screen.getByRole("group", { name: "Queue summary" });
     expect(summary.textContent).toContain("40");
@@ -171,7 +170,7 @@ describe("the needs-attention queue", () => {
     const { container } = await renderClientPage(page, routes());
 
     await screen.findByText("Campaign “Diwali offer” is not making calls");
-    expect(container.textContent).not.toContain("most recent of");
+    expect(container.textContent).not.toContain("Showing newest");
   });
 
   it("lists an item whose kind this build has never heard of", async () => {
@@ -243,11 +242,11 @@ describe("the needs-attention queue", () => {
       "/v1/attention": problem(403, { title: "Forbidden" }),
     });
 
-    await screen.findByText(/needs permission to read leads/);
+    await screen.findByText(/You need access to leads/);
     expect(
       screen.queryByRole("alert"),
       "a permission is not a fault",
     ).toBeNull();
-    expect(container.textContent).not.toContain("Nothing needs you right now");
+    expect(container.textContent).not.toContain("All clear. Nothing needs you");
   });
 });

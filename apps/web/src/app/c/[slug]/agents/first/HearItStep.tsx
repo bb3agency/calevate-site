@@ -29,17 +29,18 @@ import { lookup } from "@/lib/lookup";
 
 import { CallStage, limitIcon, type CallPhase } from "./LiveStage";
 import { StepScreen, TickRow } from "./shell";
+import { FIRST } from "../../setup/_ui/copy";
 
 /** The three things a new owner should know before they hear their agent (D-855). */
-const HONEST_WORDS = [
-  { icon: Bot, line: "It's an AI, and it says so whenever a caller asks." },
+export const HONEST_WORDS = [
+  { icon: Bot, line: "It is an AI, and says so when asked." },
   {
     icon: Target,
-    line: "It only knows what you told it, so it is only as good as what you said.",
+    line: "It only knows what you told it.",
   },
   {
     icon: Sprout,
-    line: "This is version one. You will make it better after you hear it.",
+    line: "This is version one. You improve it next.",
   },
 ] as const;
 
@@ -88,7 +89,7 @@ export function HearItStep({
     return (
       <StepScreen
         title={`Hear ${agent.name}`}
-        hint="Talk to it in the chat on its page: it answers as it would on a call."
+        hint={FIRST.hearHint}
         onBack={onBack}
       >
         <Link href={href(`/c/${session.orgSlug}/agents/${agent.id}?section=training`)} className={PRIMARY_BUTTON}>
@@ -300,7 +301,7 @@ function CallYou({
       </ul>
 
       {viewing ? (
-        <RestrictionNote reason="You are viewing this account. Only its owner can accept its agreements and take the test call." />
+        <RestrictionNote reason={FIRST.viewOnly} />
       ) : readiness.data && !readiness.data.can_accept && docs.length > 0 ? (
         <RestrictionNote
           reason={readiness.data.can_accept_reason ?? "Only the account's owner can accept its agreements."}

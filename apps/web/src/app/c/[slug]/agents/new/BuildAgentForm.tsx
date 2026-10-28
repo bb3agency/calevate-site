@@ -12,6 +12,9 @@ import { NumberField } from "@/components/arc/number-field";
 import { Disclosure, Skeleton, formatCallCap } from "@/components/ui";
 import type { useLanes } from "@/lib/api/publishing";
 
+import { NEW_AGENT } from "../../setup/_ui/copy";
+import { Why } from "../../setup/_ui/Why";
+
 /**
  * The cost-runaway guard, asked at creation in minutes, closed by default with the
  * standard limit named in its closed state.
@@ -37,14 +40,14 @@ export function CallCapField({
       title="Longest one call may run"
       subtitle={
         value.trim() === ""
-          ? `${formatCallCap(call_cap_default_s)} (the standard limit)`
+          ? NEW_AGENT.capSubtitleDefault(formatCallCap(call_cap_default_s))
           : `${value.trim()} minutes`
       }
     >
       <NumberField
         className="max-w-sm"
         label="Minutes (optional)"
-        hint={`Leave it blank for the standard ${formatCallCap(call_cap_default_s)}. It can be anywhere between ${formatCallCap(call_cap_min_s)} and ${formatCallCap(call_cap_max_s)}, and there is no way to remove it: it is what stops one stuck call running up a bill.`}
+        hint={NEW_AGENT.capHint(formatCallCap(call_cap_min_s), formatCallCap(call_cap_max_s))}
         unit="minutes"
         optional
         min={Math.ceil(call_cap_min_s / 60)}
@@ -54,6 +57,10 @@ export function CallCapField({
         value={value.trim() === "" || !Number.isFinite(Number(value)) ? null : Number(value)}
         onChange={(next) => onChange(next === null ? "" : String(next))}
       />
+      <Why className="mt-2">
+        Blank means the standard {formatCallCap(call_cap_default_s)}. It cannot be removed: it stops one stuck
+        call running up a bill.
+      </Why>
     </Disclosure>
   );
 }
@@ -66,7 +73,7 @@ export function callCapProblem(lanes: ReturnType<typeof useLanes>, value: string
   const min = Math.ceil(lanes.data.call_cap_min_s / 60);
   const max = Math.floor(lanes.data.call_cap_max_s / 60);
   if (!Number.isInteger(minutes) || minutes < min || minutes > max) {
-    return `Enter a whole number of minutes between ${min} and ${max}, or leave it blank.`;
+    return NEW_AGENT.capProblem(min, max);
   }
   return null;
 }
@@ -81,23 +88,23 @@ export function ComplianceFloor() {
     <section aria-labelledby="compliance-floor-heading" className="border-t border-line pt-4">
       <p id="compliance-floor-heading" className="flex items-center gap-2 text-sm font-semibold text-ink">
         <ShieldCheck aria-hidden className="h-4 w-4 shrink-0 text-brand-strong" />
-        What it will say about itself
+        {NEW_AGENT.floorTitle}
       </p>
+      {/* Hard rule 5's floor stays on screen, one short line each; only the detail waits
+          behind the tap. */}
       <ul className="mt-2 space-y-1.5 text-sm text-ink-muted">
-        <li>
-          It starts every call with its greeting only. It says it is an AI assistant, or that
-          the call is being recorded, only if you switch that announcement on — just before
-          the greeting.
-        </li>
-        <li>
-          You can switch either announcement on later, on the agent&apos;s own screen. Both
-          sentences are already written in your language.
-        </li>
-        <li>
-          If a caller asks whether it is an AI or whether the call is recorded, it always
-          answers honestly. This cannot be switched off by you, by us, or by its script.
-        </li>
+        {NEW_AGENT.floor.map((line) => (
+          <li key={line}>{line}</li>
+        ))}
       </ul>
+      <Why className="mt-1" label="How this works">
+        <p>
+          With an announcement on, it says it is an AI assistant, or that the call is being recorded,
+          just before the greeting. You can switch either announcement on later, on the agent&apos;s own
+          screen. Both sentences are already written in your language.
+        </p>
+        <p>The honest answer cannot be switched off by you, by us, or by its script.</p>
+      </Why>
     </section>
   );
 }

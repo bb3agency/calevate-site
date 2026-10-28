@@ -10,7 +10,7 @@ import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { TEXT_ACTION } from "@/components/console/section";
 import { TaskSteps, type TaskStep } from "@/components/interior/task-steps";
 import { EmptyState } from "@/components/console/emptyState";
-import { PRIMARY_BUTTON, ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
+import { PRIMARY_BUTTON, ProblemNotice, RestrictionNote, SECONDARY_BUTTON, Skeleton } from "@/components/ui";
 import { isDeleted } from "@/lib/agentState";
 import { useAgentLifecycle, useAgents, type Agent } from "@/lib/api/agents";
 import {
@@ -26,6 +26,8 @@ import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
 
 import { StepRail, StepScreen } from "../agents/first/shell";
+import { GO_LIVE } from "../setup/_ui/copy";
+import { Why } from "../setup/_ui/Why";
 
 /** The route this screen lives on, for links into it. */
 export const GO_LIVE_ROUTE = "/c/{slug}/go-live";
@@ -131,9 +133,7 @@ export function GoLiveGuide({ slug }: { slug: string }) {
       <div className="mb-5 flex items-start justify-between gap-4">
         <div className="min-w-0">
           <h1 className="text-title text-ink">Go live</h1>
-          <p className="mt-0.5 hidden text-meta text-ink-muted sm:block">
-            Four steps from your first payment to taking real calls.
-          </p>
+          <p className="mt-0.5 hidden text-meta text-ink-muted sm:block">{GO_LIVE.subtitle}</p>
         </div>
         <button
           type="button"
@@ -142,7 +142,7 @@ export function GoLiveGuide({ slug }: { slug: string }) {
           disabled={dismissFeedback.status === "pending"}
           aria-busy={dismissFeedback.status === "pending" || undefined}
         >
-          {dismissFeedback.status === "pending" ? "Skipping…" : "Skip for now"}
+          {dismissFeedback.status === "pending" ? GO_LIVE.skipping : GO_LIVE.skip}
         </button>
       </div>
 
@@ -182,22 +182,41 @@ export function moveChecklist(agents: readonly GoLiveAgentMove[]): {
   };
 }
 
-const MOVE_COPY: Record<GoLive["move"]["state"], { title: string; hint: string }> = {
+/**
+ * Each step's words: a title, ONE short line (`hint`), and the longer reason behind a "Why?"
+ * tap (`why`) for an owner who wants it ("buttons, not paragraphs").
+ */
+type StepCopy = { title: string; hint: string; why?: string };
+
+/** The step's short line, with its reason behind a tap when it has one. */
+function hintOf(copy: StepCopy) {
+  return (
+    <>
+      {copy.hint}
+      {copy.why ? <Why>{copy.why}</Why> : null}
+    </>
+  );
+}
+
+export const MOVE_COPY: Record<GoLive["move"]["state"], StepCopy> = {
   waiting_for_account: {
-    title: "Setting up your own calling account",
-    hint: "Your agents move as soon as it is ready. They keep working meanwhile.",
+    title: "Setting up your calling account",
+    hint: "Your agents keep working meanwhile.",
+    why: "Your agents move to your own account as soon as it is ready.",
   },
   moving: {
-    title: "Moving your agents to your own account…",
-    hint: "Each one keeps working while it moves. Nothing changes for your callers.",
+    title: "Moving your agents…",
+    hint: "Nothing changes for your callers.",
+    why: "Each agent moves to your own account and keeps working while it moves.",
   },
   finishing: {
     title: "We're finishing this for you",
-    hint: "One of your agents needs a step on our side. We've been told, and it keeps working meanwhile. You can carry on.",
+    hint: "You can carry on.",
+    why: "One of your agents needs a step on our side. We've been told, and it keeps working meanwhile.",
   },
   done: {
-    title: "Your agents are on your own account",
-    hint: "From now on, new agents are made there too.",
+    title: "Your agents are on your account",
+    hint: "New agents are made there too.",
   },
 };
 
@@ -208,7 +227,7 @@ function MoveStep({ guide, onNext }: { guide: GoLive; onNext: () => void }) {
   return (
     <StepScreen
       title={copy.title}
-      hint={guide.move.total === 0 && guide.move.state === "done" ? "You had nothing to move." : copy.hint}
+      hint={guide.move.total === 0 && guide.move.state === "done" ? "You had nothing to move." : hintOf(copy)}
       primary={
         <>
           Verify your business
@@ -226,25 +245,27 @@ function MoveStep({ guide, onNext }: { guide: GoLive; onNext: () => void }) {
           label="Moving your agents"
         />
       ) : null}
-      {more > 0 ? <p className="text-meta text-ink-muted">and {more} more</p> : null}
+      {more > 0 ? <p className="text-meta text-ink-muted">{GO_LIVE.more(more)}</p> : null}
     </StepScreen>
   );
 }
 
-const VERIFY_COPY: Record<GoLive["verify"], { title: string; hint: string; action: string | null }> = {
+export const VERIFY_COPY: Record<GoLive["verify"], StepCopy & { action: string | null }> = {
   todo: {
     title: "Verify your business",
-    hint: "A short check of who you are. Your own number is bought in your business's name, so it comes first.",
+    hint: "A short check of who you are.",
+    why: "Your own number is bought in your business's name, so this comes first.",
     action: "Verify my business",
   },
   in_review: {
-    title: "We're checking your business details",
-    hint: "Nothing to do for now. This page moves on by itself once the check is done.",
+    title: "We're checking your details",
+    hint: "Nothing to do. This page moves on by itself.",
     action: null,
   },
   needs_attention: {
-    title: "Your business details need another look",
-    hint: "The check could not be finished with what was sent. Open it to see why and send it again.",
+    title: "Your details need another look",
+    hint: "Open it to see why, then send again.",
+    why: "The check could not be finished with what was sent.",
     action: "Open my business check",
   },
   done: {
@@ -271,7 +292,7 @@ function VerifyStep({
   return (
     <StepScreen
       title={copy.title}
-      hint={copy.hint}
+      hint={hintOf(copy)}
       onBack={onBack}
       primary={
         done ? (
@@ -286,28 +307,28 @@ function VerifyStep({
       onSubmit={() => (done ? onNext() : router.push(verifyHref))}
     >
       {guide.verify === "in_review" ? (
-        <Link href={verifyHref} className={TEXT_ACTION}>
-          See what you sent
+        <Link href={verifyHref} className={SECONDARY_BUTTON}>
+          {GO_LIVE.seeSent}
         </Link>
       ) : null}
     </StepScreen>
   );
 }
 
-const NUMBER_COPY: Record<GoLive["number"], { title: string; hint: string; action: string | null }> = {
+export const NUMBER_COPY: Record<GoLive["number"], StepCopy & { action: string | null }> = {
   locked: {
     title: "Get your number",
-    hint: "Your number opens once your business is verified.",
+    hint: "Opens once your business is verified.",
     action: null,
   },
   waiting_approval: {
-    title: "Your details are being approved for a number",
-    hint: "Nothing to do for now. This page moves on by itself once they are approved.",
+    title: "Your number is being approved",
+    hint: "Nothing to do. This page moves on by itself.",
     action: null,
   },
   todo: {
     title: "Choose your number",
-    hint: "Callers ring it to reach your agent, and your agent calls from it.",
+    hint: "Callers ring it. Your agent calls from it.",
     action: "Choose my number",
   },
   done: {
@@ -334,7 +355,7 @@ function NumberStep({
   return (
     <StepScreen
       title={copy.title}
-      hint={copy.hint}
+      hint={hintOf(copy)}
       onBack={onBack}
       primary={
         done ? (
@@ -349,8 +370,8 @@ function NumberStep({
       onSubmit={() => (done ? onNext() : router.push(numberHref))}
     >
       {guide.number === "locked" ? (
-        <button type="button" className={TEXT_ACTION} onClick={onBack}>
-          Back to verifying your business
+        <button type="button" className={PRIMARY_BUTTON} onClick={onBack}>
+          {GO_LIVE.backToVerify}
         </button>
       ) : null}
     </StepScreen>
@@ -380,14 +401,10 @@ function SwitchOnStep({
   const listed = agents.isSuccess ? agents.data.filter((agent) => !isDeleted(agent)) : [];
   return (
     <StepScreen
-      title={live ? "You're live" : "Switch an agent on"}
-      hint={
-        live
-          ? "Your agent is taking calls. Everything else is on your dashboard."
-          : "Choose which agent takes calls. If something is still missing, it says what."
-      }
+      title={live ? GO_LIVE.liveTitle : GO_LIVE.switchTitle}
+      hint={live ? GO_LIVE.liveHint : GO_LIVE.switchHint}
       onBack={onBack}
-      primary={live ? "Go to my dashboard" : undefined}
+      primary={live ? GO_LIVE.dashboard : undefined}
       status={finishFeedback.status}
       successLabel="Done"
       onSubmit={() => finish.mutate(undefined, { onSuccess: onFinished })}
@@ -405,11 +422,10 @@ function SwitchOnStep({
         // says so and points at the one thing that gives it something.
         <EmptyState
           className="rounded-card border border-line"
-          message="You have no agent to switch on yet."
-          hint="Make an agent, then come back here to put it on your number."
+          message={GO_LIVE.noAgent}
           action={
             <Link href={newAgentHref} className={PRIMARY_BUTTON}>
-              Make an agent
+              {GO_LIVE.makeAgent}
             </Link>
           }
         />
@@ -433,11 +449,11 @@ function SwitchRow({ agent, agentHref }: { agent: Agent; agentHref: string }) {
           <Link href={agentHref} className="block break-words text-body font-medium text-ink hover:underline">
             {agent.name}
           </Link>
-          <p className="text-meta text-ink-muted">{isLive ? "Taking calls" : agent.status === "draft" ? "Not ready yet" : "Ready"}</p>
+          <p className="text-meta text-ink-muted">{isLive ? GO_LIVE.taking : agent.status === "draft" ? GO_LIVE.notReady : GO_LIVE.ready}</p>
         </div>
         {isLive ? null : (
           <ActionButton
-            variant="secondary"
+            variant="primary"
             status={lifecycleFeedback.status}
             pendingLabel="Switching on…"
             successLabel="Switched on"

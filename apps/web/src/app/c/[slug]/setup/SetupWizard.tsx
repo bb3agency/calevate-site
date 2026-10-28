@@ -37,8 +37,21 @@ import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 
 import { SetupDone } from "./SetupDone";
+import { SETUP } from "./_ui/copy";
+import { Why } from "./_ui/Why";
 
 const EASE = [0.23, 1, 0.32, 1] as const;
+
+/**
+ * A step's hint as its first sentence and the rest. The steps' words are shared with the
+ * business profile screen (`lib/api/businessProfile`), so the wizard shows only the first
+ * sentence and puts the remainder behind "Why?" rather than keeping a shorter second copy.
+ */
+export function splitHint(hint: string): { lead: string; rest: string | null } {
+  const end = hint.search(/[.?!]\s/);
+  if (end < 0) return { lead: hint, rest: null };
+  return { lead: hint.slice(0, end + 1), rest: hint.slice(end + 2).trim() || null };
+}
 
 /**
  * Business setup: the guided wizard a client meets on first login (D-695).
@@ -162,6 +175,7 @@ function Wizard({
   };
 
   const step = STEPS[index];
+  const hint = step ? splitHint(step.hint) : null;
   const problem = step ? stepProblem(draft, step.id) : null;
   const fields = save.error instanceof ApiProblem ? save.error.fields : undefined;
   const busy = save.isPending || setup.isPending;
@@ -204,7 +218,7 @@ function Wizard({
 
       <div className="min-w-0">
         <p className="mb-3 text-meta tabular-nums text-ink-muted lg:hidden">
-          {step ? `Step ${index + 1} of ${STEPS.length}` : "All steps seen"}
+          {step ? SETUP.stepOf(index + 1, STEPS.length) : SETUP.allSeen}
         </p>
         {reason && <RestrictionNote reason={reason} />}
         <AnimatePresence mode="wait" initial={false} custom={direction}>
@@ -230,10 +244,14 @@ function Wizard({
                   <h2 ref={headingRef} tabIndex={-1} className="text-heading text-ink focus-visible:outline-none">
                     {step.title}
                   </h2>
-                  <p className="mt-1 text-body text-ink-muted">{step.hint}</p>
                   {needed.has(step.id) ? (
-                    <p className="mt-1 text-meta font-medium text-ink">Needed before your agent takes calls.</p>
+                    <p className="mt-1.5 inline-flex rounded-full bg-warn/10 px-2.5 py-0.5 text-meta font-medium text-ink">
+                      {SETUP.needed}
+                    </p>
                   ) : null}
+                  {/* The hint's first sentence stays; anything after it waits behind "Why?". */}
+                  <p className="mt-1 text-body text-ink-muted">{hint?.lead}</p>
+                  {hint?.rest ? <Why>{hint.rest}</Why> : null}
                 </div>
                 <fieldset disabled={!canWrite || busy} className="min-w-0">
                   <SectionEditor
@@ -288,11 +306,10 @@ function Wizard({
           </motion.section>
         </AnimatePresence>
         <p className="mt-3 text-meta text-ink-muted">
-          You can change any answer later in{" "}
+          {SETUP.changeLater}{" "}
           <Link href={href("/settings/business")} className="font-medium text-brand-strong hover:underline">
-            Business profile
+            {SETUP.profile}
           </Link>
-          .
         </p>
       </div>
     </div>

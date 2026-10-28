@@ -3,8 +3,10 @@
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 
-import { formatCount, NOTICE_BAR, NOTICE_BASE } from "@/components/ui";
+import { formatCount, NOTICE_BAR, NOTICE_BASE, SECONDARY_BUTTON_SM } from "@/components/ui";
 import type { useAttention } from "@/lib/api/attention";
+
+import { HOME } from "./setup/_ui/copy";
 
 /**
  * The triage queue's size, at the top of the daily entry point — and NOTHING when the
@@ -26,14 +28,10 @@ export function AttentionBanner({
       offer the client neither the action nor a reason for its absence (BUILD-LOG
       §52), so the failure says what it could not read and offers the retry. */}
   {attention.isError ? (
-    <p className="rounded-md bg-surface-muted px-4 py-3 text-body text-ink-muted">
-      We could not check whether anything needs your attention.{" "}
-      <button
-        type="button"
-        onClick={() => void attention.refetch()}
-        className="rounded-sm font-medium text-brand-strong underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:inline-flex touch:min-h-11 touch:items-center"
-      >
-        Try again
+    <p className="flex items-center justify-between gap-3 rounded-md bg-surface-muted px-4 py-2.5 text-body text-ink-muted">
+      {HOME.queueFailed}
+      <button type="button" onClick={() => void attention.refetch()} className={`${SECONDARY_BUTTON_SM} shrink-0`}>
+        {HOME.tryAgain}
       </button>
     </p>
   ) : (
@@ -48,11 +46,11 @@ export function AttentionBanner({
             <span className="font-semibold tabular-nums">
               {formatCount(attention.data.total)}
             </span>{" "}
-            {attention.data.total === 1 ? "thing needs" : "things need"} your attention
+            {HOME.queue(attention.data.total)}
           </span>
         </span>
         <span className="flex shrink-0 items-center gap-1 font-medium text-brand-strong">
-          Review
+          {HOME.queueAction}
           <ChevronRight aria-hidden className="h-3.5 w-3.5" />
         </span>
       </Link>

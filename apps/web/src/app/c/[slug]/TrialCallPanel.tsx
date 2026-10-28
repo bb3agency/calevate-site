@@ -11,19 +11,22 @@ import {
   FIELD_INLINE,
   FIELD_LABEL,
   NoticeBox,
+  PRIMARY_BUTTON_SM,
   ProblemNotice,
+  SECONDARY_BUTTON_SM,
   formatCount,
   formatIST,
 } from "@/components/ui";
 import { DefaultCheckbox } from "@/components/callHandlingRows";
 import { RowLink } from "@/components/console/checklist";
-import { TEXT_ACTION } from "@/components/console/section";
 import { canTestCall, isDeleted } from "@/lib/agentState";
 import { useAgentLifecycle, useAgents } from "@/lib/api/agents";
 import { useClientRealm } from "@/lib/api/session";
 import { usePlaceTrialCall, useRecentTestCalls, type TrialPanel } from "@/lib/api/trialCalls";
 
 import { EarlierTestCalls, TestCallFollow } from "./TestCallStatus";
+import { HOME, TRIAL } from "./setup/_ui/copy";
+import { Why } from "./setup/_ui/Why";
 
 /**
  * THE FREE TRIAL, on the dashboard (D-697): what is left of it, a test call, and the one
@@ -58,18 +61,12 @@ export function TrialCallPanel({ slug, trial }: { slug: string; trial: TrialPane
   );
 }
 
-/** What is left of the free trial's days. */
-function TrialDays({ trial }: { trial: TrialPanel }) {
+/** A status chip: a fact at a glance, never a sentence (the card's days and calls today). */
+function Chip({ children, title }: { children: React.ReactNode; title?: string }) {
   return (
-    <div>
-      <dt className={FIELD_LABEL}>Days left</dt>
-      <dd className="mt-1 font-semibold text-ink">
-        {trial.days_remaining === null || trial.days_remaining === undefined
-          ? "Ended"
-          : `${trial.days_remaining} ${trial.days_remaining === 1 ? "day" : "days"}`}
-      </dd>
-      {trial.ends_at ? <dd className="text-xs text-ink-muted">Ends {formatIST(trial.ends_at)} IST</dd> : null}
-    </div>
+    <li title={title} className="rounded-full bg-surface-muted px-3 py-1 text-meta font-medium tabular-nums text-ink">
+      {children}
+    </li>
   );
 }
 
@@ -84,9 +81,9 @@ function TrialMinutes({ trial }: { trial: TrialPanel }) {
       limit={free}
       usedText={formatCount(free - left)}
       limitText={formatCount(free)}
-      caption={`${formatCount(left)} of ${formatCount(free)} minutes left`}
+      caption={TRIAL.minutesLeft(formatCount(left), formatCount(free))}
       noLimitText="No minute limit"
-      hint={free > 0 && left === 0 ? "Your free minutes are used up. Add credit to keep calling." : undefined}
+      hint={free > 0 && left === 0 ? TRIAL.minutesUsedUp : undefined}
     />
   );
 }
@@ -153,38 +150,48 @@ export function TrialCallCard({
   const earlier = recent.data?.filter((row) => row.id !== followedId).slice(0, 2);
 
   return (
-    <Card title={paid ? "Test calls" : "Your free trial"}>
+    <Card title={paid ? TRIAL.paidTitle : TRIAL.title}>
       <div className="space-y-4">
-        <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
-          {paid ? null : <TrialDays trial={trial} />}
-          <div>
-            <dt className={FIELD_LABEL}>Test calls today</dt>
-            <dd className="mt-1 font-semibold text-ink">
-              {trial.calls_today} of {trial.daily_cap}
-            </dd>
-          </div>
-        </dl>
+        <ul className="flex flex-wrap gap-2" aria-label="Your trial at a glance">
+          {paid ? null : (
+            <Chip title={trial.ends_at ? `Ends ${formatIST(trial.ends_at)} IST` : undefined}>
+              {TRIAL.daysLeft(trial.days_remaining)}
+            </Chip>
+          )}
+          <Chip>{TRIAL.callsToday(trial.calls_today, trial.daily_cap)}</Chip>
+        </ul>
         {paid ? null : <TrialMinutes trial={trial} />}
 
-        <p className="text-sm text-ink-muted">
-          {paid
-            ? "Ring your own phone from one of your agents. It calls from your own number once the agent has one, and from a shared Calevate number until then. Test calls are billed like any call. "
-            : "Try your agent on a real phone: pick an agent, type an Indian number, and it calls that number from a shared Calevate number, opening with its usual greeting. "}
-          {paid && trial.own_number_max_call_seconds
-            ? `From your own number a test call runs as long as the agent's longest-call setting, up to ${minutesText(trial.own_number_max_call_seconds)}, so you can rehearse a whole guided call; from the shared number it ends after ${minutesText(trial.max_call_seconds)}.`
-            : `Each test call ends after ${minutesText(trial.max_call_seconds)}.`}{" "}
-          The do-not-call list
-          still applies, calls go out between 9am and 9pm unless the number is your own, and the
-          agent always says it is an AI when asked.
-        </p>
+        {/* The rules a test call keeps, one line; the whole of them behind a tap. */}
+        <div>
+          <p className="text-meta text-ink-muted">
+            {paid && trial.own_number_max_call_seconds
+              ? TRIAL.ownRules(minutesText(trial.own_number_max_call_seconds), minutesText(trial.max_call_seconds))
+              : TRIAL.rules(minutesText(trial.max_call_seconds))}
+          </p>
+          <Why label={TRIAL.howItWorks}>
+            <p>
+              {paid
+                ? "It rings from your agent's own number once it has one, and from a shared Calevate number until then. Test calls are billed like any call."
+                : "Pick an agent and type an Indian number. It rings that number from a shared Calevate number and opens with its usual greeting."}
+            </p>
+            {trial.ends_at && !paid ? <p>Your trial ends {formatIST(trial.ends_at)} IST.</p> : null}
+            <p>
+              The do-not-call list still applies. Calls go out 9am to 9pm unless the number is your own. The
+              agent always says it is an AI when asked.
+            </p>
+          </Why>
+        </div>
         {!trial.pledge_accepted && (
           <NoticeBox
             tone="warn"
-            title="One step before your first test call"
-            action={<RowLink href={verifyHref}>Verify your business</RowLink>}
-          >
-            Accept the no-cold-calls promise.
-          </NoticeBox>
+            title={TRIAL.pledgeTitle}
+            action={
+              <Link href={verifyHref} className={PRIMARY_BUTTON_SM}>
+                {TRIAL.pledgeAction}
+              </Link>
+            }
+          />
         )}
 
         {trial.blocked_reason && trial.pledge_accepted && (
@@ -202,16 +209,19 @@ export function TrialCallCard({
           }}
         >
           <label className="block w-full min-w-0 sm:w-auto">
-            <span className={FIELD_LABEL}>Agent</span>
+            <span className={FIELD_LABEL}>{TRIAL.agent}</span>
             {agents.error ? (
-              <span className="mt-1 block text-sm text-ink-muted">
-                Your agents did not load. Reload the page to try again.
+              <span className="mt-1 flex items-center gap-3 text-sm text-ink-muted">
+                {TRIAL.agentsFailed}
+                <button type="button" onClick={() => void agents.refetch()} className={SECONDARY_BUTTON_SM}>
+                  {HOME.tryAgain}
+                </button>
               </span>
             ) : agents.data !== undefined && agents.data.length === 0 ? (
-              <span className="mt-1 block text-sm text-ink-muted">
-                You have no agents yet.{" "}
-                <Link href={newAgentHref} className={TEXT_ACTION}>
-                  Build your first agent
+              <span className="mt-1 flex flex-wrap items-center gap-3 text-sm text-ink-muted">
+                {TRIAL.noAgents}
+                <Link href={newAgentHref} className={SECONDARY_BUTTON_SM}>
+                  {TRIAL.buildFirst}
                 </Link>
               </span>
             ) : (
@@ -233,7 +243,7 @@ export function TrialCallCard({
             )}
           </label>
           <label className="block w-full min-w-0 sm:w-auto">
-            <span className={FIELD_LABEL}>Number to call</span>
+            <span className={FIELD_LABEL}>{TRIAL.number}</span>
             <input
               value={number}
               onChange={(event) => {
@@ -260,7 +270,7 @@ export function TrialCallCard({
           </ActionButton>
           <div className="basis-full">
             <DefaultCheckbox
-              label="This number is my own. Test calls to it can ring at any hour."
+              label={TRIAL.ownNumber}
               checked={numberIsMine}
               onChange={(on) => {
                 setNumberIsMine(on);
@@ -272,7 +282,7 @@ export function TrialCallCard({
 
         {place.data?.status === "blocked" && (
           <p role="status" className="text-sm text-warn">
-            {place.data.blocked_reason ?? "This test call was not allowed."}
+            {place.data.blocked_reason ?? TRIAL.blocked}
           </p>
         )}
         {prepare.error && <ProblemNotice error={prepare.error} />}
@@ -293,19 +303,16 @@ export function TrialCallCard({
           <EarlierTestCalls calls={earlier} />
         ) : null}
         {dialers !== undefined && dialers.length > 0 ? (
-          <p className="text-xs text-ink-muted">
-            Want to change what it says first?{" "}
-            <Link href={agentsHref} className={TEXT_ACTION}>
-              Your agents
-            </Link>
-          </p>
+          <Link href={agentsHref} className={SECONDARY_BUTTON_SM}>
+            {TRIAL.editAgents}
+          </Link>
         ) : null}
 
         {paid ? null : (
           <NoticeBox
             tone="neutral"
-            title="Ready to go live?"
-            action={<RowLink href={creditsHref}>Add credit to go live</RowLink>}
+            title={TRIAL.goLive}
+            action={<RowLink href={creditsHref}>{TRIAL.goLiveAction}</RowLink>}
             info="Adding credit ends the trial and opens business verification, your own phone number, answering calls and campaigns."
           />
         )}

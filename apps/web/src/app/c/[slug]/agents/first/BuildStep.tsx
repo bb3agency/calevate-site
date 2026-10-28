@@ -13,6 +13,7 @@ import { languageLabel, voicePickNote } from "@/lib/firstAgent";
 
 import { BuildStage, type BuildRow, type RowState } from "./LiveStage";
 import { StepScreen } from "./shell";
+import { FIRST } from "../../setup/_ui/copy";
 
 /** Each step's name on the stage, and what it says while it is worked on, in the order the
  *  worker takes them (`apps/workers/first_run.build_first_agent`). */
@@ -113,7 +114,7 @@ export function BuildStep({
       title={built && agent ? `Meet ${agent.name}` : failed ? "The build stopped" : "Building your agent"}
       hint={
         built
-          ? "Version one is ready. Next, it rings your phone so you can hear it."
+          ? FIRST.versionOne
           : failed
             ? "Nothing you wrote is lost."
             : "A few seconds. Each part appears as it is made."

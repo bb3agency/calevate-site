@@ -5,10 +5,12 @@ import { ArrowRight, MessageSquareText, PhoneIncoming, Sparkles } from "lucide-r
 
 import { PRIMARY_BUTTON } from "@/components/ui";
 
+import { HOME } from "./setup/_ui/copy";
+
 const STEPS = [
-  { icon: Sparkles, label: "Pick its job" },
-  { icon: MessageSquareText, label: "Tell it about your business" },
-  { icon: PhoneIncoming, label: "Hear it ring your phone" },
+  { icon: Sparkles, label: HOME.meetSteps[0] },
+  { icon: MessageSquareText, label: HOME.meetSteps[1] },
+  { icon: PhoneIncoming, label: HOME.meetSteps[2] },
 ] as const;
 
 /**
@@ -28,11 +30,8 @@ export function FirstAgentInvite({ href, started = false }: { href: (path: strin
       <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:gap-6">
         <div className="min-w-0 flex-1">
           <h2 id="first-agent-invite" className="text-title text-ink">
-            Meet your agent
+            {HOME.meetTitle}
           </h2>
-          <p className="mt-0.5 text-body text-ink-muted">
-            It is built while you watch, from what you tell it. Then it rings your phone so you hear it.
-          </p>
           <ol className="mt-3 flex flex-wrap items-center gap-x-1.5 gap-y-2">
             {STEPS.map(({ icon: Icon, label }, index) => (
               <li key={label} className="flex items-center gap-1.5">
@@ -46,7 +45,7 @@ export function FirstAgentInvite({ href, started = false }: { href: (path: strin
           </ol>
         </div>
         <Link href={href("/agents/first")} className={`${PRIMARY_BUTTON} shrink-0 justify-center`}>
-          {started ? "Continue" : "Start"}
+          {started ? HOME.meetContinue : HOME.meetStart}
           <ArrowRight aria-hidden className="h-4 w-4" />
         </Link>
       </div>

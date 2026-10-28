@@ -21,6 +21,7 @@ import {
 } from "@/lib/firstAgent";
 
 import { ChipChoice, StepScreen } from "./shell";
+import { FIRST } from "../../setup/_ui/copy";
 
 /**
  * STEP 1, ITS JOB (D-855; founder, 23 Oct 2026): what the agent does, then the language it
@@ -65,7 +66,7 @@ export function JobStep({
   return (
     <StepScreen
       title="What should your agent do?"
-      hint="Pick one or more. One agent does them all, and you can change this later."
+      hint={FIRST.jobHint}
       primary={
         <>
           Continue
@@ -91,13 +92,13 @@ export function JobStep({
           />
         ))}
         {locked ? (
-          <p className="text-meta text-ink-muted">Your agent is built for this. Change what it does on its own page.</p>
+          <p className="text-meta text-ink-muted">{FIRST.jobLocked}</p>
         ) : null}
       </fieldset>
 
       <fieldset>
         <legend className="text-heading text-ink">Which language does it speak first?</legend>
-        <p className="text-meta text-ink-muted">Every call starts in it.</p>
+        <p className="text-meta text-ink-muted">{FIRST.languageHint}</p>
         <div className="mt-2 grid grid-cols-3 gap-2">
           {/* Once built, the agent has its languages and voice; the server refuses a change
               here (`first_run_language_locked`), so the choice is shown, not offered. */}
@@ -113,7 +114,7 @@ export function JobStep({
         </div>
         {locked ? (
           <p className="mt-2 text-meta text-ink-muted">
-            Your agent speaks this. Change its languages on its own page.
+            {FIRST.languageLocked}
           </p>
         ) : null}
       </fieldset>
@@ -146,7 +147,7 @@ export function JobStep({
             </ChipChoice>
           ))}
         </div>
-        <span className="text-meta text-ink-muted">It switches when a caller does.</span>
+        <span className="text-meta text-ink-muted">{FIRST.switches}</span>
       </fieldset>
 
       {save.error ? <ProblemNotice error={save.error} /> : null}

@@ -9,6 +9,8 @@ import { useAgents } from "@/lib/api/agents";
 import { STEPS, stepStates, type BusinessProfile, type StepId } from "@/lib/api/businessProfile";
 import { useClientSession } from "@/lib/api/session";
 
+import { SETUP } from "./_ui/copy";
+
 /**
  * The last screen of the wizard: what is answered, what was skipped, and whether anything
  * still stops an agent going live — each with a way straight back to its step.
@@ -47,14 +49,20 @@ export function SetupDone({
       <div className="flex items-start gap-3">
         <CircleCheck aria-hidden className={`mt-0.5 h-5 w-5 shrink-0 ${ready ? "text-brand-strong" : "text-ink-faint"}`} />
         <div>
-          <h2 className="text-heading text-ink">
-            {ready ? "Your agents have what they need" : "Almost there"}
-          </h2>
-          <p className="mt-1 text-body text-ink-muted">
-            {ready
-              ? "Every agent now answers with these facts. Change them any time."
-              : `Before an agent can take calls: ${profile.blockers.map((b) => b.message.replace(/\.$/, "").toLowerCase()).join(", ")}.`}
-          </p>
+          <h2 className="text-heading text-ink">{ready ? SETUP.readyTitle : SETUP.almostTitle}</h2>
+          {ready ? (
+            <p className="mt-1 text-body text-ink-muted">{SETUP.readyHint}</p>
+          ) : (
+            // One line per thing still missing, in the server's words, rather than one sentence.
+            <div className="mt-1">
+              <p className="text-meta font-medium text-ink">{SETUP.stillNeeded}</p>
+              <ul className="mt-1 space-y-0.5 text-body text-ink-muted">
+                {profile.blockers.map((blocker) => (
+                  <li key={`${blocker.step}:${blocker.message}`}>{blocker.message}</li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       </div>
       {/* Not `foldDone`: a skipped step counts as done here, and folding would hide its

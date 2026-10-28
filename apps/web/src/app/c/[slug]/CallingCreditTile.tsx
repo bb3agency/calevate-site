@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 
-import { Card, ProblemNotice, Skeleton, formatINR } from "@/components/ui";
+import { Card, PRIMARY_BUTTON_SM, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton, formatINR } from "@/components/ui";
 import { Metric } from "@/components/console/metric";
 import {
   activeTrial,
@@ -13,6 +13,8 @@ import {
   walletState,
   type WalletTrial,
 } from "@/lib/api/wallet";
+
+import { HOME } from "./setup/_ui/copy";
 
 /**
  * How much calling credit is left, and what that means today.
@@ -83,15 +85,22 @@ export function CallingCreditTile({
         {minutesLeftPhrase(wallet.data) !== null ? (
           <span className="block text-body text-ink-muted">{formatINR(wallet.data.balance_inr)} in your account</span>
         ) : null}
-        <Link href={href} className="underline decoration-ink/30 underline-offset-2 hover:text-ink touch:inline-flex touch:min-h-11 touch:items-center">
-          {trial !== null
-            ? trialHint(trial)
-            : state === "stopped"
-              ? "Calls have stopped, outgoing and incoming. Add credit to start both again"
-              : state === "low"
-                ? "Running low — top up before calls stop, outgoing and incoming"
-                : "Add credit or see where it went"}
-        </Link>
+        {trial !== null && !trialTimeLeft(trial).lastDay ? (
+          // A trial with days to go asks nothing: its line is a status, quiet, still a way in.
+          <Link href={href} className="underline decoration-ink/30 underline-offset-2 hover:text-ink touch:inline-flex touch:min-h-11 touch:items-center">
+            {trialHint(trial)}
+          </Link>
+        ) : (
+          <Link href={href} className={`${state === "stopped" ? PRIMARY_BUTTON_SM : SECONDARY_BUTTON_SM} mt-2`}>
+            {trial !== null
+              ? trialHint(trial)
+              : state === "stopped"
+                ? HOME.creditStoppedHint
+                : state === "low"
+                  ? HOME.creditLowHint
+                  : HOME.creditOkHint}
+          </Link>
+        )}
         </>
       }
     />
@@ -105,7 +114,6 @@ export function CallingCreditTile({
  */
 function trialHint(trial: WalletTrial): string {
   const left = trialTimeLeft(trial);
-  return left.lastDay
-    ? `Free trial ends ${trialEndsAt(trial)} (${left.text}). Add credit so calls carry on after it`
-    : `Free trial: calls are on us until ${trialEndsAt(trial)}`;
+  // The last day counts down in hours ("5 hours left"), which a date would hide.
+  return left.lastDay ? HOME.trialLastDay(left.text) : HOME.trialFree(trialEndsAt(trial));
 }
