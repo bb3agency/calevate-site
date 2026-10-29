@@ -47,7 +47,7 @@ _TRANSIENT_PREFIXES: Final = (
     "ConnectTimeout",
     "ConnectError",
 )
-_TRANSIENT_CODES: Final = frozenset({"crm_error", "sheet_error"})
+_TRANSIENT_CODES: Final = frozenset({"crm_error", "sheet_error", "auth_unavailable"})
 
 
 def _transient(status: str, payload: dict[str, Any]) -> bool:

@@ -317,6 +317,10 @@ async def execute_action(
         result = _refused(exc.code)
     except CredentialUnusableError:
         result = _refused("credential_unusable")
+    except TokenRefreshUnavailableError as exc:
+        # Not `auth_failed`: that one asks the client to reconnect. This is retried
+        # (`workers/client_actions._transient`) and the connection is left alone.
+        result = _refused("auth_unavailable", status_code=exc.status_code)
     except ProblemError as exc:
         # A refusal of ours mid-action (the platform's sign-in app was removed, a builder
         # refused a config): an answer the agent can say, never a 500 on a live call.
@@ -403,6 +407,14 @@ def reset_access_cache() -> None:
     _ACCESS.clear()
 
 
+class TokenRefreshUnavailableError(Exception):
+    """The OAuth token endpoint answered 429 or 5xx: try again later, not reconnect."""
+
+    def __init__(self, status_code: int) -> None:
+        super().__init__(f"token endpoint answered {status_code}")
+        self.status_code = status_code
+
+
 async def _access_token(
     cred: ResolvedCredential, *, credential_id: UUID, client: httpx.AsyncClient
 ) -> tuple[str, dict[str, Any]] | None:
@@ -423,6 +435,15 @@ async def _access_token(
     )
     response = await _send(request, client=client)
     body = _json(response)
+    if response.status_code == 429 or response.status_code >= 500:
+        # The provider's token endpoint is busy or broken, which says nothing about the
+        # grant: telling the client to reconnect would be wrong, so this is a retryable
+        # outcome rather than the `None` that means the connection lapsed.
+        log.info(
+            "action_token_refresh_unavailable",
+            extra={"kind": kind, "status": response.status_code},
+        )
+        raise TokenRefreshUnavailableError(response.status_code)
     if response.status_code != 200 or not isinstance(body, dict):
         log.info(
             "action_token_refresh_refused", extra={"kind": kind, "status": response.status_code}
@@ -443,8 +464,15 @@ async def _access_token(
 async def access_token_for(
     cred: ResolvedCredential, *, credential_id: UUID, client: httpx.AsyncClient
 ) -> str | None:
-    """A live access token for a stored OAuth connection, or None when it has lapsed."""
-    access = await _access_token(cred, credential_id=credential_id, client=client)
+    """A live access token for a stored OAuth connection, or None when there is none.
+
+    None also covers a busy token endpoint, for the callers outside an action (the sheet
+    delivery treats None as transient already); actions read `_access_token` directly so
+    they can tell the two apart."""
+    try:
+        access = await _access_token(cred, credential_id=credential_id, client=client)
+    except TokenRefreshUnavailableError:
+        return None
     return access[0] if access is not None else None
 
 
@@ -875,8 +903,8 @@ async def _sheets_token(
     cred = await _credential(session, tool)
     if cred is None or cred.kind != "google_sheets":
         return _refused("no_credential")
-    token = await access_token_for(cred, credential_id=tool.credential_id, client=client)  # type: ignore[arg-type]
-    return token if token is not None else _refused("auth_failed")
+    access = await _access_token(cred, credential_id=tool.credential_id, client=client)  # type: ignore[arg-type]
+    return access[0] if access is not None else _refused("auth_failed")
 
 
 async def _run_sheets(
