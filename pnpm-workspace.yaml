@@ -55,9 +55,10 @@ overrides:
   # the floor has to live here — bumping `next` alone does not move a transitive
   # dependency's resolved version.
   sharp: ">=0.35.5"
-  # Eleven advisories (three high) fixed in 8.10.2; reached only as `jsdom > undici`, the test
+  # Eleven advisories (three high) fixed in 8.10.2, reached only as `jsdom > undici`, the test
   # DOM. Kept inside major 8, which is what jsdom asks for.
-  "undici@>=8 <8.10.2": "^8.10.2"
+  # Raised to 8.12.2 for GHSA-2m5v-pch6-74hx, GHSA-qrxm-fqhp-jwvm and two more (high).
+  "undici@>=8 <8.12.2": "^8.12.2"
   # GHSA-68fv-2mgg-jv7q (high): reached as `@tailwindcss/node > source-map-js`.
   "source-map-js@<1.2.2": "^1.2.2"
   # GHSA-2883-xcg3-v3hh (high): `maxTotalMergeKeys` does not bound CPU when a merge
