@@ -7,7 +7,9 @@ import { ProblemNotice, Skeleton } from "@/components/ui";
 import { EmptyState } from "@/components/console/emptyState";
 import { EmptySketch } from "@/components/console/emptySketch";
 import { DataTable } from "@/components/console/dataTable";
-import type { useCalls } from "@/lib/api/hooks";
+import { usePrefetchCall, type useCalls } from "@/lib/api/hooks";
+import { useClientRealm } from "@/lib/api/session";
+import { useReadAhead } from "@/lib/readAhead";
 
 import { callColumns } from "./calls/callColumns";
 
@@ -25,6 +27,8 @@ export function LatestCalls({
   allHref: string;
   callHref: (id: string) => string;
 }) {
+  const { session } = useClientRealm();
+  const readAhead = useReadAhead(usePrefetchCall(session));
   return (
     <Section
       title="Latest calls"
@@ -63,6 +67,7 @@ export function LatestCalls({
           // for a role that may see billing.
           columns={callColumns({
             callHref,
+            readAhead,
             compact: true,
             showCost: recent.data.some((call) => call.credits_used_inr !== null && call.credits_used_inr !== undefined),
           })}

@@ -11,6 +11,7 @@ import type { DataColumn } from "@/components/console/dataTable";
 import { LIVE_STATUS, LiveDot } from "@/components/console/liveCalls";
 import { NOTICE_DOT } from "@/components/console/statusPill";
 import type { CallSummary } from "@/lib/api/client";
+import type { ReadAheadProps } from "@/lib/readAhead";
 import { type OutcomeKind, callOutcome, callRowLine, callTitle, callbackOverdue } from "@/lib/callReview";
 
 import { type LiveView, type LogCall, LiveLength, LiveMark, LiveSheen, liveLine, liveWords } from "./liveRows";
@@ -255,11 +256,14 @@ export function CapturedLine({ call }: { call: Pick<CallSummary, "captured_previ
 
 export function callColumns({
   callHref,
+  readAhead,
   compact = false,
   showCost = false,
   menu,
 }: {
   callHref: (id: string) => string;
+  /** Reads a call's page ahead from its row (`useReadAhead`). */
+  readAhead?: (id: string) => ReadAheadProps;
   /** The dashboard's short list: adds how the caller sounded and what was captured, no sorting. */
   compact?: boolean;
   /** Adds what each call took from the credit balance. The server sends it only to a role
@@ -282,6 +286,7 @@ export function callColumns({
       ) : (
         <Link
           href={callHref(call.id)}
+          {...readAhead?.(call.id)}
           className="truncate rounded-sm font-medium text-ink after:absolute after:inset-0 after:content-[''] focus-visible:outline-none focus-visible:after:rounded-md focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-brand"
         >
           {callTitle(call)}

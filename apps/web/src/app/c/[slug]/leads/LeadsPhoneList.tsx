@@ -20,7 +20,7 @@ import type { LeadRowKit } from "./leadRowKit";
  * is on the lead's own screen. No select box: picking many is the wider table's job.
  */
 export function LeadsPhoneList({ kit }: { kit: LeadRowKit }) {
-  const { items, columns, rowFailure, hrefFor, followUp, targetOf } = kit;
+  const { items, columns, rowFailure, hrefFor, readAhead, followUp, targetOf } = kit;
   const captured = columns.filter((column) => column.kind !== "fixed");
   return (
     <ul aria-label="Leads" className="divide-y divide-line">
@@ -44,6 +44,7 @@ export function LeadsPhoneList({ kit }: { kit: LeadRowKit }) {
             <SwipeActions label={target.name} primary={primary} secondary={secondary}>
               <Link
                 href={hrefFor(lead)}
+                {...readAhead?.(lead.id)}
                 className="block min-w-0 px-4 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand"
               >
                 <span className="flex min-w-0 items-start justify-between gap-3">

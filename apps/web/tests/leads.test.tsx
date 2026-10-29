@@ -1060,6 +1060,24 @@ describe("who owns a lead", () => {
     expect(container.textContent).toContain("We could not read your team");
   });
 
+  it("offers to read the team again when /v1/members fails, and the owner picker comes back", async () => {
+    let answer: unknown = problem(503, {
+      title: "Service unavailable",
+      detail: "We could not read your team.",
+      retryable: true,
+    });
+    // A getter on the finished table: `routes()` spreads, which would freeze one answer.
+    const table = routes({ "POST /v1/leads/search": ASSIGNED });
+    Object.defineProperty(table, "/v1/members", { get: () => answer, enumerable: true });
+    await renderClientPage(<LeadsPage />, table);
+
+    const retry = await screen.findByRole("button", { name: "Try again" });
+    answer = MEMBERS;
+    fireEvent.click(retry);
+
+    expect(await screen.findByLabelText("Owner of Ramesh Kumar")).toBeTruthy();
+  });
+
   it("sends the owner filter to the SERVER and never slices the loaded page", async () => {
     /**
      * The assertion is on the REQUEST, deliberately. A screen that filtered `items` in

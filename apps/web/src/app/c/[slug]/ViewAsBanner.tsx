@@ -73,7 +73,7 @@ export function ViewAsBanner({ slug }: { slug: string }) {
   if (viewAsRequested && !me.data?.impersonating && me.error != null) {
     return (
       <div className="space-y-2 border-b border-line bg-surface px-4 py-2 lg:px-8">
-        <ProblemNotice error={me.error} />
+        <ProblemNotice error={me.error} onRetry={() => void me.refetch()} />
         <p className="text-sm text-ink-muted">
           Opened as an operator. Open it from the admin console, or{" "}
           <Link href={`/c/${slug}`} className="font-medium text-brand-strong underline">

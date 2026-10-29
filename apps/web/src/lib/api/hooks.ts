@@ -354,13 +354,32 @@ export function useExportCalls(session: Session) {
   });
 }
 
+function callQuery(session: Session, callId: string) {
+  return {
+    queryKey: queryKeys.call(session.orgSlug, callId),
+    queryFn: () => apiRequest<CallDetail>(session, `/v1/calls/${callId}`),
+  };
+}
+
+/**
+ * Starts reading a call's page while the pointer rests on (or a finger lands on, or focus
+ * reaches) its row, so the page opens on data instead of on a skeleton followed by a
+ * read. Same key and fetch as `useCall`, so the page finds it in the cache; an answer
+ * still fresh by the client's `staleTime` is not read twice.
+ */
+export function usePrefetchCall(session: Session): (callId: string) => void {
+  const client = useQueryClient();
+  return (callId: string) => {
+    void client.prefetchQuery(callQuery(session, callId));
+  };
+}
+
 export function useCall(
   session: Session,
   callId: string,
 ): UseQueryResult<CallDetail> {
   return useQuery({
-    queryKey: queryKeys.call(session.orgSlug, callId),
-    queryFn: () => apiRequest<CallDetail>(session, `/v1/calls/${callId}`),
+    ...callQuery(session, callId),
     // A call opened while it is live, or while its summary and English turns are still
     // being written, fills in as they land; once they have, there is nothing to poll for.
     // The summary is bounded by age, so one that was never written is not re-read forever.

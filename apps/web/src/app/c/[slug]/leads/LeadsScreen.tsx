@@ -22,6 +22,7 @@ import {
   useLeadRowEdit,
   useLeadsUnderLens,
   useMembers,
+  usePrefetchLead,
   useSavedViews,
   type LeadBulkResult,
   type LeadColumn,
@@ -29,6 +30,7 @@ import {
 } from "@/lib/api/leads";
 import { useLeadFields } from "@/lib/api/leadFields";
 import { lookup } from "@/lib/lookup";
+import { useReadAhead } from "@/lib/readAhead";
 import { useVerticalExamples } from "@/lib/useVerticalExamples";
 
 import { AddToCampaign } from "./AddToCampaign";
@@ -184,6 +186,7 @@ export function LeadsScreen() {
     activeViewId: f.activeViewId,
   });
 
+  const readAhead = useReadAhead(usePrefetchLead(session));
   const kit = useLeadRowKit({
     session,
     href,
@@ -201,6 +204,7 @@ export function LeadsScreen() {
     askTerm: f.askTerm,
     onClearFilters: f.clearFilters,
     stageCount,
+    readAhead,
   });
 
   const nameFor = (leadId: string) => {
@@ -404,7 +408,7 @@ export function LeadsScreen() {
 
       {leads.error && <ProblemNotice error={leads.error} onRetry={() => leads.refetch()} />}
       {/* The team list failing leaves the rows fine and only the owner picker dead. */}
-      {members.error != null && <ProblemNotice error={members.error} />}
+      {members.error != null && <ProblemNotice error={members.error} onRetry={() => void members.refetch()} />}
 
       {/* Loading and failure are one answer for both views. `leads.data` can survive a
           failed REFETCH and those rows are real, so the guard is on data, not on error. */}

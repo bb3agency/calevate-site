@@ -6,6 +6,7 @@ import { Pencil } from "lucide-react";
 
 import type { Lead } from "@/lib/api/leads";
 import { calledTimes, leadTitle } from "@/lib/leadLabels";
+import type { ReadAheadProps } from "@/lib/readAhead";
 
 /**
  * The lead's name: a link to its screen, and — for anyone who may write — an inline edit.
@@ -41,6 +42,7 @@ import { calledTimes, leadTitle } from "@/lib/leadLabels";
 export function InlineName({
   lead,
   href,
+  readAhead,
   canEdit,
   editReason,
   saving,
@@ -48,6 +50,8 @@ export function InlineName({
 }: {
   lead: Lead;
   href: string;
+  /** Reads the lead's page ahead (`useReadAhead`). */
+  readAhead?: ReadAheadProps;
   canEdit: boolean;
   /** Why editing is refused, said on the control rather than a screenful away. */
   editReason: string | null;
@@ -115,7 +119,7 @@ export function InlineName({
             logs, so hard rule 6 is stricter for a link than for text. */}
         {/* The number stands in for a name nobody has given yet; "No name" told the
             owner nothing they could act on. */}
-        <Link href={href} className={`hover:underline ${lead.name?.trim() ? "" : "whitespace-nowrap tabular-nums"}`}>
+        <Link href={href} {...readAhead} className={`hover:underline ${lead.name?.trim() ? "" : "whitespace-nowrap tabular-nums"}`}>
           {leadTitle(lead)}
         </Link>
         {canEdit && (

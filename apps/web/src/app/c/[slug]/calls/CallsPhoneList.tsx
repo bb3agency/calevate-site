@@ -8,6 +8,7 @@ import { LiveDot } from "@/components/console/liveCalls";
 import type { FollowUpActions, FollowUpTarget } from "@/components/calls/followUpActions";
 import { formatDuration, formatIST } from "@/components/ui";
 import { callRowLine, callTitle } from "@/lib/callReview";
+import type { ReadAheadProps } from "@/lib/readAhead";
 
 import {
   CallResult,
@@ -37,11 +38,14 @@ const ROW = "relative isolate block min-w-0 px-4 py-3";
 export function CallsPhoneList({
   rows,
   callHref,
+  readAhead,
   actions,
   targetOf,
 }: {
   rows: LogCall[];
   callHref: (id: string) => string;
+  /** Reads a call's page ahead from its row (`useReadAhead`). */
+  readAhead?: (id: string) => ReadAheadProps;
   actions: FollowUpActions;
   targetOf: (call: LogCall) => FollowUpTarget;
 }) {
@@ -106,6 +110,7 @@ export function CallsPhoneList({
         const row: ReactNode = opens ? (
           <Link
             href={callHref(call.id)}
+            {...readAhead?.(call.id)}
             className={`${ROW} ${wash} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand`}
           >
             {body}

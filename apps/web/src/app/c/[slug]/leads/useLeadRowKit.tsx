@@ -23,6 +23,7 @@ import { INLINE_EDIT, cellValue } from "./leadsTable";
 import { needsAttention, outcomeWords } from "@/lib/callReview";
 import { leadNextStep, sourceLabel, stageSetBy } from "@/lib/leadLabels";
 import type { LeadRowKit } from "./leadRowKit";
+import type { ReadAheadProps } from "@/lib/readAhead";
 
 /**
  * HOW ONE LEAD IS DRAWN — the cells, the two inline editors, the dispatch control and the
@@ -53,6 +54,7 @@ export function useLeadRowKit({
   askTerm,
   onClearFilters,
   stageCount,
+  readAhead,
 }: {
   session: { orgSlug: string };
   href: (path: string) => string;
@@ -72,6 +74,7 @@ export function useLeadRowKit({
   onClearFilters: () => void;
   /** The SERVER's count for a stage, or `undefined` when it did not say. */
   stageCount: (stage: LeadStatus) => number | undefined;
+  readAhead?: (leadId: string) => ReadAheadProps;
 }): LeadRowKit {
   const targetOf = (lead: Lead): FollowUpTarget => ({
     key: lead.id,
@@ -172,6 +175,7 @@ export function useLeadRowKit({
           <InlineName
             lead={lead}
             href={href(`/c/${session.orgSlug}/leads/${lead.id}`)}
+            readAhead={readAhead?.(lead.id)}
             canEdit={mayEditLead.allowed}
             editReason={mayEditLead.reason}
             saving={rows.pendingFor(lead.id)}
@@ -269,6 +273,7 @@ export function useLeadRowKit({
       />
     ),
     hrefFor: (lead) => href(`/c/${session.orgSlug}/leads/${lead.id}`),
+    readAhead,
     callHref: (callId) => href(`/c/${session.orgSlug}/calls/${callId}`),
     followUp,
     targetOf,

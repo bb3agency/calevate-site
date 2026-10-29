@@ -47,9 +47,11 @@ import {
   useActAccess,
   useCallsLog,
   useExportCalls,
+  usePrefetchCall,
   useWriteAccess,
   type CallsLogFilters,
 } from "@/lib/api/hooks";
+import { useReadAhead } from "@/lib/readAhead";
 import {
   useCallViews,
   useDeleteCallView,
@@ -162,6 +164,7 @@ export function CallsScreen({ slug }: { slug: string }) {
     ...(dates ? callWindow("custom", today, dates.start, dates.end) : {}),
   };
   const calls = useCallsLog(session, { ...filters, pageSize: CALLS_PAGE_SIZE });
+  const readAhead = useReadAhead(usePrefetchCall(session));
   const exportCalls = useExportCalls(session);
   // The file arriving is its own success; the button's tick says it started.
   const exporting = useActionFeedback(exportCalls, { errorTitle: "Could not export your calls" });
@@ -368,6 +371,7 @@ export function CallsScreen({ slug }: { slug: string }) {
   // Rebuilt each render: the menu items read the live state of each follow-up action.
   const columns = callColumns({
     callHref: (id) => href(`/c/${slug}/calls/${id}`),
+    readAhead,
     menu: (call) => <RowMenu label={callTitle(call)} items={followUp.menuItems(targetOf(call))} />,
   });
   const clearAll = () => {
@@ -561,6 +565,7 @@ export function CallsScreen({ slug }: { slug: string }) {
           <CallsPhoneList
             rows={rows}
             callHref={(id) => href(`/c/${slug}/calls/${id}`)}
+            readAhead={readAhead}
             actions={followUp}
             targetOf={targetOf}
           />

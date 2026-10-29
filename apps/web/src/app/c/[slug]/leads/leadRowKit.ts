@@ -2,6 +2,7 @@ import { type ReactNode } from "react";
 
 import type { FollowUpActions, FollowUpTarget } from "@/components/calls/followUpActions";
 import { type Lead, type LeadColumn, type LeadStatus } from "@/lib/api/leads";
+import type { ReadAheadProps } from "@/lib/readAhead";
 
 /**
  * WHAT A ROW NEEDS, whichever view is drawing it.
@@ -28,6 +29,8 @@ export interface LeadRowKit {
   ownerCell: (lead: Lead, className: string) => ReactNode;
   statusCell: (lead: Lead, className: string) => ReactNode;
   hrefFor: (lead: Lead) => string;
+  /** Reads a lead's page ahead from its row link (`useReadAhead`). */
+  readAhead?: (leadId: string) => ReadAheadProps;
   /** A call's screen, by id — the "Open the last call" row action. */
   callHref: (callId: string) => string;
   /** The SERVER's count for a stage, or `undefined` when it did not say. */
