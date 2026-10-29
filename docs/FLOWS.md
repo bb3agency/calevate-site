@@ -460,7 +460,8 @@ fetch_recording → redact_transcript → extract(schema) → upsert_lead(+repea
 phone match) → meter_usage(write unit rows + update spend_state) → notify(hot-lead rules:
 e.g., a call whose business outcome moves the lead to hot ⇒ WhatsApp+email to owner within 2 min, D-841) →
 resolve_campaign_contact → outbound_sync(call.completed via the outbox, D-23).
-The pipeline's first stage copies ThinnestAI's expiring `recording.url` into our storage
+The pipeline starts by copying ThinnestAI's expiring `recording.url` into our storage, beside the
+lead stages; resolve_campaign_contact and everything after it wait for the copy
 (`engine/recording_source.py`, §3 step 5).
 
 **What a call came to (D-836).** Two readings, stored side by side. `calls.outcome_tag` is

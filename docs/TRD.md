@@ -777,8 +777,9 @@ scorecard — D-31]:
   change passed without touching us, and copy-first is why**: nothing in this tree parses,
   stores or re-uses a vendor URL — `storage._fetch_recording` walks the redirect itself
   and `calls.recording_url` holds OUR object key — so the vendor's 24-hour window only has
-  to outlive one fetch. The recording-copy step stays FIRST in the pipeline (our storage
-  is system of record), and the 24h ceiling is now a real bound on
+  to outlive one fetch. The recording copy starts FIRST in the pipeline and runs beside the
+  lead stages (our storage is system of record; every stage after the lead waits for it),
+  and the 24h ceiling is now a real bound on
   `recording_copy_failed`'s recovery window. Vendor-side retention + deletion API still
   undocumented — *"contact support for retention policy"* (`concepts/security.md`) — so
   the erasure certificate keeps reporting engine-side deletion as
