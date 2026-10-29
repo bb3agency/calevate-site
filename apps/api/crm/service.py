@@ -9,6 +9,7 @@ trust the filter instead of the policy.
 
 from __future__ import annotations
 
+import asyncio
 import csv
 import io
 import re
@@ -2034,6 +2035,12 @@ async def export_calls_csv(session: AsyncSession, filters: CallFilters) -> CallE
             remediation="Pick a shorter date range or an outcome on the Calls screen and "
             "export again.",
         )
+    # On a worker thread: redacting 20k summaries is ~0.45 s of CPU, which on the event
+    # loop stalls every other request this process is serving.
+    return CallExport(csv=await asyncio.to_thread(_calls_csv, rows), row_count=len(rows))
+
+
+def _calls_csv(rows: Sequence[Any]) -> str:
     buffer = io.StringIO()
     writer = csv.writer(buffer, quoting=csv.QUOTE_ALL)
     writer.writerow([_csv_value(h) for h in CALL_EXPORT_HEADER])
@@ -2056,7 +2063,7 @@ async def export_calls_csv(session: AsyncSession, filters: CallFilters) -> CallE
                 )
             ]
         )
-    return CallExport(csv=buffer.getvalue(), row_count=len(rows))
+    return buffer.getvalue()
 
 
 _EXPORT_IST = timezone(timedelta(hours=5, minutes=30))
@@ -2166,7 +2173,17 @@ async def export_leads_csv(
                 "full extract."
             ),
         )
+    # The ROW COUNT is reported alongside the bytes rather than recovered from them.
+    # `crm.routes.export_leads` recorded `csv_body.count("\n") - 1` in the audit row,
+    # and QUOTE_ALL preserves a newline INSIDE a cell — a lead named over two lines, or
+    # a transcribed note with a line break — so "how many contacts left the building"
+    # was over-counted by exactly the rows a person is most likely to have pasted into.
+    # An audit trail is only worth the accuracy of its numbers.
+    # Rendered on a worker thread for the reason `export_calls_csv` gives.
+    return LeadExport(csv=await asyncio.to_thread(_leads_csv, chosen, rows), row_count=len(rows))
 
+
+def _leads_csv(chosen: Sequence[lead_column_registry.LeadColumn], rows: Sequence[Any]) -> str:
     buffer = io.StringIO()
     # QUOTE_ALL, because the formula guard below depends on it. OWASP's Excel
     # mitigation is a TAB prefix *inside the quoted field* — unquoted, the leading
@@ -2220,13 +2237,7 @@ async def export_leads_csv(
                 for c in chosen
             ]
         )
-    # The ROW COUNT is reported alongside the bytes rather than recovered from them.
-    # `crm.routes.export_leads` recorded `csv_body.count("\n") - 1` in the audit row,
-    # and QUOTE_ALL preserves a newline INSIDE a cell — a lead named over two lines, or
-    # a transcribed note with a line break — so "how many contacts left the building"
-    # was over-counted by exactly the rows a person is most likely to have pasted into.
-    # An audit trail is only worth the accuracy of its numbers.
-    return LeadExport(csv=buffer.getvalue(), row_count=len(rows))
+    return buffer.getvalue()
 
 
 def _json_cell(data: object, key: str) -> Any:
