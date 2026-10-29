@@ -275,7 +275,7 @@ describe("asking Pip to change the script (D-820)", () => {
     expect(asked.map((a) => a.prompt)).toEqual([
       "Change this agent's script: Offer free delivery when someone asks for a discount",
       "Change this agent's script: Handle callers who say the price is too high",
-      "Draft the whole script for this agent. Ask me the five questions first.",
+      "Draft the whole script for this agent. Ask me the six questions first.",
     ]);
     expect(calls.some((c) => c.method === "POST" && !c.path.endsWith("/preview"))).toBe(false);
   });

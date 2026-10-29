@@ -1462,7 +1462,8 @@
         ]
       },
       "openings": {
-        "test_call": "Hello, this is {name}, your new receptionist at {business}, on a test call. Is now a good time to talk?"
+        "test_call": "Hello, this is {name}, your new receptionist at {business}, on a test call. Is now a good time to talk?",
+        "outbound_name_check": "Am I speaking with {name}?"
       },
       "word_swaps": [
         [

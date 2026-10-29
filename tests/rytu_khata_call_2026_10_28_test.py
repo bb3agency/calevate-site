@@ -97,7 +97,8 @@ def test_a_both_agent_never_thanks_the_person_it_rang_for_calling() -> None:
         # line after it is the language's placed-call question.
         assert AI_NOTICE in said
         introduced = opening_in("te-IN", "outbound", introduced=True)
-        assert introduced is not None and said.endswith(introduced)
+        assert introduced is not None
+        assert said.endswith(introduced.replace("{business}", "Rytu Khata"))
 
 
 def test_its_own_outbound_opening_is_said_when_it_has_one() -> None:
@@ -118,11 +119,13 @@ def test_every_offered_language_has_a_placed_call_line(language: str) -> None:
     for introduced in (False, True):
         line = placed_call_opening(language, business="Rytu Khata", introduced=introduced)
         assert line and line.rstrip().endswith("?")
-        assert ("Rytu Khata" in line) is not introduced
+        # Who is calling first; after an introduction, why (D-945), which in Telugu and
+        # Hindi is the founder's "we are calling from" half until a reason line is written.
+        assert introduced or "Rytu Khata" in line
     # No business name known: the question alone, never a gap where the name goes.
-    assert placed_call_opening(language, business=" ") == placed_call_opening(
-        language, business="Rytu Khata", introduced=True
-    )
+    blank = placed_call_opening(language, business=" ")
+    assert blank.endswith("?") and "{business}" not in blank and "  " not in blank
+    assert "Rytu Khata" not in blank
 
 
 async def test_the_dial_sends_it_as_purpose_with_the_persons_name_filled() -> None:

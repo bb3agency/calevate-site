@@ -53,6 +53,7 @@ from apps.api.first_run.questions import (
     Question,
     fallback_questions,
     stored_questions,
+    with_one_thing,
 )
 from apps.api.reliability.service import enqueue_outbox
 from apps.api.tenancy.business_copy import queue_generation
@@ -398,7 +399,7 @@ async def store_questions(
             {
                 "id": run_id,
                 "hash": brief_hash,
-                "questions": json.dumps([question.stored() for question in questions]),
+                "questions": json.dumps([q.stored() for q in with_one_thing(questions)]),
                 "disclosure": disclosure,
             },
         )

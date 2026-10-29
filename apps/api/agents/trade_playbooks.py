@@ -90,6 +90,9 @@ class TradeWords:
 
     #: Why an outbound agent is calling, as the step says it ("their enquiry about a property").
     reason: str
+    #: What a lead of this trade usually wants to know, for the value step (D-945): where to
+    #: look in the owner's facts, never a fact itself.
+    value_topics: str
     #: Answering calls: the first question, the details question and the booking offer.
     first_ask: Said
     details_ask: Said
@@ -130,6 +133,18 @@ _NOT_NOW: Final = _said(
 
 #: The rest of the close (what happens next, anything else, one goodbye) is HOW TO SPEAK's.
 _CLOSE_INSTRUCTION: Final = "Read back what they asked for and any time agreed, then close."
+#: A call to a lead closes on one read-back the person can check against their own calendar
+#: (D-945): a date and time plan raises follow-through where a date alone does not (Milkman et
+#: al., PNAS 2011, PMC3127912, in `docs/research/reports/Sales call scripts and generation.md`).
+_LEAD_CLOSE_INSTRUCTION: Final = (
+    "Read back once: weekday, date, time and place. Then the true next step: noted for the "
+    "team to confirm, unless your booking tool booked it. Then close."
+)
+#: A step with no example line: what it says is a fact of the business, and a plan line states
+#: none (module docstring), so an example could only be invented.
+_NO_LINE: Final[Mapping[str, str]] = {}
+#: The value step (D-945), the one step with no example line.
+VALUE_STEP_TITLE: Final = "Say one thing that fits"
 
 _ANSWER_OBJECTIONS: Final = (
     (
@@ -142,17 +157,38 @@ _ANSWER_OBJECTIONS: Final = (
     ),
 )
 
-#: "Busy" and "not interested" are the first and fourth steps' own exits, so not repeated here.
+#: A calling job's objections (D-945): each answered once (`call_rules` let_go), then the call
+#: is let go. A response that depends on what the account can do says so, and the platform's
+#: WHAT YOU CAN DO block, after the script, decides on the call.
 _LEADS_OBJECTIONS: Final = (
+    (
+        "I'm busy right now.",
+        "Ask when suits them, note it, thank them and end the call.",
+    ),
+    (
+        "How much does it cost?",
+        "Give the price or range only if your facts have it; otherwise say the team will "
+        "share the exact price. Never a discount.",
+    ),
+    (
+        "Not now, maybe in a few months.",
+        "Accept it, ask once whether the team may check in later, note when, and close.",
+    ),
     (
         "Where did you get my number?",
         "Say they showed interest in the business earlier, and the team can tell them "
-        "exactly where their details came from.",
+        "exactly where their details came from. Offer to stop calling if they want.",
     ),
     (
         "Just send it on WhatsApp.",
-        "Say the team will send it to this number, and ask if there is one thing they want "
-        "to know now. Never say it was sent.",
+        "If you have a WhatsApp action, use it and say it is sent only when it worked; "
+        "otherwise say the team will send it to this number. Never say it was sent.",
+    ),
+    (
+        "I don't want to talk to a machine.",
+        "Say you understand. If you can hand them to a person, offer that once; "
+        "otherwise say the team will get back to them, note that they prefer a person, and "
+        "close.",
     ),
     (
         "I already bought it or booked somewhere else.",
@@ -203,7 +239,7 @@ def _call_leads(basics: TradeBasics, words: TradeWords) -> tuple[PlayStep, ...]:
         PlayStep(
             title="Check it is a good time",
             instruction=(
-                "Your opening asked if they can talk now. If not, ask when suits them, thank "
+                "If they cannot talk now, ask when suits them, thank "
                 "them and end the call. Never push."
             ),
             exit_when="They can talk now.",
@@ -229,17 +265,31 @@ def _call_leads(basics: TradeBasics, words: TradeWords) -> tuple[PlayStep, ...]:
             say=words.qualify_ask,
         ),
         PlayStep(
+            title=VALUE_STEP_TITLE,
+            instruction=(
+                "Say ONE fact from your facts that answers what they just told you, in one "
+                f"sentence (for this business, often {words.value_topics}). Never a discount, "
+                "scheme, offer, urgency or a claim like best; about other customers only when "
+                "a fact says so. No fact fits? Skip this step."
+            ),
+            exit_when="You said one fitting fact, or none fits.",
+            say=_NO_LINE,
+        ),
+        PlayStep(
             title=f"Offer {basics.booking}",
             instruction=(
-                f"If they are interested, offer {basics.booking} with two times to choose from. "
-                "If not, thank them and end the call. Do not push or repeat the offer."
+                f"If they are interested, offer {basics.booking} at two exact times, each a "
+                "weekday and date from THIS CALL with a time: from your booking tool if you "
+                "have one, else two windows inside the business's hours (never before 9 in the "
+                'morning or after 9 at night), and add "or another time that suits you". If '
+                "not, thank them and end the call. Do not push or repeat the offer."
             ),
             exit_when="A time is agreed, or they said no.",
             say=words.lead_offer,
         ),
         PlayStep(
             title="Confirm and close",
-            instruction=_CLOSE_INSTRUCTION,
+            instruction=_LEAD_CLOSE_INSTRUCTION,
             exit_when="They have nothing else.",
             say=_CLOSE,
         ),
@@ -292,6 +342,7 @@ _JOB_OBJECTIONS: Final[Mapping[str, tuple[tuple[str, str], ...]]] = {
 TRADE_WORDS: Final[Mapping[str, TradeWords]] = {
     "clinic": TradeWords(
         reason="they asked about an appointment earlier",
+        value_topics="the doctor's specialty, the clinic's timings and where it is",
         first_ask=_said(
             "డాక్టర్ ని ఎప్పుడు చూపించుకోవాలి, ఈ రోజా రేపా?",
             "ठीक है जी, डॉक्टर को कब दिखाना है, आज या कल?",
@@ -330,6 +381,7 @@ TRADE_WORDS: Final[Mapping[str, TradeWords]] = {
     ),
     "real_estate": TradeWords(
         reason="their enquiry about a property",
+        value_topics="the project's location, possession date, approvals and the sizes on offer",
         first_ask=_said(
             "ఏ ఏరియా లో చూస్తున్నారు?",
             "ठीक है जी, किस एरिया में देख रहे हैं?",
@@ -370,6 +422,7 @@ TRADE_WORDS: Final[Mapping[str, TradeWords]] = {
     ),
     "insurance": TradeWords(
         reason="their question about a policy",
+        value_topics="what the policy covers, the claim process and who the insurer is",
         first_ask=_said(
             "హెల్త్ పాలసీ కావాలా, లైఫ్ పాలసీ కావాలా?",
             "ठीक है जी, हेल्थ पॉलिसी चाहिए या लाइफ पॉलिसी?",
@@ -408,6 +461,7 @@ TRADE_WORDS: Final[Mapping[str, TradeWords]] = {
     ),
     "education": TradeWords(
         reason="their enquiry about admission",
+        value_topics="the course, its duration, the batch timings and where classes are held",
         first_ask=_said(
             "ఏ కోర్స్ గురించి అడుగుతున్నారు?",
             "ठीक है जी, किस कोर्स के बारे में पूछ रहे हैं?",
@@ -446,6 +500,7 @@ TRADE_WORDS: Final[Mapping[str, TradeWords]] = {
     ),
     "retail": TradeWords(
         reason="their interest in the shop's products",
+        value_topics="what is in stock, delivery areas and how to pay",
         first_ask=_said(
             "ఏ ఐటమ్ కావాలి?",
             "ठीक है जी, कौन सा आइटम चाहिए?",
@@ -484,6 +539,7 @@ TRADE_WORDS: Final[Mapping[str, TradeWords]] = {
     ),
     "local_services": TradeWords(
         reason="their interest in the service",
+        value_topics="the areas served, how soon someone can come and what the visit covers",
         first_ask=_said(
             "ఏ సర్వీస్ కావాలి?",
             "ठीक है जी, कौन सी सर्विस चाहिए?",
@@ -521,6 +577,7 @@ TRADE_WORDS: Final[Mapping[str, TradeWords]] = {
     ),
     "automobile": TradeWords(
         reason="their question about a service",
+        value_topics="the service centre's location, what the service covers and pick-up",
         first_ask=_said(
             "మీ వెహికల్ ఏ మోడల్?",
             "ठीक है जी, आपकी गाड़ी कौन से मॉडल की है?",
@@ -558,6 +615,7 @@ TRADE_WORDS: Final[Mapping[str, TradeWords]] = {
     ),
     NEUTRAL_TRADE: TradeWords(
         reason="their enquiry with the business",
+        value_topics="what the business does and where it is",
         first_ask=_said(
             "మీకు ఏం కావాలో చెప్తారా?",
             "ठीक है जी, बताइए क्या चाहिए?",
@@ -722,7 +780,7 @@ def playbook_guidance(trade: str | None, direction: str, language: str) -> str:
     blocks.append(
         "Adapt the plan to what the owner told you: their products, their words, their "
         "outcome. Keep one short question a turn and an example line per stage in the same "
-        "spoken register."
+        "spoken register, except a step whose plan has no example line."
     )
     return "\n\n".join(blocks)
 
@@ -736,6 +794,7 @@ __all__ = [
     "REPLACED_LINES",
     "TE_OPENER_LINES",
     "TRADE_WORDS",
+    "VALUE_STEP_TITLE",
     "PlayStep",
     "Playbook",
     "TradeBasics",

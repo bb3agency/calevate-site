@@ -32,10 +32,10 @@ export const IDEAS = [
 
 /** What Pip is asked, in the words the owner sees in its ask box. */
 export const changeRequest = (change: string) => `Change this agent's script: ${change}`;
-export const WHOLE_REQUEST = "Draft the whole script for this agent. Ask me the five questions first.";
+export const WHOLE_REQUEST = "Draft the whole script for this agent. Ask me the six questions first.";
 /** The same request from a screen that is not the agent's own Script page. */
 export const wholeRequestFor = (agentName: string) =>
-  `Draft the whole script for my agent “${agentName}”. Ask me the five questions first.`;
+  `Draft the whole script for my agent “${agentName}”. Ask me the six questions first.`;
 export const STEPS_REQUEST = "Turn this agent's hand-written script into steps.";
 
 export function PipAsk({ handWritten }: { handWritten: boolean }) {

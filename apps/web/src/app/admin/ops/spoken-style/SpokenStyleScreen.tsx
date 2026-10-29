@@ -50,6 +50,8 @@ const OPENING_LABELS: Readonly<Record<string, string>> = {
   inbound_introduced: "Answering a call, after the agent has introduced itself",
   outbound_introduced: "Calling someone, after the agent has introduced itself",
   test_call_introduced: "The free-trial test call, after the agent has introduced itself",
+  outbound_reason: "Why we are calling, said right after the agent introduces itself",
+  outbound_name_check: "Checking the name of a lead we know, with {name}",
 };
 
 const STATUS_LABELS: Record<StyleEntry["status"], string> = {

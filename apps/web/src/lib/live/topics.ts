@@ -375,6 +375,8 @@ export const STATIC_FAMILIES: Record<string, string> = {
   authn: "the sign-in options of this deployment; they change with a deploy, not a write",
   public: "the public status page, read by people with no session to stream to",
   "voice-preview": "a rendered audio sample; it is fetched once when asked for",
+  "script-check":
+    "the lint's verdict on a script about to go live, keyed by that script, so an edit asks again",
   "integration-options": "the fixed list of services an account can connect",
   "agent-languages":
     "the languages an account may give an agent; they change with an operator's console switch",

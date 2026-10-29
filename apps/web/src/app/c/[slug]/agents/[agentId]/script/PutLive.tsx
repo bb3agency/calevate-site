@@ -22,7 +22,9 @@ import {
   SECONDARY_BUTTON,
 } from "@/components/ui";
 import type { Session } from "@/lib/api/client";
-import { useApplyScript, usePublishScript, type CallScript, type ScriptOut } from "@/lib/api/script";
+import { Why } from "@/components/why";
+import { useApplyScript, usePublishScript, useScriptCheck, type CallScript, type ScriptOut } from "@/lib/api/script";
+import { useClientSession } from "@/lib/api/session";
 
 import { changeSummary } from "./scriptDiff";
 import { sameScript } from "./scriptDraft";
@@ -62,7 +64,38 @@ export function usePutLive(session: Session, agentId: string) {
   };
 }
 
+/**
+ * What the script lint found in the draft (D-945), before it goes live: a count and one
+ * button back to the script, the lines behind "Why?". A warning, never a block.
+ */
+function ScriptWarnings({ agentId, draft, onFix }: { agentId: string; draft: CallScript; onFix: () => void }) {
+  const session = useClientSession();
+  const check = useScriptCheck(session, agentId, draft);
+  if (check.isPending) return null;
+  if (check.isError) {
+    return <p className="mt-3 text-meta text-ink-muted">We could not check its lines this time.</p>;
+  }
+  const { warnings } = check.data;
+  if (warnings.length === 0) return null;
+  return (
+    <div role="status" className="mt-3 rounded-md bg-warn-soft px-3 py-2">
+      <p className="text-body text-ink">
+        {warnings.length === 1 ? "1 line to fix first" : `${warnings.length} lines to fix first`}
+      </p>
+      <div className="mt-2 flex flex-wrap items-center gap-3">
+        <button type="button" className={SECONDARY_BUTTON} onClick={onFix}>
+          Fix them first
+        </button>
+        <Why inline className="text-meta text-ink-muted">
+          {warnings.join(" ")}
+        </Why>
+      </div>
+    </div>
+  );
+}
+
 export function PutLiveDialog({
+  agentId,
   live,
   draft,
   agentOn,
@@ -73,6 +106,8 @@ export function PutLiveDialog({
   onCancel,
   onConfirm,
 }: {
+  /** The agent, so the draft's lines are checked before it goes live (D-945). */
+  agentId?: string;
   /** What callers hear now (the saved script). */
   live: CallScript;
   draft: CallScript;
@@ -119,6 +154,7 @@ export function PutLiveDialog({
       }
     >
       {voiceLine && <p className="mt-2 text-meta text-ink-muted">Voice: {voiceLine}</p>}
+      {agentId && <ScriptWarnings agentId={agentId} draft={draft} onFix={onCancel} />}
       <div className="mt-4">
         <label className={FIELD_LABEL} htmlFor="put-live-summary">
           What changed

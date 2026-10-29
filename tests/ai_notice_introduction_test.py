@@ -202,11 +202,18 @@ def test_the_founders_agents_open_as_decided_and_fit_the_greeting() -> None:
     """The AI and recording notices on, then the AI notice off."""
     rec_te, rec_hi = recording_notice_for(language="te-IN"), recording_notice_for(language="hi-IN")
     expected = {
-        ("a_te_calling", True): (f"నమస్కారం అండి, {TE_AI} ఇప్పుడు మీరు మాట్లాడగలరా, ఫ్రీయేనా? {rec_te}"),
+        # A call it places keeps the founder's "we are calling from" half (D-945).
+        ("a_te_calling", True): (
+            f"నమస్కారం అండి, {TE_AI} మేము Sri Estates నుండి కాల్ చేస్తున్నాము. "
+            f"ఇప్పుడు మీరు మాట్లాడగలరా, ఫ్రీయేనా? {rec_te}"
+        ),
         ("b_te_answering", True): (
             f"నమస్కారం అండి, {TE_AI} కాల్ చేసినందుకు థాంక్స్. చెప్పండి, ఏం కావాలి? {rec_te}"
         ),
-        ("c_hi_calling_male", True): (f"नमस्ते जी, {HI_AI_MALE} क्या यह आपके लिए सही समय है? {rec_hi}"),
+        ("c_hi_calling_male", True): (
+            f"नमस्ते जी, {HI_AI_MALE} हम Sri Estates की ओर से बोल रहे हैं। "
+            f"क्या यह आपके लिए सही समय है? {rec_hi}"
+        ),
         ("a_te_calling", False): (
             f"హాయ్ అండి, మేము Sri Estates నుండి కాల్ చేస్తున్నాము. ఇప్పుడు మీరు మాట్లాడగలరా, ఫ్రీయేనా? {rec_te}"
         ),

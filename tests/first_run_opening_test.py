@@ -100,7 +100,10 @@ async def test_the_first_agent_introduces_itself_then_says_its_opening_line(
     opening = agent.script_opening_line.strip()
     assert agent.first_words == f"నమస్కారం అండి, {notice} {opening}"
     assert not opens_with_greeting(opening)
-    assert "Sri Estates" not in opening and "Anjali" not in opening
+    assert "Anjali" not in opening
+    # A call it places says why after the introduction (D-945): the founder's own "we are
+    # calling from Sri Estates", while no written reason clause exists for Telugu.
+    assert "Sri Estates" not in opening or opening.startswith("మేము Sri Estates నుండి కాల్ చేస్తున్నాము.")
     assert agent.greeting_budget is None or len(agent.first_words) <= agent.greeting_budget.limit
     assert audited == ["system"]
 

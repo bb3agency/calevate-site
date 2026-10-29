@@ -11,9 +11,11 @@
  */
 
 import clsx from "clsx";
+import Link from "next/link";
 
 import { Gauge, READINESS_BANDS, type GaugeBand } from "@/components/arc/gauge";
-import { Disclosure, ProblemNotice, Skeleton } from "@/components/ui";
+import { Disclosure, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton } from "@/components/ui";
+import { Why } from "@/components/why";
 import { useAgentReadiness, type AgentReadiness } from "@/lib/api/readiness";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
 
@@ -60,6 +62,37 @@ export function fixesFor(data: AgentReadiness, link: (path: string) => string) {
   }));
 }
 
+/**
+ * What the score does not count but the owner should still do (D-945): a calendar for an
+ * agent that calls leads and books visits, and a script line the lint found. One button each,
+ * the reason behind "Why?".
+ */
+export function ReadinessAdvice({
+  advice,
+  link,
+}: {
+  advice: AgentReadiness["advice"];
+  link: (path: string) => string;
+}) {
+  if (!advice || advice.length === 0) return null;
+  return (
+    <ul aria-label="Also worth doing" className="space-y-2">
+      {advice.map((item, index) => (
+        <li key={`${item.kind}-${index}`} className="flex flex-wrap items-start gap-x-3 gap-y-1">
+          <Link href={link(item.href)} className={SECONDARY_BUTTON_SM}>
+            {item.action}
+          </Link>
+          {item.detail ? (
+            <Why inline className="text-meta text-ink-muted">
+              {item.detail}
+            </Why>
+          ) : null}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 /** One agent's score with what to fix, on its Overview. */
 export function AgentReadinessPanel({ agentId, slug }: { agentId: string; slug: string }) {
   const session = useClientSession();
@@ -86,6 +119,7 @@ export function AgentReadinessPanel({ agentId, slug }: { agentId: string; slug: 
             allDoneText="Nothing to fix. Ready for callers."
             pointsLabel={(points) => `+${points}`}
           />
+          <ReadinessAdvice advice={readiness.data.advice ?? []} link={link} />
           <Disclosure variant="inline" headingLevel={3} title="How the score is made">
             <ul className="divide-y divide-line">
               {readiness.data.components.map((part) => (

@@ -29,6 +29,7 @@ from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.first_run import names, questions
 from apps.api.first_run import service as first_run
+from apps.api.first_run.questions import ONE_THING
 from apps.api.main import app
 from apps.api.tenancy.business_profile import load_profile
 from apps.workers import first_run as worker
@@ -188,8 +189,10 @@ async def test_a_short_brief_asks_the_profiles_own_gaps_without_a_model() -> Non
     questions_out = brief.json()["questions"]
     assert questions_out["status"] == "ready"
     items = questions_out["items"]
-    assert [item["maps_to"] for item in items] == ["trade", "location", "offer", "hours"]
-    assert [item["id"] for item in items] == ["q1", "q2", "q3", "q4"]
+    # The profile's gaps, then the one every owner is asked (D-945).
+    assert [item["maps_to"] for item in items] == ["trade", "location", "offer", "hours", None]
+    assert items[-1]["id"] == ONE_THING.id
+    assert [item["id"] for item in items] == ["q1", "q2", "q3", "q4", ONE_THING.id]
     trade = items[0]
     assert trade["kind"] == "choices" and "Villas" in trade["options"]
     assert (await _run(tenant_id)).question_runs == 0
@@ -287,7 +290,11 @@ async def test_the_model_writes_the_questions_and_the_gate_drops_bad_ones(
     async with _client() as http:
         ready = await http.get("/v1/first-run", headers=headers)
     items = ready.json()["questions"]["items"]
-    assert [(i["id"], i["kind"]) for i in items] == [("q1", "choices"), ("q2", "single_choice")]
+    assert [(i["id"], i["kind"]) for i in items] == [
+        ("q1", "choices"),
+        ("q2", "single_choice"),
+        (ONE_THING.id, "text"),
+    ]
     assert items[0]["prompt"] == "Which areas of Hyderabad do your projects cover?"
 
 
@@ -408,7 +415,7 @@ async def test_with_no_model_the_questions_are_the_profiles_gaps(
         },
     )
     stored = (await _run(tenant_id)).questions
-    assert [q["maps_to"] for q in stored] == ["trade", "location", "offer", "hours"]
+    assert [q["maps_to"] for q in stored] == ["trade", "location", "offer", "hours", None]
 
 
 async def test_a_run_from_before_d863_reads_its_keys_as_the_fixed_questions() -> None:
@@ -708,8 +715,9 @@ async def test_several_jobs_build_one_agent_with_a_block_per_direction(
         script = (await load_agent_script(session, after.agent_id)).script
     assert count == 1, "one agent for all three jobs"
     assert direction == "both"
+    # Calling has a value step since D-945, so one more step than answering.
     assert [s.id for s in script.stages] == [f"in{n}" for n in range(1, 6)] + [
-        f"out{n}" for n in range(1, 6)
+        f"out{n}" for n in range(1, 7)
     ]
     assert script.stages[4].otherwise == "end", "an incoming call never runs on into calling"
     assert script.stages[0].name.startswith("Incoming call: ")

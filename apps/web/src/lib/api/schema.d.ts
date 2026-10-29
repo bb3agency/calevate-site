@@ -4292,6 +4292,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agents/{agent_id}/script/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** What the script lint finds in a (possibly unsaved) script, before it goes live */
+        post: operations["check_script_v1_agents__agent_id__script_check_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents/{agent_id}/script/draft": {
         parameters: {
             query?: never;
@@ -14236,6 +14253,8 @@ export interface components {
         };
         /** AgentReadinessOut */
         AgentReadinessOut: {
+            /** Advice */
+            advice?: components["schemas"]["ReadinessAdviceOut"][];
             /**
              * Agent Id
              * Format: uuid
@@ -27909,6 +27928,23 @@ export interface components {
             /** Effective From */
             effective_from: string;
         };
+        /**
+         * ReadinessAdviceOut
+         * @description Something to do that the score does not count (D-945).
+         */
+        ReadinessAdviceOut: {
+            /** Action */
+            action: string;
+            /** Detail */
+            detail?: string | null;
+            /** Href */
+            href: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "calendar" | "script";
+        };
         /** ReadinessComponentOut */
         ReadinessComponentOut: {
             /** Detail */
@@ -29205,6 +29241,15 @@ export interface components {
             settled_at: string | null;
             /** Status */
             status: string;
+        };
+        /**
+         * ScriptCheckOut
+         * @description What the script lint finds in a (possibly unsaved) script (D-945): warnings shown
+         *     before it goes live, never a refusal.
+         */
+        ScriptCheckOut: {
+            /** Warnings */
+            warnings: string[];
         };
         /**
          * ScriptContextOut
@@ -31854,6 +31899,8 @@ export interface components {
              * @enum {string}
              */
             reliability: "passed" | "flaky" | "failed" | "unjudged";
+            /** Scorecard */
+            scorecard?: components["schemas"]["TestScorecardItemOut"][];
             setting?: components["schemas"]["TestSettingOut"] | null;
             /** Short Title */
             short_title: string;
@@ -31975,6 +32022,16 @@ export interface components {
              * @default 0
              */
             unreliable: number;
+        };
+        /**
+         * TestScorecardItemOut
+         * @description One item of the judge's sales scorecard (D-945): advice, never the verdict.
+         */
+        TestScorecardItemOut: {
+            /** Item */
+            item: string;
+            /** Mark */
+            mark: string;
         };
         /** TestSettingOut */
         TestSettingOut: {
@@ -42327,6 +42384,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApplyScriptOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    check_script_v1_agents__agent_id__script_check_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreviewIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScriptCheckOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

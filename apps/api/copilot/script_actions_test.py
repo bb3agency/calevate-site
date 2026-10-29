@@ -149,7 +149,7 @@ async def test_whole_keeps_only_the_answers_given() -> None:
     ("mode", "change", "answers", "hand_written", "reason"),
     [
         ("change", "short", None, False, "too short"),
-        ("whole", None, None, False, "five questions"),
+        ("whole", None, None, False, "six questions"),
         ("steps", None, None, False, "already in steps"),
         ("change", "Make the greeting warmer please", None, True, "written by hand"),
     ],
@@ -199,7 +199,7 @@ async def test_the_allowance_refusal_reaches_the_person_before_the_card(
 #: The production eval's case `c-script-whole-asks-first`: nothing answered yet.
 ASKED_ONLY = ("Draft the whole script for this agent",)
 ANSWERED = (
-    "Draft the whole script for this agent. Ask me the five questions first.",
+    "Draft the whole script for this agent. Ask me the six questions first.",
     "Organic groceries. Home cooks call to order. Never promise same-day delivery.",
 )
 
@@ -218,7 +218,7 @@ async def _propose_in_conversation(
 @pytest.mark.parametrize(
     ("answers", "reason"),
     [
-        (None, "five questions first"),
+        (None, "six questions first"),
         ({"what_you_offer": "Organic groceries", "customers": "Home cooks"}, "`what_you_offer`"),
     ],
     ids=["no-answers", "invented-answers"],

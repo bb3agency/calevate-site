@@ -29,11 +29,13 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import date, timedelta
 from typing import Final, Literal, Protocol
 
 from calevate_shared.spoken_guard import opens_with_greeting, textbook_note, textbook_words
 from calevate_shared.spoken_style import style_for
 
+from apps.api.agents.script_lint import CapabilityManifest, unbacked_promise
 from apps.api.compliance.optout import normalize_utterance
 
 Kind = Literal[
@@ -81,6 +83,14 @@ Kind = Literal[
     "offered_numbers",
     "picked_for_them",
     "promised_pace",
+    # D-945 (the call of 30 Oct 2026): "who is this?" answered and a question stacked on it.
+    "stacked_after_who",
+    # D-945: a name the caller already gave asked for again.
+    "reasked_name",
+    # D-945: a promise of what the account cannot do (`agents/script_lint.unbacked_promise`).
+    "unbacked_promise",
+    # D-945: a weekday said with a date it does not fall on, in IST.
+    "wrong_weekday",
 ]
 
 #: How a reply SOUNDS (D-828): the words, numbers, punctuation, length and language of a
@@ -119,6 +129,10 @@ SOUND_KINDS: Final = frozenset(
         "offered_numbers",
         "picked_for_them",
         "promised_pace",
+        # START OF THE CALL decides it (D-945), not the owner's script.
+        "stacked_after_who",
+        # NAME_RULE decides it; a note, because "is that Ravi?" confirming a name reads alike.
+        "reasked_name",
     }
 )
 #: What breaks the caller's task whatever the words: the caller's part said for them, a
@@ -135,6 +149,8 @@ JOB_KINDS: Final = frozenset(
         "goodbye_while_asking",
         "false_recall",
         "invented_source",
+        "unbacked_promise",
+        "wrong_weekday",
     }
 )
 
@@ -1324,6 +1340,119 @@ def _invented_source(reply: str, known: str) -> str | None:
     return None
 
 
+# --- D-945: who-then-ask, a known name asked again, promises, weekdays --------------------
+
+#: The caller asking who is calling or why.
+_ASKS_WHO: Final = re.compile(
+    r"who (?:is|are) (?:this|you)|who'?s (?:this|calling)|why (?:are you|did you) call|"
+    r"ఎవరండి|ఎవరు మాట్లాడ|మీరు ఎవరు|ఎవరు మీరు|ఎందుకు (?:కాల్|ఫోన్)|"
+    r"(?:आप|कौन) (?:कौन|बोल)|क्यों (?:कॉल|फोन)",
+    re.IGNORECASE,
+)
+#: The caller giving their own name.
+_GIVES_NAME: Final = re.compile(r"my name is|this is \w+ here|నా పేరు|मेरा नाम", re.IGNORECASE)
+#: The agent asking for the caller's name.
+_ASKS_NAME: Final = re.compile(
+    r"(?:what(?:'s| is) )?your (?:good )?name\b.*\?|మీ పేరు.*\?|(?:आपका|आप का) (?:शुभ )?नाम.*\?",
+    re.IGNORECASE,
+)
+
+
+def _stacked_after_who(caller_said: str, reply: str) -> str | None:
+    """The question a reply to "who is this?" asked after answering it (D-945), or None."""
+    if not _ASKS_WHO.search(caller_said):
+        return None
+    parts = sentences(reply)
+    if all(_is_question(s) for s in parts):
+        return None
+    return next((s for s in parts if _is_question(s)), None)
+
+
+_WEEKDAYS: Final[tuple[tuple[str, ...], ...]] = (
+    ("monday", "mon", "సోమవారం", "सोमवार"),
+    ("tuesday", "tue", "మంగళవారం", "मंगलवार"),
+    ("wednesday", "wed", "బుధవారం", "बुधवार"),
+    ("thursday", "thu", "గురువారం", "गुरुवार"),
+    ("friday", "fri", "శుక్రవారం", "शुक्रवार"),
+    ("saturday", "sat", "శనివారం", "शनिवार"),
+    ("sunday", "sun", "ఆదివారం", "रविवार"),
+)
+_MONTHS: Final[tuple[tuple[str, ...], ...]] = (
+    ("january", "jan", "జనవరి", "जनवरी"),
+    ("february", "feb", "ఫిబ్రవరి", "फ़रवरी", "फरवरी"),
+    ("march", "mar", "మార్చి", "मार्च"),
+    ("april", "apr", "ఏప్రిల్", "अप्रैल"),
+    ("may", "మే", "मई"),
+    ("june", "jun", "జూన్", "जून"),
+    ("july", "jul", "జూలై", "जुलाई"),
+    ("august", "aug", "ఆగస్టు", "ఆగస్ట్", "अगस्त"),
+    ("september", "sep", "sept", "సెప్టెంబర్", "सितंबर"),
+    ("october", "oct", "అక్టోబర్", "अक्टूबर"),
+    ("november", "nov", "నవంబర్", "नवंबर"),
+    ("december", "dec", "డిసెంబర్", "दिसंबर"),
+)
+
+
+def _alternation(groups: tuple[tuple[str, ...], ...]) -> str:
+    names = sorted({name for group in groups for name in group}, key=len, reverse=True)
+    return "|".join(re.escape(name) for name in names)
+
+
+_WEEKDAY_WORD: Final = rf"(?<![A-Za-z])({_alternation(_WEEKDAYS)})(?![A-Za-z])"
+_MONTH_WORD: Final = rf"(?<![A-Za-z])({_alternation(_MONTHS)})(?![A-Za-z.])"
+_DAY_NUMBER: Final = r"(\d{1,2})(?:st|nd|rd|th|వ|న)?"
+_WEEKDAY_THEN_DATE: Final = re.compile(
+    rf"{_WEEKDAY_WORD}[,\s]+(?:the\s+)?{_DAY_NUMBER}\s*{_MONTH_WORD}", re.IGNORECASE
+)
+_DATE_THEN_WEEKDAY: Final = re.compile(
+    rf"{_DAY_NUMBER}\s*{_MONTH_WORD}[,\s]+{_WEEKDAY_WORD}", re.IGNORECASE
+)
+_TOMORROW_WEEKDAY: Final = re.compile(
+    rf"(?<![A-Za-z])(tomorrow|రేపు)[,\s]+{_WEEKDAY_WORD}|{_WEEKDAY_WORD}[,\s]+(tomorrow|రేపు)",
+    re.IGNORECASE,
+)
+
+
+def _index_of(word: str, groups: tuple[tuple[str, ...], ...]) -> int:
+    folded = word.casefold()
+    return next(i for i, group in enumerate(groups) if folded in group)
+
+
+def _date_near(today: date, month: int, day: int) -> date | None:
+    """The first `day` of `month` no more than a month before `today`: a date said on a call
+    is at most a few weeks back and otherwise ahead. None for a day that month lacks."""
+    for year in (today.year - 1, today.year, today.year + 1):
+        try:
+            found = date(year, month, day)
+        except ValueError:
+            return None
+        if found >= today - timedelta(days=31):
+            return found
+    return None
+
+
+def wrong_weekday(reply: str, today: date) -> str | None:
+    """A weekday said with a date (or with "tomorrow") it does not fall on in the IST
+    calendar, quoted, or None (D-945). Only digit dates and named months and weekdays are
+    read: a date said in number words is left to the judge."""
+    for match in _WEEKDAY_THEN_DATE.finditer(reply):
+        weekday, day, month = match.group(1), int(match.group(2)), match.group(3)
+        found = _date_near(today, _index_of(month, _MONTHS) + 1, day)
+        if found is not None and found.weekday() != _index_of(weekday, _WEEKDAYS):
+            return match.group(0)
+    for match in _DATE_THEN_WEEKDAY.finditer(reply):
+        day, month, weekday = int(match.group(1)), match.group(2), match.group(3)
+        found = _date_near(today, _index_of(month, _MONTHS) + 1, day)
+        if found is not None and found.weekday() != _index_of(weekday, _WEEKDAYS):
+            return match.group(0)
+    tomorrow = (today + timedelta(days=1)).weekday()
+    for match in _TOMORROW_WEEKDAY.finditer(reply):
+        weekday = match.group(2) or match.group(3)
+        if _index_of(weekday, _WEEKDAYS) != tomorrow:
+            return match.group(0)
+    return None
+
+
 def memory_not_said(exchanges: Sequence[Exchange], memory_notice: str) -> str | None:
     """Why a conversation that ended on the agent's goodbye is missing the memory sentence,
     or None (D-865). Only a goodbye after the caller closed counts; the sentence is matched
@@ -1352,6 +1481,8 @@ def conversation_problems(
     memory_notice: str = "",
     known: str = "",
     opening: str = "",
+    manifest: CapabilityManifest | None = None,
+    today: date | None = None,
 ) -> list[TurnProblem]:
     """The problems only a whole conversation shows, each kind once, in order.
 
@@ -1361,6 +1492,8 @@ def conversation_problems(
     script and facts), which may say where its callers come from (D-888). `opening` is what
     the engine said before the first exchange, when it is not one of `exchanges`: a real
     call's greeting, against which every later reply is judged for asking it again (D-912).
+    `manifest` is what the agent can do, against which a promise is judged, and `today` the
+    IST date a stated weekday is checked against (D-945); either None skips its check.
     """
     opening_questions = [s for s in sentences(opening) if _is_question(s)]
     offered: set[int] = set()
@@ -1372,8 +1505,10 @@ def conversation_problems(
     said_before = ""
     caller_lines = ""
     searched = False
+    name_given = False
     for exchange in exchanges:
         said, reply = exchange.said, exchange.reply
+        name_given = name_given or bool(_GIVES_NAME.search(said))
         acted = acted or any(not _LOOKUP_TOOL.search(tool) for tool in exchange.tools)
         caller_raised_number = caller_raised_number or bool(
             _PHONE_NUMBER.search(said) or _OTHER_NUMBER.search(said)
@@ -1439,6 +1574,43 @@ def conversation_problems(
                     f"It named a website or listing to the caller, {_quoted(invented)}, that "
                     "neither the caller nor its facts mentioned. It says only what its facts "
                     "or the caller said.",
+                ),
+            )
+        stacked = _stacked_after_who(said, reply)
+        if stacked:
+            found.setdefault(
+                "stacked_after_who",
+                TurnProblem(
+                    "stacked_after_who",
+                    f"Asked who is calling, it answered and then asked {_quoted(stacked)}. "
+                    "It should say who and why in one line and wait.",
+                ),
+            )
+        if name_given and not _GIVES_NAME.search(said) and _ASKS_NAME.search(reply):
+            found.setdefault(
+                "reasked_name",
+                TurnProblem(
+                    "reasked_name",
+                    "It asked for the caller's name after the caller had already said it.",
+                ),
+            )
+        promise = None if manifest is None else unbacked_promise(reply, manifest)
+        if promise:
+            found.setdefault(
+                "unbacked_promise",
+                TurnProblem(
+                    "unbacked_promise",
+                    f"It promised {promise}. It should take the details for the team instead.",
+                ),
+            )
+        weekday = None if today is None else wrong_weekday(reply, today)
+        if weekday:
+            found.setdefault(
+                "wrong_weekday",
+                TurnProblem(
+                    "wrong_weekday",
+                    f"It said {_quoted(weekday)}, but that weekday and date do not match. It "
+                    "should take dates from the days listed for this call.",
                 ),
             )
         if claims_done(reply, caller_said=said) and not acted:
@@ -1562,4 +1734,5 @@ __all__ = [
     "opened_again",
     "sentences",
     "turn_problems",
+    "wrong_weekday",
 ]

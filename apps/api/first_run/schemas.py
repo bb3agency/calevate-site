@@ -11,10 +11,10 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from apps.api.agents.languages import OfferedLanguage
 from apps.api.agents.starters import StarterJob
 from apps.api.first_run.models import (
+    MAX_ASKED,
     MAX_BRIEF_CHARS,
     MAX_DOCUMENTS,
     MAX_JOBS,
-    MAX_QUESTIONS,
     MAX_RECORDINGS,
 )
 from apps.api.first_run.questions import MAX_OPTIONS, ProfileTopic, QuestionKind
@@ -173,7 +173,7 @@ class AnswerIn(Strict):
 class AnswersIn(Strict):
     """The follow-up answers the owner gave. A question skipped is simply left out."""
 
-    answers: list[AnswerIn] = Field(default_factory=list, max_length=MAX_QUESTIONS)
+    answers: list[AnswerIn] = Field(default_factory=list, max_length=MAX_ASKED)
 
     @field_validator("answers")
     @classmethod
