@@ -48,6 +48,7 @@ Sender purposes (Part 2): **SEC** security · **NOT** notifications · **BIL** b
 | N8 | Number held / released / calls stopped | a number goes on hold, is about to be released, or released | billing address + active owners | Calls to your phone number have stopped · Your phone number will be given up soon · We have given up your phone number(s) | `workers/number_holds.py` |
 | N9 | Weekly knowledge digest | weekly, per agent with enough calls | billing address | What your callers asked this week | `workers/kb_aggregation.py` |
 | N10 | Business verification approved / rejected | an operator decides a KYC review (D-932) | owners | Verification outcome, with the reason and a button to fix it when rejected | `workers/kyc_notices.py` |
+| N11 | Daily summary (D-944) | once a day at 20:58 IST, only for an account whose owner turned it on (Notification settings), and not on a day with nothing in it | billing address + active owners | Today: {n} calls answered, {n} new leads | `workers/owner_digest.py`, `notifications/daily_summary.py` |
 
 ### Billing (`BIL`)
 
@@ -167,6 +168,7 @@ Footer reason lines, by purpose:
 | N8b | Your number will be released on {date} | Your number will be released | Keep it by {action} before {date}. | Open phone numbers |
 | N8c | We released your phone number | Your number was released | {agent}'s number is no longer yours. | Open phone numbers |
 | N9 | What your callers asked this week | What your callers asked | {agent} took {n} calls. Here is what callers asked that the agent could not answer. | Add answers |
+| N11 | Today: {n} calls answered, {n} new leads | Your day on the phones | {n} calls answered and {n} missed today. · {n} new leads, {n} of them hot. · {n} call-backs waiting for you. Facts: spent today, cost per lead today, up to three hot leads by name with the number masked to its last two digits. Built on `product_email` already. | Open your dashboard |
 
 ### Billing
 
@@ -207,7 +209,8 @@ number in the mail, hard rule 6); only the frame and the first lines change.
 Not built. Gmail's sender guidelines (support.google.com/a/answer/81126, read 29 Oct 2026)
 require one-click unsubscribe for "Marketing messages and subscribed messages" from senders
 above 5,000 messages a day to Gmail; the page does not address transactional mail. Of the
-emails above only N9 (weekly digest) is a subscribed periodic message. There is no per-person
+emails above N9 (weekly digest) and N11 (daily summary, which the owner switches on and off
+on Notification settings; its footer links there) are subscribed periodic messages. There is no per-person
 email preference store to honour an unsubscribe, so a `List-Unsubscribe` header would promise
 something nothing records. What it needs: a per-recipient opt-out row (tenant-scoped, RLS,
 one migration), a signed one-click `POST` endpoint on the api, the digest worker reading the

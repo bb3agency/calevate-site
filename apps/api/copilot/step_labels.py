@@ -194,6 +194,7 @@ STEP_LABELS: Final[dict[str, StepLabel]] = {
     # D-938: coverage.
     "help_lookup": _l("Looking up how", "Looked up how"),
     "connection_check": _l("Checking the connection", "Checked the connection"),
+    "account_switches": _l("Checking your switches", "Checked your switches"),
     "account_model_tier_set": _l("Preparing the AI model change", "Prepared the AI model change"),
     "agent_team_alert_set": _l("Preparing the team alert", "Prepared the team alert"),
     "team_alert_contact": _l("Preparing the team address", "Prepared the team address"),

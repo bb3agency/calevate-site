@@ -470,7 +470,7 @@ describe("the pricing page", () => {
     stubApi(RATE_CARD_ROUTES);
     const off = render(await PricingPage());
     const offFee = off.container.querySelector("#platform-fee")?.textContent ?? "";
-    expect(offFee).toMatch(/no monthly fee today/i);
+    expect(offFee).toMatch(/no monthly platform fee today/i);
     expect(offFee).not.toContain("₹");
     off.unmount();
 
@@ -483,6 +483,22 @@ describe("the pricing page", () => {
     expect(fee).toContain("₹1,999 a month");
     expect(fee).toMatch(/never taken from your calling credit/i);
     expect(fee).toMatch(/incoming calls keep being answered/i);
+  });
+
+  it("never says a number is free, and quotes its monthly fee only from the attested price (D-665, D-944)", async () => {
+    stubApi(RATE_CARD_ROUTES);
+    const unpriced = render(await PricingPage());
+    const unpricedText = bodyText(unpriced.container);
+    expect(unpricedText).not.toMatch(/not per number|numbers configured/i);
+    expect(unpricedText).toMatch(/each phone number has a monthly fee, shown before you buy/i);
+    unpriced.unmount();
+
+    stubApi({
+      ...RATE_CARD_ROUTES,
+      "/v1/public/rate-card": { ...RATE_CARD, number_inr_per_month: "250.00" },
+    });
+    const { container } = render(await PricingPage());
+    expect(bodyText(container)).toMatch(/each phone number is ₹250 a month/i);
   });
 
   /**

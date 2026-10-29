@@ -7,6 +7,7 @@ import type { UsagePanel } from "@/lib/api/hooks";
 
 import { renderBillingHub } from "./billingHub";
 import { problem } from "./harness";
+import { COST_PER_RESULT, COST_PER_RESULT_ROUTE } from "./fixtures/proof";
 import { EMPTY_WALLET_LOTS } from "./fixtures/sharedReads";
 
 /**
@@ -213,6 +214,7 @@ function routes(over: Record<string, unknown> = {}) {
     // An invoiced account holds no credit lots: the route answers an empty queue.
     "/v1/billing/wallet/lots": EMPTY_WALLET_LOTS,
     [SPEND_ROUTE]: EMPTY_SPEND,
+    [COST_PER_RESULT_ROUTE]: COST_PER_RESULT,
     ...over,
   };
 }

@@ -197,6 +197,22 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
             "`engine_prompt_layers` composes, whatever the agent holds (D-882)."
         )
     ),
+    "GET /v1/analytics/reply-speed": BoundedByConstruction(
+        by=(
+            "one row per IST week (`weeks`, at most `analytics/proof.MAX_WEEKS`) and language "
+            "the account's calls used, from at most `proof.MAX_SPEED_CALLS` calls (D-944)."
+        )
+    ),
+    "GET /v1/analytics/cost-per-result": BoundedByConstruction(
+        by="one window per `analytics/proof.COST_WINDOWS` (two: 7 and 30 days) (D-944)."
+    ),
+    "GET /v1/ops/reply-speed-by-language": BoundedByConstruction(
+        by=(
+            "one row per IST week (`weeks`, at most `analytics/proof.MAX_WEEKS`) and language "
+            "(the built languages plus `all` and `unknown`), from at most "
+            "`proof.MAX_SPEED_CALLS` calls (D-944)."
+        )
+    ),
     # --- the UI wave's backend lane (D-869, D-870) ------------------------------------------
     "GET /v1/agents/{agent_id}/readiness": BoundedByConstruction(
         by=(

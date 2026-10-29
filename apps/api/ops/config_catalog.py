@@ -395,6 +395,13 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "than this. A filler line does not count as the answer.",
         _THINNEST,
     ),
+    "public_quality_page_enabled": _m(
+        "voice-engine",
+        "thinnest",
+        "Public reply speed page",
+        "Off: no public page shows the platform's reply speed. Waiting on the founder's "
+        "decision; the admin Reply speed by language screen shows the figures.",
+    ),
     "hot_facts_enabled": _m(
         "voice-engine",
         "thinnest",
@@ -1094,6 +1101,12 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "whatsapp",
         "Line affected template name",
         "The approved template that tells a client their line was protected.",
+    ),
+    "whatsapp_template_owner_digest": _m(
+        "notifications",
+        "whatsapp",
+        "Daily summary template name",
+        "The approved template for an owner's daily summary.",
     ),
     "whatsapp_template_line_restored": _m(
         "notifications",

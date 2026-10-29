@@ -4,6 +4,7 @@ import { OPS_INR_LLM_PRICES } from "./fixtures/opsInrLlmPrices";
 import { STYLE_LIST, TELUGU_STYLE } from "./fixtures/spokenStyle";
 import { replyTimeReport } from "./fixtures/replyTimes";
 import { pipQualityReport } from "./fixtures/pipQuality";
+import { COST_PER_RESULT, COST_PER_RESULT_ROUTE, REPLY_SPEED_FIXTURE } from "./fixtures/proof";
 import { contactsFixture, dltRegistrationRoute, progressFixture, resultsFixture } from "./campaignFixtures";
 import { ADMIN_FORWARDING, CODES, READY_TO_FORWARD, SETTLED_TEST, WITH_LINE } from "./fixtures/forwarding";
 
@@ -46,6 +47,8 @@ import OpsHealerPage from "@/app/admin/ops/healer/page";
 import PaymentsPage from "@/app/admin/payments/page";
 import ReplyTimesPage from "@/app/admin/ops/reply-times/page";
 import PipQualityPage from "@/app/admin/ops/pip-quality/page";
+import ReplySpeedPage from "@/app/admin/ops/reply-speed/page";
+import { DAILY_SUMMARY_PATH } from "@/lib/api/proof";
 import KitPage from "@/app/admin/ops/kit/page";
 import WhatsAppAdminPage from "@/app/admin/ops/whatsapp/page";
 import SpokenStylePage from "@/app/admin/ops/spoken-style/page";
@@ -2293,6 +2296,9 @@ const CLIENT_SCREENS: Screen[] = [
     realm: "client",
     element: () => <DashboardPage params={slug} />,
     routes: {
+      // D-944: the daily summary offered (off) and the cost per lead, both swept.
+      [DAILY_SUMMARY_PATH]: { enabled: false, email_addresses: 1, whatsapp: false },
+      [COST_PER_RESULT_ROUTE]: COST_PER_RESULT,
       // A Calevate number and no existing number yet, so the forwarding prompt is swept.
       "/v1/forwarding": READY_TO_FORWARD,
       // Setup not finished, so the dashboard's setup checklist is swept.
@@ -3633,6 +3639,8 @@ const CLIENT_SCREENS: Screen[] = [
     element: () => <PerformancePage />,
     routes: {
       "/v1/me": ME,
+      // D-944: this week measured in two languages, an earlier week unmeasured.
+      "/v1/analytics/reply-speed?weeks=4": REPLY_SPEED_FIXTURE,
       [`/v1/performance?days=30&to=${todayIST()}`]: {
         days: 30,
         funnel: { calls: 51, connected: 39, qualified: 14 },
@@ -3696,6 +3704,7 @@ const CLIENT_SCREENS: Screen[] = [
     element: () => <AlertsPage />,
     routes: {
       "/v1/me": ME,
+      [DAILY_SUMMARY_PATH]: { enabled: false, email_addresses: 1, whatsapp: true },
       "/v1/compliance/whatsapp-alerts": {
         status: "none",
         channel: null,
@@ -3758,6 +3767,7 @@ const CLIENT_SCREENS: Screen[] = [
       // The default Usage view's owner reads, unanswered: this sweep is about the wallet
       // header in its most dangerous state (`billingHub.tsx` explains the defaults).
       ...hubUsageIdle(),
+      [COST_PER_RESULT_ROUTE]: COST_PER_RESULT,
       // The lot queue of a wallet that has run dry: no open lot, no minutes on either quality.
       "/v1/billing/wallet/lots": {
         lots: [],
@@ -4672,6 +4682,24 @@ const ADMIN_SCREENS: Screen[] = [
         permissions: [...ADMIN_ME.permissions, "ops:manage"],
       },
       "/v1/ops/reply-times?days=7": replyTimeReport(),
+    },
+  },
+  {
+    // D-944: the fleet by language, this week measured, the public page off.
+    file: "admin/ops/reply-speed/page.tsx",
+    realm: "admin",
+    element: () => <ReplySpeedPage />,
+    routes: {
+      "/v1/admin/me": {
+        ...ADMIN_ME,
+        permissions: [...ADMIN_ME.permissions, "ops:manage"],
+      },
+      "/v1/ops/reply-speed-by-language?weeks=4": {
+        ...REPLY_SPEED_FIXTURE,
+        clients: 3,
+        complete: true,
+        public_page_enabled: false,
+      },
     },
   },
   {

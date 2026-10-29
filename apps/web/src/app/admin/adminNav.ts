@@ -303,6 +303,15 @@ export const ADMIN_NAV: NavGroup[] = [
         action: "read the voice response-time report",
       },
       {
+        // D-944: the fleet's weekly reply speed by language, the data a public page would
+        // use. Nothing public shows it while `public_quality_page_enabled` is off.
+        href: "/admin/ops/reply-speed",
+        label: "Reply speed by language",
+        icon: Languages,
+        permission: "ops:manage",
+        action: "read the reply speed by language",
+      },
+      {
         // D-937: how Pip's answers went, by area and tool, with answers to review.
         href: "/admin/ops/pip-quality",
         label: "Pip quality",

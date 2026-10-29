@@ -5,6 +5,7 @@ import type { Session } from "@/lib/api/client";
 import { useClientRealm } from "@/lib/api/session";
 import type { Wallet } from "@/lib/api/wallet";
 
+import { CostPerResult } from "./CostPerResult";
 import { SpendOverTime } from "./SpendChart";
 import { UsageTab } from "./UsageTab";
 import { VoiceTiers } from "./VoiceTiers";
@@ -47,6 +48,7 @@ export function UsageView({
       {billingAllowed !== false && (
         <SpendOverTime session={session} allowed={billingAllowed} />
       )}
+      <CostPerResult session={session} allowed={billingAllowed} />
       <UsageTab
         session={session}
         slug={slug}

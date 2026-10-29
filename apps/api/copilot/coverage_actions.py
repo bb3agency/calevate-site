@@ -9,10 +9,11 @@ Each calls the service function its own button's route calls, under the same per
 * `knowledge_refresh` — approve a waiting upload, or read a PDF or page again,
   `POST /v1/kb/uploads/{id}/confirm` and `/read`.
 * `connection_disconnect` — `DELETE /v1/integrations/credentials/{id}`.
-* `account_switch_set` — three owner switches: staff may curate knowledge
+* `account_switch_set` — four owner switches: staff may curate knowledge
   (`PUT /v1/kb/staff-curation`), opt-in required before dialling
-  (`PUT /v1/compliance/call-consent/policy`) and the save-our-number WhatsApp
-  (`PUT /v1/forwarding/save-number`, which demands its emailed code here as on the screen).
+  (`PUT /v1/compliance/call-consent/policy`), the save-our-number WhatsApp
+  (`PUT /v1/forwarding/save-number`, which demands its emailed code here as on the screen)
+  and the owner's daily summary (`PUT /v1/notifications/daily-summary`, D-944).
 
 Every one is `confirm`: a model tier changes what each minute costs; a team alert sends a
 caller's details outside the dashboard; a team address and a disconnect change who receives
@@ -664,7 +665,9 @@ CONNECTION_DISCONNECT: Final = ActionTool(
 # THE OWNER'S SWITCHES
 # =========================================================================================
 
-Switch = Literal["staff_knowledge", "opt_in_before_calling", "save_number_whatsapp"]
+Switch = Literal[
+    "staff_knowledge", "opt_in_before_calling", "save_number_whatsapp", "daily_summary"
+]
 
 _SWITCH_WORDS: Final[dict[str, tuple[str, str, str, str]]] = {
     # (what it is, where it lives, what on means, what off means)
@@ -686,6 +689,12 @@ _SWITCH_WORDS: Final[dict[str, tuple[str, str, str, str]]] = {
         "Callers who book, and opted in to messages, get one WhatsApp naming your number.",
         "Callers who book are not sent the save-our-number WhatsApp.",
     ),
+    "daily_summary": (
+        "Daily summary for the owner",
+        "on the Notification settings screen",
+        "Each evening the day's calls, leads, spend and waiting call-backs go to the owner.",
+        "No daily summary is sent.",
+    ),
 }
 
 
@@ -694,6 +703,7 @@ _SWITCH_AUDIT: Final[dict[str, str]] = {
     "staff_knowledge": "organization.staff_kb_curation_set",
     "opt_in_before_calling": "organization.outbound_consent_policy_set",
     "save_number_whatsapp": "forwarding.save_number_switched",
+    "daily_summary": "organization.daily_summary_set",
 }
 
 
@@ -713,6 +723,10 @@ async def _read_switch(session: AsyncSession, switch: str) -> bool:
         from apps.api.compliance.consent_policy import read_policy
 
         return await read_policy(session)
+    if switch == "daily_summary":
+        from apps.api.notifications.daily_summary import read_switch as read_summary
+
+        return await read_summary(session)
     from apps.api.forwarding.save_number import read_switch as read_save
 
     return await read_save(session)
@@ -727,6 +741,10 @@ async def _write_switch(session: AsyncSession, switch: str, on: bool) -> bool:
         from apps.api.compliance.consent_policy import write_policy
 
         return await write_policy(session, enabled=on)
+    if switch == "daily_summary":
+        from apps.api.notifications.daily_summary import write_switch as write_summary
+
+        return await write_summary(session, enabled=on)
     from apps.api.forwarding.save_number import write_switch as write_save
 
     return await write_save(session, enabled=on)
@@ -790,7 +808,12 @@ ACCOUNT_SWITCH_SET: Final = ActionTool(
         {
             "switch": {
                 "type": "string",
-                "enum": ["staff_knowledge", "opt_in_before_calling", "save_number_whatsapp"],
+                "enum": [
+                    "staff_knowledge",
+                    "opt_in_before_calling",
+                    "save_number_whatsapp",
+                    "daily_summary",
+                ],
             },
             "on": {"type": "boolean"},
         },
@@ -854,7 +877,29 @@ CONNECTION_CHECK: Final = ReadTool(
     run=_connection_check,
 )
 
+
+async def _account_switches(
+    session: AsyncSession, context: ToolContext, args: Mapping[str, Any]
+) -> str:
+    """Each owner switch `account_switch_set` changes, and whether it is on, read by the
+    switch's own reader."""
+    del context, args
+    lines = []
+    for switch, (label, where, _on, _off) in _SWITCH_WORDS.items():
+        state = "on" if await _read_switch(session, switch) else "off"
+        lines.append(f"{label} ({switch}): {state}, {where}.")
+    return " ".join(lines)
+
+
+ACCOUNT_SWITCHES: Final = ReadTool(
+    name="account_switches",
+    description="The owner switches (daily summary, staff knowledge, opt-in, save-our-number).",
+    parameters={"type": "object", "properties": {}, "additionalProperties": False},
+    permission="org:read",
+    run=_account_switches,
+)
+
 #: Composed into the CLIENT realm's reads only, after the routines read.
-COVERAGE_READS: Final[tuple[ReadTool, ...]] = (HELP_LOOKUP, CONNECTION_CHECK)
+COVERAGE_READS: Final[tuple[ReadTool, ...]] = (HELP_LOOKUP, CONNECTION_CHECK, ACCOUNT_SWITCHES)
 
 __all__ = ["COVERAGE_ACTIONS", "COVERAGE_READS"]

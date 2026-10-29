@@ -34,6 +34,7 @@ from apps.api.admin import service as admin_service
 from apps.api.admin.health import client_health
 from apps.api.agents import roster
 from apps.api.agents.test_conversations import latest_run
+from apps.api.analytics import proof
 from apps.api.analytics import service as analytics
 from apps.api.analytics.schemas import SummaryBucket
 from apps.api.billing.history import spend_series
@@ -493,6 +494,84 @@ async def _spend_by_day(session: AsyncSession, ctx: ToolContext, args: ChartArgs
     )
 
 
+def _or_dash(value: Decimal | None) -> str:
+    return "-" if value is None else _n(value)
+
+
+async def _cost_per_result(session: AsyncSession, ctx: ToolContext, args: ChartArgs) -> ChartSpec:
+    """The Billing screen's "What each result cost" card (`analytics/proof.cost_window`)."""
+    assert ctx.tenant_id is not None
+    window = _window(args)
+    cost = await proof.cost_window(
+        session, tenant_id=ctx.tenant_id, days=window.days, today=window.end
+    )
+    rows = [
+        ["Answered call", _n(cost.answered_calls), _or_dash(cost.per_answered_call_inr)],
+        ["Captured lead", _n(cost.leads_captured), _or_dash(cost.per_lead_inr)],
+        ["Booked result", _n(cost.booked_results), _or_dash(cost.per_booked_result_inr)],
+    ]
+    return ChartSpec(
+        chart="cost_per_result",
+        args=args,
+        kind="table",
+        title="What each result cost",
+        unit="inr",
+        columns=[
+            ChartColumn(key="result", label="Result"),
+            ChartColumn(key="count", label="How many", numeric=True),
+            ChartColumn(key="each", label="Rupees each", numeric=True),
+        ],
+        rows=rows,
+        total=_n(cost.spent_inr),
+        counted=f"What left your credit {_span(window)}, divided by each count. A booked "
+        "result is a call whose outcome is a booking or sale. '-' means none to divide by.",
+        window_from=window.start,
+        window_to=window.end,
+        open=ChartOpen(screen="Credits & billing", path="/billing", query={"tab": "usage"}),
+    )
+
+
+def _seconds(ms: float | None) -> str:
+    return "-" if ms is None else f"{ms / 1000:.1f}"
+
+
+async def _reply_speed(session: AsyncSession, ctx: ToolContext, args: ChartArgs) -> ChartSpec:
+    """The Analytics screen's "How fast your agent answered" card, one row per IST week."""
+    del ctx
+    weeks = max(1, min(MAX_CHART_ROWS, -(-args.days // 7)))
+    speed = await proof.client_reply_speed(session, weeks=weeks)
+    totals = [w for w in speed.weeks if w.language == proof.ALL_LANGUAGES]
+    rows = [
+        [
+            f"{w.week_start:%d %b}",
+            _n(w.calls),
+            "-" if w.answered_share is None else f"{w.answered_share * 100:.0f}%",
+            _seconds(w.reply_typical_ms),
+            _seconds(w.reply_slow_ms),
+        ]
+        for w in reversed(totals)
+    ]
+    return ChartSpec(
+        chart="reply_speed",
+        args=args,
+        kind="table",
+        title="How fast your agent answered",
+        unit="count",
+        columns=[
+            ChartColumn(key="week", label="Week of"),
+            ChartColumn(key="calls", label="Calls", numeric=True),
+            ChartColumn(key="answered", label="Answered", numeric=True),
+            ChartColumn(key="typical", label="Usual wait (s)", numeric=True),
+            ChartColumn(key="slow", label="Slow wait (s)", numeric=True),
+        ],
+        rows=rows,
+        counted="Seconds from the caller finishing to the first word of the answer, per IST "
+        f"week, newest first; slow is one wait in ten, shown from {speed.p90_min_calls} "
+        "measured calls. Test calls left out.",
+        open=ChartOpen(screen="Analytics", path="/analytics"),
+    )
+
+
 async def _knowledge_gaps(session: AsyncSession, ctx: ToolContext, args: ChartArgs) -> ChartSpec:
     assert ctx.tenant_id is not None
     found = await teach_questions.list_questions(session, tenant_id=ctx.tenant_id)
@@ -659,6 +738,8 @@ ABILITIES: Final[tuple[ChartAbility, ...]] = (
     ChartAbility("fleet_calls", "admin", "admin:tenants", _fleet_calls),
     ChartAbility("fleet_failures", "admin", "admin:tenants", _fleet_failures),
     ChartAbility("fleet_spend", "admin", "billing:read", _fleet_spend),
+    ChartAbility("cost_per_result", "client", "billing:read", _cost_per_result),
+    ChartAbility("reply_speed", "client", "calls:read", _reply_speed),
 )
 
 BY_NAME: Final[Mapping[str, ChartAbility]] = {a.name: a for a in ABILITIES}

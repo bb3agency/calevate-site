@@ -567,6 +567,10 @@ class Settings(BaseSettings):
     #: The admin "Voice response time" screen judges against them (D-770).
     reply_time_typical_target_ms: int = Field(default=1600, ge=100, le=10_000)
     reply_time_slow_target_ms: int = Field(default=2200, ge=100, le=10_000)
+    #: A public page of the fleet's weekly reply speed by language (D-944). The founder has
+    #: not decided to publish one, so it is off and no public route serves the figures while
+    #: it is; the admin "Reply speed by language" screen shows the data such a page would use.
+    public_quality_page_enabled: bool = False
     #: Put the facts callers ask for most into each agent's instructions, chosen per agent
     #: from evidence (`apps/api/agents/hot_facts.py`, D-896), so those answers need no
     #: knowledge search mid-call. Off, every fact is looked up as before. Saving it
@@ -1415,6 +1419,8 @@ class Settings(BaseSettings):
     whatsapp_template_line_restored: str = Field(
         default="calevate_line_restored_v1", max_length=128
     )
+    # The owner's daily summary (D-944): counts and rupees only, no caller's details.
+    whatsapp_template_owner_digest: str = Field(default="calevate_daily_summary_v1", max_length=128)
 
     # ---- Auto-healer (D-701) --------------------------------------------------------
     # The global kill switch. Off stops every automatic repair, every line hold and every

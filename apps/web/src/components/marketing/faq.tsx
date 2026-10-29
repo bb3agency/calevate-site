@@ -83,7 +83,8 @@ const QUESTIONS: { q: string; a: string }[] = [
       "rate for each of the two voices, and the whole ladder is on our price list, so " +
       "you can see what a minute costs before you talk to anybody. Nothing is charged " +
       "to set you up, and if a monthly platform charge applies it is the same for every " +
-      "client, it is on the price list, and it is paid separately from your credit.",
+      "client, it is on the price list, and it is paid separately from your credit. A " +
+      "phone number you rent through us has a monthly charge, shown before you buy.",
   },
   {
     q: "Where does the agent get its answers from?",

@@ -286,6 +286,9 @@ from apps.workers.own_model_key import (
     push_own_model_key_to_workspace,
     sweep_own_model_workspaces,
 )
+from apps.workers.owner_digest import SEND_HOUR as OWNER_DIGEST_HOUR
+from apps.workers.owner_digest import SEND_MINUTE as OWNER_DIGEST_MINUTE
+from apps.workers.owner_digest import send_owner_digests
 from apps.workers.pinned_facts import recompile_pinned_facts
 from apps.workers.pip_notes import (
     SWEEP_HOURS as PIP_NOTES_SWEEP_HOURS,
@@ -1274,6 +1277,16 @@ CRON_JOBS = [
     # PACK CREDIT PAST ITS EXPIRY (D-840): daily, keyed per lot, so a missed tick lapses the
     # credit a day late and a doubled one lapses nothing twice. :11 shares its minute with
     # no other fleet walk.
+    # THE OWNER'S DAILY SUMMARY (D-944): once a day in the evening, IST. Each account's day
+    # is claimed before sending, so the retry this job raises re-walks the list and reaches
+    # only the accounts left undelivered.
+    _cron(
+        traced_job(send_owner_digests),
+        walk=fleet_wide("one directory read, then one tenant_session per opted-in organization"),
+        hour={OWNER_DIGEST_HOUR},
+        minute={OWNER_DIGEST_MINUTE},
+        max_tries=WORKER_MAX_TRIES,
+    ),
     _cron(
         traced_job(expire_credit_lots),
         walk=fleet_wide("one tenant_session per organization, then one per due lot"),

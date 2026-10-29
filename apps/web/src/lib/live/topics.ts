@@ -70,6 +70,10 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "trial",
     "usage",
     "admin/ops/reply-times",
+    // D-944: the weekly reply speed, the fleet's by language, and rupees per result.
+    "reply-speed",
+    "admin/ops/reply-speed",
+    "cost-per-result",
     "admin/client-health",
     "admin/spend",
     "admin/fleet-spend",
@@ -167,6 +171,7 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "billing-spend-series",
     "billing-statements",
     "usage",
+    "cost-per-result",
     "ai-quota",
     "invoice",
     "spend",
@@ -263,6 +268,8 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
   account: [
     ...SUMMARY,
     "me",
+    // The owner's daily summary switch is on `organizations` (D-944).
+    "daily-summary",
     "members",
     "invitations",
     "kyc",

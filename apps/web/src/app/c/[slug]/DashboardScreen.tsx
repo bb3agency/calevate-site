@@ -26,6 +26,8 @@ import { noFill } from "@/lib/copilot/types";
 
 import { AgentsAtAGlance } from "./AgentsAtAGlance";
 import { CallingCreditTile } from "./CallingCreditTile";
+import { CostPerLead } from "./CostPerLead";
+import { DailySummaryOffer } from "./DailySummaryOffer";
 import { DailyCalls } from "./DailyCalls";
 import { FirstAgentInvite } from "./FirstAgentInvite";
 import { HeldNumberNotice } from "./HeldNumberNotice";
@@ -56,9 +58,9 @@ import { HOME } from "./setup/_ui/copy";
  * owner to trust the screen, and then lies to them on the one day it matters.
  *
  * The tiles the design asked for that the API cannot answer are ABSENT rather than
- * approximated — cost per call, active campaigns, booked appointments, conversion
- * rate. Each is a real question and each needs an endpoint; `docs/BUILD-LOG.md` records
- * which. The week-on-week change under each figure is the server's (`/v1/analytics/stats`).
+ * approximated — active campaigns, booked appointments, conversion rate. Each is a real
+ * question and each needs an endpoint; `docs/BUILD-LOG.md` records which. Cost per lead
+ * now has one (`/v1/analytics/cost-per-result`, D-944) and is shown. The week-on-week change under each figure is the server's (`/v1/analytics/stats`).
  */
 
 export function DashboardScreen({ slug }: { slug: string }) {
@@ -345,12 +347,14 @@ export function DashboardScreen({ slug }: { slug: string }) {
 
         <div className="space-y-10 page-lg:col-span-4">
           <ReadinessPanel readiness={readiness} href={(path) => href(`/c/${slug}${path}`)} />
+          <DailySummaryOffer session={session} />
           {/* MONEY — what is left to spend, then what this month has cost. Each read has
               its own loading and failure arm (§52); a failed read is never a dash. */}
           <Section title="Credit and spend">
             <div className="divide-y divide-line border-y border-line">
               <CallingCreditTile wallet={wallet} href={href(`/c/${slug}/billing?tab=credits`)} />
               <SpendThisMonth usage={usage} href={href(`/c/${slug}/billing?tab=usage`)} />
+              <CostPerLead session={session} href={href(`/c/${slug}/billing?tab=usage`)} />
               {/* WHICH definition produced the after-hours number, from the field the API
                   added for exactly this reason: a guess and a fact must not read the same. */}
               <Metric

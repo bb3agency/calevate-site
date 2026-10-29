@@ -447,12 +447,14 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
     AreaEntry(
         "account_switch_set",
         "settings",
-        "staff may edit knowledge, call only opted-in, save-our-number WhatsApp",
+        "an owner switch on or off",
     ),
     # D-934: charts and tables drawn in the panel, and cards kept on the home screen.
     AreaEntry("report_chart", "reports", "chart or table for the person; to keep it: chart_pin"),
     AreaEntry("chart_pin", "reports", "keep a report_chart on the home screen"),
     AreaEntry("chart_unpin", "reports", "remove a home card by name"),
+    # D-944: the owner switches, read.
+    AreaEntry("account_switches", "settings", "owner switch states"),
 )
 
 AREA_OF: Final[dict[str, Area]] = {entry.tool: entry.area for entry in ENTRIES}

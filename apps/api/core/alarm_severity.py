@@ -292,6 +292,9 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # nothing billed wrongly meanwhile.
     "cost_floor_input_unattested": "attention",
     "credit_expiry_incomplete": "attention",
+    # An opted-in owner's daily summary reached no channel after every retry (D-944). The
+    # dashboard still holds every figure.
+    "owner_digest_incomplete": "attention",
     # The warning before credit lapses could not be promised or had no address (D-840).
     "credit_lapse_notice_promise_failed": "attention",
     "credit_lapse_notice_no_billing_email": "attention",

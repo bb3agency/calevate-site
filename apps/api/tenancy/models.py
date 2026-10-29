@@ -5,7 +5,7 @@ tenant table matches on `tenant_id`. Enums are TEXT + CHECK (mirroring the Pydan
 enums, DATA-MODEL §10) — cheaper to evolve than native PG enums.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
@@ -14,6 +14,7 @@ from calevate_shared.engine import LLM_MODEL_NAMES
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     Integer,
@@ -255,6 +256,13 @@ class Organization(PKMixin, TimestampMixin, Base):
     staff_may_curate_knowledge: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=false()
     )
+    #: The owner's once-a-day summary (D-944), off until they turn it on; and the IST day the
+    #: last one was claimed for, compare-and-set by `workers/owner_digest` so a doubled tick
+    #: sends one summary.
+    owner_digest_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=false()
+    )
+    owner_digest_sent_on: Mapped[date | None] = mapped_column(Date)
     #: THE ACCOUNT'S OUTBOUND IS SERVICE/TRANSACTIONAL, AND THE GATE ENFORCES IT (D-624).
     #:
     #: ⚠ **THIS COLUMN EXISTS BECAUSE A BACKSTOP WAS REMOVED, AND IT IS THE ONLY THING THAT

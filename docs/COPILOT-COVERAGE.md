@@ -317,6 +317,9 @@ D-935 troubleshooting and line-protection healer, D-936 proactive notes, D-937 P
 | team | Verify a team address with its emailed code | screen only | - | NEVER (emailed verification code) |
 | alerts | My WhatsApp hot-lead alerts on/off | screen only | - | NEVER (person's own consent record) |
 | alerts | Desktop alerts on/off | screen only | - | NEVER (browser permission prompt) |
+| alerts | Daily summary on/off | settings_do:account_switch_set (`daily_summary`); state: settings_find:account_switches | confirm / read | BUILT (D-944) |
+| billing | What each result cost (per call, lead, booking) | billing_find:billing_overview; reports_find:report_chart `cost_per_result` | read | BUILT (D-944) |
+| performance | How fast the agent answered, by week | reports_find:report_chart `reply_speed` | read | BUILT (D-944) |
 | lead details | Draft a custom business's lead details | settings_do:lead_fields_draft | confirm | COVERED |
 | lead details | Keep some drafted details | agents_do:lead_fields_keep_draft | confirm | COVERED |
 | lead details | Back to the standard set | agents_do:lead_fields_reset | confirm | COVERED |

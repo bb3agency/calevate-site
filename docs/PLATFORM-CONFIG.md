@@ -289,6 +289,14 @@ Under Notifications, WhatsApp: `whatsapp_template_healer_page`,
 templates (OPERATIONS §2 gate H-1). No new secret: the healer sends through the WhatsApp
 credentials D-91 already declared.
 
+D-944 (30 Oct 2026) adds two live settings. Under Notifications, WhatsApp:
+`whatsapp_template_owner_digest` (default `calevate_daily_summary_v1`) names the utility
+template of the owner's daily summary (OPERATIONS §2 gate H-5). Under Voice engine:
+`public_quality_page_enabled` (default off) says whether a public page may show the fleet's
+weekly reply speed by language; the founder has not decided to publish one, no public route
+serves the figures, and the admin Reply speed by language screen shows the flag beside the
+data such a page would use.
+
 ## 5. Data model
 
 Neither table is tenant-scoped. They are PLATFORM state, admin realm only, and they

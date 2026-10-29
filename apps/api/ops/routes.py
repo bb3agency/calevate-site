@@ -102,6 +102,9 @@ from apps.api.agents.voice_sync import (
     load_voice_catalogue,
     sync_voice_catalogue,
 )
+from apps.api.analytics.proof import DEFAULT_WEEKS as SPEED_DEFAULT_WEEKS
+from apps.api.analytics.proof import MAX_WEEKS as SPEED_MAX_WEEKS
+from apps.api.analytics.proof import FleetReplySpeedOut, fleet_reply_speed
 from apps.api.billing.caps import read_caps, read_spend_counters, recompute_capped
 from apps.api.billing.service import current_billing_month, to_paise
 from apps.api.compliance.audit import verify_chain, write_audit
@@ -1389,6 +1392,22 @@ async def read_reply_times(
     Opening one of the listed calls goes through view-as, which audits the entry.
     """
     return await reply_time_report(session, days=days)
+
+
+@router.get(
+    "/reply-speed-by-language",
+    response_model=FleetReplySpeedOut,
+    openapi_extra=permission_meta("ops:manage"),
+    summary="Every client's reply speed per IST week and language (D-944)",
+)
+async def read_reply_speed_by_language(
+    session: AdminSession,
+    weeks: int = Query(SPEED_DEFAULT_WEEKS, ge=1, le=SPEED_MAX_WEEKS),
+    _: Principal = Depends(requires("ops:manage", realm="admin")),
+) -> FleetReplySpeedOut:
+    """The figures a public quality page would use, which nothing public serves while
+    `public_quality_page_enabled` is off. No audit row, for `read_reply_times`' reason."""
+    return await fleet_reply_speed(session, weeks=weeks)
 
 
 @router.get(
