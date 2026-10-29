@@ -191,16 +191,29 @@ def outbound_opening_of(body: str | None) -> str:
 PRONOUNCE_LEAD: Final = "Say these names exactly like this: "
 
 
-def pronounced_names_of(body: str | None) -> list[str]:
-    """The names on the compiled body's pronunciation line, as the owner spelled them, or []
-    (the compiler's `word as "say_as"` pairs, read back from the body for
-    `opening_line_of`'s reason). Names a caller may say, so the recogniser is told them."""
+def pronunciations_of(body: str | None) -> list[tuple[str, str]]:
+    """The compiled body's pronunciation line as `(word, say_as)` pairs, or [] (the
+    compiler's `word as "say_as"` pairs, read back from the body for `opening_line_of`'s
+    reason). `say_as` is "" when a pair carries none."""
     line = next(
         (ln.strip() for ln in (body or "").splitlines() if ln.strip().startswith(PRONOUNCE_LEAD)),
         "",
     )
     pairs = line.removeprefix(PRONOUNCE_LEAD).split("; ") if line else []
-    return [name for pair in pairs if (name := pair.rsplit(" as ", 1)[0].strip())]
+    out: list[tuple[str, str]] = []
+    for pair in pairs:
+        word, _sep, said = pair.rpartition(" as ")
+        if not _sep:
+            word, said = pair, ""
+        if word.strip():
+            out.append((word.strip(), said.strip().strip('"')))
+    return out
+
+
+def pronounced_names_of(body: str | None) -> list[str]:
+    """The names on the compiled body's pronunciation line, as the owner spelled them, or [].
+    Names a caller may say, so the recogniser is told them."""
+    return [word for word, _said in pronunciations_of(body)]
 
 
 def _section_of(body: str | None, header: str) -> str:
@@ -1276,6 +1289,7 @@ __all__ = [
     "per_call_sections_last",
     "procedure_pointer",
     "pronounced_names_of",
+    "pronunciations_of",
     "quick_fact_lines",
     "render_steps",
     "script_text",
