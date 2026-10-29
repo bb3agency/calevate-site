@@ -32,8 +32,10 @@ const TONE: Record<CopilotNote["tone"], NoticeTone> = {
  * words in the ask box for the person to send, never sending them itself.
  *
  * Opening the panel marks the notes seen, once, which is what takes the launcher's count
- * down. Nothing renders while loading or on a failed read: notes are extra, and a spinner
- * or an error above the conversation would cost more than the notes are worth.
+ * down. Nothing renders while loading: notes are extra, and a skeleton above the
+ * conversation would cost more than the notes are worth. A failed read gets one quiet line
+ * with a retry, because rendering nothing would read exactly like "nothing noticed"
+ * (BUILD-LOG §52).
  */
 export function PipNotes({
   session,
@@ -51,16 +53,31 @@ export function PipNotes({
   const actions = useNoteActions(session);
   const [expanded, setExpanded] = useState(false);
   const markedSeen = useRef(false);
-  const unread = notes.data?.unread ?? 0;
+  // Null until the read arrives: an unread count we never received marks nothing seen.
+  const unread = notes.isSuccess ? notes.data.unread : null;
   const markSeen = actions.seen.mutate;
 
   useEffect(() => {
-    if (realm !== "client" || markedSeen.current || unread === 0) return;
+    if (realm !== "client" || markedSeen.current || !unread) return;
     markedSeen.current = true;
     markSeen();
   }, [realm, unread, markSeen]);
 
-  const all = (notes.data?.notes ?? []).filter((n) => n.button.kind === "ask" || onOpen !== undefined);
+  if (notes.isPending) return null;
+  if (notes.isError) {
+    return (
+      <p
+        role="alert"
+        className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-line px-4 py-2 text-meta text-ink-muted"
+      >
+        Could not check what {ASSISTANT_NAME} noticed.
+        <button type="button" onClick={() => void notes.refetch()} className={SECONDARY_BUTTON_SM}>
+          Try again
+        </button>
+      </p>
+    );
+  }
+  const all = notes.data.notes.filter((n) => n.button.kind === "ask" || onOpen !== undefined);
   if (all.length === 0) return null;
   const shown = expanded ? all : all.slice(0, NOTES_SHOWN);
   const hidden = all.length - shown.length;

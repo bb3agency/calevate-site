@@ -67,22 +67,26 @@ function query(params: Record<string, string | number | undefined>): string {
   return qs ? `?${qs}` : "";
 }
 
-function leadQuery(session: Session, leadId: string) {
-  return {
-    queryKey: ["lead", session.orgSlug, leadId],
-    queryFn: () => apiRequest<Lead>(session, `/v1/leads/${leadId}`),
-  };
+function fetchLead(session: Session, leadId: string): Promise<Lead> {
+  return apiRequest<Lead>(session, `/v1/leads/${leadId}`);
 }
 
 export function useLead(session: Session, leadId: string): UseQueryResult<Lead> {
-  return useQuery({ ...leadQuery(session, leadId), enabled: Boolean(leadId) });
+  return useQuery({
+    queryKey: ["lead", session.orgSlug, leadId],
+    queryFn: () => fetchLead(session, leadId),
+    enabled: Boolean(leadId),
+  });
 }
 
 /** A lead's page read ahead from its row, the way `usePrefetchCall` reads a call's. */
 export function usePrefetchLead(session: Session): (leadId: string) => void {
   const client = useQueryClient();
   return (leadId: string) => {
-    void client.prefetchQuery(leadQuery(session, leadId));
+    void client.prefetchQuery({
+      queryKey: ["lead", session.orgSlug, leadId],
+      queryFn: () => fetchLead(session, leadId),
+    });
   };
 }
 

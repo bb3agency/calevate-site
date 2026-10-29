@@ -3,7 +3,7 @@
 import { BarChart } from "@/components/arc/bar-chart";
 import { DonutChart } from "@/components/arc/donut-chart";
 import { LineChart } from "@/components/arc/line-chart";
-import { StatTile } from "@/components/ui";
+import { ScrollRegion, StatTile } from "@/components/ui";
 import { axisLabel, cutNote, displayValue, plotValue, type ChartSpec } from "@/lib/copilot/charts";
 
 /**
@@ -37,7 +37,7 @@ export function ChartView({ spec, hideTitle = false }: { spec: ChartSpec; hideTi
         {spec.rows.length === 0 ? (
           <p className="text-body text-ink-muted">{empty}</p>
         ) : (
-          <div className="overflow-x-auto">
+          <ScrollRegion label={spec.title}>
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-line">
@@ -67,7 +67,7 @@ export function ChartView({ spec, hideTitle = false }: { spec: ChartSpec; hideTi
                 ))}
               </tbody>
             </table>
-          </div>
+          </ScrollRegion>
         )}
       </figure>
     );

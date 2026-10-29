@@ -8,6 +8,8 @@
 
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 
+import { lookup } from "@/lib/lookup";
+
 import { adminSession } from "./admin";
 import { apiRequest } from "./client";
 import type { components } from "./schema";
@@ -75,7 +77,7 @@ export const AREA_LABELS: Record<string, string> = {
 };
 
 export function areaLabel(area: string): string {
-  return AREA_LABELS[area] ?? area;
+  return lookup(AREA_LABELS, area) ?? area;
 }
 
 export const REASON_LABELS: Record<string, string> = {
@@ -88,6 +90,11 @@ export const REASON_LABELS: Record<string, string> = {
   consent: "Pip not turned on",
   paused: "AI paused",
 };
+
+/** A thumbs-down or refusal reason in words. An unknown one is shown as sent. */
+export function reasonLabel(reason: string): string {
+  return lookup(REASON_LABELS, reason) ?? reason;
+}
 
 export const WHY_LABELS: Record<PipExampleTurn["why"], string> = {
   thumbs_down: "Thumbs down",

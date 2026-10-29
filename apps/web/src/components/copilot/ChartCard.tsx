@@ -4,8 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { ArrowUpRight, Copy, Pin } from "lucide-react";
 
-import { ActionButton, problemToast, useActionFeedback } from "@/components/arc/feedback";
-import { useToast } from "@/components/arc/toast";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { copyText } from "@/components/interior/copy-button";
 import { SECONDARY_BUTTON_SM } from "@/components/ui";
 import type { Session } from "@/lib/api/client";
@@ -30,11 +29,11 @@ export function ChartCard({
 }) {
   const add = useAddPin(session, realm);
   const remove = useRemovePin(session, realm);
-  const { toast } = useToast();
+  const removeFeedback = useActionFeedback(remove, { errorTitle: "Could not take it off" });
   const pinFeedback = useActionFeedback(add, {
     errorTitle: "Could not pin this chart",
     successToast: "Pinned to your home screen",
-    undo: (made) => remove.mutate(made.id, { onError: (error) => toast(problemToast(error, "Could not take it off")) }),
+    undo: (made) => removeFeedback.run(made.id),
   });
   const [copied, setCopied] = useState<"idle" | "copied" | "error">("idle");
   const href = openHref(spec, realm, session.orgSlug);

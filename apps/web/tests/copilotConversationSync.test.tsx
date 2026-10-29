@@ -18,6 +18,8 @@ import {
   useCopilotSurfaceHolder,
 } from "@/lib/copilot/registry";
 
+import { nothingNoticed } from "./copilotNotesStub";
+
 vi.mock("next/navigation", () => ({
   usePathname: () => "/",
   useSearchParams: () => new URLSearchParams(),
@@ -91,6 +93,8 @@ function stubGrowingConversation(pages: { role: string; content: string }[][]) {
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input).replace(API_BASE, "");
+      const notes = nothingNoticed(path);
+      if (notes) return notes;
       if (
         path.startsWith("/v1/copilot/conversation") &&
         (init?.method ?? "GET") === "GET"
@@ -201,6 +205,8 @@ describe("coming back to the tab", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
         const path = String(input).replace(API_BASE, "");
+        const notes = nothingNoticed(path);
+        if (notes) return notes;
         if (path.startsWith("/v1/copilot/conversation")) {
           return new Response(JSON.stringify({ title: "no" }), {
             status: 503,
@@ -264,6 +270,8 @@ function stubAskAndConversation(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input).replace(API_BASE, "");
+      const notes = nothingNoticed(path);
+      if (notes) return notes;
       if (path.startsWith("/v1/copilot/ask")) {
         const asked = JSON.parse(String(init?.body)) as { turn_ids: Record<string, string> };
         ids.question = asked.turn_ids.question;
@@ -422,6 +430,8 @@ describe("the transcript's keys", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const path = String(input).replace(API_BASE, "");
+        const notes = nothingNoticed(path);
+        if (notes) return notes;
         if (
           path.startsWith("/v1/copilot/conversation") &&
           (init?.method ?? "GET") === "GET"
@@ -486,6 +496,8 @@ describe("the transcript's keys", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const path = String(input).replace(API_BASE, "");
+        const notes = nothingNoticed(path);
+        if (notes) return notes;
         if (path.startsWith("/v1/copilot/ask")) {
           bodies.push(typeof init?.body === "string" ? init.body : "");
           const encoder = new TextEncoder();

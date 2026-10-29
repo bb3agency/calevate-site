@@ -38,7 +38,9 @@ export function PinnedCards({
 }) {
   const pins = usePins(session, realm);
   const reorder = useReorderPins(session, realm);
-  const list = pins.data?.pins ?? [];
+  const reorderFeedback = useActionFeedback(reorder, { errorTitle: "Could not move this card" });
+  // Pending (and paused offline) renders nothing, like an empty list: nothing is claimed.
+  if (pins.isPending) return null;
   if (pins.isError) {
     return (
       <Section title="Pinned charts">
@@ -46,13 +48,14 @@ export function PinnedCards({
       </Section>
     );
   }
+  const list = pins.data.pins;
   if (list.length === 0) return null;
 
   const move = (index: number, by: -1 | 1) => {
     const ids = list.map((pin) => pin.id);
     const [moved] = ids.splice(index, 1);
     ids.splice(index + by, 0, moved as string);
-    reorder.mutate(ids);
+    reorderFeedback.run(ids);
   };
 
   return (
@@ -94,11 +97,12 @@ function PinnedCard({
   const rename = useRenamePin(session, realm);
   const renameFeedback = useActionFeedback(rename, { errorDisplay: "inline" });
   const restore = useRestorePin(session, realm);
+  const restoreFeedback = useActionFeedback(restore, { errorTitle: "Could not put this card back" });
   const remove = useRemovePin(session, realm);
   const removeFeedback = useActionFeedback(remove, {
     errorTitle: "Could not remove this card",
     successToast: "Card removed",
-    undo: (_removed, id) => restore.mutate(id),
+    undo: (_removed, id) => restoreFeedback.run(id),
   });
   const spec = card.data?.spec;
 

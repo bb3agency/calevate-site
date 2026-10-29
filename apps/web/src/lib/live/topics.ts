@@ -394,6 +394,9 @@ export const STATIC_FAMILIES: Record<string, string> = {
   // checks it reflects are polled while they are out.
   "go-live": "the go-live guide, polled while the agents move or a check is out",
   "junction-go-live": "read once by the sign-in junction to choose where to send an owner",
+  // Pip's scores (D-937) read the answer-outcome tables, which the server lists in
+  // `apps/api/live/topics.QUIET_TABLES`: no topic announces a write to them.
+  "admin/ops/pip-quality": "Pip's success scores over a window of days, read on demand when the page opens",
 };
 
 /** Every family a note about `topics` refetches. */

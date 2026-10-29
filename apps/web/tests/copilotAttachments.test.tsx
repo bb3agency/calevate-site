@@ -18,6 +18,7 @@ import { OfficeTextError, officeText } from "@/lib/copilot/officeText";
 import { useCopilotSurface, useCopilotSurfaceHolder } from "@/lib/copilot/registry";
 
 import { expectNoA11yViolations } from "./a11y";
+import { nothingNoticed } from "./copilotNotesStub";
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/",
@@ -240,6 +241,8 @@ function stubFetch() {
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input).replace(API_BASE, "");
+      const notes = nothingNoticed(path);
+      if (notes) return notes;
       if (path.startsWith("/v1/copilot/uploads/") && init?.method === "DELETE") {
         deletes.push(path);
         return new Response(null, { status: 204 });
