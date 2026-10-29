@@ -416,6 +416,36 @@ async def test_an_unsigned_delivery_is_refused_and_a_signed_one_is_queued_once(
     assert len(queued) == 2
 
 
+async def test_the_claim_is_committed_before_its_job_is_queued(
+    meta_app: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A worker may run the job the instant it is queued, and it closes the claim by id; a
+    claim still inside the handler's open transaction is invisible to it, so the row would
+    commit afterwards and stay open for good."""
+    seen: list[str | None] = []
+
+    async def fake_enqueue(job: str, payload: dict[str, Any], **kw: Any) -> str:
+        if "inbox_id" in payload:
+            async with untenanted_session() as other:
+                seen.append(
+                    (
+                        await other.execute(
+                            text("SELECT status FROM webhook_inbox_events WHERE id = :id"),
+                            {"id": payload["inbox_id"]},
+                        )
+                    ).scalar()
+                )
+        return "job"
+
+    monkeypatch.setattr(hook_routes, "enqueue", fake_enqueue)
+    body = json.dumps(_delivery(_waba())).encode()
+    transport = httpx.ASGITransport(app=api_app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://api.test") as http:
+        answer = await http.post("/hooks/v1/meta/whatsapp", content=body, headers=_signed(body))
+    assert answer.status_code == 200
+    assert seen and all(status == "processing" for status in seen), seen
+
+
 async def test_the_handshake_echoes_only_for_our_verify_token(meta_app: None) -> None:
     transport = httpx.ASGITransport(app=api_app)
     async with httpx.AsyncClient(transport=transport, base_url="http://api.test") as http:

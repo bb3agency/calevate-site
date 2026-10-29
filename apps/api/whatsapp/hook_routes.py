@@ -9,7 +9,8 @@ one way.
 FAST ACK, WORK LATER. Each event is claimed once in `webhook_inbox_events` (Meta retries for
 up to 7 days and asks for deduplication) and handed to the `ingest_whatsapp_event` job; the
 handler resolves no tenant and writes nothing else. A queue we cannot reach answers 503 so
-Meta's own retries carry the delivery, and the claim rolls back with the transaction.
+Meta's own retries carry the delivery; a claim left `processing` is re-claimed once its
+lease lapses.
 
 Hard rule 6: no number, no message body and no template text reach a log line here.
 """
@@ -119,17 +120,20 @@ async def whatsapp_events(request: Request) -> WhatsAppHookAckOut:
     accepted = duplicate = 0
     bucket = int(datetime.now(UTC).timestamp()) // ACTIVITY_BUCKET_S
     try:
-        async with untenanted_session() as session:
-            for event in events:
-                if event.kind == "activity":
-                    await enqueue(
-                        INGEST_JOB,
-                        {"event": event.payload()},
-                        job_id=f"wa-activity:{event.waba_id}:{bucket}",
-                    )
-                    accepted += 1
-                    continue
-                key = event.key()
+        for event in events:
+            if event.kind == "activity":
+                await enqueue(
+                    INGEST_JOB,
+                    {"event": event.payload()},
+                    job_id=f"wa-activity:{event.waba_id}:{bucket}",
+                )
+                accepted += 1
+                continue
+            key = event.key()
+            # The claim commits BEFORE the job is queued: a worker that ran first would
+            # otherwise mark a row it cannot yet see, and the row would then commit as
+            # `processing` and be re-marked `enqueued` forever after the work was done.
+            async with untenanted_session() as session:
                 claim = await claim_inbox_event(
                     session,
                     provider=INBOX_PROVIDER,
@@ -137,17 +141,20 @@ async def whatsapp_events(request: Request) -> WhatsAppHookAckOut:
                     payload_hash=key,
                     event_name=event.change,
                 )
-                if claim.state == "duplicate":
-                    duplicate += 1
-                    continue
-                await enqueue(INGEST_JOB, {"event": event.payload(), "inbox_id": str(claim.row_id)})
+            if claim.state == "duplicate":
+                duplicate += 1
+                continue
+            await enqueue(INGEST_JOB, {"event": event.payload(), "inbox_id": str(claim.row_id)})
+            # Guarded on `processing`, so it is a no-op when the worker already finished.
+            async with untenanted_session() as session:
                 await mark_inbox_enqueued(session, row_id=claim.row_id)
-                accepted += 1
+            accepted += 1
     except ProblemError:
         raise
     except Exception as exc:
         # The queue (Redis) or the inbox could not take it. Not a verdict on the delivery:
-        # the 503 makes Meta redeliver, and the claims rolled back with the transaction.
+        # the 503 makes Meta redeliver, and a claim left `processing` is re-claimed by
+        # `claim_inbox_event` once its lease lapses.
         log.warning("whatsapp_hook_deferred", extra={"error": type(exc).__name__})
         raise ProblemError(
             kind="transient",
