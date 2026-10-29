@@ -500,7 +500,7 @@ def test_the_api_and_the_workers_both_announce_their_commits() -> None:
     from apps.workers import settings as worker_settings
 
     assert "install_change_capture(get_engine())" in inspect.getsource(main._startup)
-    assert "install_change_capture(get_engine())" in inspect.getsource(worker_settings.startup)
+    assert "install_change_capture(get_engine())" in inspect.getsource(worker_settings._boot)
 
 
 async def test_a_stopping_process_ends_its_streams_at_once(
