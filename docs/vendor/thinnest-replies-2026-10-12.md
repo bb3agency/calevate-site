@@ -2194,3 +2194,68 @@ marked.
 10. **Empty lists.** Get Agent returns `[]` (never null) for `backchannelWords`,
     `acknowledgementWords` and `vocabulary` when none are set. (Our drift check already treats
     null and `[]` alike.)
+
+## 40. TRAI's 2026 amendment, caller name, limits and the 29 Oct release (DRAFTED 30 Oct 2026, D-940 and D-941)
+
+From the market and regulation research of 30 Oct 2026
+(`docs/research/reports/Calevate market and technology edge.md`; regulation notes
+`docs/research/research_notes/Calevate market and technology edge/india_regulation.md`, rememory
+8a05aded) and the 29 Oct docs snapshot (`thinnest-findings/mirror/snapshots/2026-10-29/`).
+Items 1-2 decide how the restored declaration gate (D-941) is filed; 3 decides what callers see
+from 1 Nov; 4-9 are capacity and the 29 Oct release (D-940).
+
+> Subject: TRAI's automated-call declaration (from about 17 Nov), caller name, limits and your 29 Oct release
+>
+> Hi Ashutosh,
+>
+> A few questions, most of them time-sensitive because of TRAI's amendment of 18 Sep 2026.
+>
+> **TRAI and caller name**
+>
+> 1. The TCCCPR amendment of 18 Sep 2026 says a call placed by software (including an AI voice)
+>    from a number not declared in advance to the originating access provider is treated as
+>    unsolicited commercial communication, about 60 days after notification (around 17 Nov 2026).
+>    For calls our clients' agents place from numbers rented in their customer workspaces: who is
+>    the "Sender" under the regulations (our client, Calevate, or ThinnestAI), and who is the
+>    originating access provider for those numbers?
+> 2. How is the declaration filed for those numbers, by whom, and can you or Plivo file it for
+>    us? What do you need from us and from each client (business details, KYC, the list of
+>    numbers)? We would like this done before 17 Nov.
+> 3. Caller name display (CNAP) is switching on for 4G and above from 1 Nov 2026. On a number
+>    rented in a client's business name, which name will the person being called see: the
+>    client's business, Calevate, ThinnestAI or the carrier? Is there a way to set the preferred
+>    business name?
+> 4. Can you provide 1601-series numbers, and is that series planned for sectors beyond the
+>    first phase (utilities, logistics, courier)?
+> 5. The amendment lets operators charge each other ₹0.05 per minute for automated calls (140,
+>    1600 and 1601 numbers excepted). Will this be passed on to us, and from when?
+>
+> **Limits**
+>
+> 6. Could you raise our pay-as-you-go limits: concurrent calls (now 20) and agents per customer
+>    workspace (now 2)? We are onboarding clients who run several agents and campaigns at once.
+>    What would 50 and 100 concurrent calls, and 5 and 10 agents per customer workspace, cost?
+>
+> **Knowledge and voices**
+>
+> 7. When will PDFs and website links added to an agent's knowledge be used on calls? Our
+>    clients' brochures and price sheets are PDFs.
+> 8. For own-key voice (`llm_voice` / `voice`), which voice providers do you accept besides
+>    Cartesia? We would like to test Sarvam Bulbul and Google's voices on Telugu.
+>
+> **Your 29 Oct release**
+>
+> 9. Call insights: can it be switched on per agent through Update Agent (we manage agents only
+>    through the API), what does it cost per call, and is `insights` also produced on calls
+>    that run on our own model (`llm` and `llm_voice`)?
+> 10. Timer v2: does its pause check work on Telugu and Hindi calls, and on the own-key paths
+>     (`llm`, `llm_voice`)? Does it add anything to reply time?
+> 11. WhatsApp calling: can an agent answer a WhatsApp voice call over SIP (Meta's Calling API),
+>     so a customer can call a business on WhatsApp and reach its agent?
+>
+> **Still open from earlier**
+>
+> 12. The signed DPA and your sub-processor list.
+>
+> Thanks,
+> Umesh
