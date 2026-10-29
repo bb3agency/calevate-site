@@ -69,14 +69,18 @@ _CALL_REF = (
 #: `attribution._CALL_ROWS_SQL` records): per IST day, and per agent. Read separately, a
 #: debit committed between the two reads would give a per-agent split that does not add to
 #: the daily total. Half-open on `occurred_at` so the index on (tenant_id, occurred_at)
-#: drives it; the IST day is only computed for the rows already in range.
+#: drives it; the IST day is only computed for the rows already in range. The call is a
+#: LATERAL ... LIMIT 1 so it is a primary-key probe per debit in range: a plain join let the
+#: planner hash every call the account ever had to match one month of debits.
 _SERIES_SQL: Final = f"""
 WITH d AS (
   SELECT e.delta, e.reason, e.meta,
          (e.occurred_at AT TIME ZONE 'Asia/Kolkata')::date AS day,
          c.agent_id, a.name AS agent_name
     FROM credit_ledger e
-    LEFT JOIN calls c ON e.reason = 'usage' AND c.id = {_CALL_REF}
+    LEFT JOIN LATERAL (
+      SELECT c.agent_id FROM calls c WHERE e.reason = 'usage' AND c.id = {_CALL_REF} LIMIT 1
+    ) c ON true
     LEFT JOIN agents a ON a.id = c.agent_id
    WHERE e.tenant_id = :tid AND e.occurred_at >= :start AND e.occurred_at < :end
 )

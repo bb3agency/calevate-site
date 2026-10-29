@@ -254,7 +254,11 @@ SELECT f.per_call, f.call_id, f.unit_type, f.tier, f.llm_model, f.secs, f.qty, f
        f.currency_assumed, f.currency_lo, f.currency_hi, f.trial_cost, f.on_trial,
        c.agent_id, c.started_at, c.direction, a.name
   FROM folded f
-  LEFT JOIN calls c ON c.id = f.call_id
+  -- A primary-key probe per folded row (LIMIT 1 keeps the planner from flattening it into
+  -- a hash join over every call the account ever had, to match one month of rows).
+  LEFT JOIN LATERAL (
+    SELECT c.agent_id, c.started_at, c.direction FROM calls c WHERE c.id = f.call_id LIMIT 1
+  ) c ON true
   LEFT JOIN agents a ON a.id = c.agent_id
  ORDER BY f.per_call DESC, f.call_id, f.unit_type
 """
