@@ -28,6 +28,7 @@ import { JobCard } from "./JobCard";
 import { NavigationReceipt } from "./NavigationReceipt";
 import { PipConsentGate } from "./PipConsent";
 import { ProposalCard } from "./ProposalCard";
+import { DiagnosisCard } from "./DiagnosisCard";
 import { StepList } from "./StepList";
 import { panelFrame, type PanelPlacement } from "./panelFrame";
 import {
@@ -574,6 +575,21 @@ export function CopilotPanel({
             ""
           }
         />
+
+        {/* WHY SOMETHING DID NOT WORK (D-935): a troubleshoot read's checklist, the cause
+            open with its one button. The admin realm gets no button that would ask its Pip
+            for a client change it cannot make; the card says the next step in words. */}
+        {conversation.steps.map((step) =>
+          step.status === "done" && step.diagnosis ? (
+            <DiagnosisCard
+              key={step.id}
+              diagnosis={step.diagnosis}
+              asking={conversation.asking}
+              onAsk={realm === "client" ? (text) => conversation.ask(text) : undefined}
+              onNavigate={onNavigate}
+            />
+          ) : null,
+        )}
 
         {/* A CHANGE THE ASSISTANT IS OFFERING TO MAKE — not one it has made.
             `aria-live="polite"` on the wrapper rather than focus management on the card:

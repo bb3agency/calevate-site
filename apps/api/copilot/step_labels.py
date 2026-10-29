@@ -56,6 +56,12 @@ STEP_LABELS: Final[dict[str, StepLabel]] = {
     "voices_offered": _l("Checking the voices", "Checked the voices"),
     "agent_settings": _l("Reading the agent's set-up", "Read the agent's set-up"),
     "agent_known_facts": _l("Checking what it knows by heart", "Checked what it knows by heart"),
+    # D-935: troubleshoot mode.
+    "agent_diagnose": _l("Checking why the agent did not answer", "Checked the agent"),
+    "call_diagnose": _l("Checking why the call failed", "Checked the call"),
+    "campaign_diagnose": _l("Checking why the campaign is not calling", "Checked the campaign"),
+    "delivery_diagnose": _l("Checking where the lead went", "Checked where the lead went"),
+    "knowledge_diagnose": _l("Checking how your knowledge is used", "Checked your knowledge"),
     # Client changes.
     "lead_set_status": _l("Updating the lead", "Updated the lead"),
     "dnc_add": _l("Adding to do-not-call", "Added to do-not-call"),
@@ -193,6 +199,7 @@ STEP_LABELS: Final[dict[str, StepLabel]] = {
     "admin_alerts": _l("Checking alerts", "Checked alerts"),
     "admin_voices": _l("Checking the voices", "Checked the voices"),
     "admin_client_standing": _l("Checking the client's standing", "Checked the client's standing"),
+    "admin_diagnose": _l("Running the checks", "Ran the checks"),
     "platform_halt_outbound": _l("Halting outgoing calls", "Halted outgoing calls"),
     "admin_kyc_review": _l("Recording the verification decision", "Recorded the decision"),
     "admin_workspace_provision": _l("Setting up the workspace", "Set up the workspace"),
