@@ -8252,7 +8252,7 @@ export interface paths {
          * Rate one of Pip's answers — thumbs up, thumbs down, or take it back
          * @description The asker's thumbs on one answer (D-937), changeable, one per answer.
          *
-         *     `404 copilot_answer_not_found` for an id that is not one of YOUR answers in this
+         *     `404 not_found` for an id that is not one of YOUR answers in this
          *     account: a question, someone else's answer and a refused question all read the same.
          *     The reason is a closed list; `note` (for `other`) is redacted before it is stored and
          *     never logged. NO audit row, for `clear_copilot_conversation`'s reason: it is feedback

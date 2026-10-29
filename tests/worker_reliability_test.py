@@ -336,6 +336,8 @@ def test_the_probe_and_the_writer_read_one_column_not_two_spellings_of_a_scan() 
     from apps.workers import pipeline
 
     probe = inspect.getsource(pipeline._pipeline_settled)
-    writer = inspect.getsource(pipeline._post_call_stages)
+    # `_post_call_stages` wraps the stages so its side tasks settle on any exit; the stages
+    # themselves, the fan-out included, run in `_run_post_call_stages`.
+    writer = inspect.getsource(pipeline._run_post_call_stages)
     assert "crm_notified_at" in probe, "the poller must read the column, not rebuild it"
     assert "_mark_crm_notified" in writer, "the fan-out must stamp the column it is read by"

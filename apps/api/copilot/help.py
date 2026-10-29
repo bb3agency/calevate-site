@@ -67,7 +67,7 @@ _STOP: Final = frozenset(
     (
         "a", "an", "and", "are", "as", "at", "be", "can", "could", "do", "does", "for",
         "from", "get", "how", "i", "in", "is", "it", "me", "my", "of", "on", "or", "our",
-        "please", "set", "show", "tell", "that", "the", "there", "this", "to", "up", "us",
+        "please", "set", "show", "tell", "that", "the", "there", "this", "to", "up",
         "want", "we", "what", "when", "where", "which", "who", "why", "will", "with", "you",
         "your",
     )

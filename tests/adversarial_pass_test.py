@@ -553,6 +553,32 @@ async def _seed_one_of_everything(tenant_id: uuid.UUID, user_id: uuid.UUID) -> d
             row_id = uuid.uuid4()
             await s.execute(text(sql), {"i": row_id, "t": tenant_id, **extra})
             ids[key] = str(row_id)
+        # D-936/D-934: a Pip note and a pinned card, each the account's own.
+        for key, sql in (
+            (
+                "note_id",
+                "INSERT INTO copilot_notes (id, tenant_id, kind, subject, episode_key, payload) "
+                "VALUES (:i, :t, 'good_week', 'week', 'good_week:' || CAST(:i AS text), "
+                "'{}'::jsonb)",
+            ),
+            (
+                "pin_id",
+                "INSERT INTO dashboard_pins (id, tenant_id, chart, args, title, position) "
+                "VALUES (:i, :t, 'calls_by_day', '{}'::jsonb, 'Calls', 0)",
+            ),
+        ):
+            row_id = uuid.uuid4()
+            await s.execute(text(sql), {"i": row_id, "t": tenant_id})
+            ids[key] = str(row_id)
+        # D-937: the owner's own answer, recorded under the `{turn_id}` the sweep already
+        # holds, so voting on it from a neighbour reaches a real row.
+        await s.execute(
+            text(
+                "INSERT INTO copilot_answer_outcomes (id, tenant_id, user_id, turn_id, "
+                "completed) VALUES (:i, :t, :u, :turn, true)"
+            ),
+            {"i": uuid.uuid4(), "t": tenant_id, "u": user_id, "turn": uuid.UUID(ids["turn_id"])},
+        )
         ids["version"] = "1"
         # A test's key inside a run: the run id is what a neighbour must not reach.
         ids["key"] = "k1"
@@ -958,6 +984,16 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     # D-781: one person's attached file, read and removed only by its owner.
     ("GET", "/v1/copilot/uploads/{file_id}/content", {}, {}),
     ("DELETE", "/v1/copilot/uploads/{file_id}", {}, {}),
+    # D-937: thumbs on an answer only its asker may rate.
+    ("PUT", "/v1/copilot/turns/{turn_id}/vote", {"vote": "down"}, {}),
+    # D-934: a neighbour's pinned card would show their figures or rearrange their home.
+    ("GET", "/v1/copilot/pins/{pin_id}/card", {}, {}),
+    ("PATCH", "/v1/copilot/pins/{pin_id}", {"title": "Mine"}, {}),
+    ("DELETE", "/v1/copilot/pins/{pin_id}", {}, {}),
+    ("POST", "/v1/copilot/pins/{pin_id}/restore", {}, {}),
+    # D-936: putting away or acting on a neighbour's note.
+    ("POST", "/v1/copilot/notes/{note_id}/dismiss", {}, {}),
+    ("POST", "/v1/copilot/notes/{note_id}/acted", {}, {}),
     # D-784: a client's own WhatsApp account, resolved under the caller's RLS.
     ("POST", "/v1/whatsapp/accounts/{account_id}/finish", {}, {}),
     ("POST", "/v1/whatsapp/accounts/{account_id}/disconnect", {}, {}),

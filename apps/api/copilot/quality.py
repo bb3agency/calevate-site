@@ -273,13 +273,8 @@ async def record_vote(
         )
     ).first()
     if row is None:
-        raise ProblemError(
-            kind="not_found",
-            code="copilot_answer_not_found",
-            title="That answer can't be rated",
-            detail="It is not one of your answers, or it was a question that was not answered.",
-            remediation="Rate an answer from your own conversation.",
-        )
+        # The plain `not_found`, so a neighbour's answer id reads exactly like no id at all.
+        raise ProblemError.not_found("Answer")
     return StoredVote(
         vote=cast("CopilotVote | None", row[0]), reason=cast("CopilotVoteReason | None", row[1])
     )

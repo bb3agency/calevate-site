@@ -38,8 +38,8 @@ log = get_logger(__name__)
 #: The window the alarm judges. A day: long enough to collect `MIN_VOTES`, short enough
 #: that a fix clears the episode the next day.
 ALARM_WINDOW: Final = timedelta(hours=24)
-#: The minute of the hour it runs at; :17 is free of the other fleet-wide walks.
-ALARM_MINUTE: Final = frozenset({17})
+#: The minute of the hour it runs at; :41 is free of the other fleet-wide walks.
+ALARM_MINUTE: Final = frozenset({41})
 #: How long the admin Pip's outcome rows are kept: past the page's 30-day window.
 ADMIN_KEEP: Final = timedelta(days=90)
 

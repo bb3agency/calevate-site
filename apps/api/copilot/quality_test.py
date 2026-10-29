@@ -207,7 +207,7 @@ async def test_only_the_asker_can_rate_and_a_refused_question_cannot_be_rated() 
             f"/v1/copilot/turns/{refused}/vote", json={"vote": "up"}, headers=_headers(token, slug)
         )
     assert stranger.status_code == 404
-    assert stranger.json()["type"].endswith("/copilot_answer_not_found")
+    assert stranger.json()["type"].endswith("/not_found")
     assert not_answered.status_code == 404
     del other_tenant
 

@@ -35,6 +35,9 @@ _BOARD: Permission = "org:read"
 
 CopilotUser = Annotated[Principal, Depends(requires(_USE))]
 BoardReader = Annotated[Principal, Depends(requires(_BOARD, realm="admin"))]
+# The notes are the account's, filtered by role, so reading them is an `org:read` like the
+# pinned cards: support viewing as the client sees what the client sees. Changing them is not.
+NotesReader = Annotated[Principal, Depends(requires(_BOARD))]
 
 
 class _Strict(BaseModel):
@@ -96,23 +99,18 @@ def _out(view: notes.NoteView) -> CopilotNoteOut:
 
 
 def _not_found() -> ProblemError:
-    return ProblemError(
-        kind="not_found",
-        code="copilot_note_not_found",
-        title="That note is gone",
-        detail="It was put away or what it was about has cleared.",
-        remediation="Open Pip again to see the current notes.",
-    )
+    # The plain `not_found`, so a neighbour's note id reads exactly like no id at all.
+    return ProblemError.not_found("Note")
 
 
 @router.get(
     "/copilot/notes",
     response_model=CopilotNotesOut,
-    openapi_extra=permission_meta(_USE),
+    openapi_extra=permission_meta(_BOARD),
     summary="What Pip noticed in this account, and the items it repeats from other screens",
 )
 async def list_copilot_notes(
-    session: Annotated[AsyncSession, Depends(db)], principal: CopilotUser
+    session: Annotated[AsyncSession, Depends(db)], principal: NotesReader
 ) -> CopilotNotesOut:
     views = await notes.read_notes(session, role=principal.role)
     return CopilotNotesOut(

@@ -79385,7 +79385,7 @@
         "tags": [
           "copilot"
         ],
-        "x-calevate-permission": "copilot:use"
+        "x-calevate-permission": "org:read"
       }
     },
     "/v1/copilot/notes/seen": {
@@ -80317,7 +80317,7 @@
     },
     "/v1/copilot/turns/{turn_id}/vote": {
       "put": {
-        "description": "The asker's thumbs on one answer (D-937), changeable, one per answer.\n\n`404 copilot_answer_not_found` for an id that is not one of YOUR answers in this\naccount: a question, someone else's answer and a refused question all read the same.\nThe reason is a closed list; `note` (for `other`) is redacted before it is stored and\nnever logged. NO audit row, for `clear_copilot_conversation`'s reason: it is feedback\nabout the assistant, not an act on the account. Own session, so the person's other\nwindows are told after the commit.",
+        "description": "The asker's thumbs on one answer (D-937), changeable, one per answer.\n\n`404 not_found` for an id that is not one of YOUR answers in this\naccount: a question, someone else's answer and a refused question all read the same.\nThe reason is a closed list; `note` (for `other`) is redacted before it is stored and\nnever logged. NO audit row, for `clear_copilot_conversation`'s reason: it is feedback\nabout the assistant, not an act on the account. Own session, so the person's other\nwindows are told after the commit.",
         "operationId": "vote_copilot_answer_v1_copilot_turns__turn_id__vote_put",
         "parameters": [
           {

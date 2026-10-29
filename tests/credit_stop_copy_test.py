@@ -58,6 +58,7 @@ WITHDRAWN = (
 #: least one of each set is present.
 FACT_OUTGOING = ("outgoing calls", "outgoing ones", "make outgoing", "nothing goes out")
 FACT_INCOMING = (
+    "don't answer incoming",
     "answering incoming",
     "no longer answering",
     "not answering incoming",
@@ -401,7 +402,7 @@ def test_the_credits_console_does_not_name_the_identity_tiers_for_a_money_rule()
 UNCHANGED_CONDITIONS: tuple[tuple[str, str, str], ...] = (
     (
         "apps/web/src/app/c/[slug]/billing/UsageTab.tsx",
-        "you have reached your spending",
+        "People calling you still get through",
         "the client's own monthly spend cap",
     ),
     (

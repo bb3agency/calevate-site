@@ -146,15 +146,22 @@ BORN_IST_SLOTS: dict[str, tuple[int, int, str]] = {
     "cron:sweep_hot_facts": (4, 31, "D-896"),
 }
 
+#: Crons that run every hour of an IST working window rather than once a day.
+WINDOW_IST_SLOTS: dict[str, tuple[frozenset[int], int, str]] = {
+    "cron:sweep_pip_notes": (frozenset(range(8, 22)), 56, "D-936"),
+}
+
 
 def test_every_daily_or_weekly_cron_sits_at_its_documented_ist_slot() -> None:
     timed = {job.name: job for job in WorkerSettings.cron_jobs if job.hour is not None}
-    assert set(timed) == set(IST_SLOTS) | set(BORN_IST_SLOTS), (
-        "a cron with an hour was added or removed; give it a row in BORN_IST_SLOTS (new) "
-        "or IST_SLOTS (moved by D-709)"
+    assert set(timed) == set(IST_SLOTS) | set(BORN_IST_SLOTS) | set(WINDOW_IST_SLOTS), (
+        "a cron with an hour was added or removed; give it a row in BORN_IST_SLOTS (new), "
+        "WINDOW_IST_SLOTS (hourly in a window) or IST_SLOTS (moved by D-709)"
     )
     for name, (hour, minute, _source) in (IST_SLOTS | BORN_IST_SLOTS).items():
         assert timed[name].hour == {hour} and timed[name].minute == {minute}, name
+    for name, (hours, minute, _source) in WINDOW_IST_SLOTS.items():
+        assert timed[name].hour == set(hours) and timed[name].minute == {minute}, name
 
 
 def test_each_slot_is_thirty_minutes_before_the_utc_instant_it_replaced() -> None:

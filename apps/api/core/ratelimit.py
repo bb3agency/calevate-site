@@ -604,7 +604,7 @@ def too_many_requests(decision: Decision) -> ProblemError:
             kind="transient",
             code="rate_limit_unavailable",
             title="Temporarily unavailable",
-            detail="We cannot take this request right now.",
+            detail="We're busy for a moment and could not do that.",
             status=503,
             remediation="Try again in a minute.",
             headers={"Retry-After": str(decision.retry_after_s)},

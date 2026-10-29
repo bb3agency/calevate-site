@@ -62,7 +62,7 @@ describe("thumbs on a Pip answer (D-937)", () => {
   it("shows the stored vote and goes back to it when a save fails", async () => {
     renderAdminPage(
       <AnswerRating turnId={TURN} session={SESSION} realm="client" vote="up" />,
-      { [PUT]: problem(404, { type: "https://calevate.tech/problems/copilot_answer_not_found", title: "That answer can't be rated", status: 404 }) },
+      { [PUT]: problem(404, { type: "https://calevate.tech/problems/not_found", title: "Answer not found", status: 404 }) },
     );
     const up = screen.getByRole("button", { name: "Helpful" });
     expect(up.getAttribute("aria-pressed")).toBe("true");

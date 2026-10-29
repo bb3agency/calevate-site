@@ -95,4 +95,9 @@ async def test_the_reads_by_creation_time_use_the_index() -> None:
             shown = "\n".join(str(row[0]) for row in plan)
             # The plan is in the message because the full suite leaves other tenants' rows
             # in `calls`, and a plan that differs only there cannot be reproduced alone.
-            assert INDEX in shown, f"{statement}\n{shown}"
+            assert "Seq Scan on calls" not in shown, f"{statement}\n{shown}"
+            # The qualified-leads count is driven from `leads`, so the planner may reach the
+            # calls through `ix_calls_lead_id` (one lookup per lead) instead of the time index;
+            # both are index reads. Every other statement starts from `calls` by time.
+            served = (INDEX, "ix_calls_lead_id") if "FROM leads" in statement else (INDEX,)
+            assert any(name in shown for name in served), f"{statement}\n{shown}"

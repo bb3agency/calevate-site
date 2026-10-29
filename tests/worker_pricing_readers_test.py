@@ -50,11 +50,14 @@ def _calls_in(function: Any) -> set[str]:
 
 
 def test_the_pricing_readers_are_installed_at_worker_startup() -> None:
-    assert "start_pricing_refresher" in _calls_in(worker_settings.startup), (
+    # Both worker processes (D-929: the main one and the slow-jobs one) boot through `_boot`.
+    assert "start_pricing_refresher" in _calls_in(worker_settings._boot), (
         "the worker never installs the attested-price readers: every sync reader in that "
         "process answers from its uninstalled default, so an operator's attestation is "
         "invisible to metering and to the pickers, with nothing raised"
     )
+    for start in (worker_settings.startup, worker_settings.bulk_startup):
+        assert "_boot" in _calls_in(start), f"{start.__name__} skips the shared boot"
 
 
 def test_the_name_the_worker_calls_is_the_real_one() -> None:
