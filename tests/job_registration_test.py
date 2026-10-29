@@ -74,7 +74,7 @@ def test_the_definition_scan_subtracts_the_lifecycle_hooks_and_only_those() -> N
     JOB that started being subtracted would make it blind, which is worse.
     """
     hooks = check_job_wiring.lifecycle_hook_names()
-    assert hooks == {"startup", "shutdown", "on_job_start", "on_job_end"}, hooks
+    assert hooks == {"startup", "bulk_startup", "shutdown", "on_job_start", "on_job_end"}, hooks
     defined = {definition.name for definition in check_job_wiring.defined_jobs()}
     assert not defined & hooks, "a lifecycle hook is being counted as a job"
     assert "run_post_call_pipeline" in defined and "apply_retention" in defined

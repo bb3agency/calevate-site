@@ -2,7 +2,8 @@
 #
 #   api            :8000  ← api.calevate.tech
 #   voice-runtime  :8100  ← hooks.calevate.tech      LATENCY-CRITICAL, hard rule 3
-#   workers               ← ARQ, no listener
+#   workers               ← ARQ, no listener: the default queue and every cron
+#   workers-bulk          ← ARQ, no listener: the slow-job queue (D-929)
 #   redis                 ← NO published host port (raghava rule, DEPLOYMENT §10)
 #
 # NOT here, on purpose:
@@ -23,8 +24,8 @@
 
 name: calevate
 
-# YAML anchors, not copy-paste. Three services share one image and one set of host
-# plumbing; a fourth service added by copy-paste is how one of them ends up without
+# YAML anchors, not copy-paste. The python services share one image and one set of host
+# plumbing; a service added by copy-paste is how one of them ends up without
 # `extra_hosts` and fails to reach Postgres in a way that looks like a network problem.
 x-python-service: &python-service
   image: calevate/app:${CALEVATE_IMAGE_TAG:-local}
@@ -228,6 +229,28 @@ services:
     # wedged worker as healthy. The real signal is external and already exists —
     # `/healthz/ready` on api reports queue depth and oldest-waiting age, i.e. stale-worker
     # detection measured from the QUEUE rather than from the process (OPERATIONS §4).
+
+  # The slow-job worker (D-929): document reads and OCR, agent test runs, AI copy, walks
+  # over every agent of an account (`core/queue.BULK_JOBS`). It reads its own queue, so
+  # those jobs never hold a slot the post-call pipeline or a notification is waiting for.
+  # No crons. Deployed with `workers`: `vps-deploy.sh` treats `workers` as both.
+  workers-bulk:
+    <<: *python-service
+    command: ["arq", "apps.workers.settings.BulkWorkerSettings"]
+    environment:
+      # ONE slot on the starter box: its purpose is keeping slow jobs off the main
+      # worker, not running many of them, and a document read's peak memory is
+      # unmeasured on a 3.8 GB host (DEPLOYMENT §2b's memory budget). 2 on KVM2 (§2c).
+      # The pool keeps the jobs-below-pool rule `workers` follows, with one spare
+      # connection for a nested read (`tests/starter_sizing_test.py`).
+      DB_POOL_SIZE: ${WORKERS_BULK_DB_POOL_SIZE:-2}
+      WORKER_MAX_JOBS: ${WORKERS_BULK_MAX_JOBS:-1}
+    depends_on:
+      redis: {condition: service_healthy}
+    # `BulkWorkerSettings.job_completion_wait` (45s) drains inside this, as for `workers`.
+    stop_grace_period: 60s
+    # NO healthcheck, for the reason `workers` has none. `/healthz/ready` watches the bulk
+    # queue's oldest job too.
 
   # One-shot, never started by `up`. `--profile migrate` is what runs it, and only
   # `vps-deploy.sh` does that, between the build and the container swap.

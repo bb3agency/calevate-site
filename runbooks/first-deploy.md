@@ -348,7 +348,7 @@ Leave `NGINX_AUTO_RELOAD` unset on this first run — the deploy renders the ngi
 and prints the install commands rather than touching `/etc/nginx`. Step 9 installs it.
 
 It will take a while: a serial build, then migrations, then the seed, then redis, then
-`workers → api → voice-runtime` one at a time with a health wait on each. If it fails, it
+`workers → workers-bulk → api → voice-runtime` one at a time with a health wait on each. If it fails, it
 stops there and runs nothing after — read the banner and go to `runbooks/deploy-failed.md`,
 which is ordered by the step that failed.
 

@@ -245,12 +245,12 @@ curl -sS -i http://127.0.0.1:8000/healthz     # api
 curl -sS -i http://127.0.0.1:8100/healthz     # voice-runtime
 ```
 
-**`swap workers` has no URL to poll.** It fails with `workers is not staying up` when the
+**`swap workers` and `swap workers-bulk` have no URL to poll.** Each fails with `<service> is not staying up` when the
 new container restarted, exited or was not running at any sample in its 30-second settle
 window (`SETTLE_S`). The status and restart count are in the message; the cause is in
-`docker compose -p calevate -f compose.prod.yml logs --tail=200 workers`, and it is almost
+`docker compose -p calevate -f compose.prod.yml logs --tail=200 workers` (or `workers-bulk`), and it is almost
 always an import error or a configuration refusal at startup. api and voice-runtime have
-not been swapped yet when this fires — workers go first.
+not been swapped yet when this fires — both workers go first (D-929).
 
 `/healthz` checks Postgres and Redis. A 503 there with a healthy `/healthz/live` means the
 process is fine and a dependency is not — check host Postgres and the redis container

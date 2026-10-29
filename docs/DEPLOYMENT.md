@@ -98,7 +98,7 @@ nginx (host) ── admin.calevate.tech ─┐
    │            api.calevate.tech ───▶ api container (:8000)
    │            hooks.calevate.tech ─▶ voice-runtime container (:8100)
    │
-Docker Compose (project: calevate): api · voice-runtime · workers · redis
+Docker Compose (project: calevate): api · voice-runtime · workers · workers-bulk · redis
 Host: PostgreSQL 16 · pm2 (web) · certbot · GitHub Actions runner
            (with the pgvector EXTENSION — required since D-502, not contingency: two
             migrations refuse without it. `apt install postgresql-16-pgvector`, then
@@ -107,7 +107,7 @@ Object storage: Cloudflare R2 (recordings, raw payloads, exports) — location h
                 main bucket `calevate-call-recordings` (in use, read off the VPS 28 Oct 2026)
 ```
 
-- Python services (api, voice-runtime, workers) run in Compose — one image, three
+- Python services (api, voice-runtime, workers, workers-bulk) run in Compose — one image, four
   services. Redis in Compose with **no published host ports** (raghava rule).
 - Postgres on the host; containers reach it via `host.docker.internal`
   (`extra_hosts: host.docker.internal:host-gateway`); Redis by service name.
@@ -327,8 +327,9 @@ starter):
 | voice-runtime | 4 | 12 | 52 |
 | api | 2 | 16 | 34 |
 | workers (ARQ) | 1 | 16 | 17 |
+| workers-bulk (ARQ, D-929) | 1 | 3 | 4 |
 | migrations, psql, ops | — | — | ~11 |
-| **total** | | | **~114** |
+| **total** | | | **~118** |
 
 PostgreSQL's default `max_connections = 100` (minus 3 superuser-reserved) cannot hold
 that, so **set `max_connections = 200` on the VPS** alongside the §2 baseline — or cut
@@ -353,6 +354,7 @@ and nothing in this repo pins a core count. Move when the trigger fires, not bef
 | Supported peak in-flight | ~1–20 (test + first client) | ~100 (pilot) | 250+ (§2a) |
 | Pools (`API_`/`VOICE_RUNTIME_`/`WORKERS_DB_POOL_SIZE`) | **6 / 6 / 6** | 12 / 12 / 12 | 16 / 12 / 16 (§2a table) |
 | ARQ jobs at once (`WORKERS_MAX_JOBS`) | **5** | 10 | 10 |
+| Slow jobs at once, `workers-bulk` (`WORKERS_BULK_MAX_JOBS` / `WORKERS_BULK_DB_POOL_SIZE`, D-929) | **1 / 2** | 2 / 3 | 2 / 3 |
 | Redis `maxmemory` (`REDIS_MAXMEMORY`), policy `noeviction` | **256mb** | raise with RAM | raise with RAM |
 | Postgres `max_connections` | **100** | 200 | 200 |
 | Postgres `shared_buffers` | **768 MB** | 2 GB | 2 GB |
@@ -383,8 +385,10 @@ hang up together — which is the trigger below, and is a resize away.
    in each service's `environment:` block from those three, and a compose `environment:`
    entry overrides `env_file:`, so a `DB_POOL_SIZE` line in `.env` is read and discarded.
    The `migrate` one-shot is fixed at 5 and is not tunable — correctly, it runs alone
-   between the build and the swap. Starter budget: `3 x (6 + 1) + (5 + 1) + ~5 ops = 32`
-   of `max_connections = 100` (`tests/starter_sizing_test.py` does the sum).
+   between the build and the swap. `workers-bulk` has its own knob,
+   `WORKERS_BULK_DB_POOL_SIZE` (2). Starter budget:
+   `3 x (6 + 1) + (2 + 1) + (5 + 1) + ~5 ops = 35` of `max_connections = 100`
+   (`tests/starter_sizing_test.py` does the sum).
 3. **ARQ runs 5 jobs at once (`WORKERS_MAX_JOBS`, arq's default is 10).** A job holds a
    pooled connection, so more jobs than the worker's 6 connections only queue on the
    pool's 5-second timeout and fail; 5 leaves one for a nested read.
@@ -395,6 +399,36 @@ hang up together — which is the trigger below, and is a resize away.
    Redis refuses writes loudly instead
    (https://redis.io/docs/latest/develop/reference/eviction/). arq's own docs say nothing
    about eviction.
+
+**The starter's memory budget (D-929).** Production stays on Hostinger srv1929611 —
+1 vCPU, 3.8 GB RAM, 4 GB swap, Postgres 16 on the host, Redis, api, voice-runtime,
+workers, workers-bulk and the Next.js web under pm2, all on one box — until there are
+five clients (founder, 29 Oct 2026). No compose service sets a `mem_limit`, so the budget
+is the sum of what each line can hold:
+
+| line | MiB | source |
+|---|---|---|
+| Postgres `shared_buffers` | 768 | the table above |
+| Redis `maxmemory` | 256 | `compose.prod.yml` `REDIS_MAXMEMORY` default |
+| Next.js under pm2 | 1024 | `apps/web/ecosystem.config.cjs` `max_memory_restart: "1G"` |
+| api, idle | 236 | measured, see below |
+| voice-runtime, idle | 83 | measured |
+| workers, idle | 186 | measured |
+| workers-bulk, idle | 186 | measured (same module) |
+| **resident** | **2739** | |
+| **left of 3800** | **1061** | for the OS, Postgres backends, each python service's `/tmp` (tmpfs, `size=256m`, RAM while used) and every running job |
+
+"Measured" is the peak RSS of a fresh `python -c "import <entrypoint>"`, highest of three
+runs, in the python:3.12 test container on 29 Oct 2026. It is each process's FLOOR: what a
+running job adds on top is not measured, and the OS's own share is not measured either.
+`tests/starter_sizing_test.py` repeats the sum, reading the three ceilings from the files
+that set them. **That is why `workers-bulk` runs ONE job at a time here** (its default,
+`WORKERS_BULK_MAX_JOBS=1`): its jobs read documents of up to 20 MiB
+(`kb/pdf_render.MAX_UPLOAD_BYTES`) and make long model calls, a second slot's peak is
+unmeasured, and ~1 GB of shared room on one core is no place to find out. One slot is
+enough for the purpose — keeping slow jobs off the main worker — at the cost of slow jobs
+queueing behind each other. The 4 GB of swap is the margin, not the budget; the
+`next build` that runs during a deploy (`WEB_BUILD_HEAP_MB`, 2048) lives in it.
 
 **Better still: stop building on the box.** Build the image in GitHub-hosted CI,
 push it to a registry, and have the VPS pull. Then `docker build` and `next build` never
@@ -412,6 +446,44 @@ every voice-runtime response and `webhook_ack_ms` is the metric (§2a). Resize w
 Then: resize the plan, raise `--workers` to match the new vCPU (**never more workers than
 vCPU**), and re-measure `T` on the new host before quoting any concurrency number. §2a's
 `T ≈ 250 acks/s` was measured on 4 vCPU and does not transfer down — it is a CPU rate.
+
+## 2c. When to upgrade (D-929)
+
+**Trigger.** Five clients (founder, 29 Oct 2026), or earlier on any of these signals,
+each of which exists today:
+
+- `webhook_ack_ms` p95 above 250 ms, or a client starting outbound campaigns (§2b's
+  trigger, unchanged);
+- `/healthz/ready` answering `queue_stale` (the default queue's oldest job waiting over
+  120 s, or the bulk queue's over 420 s: `core/health.WATCHED_QUEUES`), or its `queue`
+  detail showing depth that does not drain between checks;
+- `postcall_pipeline_stalled` paging (`runbooks/alarm-index.md`), or the
+  `WORKER_TERMINAL` alerts `job_killed_at_timeout` / `job_retries_exhausted`
+  (`apps/workers/settings.ARQ_TERMINAL_MESSAGES`) recurring;
+- memory and swap. **No alarm watches these**; read them on the host with `free -m` and
+  `docker stats --no-stream`. Swap in steady use outside a deploy's `next build` means the
+  budget in §2b no longer fits.
+
+**What to raise.** Every value below is the KVM2 or PRODUCTION column of §2b's table and
+§2a; a knob those columns do not size says so. Set them in `/var/www/calevate/.env`, then
+deploy every python service.
+
+| knob | 2 vCPU / 8 GB (§2b KVM2) | 4 vCPU / 16 GB (§2b PRODUCTION, sized for ≥4 / ≥8 GB) |
+|---|---|---|
+| `VOICE_RUNTIME_WORKERS` | 2 | 4 |
+| `API_WORKERS` | 1 | 2 |
+| `API_DB_POOL_SIZE` | 12 | 16 |
+| `VOICE_RUNTIME_DB_POOL_SIZE` | 12 | 12 |
+| `WORKERS_DB_POOL_SIZE` | 12 | 16 |
+| `WORKERS_MAX_JOBS` | 10 | 10 |
+| `WORKERS_BULK_MAX_JOBS` / `WORKERS_BULK_DB_POOL_SIZE` | 2 / 3 | 2 / 3 |
+| `REDIS_MAXMEMORY` | "raise with RAM": no figure is sized | "raise with RAM": no figure is sized |
+| Postgres `max_connections` (host) | 200 | 200 |
+| Postgres `shared_buffers` (host) | 2 GB | 2 GB (no figure is sized for 16 GB) |
+| Swap (`/etc/fstab`) | 2 GB | 2 GB |
+
+Then re-measure `T` (§2a) on the new host before quoting any concurrency, and re-run the
+connection sum in `tests/starter_sizing_test.py` against the new values.
 
 
 ## 3. CI/CD (raghava model, adapted)
@@ -735,9 +807,9 @@ Sequence, with the Calevate substitutions (uv/alembic for npm/prisma):
    had run. `up -d` on a healthy container is a no-op, so this costs a correct deploy
    nothing.
 10. **Container swap**, one service at a time, `compose up -d --no-deps <service>`, in the
-   order workers → api → voice-runtime (§4b), each followed by a health wait of
+   order workers → workers-bulk → api → voice-runtime (§4b), each followed by a health wait of
    **90×2s** on `/healthz` (§10's lesson: 60s was shorter than a migrate-on-boot, which
-   trains operators to ignore red deploys). `workers` has no HTTP listener, so its swap
+   trains operators to ignore red deploys). The workers have no HTTP listener, so each swap
    is gated by watching the new container instead: it must stay `running` with
    `RestartCount` 0 for `SETTLE_S` (30s). Before that gate existed a worker that died on
    import passed its swap, because `restart: unless-stopped` kept it cycling behind a green
@@ -845,12 +917,13 @@ rather than to claim a rollout mechanism this repo does not have.
 
 What is done about it:
 
-- **Order.** workers first (no reader waits on them; a job landing in their gap sits in
-  Redis), then api, then **voice-runtime last** — its gap is the only one that costs a
+- **Order.** workers and workers-bulk first (no reader waits on them; a job landing in
+  their gap sits in Redis, and the bulk queue has a reader before a new api routes jobs
+  onto it), then api, then **voice-runtime last** — its gap is the only one that costs a
   call, so it is the shortest-lived and the last thing to happen.
 - **Graceful stop.** `stop_grace_period` is 30s for api and voice-runtime (each longer
   than its uvicorn `--timeout-graceful-shutdown`, 25s and 20s, so the drain finishes and
-  the lifespan's shutdown hooks still get to run) and 60s for workers, so in-flight work
+  the lifespan's shutdown hooks still get to run) and 60s for both workers, so in-flight work
   finishes instead of being killed. The api's was ABSENT until D-182, which meant Docker's
   10-second default against a 25-second drain: every api deploy ended in SIGKILL.
   `tests/worker_reliability_test.py` pins drain < grace for all three services.
@@ -873,11 +946,11 @@ Not a caveat — a mechanism, in one reviewable table (`components_for_paths`):
 
 | A change under… | deploys |
 |---|---|
-| `apps/api/` (crm, billing, admin, …) | api, workers |
-| `apps/api/core/` | api, workers, **voice-runtime** |
+| `apps/api/` (crm, billing, admin, …) | api, workers, workers-bulk |
+| `apps/api/core/` | api, workers, workers-bulk, **voice-runtime** |
 | `apps/voice-runtime/` | voice-runtime |
-| `apps/workers/` | workers |
-| `packages/shared/`, `uv.lock`, `pyproject.toml`, `Dockerfile`, `compose.prod.yml`, `alembic/` | all three |
+| `apps/workers/` | workers, workers-bulk |
+| `packages/shared/`, `uv.lock`, `pyproject.toml`, `Dockerfile`, `compose.prod.yml`, `alembic/` | every python service |
 | `apps/web/`, `pnpm-lock.yaml` | web |
 | `infra/nginx/` | nginx |
 
@@ -936,6 +1009,9 @@ production has been deployed by hand with `scripts/vps-deploy.sh` since 22 Sep 2
 > sudo -u postgres pg_dump -Fc -d calevate -f /var/backups/calevate/pre-<short sha>-$(date +%F-%H%M).dump
 > cd /var/www/calevate && sudo -u calevate scripts/vps-deploy.sh --expected-sha <full sha> api voice-runtime workers web
 > ```
+>
+> `workers` in that list deploys both worker services, `workers` and `workers-bulk` (D-929),
+> so the command is unchanged by the second worker.
 >
 > `--expected-sha` refuses any commit but the one named. The full step-by-step, including the
 > four nginx exports (§9.4a) and the nginx install that needs a sudo-capable login, is in

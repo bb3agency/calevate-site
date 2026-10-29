@@ -878,7 +878,10 @@ curl -sS -i -H "Authorization: Bearer <a session holding ops:manage>" \
 200 + `"status":"ready"` is the pass. 503 + `"status":"not_ready"` names its own reason in
 `degradation_mode` — `db_down`, `schema_behind`, `redis_down`, `queue_stale`,
 `config_missing`, in that priority order — and `config_missing` lists the keys in
-`fields[]`. `schema_behind` (D-390) means THIS IMAGE CARRIES MIGRATIONS THE DATABASE
+`fields[]`. `queue_stale` covers both job queues (D-929): the default one when its oldest
+job has waited over 120 s, the slow-job one (`workers-bulk`) over 420 s; the detail's
+`queue.by_queue` shows each one's depth and wait, and the log line names the stale one in
+`stale_queues`. `schema_behind` (D-390) means THIS IMAGE CARRIES MIGRATIONS THE DATABASE
 HAS NOT APPLIED: run `uv run alembic upgrade head` against it. A database at a
 revision this image has never heard of is a rollback and stays green on purpose. **Send the credential**: without
 `ops:manage` the endpoint answers the status word alone and nothing else (D-128 — it used

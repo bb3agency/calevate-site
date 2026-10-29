@@ -51,10 +51,10 @@ class OutboxMessage(PKMixin, Base):
 
     # **THIS COLUMN ROUTES NOTHING, IT NEVER HAS, AND IT IS BEING REMOVED.** Read that
     # before you believe the name: no reader anywhere branches on it — `dispatch_outbox`
-    # publishes without it and `WorkerSettings` sets no `queue_name`, so every job lands
-    # on arq's single default queue whatever this says. Believing otherwise is the
+    # publishes without it, and the arq queue a job lands on is chosen by its job name
+    # (`core/queue.queue_for`, D-929) whatever this says. Believing otherwise is the
     # expensive mistake (an operator assuming notifications are isolated from CRM
-    # deliveries when they share one worker's ten slots), which is why the warning sits
+    # deliveries when they share one worker's slots), which is why the warning sits
     # on the column rather than only beside the constant.
     #
     # D-217 closed D-162's fork by dropping it rather than by growing a second worker

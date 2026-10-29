@@ -55,6 +55,7 @@ from sqlalchemy import text
 
 from apps.api.core.errors import PROBLEM_CONTENT_TYPE
 from apps.api.core.logging import get_logger
+from apps.api.core.queue import BULK_QUEUE, DEFAULT_QUEUE, WORKER_JOB_TIMEOUT_S
 from apps.api.core.redis import get_redis
 from apps.api.core.settings import get_settings, readiness_missing_keys
 from apps.api.db.session import untenanted_session
@@ -67,7 +68,19 @@ DegradationMode = Literal[
 
 # A job waiting longer than this means no worker is draining the queue.
 QUEUE_STALE_AFTER_S = 120.0
-ARQ_QUEUE_KEY = "arq:queue"
+
+#: Every arq queue `/healthz/ready` watches, by the name its detail reports, with the
+#: wait past which that queue's oldest ready job means nobody is draining it (D-929).
+#: The bulk worker has few slots and long jobs, so its oldest job can wait a whole
+#: `WORKER_JOB_TIMEOUT_S` for a slot while the worker is healthy; its threshold adds that
+#: to the default queue's.
+WATCHED_QUEUES: dict[str, tuple[str, float]] = {
+    "default": (DEFAULT_QUEUE, QUEUE_STALE_AFTER_S),
+    "bulk": (BULK_QUEUE, QUEUE_STALE_AFTER_S + WORKER_JOB_TIMEOUT_S),
+}
+
+#: (depth, oldest_waiting_seconds) for one queue.
+QueueStat = tuple[int, float | None]
 
 #: Answers, for ONE request, "may this caller be told WHY this service is unhealthy?".
 #:
@@ -251,22 +264,29 @@ async def _check_schema_current() -> bool:
     return True
 
 
-async def _queue_stats() -> tuple[int, float | None]:
-    """(depth, oldest_waiting_seconds). ARQ scores its queue zset with the run-at
-    timestamp in ms, so the minimum score is the oldest ready job.
+async def _queue_stats() -> dict[str, QueueStat]:
+    """(depth, oldest_waiting_seconds) for each of `WATCHED_QUEUES`. ARQ scores its queue
+    zset with the run-at timestamp in ms, so the minimum score is the oldest ready job.
 
     Bounded by its CALLER (`ready`), which treats a breach as `redis_down` — the same
     verdict a refused connection gets, and for the same reason.
     """
     redis = get_redis()
-    depth = int(await redis.zcard(ARQ_QUEUE_KEY))
-    if depth == 0:
-        return 0, None
-    oldest = await redis.zrange(ARQ_QUEUE_KEY, 0, 0, withscores=True)
-    if not oldest:
-        return depth, None
-    score_ms = float(oldest[0][1])
-    return depth, max(0.0, time.time() - score_ms / 1000.0)
+    stats: dict[str, QueueStat] = {}
+    for name, (key, _) in WATCHED_QUEUES.items():
+        depth = int(await redis.zcard(key))
+        oldest = await redis.zrange(key, 0, 0, withscores=True) if depth else []
+        waited = max(0.0, time.time() - float(oldest[0][1]) / 1000.0) if oldest else None
+        stats[name] = (depth, waited)
+    return stats
+
+
+def _stale_queues(stats: dict[str, QueueStat]) -> list[str]:
+    return [
+        name
+        for name, (_, oldest) in stats.items()
+        if oldest is not None and oldest > WATCHED_QUEUES[name][1]
+    ]
 
 
 def build_health_router(service: str, *, detail_gate: HealthDetailGate | None = None) -> APIRouter:
@@ -317,12 +337,11 @@ def build_health_router(service: str, *, detail_gate: HealthDetailGate | None = 
         # actionable of the two words.
         schema_ok = await _check_schema_current() if db_ok else True
         redis_ok = await _check_redis()
-        depth = 0
-        oldest: float | None = None
+        stats: dict[str, QueueStat] = {}
         if redis_ok:
             try:
                 async with asyncio.timeout(_PROBE_BUDGET_S):
-                    depth, oldest = await _queue_stats()
+                    stats = await _queue_stats()
             except Exception:
                 # `TimeoutError` included, and folded in on purpose: a queue read that
                 # does not finish and one that errors are the same readiness answer.
@@ -338,7 +357,11 @@ def build_health_router(service: str, *, detail_gate: HealthDetailGate | None = 
         # service a probe that constructs nothing and asks what readiness actually means
         # there; every other service is unchanged and still gets the full check.
         missing = readiness_missing_keys(service, get_settings())
-        queue_stale = oldest is not None and oldest > QUEUE_STALE_AFTER_S
+        stale = _stale_queues(stats)
+        queue_stale = bool(stale)
+        depth = sum(d for d, _ in stats.values())
+        waits = [w for _, w in stats.values() if w is not None]
+        oldest = max(waits) if waits else None
 
         mode: DegradationMode = (
             "db_down"
@@ -377,13 +400,21 @@ def build_health_router(service: str, *, detail_gate: HealthDetailGate | None = 
                     "degradation_mode": mode,
                     "queue_depth": depth,
                     "queue_oldest_waiting_s": oldest,
+                    "stale_queues": ",".join(stale),
                     "missing_config_keys": ",".join(missing),
                 },
             )
         if await _detail_allowed(request):
             body["degradation_mode"] = mode
             body["checks"] = {"db": db_ok, "schema": schema_ok, "redis": redis_ok}
-            body["queue"] = {"depth": depth, "oldest_waiting_s": oldest}
+            # Totals across both queues, then each queue (D-929).
+            body["queue"] = {
+                "depth": depth,
+                "oldest_waiting_s": oldest,
+                "by_queue": {
+                    name: {"depth": d, "oldest_waiting_s": w} for name, (d, w) in stats.items()
+                },
+            }
             # Missing config renders as validation-style fields[] — one shape for
             # "something's not right" (§6).
             body["fields"] = [

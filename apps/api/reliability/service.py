@@ -399,20 +399,16 @@ async def sweep_idempotency(session: AsyncSession) -> int:
 #:
 #: **THE COLUMN IS GOING AWAY, AND THIS IS THE RELEASE THAT STOPS WRITING IT** (D-217,
 #: closing D-162's open fork). `outbox_messages.queue` read as routing and routed
-#: nothing: `dispatch_outbox` publishes without it, `WorkerSettings` sets no
-#: `queue_name`, and arq routes by `enqueue_job(_queue_name=...)`, so every message ever
-#: enqueued landed on arq's single default queue whatever the column said. D-162 removed
-#: the caller's CHOICE and left the value; this removes the value. Migration
-#: `b7e4c1a90d38` gives the column a server default so both `INSERT`s can stop naming it
-#: and an old container in the deploy swap keeps working; step 2 is `DROP COLUMN` in the
-#: next release, with no code change beside it (hard rule 8).
+#: nothing: `dispatch_outbox` publishes without it. D-162 removed the caller's CHOICE and
+#: left the value; this removes the value. Migration `b7e4c1a90d38` gives the column a
+#: server default so both `INSERT`s can stop naming it and an old container in the deploy
+#: swap keeps working; step 2 is `DROP COLUMN` in the next release, with no code change
+#: beside it (hard rule 8).
 #:
-#: HONOURING IT WAS THE OTHER FORK AND IS STILL REFUSED, for the reason it always was:
-#: one arq worker consumes exactly one queue, so a second value here means a SECOND
-#: DEPLOYABLE (container, deploy step, CI job) for a platform with no clients yet —
-#: ROADMAP §6 requires a decision for that and CLAUDE.md's "monolith module before new
-#: service" argues against it. Passing `_queue_name` with no worker consuming that queue
-#: would silently stop every notification.
+#: THE QUEUE A MESSAGE LANDS ON IS DECIDED BY ITS JOB NAME, not by this column: since
+#: D-929 there are two arq queues and `core/queue.enqueue` — which the dispatcher calls —
+#: routes by `core/queue.BULK_JOBS`. A per-message value here would be a second router
+#: that could disagree with the first.
 #:
 #: WHY THE CONSTANT SURVIVES AT ALL. It is the value the database now defaults to, and
 #: the two must stay equal: a default in a migration and a constant in a service that
