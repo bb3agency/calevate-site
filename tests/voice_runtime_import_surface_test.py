@@ -633,7 +633,8 @@ INTENDED_RUNTIME_IMPORTS_ON_THE_ALERT_THREAD: dict[str, str] = {
         "the HTML building blocks of every mail. Lazy, delivery thread only, stdlib only."
     ),
     "apps.api.core.brand": (
-        "the mail's colour and font constants. Lazy, delivery thread only, no imports."
+        "the mail's colour, font and name constants. Lazy, delivery thread only; imports "
+        "only `console_links`, which is resident from boot."
     ),
     "apps.api.core.alert_records": (
         "the alert EPISODE recorder (D-591) — one row per alarm, and the onset/repeat "

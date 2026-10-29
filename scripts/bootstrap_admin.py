@@ -85,7 +85,7 @@ async def _run(*, email: str, name: str | None, role: str) -> str:
     # Imported inside the function so `--help` works on a host with no database reachable,
     # and so an import error names this module rather than argparse's frame.
     from apps.api.authn.bootstrap import bootstrap_first_admin
-    from apps.api.core.transport import get_transport
+    from apps.api.core.transport import EmailPurpose, get_transport
     from apps.workers.email_render import render
 
     result = await bootstrap_first_admin(email=email, name=name, role=role)
@@ -103,7 +103,7 @@ async def _run(*, email: str, name: str | None, role: str) -> str:
     # chicken-and-egg — the mail credentials are stored by an operator, in the console.
     delivered = False
     try:
-        transport = get_transport()
+        transport = get_transport(EmailPurpose.SECURITY)
         delivered = await asyncio.to_thread(
             lambda: transport.send(
                 to=result.email,

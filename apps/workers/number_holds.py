@@ -65,10 +65,11 @@ from apps.api.campaigns.number_holds import (
     stopped_reason,
 )
 from apps.api.core.alerting import alert
+from apps.api.core.brand import PRODUCT
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.core.settings import get_settings
-from apps.api.core.transport import get_transport
+from apps.api.core.transport import EmailPurpose, get_transport
 from apps.api.db.session import admin_session, tenant_session
 from apps.api.engine.thinnest_numbers import thinnest_numbers
 from apps.api.reliability.service import enqueue_outbox
@@ -285,7 +286,7 @@ def _which(agent: str | None) -> str:
 
 def _why(reason: str, *, days: int) -> str:
     if reason == "account_closed":
-        return "your Calevate account has been closed"
+        return f"your {PRODUCT} account has been closed"
     return f"your calling credit has been below zero for {days} days"
 
 
@@ -407,7 +408,7 @@ async def notify_number_hold(ctx: dict[str, Any], payload: dict[str, Any]) -> st
         text=body,
         cta="Add credit" if event != NOTICE_RELEASED else None,
     )
-    transport = get_transport()
+    transport = get_transport(EmailPurpose.NOTIFICATIONS)
     delivered = 0
     for address in recipients:
         # Off the event loop: the SMTP transport is synchronous (`notifications._send_email`).

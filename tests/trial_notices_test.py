@@ -47,7 +47,7 @@ class Recorder:
 @pytest.fixture
 def mailbox(monkeypatch: pytest.MonkeyPatch) -> Recorder:
     recorder = Recorder()
-    monkeypatch.setattr(trial_notices, "get_transport", lambda: recorder)
+    monkeypatch.setattr(trial_notices, "get_transport", lambda _purpose=None: recorder)
     return recorder
 
 

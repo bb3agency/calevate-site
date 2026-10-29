@@ -55,7 +55,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
-from apps.api.core.transport import get_transport
+from apps.api.core.transport import EmailPurpose, get_transport
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session
@@ -427,7 +427,7 @@ async def _send_email(to: str, subject: str, body: str) -> bool:
         text=body,
         cta="Open the lead",
     )
-    transport = get_transport()
+    transport = get_transport(EmailPurpose.ALERTS)
     return await asyncio.to_thread(
         lambda: transport.send(to=to, subject=subject, body=message.text, html=message.html)
     )

@@ -41,7 +41,7 @@ class _Mail:
 
 def _mail(monkeypatch: pytest.MonkeyPatch, *, delivered: bool = True) -> _Mail:
     mail = _Mail(delivered)
-    monkeypatch.setattr(worker, "get_transport", lambda: mail)
+    monkeypatch.setattr(worker, "get_transport", lambda _purpose=None: mail)
     return mail
 
 

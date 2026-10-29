@@ -57,7 +57,7 @@ class Recorder:
         return True
 
 recorder = Recorder()
-transport_module.get_transport = lambda: recorder
+transport_module.get_transport = lambda _purpose=None: recorder
 alerting.configure_alerts(service=sys.argv[2])
 alerting.alert("WORKER_DELIVERY", sys.argv[3], detail="probe")
 alerting.flush_alerts(timeout=20.0)

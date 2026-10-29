@@ -180,7 +180,7 @@ class _WhatsAppTransport:
 
 def _email(monkeypatch: pytest.MonkeyPatch, *, delivered: bool = True) -> _EmailTransport:
     transport = _EmailTransport(delivered=delivered)
-    monkeypatch.setattr(notifications, "get_transport", lambda: transport)
+    monkeypatch.setattr(notifications, "get_transport", lambda _purpose=None: transport)
     return transport
 
 

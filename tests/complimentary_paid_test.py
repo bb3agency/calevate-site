@@ -293,7 +293,7 @@ async def test_the_notices_reach_the_super_admins_first_then_the_client_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     mailbox = _Mailbox()
-    monkeypatch.setattr(comp_notices, "get_transport", lambda: mailbox)
+    monkeypatch.setattr(comp_notices, "get_transport", lambda _purpose=None: mailbox)
     boss = f"boss-{uuid.uuid4().hex[:6]}@example.com"
     await _admin("superadmin", email=boss)
     operator_email = f"ops-{uuid.uuid4().hex[:6]}@example.com"
@@ -357,7 +357,7 @@ async def test_a_refused_send_is_retried_rather_than_dropped(
         def send(self, *, to: str, subject: str, body: str, html: str | None = None) -> bool:
             return False
 
-    monkeypatch.setattr(comp_notices, "get_transport", lambda: _Refusing())
+    monkeypatch.setattr(comp_notices, "get_transport", lambda _purpose=None: _Refusing())
     tenant_id = await _tenant()
     async with tenant_session(tenant_id) as session:
         await session.execute(

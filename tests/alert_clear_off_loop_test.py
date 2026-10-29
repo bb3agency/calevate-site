@@ -38,7 +38,7 @@ async def test_a_clear_notice_is_sent_from_a_worker_thread(monkeypatch: pytest.M
 
     alerting.reset_alerts()
     recorder = ThreadRecordingTransport()
-    monkeypatch.setattr(transport_module, "get_transport", lambda: recorder)
+    monkeypatch.setattr(transport_module, "get_transport", lambda _purpose=None: recorder)
     monkeypatch.setattr(get_settings(), "alerts_email", "ops@calevate.test")
     monkeypatch.setattr(alerting, "DELIVERY_RETRY_DELAY_S", 0.0)
     try:

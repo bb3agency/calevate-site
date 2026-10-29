@@ -103,7 +103,7 @@ async def _announce_clear(row: Any) -> bool:
     never an exception that leaves the rest of the batch unannounced.
     """
     from apps.api.core.settings import get_settings
-    from apps.api.core.transport import get_transport
+    from apps.api.core.transport import EmailPurpose, get_transport
 
     settings = get_settings()
     recipient = settings.alerts_email or None
@@ -120,7 +120,7 @@ async def _announce_clear(row: Any) -> bool:
         # Off the event loop: `send` is blocking socket I/O (smtplib, or a sync httpx
         # POST) and this job shares its loop with the outbox and dispatch ticks.
         return await asyncio.to_thread(
-            get_transport().send,
+            get_transport(EmailPurpose.OPERATOR).send,
             to=recipient,
             subject=message.subject,
             body=message.text,

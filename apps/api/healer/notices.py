@@ -11,9 +11,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Final
 
-from apps.api.core.console_links import CONSOLE_BASE
+from apps.api.core.console_links import CONSOLE_BASE, DOMAIN
 
-STATUS_PAGE_URL: Final = "https://status.calevate.tech"
+STATUS_PAGE_URL: Final = f"https://status.{DOMAIN}"
 
 #: The worst signal (`health.Verdict.worst_signal`) in a client's words.
 SIGNAL_WORDS: Final[dict[str, str]] = {

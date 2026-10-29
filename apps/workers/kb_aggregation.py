@@ -79,7 +79,7 @@ from sqlalchemy import text
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
-from apps.api.core.transport import get_transport
+from apps.api.core.transport import EmailPurpose, get_transport
 from apps.api.crm.performance import IST_ZONE
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.kb.insights import insights_for_agent, render_digest
@@ -391,7 +391,7 @@ async def _send(to: str, body: str) -> bool:
         heading=DIGEST_SUBJECT,
         text=body,
     )
-    transport = get_transport()
+    transport = get_transport(EmailPurpose.NOTIFICATIONS)
     return await asyncio.to_thread(
         lambda: transport.send(to=to, subject=DIGEST_SUBJECT, body=message.text, html=message.html)
     )

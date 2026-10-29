@@ -59,7 +59,7 @@ _BADGE: Final[dict[str, tuple[str, layout.Tone]]] = {
 }
 _OPS_ALERTS_LABEL: Final = "Ops > Alerts"
 _FOOTER: Final = (
-    "Calevate operator alert. Only alarms classed as needing action now are emailed; "
+    f"{brand.PRODUCT} operator alert. Only alarms classed as needing action now are emailed; "
     "every alarm is listed on Ops > Alerts in the admin console.",
 )
 
@@ -75,7 +75,7 @@ def ist(instant: datetime) -> str:
 
 
 def _env_tag(app_env: str, service: str) -> str:
-    return f"calevate/{app_env}/{service}"
+    return f"{brand.PRODUCT.lower()}/{app_env}/{service}"
 
 
 _BOLD = re.compile(r"\*\*(.+?)\*\*")

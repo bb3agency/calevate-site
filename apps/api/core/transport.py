@@ -95,6 +95,8 @@ from calevate_shared.config import (
     EMAIL_PROVIDER_SMTP,
     NO_RESEND_API_KEY_REASON,
     NO_SMTP_HOST_REASON,
+    EmailPurpose,
+    email_sender,
     email_transport_reason,
 )
 
@@ -530,7 +532,7 @@ class NullTransport:
         return False
 
 
-def get_transport() -> Transport:
+def get_transport(purpose: EmailPurpose = EmailPurpose.NOTIFICATIONS) -> Transport:
     """THE transport this deployment sends through. The only consumer of the selector.
 
     `email_transport_reason()` (`calevate_shared/config.py`) decides whether email can be
@@ -550,6 +552,10 @@ def get_transport() -> Transport:
     `lead+call`, and `alerting` minting one per notice. That is a change to both
     consumers' contracts, and the double-send it prevents is a property SMTP had too, so
     this migration neither introduces it nor is the moment to fix it.
+
+    `purpose` picks the From address (`calevate_shared.config.email_sender`, D-933). Every
+    caller names it; `tests/email_senders_test.py` holds each call site to the purpose
+    `docs/EMAILS.md` gives its email.
     """
     settings = get_settings()
     reason = email_transport_reason(settings)
@@ -557,10 +563,9 @@ def get_transport() -> Transport:
         return NullTransport(reason=reason)
 
     provider = (settings.email_provider or "").strip().lower()
-    # Non-None whenever the resolver returned None — it refuses `no_sender_address` — so
-    # this read cannot be empty. Spelled with a fallback anyway only where mypy needs the
-    # narrowing, never as a second rule about what the sender is.
-    sender = settings.notifications_from or ""
+    # Non-empty whenever the resolver returned None: it refuses `no_sender_address`, and an
+    # unset purpose falls back to that same `notifications_from`.
+    sender = email_sender(settings, purpose)
     # Not defaulted to `sender`: see `notifications_reply_to` in config.py for why an
     # unset value must stay unset rather than echo the From address.
     reply_to = (settings.notifications_reply_to or "").strip() or None
@@ -594,6 +599,7 @@ __all__ = [
     "RESEND_SEND_URL",
     "RESEND_TIMEOUT_BUDGET_S",
     "ConsoleTransport",
+    "EmailPurpose",
     "NullTransport",
     "ResendTransport",
     "SmtpTransport",

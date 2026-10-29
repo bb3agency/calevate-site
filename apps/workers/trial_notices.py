@@ -54,7 +54,7 @@ from apps.api.billing.service import plan_tier_of
 from apps.api.billing.trials import TrialState, read_trial
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
-from apps.api.core.transport import get_transport
+from apps.api.core.transport import EmailPurpose, get_transport
 from apps.api.db.session import admin_session, tenant_session
 from apps.workers.auth_email import CONSOLE_BASE
 from apps.workers.email_render import from_text
@@ -289,7 +289,7 @@ async def _send(*, recipient: Recipient, notice: Notice, body: str) -> bool:
         text=body,
         cta="Add credit" if recipient.prepaid else "Open your dashboard",
     )
-    transport = get_transport()
+    transport = get_transport(EmailPurpose.NOTIFICATIONS)
     address = recipient.billing_email
     # Off the event loop: the SMTP transport is synchronous (`wallet_alerts`' reason).
     return await asyncio.to_thread(
@@ -366,7 +366,7 @@ async def notify_trial_minutes_used(ctx: dict[str, Any], payload: dict[str, Any]
         text=body,
         cta="Add credit" if recipient.prepaid else "Open your dashboard",
     )
-    transport = get_transport()
+    transport = get_transport(EmailPurpose.NOTIFICATIONS)
     address = recipient.billing_email
     delivered = await asyncio.to_thread(
         lambda: transport.send(to=address, subject=subject, body=message.text, html=message.html)

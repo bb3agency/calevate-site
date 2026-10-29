@@ -95,7 +95,16 @@ FREE_TEXT: Final[dict[str, str]] = {
     "tls_origin_address": "a host and port",
 }
 
-_EMAIL_KEYS: Final = frozenset({"notifications_from", "notifications_reply_to"})
+_EMAIL_KEYS: Final = frozenset(
+    {
+        "notifications_from",
+        "notifications_reply_to",
+        "sender_security",
+        "sender_billing",
+        "sender_alerts",
+        "sender_operator",
+    }
+)
 _INDIAN_MOBILE_PATTERN: Final = r"^\+91\d{10}$"
 _CONSTRAINT_ATTRS: Final = ("ge", "gt", "le", "lt", "min_length", "max_length", "pattern")
 

@@ -36,9 +36,10 @@ from apps.api.billing.display import display_inr
 from apps.api.billing.payments import payment_capability
 from apps.api.billing.reconciliation import reconcile
 from apps.api.core.alerting import alert
+from apps.api.core.brand import PRODUCT
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
-from apps.api.core.transport import get_transport
+from apps.api.core.transport import EmailPurpose, get_transport
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.workers.auth_email import CONSOLE_BASE
 from apps.workers.email_render import from_text
@@ -126,8 +127,8 @@ async def reconcile_razorpay(ctx: dict[str, Any]) -> dict[str, int]:
 
 
 _SUBJECTS: Final = {
-    "recharge_started": "We are topping up your Calevate balance",
-    "recharge_captured": "Your Calevate balance has been topped up",
+    "recharge_started": f"We are topping up your {PRODUCT} balance",
+    "recharge_captured": f"Your {PRODUCT} balance has been topped up",
     "recharge_failed": "Your automatic top-up did not go through",
     "auto_recharge_disabled": "Auto-recharge is now off",
     "mandate_confirmed": "Automatic top-ups are approved",
@@ -201,7 +202,7 @@ async def send_payment_notice(ctx: dict[str, Any], payload: dict[str, Any]) -> s
     message = from_text(
         subject=subject, preheader=subject, heading=subject, text=body, cta="Open billing"
     )
-    transport = get_transport()
+    transport = get_transport(EmailPurpose.BILLING)
     delivered = await asyncio.to_thread(
         lambda: transport.send(
             to=str(billing_email), subject=subject, body=message.text, html=message.html

@@ -972,6 +972,30 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "Replies go to",
         "The Reply-To address: a mailbox a person reads. Unset sends replies to the sender.",
     ),
+    "sender_security": _m(
+        "notifications",
+        "email",
+        "Send sign-in and security mail from",
+        "Codes, password resets and account security notices. Unset uses Send mail from.",
+    ),
+    "sender_billing": _m(
+        "notifications",
+        "email",
+        "Send billing mail from",
+        "Fees, top-ups, credit and rate notices. Unset uses Send mail from.",
+    ),
+    "sender_alerts": _m(
+        "notifications",
+        "email",
+        "Send lead and team alerts from",
+        "Hot-lead and caller alerts to a client's team. Unset uses Send mail from.",
+    ),
+    "sender_operator": _m(
+        "notifications",
+        "alerts",
+        "Send operator alerts from",
+        "Alarm mail to our own team. Unset uses Send mail from.",
+    ),
     "alerts_email": _m(
         "notifications",
         "alerts",

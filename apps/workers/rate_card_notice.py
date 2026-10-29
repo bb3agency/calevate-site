@@ -67,8 +67,9 @@ from apps.api.billing.list_rates import card_at
 from apps.api.billing.rates import PREPAID_TIERS, VOICE_TIERS, VoiceTier, voice_tier_label
 from apps.api.billing.service import plan_tier_of
 from apps.api.core.alerting import alert
+from apps.api.core.brand import PRODUCT
 from apps.api.core.logging import get_logger
-from apps.api.core.transport import _domain, get_transport
+from apps.api.core.transport import EmailPurpose, _domain, get_transport
 from apps.api.crm.performance import IST_ZONE
 from apps.api.db.session import admin_session, tenant_session, untenanted_session
 from apps.api.reliability.service import enqueue_outbox_once
@@ -98,7 +99,7 @@ FANOUT_BUDGET: Final = 2000
 #: thirty days out.
 RETRY_BACKOFF_S: tuple[float, ...] = (60.0, 300.0)
 
-SUBJECT: Final = "Your Calevate calling rates are changing"
+SUBJECT: Final = f"Your {PRODUCT} calling rates are changing"
 HEADING: Final = "New calling rates from {date}"
 PREHEADER: Final = "Credit you have already bought is not affected."
 
@@ -294,7 +295,7 @@ async def notify_rate_card_change(ctx: dict[str, Any], payload: dict[str, Any]) 
         text=body,
         cta="View credit",
     )
-    transport = get_transport()
+    transport = get_transport(EmailPurpose.BILLING)
     # OFF THE EVENT LOOP (D-159's class): the SMTP transport is synchronous socket I/O on a
     # timeout budget, and awaiting it inline stalls every other job on this worker.
     delivered = await asyncio.to_thread(

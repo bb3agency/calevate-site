@@ -676,9 +676,9 @@ def _handle_resolve(notice: AlertNotice) -> None:
     )
     _local.delivering = True
     try:
-        from apps.api.core.transport import get_transport
+        from apps.api.core.transport import EmailPurpose, get_transport
 
-        if get_transport().send(
+        if get_transport(EmailPurpose.OPERATOR).send(
             to=recipient, subject=message.subject, body=message.text, html=message.html
         ):
             log.info("alert_clear_delivered", extra={"code": notice.code})
@@ -729,9 +729,9 @@ def _deliver(notice: AlertNotice, outcome: RecordOutcome | None = None) -> bool:
         return False
     _local.delivering = True
     try:
-        from apps.api.core.transport import get_transport
+        from apps.api.core.transport import EmailPurpose, get_transport
 
-        transport = get_transport()
+        transport = get_transport(EmailPurpose.OPERATOR)
         try:
             message = _compose(notice, outcome)
         except Exception as exc:
@@ -772,10 +772,11 @@ def _bare(notice: AlertNotice) -> AlertEmail:
     from html import escape
 
     from apps.api.core.alert_email import AlertEmail
+    from apps.api.core.brand import PRODUCT
     from apps.api.core.logging import redact_mapping
 
     detail = str(redact_mapping({"detail": notice.detail or ""})["detail"])
-    subject = f"[Calevate {notice.severity}] {notice.code} ({_service})"
+    subject = f"[{PRODUCT} {notice.severity}] {notice.code} ({_service})"
     text = f"{notice.code} at {notice.stage} on {_service}\n\n{detail}\n"
     return AlertEmail(subject=subject, text=text, html=f"<pre>{escape(text)}</pre>")
 

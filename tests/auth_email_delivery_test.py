@@ -136,7 +136,7 @@ def alerts(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str, str | None]]
 
 def _install(monkeypatch: pytest.MonkeyPatch, delivers: bool) -> _Transport:
     fake = _Transport(delivers=delivers)
-    monkeypatch.setattr(auth_email, "get_transport", lambda: fake)
+    monkeypatch.setattr(auth_email, "get_transport", lambda _purpose=None: fake)
     return fake
 
 

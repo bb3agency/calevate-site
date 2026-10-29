@@ -1177,7 +1177,7 @@ async def test_the_sweep_mails_one_digest_per_agent_and_it_carries_no_call_conte
         )
 
     recorder = _RecordingTransport()
-    monkeypatch.setattr(kb_aggregation, "get_transport", lambda: recorder)
+    monkeypatch.setattr(kb_aggregation, "get_transport", lambda _purpose=None: recorder)
     _sweep_only(monkeypatch, tenant_id)
     await kb_aggregation._sweep(_sweep_fired_after_calls_week())
 
@@ -1260,7 +1260,7 @@ async def test_one_agents_send_blowing_up_never_re_mails_the_clients_already_rea
     bad_tenant = await _live_agent_addressed(bad)
 
     transport = _FlakyTransport(explodes_for=bad)
-    monkeypatch.setattr(kb_aggregation, "get_transport", lambda: transport)
+    monkeypatch.setattr(kb_aggregation, "get_transport", lambda _purpose=None: transport)
     _sweep_only(monkeypatch, good_tenant, bad_tenant)
     summary = await kb_aggregation._sweep(_sweep_fired_after_calls_week())
 
@@ -1383,7 +1383,7 @@ async def test_a_route_row_pointing_at_the_wrong_tenant_mails_nobody(
         )
 
     recorder = _RecordingTransport()
-    monkeypatch.setattr(kb_aggregation, "get_transport", lambda: recorder)
+    monkeypatch.setattr(kb_aggregation, "get_transport", lambda _purpose=None: recorder)
     _sweep_only(monkeypatch, stranger_tenant)
     await kb_aggregation._sweep(_sweep_fired_after_calls_week())
 

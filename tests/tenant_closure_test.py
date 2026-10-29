@@ -1309,7 +1309,7 @@ async def test_a_retried_closure_notice_sends_the_whatsapp_once(
         whatsapps.append(1)
         return "sent"
 
-    monkeypatch.setattr(account_closure, "get_transport", lambda: _Refusing())
+    monkeypatch.setattr(account_closure, "get_transport", lambda _purpose=None: _Refusing())
     monkeypatch.setattr(account_closure, "_whatsapp_leg", _leg)
     tenant_id = await _tenant()
     payload = {"tenant_id": str(tenant_id), "event": account_closure.NOTICE_CLOSED}

@@ -31,7 +31,7 @@ from apps.api.core.alerting import alert
 from apps.api.core.console_links import CONSOLE_BASE
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
-from apps.api.core.transport import get_transport
+from apps.api.core.transport import EmailPurpose, get_transport
 from apps.api.crm.service import redacted_summary
 from apps.api.db.session import tenant_session
 from apps.api.team_alerts import whatsapp as team_whatsapp
@@ -135,7 +135,9 @@ async def send_team_contact_code(ctx: dict[str, Any], payload: dict[str, Any]) -
                 heading="Confirm this address",
                 text=compose_code(business, code),
             )
-            delivered = await _email(destination.address, CODE_SUBJECT, message)
+            delivered = await _email(
+                destination.address, CODE_SUBJECT, message, purpose=EmailPurpose.SECURITY
+            )
     if delivered:
         log.info("team_contact_code_sent", extra={"contact_id": str(contact_id)})
         return "sent"
@@ -349,11 +351,11 @@ async def _send(to: str, body: str, *, business: str) -> bool:
         text=body,
         cta="Open the call",
     )
-    return await _email(to, ALERT_SUBJECT, message)
+    return await _email(to, ALERT_SUBJECT, message, purpose=EmailPurpose.ALERTS)
 
 
-async def _email(to: str, subject: str, message: Email) -> bool:
-    transport = get_transport()
+async def _email(to: str, subject: str, message: Email, *, purpose: EmailPurpose) -> bool:
+    transport = get_transport(purpose)
     return await asyncio.to_thread(
         lambda: transport.send(to=to, subject=subject, body=message.text, html=message.html)
     )

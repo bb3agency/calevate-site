@@ -55,7 +55,7 @@ async def transport(monkeypatch: pytest.MonkeyPatch) -> Any:
     alerting.reset_alerts()
     await _forget_counts()
     recorder = RecordingTransport()
-    monkeypatch.setattr(transport_module, "get_transport", lambda: recorder)
+    monkeypatch.setattr(transport_module, "get_transport", lambda _purpose=None: recorder)
     monkeypatch.setattr(get_settings(), "alerts_email", OPERATOR)
     monkeypatch.setattr(alerting, "DELIVERY_RETRY_DELAY_S", 0.0)
     yield recorder
