@@ -85,14 +85,17 @@ export const LEGACY_INVITE_PATH = "/invite";
 /**
  * Every path a mailed token can land on. `apps/api/core/console_links.py` mints four links (`ADMIN_BOOTSTRAP_PATH`, `ADMIN_RESET_PASSWORD_PATH`,
  * `CLIENT_RESET_PASSWORD_PATH`, `CLIENT_ACCEPT_INVITE_PATH`, at `:36-39`); the fifth entry
- * is the legacy door above. A new token-bearing route goes here in the same change that
- * mints it — the same instruction the nginx map carries for the same reason.
+ * is the legacy door above. The sixth is Google's sign-in return page, which arrives with
+ * `?code=&state=` in its URL and preloads its chunks before it strips them, exactly like
+ * the others. A new token-bearing route goes here in the same change that mints it — the
+ * same instruction the nginx map carries for the same reason.
  */
 export const LINK_TOKEN_PATHS: readonly string[] = [
   "/auth/reset-password",
   "/auth/accept-invitation",
   "/auth/admin/reset-password",
   "/auth/admin/bootstrap",
+  "/auth/google/callback",
   LEGACY_INVITE_PATH,
 ];
 
