@@ -91,12 +91,17 @@ NoticeKind = Literal[
 CHARGE_ANSWER_WINDOW: Final = timedelta(days=3)
 
 #: The recurring-payment call's refusals that do not prove nothing was asked of the bank: a
-#: timeout after the request left us, or a 2xx we could not read. The charge stays pending
+#: timeout after the request left us, a 5xx (the provider may have created the payment
+#: before failing), or a 2xx we could not read. The charge stays pending
 #: for the webhook (or `expire_unanswered`) to settle: failing it would let the next tick
 #: start a second debit while the first may still land, and would take it out of the
 #: monthly cap that `_month_spent` counts from pending and captured charges.
 CHARGE_MAY_HAVE_MOVED_CODES: Final[frozenset[str]] = frozenset(
-    {"payment_provider_unreachable", "payment_provider_unreadable"}
+    {
+        "payment_provider_unreachable",
+        "payment_provider_server_error",
+        "payment_provider_unreadable",
+    }
 )
 
 #: Defaults offered before a client has chosen anything (the founder's examples).

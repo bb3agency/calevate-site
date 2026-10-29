@@ -759,7 +759,48 @@ async def test_repeated_failures_switch_auto_recharge_off(monkeypatch: pytest.Mo
     assert notices == 1
 
 
-@pytest.mark.parametrize("code", ["payment_provider_unreachable", "payment_provider_unreadable"])
+@pytest.mark.parametrize(
+    ("status", "code"), [(502, "payment_provider_server_error"), (400, "payment_provider_rejected")]
+)
+async def test_a_server_error_on_the_recurring_debit_is_not_read_as_a_refusal(
+    status: int, code: str
+) -> None:
+    """A 5xx can follow a payment Razorpay already created, so it must reach auto-recharge
+    as "may have moved", not as the 4xx verdict that fails the charge and frees the slot
+    for a second debit."""
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status, json={"error": {"code": "SERVER_ERROR"}})
+
+    api = RazorpayApi(
+        key_id=KEY_ID,
+        key_secret=KEY_SECRET,
+        client=httpx.AsyncClient(
+            transport=httpx.MockTransport(respond), base_url="https://api.razorpay.com"
+        ),
+    )
+    with pytest.raises(ProblemError) as raised:
+        await api.create_recurring_payment(
+            email="a@example.com",
+            contact="+919900000000",
+            amount_inr=Decimal("100.00"),
+            order_id="order_1",
+            customer_id="cust_1",
+            token_id="token_1",
+            notes={},
+        )
+    assert raised.value.code == code
+    assert (code in auto_recharge.CHARGE_MAY_HAVE_MOVED_CODES) is (status >= 500)
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        "payment_provider_unreachable",
+        "payment_provider_server_error",
+        "payment_provider_unreadable",
+    ],
+)
 async def test_a_debit_request_that_may_have_reached_the_bank_is_not_started_again(
     monkeypatch: pytest.MonkeyPatch, code: str
 ) -> None:

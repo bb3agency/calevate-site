@@ -171,9 +171,15 @@ class RazorpayApi(RazorpayOrders):
         files: dict[str, tuple[str, bytes, str]] | None = None,
         data: dict[str, str] | None = None,
     ) -> Any:
-        """One authenticated call; a 4xx/5xx becomes OUR `payment_provider_rejected` and
-        an unreadable body our `payment_provider_unreadable`. The vendor's prose is never
-        read past its HTTP status (hard rule 2's argument applied to a payment provider)."""
+        """One authenticated call; a 4xx becomes OUR `payment_provider_rejected`, a 5xx
+        `payment_provider_server_error` and an unreadable body `payment_provider_unreadable`.
+        The vendor's prose is never read past its HTTP status (hard rule 2's argument
+        applied to a payment provider).
+
+        A 5xx is kept apart from a 4xx because only the 4xx is a verdict on the request: a
+        server error can follow a request the provider already acted on, so a caller that
+        moves money (`auto_recharge.CHARGE_MAY_HAVE_MOVED_CODES`) must not read it as
+        "nothing happened" — the same reading `payments.create_refund` gives a 5xx."""
         headers = {"User-Agent": USER_AGENT}
         if json is not None:
             headers["Content-Type"] = "application/json"
@@ -208,6 +214,14 @@ class RazorpayApi(RazorpayOrders):
                 "razorpay_request_rejected",
                 extra={"status": response.status_code, "method": method},
             )
+            if response.status_code >= 500:
+                raise ProblemError(
+                    kind="dependency",
+                    code="payment_provider_server_error",
+                    title="The payment provider had a problem",
+                    detail="The payment provider could not finish that just now.",
+                    remediation="Try again in a few minutes.",
+                )
             raise ProblemError(
                 kind="dependency",
                 code="payment_provider_rejected",
