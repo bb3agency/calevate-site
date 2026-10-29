@@ -2443,6 +2443,7 @@ const CLIENT_SCREENS: Screen[] = [
         quality: null,
         signals: [],
         timeline: null,
+        insights: null,
       } satisfies CallDetail,
       "/v1/calls/c1/callback": { eligible: false, reason: "consent_missing" },
     },

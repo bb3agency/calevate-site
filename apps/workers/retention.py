@@ -302,10 +302,11 @@ _MAX_ERASURE_BATCHES = 10_000
 #                                     is true of a table and false of a bucket.
 DERIVED_COPIES: Mapping[str, tuple[str, ...]] = {
     "transcript": (
-        # The English summary, the one in the call's language, the headline and the next
-        # step are all model prose about the conversation, and `transcript_turns.text_en`
-        # is the conversation itself in English: the transcript's clock, every one.
-        "calls.summary+summary_local+headline+next_step",
+        # The English summary, the one in the call's language, the headline, the next step and
+        # the engine's insights (the customer's objections in their words) are all prose about
+        # the conversation, and `transcript_turns.text_en` is the conversation itself in
+        # English: the transcript's clock, every one.
+        "calls.summary+summary_local+headline+next_step+insights",
         "transcript_turns.text_en",
         # The gap quotes are transcript text by another name: the detector copies the
         # caller's question and the agent's deflection out of `transcript_turns.
@@ -1239,9 +1240,10 @@ WHERE id IN (
 # already treats it as personal data.
 _SUMMARY_SQL = f"""
 UPDATE calls SET summary = NULL, summary_local = NULL, headline = NULL, next_step = NULL,
-  updated_at = now() WHERE id IN (
+  insights = NULL, updated_at = now() WHERE id IN (
   SELECT c.id FROM calls c WHERE (c.summary IS NOT NULL OR c.summary_local IS NOT NULL
-    OR c.headline IS NOT NULL OR c.next_step IS NOT NULL) AND {_CLOCK} < :cutoff
+    OR c.headline IS NOT NULL OR c.next_step IS NOT NULL OR c.insights IS NOT NULL)
+    AND {_CLOCK} < :cutoff
   ORDER BY {_CLOCK} LIMIT :batch)
 """
 
@@ -2842,6 +2844,7 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
                     # sweep would then try to delete them again.
                     "transfer_recording_url = NULL, "
                     "summary = NULL, summary_local = NULL, headline = NULL, next_step = NULL, "
+                    "insights = NULL, "
                     "erased_subject_ref = :ref, updated_at = now() "
                     "WHERE id = ANY(:ids)"
                 ),
@@ -3514,6 +3517,7 @@ async def _erase_tenant_calls(
                 # gives (D-533).
                 "transfer_recording_url = NULL, "
                 "summary = NULL, summary_local = NULL, headline = NULL, next_step = NULL, "
+                "insights = NULL, "
                 "updated_at = now() WHERE id = ANY(:ids)"
             ),
             {"ids": call_ids},

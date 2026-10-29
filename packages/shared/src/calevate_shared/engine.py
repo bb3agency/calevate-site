@@ -38,6 +38,7 @@ from calevate_shared.events import (
     CallBilling,
     CallDirection,
     CallEvent,
+    CallInsights,
     CallLlmUsage,
     CallQuality,
     CallStatus,
@@ -3980,9 +3981,12 @@ REPLY_TOKENS_DEFAULT: Final = 300
 #: falling back to `timer` where it is not available (`channels/voice.md:931-976`), and reads
 #: `turnSilenceSeconds` as its end-of-speech silence, floor 0.2 s (ThinnestAI email of
 #: 28 Oct 2026, VENDOR-STATED, `docs/vendor/thinnest-replies-2026-10-12.md` §39); `smart`, a
-#: model that makes the silence a ceiling. Held here because the setting and `AgentConfig`
-#: share it.
-TurnDetection = Literal["timer", "ear", "smart"]
+#: model that makes the silence a ceiling; `timer_v2`, the timer with an AI check at each
+#: pause of whether the caller has finished, which does not read `turnSilenceSeconds` and
+#: costs nothing extra (`snapshots/2026-10-29/pages/channels/voice.md:1125-1155`,
+#: `api-reference/agents/update-agent.md:1453-1480`). Held here because the setting and
+#: `AgentConfig` share it.
+TurnDetection = Literal["timer", "ear", "smart", "timer_v2"]
 
 
 class AgentConfig(BaseModel):
@@ -5546,6 +5550,11 @@ class ExecutionSnapshot(BaseModel):
     #: has not rung, a listing row from before the engine put billing on its list, an engine
     #: that does not say.
     billing: CallBilling | None = None
+    #: What the call came to, as the engine read it after the call (D-940). None when the
+    #: engine did not read it (switched off for the agent, a call nobody spoke on, content
+    #: deleted). Holds the customer's words, so it is kept out of the repr like the document
+    #: below; the pipeline redacts them before they are stored.
+    insights: CallInsights | None = Field(default=None, repr=False)
     #: The engine's document had a billing entry at all, even an empty one. A listing row
     #: without it is from before the engine listed billing, so the call's billing is read
     #: by id instead; a row with it is the answer, even when that answer is "none yet".

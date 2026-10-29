@@ -434,7 +434,7 @@ async def test_a_call_whose_english_is_ready_pays_for_no_second_language_pass(
         == 1
     )
 
-    snapshot = SimpleNamespace(engine_summary=engine_summary, transcript=[])
+    snapshot = SimpleNamespace(engine_summary=engine_summary, transcript=[], insights=None)
     reading = await pipeline._record_reading(tenant_id, call_id, snapshot, None)  # type: ignore[arg-type]
 
     assert reading.language_pass_key is None, "a call already translated owes no pass"

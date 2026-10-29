@@ -1141,6 +1141,8 @@ class TestRedactionExposure:
             "TranscriptTurnOut.text_en",
             "CallDetailOut.summary_local",
             "LeadOut.last_call_headline",
+            # D-940: the platform's call insights, stored redacted.
+            "CallInsightNoteOut.text",
             "SubjectExportCallOut.summary_local",
             "SubjectExportTurnOut.text",
             "SubjectExportCallOut.summary",

@@ -49,7 +49,12 @@ from calevate_shared.engine import (
     ListingIncompleteReason,
     VoiceEngine,
 )
-from calevate_shared.events import TERMINAL_STATUSES, CallLlmUsage, TranscriptTurn
+from calevate_shared.events import (
+    TERMINAL_STATUSES,
+    CallInsights,
+    CallLlmUsage,
+    TranscriptTurn,
+)
 from calevate_shared.extraction import (
     ExtractionOutput,
     ExtractionSchemaSpec,
@@ -2628,6 +2633,28 @@ def _settle_summaries(
     return english, local, source, romanised[0] if romanised is not None and not english else ""
 
 
+def stored_insights(insights: CallInsights | None) -> str | None:
+    """`calls.insights` as written: the engine's reading with every customer-quoted text
+    (objections, issues, the next step's note) redacted like `next_step` (hard rules 5 and
+    6), as JSON. None when the engine sent no reading."""
+    if insights is None:
+        return None
+    redacted = insights.model_copy(
+        update={
+            "objections": [
+                o.model_copy(update={"text": redact(o.text).text}) for o in insights.objections
+            ],
+            "issues": [i.model_copy(update={"text": redact(i.text).text}) for i in insights.issues],
+            "next_step": insights.next_step.model_copy(
+                update={"note": redact(insights.next_step.note).text}
+            )
+            if insights.next_step is not None
+            else None,
+        }
+    )
+    return redacted.model_dump_json()
+
+
 async def _record_reading(
     tenant_id: UUID,
     call_id: UUID,
@@ -2749,7 +2776,10 @@ async def _record_reading(
                 "UPDATE calls SET summary = :summary, summary_source = :source, "
                 "summary_local = :local, summary_language = :language, "
                 "summary_state = :state, headline = :headline, next_step = :next_step, "
-                "translation_state = :translation_state, updated_at = now() "
+                "translation_state = :translation_state, "
+                # A reading with no insights keeps the stored one: an extraction re-read
+                # carries none, and the engine sends none once the call's content is deleted.
+                "insights = COALESCE(CAST(:insights AS jsonb), insights), updated_at = now() "
                 "WHERE id = :cid AND tenant_id = :tid"
             ),
             {
@@ -2760,6 +2790,7 @@ async def _record_reading(
                 "state": state,
                 "headline": headline or None,
                 "next_step": next_step,
+                "insights": stored_insights(snapshot.insights),
                 "translation_state": translation_state,
                 "cid": call_id,
                 "tid": tenant_id,

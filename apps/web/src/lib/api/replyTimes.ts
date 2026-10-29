@@ -140,6 +140,7 @@ const SETTING_VALUE_LABELS: Record<string, string> = {
   timer: "Silence",
   ear: "Ear",
   smart: "Smart",
+  timer_v2: "Silence + check",
   none: "None",
   under_2000: "Under 2,000 characters",
   "2000_to_4000": "2,000 to 4,000 characters",

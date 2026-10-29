@@ -1392,6 +1392,12 @@ CONTROL_HINTS: Final[dict[str, ControlHint]] = {
             OptionLabel("timer", "Silence", "The pause set in Call handling ends the turn."),
             OptionLabel("ear", "Ear", "Real-time listening ends the turn after the pause."),
             OptionLabel("smart", "Smart", "A model judges; replies start later."),
+            OptionLabel(
+                "timer_v2",
+                "Silence + check",
+                "At each pause a quick AI check asks whether the caller has finished. "
+                "The pause is not used.",
+            ),
         )
     ),
     "reply_time_typical_target_ms": ControlHint(kind="duration", unit="milliseconds"),

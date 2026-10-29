@@ -900,6 +900,8 @@ def turn_detection_of(value: object) -> TurnDetection | None:
         return "ear"
     if value == "smart":
         return "smart"
+    if value == "timer_v2":
+        return "timer_v2"
     return None
 
 

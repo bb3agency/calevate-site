@@ -91,6 +91,7 @@ function detail(over: Partial<CallDetail> = {}): CallDetail {
     quality: null,
     signals: [],
     timeline: null,
+    insights: null,
     captured: [],
     transcript: [
       {

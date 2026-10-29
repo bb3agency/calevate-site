@@ -172,6 +172,10 @@ class Call(PKMixin, TimestampMixin, Base):
             "AND jsonb_typeof(engine_timeline -> 'turns') = 'array')",
             name="engine_timeline_shape",
         ),
+        CheckConstraint(
+            "insights IS NULL OR (jsonb_typeof(insights) = 'object' AND insights ? 'outcome')",
+            name="insights_shape",
+        ),
         # Recordings the carrier reported and we have not copied yet: the copy sweep's
         # worklist (`workers/carrier_recordings`), a handful of rows at any moment.
         Index(
@@ -422,6 +426,11 @@ class Call(PKMixin, TimestampMixin, Base):
     #: (`calevate_shared.events.CallTimeline`, dumped; D-902): times only, no words. NULL until
     #: `workers/call_timeline` fetches it, and on calls the platform timed nothing for.
     engine_timeline: Mapped[dict[str, object] | None] = mapped_column(JSONB)
+    #: What the call came to as the voice platform read it (`calevate_shared.events.
+    #: CallInsights`, dumped; D-940), its customer-quoted texts redacted. Transcript-derived,
+    #: so it is expired and erased with `summary` (`workers/retention`). NULL when the
+    #: platform did not read the call (migration f2a8d5c3b917).
+    insights: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     #: The agent's published call-handling settings when this row was first written
     #: (`agents.voice_settings`, D-896), never overwritten: what the reply times above ran on.
     voice_settings: Mapped[dict[str, object] | None] = mapped_column(JSONB)

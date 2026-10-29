@@ -336,6 +336,10 @@ KNOWN_SAFE_FIELDS: dict[str, str] = {
     "LeadOut.last_call_headline": (
         "the last call's stored-redacted headline (tests/post_call_truth_test.py)"
     ),
+    "CallInsightNoteOut.text": (
+        "an objection or issue the customer named, redacted before it is stored by "
+        "`workers/pipeline.stored_insights` (tests/call_insights_test.py)"
+    ),
     "SubjectExportCallOut.summary_local": (
         "masked by `export.mask_foreign_numbers` exactly like `summary` "
         "(tests/subject_export_test.py)"
