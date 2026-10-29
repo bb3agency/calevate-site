@@ -1568,6 +1568,14 @@ describe("editing what an agent captures (the extraction variables)", () => {
   });
 });
 
+const WAITING_SCRIPT = {
+  script: { ...EMPTY_SCRIPT, opening_line: "Namaskaram." },
+  version: 9,
+  is_freeform: false,
+  has_pending: true,
+  standard_variables: [],
+};
+
 describe("putting a waiting script live from the header", () => {
   it("offers the owner Put it live on the client-realm door, CAS on the waiting version", async () => {
     // CHANGED 10 Oct 2026 (founder: one "Put it live", no Save → Apply): the header's
@@ -1606,6 +1614,50 @@ describe("putting a waiting script live from the header", () => {
     const posted = calls.find((call) => call.path === "/v1/agents/agent-1/script/apply");
     expect(posted?.method).toBe("POST");
     expect(JSON.parse(posted?.body ?? "{}")).toEqual({ expected_version: 9 });
+  });
+
+  it("sends 'Fix it first' to the Script tab, since the header's dialog is opened away from it", async () => {
+    // Closing the dialog alone left the owner on Overview with no script to fix.
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/agents/agent-1/pending": STAGED,
+        "/v1/agents/agent-1/script": WAITING_SCRIPT,
+        "POST /v1/agents/agent-1/script/check": { warnings: ["Ask one question at a time."] },
+      }),
+    );
+    const open = await screen.findByRole("button", { name: "Put it live" });
+    await waitFor(() => expect(open.hasAttribute("disabled")).toBe(false));
+    await act(async () => {
+      fireEvent.click(open);
+    });
+    const dialog = await screen.findByRole("dialog", { name: "Put these changes live?" });
+    await within(dialog).findByText("1 line to fix first");
+    const fix = within(dialog).getByRole("link", { name: "Fix it first" });
+    expect(fix.getAttribute("href")).toContain("section=script");
+    await act(async () => {
+      fireEvent.click(fix);
+    });
+    expect(screen.queryByRole("dialog", { name: "Put these changes live?" })).toBeNull();
+  });
+
+  it("offers Try again when the line check fails", async () => {
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/agents/agent-1/pending": STAGED,
+        "/v1/agents/agent-1/script": WAITING_SCRIPT,
+        "POST /v1/agents/agent-1/script/check": problem(422, { title: "Not checkable" }),
+      }),
+    );
+    const open = await screen.findByRole("button", { name: "Put it live" });
+    await waitFor(() => expect(open.hasAttribute("disabled")).toBe(false));
+    await act(async () => {
+      fireEvent.click(open);
+    });
+    const dialog = await screen.findByRole("dialog", { name: "Put these changes live?" });
+    await within(dialog).findByText("We could not check its lines this time.", undefined, { timeout: 5000 });
+    expect(within(dialog).getByRole("button", { name: "Try again" })).toBeTruthy();
   });
 
   it("offers no Put it live when nothing is waiting", async () => {

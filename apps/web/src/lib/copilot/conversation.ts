@@ -194,7 +194,7 @@ export async function clearConversation(
   session: Session,
   realm: "client" | "admin",
 ): Promise<number> {
-  const body = await apiRequest<{ cleared: number }>(session, conversationPath(realm), {
+  const body = await apiRequest<components["schemas"]["CopilotConversationClearedOut"]>(session, conversationPath(realm), {
     method: "DELETE",
   });
   return body.cleared;

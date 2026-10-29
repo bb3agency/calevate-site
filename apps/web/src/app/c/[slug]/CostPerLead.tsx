@@ -26,8 +26,10 @@ export function CostPerLead({ session, href }: { session: Session; href: string 
       </div>
     );
   }
-  const week = cost.data?.windows.find((w) => w.days === 7);
-  if (!week) return <Skeleton rows={2} label="Working out your cost per lead" />;
+  if (!cost.data) return <Skeleton rows={2} label="Working out your cost per lead" />;
+  // An answer without the 7-day window has nothing to show here; a skeleton would spin forever.
+  const week = cost.data.windows.find((w) => w.days === 7);
+  if (!week) return null;
   return (
     <Metric
       className="py-4"

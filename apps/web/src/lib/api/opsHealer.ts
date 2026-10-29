@@ -52,7 +52,7 @@ export function useHealerIncidents(): UseQueryResult<{ items: HealerIncident[] }
   return useQuery({
     queryKey: opsHealerKeys.incidents,
     queryFn: () =>
-      apiRequest<{ items: HealerIncident[] }>(
+      apiRequest<Schemas["IncidentsOut"]>(
         adminSession(),
         `${OPS_HEALER_PATH}/incidents?days=7&limit=50`,
       ),
@@ -63,7 +63,7 @@ export function useHealerActions(incidentId: string | null): UseQueryResult<{ it
   return useQuery({
     queryKey: opsHealerKeys.actions(incidentId),
     queryFn: () =>
-      apiRequest<{ items: HealerAction[] }>(
+      apiRequest<Schemas["ActionsOut"]>(
         adminSession(),
         incidentId === null
           ? `${OPS_HEALER_PATH}/actions?limit=50`

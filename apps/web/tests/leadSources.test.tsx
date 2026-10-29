@@ -1200,4 +1200,46 @@ describe("a portal or CRM that pushes to an address", () => {
     );
     expect(await screen.findByRole("menuitem", { name: "Issue a new address" })).toBeTruthy();
   });
+
+  it.each(["indiamart", "leadsquared"] as const)(
+    "%s: no field names to change, only what the leads are, and the preset is never written",
+    async (kind) => {
+      const { calls } = await renderPage({
+        [SOURCES_PATH]: sourceList(
+          leadSource({ id: PUSH_ID, source: kind, ingest_path: PUSHED.ingest_path, consent_basis: "inquiry" }),
+        ),
+        [`PUT /v1/lead-sources/${PUSH_ID}/consent-basis`]: { id: PUSH_ID, consent_basis: "application" },
+      });
+      await chooseRowAction(PUSH_ID, "What these leads are");
+      const dialog = await screen.findByRole("dialog");
+      expect(within(dialog).getByText("Fields are read automatically.")).toBeTruthy();
+      expect(within(dialog).queryByLabelText("Phone")).toBeNull();
+      expect(within(dialog).queryByText("Other details")).toBeNull();
+
+      fireEvent.click(within(dialog).getByRole("radio", { name: /An application/ }));
+      fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+      await vi.waitFor(() => {
+        if (!calls.some((c) => c.path.endsWith("/consent-basis"))) throw new Error("basis not saved");
+      });
+      expect(calls.some((c) => c.path.endsWith("/mapping"))).toBe(false);
+    },
+  );
+
+  it.each(["99acres", "magicbricks", "housing"] as const)(
+    "%s: keeps the field names, for an account manager who sends other ones",
+    async (kind) => {
+      await renderPage({
+        [SOURCES_PATH]: sourceList(
+          leadSource({ id: PUSH_ID, source: kind, ingest_path: PUSHED.ingest_path, mapping: { phone: "mobile" } }),
+        ),
+      });
+      await chooseRowAction(
+        PUSH_ID,
+        "Adjust field names (if your manager sends others)",
+      );
+      const dialog = await screen.findByRole("dialog");
+      expect((within(dialog).getByLabelText("Phone") as HTMLInputElement).value).toBe("mobile");
+      expect(within(dialog).queryByText("Fields are read automatically.")).toBeNull();
+    },
+  );
 });
