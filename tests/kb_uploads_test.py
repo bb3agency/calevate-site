@@ -210,6 +210,34 @@ async def test_a_file_over_the_vendors_ceiling_is_refused_before_a_byte_is_store
     assert s3.objects == {}, "an oversized upload reached the bucket"
 
 
+@pytest.mark.parametrize(
+    "data",
+    [
+        b"<html><script>alert(1)</script></html>",
+        b"PK\x03\x04 a zip renamed to pdf",
+        b"x" * 2048 + b"%PDF-1.4\n",
+    ],
+)
+async def test_a_file_named_pdf_that_is_not_one_is_refused_before_a_byte_is_stored(
+    s3: FakeS3, data: bytes
+) -> None:
+    """A PDF is handed to the voice platform as it is, with no reader of ours in front, so
+    the header is checked at the door; a header past the first 1024 bytes is not a PDF."""
+    tenant_id, agent_id = await _tenant_with_published_agent()
+    with pytest.raises(ProblemError) as raised:
+        await _upload_pdf(tenant_id, agent_id, data=data)
+    assert raised.value.code == "kb_upload_not_a_pdf"
+    assert raised.value.status == 422
+    assert s3.objects == {}
+
+
+async def test_a_pdf_with_junk_before_its_header_is_accepted(s3: FakeS3) -> None:
+    tenant_id, agent_id = await _tenant_with_published_agent()
+    row = await _upload_pdf(tenant_id, agent_id, data=b"\r\n\xef\xbb\xbf" + PDF)
+    assert row["source_kind"] == "pdf"
+    assert len(s3.objects) == 1
+
+
 # --- 3. Who is reviewed --------------------------------------------------------------
 
 
