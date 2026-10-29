@@ -368,8 +368,9 @@ team_alert_contacts(id, tenant_id, channel IN (email, whatsapp) DEFAULT email,
 team_alert_rules(id, tenant_id, agent_id FK agents, contact_id NULL FK team_alert_contacts,
   on_outcomes JSONB array, on_fields JSONB array, in_call BOOL DEFAULT false, ...)
 team_alerts(id, tenant_id, agent_id, call_id FK calls, contact_id, trigger IN (after_call,
-  in_call), reasons JSONB array, status IN (queued, sent, failed, cancelled) DEFAULT queued,
-  attempts >= 0, sent_at, ...)
+  in_call, follow_up), reasons JSONB array, status IN (queued, sent, failed, cancelled)
+  DEFAULT queued, attempts >= 0, sent_at, ...)
+  -- `follow_up`: a Follow-up's "tell the team" step (f4b8d2a6c913, D-940).
   -- c4e9a2f7d816, D-904 "Tell my team". The business's own team addresses (verified once by
   -- an emailed code), one rule row per agent (which outcomes and choice values tell the
   -- team, and whether the agent may tell it during the call), and one delivery row per
@@ -377,6 +378,32 @@ team_alerts(id, tenant_id, agent_id, call_id FK calls, contact_id, trigger IN (a
   -- zero-rows proof `tests/team_alerts_test.py`. The same migration widens
   -- `agent_test_cases.caller_lines` to 1..20 lines (was 6) so a guided procedure can be a
   -- saved test.
+follow_ups(id, tenant_id, name 1..80, status IN (draft, live, paused, off) DEFAULT draft,
+  trigger JSONB object, settings JSONB object, draft JSONB array NULL, live_version_id NULL
+  FK follow_up_versions, starter NULL IN (call_new_leads, qualify_new_leads,
+  missed_call_callback, appointment_reminder, payment_reminder, win_back), created_by NULL
+  FK users, created_at, updated_at; live/paused => live_version_id; UNIQUE(tenant_id) WHERE
+  starter = 'call_new_leads')
+follow_up_versions(id, tenant_id, follow_up_id FK, number >= 1, steps JSONB array, trigger,
+  settings, published_by, published_at, UNIQUE(follow_up_id, number))   -- APPEND-ONLY
+follow_up_runs(id, tenant_id, follow_up_id FK, version_id FK, lead_id NULL FK leads,
+  phone_e164, status IN (running, waiting, done, stopped) DEFAULT waiting, step_id, wake_at,
+  waiting_call_id NULL FK calls, last_call_id NULL FK calls, attempt >= 0, trigger_ref,
+  started_at, ended_at (set exactly when done/stopped), end_reason <= 64, goal_reached,
+  created_at, updated_at; UNIQUE(follow_up_id, lead_id) WHERE running/waiting;
+  UNIQUE(follow_up_id, lead_id, trigger_ref); UNIQUE(follow_up_id, phone_e164, trigger_ref)
+  WHERE lead_id IS NULL)
+follow_up_run_events(id, tenant_id, run_id FK, step_id, attempt, kind <= 32, result <= 64,
+  call_id NULL (plain id), at, UNIQUE(run_id, step_id, attempt, kind))   -- APPEND-ONLY
+  -- f4b8d2a6c913, D-940 Follow-ups (docs/FOLLOW-UPS.md). A journey, its steps frozen at each
+  -- publish (a run finishes on the version it started on), one lead going through one
+  -- version, and what happened at each step as short codes; the unique event key is what
+  -- makes a worker retry a no-op. The only phone number is the run's own. All four FORCEd
+  -- tenant_isolation; zero-rows proof `tests/follow_ups_rls_test.py`. Both erasures
+  -- anonymize a run's number and stop it (`retention._erase_follow_up_runs`).
+  -- `follow_up_scan(stale_s)` is the minute tick's per-tenant worklist (SECURITY INVOKER).
+  -- The migration gives every organisation a live "Call new leads" (version 1) from its
+  -- `lead_call_policies` agent, wait and retries; those four columns are no longer written.
 prompt_versions(id, tenant_id, agent_id, version INT, body TEXT, compiled_t0_context TEXT,
   notes TEXT, created_by, published_at, UNIQUE(agent_id,version))   -- full history + rollback
   -- notes = operator-facing "why this version exists" ("rollback to v3", "new pricing").
