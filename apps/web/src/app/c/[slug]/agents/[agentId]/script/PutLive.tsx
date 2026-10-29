@@ -10,7 +10,7 @@
  * change made somewhere else in between is refused rather than overwritten.
  */
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 import { ActionButton, useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
 import { ModalDialog } from "@/components/modalDialog";
@@ -72,6 +72,7 @@ export function PutLiveDialog({
   error,
   onCancel,
   onConfirm,
+  promo,
 }: {
   /** What callers hear now (the saved script). */
   live: CallScript;
@@ -86,6 +87,8 @@ export function PutLiveDialog({
   error: unknown;
   onCancel: () => void;
   onConfirm: (summary: string) => void;
+  /** The promo check's warning (D-943), shown above the note; never blocks the button. */
+  promo?: ReactNode;
 }) {
   const [summary, setSummary] = useState(() => changeSummary(live, draft));
   const shown: FeedbackStatus = status ?? (pending ? "pending" : "idle");
@@ -119,6 +122,7 @@ export function PutLiveDialog({
       }
     >
       {voiceLine && <p className="mt-2 text-meta text-ink-muted">Voice: {voiceLine}</p>}
+      {promo && <div className="mt-3">{promo}</div>}
       <div className="mt-4">
         <label className={FIELD_LABEL} htmlFor="put-live-summary">
           What changed

@@ -167,9 +167,9 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         route="/c/{slug}/agents",
         name="Agents",
         group=None,
-        summary="The AI voice agents themselves — what they say, what they capture, whether "
-        "they are live, each agent's Training tab, where it is taught, tried and tested, and "
-        "its Settings tab, where call handling is set for that agent or for all of them.",
+        summary="The AI voice agents: what they say and capture, whether they are live, each "
+        "one's Training tab (taught, tried, tested) and Settings tab (call handling for that "
+        "agent or all of them).",
         aliases=(
             "bots",
             "ai agents",
@@ -202,12 +202,11 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         name="Follow-ups",
         group=None,
         summary=(
-            "The steps each lead goes through on its own after it arrives or after a call: "
-            "calls, waits, WhatsApp messages, handing to a teammate. Turn one on, pause it, "
-            "make small changes, start it for picked leads, and see where each lead is."
+            "Steps each lead goes through on its own after it arrives or a call (calls, waits, "
+            "WhatsApp, handing to a teammate): turn one on, pause or adjust it, start it for "
+            "picked leads, see where each lead is."
         ),
         aliases=(
-            "follow-up",
             "follow-ups",
             "followup",
             "workflow",
@@ -241,7 +240,6 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
             "training",
             "documents",
             "what the agent knows",
-            "what my agents know",
         ),
     ),
     Screen(
@@ -255,7 +253,6 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
             "phone number",
             "my number",
             "forwarding",
-            "what number do i forward to",
             "did",
         ),
     ),
@@ -272,9 +269,8 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         name=ASSISTANT_NAME,
         group=None,
         summary=(
-            f"{ASSISTANT_NAME}'s own page (the assistant): past conversations, tasks running "
-            "in the background, the approvals waiting for you, routines, and everything it "
-            "did with an Undo."
+            f"{ASSISTANT_NAME}'s own page: past conversations, background "
+            "tasks, approvals waiting for you, routines, and everything it did with an Undo."
         ),
         aliases=("assistant", "approvals", "routines", "activity log", "tasks", "undo"),
     ),
@@ -297,10 +293,9 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         name="Verify your business",
         group="Compliance & data",
         summary=(
-            "Where the owner verifies the business and their own ID, accepts the "
-            "no-cold-calls pledge and declares the numbers automated calls come from, which "
-            "together unlock outbound calling; it also shows what is on file from the "
-            "business checks and anything still blocking calls."
+            "Where the owner verifies the business and their ID, accepts the no-cold-calls "
+            "pledge and declares calling numbers to unlock outbound calling, and sees what "
+            "is on file and what still blocks it."
         ),
         aliases=(
             "kyc",
@@ -314,8 +309,6 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
             "activation",
             "verification",
             "identity",
-            "documents check",
-            "verification status",
         ),
     ),
     Screen(
@@ -337,9 +330,8 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         name="Leads & hours",
         group="Compliance & data",
         summary=(
-            "How new leads are called: which agent, how soon, calling hours and holidays, "
-            "after-hours handling and leads held for you, retries, answering machines; and "
-            "where leads come from."
+            "How new leads are called (agent, timing, hours, holidays, held leads, retries, "
+            "answering machines) and where they come from."
         ),
         aliases=(
             "lead sources",
@@ -369,6 +361,13 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         aliases=("privacy policy", "privacy notice", "caller notice"),
     ),
     Screen(
+        route="/c/{slug}/breach-playbook",
+        name="If data leaks",
+        group="Compliance & data",
+        summary="Steps if customer data leaks.",
+        aliases=("data breach",),
+    ),
+    Screen(
         route="/c/{slug}/settings/business",
         name="Business profile",
         group=SETTINGS_GROUP,
@@ -388,8 +387,8 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         route="/c/{slug}/settings/lead-details",
         name="Lead details",
         group=SETTINGS_GROUP,
-        summary="The details every call writes down for a lead: the ones every business "
-        "gets, and the ones about this business, which the owner can add, rename or remove.",
+        summary="What every call writes down for a lead: the standard details and this "
+        "business's own, which the owner can add, rename or remove.",
         aliases=(
             "lead fields",
             "captured details",
@@ -434,8 +433,7 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         name="Phone numbers",
         group=SETTINGS_GROUP,
         summary="The number callers already know, forwarded to the Calevate number: how its "
-        "calls reach the agent, the codes for the phone, the forwarding test, and the "
-        "save-our-number message.",
+        "calls reach the agent, phone codes, the forwarding test, the save-our-number message.",
         aliases=(
             "existing number",
             "call forwarding",
@@ -480,14 +478,11 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         aliases=(
             "billing",
             "payment",
-            "pay",
             "top up",
-            "topup",
             "recharge",
             "wallet",
             "balance",
             "add money",
-            "add funds",
             "credit",
             "buy credits",
             # The four folded screens, by their old names and by the questions they
@@ -499,18 +494,12 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
             "receipt",
             "statement",
             "gst",
-            "tax invoice",
-            "download bill",
             "cost",
             "this month",
             "spending limit",
-            "consumption",
             "minutes used",
-            "breakdown",
             "charges",
             "where the money went",
-            "expenses",
-            "how much have i spent",
         ),
         # `wallet:read`, which staff HOLD — see the page's own header. The owner-only
         # figures refuse per TAB inside the screen, which is why the whole-screen

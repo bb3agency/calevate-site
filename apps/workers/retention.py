@@ -3923,6 +3923,10 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
             },
         )
         counts["deletion_requests_scrubbed"] = int(rowcount_of(pending) or 0)
+        # The client's rights desk (D-943): its log of its customers' requests, named by
+        # `subject_ref`. The client's own record, gone with the client; the erasure
+        # requests above stay because they are OUR certificate.
+        await session.execute(text("DELETE FROM data_rights_requests"))
         # The client's escalation roster (D-695): staff names and mobiles, whose numbers end
         # with the engagement. `agent_handoff_members` cascades from it.
         await session.execute(text("DELETE FROM business_contacts"))

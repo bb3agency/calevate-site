@@ -344,6 +344,28 @@ export function stubApi(routes: Routes): ApiCall[] {
         // TODAY'S TEST CALLS (D-885), answered "none today" by default: every trial card
         // reads them. A test about the card's calls names the route itself.
         if (scoped === "GET /v1/trial/calls") return jsonResponse([]);
+        // THE PROMO CHECK AT PUT-LIVE (D-943), answered "clear" by default: every put-live
+        // dialog reads it. A test about the warning names the route itself.
+        // And the campaign's call type, answered "not said yet" (rendered as nothing).
+        const purposeOf = /^GET \/v1\/compliance\/call-purpose\/campaigns\/([^/]+)$/.exec(scoped);
+        if (purposeOf) {
+          return jsonResponse({
+            campaign_id: purposeOf[1],
+            agent_id: "00000000-0000-7000-8000-000000000000",
+            purpose: { purpose: "unclear", label: "Not said yet", basis: "none", window: null, explanation: "" },
+            report: { verdict: "clear", blocks_launch: false, findings: [], truncated: false, fix: "" },
+            blocks_launch: false,
+          });
+        }
+        const promo = /^GET \/v1\/compliance\/promo-check\/agents\/([^/]+)$/.exec(scoped);
+        if (promo) {
+          return jsonResponse({
+            agent_id: promo[1],
+            places_calls: true,
+            reading: "saved",
+            report: { verdict: "clear", blocks_launch: false, findings: [], truncated: false, fix: "" },
+          });
+        }
         // AN AGENT'S SUGGESTED LEAD-DETAIL CHANGES (D-889), answered "checked, none" by
         // default in both realms: every Lead details editor reads them. A test about the
         // suggestions names the route itself.

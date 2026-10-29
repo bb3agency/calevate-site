@@ -405,7 +405,41 @@ is in `MUTATING_PERMISSIONS`, so an impersonating operator (D-22) cannot widen a
 calling posture under the owner's name. Nothing turns it on for a new account and no plan
 implies it: it is one switch an owner finds.
 
+### 3b. What a call says, and the consent windows (D-943)
+
+- **Promo check.** `compliance/call_purpose.py` reads an agent's script for offers and
+  selling, with no model call. Promotional content mixed into a commercial call makes the
+  whole call promotional (TCCCPR 2025 cl.2(av), official text). The put-live dialog WARNS;
+  the launch gate REFUSES a non-promotional campaign whose agent's live script has `strong`
+  promotional wording (`script_promotional`). `soft` wording never blocks.
+- **Call purpose.** Named from the client's own choices: a service campaign to existing
+  customers is service limb (i); an enquiry or form list is a relationship call valid seven
+  days from the enquiry (2026 cl.2(bb)(ii)). Shown on the launch checklist.
+- **Application window.** A lead source the client declares an application form grants a
+  consent row three calendar months long (2026 cl.2(bb)(iii)); an enquiry form, seven days.
+- **Re-ask lockout.** After a person declines or withdraws messaging consent, or says
+  "stop calling", the business may not ask them again for 90 days unless they come back on
+  their own (2025 Sch. I 2(2)(g)); the in-call WhatsApp ask is refused inside it.
+
+Evidence: official text as read from the TRAI PDFs in `docs/research/research_notes/
+Calevate market and technology edge/india_regulation.md` §1 (30 Oct 2026). Counsel review:
+OPERATIONS §2 gate 64.
+
 ## 4. Data Protection (DPDP) — Feature Map
+
+### 4.0 The client's fiduciary kit (D-943)
+
+The client is the Data Fiduciary for its callers. Built for them, on Data rights, Your
+privacy notice and If data leaks: a **rights desk** (`data_rights_requests`, FORCEd RLS,
+`subject_ref` only) logging each customer's access, correction, erasure, nomination or
+grievance request with a 90-day deadline fixed from when the person asked (DPDP Rules 2025,
+official per the PIB backgrounder of 17 Nov 2025), reminders in the attention queue and the
+operators' `rights_requests_due` alarm, and answers wired to the subject export and the
+erasure certificate; a **short caller notice** in English, Telugu and Hindi
+(`compliance/privacy_notice.py`, machine-drafted translations marked as such); and a static
+**breach playbook** whose timelines (without delay; 72 hours; CERT-In 6 hours) are SECONDARY.
+The duties commence about 13 May 2027 (SECONDARY); an earlier date is UNKNOWN. Not legal
+advice, and each screen says so.
 
 | Obligation | Feature |
 |---|---|

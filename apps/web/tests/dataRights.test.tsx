@@ -125,6 +125,8 @@ function completedRequest(): DeletionRequest {
 const EXPORT_PATH = "POST /v1/compliance/subject-export";
 const FILE_PATH = "POST /v1/compliance/deletion-requests";
 const LIST_PATH = "/v1/compliance/deletion-requests?limit=100";
+const DESK_PATH = "/v1/compliance/rights-requests?limit=100";
+const EMPTY_DESK = { items: [], open: 0, due_soon: 0, overdue: 0, response_days: 90, reminder_days: 14 };
 const STATUS_PATH = `/v1/compliance/deletion-requests/${REQUEST_ID}`;
 
 /**
@@ -175,6 +177,7 @@ function render(routes: Record<string, unknown>, me: Me = OWNER) {
   return renderClientPage(<DataRightsPage />, {
     "/v1/me": me,
     [LIST_PATH]: [],
+    [DESK_PATH]: EMPTY_DESK,
     ...routes,
   });
 }

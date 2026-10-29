@@ -537,6 +537,8 @@ async def _messaging_gate(
         )
     except wa.WhatsAppBlockedError as exc:
         return ExecutionResult(ok=False, payload={"error": exc.code}, status="blocked")
+    except wa.WhatsAppReaskLockedError as exc:
+        return ExecutionResult(ok=False, payload={"error": exc.code}, status="reask_locked")
     except wa.WhatsAppNotOptedInError as exc:
         return ExecutionResult(ok=False, payload={"error": exc.code}, status="not_opted_in")
     except wa.WhatsAppConsentNotAskedError as exc:

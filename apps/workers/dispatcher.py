@@ -21,6 +21,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance.deletion import RECORDING_FLOOR_DAYS
+from apps.api.compliance.models import RIGHTS_REMINDER_DAYS, RIGHTS_RESPONSE_DAYS
 from apps.api.compliance.processor_erasure import (
     HELD_PAST_FLOOR_SQL,
     NOT_HELD_SQL,
@@ -404,6 +405,17 @@ FROM processor_erasure_tasks t
 WHERE t.status IN ('open', 'requested') AND t.opened_at < :cutoff AND {NOT_HELD_SQL}
 """
 
+#: A client's customers' DPDP requests nearing or past their 90-day deadline (D-943). Rides
+#: the same per-tenant walk as the erasure probe: same directory, same statutory kind of
+#: clock, and a second fleet walk would cost another session per organization. The client
+#: sees the same rows in its attention queue; this is the operators' half.
+_RIGHTS_REQUESTS_DUE = """
+SELECT count(*) FILTER (WHERE due_at <= :now) AS overdue,
+       count(*) FILTER (WHERE due_at > :now)  AS due_soon
+FROM data_rights_requests
+WHERE status = 'open' AND due_at <= :soon
+"""
+
 #: Every organization, and NOT `callable_tenants()`.
 #:
 #: Reusing the stall probe's tenant list was the obvious move and it is wrong twice over.
@@ -489,6 +501,11 @@ async def report_overdue_erasures(ctx: dict[str, Any]) -> str:
     unanswered = 0
     held_past_floor = 0
     processor_tenants = 0
+    rights_now = datetime.now(UTC)
+    rights_soon = rights_now + timedelta(days=RIGHTS_REMINDER_DAYS)
+    rights_overdue = 0
+    rights_due_soon = 0
+    rights_tenants = 0
     # The wall clock, not a counter — see `fleet_walk.WalkBudget`.
     budget = WalkBudget(ERASURE_PROBE_DEADLINE)
     tenants = await _all_tenants()
@@ -509,6 +526,12 @@ async def report_overdue_erasures(ctx: dict[str, Any]) -> str:
                         {"cutoff": processor_cutoff, "floor": RECORDING_FLOOR_DAYS},
                     )
                 ).one()
+                rights = (
+                    await session.execute(
+                        text(_RIGHTS_REQUESTS_DUE),
+                        {"now": rights_now, "soon": rights_soon},
+                    )
+                ).one()
         except Exception:
             log.exception("overdue_erasure_probe_failed", extra={"tenant_id": str(tenant_id)})
             unreached += 1
@@ -521,6 +544,10 @@ async def report_overdue_erasures(ctx: dict[str, Any]) -> str:
             unanswered += int(stuck.unanswered or 0)
             held_past_floor += int(stuck.held_past_floor or 0)
             processor_tenants += 1
+        if rights.overdue or rights.due_soon:
+            rights_overdue += int(rights.overdue or 0)
+            rights_due_soon += int(rights.due_soon or 0)
+            rights_tenants += 1
     if total or unreached:
         alert(
             "WORKER_STALL",
@@ -561,6 +588,18 @@ async def report_overdue_erasures(ctx: dict[str, Any]) -> str:
                 )
                 + " A task whose outstanding calls all still wait inside their recording "
                 "floor is not counted and needs nothing. runbooks/processor-erasure.md"
+            ),
+        )
+    if rights_overdue or rights_due_soon:
+        alert(
+            "WORKER_STALL",
+            "rights_requests_due",
+            detail=(
+                f"{rights_overdue} customer data request(s) past their "
+                f"{RIGHTS_RESPONSE_DAYS}-day deadline and {rights_due_soon} due within "
+                f"{RIGHTS_REMINDER_DAYS} days, across {rights_tenants} client(s). The "
+                "clients answer these, not us: each sees them in its attention queue and on "
+                "Data rights. Contact any client with an overdue one. runbooks/alarm-index.md"
             ),
         )
     if budget.exhausted:

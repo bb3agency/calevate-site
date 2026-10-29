@@ -229,6 +229,11 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "lead-fields",
     "actions",
     "caller-notice",
+    // D-943: the short notice is built from the same settings; the promo check and a
+    // campaign's call type read the agent's script.
+    "short-notice",
+    "promo-check",
+    "call-purpose",
     // A campaign's launch check refuses an agent that may not place calls or has no
     // disclosure line, so it moves when the agent does.
     "campaign-check",
@@ -290,6 +295,7 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "own-numbers",
     "deletion-request",
     "deletion-requests",
+    "rights-desk",
     "whatsapp-alerts",
     // A trial start or end writes only `tenant_trials`, which announces `account`; the
     // wallet shows the active trial, so these move with it.

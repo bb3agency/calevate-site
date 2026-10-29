@@ -114,6 +114,7 @@ const SOURCE: LeadSource = {
   mapping: {},
   secret_fingerprint: "cd34",
   previous_secret_expires_at: null,
+  consent_basis: "inquiry",
   created_at: "2026-10-20T10:00:00Z",
   updated_at: "2026-10-20T10:00:00Z",
 };

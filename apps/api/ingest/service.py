@@ -212,6 +212,8 @@ class IngestConfig:
     # a rotation window; the DB constraint keeps them in step (migration a1c7d4e93b02).
     previous_secret_ref: str | None = None
     previous_secret_expires_at: datetime | None = None
+    #: What a submission is (D-943, `compliance.models.LEAD_CONSENT_BASES`).
+    consent_basis: str = "inquiry"
 
     def accepted_secrets(self, *, now: datetime | None = None) -> tuple[str, ...]:
         """Every credential this endpoint honours right now, current one first.
@@ -243,7 +245,7 @@ async def load_config(session: AsyncSession, webhook_id: UUID) -> IngestConfig |
         await session.execute(
             text(
                 "SELECT id, tenant_id, agent_id, source, mapping, secret_ref, "
-                "previous_secret_ref, previous_secret_expires_at "
+                "previous_secret_ref, previous_secret_expires_at, consent_basis "
                 "FROM inbound_webhooks WHERE id = :wid AND active"
             ),
             {"wid": webhook_id},
@@ -262,6 +264,7 @@ async def load_config(session: AsyncSession, webhook_id: UUID) -> IngestConfig |
         secret_ref=secret or "",
         previous_secret_ref=open_source_secret(row[6], tenant_id=row[1], webhook_id=row[0]),
         previous_secret_expires_at=row[7],
+        consent_basis=str(row[8]),
     )
 
 
@@ -574,6 +577,7 @@ async def ingest_lead(
             phone_e164=phone,
             consent_field=consent_field,
             source=config.source,
+            consent_basis=config.consent_basis,
         )
 
     # 2a. The pushed senders' own grounds (D-942, `ingest/portals.py`): a CRM's do-not-call
@@ -914,6 +918,7 @@ async def _record_dial_consent_granted(
     phone_e164: str,
     consent_field: str,
     source: str,
+    consent_basis: str = "inquiry",
 ) -> None:
     """The affirmative twin of the refusal below, and the ledger's only `callback` grant.
 
@@ -939,22 +944,34 @@ async def _record_dial_consent_granted(
     (`consent.record_callback_request_consent`); a consent a client records from elsewhere
     sets none, having an inquiry date we never saw (OPERATIONS §2 gate 60).
 
+    A source the client declared an APPLICATION form gets three calendar months instead
+    (D-943, `consent.relationship_window`): the window is the regulation's, the declaration
+    that the form is an application is the client's, and the evidence names both.
+
     HARD RULE 6: the field NAME is configuration, not personal data. The submitted value
     is not stored — only that it was in the affirmative set.
     """
+    # Imported here: `compliance.consent` imports this module's `normalize_phone`.
+    from apps.api.compliance.consent import relationship_window
+
+    months, days = relationship_window(consent_basis)
     await session.execute(
         text(
             "INSERT INTO consent_ledger (id, tenant_id, phone_e164, purpose, status, "
             "consent_source, captured_at, expires_at, evidence, created_at) VALUES (:id, "
             ":tid, :phone, 'callback', 'granted', 'web_form_optin', now(), "
-            "now() + make_interval(days => :window_days), CAST(:evidence AS jsonb), now())"
+            "now() + make_interval(months => :window_months, days => :window_days), "
+            "CAST(:evidence AS jsonb), now())"
         ),
         {
             "id": uuid7(),
             "tid": tenant_id,
             "phone": phone_e164,
-            "window_days": INQUIRY_CONSENT_WINDOW_DAYS,
-            "evidence": json.dumps({"consent_field": consent_field, "lead_source": source}),
+            "window_months": months,
+            "window_days": days,
+            "evidence": json.dumps(
+                {"consent_field": consent_field, "lead_source": source, "basis": consent_basis}
+            ),
         },
     )
 
@@ -1171,6 +1188,7 @@ class LeadSourceSummary:
     previous_secret_expires_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    consent_basis: str = "inquiry"
 
 
 def mint_secret() -> str:
@@ -1341,7 +1359,8 @@ async def list_lead_sources(session: AsyncSession, *, limit: int = 200) -> list[
             text(
                 "SELECT id, source, agent_id, active, mapping, secret_ref, "
                 "previous_secret_ref, previous_secret_expires_at, created_at, updated_at, "
-                "tenant_id FROM inbound_webhooks ORDER BY created_at DESC LIMIT :limit"
+                "tenant_id, consent_basis FROM inbound_webhooks "
+                "ORDER BY created_at DESC LIMIT :limit"
             ),
             {"limit": limit},
         )
@@ -1366,6 +1385,7 @@ async def list_lead_sources(session: AsyncSession, *, limit: int = 200) -> list[
             previous_secret_expires_at=(row[7] if row[6] and row[7] and now < row[7] else None),
             created_at=row[8],
             updated_at=row[9],
+            consent_basis=str(row[11]),
         )
         for row in rows
     ]
@@ -1468,6 +1488,31 @@ async def set_source_agent(
     return None if row[0] is None else UUID(str(row[0]))
 
 
+async def set_source_consent_basis(
+    session: AsyncSession, *, webhook_id: UUID, consent_basis: str
+) -> str:
+    """Declare what a submission to this source is (D-943). Returns the previous basis.
+
+    Leads already received keep the window their consent row was written with; the ledger
+    is append-only and a basis is the form's description at the moment of submission.
+    """
+    row = (
+        await session.execute(
+            text("SELECT consent_basis FROM inbound_webhooks WHERE id = :id FOR UPDATE"),
+            {"id": webhook_id},
+        )
+    ).first()
+    if row is None:
+        raise ProblemError.not_found("Lead source")
+    await session.execute(
+        text(
+            "UPDATE inbound_webhooks SET consent_basis = :basis, updated_at = now() WHERE id = :id"
+        ),
+        {"id": webhook_id, "basis": consent_basis},
+    )
+    return str(row[0])
+
+
 async def set_source_mapping(
     session: AsyncSession, *, webhook_id: UUID, mapping: dict[str, str]
 ) -> tuple[dict[str, str], dict[str, str]]:
@@ -1552,6 +1597,7 @@ __all__ = [
     "rotate_secret",
     "set_active",
     "set_source_agent",
+    "set_source_consent_basis",
     "set_source_mapping",
     "validate_mapping",
     "verify_ingest_secret",

@@ -7189,6 +7189,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/compliance/call-purpose/campaigns/{campaign_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What kind of call this campaign places, and whether its script is promotional */
+        get: operations["campaign_call_purpose_v1_compliance_call_purpose_campaigns__campaign_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/compliance/caller-notice": {
         parameters: {
             query?: never;
@@ -7201,6 +7218,26 @@ export interface paths {
          * @description Indian data-protection law requires you to tell your callers, item by item, what you collect from them and how long you keep it. For a Calevate account that list is the fields your agents capture, your retention settings and your announcement settings — which live here. This generates a DRAFT from them, with blanks marked where only you can answer. It is not legal advice and must be reviewed by your own advocate before you publish it.
          */
         get: operations["read_caller_notice_v1_compliance_caller_notice_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/compliance/caller-notice/short": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The short privacy notice for your callers, in English, Telugu or Hindi
+         * @description A one-page notice built from the same settings as the full draft, to put on your website or send to a customer. The Telugu and Hindi are machine-drafted; have them checked. Not legal advice.
+         */
+        get: operations["read_short_notice_v1_compliance_caller_notice_short_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -7501,6 +7538,75 @@ export interface paths {
          * @description Records who accepted which version, when and from which address. Outbound calling needs a current acceptance; a new version needs accepting again.
          */
         post: operations["accept_outbound_pledge_v1_compliance_outbound_pledge_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/compliance/promo-check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Check wording for offers and selling before a call says it */
+        post: operations["promo_check_v1_compliance_promo_check_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/compliance/promo-check/agents/{agent_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Check an agent's script for offers and selling */
+        get: operations["agent_promo_check_v1_compliance_promo_check_agents__agent_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/compliance/rights-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Your customers' data requests and the 90-day clock on each */
+        get: operations["list_rights_requests_v1_compliance_rights_requests_get"];
+        put?: never;
+        /** Log a customer's request to see, correct or erase their data */
+        post: operations["log_rights_request_v1_compliance_rights_requests_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/compliance/rights-requests/{request_id}/close": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark a data request answered or refused */
+        post: operations["close_rights_request_v1_compliance_rights_requests__request_id__close_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -10345,6 +10451,26 @@ export interface paths {
          * @description Points the source at another agent, or at none. The secret and the address are unchanged. Refused with a 404 for an agent of another account and `agent_archived` for a deleted one.
          */
         patch: operations["update_lead_source_v1_lead_sources__webhook_id__patch"];
+        trace?: never;
+    };
+    "/v1/lead-sources/{webhook_id}/consent-basis": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Say whether this source's forms are enquiries or applications
+         * @description An enquiry form's permission to call lasts seven days from the submission; an application form's (admission, loan, membership, job) lasts three months. Leads already received keep the window they were saved with.
+         */
+        put: operations["put_lead_source_consent_basis_v1_lead_sources__webhook_id__consent_basis_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/v1/lead-sources/{webhook_id}/enable": {
@@ -14611,6 +14737,22 @@ export interface components {
             /** Turn Silence Ms */
             turn_silence_ms: number | null;
         };
+        /** AgentPromoCheckOut */
+        AgentPromoCheckOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Places Calls */
+            places_calls: boolean;
+            /**
+             * Reading
+             * @enum {string}
+             */
+            reading: "draft" | "saved";
+            report: components["schemas"]["PromoReportOut"];
+        };
         /** AgentPromptLayersOut */
         AgentPromptLayersOut: {
             /**
@@ -15432,7 +15574,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "lead_blocked" | "delivery_failed" | "campaign_stalled" | "kb_rejected" | "inbound_stopped" | "action_broken" | "lead_hot" | "call_failed" | "credit_low" | "forwarded_line_quiet" | "caller_memory_paused";
+            kind: "lead_blocked" | "delivery_failed" | "campaign_stalled" | "kb_rejected" | "inbound_stopped" | "action_broken" | "lead_hot" | "call_failed" | "credit_low" | "forwarded_line_quiet" | "caller_memory_paused" | "rights_request_due";
             /**
              * Occurred At
              * Format: date-time
@@ -17365,6 +17507,23 @@ export interface components {
             };
             /** Total */
             total: number;
+        };
+        /** CampaignPurposeOut */
+        CampaignPurposeOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Blocks Launch */
+            blocks_launch: boolean;
+            /**
+             * Campaign Id
+             * Format: uuid
+             */
+            campaign_id: string;
+            purpose: components["schemas"]["PurposeOut"];
+            report: components["schemas"]["PromoReportOut"];
         };
         /**
          * CampaignResultsOut
@@ -22391,6 +22550,32 @@ export interface components {
             /** Value */
             value: string;
         };
+        /** FindingOut */
+        FindingOut: {
+            /**
+             * Category
+             * @enum {string}
+             */
+            category: "discount" | "urgency" | "free_offer" | "cross_sell" | "buy_now";
+            /**
+             * Language
+             * @enum {string}
+             */
+            language: "en" | "hi" | "te";
+            /** Phrase */
+            phrase: string;
+            /** Quote */
+            quote: string;
+            /**
+             * Severity
+             * @enum {string}
+             */
+            severity: "strong" | "soft";
+            /** Where */
+            where: string;
+            /** Why */
+            why: string;
+        };
         /** FirstRunOut */
         FirstRunOut: {
             /** Agent Id */
@@ -25250,6 +25435,27 @@ export interface components {
              */
             id: string;
         };
+        /** LeadSourceConsentBasisIn */
+        LeadSourceConsentBasisIn: {
+            /**
+             * Consent Basis
+             * @enum {string}
+             */
+            consent_basis: "inquiry" | "application";
+        };
+        /** LeadSourceConsentBasisOut */
+        LeadSourceConsentBasisOut: {
+            /**
+             * Consent Basis
+             * @enum {string}
+             */
+            consent_basis: "inquiry" | "application";
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+        };
         /**
          * LeadSourceCreatedOut
          * @description The one moment a minted secret is ever returned.
@@ -25352,6 +25558,11 @@ export interface components {
             active: boolean;
             /** Agent Id */
             agent_id: string | null;
+            /**
+             * Consent Basis
+             * @enum {string}
+             */
+            consent_basis: "inquiry" | "application";
             /**
              * Created At
              * Format: date-time
@@ -28335,6 +28546,27 @@ export interface components {
             /** Waiting For Calling Hours */
             waiting_for_calling_hours: boolean;
         };
+        /** PromoCheckIn */
+        PromoCheckIn: {
+            /** Parts */
+            parts: components["schemas"]["WordingIn"][];
+        };
+        /** PromoReportOut */
+        PromoReportOut: {
+            /** Blocks Launch */
+            blocks_launch: boolean;
+            /** Findings */
+            findings: components["schemas"]["FindingOut"][];
+            /** Fix */
+            fix: string;
+            /** Truncated */
+            truncated: boolean;
+            /**
+             * Verdict
+             * @enum {string}
+             */
+            verdict: "clear" | "check" | "promotional";
+        };
         /** PromptLayerOut */
         PromptLayerOut: {
             /** Chars */
@@ -28596,6 +28828,22 @@ export interface components {
             number_id: string;
             /** Replayed */
             replayed: boolean;
+        };
+        /** PurposeOut */
+        PurposeOut: {
+            /** Basis */
+            basis: string;
+            /** Explanation */
+            explanation: string;
+            /** Label */
+            label: string;
+            /**
+             * Purpose
+             * @enum {string}
+             */
+            purpose: "transactional" | "service_own_customer" | "relationship_enquiry" | "relationship_application" | "promotional" | "unclear";
+            /** Window */
+            window: string | null;
         };
         /**
          * PushAckOut
@@ -29910,6 +30158,100 @@ export interface components {
             /** Unreadable */
             unreadable: string[];
         };
+        /** RightsDeskOut */
+        RightsDeskOut: {
+            /** Due Soon */
+            due_soon: number;
+            /** Items */
+            items: components["schemas"]["RightsRequestOut"][];
+            /** Open */
+            open: number;
+            /** Overdue */
+            overdue: number;
+            /** Reminder Days */
+            reminder_days: number;
+            /** Response Days */
+            response_days: number;
+        };
+        /** RightsRequestCloseIn */
+        RightsRequestCloseIn: {
+            /** Deletion Request Id */
+            deletion_request_id?: string | null;
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "exported" | "erased" | "corrected" | "nominated" | "explained" | "identity_not_confirmed" | "not_held";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "answered" | "refused";
+        };
+        /** RightsRequestIn */
+        RightsRequestIn: {
+            /**
+             * Channel
+             * @enum {string}
+             */
+            channel: "phone" | "email" | "whatsapp" | "letter" | "in_person" | "other";
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "access" | "correction" | "erasure" | "nomination" | "grievance";
+            /** Phone */
+            phone: string;
+            /** Received At */
+            received_at?: string | null;
+        };
+        /** RightsRequestOut */
+        RightsRequestOut: {
+            /**
+             * Channel
+             * @enum {string}
+             */
+            channel: "phone" | "email" | "whatsapp" | "letter" | "in_person" | "other";
+            /** Closed At */
+            closed_at: string | null;
+            /** Days Left */
+            days_left: number | null;
+            /** Deletion Request Id */
+            deletion_request_id: string | null;
+            /**
+             * Due At
+             * Format: date-time
+             */
+            due_at: string;
+            /** Due Soon */
+            due_soon: boolean;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "access" | "correction" | "erasure" | "nomination" | "grievance";
+            /** Outcome */
+            outcome: ("exported" | "erased" | "corrected" | "nominated" | "explained" | "identity_not_confirmed" | "not_held") | null;
+            /** Overdue */
+            overdue: boolean;
+            /**
+             * Received At
+             * Format: date-time
+             */
+            received_at: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "open" | "answered" | "refused";
+            /** Subject Ref */
+            subject_ref: string;
+        };
         /** RollbackIn */
         RollbackIn: {
             /** Version */
@@ -30905,6 +31247,21 @@ export interface components {
             app_id: string;
             /** Developer Key */
             developer_key: string;
+        };
+        /**
+         * ShortNoticeOut
+         * @description The short notice in one language (D-943). Same blanks as the full draft.
+         */
+        ShortNoticeOut: {
+            /** Disclaimer */
+            disclaimer: string;
+            /**
+             * Language
+             * @enum {string}
+             */
+            language: "en" | "te" | "hi";
+            /** Notice Markdown */
+            notice_markdown: string;
         };
         /** SignInOptionsOut */
         SignInOptionsOut: {
@@ -35766,6 +36123,22 @@ export interface components {
             example: string;
             /** Label */
             label: string;
+        };
+        /** WordingIn */
+        WordingIn: {
+            /**
+             * Kind
+             * @default instruction
+             * @enum {string}
+             */
+            kind: "opening" | "instruction" | "answer" | "template";
+            /**
+             * Where
+             * @default Your wording
+             */
+            where: string;
+            /** Wording */
+            wording: string;
         };
         /** WorkspaceFailureOut */
         WorkspaceFailureOut: {
@@ -49058,6 +49431,37 @@ export interface operations {
             };
         };
     };
+    campaign_call_purpose_v1_compliance_call_purpose_campaigns__campaign_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignPurposeOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     read_caller_notice_v1_compliance_caller_notice_get: {
         parameters: {
             query?: never;
@@ -49074,6 +49478,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CallerNoticeOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_short_notice_v1_compliance_caller_notice_short_get: {
+        parameters: {
+            query?: {
+                language?: "en" | "te" | "hi";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShortNoticeOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -49551,6 +49986,169 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OutboundPledgeOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    promo_check_v1_compliance_promo_check_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PromoCheckIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PromoReportOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    agent_promo_check_v1_compliance_promo_check_agents__agent_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentPromoCheckOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_rights_requests_v1_compliance_rights_requests_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RightsDeskOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    log_rights_request_v1_compliance_rights_requests_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RightsRequestIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RightsRequestOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    close_rights_request_v1_compliance_rights_requests__request_id__close_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RightsRequestCloseIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RightsRequestOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -54922,6 +55520,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LeadSourceAgentOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    put_lead_source_consent_basis_v1_lead_sources__webhook_id__consent_basis_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                webhook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeadSourceConsentBasisIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadSourceConsentBasisOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

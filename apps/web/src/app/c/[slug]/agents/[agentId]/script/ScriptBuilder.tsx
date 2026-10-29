@@ -109,6 +109,7 @@ import { SectionList } from "./SectionList";
 import { SectionEditor } from "./SectionEditor";
 import { HandWritten } from "./HandWritten";
 import { ScriptHistory } from "./ScriptHistory";
+import { PromoWarning } from "./PromoWarning";
 import { PutLiveDialog, usePutLive } from "./PutLive";
 import { DESKTOP, SIDE_PANEL, useMedia } from "./useMedia";
 import { TaughtRules } from "./TaughtRules";
@@ -732,6 +733,7 @@ function Editor({
           draft={script}
           agentOn={agentOn}
           voiceLine={voiceTierLine(pending.data)}
+          promo={<PromoWarning session={session} agentId={agentId} agentName={agentName} />}
           pending={putLive.pending}
           status={putLive.status}
           error={putLive.error}

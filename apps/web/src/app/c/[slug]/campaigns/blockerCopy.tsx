@@ -133,7 +133,21 @@ export const BLOCKER_COPY: Record<string, BlockerNote> = {
     why: "Nobody on them agreed to hear from you. If that answer was a mistake, correct it below.",
     owner: "client",
   },
+  // D-943: an offer in a service call makes the whole call promotional.
+  script_promotional: {
+    text: "The agent's script talks about offers.",
+    why: "One offer or sales line makes every call promotional, and we place service calls only. Take it out, or let Pip rewrite it.",
+    owner: "client",
+  },
 };
+
+/** What "Ask Pip to rewrite it" writes in Pip's ask box. Names the agent, never a person. */
+export function rewritePrompt(agentName: string): string {
+  return (
+    `Check the script of my agent "${agentName}" for offers and selling, then rewrite those ` +
+    "lines as a service call about what the person asked for."
+  );
+}
 
 /** The consent rules answered by the form under the checklist (`ConsentProvenanceAnswer`). */
 export const PROVENANCE_RULES = [
@@ -206,8 +220,9 @@ export function blockerDestination(
  * A rule fixed on the campaign's own page rather than another screen: the checklist row
  * gets a button that opens or jumps to the control that clears it.
  */
-export function blockerInPage(rule: string): "add-people" | "list-source" | undefined {
+export function blockerInPage(rule: string): "add-people" | "list-source" | "rewrite" | undefined {
   if (rule === "no_contacts" || rule === "all_contacts_dnc") return "add-people";
+  if (rule === "script_promotional") return "rewrite";
   if ((PROVENANCE_RULES as readonly string[]).includes(rule)) return "list-source";
   return undefined;
 }

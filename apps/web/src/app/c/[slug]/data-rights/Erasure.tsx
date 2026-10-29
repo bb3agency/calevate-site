@@ -32,8 +32,8 @@ export function Erasure({
   onFiled,
 }: {
   session: Session;
-  /** Called once a NEW request is filed; the register shows it from there. */
-  onFiled?: () => void;
+  /** Called once a NEW request is filed, with its id; the register shows it from there. */
+  onFiled?: (requestId: string) => void;
 }) {
   // `org:manage` AND the named act, because since D-587 the permission is no longer the
   // whole answer: `org:manage` is writable in a view-as session, and filing an erasure is
@@ -102,7 +102,7 @@ export function Erasure({
               preview.reset();
               // An erasure that was already running files nothing new; the form stays
               // open to say so rather than closing as if it had.
-              if (!result.already_open) onFiled?.();
+              if (!result.already_open) onFiled?.(result.request_id);
             },
           });
         })}

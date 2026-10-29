@@ -18,6 +18,7 @@ import { PRINT_FAILED, usePrintDocument } from "@/lib/printDocument";
 
 import { downloadText } from "./download";
 import { FillPanel } from "./FillPanel";
+import { ShortNotice } from "./ShortNotice";
 import { useBlankValues } from "./useBlankValues";
 import { CALLER_NOTICE_COPY as COPY } from "./copy";
 
@@ -139,6 +140,8 @@ function Draft({ notice }: { notice: CallerNotice }) {
           <NoticeDocument ref={sheet} blocks={blocks} values={values} onChange={set} />
         </div>
       </div>
+
+      <ShortNotice session={session} values={values} />
     </div>
   );
 }

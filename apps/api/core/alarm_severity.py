@@ -550,6 +550,8 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # DPDP §12: the statutory clock has already run out.
     "erasure_requests_overdue": "page",
     "processor_erasure_overdue": "page",
+    # D-943. The client's statutory clock, not ours: they answer, we chase.
+    "rights_requests_due": "attention",
     "erasure_probe_deadline_exhausted": "attention",
     # The audit chain is the evidence a regulator is shown. A missing link is not
     # re-creatable later.

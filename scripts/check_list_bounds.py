@@ -93,6 +93,11 @@ _PIN_CARD = BoundedByConstruction(
     )
 )
 
+#: The promo check (D-943): one report, its findings cut to `call_purpose.MAX_FINDINGS`.
+_PROMO_FINDINGS = BoundedByConstruction(
+    by="one report; `findings` is cut to `compliance/call_purpose.MAX_FINDINGS` (20)."
+)
+
 _ONE_PLAN = BoundedByConstruction(
     by=(
         "one plan; its only list is `exclusions`, the reasons targets were left out, at most "
@@ -548,6 +553,9 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
         by="the same four-gate `purchase_blockers` list."
     ),
     # --- D-692 KYC: `documents` is the CURRENT file per slot, and there are two slots ----
+    "POST /v1/compliance/promo-check": _PROMO_FINDINGS,
+    "GET /v1/compliance/promo-check/agents/{agent_id}": _PROMO_FINDINGS,
+    "GET /v1/compliance/call-purpose/campaigns/{campaign_id}": _PROMO_FINDINGS,
     "GET /v1/compliance/kyc": BoundedByConstruction(
         by=(
             "`documents` lists the current file per slot; `kyc_documents` has two slots "

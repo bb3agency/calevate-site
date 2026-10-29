@@ -76,6 +76,7 @@ from apps.api.compliance import service as compliance_clock
 from apps.api.compliance.autodialer import a2p_dial_blocker
 from apps.api.compliance.models import PE_REGISTRATION_STATUSES, TM_LINK_STATUSES
 from apps.api.compliance.preference_scrub import national_dnd_blocker, read_current_scrub
+from apps.api.compliance.promo_checks import script_promotional_blocker
 from apps.api.compliance.registration import refuse_promotional_without_registration
 from apps.api.compliance.service import (
     BIG_RED_SWITCH_REASON,
@@ -1276,6 +1277,15 @@ async def launch_blockers(
 
     # WHAT it may say and from WHERE (SEC-COMP §3, bullet two).
     blockers.extend(_channel_blockers(facts))
+    # And whether what it says is promotional (D-943): a service campaign with an offer in
+    # its agent's live script would place promotional calls. Launch only — the agent's own
+    # publish screen warns as the script is written.
+    if not facts.agent_deleted:
+        promotional = await script_promotional_blocker(
+            session, agent_id=facts.agent_id, classification=facts.classification
+        )
+        if promotional is not None:
+            blockers.append(LaunchBlocker(*promotional))
 
     # THE DECLARED CALLING NUMBERS (D-941), with the dial gate's own function and arguments,
     # so a campaign that every dial would refuse is not launched. Not in `dispatch_blockers`:

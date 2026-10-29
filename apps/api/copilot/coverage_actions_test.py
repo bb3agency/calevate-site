@@ -205,7 +205,9 @@ async def test_the_daily_summary_is_read_and_switched_through_pip() -> None:
     tenant_id, _slug, token = await _make_tenant()
     before = await _read("account_switches", tenant_id, {})
     assert "Daily summary for the owner (daily_summary): off" in before
-    done = await _do(tenant_id, token, "account_switch_set", {"switch": "daily_summary", "on": True})
+    done = await _do(
+        tenant_id, token, "account_switch_set", {"switch": "daily_summary", "on": True}
+    )
     assert done.applied is True
     row = await _one(tenant_id, "SELECT owner_digest_enabled FROM organizations")
     assert row[0] is True

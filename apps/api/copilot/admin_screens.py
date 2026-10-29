@@ -135,6 +135,13 @@ ADMIN_SCREENS: Final[tuple[AdminScreen, ...]] = (
         "ops:manage",
     ),
     AdminScreen(
+        "/admin/ops/reply-speed",
+        "Reply speed by language",
+        "Platform",
+        "The fleet's weekly reply speed, by language.",
+        "ops:manage",
+    ),
+    AdminScreen(
         "/admin/ops/pip-quality",
         "Pip quality",
         "Platform",

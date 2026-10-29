@@ -1001,6 +1001,7 @@ def test_the_admin_array_is_a_strict_superset_of_the_client_read_tools() -> None
         *[tool.name for tool in coverage_actions.COVERAGE_READS],
         # D-934: the chart read; operators chart across clients with `fleet_chart`.
         "report_chart",
+        "script_promo_check",
     ]
     client_names = shared
     assert admin_names[-len(client_names) :] == client_names
@@ -1022,7 +1023,14 @@ def test_a_client_realm_caller_cannot_even_name_a_platform_tool() -> None:
     assert set(registry) == (
         tools.READ_TOOL_NAMES
         | console_reads.CONSOLE_READ_TOOL_NAMES
-        | {"routines_list", "help_lookup", "connection_check", "account_switches", "report_chart"}
+        | {
+            "routines_list",
+            "help_lookup",
+            "connection_check",
+            "account_switches",
+            "report_chart",
+            "script_promo_check",
+        }
         | diagnostics.DIAGNOSE_READ_NAMES
     )
     assert "platform_tenants" not in registry
@@ -1046,7 +1054,14 @@ def test_the_array_offers_set_fields_then_every_read_tool_then_every_write_tool(
     assert set(read_names) == (
         tools.READ_TOOL_NAMES
         | console_reads.CONSOLE_READ_TOOL_NAMES
-        | {"routines_list", "help_lookup", "connection_check", "account_switches", "report_chart"}
+        | {
+            "routines_list",
+            "help_lookup",
+            "connection_check",
+            "account_switches",
+            "report_chart",
+            "script_promo_check",
+        }
         | diagnostics.DIAGNOSE_READ_NAMES
     )
     reachable = copilot_service.offered_names("client")
