@@ -891,6 +891,8 @@ export function useRecordKyc(tenantId: string) {
         client.invalidateQueries({ queryKey: ["admin", "tenant", tenantId] }),
         client.invalidateQueries({ queryKey: HOLDS_QUERY_KEY }),
         client.invalidateQueries({ queryKey: ["admin", "tenants"] }),
+        // An unverified identity is one of `outbound_blocked`'s causes on the health board.
+        client.invalidateQueries({ queryKey: CLIENT_HEALTH_QUERY_KEY }),
       ]),
   });
 }
@@ -1178,6 +1180,8 @@ export function useRecomputeSpendCap(tenantId: string) {
         client.invalidateQueries({ queryKey: ["admin", "tenant", tenantId] }),
         client.invalidateQueries({ queryKey: ["admin", "tenants"] }),
         client.invalidateQueries({ queryKey: ["billing-caps"] }),
+        // `spend_cap_near` on the health board reads the same ceiling.
+        client.invalidateQueries({ queryKey: CLIENT_HEALTH_QUERY_KEY }),
       ]),
   });
 }
@@ -1226,7 +1230,13 @@ export function useKbDecision(tenantId: string) {
           body: decision === "reject" ? { reason: reason ?? "Not suitable" } : undefined,
         },
       ),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ["admin", "kb"] }),
+    // The health board's `knowledge_waiting` signal counts the same queue. Named here
+    // because the `knowledge` live topic does not carry the board.
+    onSuccess: () =>
+      void Promise.all([
+        client.invalidateQueries({ queryKey: ["admin", "kb"] }),
+        client.invalidateQueries({ queryKey: CLIENT_HEALTH_QUERY_KEY }),
+      ]),
   });
 }
 

@@ -3,7 +3,8 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import { adminSession, useRecordKyc } from "@/lib/api/admin";
+import { adminSession, useKbDecision, useRecordKyc } from "@/lib/api/admin";
+import { useReviewKyc } from "@/lib/api/kycReview";
 import { useGrantCredits } from "@/lib/api/credits";
 import { useReleaseNumber, useSetNumberAgent } from "@/lib/api/numbers";
 
@@ -105,5 +106,45 @@ describe("recording a KYC verification", () => {
         ]),
       );
     });
+  });
+});
+
+describe("a write that clears a health-board signal", () => {
+  const HEALTH = JSON.stringify(["admin", "client-health"]);
+
+  it("refreshes the board after a knowledge decision", async () => {
+    stubApi({ [`POST /v1/admin/tenants/${TENANT}/kb/s-1/approve`]: {} });
+    const { wrapper, keys } = harness();
+    const { result } = renderHook(() => useKbDecision(TENANT), { wrapper });
+
+    await act(async () => {
+      await result.current.mutateAsync({ sourceId: "s-1", decision: "approve" });
+    });
+
+    await waitFor(() => expect(keys()).toContain(HEALTH));
+  });
+
+  it("refreshes the board after a KYC review decision", async () => {
+    stubApi({ [`POST /v1/admin/tenants/${TENANT}/kyc/review`]: { tenant_id: TENANT } });
+    const { wrapper, keys } = harness();
+    const { result } = renderHook(() => useReviewKyc(TENANT), { wrapper });
+
+    await act(async () => {
+      await result.current.mutateAsync({ decision: "approve" } as never);
+    });
+
+    await waitFor(() => expect(keys()).toContain(HEALTH));
+  });
+
+  it("refreshes the board after a recorded KYC verification", async () => {
+    stubApi({ [`POST /v1/admin/tenants/${TENANT}/kyc`]: { tenant_id: TENANT, status: "verified" } });
+    const { wrapper, keys } = harness();
+    const { result } = renderHook(() => useRecordKyc(TENANT), { wrapper });
+
+    await act(async () => {
+      await result.current.mutateAsync({ status: "verified" } as never);
+    });
+
+    await waitFor(() => expect(keys()).toContain(HEALTH));
   });
 });
