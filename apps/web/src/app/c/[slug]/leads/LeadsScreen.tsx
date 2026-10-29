@@ -408,7 +408,7 @@ export function LeadsScreen() {
 
       {leads.error && <ProblemNotice error={leads.error} onRetry={() => leads.refetch()} />}
       {/* The team list failing leaves the rows fine and only the owner picker dead. */}
-      {members.error != null && <ProblemNotice error={members.error} />}
+      {members.error != null && <ProblemNotice error={members.error} onRetry={() => void members.refetch()} />}
 
       {/* Loading and failure are one answer for both views. `leads.data` can survive a
           failed REFETCH and those rows are real, so the guard is on data, not on error. */}

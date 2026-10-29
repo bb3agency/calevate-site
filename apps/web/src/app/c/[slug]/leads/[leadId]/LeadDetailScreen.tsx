@@ -361,7 +361,7 @@ export function LeadDetailScreen({ slug, leadId }: { slug: string; leadId: strin
         )
       )}
 
-      {members.error != null && <ProblemNotice error={members.error} />}
+      {members.error != null && <ProblemNotice error={members.error} onRetry={() => void members.refetch()} />}
       {followUp.dialogs}
 
       <LeadTimeline
