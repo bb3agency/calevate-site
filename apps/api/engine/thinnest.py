@@ -89,10 +89,10 @@ from calevate_shared.engine import (
     call_details_value,
     call_instructions,
     call_reason_value,
+    call_variable_value,
     compose_engine_prompt,
     compose_first_utterance,
     contact_call_variables,
-    neutralise_markers,
     phone_value,
     sends_our_call_rules,
     today_value,
@@ -651,8 +651,10 @@ def _dial_variables(to: str, ctx: CallContext) -> dict[str, str]:
         platform[NAME_VARIABLE] = ctx.lead_name
     named = {**ctx.fields, **{key: value for key, value in platform.items() if value}}
     # The engine fills these into the instructions: each passes the prompt's one marker
-    # gate, so an uploaded lead's name or field cannot write a platform section.
-    named = {key: neutralise_markers(value) for key, value in named.items()}
+    # gate, so an uploaded lead's name or field cannot write a platform section, and is cut
+    # on a word to the 150 characters Place Call would otherwise cut mid-word
+    # (snapshots/2026-10-29/pages/api-reference/calls/place-call.md:1057).
+    named = {key: call_variable_value(value) for key, value in named.items()}
     # The instructions' `TODAY_LINE` (D-888). Taken at the dial: `ifOutsideHours: refuse`
     # means the call rings now or never, so the day cannot move under it.
     named[TODAY_VARIABLE] = today_value(datetime.now(UTC))

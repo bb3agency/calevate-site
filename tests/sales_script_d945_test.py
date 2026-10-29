@@ -105,6 +105,16 @@ def test_every_call_reads_the_week_ahead_in_ist() -> None:
     assert "THIS CALL's days" in DAYS_RULE
 
 
+def test_a_day_in_the_next_year_names_its_year() -> None:
+    # 29 Dec 2026, 20:00 UTC is already Wednesday 30 Dec in India.
+    value = today_value(datetime(2026, 12, 29, 20, 0, tzinfo=UTC))
+    assert value == (
+        "Wednesday, 30 December 2026; then Thu 31 Dec, Fri 1 Jan 2027, Sat 2 Jan 2027, "
+        "Sun 3 Jan 2027, Mon 4 Jan 2027, Tue 5 Jan 2027"
+    )
+    assert len(value) <= 150
+
+
 def test_the_introduced_call_to_a_lead_keeps_its_reason() -> None:
     line = opening_in("te-IN", "outbound", introduced=True)
     assert line == "మేము {business} నుండి కాల్ చేస్తున్నాము. ఇప్పుడు మీరు మాట్లాడగలరా, ఫ్రీయేనా?"
@@ -188,6 +198,19 @@ def test_a_romanised_telugu_or_hindi_promise_is_caught_too() -> None:
     assert unbacked_promise("Main aapko baad mein call karungi.", NOTHING)
     assert unbacked_promise("Site visit details WhatsApp lo pampistanu.", EVERYTHING) is None
     assert unbacked_promise("Mee WhatsApp number cheppandi?", NOTHING) is None
+
+
+def test_a_negation_in_another_clause_does_not_hide_a_promise() -> None:
+    assert unbacked_promise("ఇబ్బంది లేదు, WhatsApp lo pampistanu.", NOTHING)
+    assert unbacked_promise("Tension ledu, malli call chestanu.", NOTHING)
+    assert unbacked_promise("I'll send it on WhatsApp so you do not have to write it.", NOTHING)
+    assert unbacked_promise("No problem, I will connect you to the manager.", NOTHING)
+    assert unbacked_promise("Not a problem — I will connect you to the manager.", NOTHING)
+    assert unbacked_promise("Call 2014 era clients? I will connect you now.", NOTHING)
+    # The promise's own clause says it will not happen.
+    assert unbacked_promise("WhatsApp lo pampinchalemu, sir.", NOTHING) is None
+    assert unbacked_promise("Hum WhatsApp pe nahi bhej sakte.", NOTHING) is None
+    assert unbacked_promise("I can't connect you right now, sorry.", NOTHING) is None
 
 
 def test_figures_names_and_questions() -> None:

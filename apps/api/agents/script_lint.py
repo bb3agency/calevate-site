@@ -111,10 +111,18 @@ _CONDITIONAL: Final = re.compile(
     r"\bonly if\b|\bif you (?:can|have)\b|\bunless\b|\bif (?:the|a) (?:tool|person|call back)",
     re.IGNORECASE,
 )
-#: A sentence that says the action will NOT happen ("I can't connect you now") promises nothing.
+#: A clause that says the action will NOT happen ("I can't connect you now") promises nothing.
+#: The romanised Telugu forms are the negative verb endings ("pampinchalemu", "cheyalenu").
 _NEGATED: Final = re.compile(
     r"\b(?:can'?t|cannot|won'?t|not|no one|nobody|never|unable)\b|కుదరదు|లేరు|లేదు|"
-    r"చేయలేను|नहीं|कोई नहीं",
+    r"చేయలేను|नहीं|कोई नहीं|\b\w+(?:lemu|lenu|ledu)\b|\bkudaradu\b|\bnahi?n?\b",
+    re.IGNORECASE,
+)
+#: Where one clause ends and the next begins. A negation is read only in the promise's own
+#: clause, so "ఇబ్బంది లేదు, WhatsApp lo pampistanu" ("no problem, I'll send it") still
+#: promises the send.
+_CLAUSE_BREAK: Final = re.compile(
+    r"\s*[,;:\N{EN DASH}\N{EM DASH}]\s*|\s+(?:and|but|so|kani|ani|lekapothe|par|lekin|aur|toh)\s+",
     re.IGNORECASE,
 )
 _WHATSAPP: Final = re.compile(r"whats\s?app|వాట్సాప్|వాట్సప్|व्हाट्सएप|व्हाट्सऐप", re.IGNORECASE)
@@ -143,15 +151,24 @@ _HANDS_OVER: Final = re.compile(
 def unbacked_promise(text: str, manifest: CapabilityManifest) -> str | None:
     """What `text` promises that `manifest` says this agent cannot do, or None."""
     for sentence in re.split(r"(?<=[.?!।])\s+", text):
-        if _CONDITIONAL.search(sentence) or _NEGATED.search(sentence):
+        # A condition qualifies the whole sentence ("only if you can, offer a call back").
+        if _CONDITIONAL.search(sentence):
             continue
-        if not manifest.whatsapp and _WHATSAPP.search(sentence) and _SENDS.search(sentence):
+        clauses = [c for c in _CLAUSE_BREAK.split(sentence) if c]
+
+        def promised(verb: re.Pattern[str], clauses: list[str] = clauses) -> bool:
+            """The verb in a clause that does not itself say it will not happen."""
+            return any(verb.search(c) and not _NEGATED.search(c) for c in clauses)
+
+        # The channel may sit in another clause than the verb ("I'll send the brochure and
+        # the location on WhatsApp"), so it is looked for in the whole sentence.
+        if not manifest.whatsapp and _WHATSAPP.search(sentence) and promised(_SENDS):
             return "a WhatsApp message, and this agent has no WhatsApp action"
-        if not manifest.call_backs and _CALL_BACK.search(sentence):
+        if not manifest.call_backs and promised(_CALL_BACK):
             return "a call back, and this account cannot keep one yet"
-        if not manifest.booking_tool and _BOOKS.search(sentence):
+        if not manifest.booking_tool and promised(_BOOKS):
             return "to book or confirm a time, and this agent has no calendar"
-        if not manifest.hand_over and _HANDS_OVER.search(sentence):
+        if not manifest.hand_over and promised(_HANDS_OVER):
             return "to put the caller through to a person, and hand-over is off"
     return None
 
