@@ -147,6 +147,7 @@ from apps.api.billing.rates import (
 )
 from apps.api.billing.service import plan_tier_of, to_paise
 from apps.api.billing.wallet import record_attempt
+from apps.api.campaigns.number_pricing import attested_price_inr
 from apps.api.compliance.audit import write_audit
 from apps.api.core.alerting import alert
 from apps.api.core.auth import client_request_ip, requires
@@ -445,6 +446,10 @@ class CreditPacksOut(Strict):
     #: payment (D-707), or `null` while the platform-wide switch is off or unpriced. Read
     #: live from the ops console, so a page never quotes a fee nobody is charged.
     platform_fee_inr_per_month: Decimal | None = None
+    #: What one phone number costs a month (D-665), the operator-attested price
+    #: (`campaigns/number_pricing.attested_price_inr`); null while none is recorded, when a
+    #: page says a monthly number fee is shown before buying rather than quoting a figure.
+    number_inr_per_month: Decimal | None = None
     #: How many months after purchase the credit bought today lapses, stated wherever a pack
     #: is sold (D-840); null when credit bought now does not expire, which on the signed-in
     #: card includes an account that has not accepted the Terms stating expiry (D-900).
@@ -691,6 +696,7 @@ async def rate_card_out(session: AsyncSession) -> CreditPacksOut:
     not_offered = voice_tier_not_offered(
         engine, studio_ready=await _studio_on_sale(session, engine=engine, at=now)
     )
+    number = await attested_price_inr(session)
     return CreditPacksOut(
         list_rate_inr_per_min=packs[0].clear_inr_per_min,
         from_inr_per_min=from_sarvam,
@@ -707,6 +713,7 @@ async def rate_card_out(session: AsyncSession) -> CreditPacksOut:
         voice_not_offered_notice=not_offered[1] if not_offered else None,
         packs=packs,
         platform_fee_inr_per_month=_published_platform_fee(),
+        number_inr_per_month=None if number is None else to_paise(number.inr_per_month),
         credit_expiry_months=months,
         credit_lapses_on_if_bought_now=(
             None if months is None else expires_at_for(now, months=months).date()

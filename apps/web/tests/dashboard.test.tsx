@@ -1,4 +1,4 @@
-import { cleanup, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import DashboardPage from "@/app/c/[slug]/page";
@@ -18,6 +18,7 @@ import {
 } from "./harness";
 import { businessProfileFixture } from "./businessProfileFixture";
 import { NO_FORWARDING_ROUTES } from "./fixtures/forwarding";
+import { COST_PER_RESULT, COST_PER_RESULT_ROUTE } from "./fixtures/proof";
 
 /**
  * The dashboard — the screen a client looks at to decide whether the product is
@@ -314,9 +315,13 @@ function routes(over: Record<string, unknown> = {}) {
     "/v1/business-copy": NO_BUSINESS_COPY,
     "/v1/analytics/stats": stats(),
     "/v1/readiness": NO_READINESS,
+    // D-944: the owner's daily summary (already on, so no offer) and rupees per result.
+    "/v1/notifications/daily-summary": { enabled: true, email_addresses: 1, whatsapp: false },
+    [COST_PER_RESULT_ROUTE]: COST_PER_RESULT,
     ...over,
   };
 }
+
 
 describe("the fixture this file renders against", () => {
   it("answers every read the screen makes, so no test inherits a failure it is not about", async () => {
@@ -1317,5 +1322,42 @@ describe("the dashboard arrives in one paint", () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(screen.queryByRole("heading", { name: "This week" })).toBeNull();
     expect(container.querySelector(".animate-pulse")).not.toBeNull();
+  });
+});
+
+describe("proof on the home screen (D-944)", () => {
+  const OWNER_WITH_BILLING: Me = { ...ME, permissions: [...ME.permissions, "org:manage", "billing:read"] };
+
+  it("shows the owner the rupees per new lead from the server's string", async () => {
+    await renderClientPage(page, routes({ "/v1/me": OWNER_WITH_BILLING }));
+    expect(await screen.findByText("Cost per new lead, 7 days")).toBeTruthy();
+    expect(screen.getByText("₹30")).toBeTruthy();
+    expect(screen.getByRole("link", { name: /4 leads for ₹120/ }).getAttribute("href")).toBe(
+      "/c/acme/billing?tab=usage",
+    );
+  });
+
+  it("never asks for spend figures without billing:read", async () => {
+    const { calls } = await renderClientPage(page, routes());
+    await screen.findByText("Captured after hours");
+    expect(calls.some((c) => c.path === "/v1/analytics/cost-per-result")).toBe(false);
+    expect(screen.queryByText("Cost per new lead, 7 days")).toBeNull();
+  });
+
+  it("offers the daily summary to an owner who has it off, with one button that turns it on", async () => {
+    const { calls } = await renderClientPage(
+      page,
+      routes({
+        "/v1/me": OWNER_WITH_BILLING,
+        "/v1/notifications/daily-summary": { enabled: false, email_addresses: 1, whatsapp: false },
+        "PUT /v1/notifications/daily-summary": { enabled: true, email_addresses: 1, whatsapp: false },
+      }),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Send me a daily summary" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "PUT")).toBe(true));
+    expect(JSON.parse(calls.find((c) => c.method === "PUT")?.body ?? "{}")).toEqual({ enabled: true });
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Send me a daily summary" })).toBeNull(),
+    );
   });
 });

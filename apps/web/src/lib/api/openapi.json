@@ -17770,6 +17770,112 @@
         "title": "CostBreakdownOut",
         "type": "object"
       },
+      "CostPerResultOut": {
+        "properties": {
+          "billing_step_seconds": {
+            "title": "Billing Step Seconds",
+            "type": "integer"
+          },
+          "windows": {
+            "items": {
+              "$ref": "#/components/schemas/CostWindowOut"
+            },
+            "title": "Windows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "windows",
+          "billing_step_seconds"
+        ],
+        "title": "CostPerResultOut",
+        "type": "object"
+      },
+      "CostWindowOut": {
+        "properties": {
+          "answered_calls": {
+            "title": "Answered Calls",
+            "type": "integer"
+          },
+          "booked_results": {
+            "title": "Booked Results",
+            "type": "integer"
+          },
+          "days": {
+            "title": "Days",
+            "type": "integer"
+          },
+          "from_date": {
+            "format": "date",
+            "title": "From Date",
+            "type": "string"
+          },
+          "leads_captured": {
+            "title": "Leads Captured",
+            "type": "integer"
+          },
+          "per_answered_call_inr": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Per Answered Call Inr"
+          },
+          "per_booked_result_inr": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Per Booked Result Inr"
+          },
+          "per_lead_inr": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Per Lead Inr"
+          },
+          "spent_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Spent Inr",
+            "type": "string"
+          },
+          "to_date": {
+            "format": "date",
+            "title": "To Date",
+            "type": "string"
+          }
+        },
+        "required": [
+          "days",
+          "from_date",
+          "to_date",
+          "spent_inr",
+          "answered_calls",
+          "leads_captured",
+          "booked_results",
+          "per_answered_call_inr",
+          "per_lead_inr",
+          "per_booked_result_inr"
+        ],
+        "title": "CostWindowOut",
+        "type": "object"
+      },
       "CreateCampaignIn": {
         "additionalProperties": false,
         "properties": {
@@ -18558,6 +18664,18 @@
               }
             ]
           },
+          "number_inr_per_month": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Number Inr Per Month"
+          },
           "packs": {
             "items": {
               "$ref": "#/components/schemas/CreditPackOut"
@@ -18772,6 +18890,44 @@
           "payments"
         ],
         "title": "CreditsOut",
+        "type": "object"
+      },
+      "DailySummaryIn": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "title": "DailySummaryIn",
+        "type": "object"
+      },
+      "DailySummaryOut": {
+        "description": "The owner's daily summary switch (D-944) and where it would go.",
+        "properties": {
+          "email_addresses": {
+            "title": "Email Addresses",
+            "type": "integer"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "whatsapp": {
+            "title": "Whatsapp",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled",
+          "email_addresses",
+          "whatsapp"
+        ],
+        "title": "DailySummaryOut",
         "type": "object"
       },
       "DashboardDataUseAttestIn": {
@@ -23810,6 +23966,57 @@
           "source"
         ],
         "title": "FlagStateOut",
+        "type": "object"
+      },
+      "FleetReplySpeedOut": {
+        "properties": {
+          "clients": {
+            "title": "Clients",
+            "type": "integer"
+          },
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "current_week_partial": {
+            "title": "Current Week Partial",
+            "type": "boolean"
+          },
+          "p90_min_calls": {
+            "title": "P90 Min Calls",
+            "type": "integer"
+          },
+          "public_page_enabled": {
+            "title": "Public Page Enabled",
+            "type": "boolean"
+          },
+          "slow_target_ms": {
+            "title": "Slow Target Ms",
+            "type": "integer"
+          },
+          "typical_target_ms": {
+            "title": "Typical Target Ms",
+            "type": "integer"
+          },
+          "weeks": {
+            "items": {
+              "$ref": "#/components/schemas/WeekSpeed"
+            },
+            "title": "Weeks",
+            "type": "array"
+          }
+        },
+        "required": [
+          "weeks",
+          "typical_target_ms",
+          "slow_target_ms",
+          "p90_min_calls",
+          "current_week_partial",
+          "clients",
+          "complete",
+          "public_page_enabled"
+        ],
+        "title": "FleetReplySpeedOut",
         "type": "object"
       },
       "FleetSpeakingRateOut": {
@@ -42244,6 +42451,43 @@
         "title": "ReplyLengthOut",
         "type": "object"
       },
+      "ReplySpeedOut": {
+        "description": "Per IST week, oldest first: the week's `all` row, then one per language.",
+        "properties": {
+          "current_week_partial": {
+            "title": "Current Week Partial",
+            "type": "boolean"
+          },
+          "p90_min_calls": {
+            "title": "P90 Min Calls",
+            "type": "integer"
+          },
+          "slow_target_ms": {
+            "title": "Slow Target Ms",
+            "type": "integer"
+          },
+          "typical_target_ms": {
+            "title": "Typical Target Ms",
+            "type": "integer"
+          },
+          "weeks": {
+            "items": {
+              "$ref": "#/components/schemas/WeekSpeed"
+            },
+            "title": "Weeks",
+            "type": "array"
+          }
+        },
+        "required": [
+          "weeks",
+          "typical_target_ms",
+          "slow_target_ms",
+          "p90_min_calls",
+          "current_week_partial"
+        ],
+        "title": "ReplySpeedOut",
+        "type": "object"
+      },
       "ReplyTimeFigures": {
         "description": "One group's figures. A withheld or unreported figure is null, never zero.",
         "properties": {
@@ -56917,6 +57161,88 @@
           "event"
         ],
         "title": "WebhookAck",
+        "type": "object"
+      },
+      "WeekSpeed": {
+        "properties": {
+          "answered": {
+            "title": "Answered",
+            "type": "integer"
+          },
+          "answered_share": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answered Share"
+          },
+          "average_call_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Average Call S"
+          },
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "calls_measured": {
+            "title": "Calls Measured",
+            "type": "integer"
+          },
+          "language": {
+            "title": "Language",
+            "type": "string"
+          },
+          "reply_slow_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reply Slow Ms"
+          },
+          "reply_typical_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reply Typical Ms"
+          },
+          "week_start": {
+            "format": "date",
+            "title": "Week Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "week_start",
+          "language",
+          "calls",
+          "answered",
+          "answered_share",
+          "average_call_s",
+          "calls_measured",
+          "reply_typical_ms",
+          "reply_slow_ms"
+        ],
+        "title": "WeekSpeed",
         "type": "object"
       },
       "WhatsAppAccountOut": {
@@ -72195,6 +72521,35 @@
         "x-calevate-permission": "calls:read"
       }
     },
+    "/v1/analytics/cost-per-result": {
+      "get": {
+        "description": "What left the wallet in the IST days, divided by answered calls, new leads and calls whose business outcome is a booking. Null where there is nothing to divide by.",
+        "operationId": "get_cost_per_result_v1_analytics_cost_per_result_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CostPerResultOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Rupees per answered call, captured lead and booked result, last 7 and 30 days",
+        "tags": [
+          "analytics"
+        ],
+        "x-calevate-permission": "billing:read"
+      }
+    },
     "/v1/analytics/durations": {
       "get": {
         "operationId": "get_durations_v1_analytics_durations_get",
@@ -72429,6 +72784,49 @@
           }
         },
         "summary": "Calls or new leads per IST weekday and hour \u2014 always 168 cells",
+        "tags": [
+          "analytics"
+        ],
+        "x-calevate-permission": "calls:read"
+      }
+    },
+    "/v1/analytics/reply-speed": {
+      "get": {
+        "description": "The wait for the first word of the answer: typical (median of the calls' medians) and slow (90th percentile of their p90s, withheld below `p90_min_calls` calls), with answered share and average call length. Test calls are left out.",
+        "operationId": "get_reply_speed_v1_analytics_reply_speed_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "weeks",
+            "required": false,
+            "schema": {
+              "default": 4,
+              "maximum": 12,
+              "minimum": 1,
+              "title": "Weeks",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReplySpeedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "How fast the agent answered, per IST week and language (D-944)",
         "tags": [
           "analytics"
         ],
@@ -86709,6 +87107,71 @@
         "x-calevate-permission": "leads:read"
       }
     },
+    "/v1/notifications/daily-summary": {
+      "get": {
+        "operationId": "get_daily_summary_v1_notifications_daily_summary_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DailySummaryOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Whether the owner's daily summary is on, and where it goes",
+        "tags": [
+          "notifications"
+        ],
+        "x-calevate-permission": "org:read"
+      },
+      "put": {
+        "description": "Off for every account until its owner turns it on. Once a day in the evening (IST) it sends the day's calls, leads, spend and waiting call-backs by email, and by WhatsApp where the owner opted in to WhatsApp alerts.",
+        "operationId": "set_daily_summary_v1_notifications_daily_summary_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DailySummaryIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DailySummaryOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Turn the owner's daily summary on or off",
+        "tags": [
+          "notifications"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
     "/v1/notifications/seen": {
       "post": {
         "operationId": "mark_seen_v1_notifications_seen_post",
@@ -89659,6 +90122,49 @@
           "ops"
         ],
         "x-calevate-permission": "platform:config"
+      }
+    },
+    "/v1/ops/reply-speed-by-language": {
+      "get": {
+        "description": "The figures a public quality page would use, which nothing public serves while\n`public_quality_page_enabled` is off. No audit row, for `read_reply_times`' reason.",
+        "operationId": "read_reply_speed_by_language_v1_ops_reply_speed_by_language_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "weeks",
+            "required": false,
+            "schema": {
+              "default": 4,
+              "maximum": 12,
+              "minimum": 1,
+              "title": "Weeks",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetReplySpeedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Every client's reply speed per IST week and language (D-944)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
       }
     },
     "/v1/ops/reply-times": {

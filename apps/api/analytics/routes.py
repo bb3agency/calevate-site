@@ -15,7 +15,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.analytics import service
+from apps.api.analytics import proof, service
 from apps.api.analytics.schemas import (
     CallGroupBy,
     CallGroupsOut,
@@ -238,6 +238,43 @@ async def get_summary(
         test_calls=test_calls,
         may_see_spend=principal.role is not None and role_has(principal.role, "billing:read"),
     )
+
+
+@router.get(
+    "/reply-speed",
+    response_model=proof.ReplySpeedOut,
+    openapi_extra=permission_meta("calls:read"),
+    summary="How fast the agent answered, per IST week and language (D-944)",
+    description=(
+        "The wait for the first word of the answer: typical (median of the calls' medians) "
+        "and slow (90th percentile of their p90s, withheld below `p90_min_calls` calls), "
+        "with answered share and average call length. Test calls are left out."
+    ),
+)
+async def get_reply_speed(
+    session: Session,
+    _: Reader,
+    weeks: Annotated[int, Query(ge=1, le=proof.MAX_WEEKS)] = proof.DEFAULT_WEEKS,
+) -> proof.ReplySpeedOut:
+    return await proof.client_reply_speed(session, weeks=weeks)
+
+
+@router.get(
+    "/cost-per-result",
+    response_model=proof.CostPerResultOut,
+    openapi_extra=permission_meta("billing:read"),
+    summary="Rupees per answered call, captured lead and booked result, last 7 and 30 days",
+    description=(
+        "What left the wallet in the IST days, divided by answered calls, new leads and calls "
+        "whose business outcome is a booking. Null where there is nothing to divide by."
+    ),
+)
+async def get_cost_per_result(
+    session: Session,
+    principal: Annotated[Principal, Depends(requires("billing:read"))],
+) -> proof.CostPerResultOut:
+    assert principal.tenant_id is not None
+    return await proof.cost_per_result(session, tenant_id=principal.tenant_id)
 
 
 __all__ = ["router"]

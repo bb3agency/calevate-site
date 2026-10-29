@@ -42,6 +42,7 @@ import { asText } from "@/lib/copilot/types";
 import { istDayLabel, statItems } from "../analyticsFigures";
 import { chartError } from "../ChartRetry";
 import { CallGroupsTable, PeriodTable } from "./Breakdowns";
+import { ReplySpeed } from "./ReplySpeed";
 import {
   DURATIONS_NOTE,
   FUNNEL_NOTE,
@@ -210,6 +211,9 @@ export function PerformanceScreen() {
           })}
         />
       )}
+
+      {/* Weekly, whatever the range above: the platform times calls per week (D-944). */}
+      <ReplySpeed session={session} />
 
       <Section title={COPY.activityTitle} info={COPY.activityTip}>
         <BrushChart

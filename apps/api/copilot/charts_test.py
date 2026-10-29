@@ -87,6 +87,23 @@ async def test_each_kind_is_built_from_the_accounts_own_rows() -> None:
         assert _numbers(spec)
 
 
+async def test_the_proof_charts_read_the_screens_figures() -> None:
+    """D-944: rupees per result from the wallet, and the weekly reply speed."""
+    tenant_id, _slug, _token = await _make_tenant()
+    await _seed(tenant_id)
+    cost = await _build(tenant_id, "cost_per_result")
+    assert cost.kind == "table" and cost.unit == "inr" and cost.total == "12.50"
+    rows = {row[0]: row[1:] for row in cost.rows}
+    # Two answered calls, three leads (the fixture's own included), no booking.
+    assert rows["Answered call"] == ["2", "6.25"]
+    assert rows["Captured lead"] == ["3", "4.17"]
+    assert rows["Booked result"] == ["0", "-"]
+    speed = await _build(tenant_id, "reply_speed", days=14)
+    assert speed.kind == "table" and len(speed.rows) == 2
+    assert speed.rows[0][1] == "3"  # this week's calls, newest first
+    assert speed.rows[0][3] == "-"  # no answer time measured, never zero
+
+
 async def test_another_accounts_rows_never_reach_a_chart() -> None:
     mine, _s, _t = await _make_tenant()
     theirs, _s2, _t2 = await _make_tenant()

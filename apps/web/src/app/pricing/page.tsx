@@ -87,8 +87,16 @@ const METERED: readonly { title: string; body: string }[] = [
   {
     title: "Talk time",
     body:
-      "The minutes your agents spend on calls, counted in 30-second steps — not seats, " +
-      "not agents, not numbers configured. A quiet month costs less than a busy one.",
+      "The minutes your agents spend on calls, counted in 30-second steps — not seats " +
+      "or agents. A quiet month costs less than a busy one.",
+  },
+  {
+    title: "Phone numbers",
+    body:
+      // D-665: a rented number has a monthly fee. Its price is an operator attestation, so
+      // this static card names the fee without a figure; the lede quotes the live one.
+      "Each phone number you rent through us has a monthly fee, shown before you buy " +
+      "and taken from your credit.",
   },
   {
     title: "The voice each agent uses",
@@ -180,10 +188,16 @@ export default async function PricingPage() {
   const offeredVoice = rateCard === null || lead === null ? null : tierLabel(rateCard, lead);
   // D-707: the monthly platform fee, quoted only from the live card and only while it is on.
   const fee = rateCard?.platform_fee_inr_per_month ?? null;
+  // D-665: each rented number has a monthly fee, quoted only from the attested price.
+  const numberPrice = rateCard?.number_inr_per_month ?? null;
+  const numberLine =
+    numberPrice === null
+      ? "Each phone number has a monthly fee, shown before you buy"
+      : `Each phone number is ${formatINR(numberPrice)} a month`;
   const feeLine =
     fee === null
-      ? "No monthly fee, no setup fee, no per-seat charge"
-      : `Plus a monthly platform fee of ${formatINR(fee)}, paid separately from your credit. No setup fee, no per-seat charge`;
+      ? `${numberLine}. No platform fee, no setup fee, no per-seat charge`
+      : `Plus a monthly platform fee of ${formatINR(fee)}, paid separately from your credit. ${numberLine}. No setup fee, no per-seat charge`;
   return (
     <MarketingPage>
       {/* THE PRICE IS THE HEADLINE: a buyer's whole reason for arriving is the number, so
@@ -205,7 +219,7 @@ export default async function PricingPage() {
         }
         lede={
           rateCard === null
-            ? "Not per seat, not per agent, not per number — you pay for the minutes your agents actually talk, in 30-second steps. Our live rate card could not be loaded just now, so there is no figure on this page we can stand behind; reload in a moment."
+            ? "Not per seat, not per agent — you pay for the minutes your agents actually talk, in 30-second steps, and a monthly fee for each phone number, shown before you buy. Our live rate card could not be loaded just now, so there is no figure on this page we can stand behind; reload in a moment."
             : `The ${tierLabel(rateCard, other ?? "clear")} voice is ${bandSentence(rateCard, other ?? "clear")} on the same card. ${voiceNotOfferedNotice(rateCard) ?? ""} ${feeLine} — you are billed for the minutes your agents actually talk, in 30-second steps, and ${rateCard.credit_expiry_months ? `credit you buy lasts ${rateCard.credit_expiry_months} months from the day it is added` : "credit does not expire"}.`
         }
       >
@@ -417,14 +431,14 @@ export default async function PricingPage() {
             <Eyebrow>The monthly platform fee</Eyebrow>
             <h2 className={H2}>
               {fee === null
-                ? "There is no monthly fee today"
+                ? "There is no monthly platform fee today"
                 : `${formatINR(fee)} a month, the same for every client`}
             </h2>
             <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
               {/* From `platform_fee_inr_per_month` on the live card, never typed; null means
                   the platform-wide switch is off. */}
               {fee === null
-                ? "You pay for calling credit and nothing else. If we ever charge a monthly platform fee, it will be the same for every client, it will be shown here, and it will always be a separate payment that never comes out of your calling credit."
+                ? "You pay for calling credit, and the monthly fee of any phone number you rent through us comes out of it. If we ever charge a monthly platform fee, it will be the same for every client, it will be shown here, and it will always be a separate payment that never comes out of your calling credit."
                 : "It is a separate payment, never taken from your calling credit, and you pay it from your Billing page each month. Free-trial accounts do not pay it. If it stays unpaid seven days after it is due, outgoing calls pause until it is paid — incoming calls keep being answered."}
             </p>
             <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">

@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 
-import { Disclosure } from "@/components/ui";
+import { Disclosure, formatINR } from "@/components/ui";
 import { GST_STATUS_SENTENCE } from "@/lib/gstStatus";
 import type { CreditPacks } from "@/lib/api/billing";
 import { voiceNotOffered, voiceNotOfferedNotice } from "@/lib/api/rateCard";
@@ -194,8 +194,9 @@ export function WhatCallsCost({
               that panel is two cards below this one. Without the card (staff, or still
               loading) the term is not stated rather than guessed. */}
           Your calls run it down, and so do the monthly rent for your phone
-          numbers and a block of extra dashboard AI if you accept one — nothing
-          else does.{" "}
+          numbers
+          {card?.number_inr_per_month ? ` (${formatINR(card.number_inr_per_month)} a month each)` : ""} and a
+          block of extra dashboard AI if you accept one — nothing else does.{" "}
           {months ? (
             <>
               Each purchase lasts {months} months from the day it is added, and

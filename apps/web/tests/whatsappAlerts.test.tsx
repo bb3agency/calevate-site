@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 // renders the People page; nothing it asserts changed.
 import TenantMembersPage from "@/app/admin/tenants/[tenantId]/members/page";
 import AlertsPage from "@/app/c/[slug]/settings/alerts/page";
+import { DAILY_SUMMARY_PATH } from "@/lib/api/proof";
 import {
   WHATSAPP_ALERTS_PATH,
   type AlertOptIn,
@@ -84,8 +85,13 @@ function clientRoutes(
   me: unknown = ME,
   over: Routes = {},
 ): Routes {
-  return { "/v1/me": me, [WHATSAPP_ALERTS_PATH]: state, ...over };
+  return { "/v1/me": me, [WHATSAPP_ALERTS_PATH]: state, ...DAILY_SUMMARY_OFF, ...over };
 }
+
+/** The daily summary switch on the same screen (D-944), off. */
+const DAILY_SUMMARY_OFF: Routes = {
+  [DAILY_SUMMARY_PATH]: { enabled: false, email_addresses: 1, whatsapp: false },
+};
 
 describe("the client's own WhatsApp alert opt-in", () => {
   it("renders the server's wording and records the version it showed", async () => {
@@ -123,6 +129,7 @@ describe("the client's own WhatsApp alert opt-in", () => {
     let granted = false;
     const { calls } = await renderClientPage(<AlertsPage />, {
       "/v1/me": ME,
+      ...DAILY_SUMMARY_OFF,
       [WHATSAPP_ALERTS_PATH]: () =>
         granted ? optIn({ status: "granted", messageable: true }) : optIn(),
       [`POST ${WHATSAPP_ALERTS_PATH}`]: () => {
@@ -463,6 +470,29 @@ describe("the operator's record of a client's opt-in", () => {
  * A class assertion rather than a rendered-colour one, for the reason every style guard in
  * this suite gives: jsdom applies no Tailwind, so the class string IS the decision.
  */
+describe("the owner's daily summary (D-944)", () => {
+  it("is off until the owner switches it on, and saves the switch", async () => {
+    const { calls } = await renderClientPage(
+      <AlertsPage />,
+      clientRoutes(optIn(), ME, {
+        [`PUT ${DAILY_SUMMARY_PATH}`]: { enabled: true, email_addresses: 1, whatsapp: false },
+      }),
+    );
+    const toggle = await screen.findByRole("switch", { name: /Send me a daily summary/ });
+    expect((toggle as HTMLInputElement).checked).toBe(false);
+    expect(screen.getByText(/By email, around 9 pm/)).toBeTruthy();
+    fireEvent.click(toggle);
+    await waitFor(() => expect(calls.some((c) => c.method === "PUT")).toBe(true));
+    expect(JSON.parse(calls.find((c) => c.method === "PUT")?.body ?? "{}")).toEqual({ enabled: true });
+  });
+
+  it("does not let staff switch it", async () => {
+    await renderClientPage(<AlertsPage />, clientRoutes(optIn(), STAFF));
+    const toggle = await screen.findByRole("switch", { name: /Send me a daily summary/ });
+    expect((toggle as HTMLInputElement).disabled).toBe(true);
+  });
+});
+
 describe("granting and withdrawing consent sit in the same weight class", () => {
   it("does not style withdrawal as a destructive action", async () => {
     await renderClientPage(

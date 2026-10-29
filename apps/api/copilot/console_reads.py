@@ -36,6 +36,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import datetime
+from decimal import Decimal
 from typing import Any, Final
 from uuid import UUID
 
@@ -585,6 +586,18 @@ async def _billing_overview(
             f"{len(page.statements)} recent statement(s) are under the Statements tab."
             if page.statements
             else "No statements yet."
+        )
+        from apps.api.analytics.proof import cost_window, ist_today
+
+        cost = await cost_window(session, tenant_id=context.tenant_id, days=30, today=ist_today())
+
+        def each(value: Decimal | None) -> str:
+            return "none to divide by" if value is None else display_inr(value)
+
+        lines.append(
+            f"Last 30 days: spent {display_inr(cost.spent_inr)}; per answered call "
+            f"{each(cost.per_answered_call_inr)}, per new lead {each(cost.per_lead_inr)}, "
+            f"per booked result {each(cost.per_booked_result_inr)}."
         )
     lines.append(
         "To add credit: the Credits & billing screen, Add credit tab. The assistant cannot "

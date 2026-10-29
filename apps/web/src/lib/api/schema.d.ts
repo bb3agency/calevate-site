@@ -4754,6 +4754,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/analytics/cost-per-result": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Rupees per answered call, captured lead and booked result, last 7 and 30 days
+         * @description What left the wallet in the IST days, divided by answered calls, new leads and calls whose business outcome is a booking. Null where there is nothing to divide by.
+         */
+        get: operations["get_cost_per_result_v1_analytics_cost_per_result_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/analytics/durations": {
         parameters: {
             query?: never;
@@ -4780,6 +4800,26 @@ export interface paths {
         };
         /** Calls or new leads per IST weekday and hour — always 168 cells */
         get: operations["get_heatmap_v1_analytics_heatmap_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/analytics/reply-speed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * How fast the agent answered, per IST week and language (D-944)
+         * @description The wait for the first word of the answer: typical (median of the calls' medians) and slow (90th percentile of their p90s, withheld below `p90_min_calls` calls), with answered share and average call length. Test calls are left out.
+         */
+        get: operations["get_reply_speed_v1_analytics_reply_speed_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -10697,6 +10737,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/notifications/daily-summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Whether the owner's daily summary is on, and where it goes */
+        get: operations["get_daily_summary_v1_notifications_daily_summary_get"];
+        /**
+         * Turn the owner's daily summary on or off
+         * @description Off for every account until its owner turns it on. Once a day in the evening (IST) it sends the day's calls, leads, spend and waiting call-backs by email, and by WhatsApp where the owner opted in to WhatsApp alerts.
+         */
+        put: operations["set_daily_summary_v1_notifications_daily_summary_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/notifications/seen": {
         parameters: {
             query?: never;
@@ -11818,6 +11879,27 @@ export interface paths {
          * @description Records that a card recorded earlier will never take effect. Requires `X-Confirm-Action: cancel_rate_card:<effective_from>`. It is a POST and not a DELETE because nothing is deleted: rate history is append-only, so the withdrawal is its own row and both facts — what was scheduled, and that it was withdrawn — stay readable. Only a card whose date is still in the future may be withdrawn; one already in force has priced purchases, and unwinding it would restate lots that are already frozen.
          */
         post: operations["cancel_rate_card_v1_ops_rate_card_cancellations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/reply-speed-by-language": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every client's reply speed per IST week and language (D-944)
+         * @description The figures a public quality page would use, which nothing public serves while
+         *     `public_quality_page_enabled` is off. No audit row, for `read_reply_times`' reason.
+         */
+        get: operations["read_reply_speed_by_language_v1_ops_reply_speed_by_language_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -19265,6 +19347,42 @@ export interface components {
             /** Total Inr */
             total_inr: string;
         };
+        /** CostPerResultOut */
+        CostPerResultOut: {
+            /** Billing Step Seconds */
+            billing_step_seconds: number;
+            /** Windows */
+            windows: components["schemas"]["CostWindowOut"][];
+        };
+        /** CostWindowOut */
+        CostWindowOut: {
+            /** Answered Calls */
+            answered_calls: number;
+            /** Booked Results */
+            booked_results: number;
+            /** Days */
+            days: number;
+            /**
+             * From Date
+             * Format: date
+             */
+            from_date: string;
+            /** Leads Captured */
+            leads_captured: number;
+            /** Per Answered Call Inr */
+            per_answered_call_inr: string | null;
+            /** Per Booked Result Inr */
+            per_booked_result_inr: string | null;
+            /** Per Lead Inr */
+            per_lead_inr: string | null;
+            /** Spent Inr */
+            spent_inr: string;
+            /**
+             * To Date
+             * Format: date
+             */
+            to_date: string;
+        };
         /** CreateCampaignIn */
         CreateCampaignIn: {
             /**
@@ -19576,6 +19694,8 @@ export interface components {
             /** List Rate Inr Per Min */
             list_rate_inr_per_min: string;
             next_change?: components["schemas"]["RateCardChangeOut"] | null;
+            /** Number Inr Per Month */
+            number_inr_per_month?: string | null;
             /** Packs */
             packs: components["schemas"]["CreditPackOut"][];
             /** Platform Fee Inr Per Month */
@@ -19639,6 +19759,23 @@ export interface components {
              * Format: uuid
              */
             tenant_id: string;
+        };
+        /** DailySummaryIn */
+        DailySummaryIn: {
+            /** Enabled */
+            enabled: boolean;
+        };
+        /**
+         * DailySummaryOut
+         * @description The owner's daily summary switch (D-944) and where it would go.
+         */
+        DailySummaryOut: {
+            /** Email Addresses */
+            email_addresses: number;
+            /** Enabled */
+            enabled: boolean;
+            /** Whatsapp */
+            whatsapp: boolean;
         };
         /** DashboardDataUseAttestIn */
         DashboardDataUseAttestIn: {
@@ -21621,6 +21758,25 @@ export interface components {
              * @enum {string}
              */
             source: "platform_default" | "tenant_override";
+        };
+        /** FleetReplySpeedOut */
+        FleetReplySpeedOut: {
+            /** Clients */
+            clients: number;
+            /** Complete */
+            complete: boolean;
+            /** Current Week Partial */
+            current_week_partial: boolean;
+            /** P90 Min Calls */
+            p90_min_calls: number;
+            /** Public Page Enabled */
+            public_page_enabled: boolean;
+            /** Slow Target Ms */
+            slow_target_ms: number;
+            /** Typical Target Ms */
+            typical_target_ms: number;
+            /** Weeks */
+            weeks: components["schemas"]["WeekSpeed"][];
         };
         /**
          * FleetSpeakingRateOut
@@ -28472,6 +28628,22 @@ export interface components {
             min: number;
         };
         /**
+         * ReplySpeedOut
+         * @description Per IST week, oldest first: the week's `all` row, then one per language.
+         */
+        ReplySpeedOut: {
+            /** Current Week Partial */
+            current_week_partial: boolean;
+            /** P90 Min Calls */
+            p90_min_calls: number;
+            /** Slow Target Ms */
+            slow_target_ms: number;
+            /** Typical Target Ms */
+            typical_target_ms: number;
+            /** Weeks */
+            weeks: components["schemas"]["WeekSpeed"][];
+        };
+        /**
          * ReplyTimeFigures
          * @description One group's figures. A withheld or unreported figure is null, never zero.
          */
@@ -34076,6 +34248,30 @@ export interface components {
              * @enum {string}
              */
             status: "credited" | "refunded" | "duplicate" | "failed" | "ignored" | "authorized" | "refund_failed" | "mandate" | "dispute" | "fee_paid";
+        };
+        /** WeekSpeed */
+        WeekSpeed: {
+            /** Answered */
+            answered: number;
+            /** Answered Share */
+            answered_share: number | null;
+            /** Average Call S */
+            average_call_s: number | null;
+            /** Calls */
+            calls: number;
+            /** Calls Measured */
+            calls_measured: number;
+            /** Language */
+            language: string;
+            /** Reply Slow Ms */
+            reply_slow_ms: number | null;
+            /** Reply Typical Ms */
+            reply_typical_ms: number | null;
+            /**
+             * Week Start
+             * Format: date
+             */
+            week_start: string;
         };
         /** WhatsAppAccountOut */
         WhatsAppAccountOut: {
@@ -43313,6 +43509,35 @@ export interface operations {
             };
         };
     };
+    get_cost_per_result_v1_analytics_cost_per_result_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CostPerResultOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     get_durations_v1_analytics_durations_get: {
         parameters: {
             query?: {
@@ -43381,6 +43606,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HeatmapOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_reply_speed_v1_analytics_reply_speed_get: {
+        parameters: {
+            query?: {
+                weeks?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplySpeedOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -53944,6 +54200,68 @@ export interface operations {
             };
         };
     };
+    get_daily_summary_v1_notifications_daily_summary_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DailySummaryOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_daily_summary_v1_notifications_daily_summary_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DailySummaryIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DailySummaryOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     mark_seen_v1_notifications_seen_post: {
         parameters: {
             query?: never;
@@ -55870,6 +56188,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RateCardCancelOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_reply_speed_by_language_v1_ops_reply_speed_by_language_get: {
+        parameters: {
+            query?: {
+                weeks?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FleetReplySpeedOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

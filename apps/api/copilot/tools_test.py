@@ -1022,7 +1022,7 @@ def test_a_client_realm_caller_cannot_even_name_a_platform_tool() -> None:
     assert set(registry) == (
         tools.READ_TOOL_NAMES
         | console_reads.CONSOLE_READ_TOOL_NAMES
-        | {"routines_list", "help_lookup", "connection_check", "report_chart"}
+        | {"routines_list", "help_lookup", "connection_check", "account_switches", "report_chart"}
         | diagnostics.DIAGNOSE_READ_NAMES
     )
     assert "platform_tenants" not in registry
@@ -1046,7 +1046,7 @@ def test_the_array_offers_set_fields_then_every_read_tool_then_every_write_tool(
     assert set(read_names) == (
         tools.READ_TOOL_NAMES
         | console_reads.CONSOLE_READ_TOOL_NAMES
-        | {"routines_list", "help_lookup", "connection_check", "report_chart"}
+        | {"routines_list", "help_lookup", "connection_check", "account_switches", "report_chart"}
         | diagnostics.DIAGNOSE_READ_NAMES
     )
     reachable = copilot_service.offered_names("client")

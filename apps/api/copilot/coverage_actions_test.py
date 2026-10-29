@@ -199,6 +199,20 @@ async def test_opt_in_before_calling_is_switched_on() -> None:
     assert row[0] is True
 
 
+async def test_the_daily_summary_is_read_and_switched_through_pip() -> None:
+    """D-944: off by default, read by `account_switches`, switched by `account_switch_set`
+    under the route's own audit action."""
+    tenant_id, _slug, token = await _make_tenant()
+    before = await _read("account_switches", tenant_id, {})
+    assert "Daily summary for the owner (daily_summary): off" in before
+    done = await _do(tenant_id, token, "account_switch_set", {"switch": "daily_summary", "on": True})
+    assert done.applied is True
+    row = await _one(tenant_id, "SELECT owner_digest_enabled FROM organizations")
+    assert row[0] is True
+    assert "organization.daily_summary_set" in [a for a, _t, _i in await _audit(tenant_id)]
+    assert "(daily_summary): on" in await _read("account_switches", tenant_id, {})
+
+
 async def test_the_save_number_switch_demands_the_emailed_code() -> None:
     tenant_id, _slug, token = await _make_tenant()
     proposal = await _propose(

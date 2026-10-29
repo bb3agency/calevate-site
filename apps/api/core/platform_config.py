@@ -368,6 +368,7 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # The healer reads all six through `get_settings()` on every tick or send (D-701).
     "whatsapp_template_healer_page": AppliesRule(LIVE),
     "whatsapp_template_line_notice": AppliesRule(LIVE),
+    "whatsapp_template_owner_digest": AppliesRule(LIVE),
     "whatsapp_template_line_restored": AppliesRule(LIVE),
     "healer_enabled": AppliesRule(LIVE),
     "healer_paused_playbooks": AppliesRule(LIVE),
@@ -634,6 +635,8 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # Read on every load of the Voice response time report (D-770, D-896).
     "reply_time_typical_target_ms": AppliesRule(LIVE),
     "reply_time_slow_target_ms": AppliesRule(LIVE),
+    # Read on every load of the admin reply-speed-by-language screen (D-944).
+    "public_quality_page_enabled": AppliesRule(LIVE),
     # Each agent's known facts are spliced into its instructions at publish (D-896), so both
     # republish every live agent. A higher ceiling is filled by the next choice of facts
     # (`apps/workers/hot_facts.py`, nightly or on a knowledge change); a lower one cuts the

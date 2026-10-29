@@ -89,6 +89,7 @@ FREE_TEXT: Final[dict[str, str]] = {
     "whatsapp_template_healer_page": "a template name registered with Meta",
     "whatsapp_template_line_notice": "a template name registered with Meta",
     "whatsapp_template_line_restored": "a template name registered with Meta",
+    "whatsapp_template_owner_digest": "a template name registered with Meta",
     "whatsapp_cloud_phone_number_id": "an id from the Meta console",
     "whatsapp_cloud_graph_version": "a Graph API version Meta publishes",
     "release_version": "a name the deploy chooses",

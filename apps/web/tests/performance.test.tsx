@@ -8,6 +8,7 @@ import type { CallGroups, Durations, Heatmap, Stats, Summary, Timeline } from "@
 import type { Me } from "@/lib/api/client";
 import type { Performance } from "@/lib/api/performance";
 
+import { REPLY_SPEED_FIXTURE } from "./fixtures/proof";
 import { problem, renderClientPage } from "./harness";
 
 /**
@@ -154,9 +155,13 @@ function routes(over: Record<string, unknown> = {}) {
     [PATHS.performance]: performance(),
     [PATHS.summary]: summary(),
     [PATHS.groups]: groups(),
+    [REPLY_SPEED_PATH]: REPLY_SPEED,
     ...over,
   };
 }
+
+const REPLY_SPEED_PATH = "/v1/analytics/reply-speed?weeks=4";
+const REPLY_SPEED = REPLY_SPEED_FIXTURE;
 
 /** A figure of the stats band: its label's parent holds the value, change and hint. */
 async function figure(label: string): Promise<string> {
@@ -260,10 +265,33 @@ describe("the performance report", () => {
       [PATHS.performance]: problem(403, { title: "Forbidden" }),
       [PATHS.summary]: problem(403, { title: "Forbidden" }),
       [PATHS.groups]: problem(403, { title: "Forbidden" }),
+      [REPLY_SPEED_PATH]: problem(403, { title: "Forbidden" }),
     });
     await screen.findByText(/access to call records/);
     expect(screen.queryByRole("alert"), "a permission is not a fault").toBeNull();
     expect(container.textContent).not.toContain("Answer rate");
+  });
+});
+
+describe("how fast the agent answered (D-944)", () => {
+  it("leads with this week's usual wait, splits it by language, and never shows a zero for an unmeasured week", async () => {
+    const { container } = await renderClientPage(page, routes());
+    expect(await screen.findByRole("heading", { name: "How fast your agent answered" })).toBeTruthy();
+    expect(await screen.findByText("Usual wait this week")).toBeTruthy();
+    expect(screen.getAllByText("1.4 s").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Too few calls").length).toBeGreaterThan(0);
+    expect(container.textContent).toContain("Telugu: 1.3 s");
+    expect(container.textContent).toContain("Hindi: 1.7 s");
+    expect(screen.getAllByText("Not measured").length).toBeGreaterThan(0);
+    expect(container.textContent).not.toMatch(/\b0\.0 s\b/);
+  });
+
+  it("shows an empty state when there were no calls in four weeks", async () => {
+    await renderClientPage(
+      page,
+      routes({ [REPLY_SPEED_PATH]: { ...REPLY_SPEED, weeks: REPLY_SPEED.weeks.slice(0, 3) } }),
+    );
+    expect(await screen.findByText("No calls in the last four weeks.")).toBeTruthy();
   });
 });
 

@@ -1,5 +1,6 @@
 "use client";
 
+import { DailySummary } from "./DailySummary";
 import { DesktopAlerts } from "./DesktopAlerts";
 
 
@@ -249,6 +250,7 @@ export function AlertsScreen() {
           </Disclosure>
         </>
       )}
+      <DailySummary />
       <DesktopAlerts />
     </div>
   );

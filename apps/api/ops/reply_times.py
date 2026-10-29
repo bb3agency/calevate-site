@@ -347,6 +347,12 @@ def _p90(values: list[float]) -> float | None:
     return _percentile(values, 0.9) if len(values) >= P90_MIN_CALLS else None
 
 
+#: The same two rules for the weekly reply-speed roll-up (`analytics/proof.py`, D-944), so
+#: the client's figure and this screen's cannot be computed two ways.
+median_or_none = _median
+p90_or_none = _p90
+
+
 def figures(calls: list[_Call], *, target_ms: int) -> ReplyTimeFigures:
     """The group's figures under the module's aggregation rules."""
     measured = [call for call in calls if call.measured]
@@ -693,6 +699,8 @@ __all__ = [
     "TurnSplit",
     "build_report",
     "figures",
+    "median_or_none",
+    "p90_or_none",
     "reply_time_report",
     "setting_value",
     "timeline_turns",
