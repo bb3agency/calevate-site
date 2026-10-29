@@ -81,6 +81,11 @@ server {
     server_name ${ROOT_DOMAIN} www.${ROOT_DOMAIN}
                 admin.${ROOT_DOMAIN} app.${ROOT_DOMAIN} api.${ROOT_DOMAIN} hooks.${ROOT_DOMAIN};
 
+    # The TLS blocks get these two from their snippets, which a plain-HTTP block does not
+    # include: no nginx version on the 301, and the same 10s header wall.
+    server_tokens off;
+    client_header_timeout 10s;
+
     # certbot renews over HTTP-01 through this path. It must be served BEFORE the
     # redirect, and it must not be behind the Cloudflare origin lock — Let's Encrypt
     # validates from its own addresses, and with the zone proxied the request arrives
@@ -583,9 +588,39 @@ server {
     proxy_read_timeout    60s;
 
     # The app's own cap (`core/middleware.MAX_BODY_BYTES`, 2 MiB), so a body the app would
-    # refuse is refused here before it is read. The one route allowed more is Pip's file
-    # upload, in its own exact-match locations below (D-781).
+    # refuse is refused here before it is read. Every route the app allows more
+    # (`ROUTE_BODY_LIMITS`, `ROUTE_BODY_PATTERN_LIMITS`) has its own location below at
+    # exactly the app's wall; without one, nginx answers 413 to a file the screen says is
+    # accepted. `tests/nginx_body_limits_test.py` holds the two lists to each other.
     client_max_body_size 2m;
+
+    # Uploads the app reads bounded in memory, so nginx buffers them as it does any body.
+    # Exact matches win over `/`, so each widens its one route and nothing else. Sizes are
+    # the app's limit plus its 64 KiB multipart room, in KiB.
+    location = /v1/kb/uploads {
+        limit_req zone=client_api burst=10 nodelay;
+        client_max_body_size 20544k;
+        proxy_pass http://calevate_api;
+        include /etc/nginx/snippets/calevate-proxy.conf;
+    }
+    location = /v1/compliance/kyc/documents {
+        limit_req zone=client_api burst=10 nodelay;
+        client_max_body_size 5184k;
+        proxy_pass http://calevate_api;
+        include /etc/nginx/snippets/calevate-proxy.conf;
+    }
+    location = /v1/kb/teach/upload {
+        limit_req zone=client_api burst=10 nodelay;
+        client_max_body_size 3136k;
+        proxy_pass http://calevate_api;
+        include /etc/nginx/snippets/calevate-proxy.conf;
+    }
+    location = /v1/first-run/recordings {
+        limit_req zone=client_api burst=10 nodelay;
+        client_max_body_size 3136k;
+        proxy_pass http://calevate_api;
+        include /etc/nginx/snippets/calevate-proxy.conf;
+    }
 
     # PIP'S FILE UPLOAD (D-781). Exact matches, so they win over `^~ /v1/admin/` and `/`
     # and widen nothing else. The body is the file, streamed by the app straight into
@@ -636,6 +671,15 @@ server {
         limit_req zone=admin_api burst=120 nodelay;
         proxy_pass http://calevate_api;
         include /etc/nginx/snippets/calevate-proxy.conf;
+
+        # Dispute evidence: 5 files of 5 MiB plus multipart room. Nested, because `^~` on
+        # the parent stops nginx from trying any top-level regex location for this path.
+        location ~ ^/v1/admin/payments/disputes/[^/]+/contest$ {
+            limit_req zone=admin_api burst=10 nodelay;
+            client_max_body_size 25664k;
+            proxy_pass http://calevate_api;
+            include /etc/nginx/snippets/calevate-proxy.conf;
+        }
     }
 
     # The public self-serve rate card (D-545), on the `browser` zone rather than

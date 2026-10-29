@@ -35,6 +35,11 @@ server {
     ssl_certificate_key ${ORIGIN_KEY_PATH};
     include /etc/nginx/snippets/calevate-tls.conf;
 
+    # This block does not include `calevate-headers.conf`, which is where every named vhost
+    # gets `server_tokens off`, and it is the block that answers a malformed or SNI-less
+    # request: nginx's own 400/408 page from here would otherwise name its version.
+    server_tokens off;
+
     # THE ACME CHALLENGE LIVES HERE, AND `return 444` MUST NOT BE AT SERVER SCOPE.
     #
     # DEPLOYMENT §9.5a breaks the certificate deadlock by loading THIS file alone and then
