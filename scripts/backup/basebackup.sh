@@ -69,6 +69,13 @@ if ! wal-g delete retain FULL "$KEEP_FULL_BACKUPS" --confirm; then
     "keep_full=$KEEP_FULL_BACKUPS"
 fi
 
+# Old pre-deploy dumps go only after tonight's push succeeded, for the same reason the
+# wal-g prune waits for it. Failing to prune them is not a backup failure.
+if ! "$here/prune-predeploy-dumps.sh"; then
+  "$notify" predeploy_dump_prune_failed \
+    "base backup succeeded but old pre-deploy dumps were not pruned; they keep client data longer than needed"
+fi
+
 "$here/backup-health.sh" || fail basebackup_health_failed \
   "the post-backup health check refused the archive; treat the new backup as unproven"
 

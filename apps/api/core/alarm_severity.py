@@ -873,6 +873,8 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # Keeps growing and the cluster stops accepting writes.
     "pg_wal_backlog": "page",
     "pg_wal_oversize": "page",
+    # Tonight's backup exists; old dumps simply linger a day longer.
+    "predeploy_dump_prune_failed": "attention",
     "wal_chain_broken": "page",
     # Segments not yet uploaded (none lost) right after a WAL switch, or an undetermined
     # timeline: normal for one run, a problem only if it persists.
