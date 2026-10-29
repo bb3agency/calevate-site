@@ -576,6 +576,11 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "whatsapp_number_quality_dropped": "attention",
     "whatsapp_message_not_delivered": "attention",
     "whatsapp_templates_not_submitted": "attention",
+    # A Meta event (template verdict, account or number change) could not be applied after
+    # every retry; Meta will not resend it.
+    "whatsapp_event_not_applied": "attention",
+    # A client's template is still pending at Meta days after submission.
+    "whatsapp_templates_stuck_pending": "attention",
     "whatsapp_onboarding_limit_near": "attention",
     "whatsapp_spoken_consent_unconfirmed": "attention",
     # Our queue could not take a verified Meta delivery; Meta redelivers for up to 7 days.
