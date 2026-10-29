@@ -179,6 +179,17 @@ def test_a_promise_outside_the_manifest_is_caught_unless_it_is_conditional_or_ne
     assert unbacked_promise("I can't connect you right now.", NOTHING) is None
 
 
+def test_a_romanised_telugu_or_hindi_promise_is_caught_too() -> None:
+    """Scripts and starters are written in Latin-letter Telugu and Hindi as often as in the
+    native scripts (`tests/fixtures/golden_transcripts.json`)."""
+    assert unbacked_promise("Site visit details WhatsApp lo pampistanu.", NOTHING)
+    assert unbacked_promise("Location WhatsApp pe bhej dunga.", NOTHING)
+    assert unbacked_promise("Sare, malli call chestanu.", NOTHING)
+    assert unbacked_promise("Main aapko baad mein call karungi.", NOTHING)
+    assert unbacked_promise("Site visit details WhatsApp lo pampistanu.", EVERYTHING) is None
+    assert unbacked_promise("Mee WhatsApp number cheppandi?", NOTHING) is None
+
+
 def test_figures_names_and_questions() -> None:
     assert unknown_figure("It starts at ₹ 45,00,000.", "A 2BHK starts at 60 lakh.") == "₹ 45,00,000"
     assert unknown_figure("It is 60 lakh.", "A 2BHK starts at 60 lakh.") is None

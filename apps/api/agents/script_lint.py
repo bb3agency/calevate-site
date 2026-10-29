@@ -118,9 +118,14 @@ _NEGATED: Final = re.compile(
     re.IGNORECASE,
 )
 _WHATSAPP: Final = re.compile(r"whats\s?app|వాట్సాప్|వాట్సప్|व्हाट्सएप|व्हाट्सऐप", re.IGNORECASE)
-_SENDS: Final = re.compile(r"\bsend|\bsent\b|\bshare|పంపి|పంపు|పంపా|షేర్|भेज|शेयर", re.IGNORECASE)
+#: Each verb also in the Latin-letter Telugu and Hindi that scripts are written in as often as
+#: the native scripts ("WhatsApp lo pampistanu", "bhej dunga").
+_SENDS: Final = re.compile(
+    r"\bsend|\bsent\b|\bshare|\bpamp(?:i|u)|\bbhej|పంపి|పంపు|పంపా|షేర్|भेज|शेयर", re.IGNORECASE
+)
 _CALL_BACK: Final = re.compile(
-    r"call (?:you )?back|call-back|callback|తిరిగి కాల్|కాల్ బ్యాక్|वापस कॉल|कॉल बैक",
+    r"call (?:you )?back|call-back|callback|తిరిగి కాల్|కాల్ బ్యాక్|మళ్ళీ కాల్|वापस कॉल|कॉल बैक|"
+    r"\b(?:malli|tirigi|tarvata|taruvata) call chest|\b(?:wapas|vapas|baad mein) call kar",
     re.IGNORECASE,
 )
 _BOOKS: Final = re.compile(
