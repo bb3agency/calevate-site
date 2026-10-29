@@ -29,7 +29,11 @@ from urllib.parse import urlsplit
 from uuid import uuid4
 
 import pytest
-from apps.api.core.middleware import MAX_BODY_BYTES
+from apps.api.core.middleware import (
+    MAX_BODY_BYTES,
+    ROUTE_BODY_LIMITS,
+    ROUTE_BODY_PATTERN_LIMITS,
+)
 from apps.api.core.rbac import iter_api_routes
 from apps.api.main import app as api_app
 from calevate_shared.config import SELECTABLE_ENGINES
@@ -192,6 +196,11 @@ def voice_paths() -> set[str]:
     return {route.path for route in iter_api_routes(voice_app)}
 
 
+def _sample_path(route: str) -> str:
+    """A concrete request path for a route template: each `{param}` becomes one segment."""
+    return re.sub(r"\{[^}]+\}", "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", route)
+
+
 def _size_to_bytes(value: str) -> int:
     units = {"k": 1024, "m": 1024**2, "g": 1024**3}
     suffix = value[-1].lower()
@@ -309,6 +318,13 @@ def test_every_edge_location_prefix_is_a_path_the_api_serves() -> None:
                 f"nginx pins an exact location {loc.path!r} the api does not serve"
             )
             continue
+        if loc.modifier.startswith("~"):
+            pattern = re.compile(loc.path)
+            assert any(pattern.search(_sample_path(path)) for path in served), (
+                f"nginx matches the regex location {loc.path!r} and the api serves no "
+                "route it matches"
+            )
+            continue
         prefix = loc.path
         assert any(path == prefix.rstrip("/") or path.startswith(prefix) for path in served), (
             f"nginx gives {prefix!r} its own rate zone, and the api serves no route under "
@@ -374,6 +390,69 @@ def test_edge_body_cap_is_never_smaller_than_the_app_cap(host: str) -> None:
         f"{host}. caps bodies at {cap}, below the app's own {MAX_BODY_BYTES} bytes — the "
         "edge would answer with a bare 413 before the app could explain the limit."
     )
+
+
+def _exact_location(path: str) -> Location | None:
+    found = [loc for loc in block_for("api").locations if loc.modifier == "=" and loc.path == path]
+    return found[0] if found else None
+
+
+def _location_cap(loc: Location) -> int | None:
+    cap = _MAX_BODY.search(loc.body)
+    return _size_to_bytes(cap.group(1).strip()) if cap else None
+
+
+@pytest.mark.parametrize(
+    ("path", "limit"), sorted((path, limit) for (_, path), limit in ROUTE_BODY_LIMITS.items())
+)
+def test_every_larger_upload_route_has_its_own_edge_cap_at_the_app_wall(
+    path: str, limit: int
+) -> None:
+    """The api vhost caps bodies at 2 MiB; the app allows these routes more. Without an
+    exact location carrying the same number, nginx answers a bare 413 to a 3 MB document
+    the screen says is accepted, and the app's own wall never runs."""
+    loc = _exact_location(path)
+    assert loc is not None and loc.proxies, (
+        f"the api vhost has no `location = {path}`, so the server-scope 2 MiB cap refuses "
+        f"bodies the app accepts up to {limit} bytes"
+    )
+    assert _location_cap(loc) == limit, (
+        f"`location = {path}` caps at {_location_cap(loc)} bytes; the app's wall is "
+        f"{limit}. Equal, so the edge neither refuses a body the app accepts nor reads one "
+        "the app will refuse."
+    )
+
+
+@pytest.mark.parametrize("entry", ROUTE_BODY_PATTERN_LIMITS, ids=lambda e: e[1].pattern)
+def test_every_larger_upload_pattern_has_a_reachable_edge_cap(
+    entry: tuple[str, re.Pattern[str], int],
+) -> None:
+    """The same for a route with an id in its path, which needs a regex location. nginx
+    tries regex locations only when the longest matching prefix is not `^~`, so one at the
+    top level of the api vhost would never run for a path under `^~ /v1/admin/`: it has
+    to sit inside that prefix's block."""
+    _, pattern, limit = entry
+    sample = _sample_path(re.sub(r"\[\^/\]\+", "{id}", pattern.pattern))
+    assert pattern.fullmatch(sample), f"could not build a sample path for {pattern.pattern}"
+    locations = block_for("api").locations
+    regexes = [
+        loc for loc in locations if loc.modifier.startswith("~") and re.search(loc.path, sample)
+    ]
+    assert len(regexes) == 1, f"expected one regex location matching {sample}, got {regexes}"
+    found = regexes[0]
+    assert _location_cap(found) == limit, (
+        f"{found.path} caps at {_location_cap(found)} bytes; the app's wall is {limit}"
+    )
+    claiming = [
+        loc
+        for loc in locations
+        if loc.modifier == "^~" and sample.startswith(loc.path) and loc is not found
+    ]
+    for prefix in claiming:
+        assert f"location ~ {found.path}" in prefix.body, (
+            f"`location ^~ {prefix.path}` claims {sample} and stops regex matching, so "
+            f"`{found.path}` must be nested inside it to be reached at all"
+        )
 
 
 # --- the parser itself, because a silent no-op is the failure mode here -----------------
