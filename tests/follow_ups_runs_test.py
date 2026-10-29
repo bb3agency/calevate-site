@@ -603,6 +603,61 @@ async def test_a_lead_date_starts_each_lead_once_per_date() -> None:
     assert ref == f"visit_date:{tomorrow.isoformat()}"
 
 
+async def test_a_lead_date_reaches_leads_past_a_page_of_refused_ones() -> None:
+    """More refused leads than one tick reads must not keep the rest from ever starting."""
+    tenant_id, agent_id = await _dialable_tenant()
+    follow_up_id = await publish(
+        tenant_id,
+        trigger={
+            "kind": "lead_date",
+            "field": "visit_date",
+            "offset_days": -1,
+            "at": "00:00",
+            "only_if": {"lead_status": ["new"]},
+        },
+        steps=[{"id": "s1", "kind": "end"}],
+        settings={"again": "never"},
+    )
+    now = datetime.now(UTC)
+    tomorrow = (now.replace(tzinfo=None) + timedelta(hours=5, minutes=30)).date() + timedelta(
+        days=1
+    )
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO leads (id, tenant_id, agent_id, phone_e164, name, source, status, "
+                "data, created_at, updated_at) SELECT gen_random_uuid(), :t, :a, "
+                "'+9197' || lpad(n::text, 8, '0'), 'Asha', 'webhook', "
+                "CASE WHEN n % 2 = 0 THEN 'new' ELSE 'won' END, "
+                "jsonb_build_object('visit_date', CAST(:day AS text)), now(), now() "
+                "FROM generate_series(1, 500) n"
+            ),
+            {"t": tenant_id, "a": agent_id, "day": tomorrow.isoformat()},
+        )
+        version_id = (
+            await session.execute(
+                text("SELECT live_version_id FROM follow_ups WHERE id = :f"), {"f": follow_up_id}
+            )
+        ).scalar_one()
+        # The first 210 eligible leads by id went through it before: `again: never` refuses them.
+        await session.execute(
+            text(
+                "INSERT INTO follow_up_runs (id, tenant_id, follow_up_id, version_id, lead_id, "
+                "phone_e164, status, step_id, trigger_ref, started_at, ended_at, end_reason) "
+                "SELECT gen_random_uuid(), :t, :f, :v, l.id, l.phone_e164, 'done', 's1', "
+                "'manual:earlier', now() - interval '40 days', now() - interval '40 days', "
+                "'finished' FROM (SELECT id, phone_e164 FROM leads WHERE status = 'new' "
+                "ORDER BY id LIMIT 210) l"
+            ),
+            {"t": tenant_id, "f": follow_up_id, "v": version_id},
+        )
+    started = 0
+    async with tenant_session(tenant_id) as session:
+        for _ in range(3):
+            started += await runner.start_for_dates(session, tenant_id=tenant_id, now=now)
+    assert started == 40, "the 40 eligible leads past the refused ones start"
+
+
 # --- the call step ----------------------------------------------------------------------
 
 
@@ -1143,6 +1198,71 @@ async def test_a_paused_run_keeps_its_retry_when_a_try_goes_unanswered() -> None
     booked = await _callbacks_of(tenant_id, run_id)
     assert booked[-1][1] == "scheduled", (booked, await _run(tenant_id, follow_up_id))
     assert booked[-1][0].startswith(runner.callback_key(run_id, "s1", 1) + ":")
+
+
+async def test_a_queued_new_lead_run_keeps_the_after_hours_hold() -> None:
+    """A new lead's run that reaches its first call through a worker (a step before it, or
+    a turn under the hourly cap) is held after hours exactly as the inline call is."""
+    from apps.api.ingest import lead_policy
+
+    tenant_id, agent_id = await _dialable_tenant()
+    today = (datetime.now(UTC).replace(tzinfo=None) + timedelta(hours=5, minutes=30)).date()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE follow_ups SET status = 'off' WHERE starter = 'call_new_leads'")
+        )
+        await lead_policy.save_plan(
+            session,
+            tenant_id=tenant_id,
+            plan=lead_policy.LeadCallPlan(
+                after_hours="hold", holidays=(today, today + timedelta(days=1))
+            ),
+            user_id=None,
+        )
+    follow_up_id = await publish(
+        tenant_id,
+        trigger={"kind": "new_lead"},
+        steps=[
+            {"id": "s1", "kind": "wait", "minutes": 1, "next": "s2"},
+            {
+                "id": "s2",
+                "kind": "call",
+                "agent_id": str(agent_id),
+                "next": {"answered": None, "not_reached": None},
+            },
+        ],
+    )
+    lead_id, phone = await _lead(tenant_id, agent_id)
+    async with tenant_session(tenant_id) as session:
+        live = (await runner.live_follow_ups(session, "new_lead"))[0]
+        started = await runner.start_run(
+            session,
+            tenant_id=tenant_id,
+            follow_up=live,
+            lead_id=lead_id,
+            phone_e164=phone,
+            trigger_ref="delivery:test",
+        )
+    assert started.run is not None
+    run_id = started.run.id
+    await runner.drive(tenant_id, run_id)
+    await _due_now(tenant_id, run_id)
+    await runner.drive(tenant_id, run_id)
+    assert await _callbacks_of(tenant_id, run_id) == [], "nothing is booked after hours"
+    async with tenant_session(tenant_id) as session:
+        hold_id = (
+            await session.execute(
+                text("SELECT id FROM lead_call_holds WHERE lead_id = :l AND status = 'held'"),
+                {"l": lead_id},
+            )
+        ).scalar_one()
+    run = await _run(tenant_id, follow_up_id)
+    assert (run["status"], run["step_id"], run["wake_at"]) == ("waiting", "s2", None)
+    async with tenant_session(tenant_id) as session:
+        await lead_policy.release_held(session, tenant_id=tenant_id, hold_id=hold_id, user_id=None)
+    assert [k for k, _s in await _callbacks_of(tenant_id, run_id)] == [
+        runner.callback_key(run_id, "s2", 0)
+    ]
 
 
 async def test_a_lead_source_condition_needs_a_new_lead_trigger() -> None:

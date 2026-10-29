@@ -306,6 +306,11 @@ schemas.py` and the OpenAPI snapshot are the exact shapes.
   (`source_needs_new_lead`): a lead row does not keep its source, so it would match nobody.
 * **Won and lost** stop runs only when the status moves (`crm.set_lead_status`); a call
   ending never reads them, so a win-back of lost leads keeps going.
+* **A lead date** reads only leads that start: `only_if` and `again` are part of the query,
+  so leads refused by them never fill a tick's page ahead of the rest.
+* **A new lead's first call reached through a worker** (a step before it, or its turn under
+  the cap) takes the account's after-hours choice exactly as the inline call does: waits,
+  next opening, or held for the client to release (the release books the run's call).
 * **A try unanswered while paused** keeps the step's remaining tries: the run is due again
   at that try and books it once the Follow-up is live.
 * **Pause** calls off the run's booked call-backs; **resume** books them again at once.
