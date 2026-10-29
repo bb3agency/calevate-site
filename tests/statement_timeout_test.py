@@ -342,3 +342,18 @@ def test_the_offline_migration_script_sets_both_gucs_before_any_ddl() -> None:
     head = rendered[: rendered.index("CREATE TABLE")]
     assert f"SET lock_timeout = {MIGRATION_LOCK_TIMEOUT_MS}" in head
     assert f"SET statement_timeout = {MIGRATION_STATEMENT_TIMEOUT_MS}" in head
+
+
+async def test_an_app_session_cannot_sit_idle_inside_a_transaction_for_ever() -> None:
+    """A task that opens a transaction and then awaits something with no deadline holds
+    that connection's locks, and vacuum's horizon, until it dies. Postgres ends it."""
+    async with tenant_session(uuid.uuid4()) as session:
+        shown = (await session.execute(text("SHOW idle_in_transaction_session_timeout"))).scalar()
+    assert shown == "10min"
+
+
+def test_the_idle_transaction_bound_never_cuts_a_job_arq_is_still_allowed_to_run() -> None:
+    from apps.api.db.session import IDLE_IN_TRANSACTION_TIMEOUT_MS
+    from apps.workers.settings import WorkerSettings
+
+    assert WorkerSettings.job_timeout * 1000 < IDLE_IN_TRANSACTION_TIMEOUT_MS

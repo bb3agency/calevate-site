@@ -219,6 +219,13 @@ services:
       # nested read; more jobs than connections only queue on the pool's 5s timeout
       # (`Settings.worker_max_jobs`). arq's own default is 10.
       WORKER_MAX_JOBS: ${WORKERS_MAX_JOBS:-5}
+    # A memory ceiling, so a job that balloons (a Word or Excel file may expand to
+    # `document_text.MAX_OOXML_EXPANDED_BYTES` of text) gets THIS container OOM-killed and
+    # restarted, its jobs retried, rather than the host's OOM killer choosing Postgres. The
+    # starter is 4 GB (DEPLOYMENT §2b); less Postgres `shared_buffers` (768 MB) and Redis
+    # `maxmemory` (256 MB) leaves 3 GB for the OS, Postgres backends, api, voice-runtime and
+    # the web server, and the worker gets at most half of it. Raise it with the box.
+    mem_limit: ${WORKERS_MEM_LIMIT:-1536m}
     depends_on:
       redis: {condition: service_healthy}
     # ARQ jobs are idempotent with 3 retries and a DLQ, but a job killed mid-flight still

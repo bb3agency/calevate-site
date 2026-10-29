@@ -653,7 +653,8 @@ class RateLimitMiddleware:
     same one definition the audit rows and the signup quota now use. Presenting a token
     never buys more room than presenting none: see `_subjects`.
 
-    Redis being down must never 500 a request: `ratelimit.consume` fails OPEN and logs.
+    Redis being down never 500s a request. A read profile fails open; a spend or bulk
+    profile (`LimitProfile.fail_closed`) answers 503 until the counter is back.
     """
 
     def __init__(self, app: ASGIApp) -> None:
@@ -816,7 +817,10 @@ class RateLimitMiddleware:
                 profile.per_tenant,
             )
         if not decision.allowed:
-            log.warning("rate_limited", extra={"route": path, "profile": profile.name})
+            log.warning(
+                "rate_limited",
+                extra={"route": path, "profile": profile.name, "reason": decision.reason},
+            )
             await _problem_response(too_many_requests(decision), path)(scope, receive, send)
             return
         await self.app(scope, receive, send)

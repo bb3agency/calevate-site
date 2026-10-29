@@ -130,6 +130,22 @@ _CONNECT_ARGS: dict[str, int] = {
 APP_SESSION_TIMEZONE = "UTC"
 _SESSION_TIMEZONE_OPTION = f"-c timezone={APP_SESSION_TIMEZONE}"
 
+#: How long an app session may sit idle INSIDE an open transaction before Postgres ends it.
+#:
+#: `statement_timeout` bounds a statement and `pool_timeout` the wait for a connection;
+#: neither bounds a transaction left open while its task awaits something else — a vendor
+#: call with no deadline, a hung stream. That connection holds its row locks and stops
+#: vacuum from reclaiming dead tuples for as long as the task lives
+#: (https://www.postgresql.org/docs/16/runtime-config-client.html). Ten minutes is twice
+#: the longest any task here may legitimately run: arq cancels a job, and so rolls back its
+#: transaction, at `WorkerSettings.job_timeout` (300s), and the longest request budget is
+#: the copilot's `TOTAL_BUDGET_S` (90s). App engine only: migrations keep their own bounds.
+IDLE_IN_TRANSACTION_TIMEOUT_MS = 600_000
+_APP_SESSION_OPTIONS = (
+    f"{_SESSION_TIMEZONE_OPTION} "
+    f"-c idle_in_transaction_session_timeout={IDLE_IN_TRANSACTION_TIMEOUT_MS}"
+)
+
 #: The most pooled connections ONE task may hold at the same time (D-182).
 #:
 #: Two, and every one of the two is a deliberate design: a request's session plus the
@@ -476,8 +492,9 @@ def get_engine(settings: Settings | None = None) -> AsyncEngine:
             pool_pre_ping=True,
             hide_parameters=True,
             # The only wait on this path with nothing above it — see `_CONNECT_ARGS`.
-            # The session zone rides beside it: see `APP_SESSION_TIMEZONE`.
-            connect_args={**_CONNECT_ARGS, "options": _SESSION_TIMEZONE_OPTION},
+            # The session zone and the idle-transaction bound ride beside it: see
+            # `APP_SESSION_TIMEZONE` and `IDLE_IN_TRANSACTION_TIMEOUT_MS`.
+            connect_args={**_CONNECT_ARGS, "options": _APP_SESSION_OPTIONS},
         )
         _sessionmaker = async_sessionmaker(_engine, expire_on_commit=False)
     return _engine

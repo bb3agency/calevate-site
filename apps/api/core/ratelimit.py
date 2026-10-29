@@ -1,10 +1,9 @@
 """Named rate-limit profiles, and the fixed-window counter every surface shares.
 
 WHAT THIS IS FOR. nginx already applies per-real-IP `limit_req` zones at the edge
-(`infra/nginx/rate-zones.conf.template`: auth 20r/m, admin 180r/m, client 120r/m,
-webhooks 600r/m burst 200, health 60r/m). That is a real defence and this module ADDS to
-it rather than replacing it, because there are three things the edge structurally cannot
-do:
+(`infra/nginx/rate-zones.conf.template` names the zones and their rates). That is a real
+defence and this module ADDS to it rather than replacing it, because there are three things
+the edge structurally cannot do:
 
 1. **Per-tenant.** nginx keys on `$binary_remote_addr`. One Indian SMB behind one NAT is
    the ordinary case, so per-IP alone punishes the wrong party — every user of a tenant
@@ -80,6 +79,14 @@ class LimitProfile:
     `tenant_from_last_path_segment` is how a surface with no session still gets a tenant
     dimension: the `webhook_id` trailing `/hooks/v1/ingest/...` identifies the lead
     source, and therefore the tenant, without authenticating anything.
+
+    `fail_closed` is what a request on this surface gets when the counter cannot be
+    reached: refused with a 503 rather than let through. Reads fail open, because a
+    limiter outage must not take the dashboard down while the edge's zones still stand.
+    A profile that spends money or moves data in bulk fails closed, because for those the
+    edge's per-IP zone is no bound at all: one address at nginx's 300r/m `client_api` zone
+    is 18,000 LLM calls, dials or emails an hour (OWASP API Security Top 10 2023, API4 and
+    API6).
     """
 
     name: str
@@ -87,6 +94,7 @@ class LimitProfile:
     per_tenant: int | None
     window_s: int = 60
     tenant_from_last_path_segment: bool = False
+    fail_closed: bool = False
 
 
 #: The one place a number is chosen. Sized against what a real screen does: the client
@@ -111,17 +119,17 @@ PROFILES: dict[str, LimitProfile] = {
     "admin_api": LimitProfile("admin_api", per_client=300, per_tenant=None),
     # A vendor round trip, an LLM call or an email send. Each one costs money or a
     # third-party quota, and no human clicks these 30 times a minute.
-    "costly": LimitProfile("costly", per_client=30, per_tenant=60),
+    "costly": LimitProfile("costly", per_client=30, per_tenant=60, fail_closed=True),
     # Pip's file upload (D-781): each request streams up to 20 MB into storage, so it has a
     # ceiling of its own, per person and per account, below `costly`.
-    "upload": LimitProfile("upload", per_client=20, per_tenant=60),
+    "upload": LimitProfile("upload", per_client=20, per_tenant=60, fail_closed=True),
     # Bulk data OUT: the 20,000-row export, the DPDP subject export, an invoice
     # recomputed over usage_events. The tightest non-auth profile because this is the
     # shape data exfiltration takes.
-    "bulk_read": LimitProfile("bulk_read", per_client=6, per_tenant=12),
+    "bulk_read": LimitProfile("bulk_read", per_client=6, per_tenant=12, fail_closed=True),
     # Bulk data IN: a chunked CSV upload is several requests by design, so this is looser
     # than `bulk_read` while still bounding the write amplification.
-    "bulk_write": LimitProfile("bulk_write", per_client=20, per_tenant=40),
+    "bulk_write": LimitProfile("bulk_write", per_client=20, per_tenant=40, fail_closed=True),
     # Lead intake from a client's own web forms and CRMs. Keyed per `webhook_id`, which
     # IS the tenant dimension on a surface with no session, so one client's form flood
     # cannot 429 another client's leads — nor the payment and identity webhooks below.
@@ -387,6 +395,15 @@ RULES: tuple[Rule, ...] = (
     # `/v1/kb/sources`' sibling: each link is resolved through the egress guard and queued
     # for a fetch of a host the client names.
     Rule("/v1/kb/links", "costly", _m("POST")),
+    # A forced re-read fetches the client's link again or re-reads the PDF; nothing dedupes
+    # a repeat (`kb/reading.queue_read`), so each click is a fetch and a read job.
+    Rule("/v1/kb/uploads/*/read", "costly", _m("POST")),
+    # Each queues a model pass with `force=True` (`field_suggestions.queue_pass`).
+    Rule("/v1/agents/*/lead-suggestions/check", "costly", _m("POST")),
+    # Each emails a six-digit code to an address the caller types. Adding an address sends
+    # one and removing it is free, so add/remove in a loop mails any inbox from our domain.
+    Rule("/v1/team-alerts/contacts", "costly", _m("POST")),
+    Rule("/v1/team-alerts/contacts/*/code", "costly", _m("POST")),
     Rule("/v1/lead-sources/*/meta/**", "costly", _m("POST")),
     Rule("/v1/integrations/endpoints/**", "costly", _m("POST")),
     # The ADMIN copilot (`copilot/admin_routes.py`). `/v1/copilot/ask` is weighted for the
@@ -396,6 +413,9 @@ RULES: tuple[Rule, ...] = (
     Rule("/v1/admin/copilot/ask", "costly", _m("POST")),
     Rule("/v1/admin/copilot/uploads", "upload", _m("POST")),
     Rule("/v1/admin/tenants/*/invitations", "costly", _m("POST")),
+    # Model calls on the platform's own key, one click each.
+    Rule("/v1/admin/tenants/*/business-copy/refresh", "costly", _m("POST")),
+    Rule("/v1/admin/tenants/*/agents/*/lead-suggestions/check", "costly", _m("POST")),
     Rule("/v1/admin/tenants/*/agents/*/publish", "costly", _m("POST")),
     Rule("/v1/admin/tenants/*/agents/*/apply", "costly", _m("POST")),
     Rule("/v1/admin/tenants/*/agents/*/undo", "costly", _m("POST")),
@@ -519,19 +539,22 @@ async def consume(
     subject: str,
     limit: int,
     *,
-    fail_open: bool = True,
+    fail_open: bool | None = None,
 ) -> Decision:
     """Count one request against `(profile, dimension, subject)` and say whether it may
     proceed.
 
     ONE COUNTER FOR THE WHOLE PLATFORM, with the failure policy as a parameter rather
-    than as a second implementation. Request limiting fails OPEN: Redis is not a system
-    of record here, a limiter outage must never 500 the platform, and the edge's
-    `limit_req` zones are still standing. The signup quota (`tenancy/signup.py`) passes
-    `fail_open=False`, because nothing else bounds an unattended tenant factory — losing
-    Redis there means the endpoint is unavailable, not unguarded. Those two policies used
-    to be two copies of this INCR/EXPIRE pair, which is how they drift.
+    than as a second implementation. Unless the caller says otherwise the policy is the
+    profile's (`LimitProfile.fail_closed`): reads fail OPEN, because Redis is not a system
+    of record and a limiter outage must not take the dashboard down; spend and bulk fail
+    CLOSED. The signup quota (`tenancy/signup.py`) passes `fail_open=False`, because
+    nothing else bounds an unattended tenant factory. Taking the default from the profile
+    is what makes the per-tenant charge in `core/auth.py` follow the same policy as the
+    per-caller charge in the middleware without either restating it.
     """
+    if fail_open is None:
+        fail_open = not profile.fail_closed
     if limit <= 0:
         return _ALLOWED
     window = profile.window_s
@@ -566,7 +589,21 @@ def too_many_requests(decision: Decision) -> ProblemError:
     The body never names WHICH dimension was exhausted: telling an unauthenticated caller
     "you hit the per-tenant limit" tells them a tenant exists and that their neighbours
     are busy. The operator gets that detail in the log line instead.
+
+    A counter we could not reach is a 503, not a 429: the caller hit no limit, and a 429
+    would tell them they had (RFC 6585 §4 defines 429 as the user having sent too many
+    requests).
     """
+    if decision.reason == "unavailable":
+        return ProblemError(
+            kind="transient",
+            code="rate_limit_unavailable",
+            title="Temporarily unavailable",
+            detail="We cannot take this request right now.",
+            status=503,
+            remediation="Try again in a minute.",
+            headers={"Retry-After": str(decision.retry_after_s)},
+        )
     return ProblemError(
         kind="transient",
         code="rate_limited",

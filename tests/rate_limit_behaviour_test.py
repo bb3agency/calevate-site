@@ -363,6 +363,42 @@ async def test_the_limiter_fails_open_when_redis_is_gone(
     assert last.status_code == 401, last.text
 
 
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("POST", f"/v1/leads/{uuid.uuid4()}/call"),
+        ("POST", "/v1/kb/uploads"),
+        ("GET", "/v1/leads/export.csv"),
+        ("POST", "/v1/leads/bulk"),
+    ],
+)
+async def test_a_spend_or_bulk_route_refuses_rather_than_runs_unmetered_when_redis_is_gone(
+    monkeypatch: pytest.MonkeyPatch, method: str, path: str
+) -> None:
+    """Failing open is right for reads and wrong for these: with no counter, one session
+    can dial, call a model or export as fast as the edge's per-IP zone admits. 503, not
+    429, because the caller hit no limit."""
+    monkeypatch.setattr(ratelimit, "get_redis", _broken_redis)
+    async with _client() as http:
+        refused = await http.request(method, path)
+    assert refused.status_code == 503, refused.text
+    assert refused.json()["type"].endswith("/rate_limit_unavailable")
+    assert refused.headers.get("Retry-After")
+
+
+async def test_the_tenant_charge_follows_the_profile_policy_when_redis_is_gone(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`core/auth.charge_tenant_quota` calls `consume` without a policy, so the profile's
+    is the one it gets: open for a read, closed for spend."""
+    monkeypatch.setattr(ratelimit, "get_redis", _broken_redis)
+    read = await ratelimit.consume(ratelimit.PROFILES["client_api"], "tenant", "t", 900)
+    spend = await ratelimit.consume(ratelimit.PROFILES["costly"], "tenant", "t", 60)
+    assert read.allowed
+    assert not spend.allowed and spend.reason == "unavailable"
+    assert ratelimit.too_many_requests(spend).status == 503
+
+
 async def test_the_signup_quota_fails_closed_when_the_same_redis_is_gone(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
