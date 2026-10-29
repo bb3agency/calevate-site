@@ -106,3 +106,52 @@ async def test_per_row_work_runs_for_one_page_not_the_whole_history() -> None:
     # first that is the page, not the 30 calls (nor the whole table) the account holds.
     loops = [int(n) for n in re.findall(r"loops=(\d+)", plan)]
     assert max(loops) <= 5, plan
+
+
+async def test_what_a_call_cost_is_read_through_the_ledger_key() -> None:
+    """The credit column's lookup carries the key's partial bound, so it is an index probe
+    per row rather than a read of every debit the account has."""
+    from decimal import Decimal
+
+    from apps.api.billing.service import record_entry
+
+    tenant_id, agent_id = await _trial_tenant()
+    call_id = await _ended(tenant_id, agent_id, started=datetime.now(UTC) - timedelta(minutes=3))
+    async with tenant_session(tenant_id) as session:
+        await record_entry(
+            session,
+            tenant_id=tenant_id,
+            delta=Decimal("-6.75"),
+            reason="usage",
+            ref=str(call_id),
+            allow_negative=True,
+        )
+    headers = await _owner(tenant_id)
+    captured: list[tuple[str, Any]] = []
+
+    def capture(_c: Any, _cur: Any, statement: str, params: Any, *_rest: Any) -> None:
+        if "credits_used" in statement:
+            captured.append((statement, params))
+
+    sync_engine = get_engine().sync_engine
+    event.listen(sync_engine, "before_cursor_execute", capture)
+    try:
+        async with _client() as http:
+            listed = await http.get("/v1/calls", headers=headers)
+    finally:
+        event.remove(sync_engine, "before_cursor_execute", capture)
+    assert listed.status_code == 200, listed.text
+    row = next(r for r in listed.json() if r["id"] == str(call_id))
+    assert row["credits_used_inr"] == "6.75"
+
+    statement, params = captured[0]
+    async with tenant_session(tenant_id) as session:
+        connection = await session.connection()
+        # Priced out so the tiny test table does not make a scan the cheaper choice.
+        await connection.exec_driver_sql("SET LOCAL enable_seqscan = off")
+        await connection.exec_driver_sql("SET LOCAL enable_bitmapscan = off")
+        plan = "\n".join(
+            str(r[0])
+            for r in (await connection.exec_driver_sql("EXPLAIN " + statement, params)).all()
+        )
+    assert "ux_credit_ledger_tenant_reason_ref" in plan, plan

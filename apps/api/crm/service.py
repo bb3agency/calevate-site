@@ -301,9 +301,19 @@ async def list_calls(
 
 #: What the call took from the balance: its `usage` debit, keyed by the call id
 #: (`billing/service.charge_for_call`), read through `ux_credit_ledger_tenant_reason_ref`.
+#: That index is partial on `occurred_at >= '2026-08-11 08:07:00+00'` (migration
+#: f9c2b41a8e57), so the lookup must repeat the bound or the planner cannot use it and reads
+#: every ledger row of the tenant once per call on the page (4.5 ms a row at 24k debits). A
+#: call created on or after the line has its debit after it too (`record_entry` stamps
+#: `clock_timestamp()` after the call row exists); an older call keeps the unbounded read.
+_LEDGER_KEY_SINCE: Final = "TIMESTAMPTZ '2026-08-11 08:07:00+00'"
 _CREDITS_USED_COLUMN = (
+    f"(CASE WHEN c.created_at >= {_LEDGER_KEY_SINCE} THEN "
     "(SELECT -sum(l.delta) FROM credit_ledger l WHERE l.tenant_id = c.tenant_id "
-    "AND l.reason = 'usage' AND l.ref = c.id::text AND l.delta < 0) AS credits_used"
+    "AND l.reason = 'usage' AND l.ref = c.id::text AND l.delta < 0 "
+    f"AND l.occurred_at >= {_LEDGER_KEY_SINCE}) "
+    "ELSE (SELECT -sum(l.delta) FROM credit_ledger l WHERE l.tenant_id = c.tenant_id "
+    "AND l.reason = 'usage' AND l.ref = c.id::text AND l.delta < 0) END) AS credits_used"
 )
 
 #: How many details a call row shows, and how long each value may run before it is cut.
