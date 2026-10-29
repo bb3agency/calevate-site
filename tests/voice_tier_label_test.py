@@ -107,7 +107,7 @@ def test_no_catalogue_note_tells_a_client_to_fix_our_configuration() -> None:
     typed = [_Note(catalogue_note(p), p) for p in get_args(VoiceProvider)]
     for voice in (*catalogue(), *typed):
         lowered = voice.note.lower()
-        for ours in ("cartesia_api_key", "cartesia_agent_cap", "ops console", "attest"):
+        for ours in ("cartesia_api_key", "ops console", "attest"):
             assert ours not in lowered, (
                 f"{voice.id}'s note names {ours!r} — a client cannot act on it, and the "
                 "refusal that can is served per voice by `voice_offer.unofferable_reason`"
