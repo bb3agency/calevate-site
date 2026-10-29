@@ -719,6 +719,114 @@ async def test_a_contest_uploads_each_document_and_submits_the_disputed_amount(
     assert fake.contests[1]["amount_paise"] == 15050
 
 
+async def _row(tenant_id: UUID, dispute_id: str) -> Any:
+    async with tenant_session(tenant_id) as session:
+        return (
+            await session.execute(
+                text(
+                    "SELECT status, action_required, last_event, hold_inr, payment_id "
+                    "FROM payment_disputes "
+                    "WHERE dispute_id = :d"
+                ),
+                {"d": dispute_id},
+            )
+        ).one()
+
+
+async def _outcome_notices(tenant_id: UUID) -> list[tuple[str, str]]:
+    async with tenant_session(tenant_id) as session:
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT payload->>'kind', payload->>'amount_inr' FROM outbox_messages "
+                    "WHERE job = 'send_payment_notice' AND payload->>'tenant_id' = :t "
+                    "AND payload->>'kind' LIKE 'dispute_%' ORDER BY created_at, id"
+                ),
+                {"t": str(tenant_id)},
+            )
+        ).all()
+    return [(str(r[0]), str(r[1])) for r in rows]
+
+
+async def test_accepting_settles_the_row_at_once_and_the_later_webhook_changes_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = FakeApi()
+    monkeypatch.setattr(payment_admin_routes, "razorpay_api", lambda: fake)
+    tenant_id, dispute_id = await _open_dispute()
+    payment_id = (await _row(tenant_id, dispute_id)).payment_id
+    await payment_admin_routes.accept(
+        dispute_id,
+        _request(),
+        _admin(),
+        _fresh(),
+        payment_admin_routes.dispute_confirmation(dispute_id, "accept"),
+    )
+    row = await _row(tenant_id, dispute_id)
+    assert (row.status, row.last_event) == ("lost", "admin.dispute_accepted")
+    async with tenant_session(tenant_id) as session:
+        assert not await dispute_hold_active(session, tenant_id=tenant_id)
+    assert await _outcome_notices(tenant_id) == [("dispute_lost", "400.00")]
+
+    async with tenant_session(tenant_id) as session:
+        await apply_dispute_event(
+            session,
+            tenant_id=tenant_id,
+            event="payment.dispute.lost",
+            dispute=_facts(payment_id, "lost", dispute_id=dispute_id),
+        )
+    assert await _outcome_notices(tenant_id) == [("dispute_lost", "400.00")]
+    holds = [r for r in await _ledger(tenant_id) if (r[2] or "").startswith("dispute_")]
+    assert [r[2] for r in holds] == [f"dispute_hold:{dispute_id}"], "lost keeps the hold"
+
+
+async def test_a_contest_shows_under_review_and_clears_the_request_for_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = FakeApi()
+    monkeypatch.setattr(payment_admin_routes, "razorpay_api", lambda: fake)
+    tenant_id, dispute_id = await _open_dispute()
+    payment_id = (await _row(tenant_id, dispute_id)).payment_id
+    async with tenant_session(tenant_id) as session:
+        await apply_dispute_event(
+            session,
+            tenant_id=tenant_id,
+            event="payment.dispute.action_required",
+            dispute=_facts(payment_id, "open", dispute_id=dispute_id),
+        )
+    assert (await _row(tenant_id, dispute_id)).action_required is True
+
+    await _contest(dispute_id, [_upload()])
+    row = await _row(tenant_id, dispute_id)
+    assert (row.status, row.action_required, row.last_event) == (
+        "under_review",
+        False,
+        "admin.dispute_contested",
+    )
+    assert await _outcome_notices(tenant_id) == []
+
+
+async def test_a_decided_dispute_is_told_once_per_phase() -> None:
+    tenant_id, dispute_id = await _open_dispute()
+    payment_id = (await _row(tenant_id, dispute_id)).payment_id
+
+    async def _event(status: str, phase: str = "chargeback") -> None:
+        async with tenant_session(tenant_id) as session:
+            await apply_dispute_event(
+                session,
+                tenant_id=tenant_id,
+                event=f"payment.dispute.{'created' if status == 'open' else status}",
+                dispute=_facts(payment_id, status, dispute_id=dispute_id, phase=phase),
+            )
+
+    await _event("won")
+    await _event("won")
+    assert await _outcome_notices(tenant_id) == [("dispute_won", "400.00")]
+    await _event("open", "pre_arbitration")
+    await _event("won", "pre_arbitration")
+    assert [k for k, _ in await _outcome_notices(tenant_id)] == ["dispute_won", "dispute_won"]
+
+
 # --- event handlers -----------------------------------------------------------------------
 
 

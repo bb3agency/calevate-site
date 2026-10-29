@@ -21,9 +21,16 @@ WHAT HAPPENS HERE, PER EVENT (`webhooks/disputes.md`)
   nothing, unless the dispute has moved to a pre-arbitration or arbitration phase.
 - `under_review`, `action_required`: the row is updated and, for the second, the admin is
   alerted to add evidence.
+- The first time a dispute reaches `won`, `lost` or `closed` (per phase), the client's
+  owners are emailed what it means for their balance (`send_payment_notice`, kinds
+  `dispute_*`), through the outbox in this transaction, once per outcome.
 
 The admin contests (evidence documents plus a summary, `api/disputes/contest.md`, at least
 one document required) or accepts (`api/disputes/accept.md`) from the disputes page.
+Both decisions are applied to the row through `apply_dispute_event` with the status
+Razorpay returns (accept: `lost`; a submitted contest: `under_review`, read 29 Oct 2026),
+rather than waiting for the webhook, so the page shows the decision at once and an accept
+whose `lost` webhook never arrives still settles the hold.
 """
 
 from __future__ import annotations
@@ -31,12 +38,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any, Final
+from typing import Any, Final, Literal
 from uuid import UUID
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.billing.auto_recharge import owe_dispute_outcome_notice
 from apps.api.billing.dispute_hold import DISPUTE_HOLD_REASON, OPEN_STATES, dispute_hold_active
 from apps.api.billing.first_payment import alert_payment_reversed
 from apps.api.billing.lots import split_meta
@@ -54,10 +62,11 @@ from apps.api.billing.service import (
 )
 from apps.api.compliance.audit import write_audit
 from apps.api.core.alerting import alert
+from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
-from apps.api.db.session import untenanted_session
+from apps.api.db.session import tenant_session, untenanted_session
 
 log = get_logger(__name__)
 
@@ -238,6 +247,10 @@ async def apply_dispute_event(
             payment_ref=dispute.payment_id,
             reversal_ref=dispute.dispute_id,
         )
+    if dispute.status in TERMINAL_STATES and (
+        existing is None or existing.status not in TERMINAL_STATES
+    ):
+        await _owe_outcome_notice(session, tenant_id=tenant_id, dispute=dispute)
     if action_required:
         alert(
             "ROUTE_HANDLER",
@@ -265,6 +278,81 @@ async def apply_dispute_event(
         "razorpay_dispute_applied",
         extra={"tenant_id": str(tenant_id), "dispute_id": dispute.dispute_id, "outcome": outcome},
     )
+    return outcome
+
+
+async def _owe_outcome_notice(
+    session: AsyncSession, *, tenant_id: UUID, dispute: DisputeFacts
+) -> None:
+    """Promise the client's "your dispute is resolved" email, the one `DISPUTE_HOLD_REASON`
+    tells them to expect. The amount is what this dispute took from or gave back to their
+    credit: zero for a platform-fee payment, which never reached the wallet. Keyed on the
+    phase too, so a won chargeback challenged again and decided again is told again."""
+    hold = (
+        await session.execute(
+            text("SELECT hold_inr FROM payment_disputes WHERE dispute_id = :did"),
+            {"did": dispute.dispute_id},
+        )
+    ).scalar_one()
+    await owe_dispute_outcome_notice(
+        session,
+        tenant_id=tenant_id,
+        status=dispute.status,
+        amount_inr=Decimal(str(hold)),
+        dedupe_key=(
+            f"dispute-outcome:{dispute.dispute_id}:{dispute.phase or 'chargeback'}:{dispute.status}"
+        ),
+    )
+
+
+async def record_operator_decision(
+    *,
+    tenant_id: UUID,
+    dispute_id: str,
+    decision: Literal["accepted", "contested"],
+    provider_status: str,
+    principal: Principal,
+    ip: str | None,
+    audit_summary: dict[str, str],
+) -> str:
+    """Apply an accept or a submitted contest to the row, and audit who did it, in one
+    transaction. `provider_status` is the dispute's status in Razorpay's answer. The
+    later webhook for the same status changes nothing further (the ledger refs and the
+    outcome notice's key are idempotent)."""
+    async with tenant_session(tenant_id) as session:
+        row = (
+            await session.execute(
+                text(
+                    "SELECT payment_id, amount_inr, phase, reason_code, respond_by "
+                    "FROM payment_disputes WHERE dispute_id = :did"
+                ),
+                {"did": dispute_id},
+            )
+        ).one()
+        outcome = await apply_dispute_event(
+            session,
+            tenant_id=tenant_id,
+            event=f"admin.dispute_{decision}",
+            dispute=DisputeFacts(
+                dispute_id=dispute_id,
+                payment_id=str(row.payment_id),
+                amount_inr=Decimal(str(row.amount_inr)),
+                status=provider_status,
+                phase=row.phase,
+                reason_code=row.reason_code,
+                respond_by=row.respond_by,
+            ),
+        )
+        await write_audit(
+            session,
+            action=f"payment.dispute_{decision}",
+            actor=principal,
+            tenant_id=tenant_id,
+            object_type="payment_disputes",
+            object_id=dispute_id,
+            ip=ip,
+            summary={**audit_summary, "provider_status": provider_status, "outcome": outcome},
+        )
     return outcome
 
 
@@ -473,4 +561,5 @@ __all__ = [
     "dispute_tenant",
     "extract_dispute",
     "list_disputes",
+    "record_operator_decision",
 ]

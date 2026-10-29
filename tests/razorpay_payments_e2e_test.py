@@ -719,6 +719,68 @@ async def test_one_recharge_in_flight_then_capture_credits_and_closes_it(
     assert await auto_recharge.maybe_start_recharge(tenant_id) == "above_threshold"
 
 
+async def test_a_capture_after_the_answer_window_closes_the_failed_charge_and_credits_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id = await _tenant()
+    await _confirmed_mandate(tenant_id)
+    fake = FakeApi()
+    monkeypatch.setattr(auto_recharge, "razorpay_api", lambda: fake)
+    assert await auto_recharge.maybe_start_recharge(tenant_id) == "started"
+    order_id = fake.orders[0]["id"]
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE auto_recharge_charges SET created_at = :at WHERE order_id = :o"),
+            {"at": datetime.now(UTC) - auto_recharge.CHARGE_ANSWER_WINDOW * 2, "o": order_id},
+        )
+    assert await auto_recharge.expire_unanswered(tenant_id) == 1
+
+    payment_id = _id("pay")
+    raw, headers = _sign(
+        _payment(
+            payment_id=payment_id,
+            order_id=order_id,
+            amount=200000,
+            notes={payments.NOTES_TENANT_KEY: str(tenant_id)},
+        ),
+        event_id=_id("evt"),
+    )
+    async with _client() as http:
+        first = await http.post("/hooks/v1/razorpay", content=raw, headers=headers)
+        again = await http.post("/hooks/v1/razorpay", content=raw, headers=headers)
+    assert first.json()["status"] == "credited"
+    assert again.json()["status"] == "duplicate"
+    async with tenant_session(tenant_id) as session:
+        charge = (
+            await session.execute(
+                text(
+                    "SELECT status, failure_code, payment_id FROM auto_recharge_charges "
+                    "WHERE order_id = :o"
+                ),
+                {"o": order_id},
+            )
+        ).one()
+        notices = (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM outbox_messages WHERE job = :j "
+                    "AND payload->>'tenant_id' = :t AND payload->>'kind' = 'recharge_captured'"
+                ),
+                {"j": auto_recharge.PAYMENT_NOTICE_JOB, "t": str(tenant_id)},
+            )
+        ).scalar()
+    assert (charge.status, charge.failure_code, charge.payment_id) == (
+        "captured",
+        None,
+        payment_id,
+    )
+    assert notices == 1
+    topups = [
+        d for reason, d, ref in await _ledger(tenant_id) if (reason, ref) == ("topup", payment_id)
+    ]
+    assert topups == [Decimal("2000")]
+
+
 async def test_the_monthly_cap_is_hard(monkeypatch: pytest.MonkeyPatch) -> None:
     tenant_id = await _tenant()
     await _confirmed_mandate(tenant_id)

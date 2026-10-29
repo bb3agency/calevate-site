@@ -23,7 +23,7 @@ from fastapi import APIRouter, Depends, File, Form, Header, Query, Request, Uplo
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text
 
-from apps.api.billing.disputes import dispute_tenant, list_disputes
+from apps.api.billing.disputes import dispute_tenant, list_disputes, record_operator_decision
 from apps.api.billing.payment_objects import route_for
 from apps.api.billing.payments import (
     KEY_ID_PREFIX,
@@ -36,7 +36,6 @@ from apps.api.billing.payments import (
 from apps.api.billing.razorpay_api import EvidenceKind, razorpay_api
 from apps.api.billing.reconciliation import reconcile
 from apps.api.billing.service import to_paise
-from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
@@ -308,19 +307,17 @@ async def accept(
 ) -> DisputeActionOut:
     step_up.require(x_confirm_action, dispute_confirmation(dispute_id, "accept"))
     tenant_id = await _tenant_or_404(dispute_id)
-    status = await razorpay_api().accept_dispute(dispute_id)
-    async with tenant_session(tenant_id) as session:
-        await write_audit(
-            session,
-            action="payment.dispute_accepted",
-            actor=principal,
-            tenant_id=tenant_id,
-            object_type="payment_disputes",
-            object_id=dispute_id,
-            ip=client_request_ip(request),
-            summary={"provider_status": status},
-        )
-    return DisputeActionOut(dispute_id=dispute_id, status=status or "lost")
+    status = await razorpay_api().accept_dispute(dispute_id) or "lost"
+    await record_operator_decision(
+        tenant_id=tenant_id,
+        dispute_id=dispute_id,
+        decision="accepted",
+        provider_status=status,
+        principal=principal,
+        ip=client_request_ip(request),
+        audit_summary={},
+    )
+    return DisputeActionOut(dispute_id=dispute_id, status=status)
 
 
 @router.post(
@@ -404,29 +401,29 @@ async def contest(
                 content_type=str(upload.content_type),
             )
         )
-    status = await api.contest_dispute(
-        dispute_id,
-        summary=summary,
-        amount_paise=inr_to_paise(to_paise(amount)),
-        evidence={evidence_kind: doc_ids},
-    )
-    async with tenant_session(tenant_id) as session:
-        await write_audit(
-            session,
-            action="payment.dispute_contested",
-            actor=principal,
-            tenant_id=tenant_id,
-            object_type="payment_disputes",
-            object_id=dispute_id,
-            ip=client_request_ip(request),
-            summary={
-                "documents": str(len(doc_ids)),
-                "evidence_kind": evidence_kind,
-                "amount_inr": str(to_paise(amount)),
-                "provider_status": status,
-            },
+    status = (
+        await api.contest_dispute(
+            dispute_id,
+            summary=summary,
+            amount_paise=inr_to_paise(to_paise(amount)),
+            evidence={evidence_kind: doc_ids},
         )
-    return DisputeActionOut(dispute_id=dispute_id, status=status or "under_review")
+        or "under_review"
+    )
+    await record_operator_decision(
+        tenant_id=tenant_id,
+        dispute_id=dispute_id,
+        decision="contested",
+        provider_status=status,
+        principal=principal,
+        ip=client_request_ip(request),
+        audit_summary={
+            "documents": str(len(doc_ids)),
+            "evidence_kind": evidence_kind,
+            "amount_inr": str(to_paise(amount)),
+        },
+    )
+    return DisputeActionOut(dispute_id=dispute_id, status=status)
 
 
 __all__ = ["WEBHOOK_PATH", "dispute_confirmation", "router"]

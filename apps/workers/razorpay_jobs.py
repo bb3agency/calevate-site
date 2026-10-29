@@ -8,7 +8,8 @@
 - `reconcile_razorpay` (daily): `billing/reconciliation.reconcile`.
 - `send_payment_notice` (outbox job `auto_recharge.PAYMENT_NOTICE_JOB`): the client email
   for a recharge started, captured or failed, a mandate confirmed or ended, and
-  auto-recharge switched off. The words are the client's view: no internals, and Razorpay
+  auto-recharge switched off, and a dispute decided (to the owners too). The words are the
+  client's view: no internals, and Razorpay
   is named only as the payment gateway.
 
 Every sweep is bounded: it walks `auto_recharge_settings` rows (opted-in tenants only),
@@ -18,6 +19,7 @@ never the whole fleet.
 from __future__ import annotations
 
 import asyncio
+from decimal import Decimal
 from typing import Any, Final
 from uuid import UUID
 
@@ -33,13 +35,16 @@ from apps.api.billing.auto_recharge import (
     refresh_pending_mandate,
 )
 from apps.api.billing.display import display_inr
+from apps.api.billing.dispute_hold import dispute_hold_active
 from apps.api.billing.payments import payment_capability
 from apps.api.billing.reconciliation import reconcile
+from apps.api.billing.service import get_balance, to_paise
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.transport import get_transport
 from apps.api.db.session import tenant_session, untenanted_session
+from apps.workers.account_closure import account_recipients
 from apps.workers.auth_email import CONSOLE_BASE
 from apps.workers.email_render import from_text
 
@@ -132,7 +137,54 @@ _SUBJECTS: Final = {
     "auto_recharge_disabled": "Auto-recharge is now off",
     "mandate_confirmed": "Automatic top-ups are approved",
     "mandate_ended": "Your automatic top-up approval has ended",
+    "dispute_won": "Your payment dispute is resolved",
+    "dispute_closed": "Your payment dispute is closed",
+    "dispute_lost": "Your payment dispute is resolved",
 }
+
+#: The notices that end the hold `dispute_hold.DISPUTE_HOLD_REASON` announced. They go to
+#: the account's owners as well as its billing address (`account_recipients`): the owner
+#: is the person whose outbound calling was paused and who was promised this email.
+_OWNER_KINDS: Final = frozenset({"dispute_won", "dispute_closed", "dispute_lost"})
+
+
+def compose_dispute(
+    kind: str, *, amount_inr: str | None, balance_inr: str, still_paused: bool, slug: str
+) -> str:
+    """A dispute's outcome, in the client's words: what happened to the payment, what it
+    did to their credit, and whether outbound calling is back."""
+    link = f"{CONSOLE_BASE}/c/{slug}/billing"
+    held = Decimal(amount_inr) if amount_inr else Decimal(0)
+    balance = f"Your balance is now {display_inr(balance_inr)}."
+    if kind == "dispute_lost":
+        lines = [
+            "Your bank has decided the dispute: the payment goes back to you through your bank.",
+            (
+                f"So the {display_inr(held)} we held stays removed from your calling credit. "
+                + balance
+                if held > 0
+                else "Your calling credit did not change. " + balance
+            ),
+        ]
+    else:
+        lines = [
+            "Your bank has closed the dispute. The payment stands."
+            if kind == "dispute_closed"
+            else "Your bank has decided the dispute: the payment stands.",
+            (
+                f"The {display_inr(held)} we held is back in your calling credit. " + balance
+                if held > 0
+                else "Your calling credit did not change. " + balance
+            ),
+        ]
+    lines.append(
+        "Another payment is still disputed, so outbound calls stay paused until it is "
+        "resolved. Incoming calls keep working."
+        if still_paused
+        else "Outbound calls are back on."
+    )
+    lines.append(f"See your credit at {link}.")
+    return "\n\n".join(lines)
 
 
 def compose(kind: str, *, amount_inr: str | None, reason: str | None, slug: str) -> str:
@@ -178,6 +230,10 @@ async def send_payment_notice(ctx: dict[str, Any], payload: dict[str, Any]) -> s
     if kind not in _SUBJECTS:
         log.warning("payment_notice_unknown_kind", extra={"kind": kind})
         return "unknown_kind"
+    if kind in _OWNER_KINDS:
+        return await _send_dispute_notice(
+            attempt=int(ctx.get("job_try", 1)), tenant_id=tenant_id, kind=kind, payload=payload
+        )
     async with tenant_session(tenant_id) as session:
         row = (
             await session.execute(
@@ -214,11 +270,66 @@ async def send_payment_notice(ctx: dict[str, Any], payload: dict[str, Any]) -> s
     return "sent"
 
 
+async def _send_dispute_notice(
+    *, attempt: int, tenant_id: UUID, kind: str, payload: dict[str, Any]
+) -> str:
+    """The balance and the pause are read when the email is sent, not when it was promised,
+    so a second dispute opened or closed meanwhile is told as it now stands. A retry runs
+    only when no address accepted the message: retrying a partial send would mail the
+    addresses that already have it a second time."""
+    async with tenant_session(tenant_id) as session:
+        slug = (
+            await session.execute(
+                text("SELECT slug FROM organizations WHERE id = :tid"), {"tid": tenant_id}
+            )
+        ).scalar()
+        if slug is None:
+            return "tenant_missing"
+        recipients = await account_recipients(session, tenant_id=tenant_id)
+        balance = (await get_balance(session, tenant_id=tenant_id)).amount_inr
+        still_paused = await dispute_hold_active(session, tenant_id=tenant_id)
+    if not recipients:
+        alert("WORKER_DELIVERY", "payment_notice_no_billing_email", tenant_id=str(tenant_id))
+        return "no_billing_email"
+    subject = _SUBJECTS[kind]
+    body = compose_dispute(
+        kind,
+        amount_inr=payload.get("amount_inr"),
+        balance_inr=str(to_paise(balance)),
+        still_paused=still_paused,
+        slug=str(slug),
+    )
+    message = from_text(
+        subject=subject, preheader=subject, heading=subject, text=body, cta="See your credit"
+    )
+    transport = get_transport()
+    delivered = 0
+    for address in recipients:
+        delivered += bool(
+            await asyncio.to_thread(
+                transport.send, to=address, subject=subject, body=message.text, html=message.html
+            )
+        )
+    if not delivered:
+        raise Retry(defer=ladder_delay_s(_RETRY_S, attempt))
+    log.info(
+        "payment_notice_sent",
+        extra={
+            "tenant_id": str(tenant_id),
+            "kind": kind,
+            "recipients": len(recipients),
+            "delivered": delivered,
+        },
+    )
+    return "sent"
+
+
 __all__ = [
     "AUTO_RECHARGE_MINUTES",
     "RECONCILE_HOUR_IST",
     "RECONCILE_MINUTE",
     "compose",
+    "compose_dispute",
     "reconcile_razorpay",
     "send_payment_notice",
     "sweep_auto_recharge",
