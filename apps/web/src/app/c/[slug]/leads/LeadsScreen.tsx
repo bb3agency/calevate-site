@@ -81,7 +81,10 @@ export function LeadsScreen() {
   const needKey = leadFields.data?.need_key ?? "need";
   // A campaign's results link here with `?campaign_id=` to show the leads it reached.
   const params = useSearchParams();
-  const f = useLeadsLens(needKey, { campaignId: params.get("campaign_id") || undefined });
+  const f = useLeadsLens(needKey, {
+    campaignId: params.get("campaign_id") || undefined,
+    status: params.get("status") || undefined,
+  });
   const { lens } = f;
 
   const leads = useLeadsUnderLens(session, lens, { limit: PAGE_SIZE, offset: f.offset || undefined });

@@ -289,6 +289,8 @@ function routes(over: Record<string, unknown> = {}) {
     "/v1/me": ME,
     ...NO_FORWARDING_ROUTES,
     "/v1/dashboard": EMPTY_DASHBOARD,
+    // No charts pinned from the assistant (D-934): the section renders nothing.
+    "/v1/copilot/pins": { pins: [], max_pins: 12 },
     // An account that has not paid is owed no go-live guide (D-859).
     "/v1/go-live": NOT_OWED_GUIDE,
     // A first run put aside: the dashboard neither sends the owner on nor hides the checklist.
