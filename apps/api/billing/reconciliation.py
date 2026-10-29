@@ -104,7 +104,9 @@ async def _release_failed_refund(
         key = await claim_of_failed_refund(session, tenant_id=tenant_id, refund=event)
         if key is None:
             return
-        await release_refund_claim(session, tenant_id=tenant_id, refund_key=key)
+        await release_refund_claim(
+            session, tenant_id=tenant_id, refund_key=key, refund_id=refund.refund_id
+        )
     report.refunds_failed_late.append(refund.refund_id)
     alert(
         "ROUTE_HANDLER",

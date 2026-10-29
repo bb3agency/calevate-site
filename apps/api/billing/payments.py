@@ -1672,8 +1672,14 @@ async def claim_refund(
     return RefundClaim(refund_key=key, claimed=True)
 
 
-async def release_refund_claim(session: AsyncSession, *, tenant_id: UUID, refund_key: str) -> None:
+async def release_refund_claim(
+    session: AsyncSession, *, tenant_id: UUID, refund_key: str, refund_id: str | None = None
+) -> None:
     """Fail a claim whose refund definitively did not happen.
+
+    `refund_id` is the provider refund that failed, when one is known. It is bound to a
+    claim that had none, so a replay of that failure finds it here
+    (`claim_of_failed_refund`) instead of falling through to a later unbound claim.
 
     A refund the provider REFUSED (or never received, or reported failed) moved no money,
     so the claim must not go on counting against the client's remaining refundable balance.
@@ -1686,10 +1692,11 @@ async def release_refund_claim(session: AsyncSession, *, tenant_id: UUID, refund
     """
     await session.execute(
         text(
-            "UPDATE refund_intents SET failed_at = now() "
+            "UPDATE refund_intents SET failed_at = now(), "
+            "refund_ref = COALESCE(refund_ref, CAST(:rid AS text)) "
             "WHERE tenant_id = :tid AND refund_key = :key AND failed_at IS NULL"
         ),
-        {"tid": tenant_id, "key": refund_key},
+        {"tid": tenant_id, "key": refund_key, "rid": refund_id},
     )
     log.info(
         "razorpay_refund_claim_released",
@@ -1716,13 +1723,20 @@ async def claim_of_failed_refund(
     """The live claim a `refund.failed` event fails: the one bound to that refund id, or,
     for an attempt whose answer never reached us, the unbound live claim of that payment
     and amount. None when no live claim matches: a late event for an attempt already
-    failed, or a refund made outside this platform."""
+    failed, or a refund made outside this platform.
+
+    A failure already recorded against this refund id is a replay (a redelivered webhook,
+    or the same failed refund in the next reconciliation listing), and answers None: the
+    unbound claim it would otherwise find belongs to a later attempt of the same amount,
+    which may have moved money."""
     row = (
         await session.execute(
             text(
                 "SELECT refund_key FROM refund_intents WHERE tenant_id = :tid "
                 "AND failed_at IS NULL AND (refund_ref = :rid OR (refund_ref IS NULL "
                 "AND payment_ref = :pid AND amount_inr = :amount)) "
+                "AND NOT EXISTS (SELECT 1 FROM refund_intents f WHERE f.tenant_id = :tid "
+                "AND f.refund_ref = :rid AND f.failed_at IS NOT NULL) "
                 "ORDER BY (refund_ref = :rid) DESC NULLS LAST LIMIT 1"
             ),
             {

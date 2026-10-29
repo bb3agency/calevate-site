@@ -1072,6 +1072,27 @@ async def test_reconciliation_releases_a_failed_refund_whose_webhook_was_lost(
     again = await reconciliation.reconcile()
     assert again.refunds_failed_late == [] and "razorpay_refund_failed" not in fired
 
+    # The client is refunded the same amount again and that attempt's answer is lost, so
+    # its claim is unbound. The old failed refund is still in the next pass's listing and
+    # must not release the new claim: that refund may have moved money.
+    async with tenant_session(tenant_id) as session:
+        retry = await payments.claim_refund(
+            session,
+            tenant_id=tenant_id,
+            payment_id=payment_id,
+            amount_inr=Decimal("400.00"),
+            payment_total_inr=Decimal("1000.00"),
+            topup_entry_id=topup.entry_id,
+        )
+    assert retry.claimed and retry.refund_key != claim.refund_key
+    third = await reconciliation.reconcile()
+    assert third.refunds_failed_late == [] and "razorpay_refund_failed" not in fired
+    async with tenant_session(tenant_id) as session:
+        held = await payments.claimed_refund_total_inr(
+            session, tenant_id=tenant_id, payment_id=payment_id
+        )
+    assert held == Decimal("400.00")
+
 
 # --- closure -------------------------------------------------------------------------
 
