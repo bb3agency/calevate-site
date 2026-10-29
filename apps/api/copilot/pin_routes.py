@@ -173,10 +173,15 @@ async def add_client_pin(
     summary="Rename a pinned card",
 )
 async def rename_client_pin(
-    pin_id: UUID, body: PinRenameIn, session: TenantSession, principal: ClientWriter
+    pin_id: UUID,
+    body: PinRenameIn,
+    session: TenantSession,
+    principal: ClientWriter,
+    request: Request,
 ) -> PinOut:
-    del principal
-    return _out(await pins.rename_pin(session, "client", pin_id, body.title))
+    row = await pins.rename_pin(session, "client", pin_id, body.title)
+    await _audit(session, principal, request, action="copilot.pin_renamed", row=row)
+    return _out(row)
 
 
 @router.put(
@@ -186,10 +191,20 @@ async def rename_client_pin(
     summary="Put the pinned cards in a new order",
 )
 async def reorder_client_pins(
-    body: PinOrderIn, session: TenantSession, principal: ClientWriter
+    body: PinOrderIn, session: TenantSession, principal: ClientWriter, request: Request
 ) -> PinPageOut:
-    del principal
-    return _page(await pins.reorder_pins(session, "client", body.ids))
+    rows = await pins.reorder_pins(session, "client", body.ids)
+    await write_audit(
+        session,
+        action="copilot.pins_reordered",
+        actor=principal,
+        tenant_id=principal.tenant_id if principal.realm == "client" else None,
+        object_type="dashboard_pin",
+        object_id=None,
+        ip=client_request_ip(request),
+        summary={"pins": len(rows)},
+    )
+    return _page(rows)
 
 
 @router.delete(
@@ -277,10 +292,15 @@ async def add_admin_pin(
     summary="Rename a card on the admin home",
 )
 async def rename_admin_pin(
-    pin_id: UUID, body: PinRenameIn, session: DirectorySession, principal: AdminUser
+    pin_id: UUID,
+    body: PinRenameIn,
+    session: DirectorySession,
+    principal: AdminUser,
+    request: Request,
 ) -> PinOut:
-    del principal
-    return _out(await pins.rename_pin(session, "admin", pin_id, body.title))
+    row = await pins.rename_pin(session, "admin", pin_id, body.title)
+    await _audit(session, principal, request, action="copilot.pin_renamed", row=row)
+    return _out(row)
 
 
 @router.put(
@@ -290,10 +310,20 @@ async def rename_admin_pin(
     summary="Put the admin home's cards in a new order",
 )
 async def reorder_admin_pins(
-    body: PinOrderIn, session: DirectorySession, principal: AdminUser
+    body: PinOrderIn, session: DirectorySession, principal: AdminUser, request: Request
 ) -> PinPageOut:
-    del principal
-    return _page(await pins.reorder_pins(session, "admin", body.ids))
+    rows = await pins.reorder_pins(session, "admin", body.ids)
+    await write_audit(
+        session,
+        action="copilot.pins_reordered",
+        actor=principal,
+        tenant_id=principal.tenant_id if principal.realm == "client" else None,
+        object_type="dashboard_pin",
+        object_id=None,
+        ip=client_request_ip(request),
+        summary={"pins": len(rows)},
+    )
+    return _page(rows)
 
 
 @router.delete(

@@ -201,6 +201,11 @@ _NOT_A_PER_TENANT_READ: dict[str, str] = {
         "the path names a file the OPERATOR attached to their own assistant (D-781), read "
         "only by that operator from `admin_copilot_uploads`, which holds no client's rows"
     ),
+    "GET /v1/admin/copilot/pins/{pin_id}/card": (
+        "the path names an operators' home card (D-934), and the card is a FLEET chart: "
+        "calls, problems or spend per client across the platform, the figures the client "
+        "directory, health board and fleet spend screens show, never one client's rows"
+    ),
 }
 
 
