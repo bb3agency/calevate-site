@@ -971,6 +971,8 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # a lookup slower. The nightly sweep or the next knowledge change tries again.
     "hot_facts_not_delivered": "attention",
     "hot_facts_sweep_truncated": "attention",
+    # Pip's hourly notes pass (D-936) did not reach every account; the rest are next hour.
+    "pip_notes_sweep_truncated": "attention",
     # An archived agent's vendor copy of the client's knowledge would not come down. It
     # stays claimed and the agent answers no calls, so it is billing and tidiness only.
     "kb_retired_agent_copy_left": "attention",

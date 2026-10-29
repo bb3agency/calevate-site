@@ -1123,6 +1123,21 @@ class Settings(BaseSettings):
     # day's allowance is used. Counted on `usage_events` rows under the `copilot` feature.
     copilot_daily_message_cap: int = Field(default=300, ge=1, le=100_000)
     copilot_daily_ktok_cap: int = Field(default=3_000, ge=1, le=10_000_000)
+    # PIP SPEAKS UP ON ITS OWN (D-936): the hourly detectors that leave a short note at the
+    # top of Pip's panel (`copilot/notes.py`). In-app only; nothing here sends a message. Off
+    # stops new notes; open ones stay until they clear or are dismissed.
+    pip_notes_enabled: bool = True
+    # At most this many NEW notes per account per IST day, so a bad morning is a few lines.
+    pip_notes_daily_cap: int = Field(default=3, ge=1, le=20)
+    # A hot lead nobody has called back for this many hours is noted.
+    pip_notes_hot_lead_hours: int = Field(default=4, ge=1, le=72)
+    # Credit forecast to run out within this many days at the account's own spending
+    # (`billing/wallet.read_runway`) is noted while it is still above the low-credit line.
+    pip_notes_runway_days: int = Field(default=5, ge=1, le=60)
+    # One open knowledge gap asked on at least this many calls in seven days is noted.
+    pip_notes_gap_repeat_calls: int = Field(default=3, ge=2, le=100)
+    # Calls AND new leads both up at least this many percent on the week before: a good week.
+    pip_notes_good_week_percent: int = Field(default=20, ge=5, le=500)
     # WHICH SARVAM TRANSCRIBER EVERY AGENT IS PUBLISHED WITH (D-583).
     #
     # A SETTING RATHER THAN THE CONSTANT IT WAS, AND THE REASON IS A LIVE REFUSAL. The

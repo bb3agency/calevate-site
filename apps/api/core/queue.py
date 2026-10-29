@@ -89,6 +89,8 @@ BULK_JOBS: Final[frozenset[str]] = frozenset(
         "recompute_hot_facts",
         # A Pip background job: up to `copilot.service.job_limits` (240 s) of tool loop.
         "run_copilot_job",
+        # Pip's detectors for one account (D-936): several reads per account, nobody waiting.
+        "detect_pip_notes",
     }
 )
 
