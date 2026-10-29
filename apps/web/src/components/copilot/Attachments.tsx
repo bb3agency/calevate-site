@@ -4,7 +4,7 @@ import { FileText, Paperclip, RotateCw, X } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 import { useToast } from "@/components/arc/toast";
-import { NOTICE_BAR, NOTICE_BASE, QUIET_ICON_BUTTON } from "@/components/ui";
+import { NOTICE_BAR, NOTICE_BASE, QUIET_ICON_BUTTON, ScrollRegion } from "@/components/ui";
 import type { Session } from "@/lib/api/client";
 import { ApiProblem } from "@/lib/api/client";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
@@ -361,56 +361,55 @@ export function AttachmentTray({
     <div className="mb-2 space-y-1.5">
       {items.length > 0 && (
         // One row that scrolls sideways, so several files never push the question box down.
-        <ul
-          aria-label="Attached files"
-          className="flex snap-x gap-2 overflow-x-auto overscroll-x-contain pb-1"
-        >
-          {items.map((item) => (
-            <li
-              key={item.key}
-              className={`flex max-w-[85%] shrink-0 snap-start items-center gap-2 rounded-md border py-1 pl-1 pr-1 text-meta ${
-                item.status === "failed" ? "border-chart-danger" : "border-line"
-              }`}
-            >
-              {item.thumb ? (
-                // A data URL of the cleaned preview; nothing to optimise or fetch.
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={item.thumb} alt="" className="h-9 w-9 shrink-0 rounded object-cover" />
-              ) : (
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-ink/[0.05]">
-                  <FileText aria-hidden className="h-4 w-4 text-ink-muted" />
+        <ScrollRegion label="Attached files" className="snap-x overscroll-x-contain pb-1">
+          <ul className="flex gap-2">
+            {items.map((item) => (
+              <li
+                key={item.key}
+                className={`flex max-w-[85%] shrink-0 snap-start items-center gap-2 rounded-md border py-1 pl-1 pr-1 text-meta ${
+                  item.status === "failed" ? "border-chart-danger" : "border-line"
+                }`}
+              >
+                {item.thumb ? (
+                  // A data URL of the cleaned preview; nothing to optimise or fetch.
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={item.thumb} alt="" className="h-9 w-9 shrink-0 rounded object-cover" />
+                ) : (
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-ink/[0.05]">
+                    <FileText aria-hidden className="h-4 w-4 text-ink-muted" />
+                  </span>
+                )}
+                <span className="min-w-0">
+                  <span className="block max-w-[10rem] truncate text-ink">{item.name}</span>
+                  <span
+                    className={`block max-w-[14rem] text-xs ${item.status === "failed" ? "text-danger" : "text-ink-muted"}`}
+                    aria-live="polite"
+                  >
+                    {statusLine(item)}
+                  </span>
                 </span>
-              )}
-              <span className="min-w-0">
-                <span className="block max-w-[10rem] truncate text-ink">{item.name}</span>
-                <span
-                  className={`block max-w-[14rem] text-xs ${item.status === "failed" ? "text-danger" : "text-ink-muted"}`}
-                  aria-live="polite"
-                >
-                  {statusLine(item)}
-                </span>
-              </span>
-              {item.status === "failed" && item.retryable && (
+                {item.status === "failed" && item.retryable && (
+                  <button
+                    type="button"
+                    onClick={() => onRetry(item.key)}
+                    aria-label={`Try ${item.name} again`}
+                    className={QUIET_ICON_BUTTON}
+                  >
+                    <RotateCw aria-hidden className="h-3.5 w-3.5" />
+                  </button>
+                )}
                 <button
                   type="button"
-                  onClick={() => onRetry(item.key)}
-                  aria-label={`Try ${item.name} again`}
+                  onClick={() => onRemove(item.key)}
+                  aria-label={`Remove ${item.name}`}
                   className={QUIET_ICON_BUTTON}
                 >
-                  <RotateCw aria-hidden className="h-3.5 w-3.5" />
+                  <X aria-hidden className="h-3.5 w-3.5" />
                 </button>
-              )}
-              <button
-                type="button"
-                onClick={() => onRemove(item.key)}
-                aria-label={`Remove ${item.name}`}
-                className={QUIET_ICON_BUTTON}
-              >
-                <X aria-hidden className="h-3.5 w-3.5" />
-              </button>
-            </li>
-          ))}
-        </ul>
+              </li>
+            ))}
+          </ul>
+        </ScrollRegion>
       )}
       {problem !== null && (
         <p role="alert" className="text-xs text-danger">

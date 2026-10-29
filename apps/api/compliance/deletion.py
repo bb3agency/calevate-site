@@ -397,8 +397,8 @@ class ErasureLimitation:
 #:
 #: NOT a policy set here — it is `infra/backup/README.md` §"Retention": R2 point-in-time
 #: via `wal-g delete retain FULL 35` (production's only chain, D-927; the offsite dumps,
-#: if ever installed, are pruned on the same clock by `rclone delete --min-age 35d`). That file already reasons
-#: about this exact consequence: "every extra day of retention is an extra day in which an
+#: if ever installed, are pruned on the same clock by `rclone delete --min-age 35d`). That
+#: file already reasons about this exact consequence: "every extra day of retention is an extra day in which an
 #: erasure request cannot fully reach our data", and 35 is the smallest window that still
 #: covers the longest routine reason to restore.
 #:
