@@ -131,6 +131,7 @@ from apps.api.copilot.campaign_actions import CAMPAIGN_ACTIONS, CAMPAIGN_CONSENT
 from apps.api.copilot.console_actions import CONSOLE_ACTIONS
 from apps.api.copilot.coverage_actions import COVERAGE_ACTIONS
 from apps.api.copilot.fact_actions import FACT_ACTIONS
+from apps.api.copilot.follow_up_actions import FOLLOW_UP_ACTIONS
 from apps.api.copilot.knowledge_actions import KNOWLEDGE_ACTIONS
 from apps.api.copilot.lead_actions import LEAD_ACTIONS
 from apps.api.copilot.pin_actions import PIN_ACTIONS
@@ -971,6 +972,8 @@ WRITE_TOOLS: Final[tuple[ActionTool, ...]] = (
     *COVERAGE_ACTIONS,
     # D-934: keep a chart on the home screen, or take one off.
     *PIN_ACTIONS,
+    # D-940: Pip builds, publishes, pauses and starts Follow-ups (`follow_up_actions.py`).
+    *FOLLOW_UP_ACTIONS,
 )
 
 _BY_NAME: Final[dict[str, WriteTool]] = {tool.name: tool for tool in WRITE_TOOLS}
@@ -1884,7 +1887,8 @@ async def confirm(
     return CopilotConfirmOut(
         tool=proposal.tool.name,
         object_type=proposal.tool.object_type,
-        object_id=proposal.object_id,
+        # The id the act produced when it made one (a new draft), as the audit row records.
+        object_id=executed.object_id or proposal.object_id,
         applied=executed.applied,
         # The egress strip the proposal card and the action receipt get, on the third and
         # last surface that renders an executor's prose to a person.

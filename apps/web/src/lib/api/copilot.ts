@@ -72,6 +72,8 @@ export const COPILOT_CONFIRM_PATH = "/v1/copilot/confirm";
  * and the honest response to "I do not know what moved" is to refetch everything on
  * screen rather than to leave a stale figure that looks authoritative.
  */
+const FOLLOW_UP_KEYS: readonly (readonly string[])[] = [["follow-ups"], ["lead-calling"]];
+
 const INVALIDATES: Record<string, readonly (readonly string[])[]> = {
   lead_set_status: [["leads"], ["lead"], ["lead-timeline"], ["lead-facets"], ["dashboard"]],
   agent_create: [["agents"], ["agent"], ["dashboard"]],
@@ -131,6 +133,15 @@ const INVALIDATES: Record<string, readonly (readonly string[])[]> = {
   team_alert_contact: [["team-alerts"]],
   knowledge_refresh: [["kb-uploads"], ["kb"], ["kb-knows"]],
   connection_disconnect: [["actions", "credentials"], ["agents"], ["agent"]],
+  // D-940: the Follow-ups screens' own refresh (`followUpKeys.all`), and Leads & hours,
+  // which says whether "Call new leads" is on.
+  follow_up_draft: FOLLOW_UP_KEYS,
+  follow_up_publish: FOLLOW_UP_KEYS,
+  follow_up_pause: FOLLOW_UP_KEYS,
+  follow_up_resume: FOLLOW_UP_KEYS,
+  follow_up_turn_off: FOLLOW_UP_KEYS,
+  // A plan: refreshed once it finishes (`refreshAfterPlan`); the leads gain a run.
+  follow_up_start: [["follow-ups"], ["leads"], ["lead"]],
 };
 
 export function refreshAfterConfirm(

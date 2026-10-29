@@ -101,7 +101,7 @@ class AreaEntry:
 INTROS: Final[dict[Area, tuple[str, str]]] = {
     "calls": ("Look up calls.", "Act on calls."),
     "callbacks": ("Look up call-backs.", "Book, move or cancel call-backs."),
-    "leads": ("Look up leads.", "Change leads and the do-not-call list."),
+    "leads": ("Look up leads and Follow-ups.", "Change leads, do-not-call and Follow-ups."),
     "campaigns": ("Look up outbound campaigns.", "Create and run outbound campaigns."),
     "agents": ("Look up voice agents.", "Create, change, publish and pause voice agents."),
     "knowledge": ("Look up what the agents know.", "Change what the agents know."),
@@ -457,6 +457,19 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
     AreaEntry("account_switches", "settings", "owner switch states"),
     # D-943: the promo check on a script (the rights desk is in `verification_status`).
     AreaEntry("script_promo_check", "agents", "offers in a script"),
+    # D-940: Follow-ups, a lead's steps after a trigger (`follow_up_actions.py`).
+    AreaEntry(
+        "follow_ups_list", "leads", "Follow-ups, ready-made ones, ids steps use, step format"
+    ),
+    AreaEntry("follow_up_read", "leads", "one Follow-up's steps, problems and runs"),
+    AreaEntry(
+        "follow_up_draft", "leads", "new or rewritten Follow-up draft; format: follow_ups_list"
+    ),
+    AreaEntry("follow_up_publish", "leads", "put a Follow-up's draft live"),
+    AreaEntry("follow_up_pause", "leads", "pause a Follow-up"),
+    AreaEntry("follow_up_resume", "leads", "turn a paused or off Follow-up on"),
+    AreaEntry("follow_up_turn_off", "leads", "turn a Follow-up off; its leads stop"),
+    AreaEntry("follow_up_start", "leads", "put leads on a Follow-up, by `lens` or lead_ids"),
 )
 
 AREA_OF: Final[dict[str, Area]] = {entry.tool: entry.area for entry in ENTRIES}
@@ -618,9 +631,14 @@ def _compact(value: Any) -> str:
 
 
 def _undescribed(value: Any) -> Any:
-    """A schema with every `description` removed, at any depth: the action line and the
-    refusal's full schema carry the meaning, and descriptions inside a nested lens would
-    otherwise be paid once per area that takes it."""
+    """A schema with every `description` and `required` removed, at any depth: the action
+    line and the refusal's full schema carry the meaning, and descriptions inside a nested
+    lens would otherwise be paid once per area that takes it.
+
+    `required` goes because `args` is not strict: an omitted member that may be null is
+    filled in (`_with_nulls`) and the call is checked against the action's own schema, so
+    the list (a lens's fifteen members, once per area that takes a lens) told the model
+    nothing true and cost the prefix about sixty tokens a copy."""
     if isinstance(value, Mapping):
         options = value.get("anyOf")
         if isinstance(options, list):
@@ -629,7 +647,13 @@ def _undescribed(value: Any) -> Any:
             kept = [option for option in options if option != {"type": "null"}]
             if len(kept) == 1 and len(kept) < len(options):
                 return _undescribed(kept[0])
-        return {key: _undescribed(item) for key, item in value.items() if key != "description"}
+        return {
+            key: _undescribed(item)
+            for key, item in value.items()
+            # A keyword is dropped, never a property of that name (an extraction field has
+            # one called `required`, whose value is a schema, not a list).
+            if key != "description" and not (key == "required" and isinstance(item, list))
+        }
     if isinstance(value, list):
         return [_undescribed(item) for item in value]
     return value

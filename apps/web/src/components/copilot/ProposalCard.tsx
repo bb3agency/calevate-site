@@ -222,17 +222,21 @@ function SingleProposalCard({
           {/* The pair, as two labelled values rather than a sentence: this is the half of
               the decision a person cannot make without, and the server sends it as two
               fields precisely so the browser never has to parse English to show it. */}
-          <p className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
-            {proposal.current !== null && (
-              <>
-                <span className="text-ink-faint">Now</span>
-                <span className="font-medium text-ink">{proposal.current}</span>
-                <ArrowRight aria-hidden className="h-3.5 w-3.5 text-ink-faint" />
-              </>
-            )}
-            <span className="text-ink-faint">Would become</span>
-            <span className="font-medium text-ink">{proposal.proposed}</span>
-          </p>
+          {isLines(proposal.proposed) ? (
+            <Steps current={proposal.current} proposed={proposal.proposed} />
+          ) : (
+            <p className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
+              {proposal.current !== null && (
+                <>
+                  <span className="text-ink-faint">Now</span>
+                  <span className="font-medium text-ink">{proposal.current}</span>
+                  <ArrowRight aria-hidden className="h-3.5 w-3.5 text-ink-faint" />
+                </>
+              )}
+              <span className="text-ink-faint">Would become</span>
+              <span className="font-medium text-ink">{proposal.proposed}</span>
+            </p>
+          )}
 
           {/* WHAT IT COSTS AND WHETHER IT COMES BACK (D-500). An approve/deny prompt with a
               verb on it gets a worse decision than one that states the consequence, and
@@ -437,7 +441,44 @@ const CONSEQUENTIAL: Record<string, boolean> = {
   lead_set_status: false,
   dnc_add: true,
   campaign_pause: true,
+  // D-940: these start or stop calls and messages to leads.
+  follow_up_publish: true,
+  follow_up_resume: true,
+  follow_up_turn_off: true,
 };
+
+/** A value the server sent as one line per item (a Follow-up's step summaries). */
+function isLines(value: string): boolean {
+  return value.includes("\n");
+}
+
+/**
+ * Multi-line values as lists rather than a run-on pair: a Follow-up draft's card says what
+ * the steps are now and what they would become, one server-written line per step.
+ */
+function Steps({ current, proposed }: { current: string | null; proposed: string }) {
+  return (
+    <div className="mt-2 space-y-1.5 text-xs">
+      {current !== null && <StepList label="Now" text={current} />}
+      <StepList label="Would become" text={proposed} />
+    </div>
+  );
+}
+
+function StepList({ label, text }: { label: string; text: string }) {
+  return (
+    <div>
+      <p className="text-ink-faint">{label}</p>
+      <ul className="mt-0.5 space-y-0.5">
+        {text.split("\n").map((line, index) => (
+          <li key={index} className="break-words font-medium text-ink [overflow-wrap:anywhere]">
+            {line}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
 
 /**
  * How long a CONSEQUENTIAL Confirm stays inert after the card appears.

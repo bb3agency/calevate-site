@@ -60,6 +60,7 @@ from apps.api.copilot import (
     console_reads,
     coverage_actions,
     diagnostics,
+    follow_up_actions,
     jobs,
     navigation,
     routine_actions,
@@ -1068,6 +1069,7 @@ def realm_read_tools(realm: CopilotRealm) -> tuple[tools_module.ReadTool, ...]:
     # surfaces do not carry a read that could only refuse (D-816). The troubleshoot reads
     # (D-935) are client-only too: the admin twin is `admin_diagnose`, one tool for any client.
     # D-938: help and the connection check are client-only for the same reason.
+    # D-940: the Follow-ups reads too; the admin realm has no Follow-ups screen.
     return (
         *_shared_reads(),
         *routine_actions.ROUTINE_READS,
@@ -1076,6 +1078,7 @@ def realm_read_tools(realm: CopilotRealm) -> tuple[tools_module.ReadTool, ...]:
         *charts_module.CHART_READS,
         # D-943: appended, so every earlier tool keeps its place in the cached prefix.
         *console_reads.PROMO_READS,
+        *follow_up_actions.FOLLOW_UP_READS,
     )
 
 

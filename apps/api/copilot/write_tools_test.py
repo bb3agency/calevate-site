@@ -322,6 +322,13 @@ def test_the_tool_schemas_are_the_same_bytes_for_every_caller() -> None:
         # D-934: home-screen cards APPEND.
         "chart_pin",
         "chart_unpin",
+        # D-940: Follow-ups APPEND.
+        "follow_up_draft",
+        "follow_up_publish",
+        "follow_up_pause",
+        "follow_up_resume",
+        "follow_up_turn_off",
+        "follow_up_start",
     ]
     for schema in write_tools.write_tool_schemas():
         function = schema["function"]

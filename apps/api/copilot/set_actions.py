@@ -44,7 +44,7 @@ from apps.api.crm.schemas import LeadStatus
 #: The leads a selection may name explicitly; anything larger is a lens.
 MAX_NAMED_LEADS: Final = 500
 
-_LEAD_IDS_SCHEMA: Final[dict[str, Any]] = {
+LEAD_IDS_SCHEMA: Final[dict[str, Any]] = {
     "anyOf": [{"type": "array", "items": {"type": "string"}}, {"type": "null"}],
     "description": "The leads ticked on screen; null when `lens` chooses them.",
 }
@@ -294,7 +294,7 @@ LEADS_BULK_UPDATE: Final = plans.set_action_tool(
     ),
     properties={
         "lens": lens_args.LEAD_LENS_SCHEMA,
-        "lead_ids": _LEAD_IDS_SCHEMA,
+        "lead_ids": LEAD_IDS_SCHEMA,
         "action": {"type": "string", "enum": ["status", "assign"]},
         "status": {
             "anyOf": [{"type": "string", "enum": list(get_args(LeadStatus))}, {"type": "null"}],
@@ -422,7 +422,7 @@ CAMPAIGN_ADD_LEADS: Final = plans.set_action_tool(
     properties={
         "campaign_id": {"type": "string", "description": "From `campaigns_list`."},
         "lens": lens_args.LEAD_LENS_SCHEMA,
-        "lead_ids": _LEAD_IDS_SCHEMA,
+        "lead_ids": LEAD_IDS_SCHEMA,
     },
     action=ADD_TO_CAMPAIGN,
 )
@@ -571,7 +571,7 @@ CALLBACKS_BOOK_BULK: Final = plans.set_action_tool(
     ),
     properties={
         "lens": lens_args.LEAD_LENS_SCHEMA,
-        "lead_ids": _LEAD_IDS_SCHEMA,
+        "lead_ids": LEAD_IDS_SCHEMA,
         "at": {"type": "string", "description": "India time, like 2026-10-28T10:30."},
         "agent_id": {
             "anyOf": [{"type": "string"}, {"type": "null"}],
@@ -737,7 +737,7 @@ CALLS_PLACE_BULK: Final = plans.set_action_tool(
     ),
     properties={
         "lens": lens_args.LEAD_LENS_SCHEMA,
-        "lead_ids": _LEAD_IDS_SCHEMA,
+        "lead_ids": LEAD_IDS_SCHEMA,
         "agent_id": {"type": "string", "description": "An agent that places calls."},
         "classification": {"type": "string", "enum": ["service", "promotional"]},
         "consent_source": {
@@ -761,6 +761,7 @@ __all__ = [
     "CAMPAIGN_ADD_LEADS",
     "DIAL_LEADS",
     "LEADS_BULK_UPDATE",
+    "LEAD_IDS_SCHEMA",
     "MAX_NAMED_LEADS",
     "SET_ACTIONS",
     "chosen_leads",

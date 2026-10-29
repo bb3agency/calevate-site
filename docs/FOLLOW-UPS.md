@@ -237,7 +237,7 @@ run `leads:dispatch`. View-as: reads allowed; writes follow `rbac.withheld_from_
 | PUT | `/v1/follow-ups/{id}/draft` | `FollowUpDraftIn {trigger, steps, settings}` → `FollowUpOut` (Pip's full rewrite) |
 | POST | `/v1/follow-ups/{id}/publish` | `{expected_updated_at}` → `FollowUpOut`; 422 `follow_up_invalid` with `problems: [{step_id, code, message}]`; 409 `follow_up_trigger_overlap` |
 | POST | `/v1/follow-ups/{id}/pause` · `/resume` · `/turn-off` | → `FollowUpOut` |
-| POST | `/v1/follow-ups/{id}/start` | `{lead_ids?: [uuid] (≤200), lens?: LeadLensIn, expected_count?}` → `{started, skipped, plan_id?}` (over 200: an approved plan, like the leads bulk route) |
+| POST | `/v1/follow-ups/{id}/start` | `{lead_ids?: [uuid] (≤500), lens?: LeadLensIn, expected_count?}` → `{started, skipped, plan_id?}` (over 200: an approved plan, like the leads bulk route) |
 | GET | `/v1/follow-ups/{id}/runs` | `?status=&cursor=` → `{items: [FollowUpRunOut], next_cursor}` |
 | GET | `/v1/follow-ups/{id}/runs/{run_id}` | `FollowUpRunOut` with `events: [{step_id, kind, result, at, call_id}]` |
 | POST | `/v1/follow-ups/{id}/runs/{run_id}/stop` | → `FollowUpRunOut` |
@@ -288,9 +288,11 @@ schemas.py` and the OpenAPI snapshot are the exact shapes.
 * **Errors beyond the five.** 409 `follow_up_changed` carries the current
   `expected_updated_at`. `POST /start`: neither or both of `lead_ids` and `lens` is 422
   `follow_up_start_unclear`; a lens whose count moved from `expected_count` is 409
-  `follow_up_start_set_moved`; more than 200 leads is 422 `follow_up_start_too_many` and
-  `plan_id` is always null until Pip's `follow_up_start` plan exists. A second "Call new
-  leads" is 409 `follow_up_starter_exists`.
+  `follow_up_start_set_moved`. More than 200 leads (a filter, or up to 500 ticked) is not
+  refused: the route builds Pip's `follow_up_start` plan and approves it in the request, as
+  `crm/routes._bulk_as_plan` does, and answers `{started: 0, skipped: <already in it>,
+  plan_id}`; a worker starts them in batches and the screen follows the plan. A second "Call
+  new leads" is 409 `follow_up_starter_exists`.
 * **Overlap.** A new-lead Follow-up for "any source" overlaps every other new-lead one.
 * **New leads.** With no live new-lead Follow-up for the source, the lead is stored and the
   ingest answer is `blocked: follow_up_off`; a lead already in it (an enquiry sent twice) is
@@ -317,6 +319,20 @@ tool array grows by an entry line, not by whole schemas:
 
 Pip never invents an agent, a template or a teammate: the tool descriptions point at the reads
 that list them, and the server refuses an unknown id.
+
+**As built (`apps/api/copilot/follow_up_actions.py`).** All six actions are `confirm` and
+`leads:dispatch`, refused in a view-as session like every Pip action. `follow_ups_list` also
+returns the ready-made ones with what each still needs, the calling agents with their outcome
+keys, the approved WhatsApp messages with their blank counts, the after-call actions, and the
+step format, so the format is paid for in a tool result rather than in every request's tool
+array. `follow_up_draft` takes `starter` (a ready-made one, refused with its `needs` in plain
+words) or `trigger` + `steps` + `settings`; the planner runs `parse_steps`, `shape_problems`
+and `service.problems_of` and refuses with every problem before a card exists; the card lists
+the step summaries. Publish binds the `updated_at` it showed (a later edit is 409
+`follow_up_changed`). Pause and resume each carry an Undo that puts the status back through
+the screen's own function; turning off and publishing have none. `follow_up_start` is a plan
+(`plans.set_action_tool`) that leaves out leads already going through it and runs
+`service.start_leads` one lead at a time.
 
 ## The screen
 

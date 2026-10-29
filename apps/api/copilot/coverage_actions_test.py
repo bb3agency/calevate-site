@@ -20,6 +20,7 @@ from tests.api_security_test import _make_tenant
 
 from apps.api.copilot import areas, service, tools, write_tools
 from apps.api.copilot.coverage_actions import COVERAGE_ACTIONS, COVERAGE_READS
+from apps.api.copilot.follow_up_actions import FOLLOW_UP_ACTIONS
 from apps.api.copilot.help import GLOSSARY
 from apps.api.copilot.pin_actions import PIN_ACTIONS
 from apps.api.copilot.write_tools_test import _audit, _confirm, _principal, _user_of
@@ -65,10 +66,11 @@ async def _agent_of(tenant_id: UUID) -> UUID:
 def test_the_coverage_actions_are_appended_last_and_each_has_an_area() -> None:
     names = [tool.name for tool in write_tools.WRITE_TOOLS]
     mine = [tool.name for tool in COVERAGE_ACTIONS]
-    # D-934's pin actions are the one family appended after these.
-    later = len(PIN_ACTIONS)
+    # D-934's pin actions, then D-940's Follow-up actions, are appended after these.
+    after = [tool.name for tool in (*PIN_ACTIONS, *FOLLOW_UP_ACTIONS)]
+    later = len(after)
     assert names[-len(mine) - later : -later] == mine
-    assert names[-later:] == [tool.name for tool in PIN_ACTIONS]
+    assert names[-later:] == after
     assert {areas.AREA_OF[n] for n in mine} == {
         "settings",
         "agents",
@@ -145,6 +147,14 @@ async def test_help_names_the_screen_and_the_action_for_an_owner() -> None:
     assert "Team, under Settings & account" in answer
     assert "team_do team_invite" in answer
     assert "never add steps" in answer
+
+
+async def test_help_names_the_follow_ups_screen_and_pips_follow_up_actions() -> None:
+    """D-940: "how do I…" about a lead journey lands on Follow-ups and what Pip can do."""
+    tenant_id, _slug, _token = await _make_tenant()
+    answer = await _read("help_lookup", tenant_id, {"question": "how do I set up a follow-up?"})
+    assert "Follow-ups" in answer
+    assert "leads_do follow_up_draft" in answer
 
 
 async def test_help_offers_staff_no_action_their_role_would_refuse() -> None:

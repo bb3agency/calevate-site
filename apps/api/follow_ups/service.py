@@ -407,10 +407,14 @@ async def save_draft(
     trigger: d.AnyTrigger,
     steps: list[d.AnyStep],
     settings: d.Settings,
+    name: str | None = None,
 ) -> Row:
-    """Pip's full rewrite: the trigger, steps and settings, as a draft."""
+    """Pip's full rewrite: the trigger, steps and settings (and the name, when given), as a
+    draft."""
     row = await get(session, follow_up_id, lock=True)
-    return await _write_draft(session, row, trigger=trigger, steps=steps, settings=settings)
+    return await _write_draft(
+        session, row, name=name, trigger=trigger, steps=steps, settings=settings
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -519,7 +523,7 @@ async def edit(
     return await _write_draft(session, row, name=name, steps=steps, settings=settings)
 
 
-async def _overlap(session: AsyncSession, row: Row, trigger: d.AnyTrigger) -> bool:
+async def overlaps(session: AsyncSession, row: Row, trigger: d.AnyTrigger) -> bool:
     """Would this Follow-up, live, start a new lead another live one also starts?"""
     if not isinstance(trigger, d.NewLeadTrigger):
         return False
@@ -563,7 +567,7 @@ async def publish(
     if problems:
         raise FollowUpInvalidError(problems)
     becomes_live = row.status in ("draft", "live", "off")
-    if becomes_live and await _overlap(session, row, row.trigger):
+    if becomes_live and await overlaps(session, row, row.trigger):
         raise _overlap_problem()
     number = int(
         (
@@ -645,7 +649,7 @@ async def resume(session: AsyncSession, follow_up_id: UUID, *, tenant_id: UUID) 
     if row.live_version_id is None:
         raise _not_live("Publish this follow-up first.")
     live = await runner.version(session, row.live_version_id)
-    if await _overlap(session, row, live.trigger):
+    if await overlaps(session, row, live.trigger):
         raise _overlap_problem()
     await session.execute(
         text("UPDATE follow_ups SET status = 'live', updated_at = now() WHERE id = :fid"),
@@ -697,9 +701,11 @@ async def start_leads(
     *,
     tenant_id: UUID,
     lead_ids: list[UUID],
+    start_id: UUID | None = None,
 ) -> StartOutcome:
     """Put picked leads into a live Follow-up. A lead already in it, deleted, or refused by
-    its `again` rule is skipped."""
+    its `again` rule is skipped. `start_id` names the start in each run's `trigger_ref`; an
+    approved plan passes its own id, so every lead it starts carries the same one."""
     row = await get(session, follow_up_id)
     if row.status != "live" or row.live_version_id is None:
         raise _not_live("Turn this follow-up on before starting leads.")
@@ -710,7 +716,7 @@ async def start_leads(
             {"ids": lead_ids},
         )
     ).all()
-    start_id = uuid7()
+    start_id = start_id or uuid7()
     started = 0
     for lead_id, phone in leads:
         result = await runner.start_run(

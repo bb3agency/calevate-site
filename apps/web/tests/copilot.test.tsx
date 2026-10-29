@@ -2200,3 +2200,27 @@ describe("telling the two realms apart", () => {
     ).toBeTruthy();
   });
 });
+
+describe("a Follow-up draft's card (D-940)", () => {
+  afterEach(forgetOpenOffers);
+
+  it("LISTS THE STEPS, one server-written line each, before and after", async () => {
+    stubCopilot({
+      chunks: proposalChunks({
+        ...PROPOSAL,
+        tool: "follow_up_draft",
+        title: "Rewrite a Follow-up's draft",
+        summary: "“Warm up”: You start it for chosen leads. The draft is replaced.",
+        object_type: "follow_up",
+        current: "1. Wait 2 hours\n2. Mark the lead hot",
+        proposed: "1. Call with Riya straight away\n2. Check how the call went\n3. Finish",
+      }),
+    });
+    renderPanel();
+    await ask("call them first instead");
+    await screen.findByText("1. Call with Riya straight away");
+    expect(screen.getByText("2. Check how the call went").tagName).toBe("LI");
+    expect(screen.getByText("1. Wait 2 hours").tagName).toBe("LI");
+    expect(screen.getByText("Would become")).toBeTruthy();
+  });
+});
