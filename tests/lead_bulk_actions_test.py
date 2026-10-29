@@ -701,3 +701,20 @@ async def test_the_audit_row_records_counts_and_scope_and_no_lead_data(
     assert entry.__dict__.get("field_filters")
     assert "over_50l" not in str(entry.__dict__)
     assert "Lead 0" not in str(entry.__dict__)
+
+
+async def test_a_plan_sized_bulk_change_needs_a_signed_in_person_of_the_account() -> None:
+    """The plan is approved in the person's name; a principal without one is refused before
+    anything is built."""
+    from typing import Any, cast
+
+    from apps.api.core.context import Principal
+    from apps.api.core.errors import ProblemError
+    from apps.api.crm.routes import _bulk_as_plan
+
+    nobody = Principal(realm="client", user_id=None, tenant_id=uuid.uuid4(), role="owner")
+    with pytest.raises(ProblemError) as refused:
+        await _bulk_as_plan(
+            cast(Any, None), cast(Any, None), nobody, cast(Any, None), cast(Any, None)
+        )
+    assert refused.value.status == 403

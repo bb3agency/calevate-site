@@ -364,3 +364,13 @@ def test_the_job_is_registered_under_the_name_the_erasure_queues() -> None:
     assert owed.TENANT_ENGINE_ERASURE_JOB == jobs.TENANT_ENGINE_ERASURE_JOB
     names = {getattr(f, "__name__", None) for f in WorkerSettings.functions}
     assert jobs.TENANT_ENGINE_ERASURE_JOB in names
+
+
+async def test_an_account_the_platform_holds_nothing_of_queues_no_engine_erasure() -> None:
+    """No route, no workspace, no developer-workspace party: no task and no job."""
+    tenant_id, _agent = await _tenant("Nothing at the engine")
+    async with tenant_session(tenant_id) as session:
+        queued = await owed.queue_engine_tenant_erasure(
+            session, tenant_id=tenant_id, request_id=uuid.uuid4(), parties=[]
+        )
+    assert queued is False

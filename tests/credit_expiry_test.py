@@ -589,3 +589,13 @@ async def test_a_lot_lapsing_within_thirty_days_is_warned_once_by_email(
     await _lapse(tenant_id, lot_id)
     assert await worker.notify_credit_lapsing({"job_try": 1}, payload) == "nothing_to_lapse"
     assert len(mailbox.sent) == 1
+
+
+async def test_no_account_is_held_to_expiry_while_no_terms_revision_states_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id, _agent = await _plain_tenant(monthly_fee=None)
+    await _accepts_terms(tenant_id, "19")
+    monkeypatch.setattr(credit_expiry, "TERMS_REVISION_STATING_EXPIRY", None)
+    async with tenant_session(tenant_id) as session:
+        assert not await credit_expiry.terms_stating_expiry_accepted(session, tenant_id=tenant_id)

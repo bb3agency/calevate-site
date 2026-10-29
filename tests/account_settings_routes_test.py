@@ -329,3 +329,18 @@ async def test_a_client_reads_its_own_call_lines() -> None:
     assert body["call_lines"] >= 1
     assert body["in_progress"] == 0
     assert isinstance(body["on_trial"], bool)
+
+
+async def test_the_low_balance_line_of_an_account_this_session_cannot_see_is_not_found() -> None:
+    from apps.api.core.errors import ProblemError
+
+    stranger = uuid.uuid4()
+    async with tenant_session(stranger) as session:
+        try:
+            await billing_service.set_low_balance_line(
+                session, tenant_id=stranger, threshold_inr=Decimal("500")
+            )
+        except ProblemError as refused:
+            assert refused.status == 404
+        else:
+            raise AssertionError("an unseen account's line was set")

@@ -1144,11 +1144,13 @@ async def test_reconciliation_records_lost_refunds_and_flags_those_it_cannot_pla
             _refund(no_topup, "pay_never_paid", notes=notes),
             _refund(pending, paid, status="pending", notes=notes),
             _refund(_id("rfnd"), paid, currency="USD", notes=notes),
+            # Failed and placed nowhere: no money moved, so nothing is owed or unexplained.
+            _refund(_id("rfnd"), "pay_unknown", status="failed"),
         ],
     )
     monkeypatch.setattr(reconciliation, "razorpay_api", lambda: fake)
     report = await reconciliation.reconcile()
-    assert report.refunds_seen == 6
+    assert report.refunds_seen == 7
     assert sorted(report.refunds_recorded_late) == sorted([by_notes, by_payment])
     assert sorted(report.unexplained) == sorted([f"refund:{orphan}", f"refund:{no_topup}"])
     assert alerts == ["razorpay_reconciliation_credited", "razorpay_reconciliation_unexplained"]

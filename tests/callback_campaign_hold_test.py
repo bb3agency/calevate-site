@@ -252,3 +252,46 @@ async def test_the_tick_calls_off_a_campaign_cancelled_by_any_path() -> None:
     assert (await _row(tenant_id, callback_id))[
         "last_refusal_rule"
     ] == callbacks.CAMPAIGN_STOPPED_RULE
+
+
+async def test_a_released_call_back_whose_campaign_hours_are_closed_waits_for_them(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Released into open hours, then claimed after they closed: the tick does not dial it,
+    puts it back for the next opening and moves its grace there."""
+    from apps.workers.callbacks import CALLING_HOURS_RULE
+
+    monkeypatch.setattr(
+        "apps.api.campaigns.scheduling.first_dial_not_before", lambda start, hours=None: start
+    )
+    tenant_id, agent_id = await _dialable_tenant()
+    campaign_id = await _campaign(tenant_id, agent_id, status="paused")
+    callback_id = await _book(
+        tenant_id,
+        agent_id,
+        campaign_id=campaign_id,
+        requested_at=datetime.now(UTC) - timedelta(hours=3),
+    )
+    async with tenant_session(tenant_id) as session:
+        assert await callbacks.hold_for_paused_campaigns(session) == 1
+    await _set_status(tenant_id, campaign_id, "running")
+    async with tenant_session(tenant_id) as session:
+        assert await callbacks.release_resumed(session) == 1
+
+    opens = datetime.now(UTC) + timedelta(hours=1)
+    monkeypatch.setattr(
+        "apps.api.campaigns.scheduling.first_dial_not_before", lambda start, hours=None: opens
+    )
+    outcome = await dispatch_due_callbacks(tenant_id, slots=5)
+    assert outcome["dialled"] == 0, outcome
+    row = await _row(tenant_id, callback_id)
+    assert row["status"] == "scheduled"
+    assert row["last_refusal_rule"] == CALLING_HOURS_RULE
+    async with tenant_session(tenant_id) as session:
+        moved = (
+            await session.execute(
+                text("SELECT grace_from, next_attempt_at FROM scheduled_callbacks WHERE id = :i"),
+                {"i": callback_id},
+            )
+        ).one()
+    assert moved[0] == opens and moved[1] == opens
