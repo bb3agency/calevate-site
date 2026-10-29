@@ -99,7 +99,16 @@ const NOTICE: CallerNotice = {
   ].join("\n"),
 };
 
-const ROUTES = { "/v1/me": OWNER, "/v1/compliance/caller-notice": NOTICE };
+const SHORT_NOTICE = {
+  language: "en",
+  disclaimer: "DRAFT — not legal advice.",
+  notice_markdown: "# {{YOUR REGISTERED BUSINESS NAME}}: your information\n\nTo ask: {{YOUR CONTACT FOR DATA QUESTIONS — NAME, EMAIL, PHONE}}\n",
+};
+const ROUTES = {
+  "/v1/me": OWNER,
+  "/v1/compliance/caller-notice": NOTICE,
+  "/v1/compliance/caller-notice/short?language=en": SHORT_NOTICE,
+};
 
 describe("the caller-notice draft", () => {
   it("itemises what is collected and how long it is kept", async () => {

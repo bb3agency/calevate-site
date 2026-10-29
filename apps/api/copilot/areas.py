@@ -453,6 +453,8 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
     AreaEntry("report_chart", "reports", "chart or table for the person; to keep it: chart_pin"),
     AreaEntry("chart_pin", "reports", "keep a report_chart on the home screen"),
     AreaEntry("chart_unpin", "reports", "remove a home card by name"),
+    # D-943: the promo check on a script (the rights desk is in `verification_status`).
+    AreaEntry("script_promo_check", "agents", "offers in a script"),
 )
 
 AREA_OF: Final[dict[str, Area]] = {entry.tool: entry.area for entry in ENTRIES}

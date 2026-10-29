@@ -378,6 +378,19 @@ def _label_key(label: str) -> str:
     return next(key for key, value in _CATEGORY_LABELS.items() if value == label)
 
 
+#: The itemised lines every account has, as opposed to a client's own extraction fields —
+#: the short notice in other languages (`privacy_notice.py`) translates these and quotes
+#: the client's own labels as written.
+STANDARD_ITEMS: frozenset[str] = frozenset(
+    what for what, _why in (*_INHERENT, *_CORE_ITEMS, _MEMORY_ITEM)
+)
+
+
+def retention_category(label: str) -> str:
+    """The retention category a rendered retention line came from."""
+    return _label_key(label)
+
+
 def _disclosure_paragraph(draft: CallerNoticeDraft) -> str:
     """What the caller is TOLD at the start of a call, per this client's own switches.
 

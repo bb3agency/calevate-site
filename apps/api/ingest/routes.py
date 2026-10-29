@@ -688,6 +688,8 @@ class LeadSourceOut(BaseModel):
     previous_secret_expires_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    #: What a submission is: `inquiry` (7-day calling window) or `application` (3 months).
+    consent_basis: Literal["inquiry", "application"]
 
 
 class LeadSourceListOut(BaseModel):
@@ -1297,6 +1299,7 @@ async def list_lead_sources(
                 previous_secret_expires_at=row.previous_secret_expires_at,
                 created_at=row.created_at,
                 updated_at=row.updated_at,
+                consent_basis="application" if row.consent_basis == "application" else "inquiry",
             )
             for row in await service.list_lead_sources(session, limit=limit)
         ],
@@ -1591,6 +1594,58 @@ async def put_lead_source_mapping(
             summary={"fields": sorted(cleaned), "was": sorted(previous)},
         )
     return LeadSourceMappingOut(id=webhook_id, mapping=cleaned)
+
+
+class LeadSourceConsentBasisIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    consent_basis: Literal["inquiry", "application"]
+
+
+class LeadSourceConsentBasisOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    consent_basis: Literal["inquiry", "application"]
+
+
+@sources_router.put(
+    "/{webhook_id}/consent-basis",
+    response_model=LeadSourceConsentBasisOut,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Say whether this source's forms are enquiries or applications",
+    description=(
+        "An enquiry form's permission to call lasts seven days from the submission; an "
+        "application form's (admission, loan, membership, job) lasts three months. Leads "
+        "already received keep the window they were saved with."
+    ),
+)
+async def put_lead_source_consent_basis(
+    webhook_id: UUID,
+    payload: LeadSourceConsentBasisIn,
+    session: SessionDep,
+    request: Request,
+    principal: Principal = Depends(requires("org:manage")),
+) -> LeadSourceConsentBasisOut:
+    """D-943. `org:manage`, like every other lead-source setting, and audited: calling a
+    person three months after their form instead of seven days is the client's attestation
+    about what the form is."""
+    assert principal.tenant_id is not None
+    previous = await service.set_source_consent_basis(
+        session, webhook_id=webhook_id, consent_basis=payload.consent_basis
+    )
+    if previous != payload.consent_basis:
+        await write_audit(
+            session,
+            action="lead_source.consent_basis_changed",
+            actor=principal,
+            tenant_id=principal.tenant_id,
+            object_type="inbound_webhook",
+            object_id=str(webhook_id),
+            ip=client_request_ip(request),
+            summary={"consent_basis": payload.consent_basis, "was": previous},
+        )
+    return LeadSourceConsentBasisOut(id=webhook_id, consent_basis=payload.consent_basis)
 
 
 __all__ = ["META_SOURCE", "SECRET_HEADER", "router", "sources_router"]

@@ -1351,6 +1351,8 @@ AttentionKind = Literal[
     "credit_low",
     "forwarded_line_quiet",
     "caller_memory_paused",
+    # D-943: a customer data request near or past its 90-day deadline (a LIVE state).
+    "rights_request_due",
 ]
 
 

@@ -44,6 +44,7 @@ import {
   PhoneForwarded,
   PhoneOff,
   ScrollText,
+  ShieldAlert,
   ShieldCheck,
   Sparkles,
   Store,
@@ -139,6 +140,8 @@ export function clientNavigation(slug: string): NavGroup[] {
         { href: `/c/${slug}/lead-sources`, label: "Leads & hours", icon: GitMerge },
         { href: `/c/${slug}/data-rights`, label: "Data rights", icon: ScrollText },
         { href: `/c/${slug}/caller-notice`, label: "Your privacy notice", icon: BookLock },
+        // D-943: what to do, in order, if customers' data leaks.
+        { href: `/c/${slug}/breach-playbook`, label: "If data leaks", icon: ShieldAlert },
       ],
     },
     {

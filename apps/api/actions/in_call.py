@@ -180,6 +180,11 @@ _REFUSAL_SAY: Final[dict[str, str]] = {
         "Nothing was sent: the caller does not want it on WhatsApp. Do NOT send it. Offer to "
         "give the details aloud instead."
     ),
+    # D-943: the caller said no to messages inside the last 90 days, so asking is barred.
+    "reask_locked": (
+        "Nothing was sent. Do NOT ask the caller about WhatsApp on this call. Give the "
+        "details aloud instead."
+    ),
     "link_not_sent": (
         "Nothing reached the caller: the payment link could not be sent. Do NOT say it was "
         "sent. Apologise and say the team will send it."

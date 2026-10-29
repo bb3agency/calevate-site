@@ -26,6 +26,16 @@ export const CALLER_NOTICE_COPY = {
   loading: "Loading your privacy notice",
 } as const;
 
+/** The short notice for callers, in three languages (D-943). */
+export const SHORT_NOTICE_COPY = {
+  heading: "Short notice for callers",
+  languageLabel: "Language of the notice",
+  loading: "Loading the short notice",
+  copy: "Copy short notice",
+  download: "Download short notice",
+  share: "Share on WhatsApp",
+} as const;
+
 /** Compliance sentences, kept word for word and therefore outside the short-line budget. */
 export const CALLER_NOTICE_KEPT = {
   guarantee:

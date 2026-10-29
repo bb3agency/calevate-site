@@ -105,14 +105,19 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.billing.plans import IST
 from apps.api.callbacks.service import GRACE, cancel_for_phones
 from apps.api.compliance.models import (
     AGENT_RECORDED_CONSENT_SOURCES,
+    APPLICATION_CONSENT_WINDOW_MONTHS,
     CALL_BOUND_CONSENT_SOURCES,
     CALLBACK_CONSENT_WITHDRAWN_REASON,
     CALLBACK_PURPOSE,
     CONSENT_SOURCES,
+    INQUIRY_CONSENT_WINDOW_DAYS,
+    LEAD_CONSENT_BASES,
     MESSAGING_PURPOSE,
+    RECONSENT_LOCKOUT_DAYS,
     RECORDING_ONLY_CONSENT_SOURCES,
     RECORDING_PURPOSE,
     WITHDRAWAL_ONLY_CONSENT_SOURCES,
@@ -137,6 +142,77 @@ log = get_logger(__name__)
 # the alternative to messaging is not messaging a lead the client paid for — but it is
 # an edge, not an absence: a 2021 opt-in does not authorise a 2026 message.
 MESSAGING_CONSENT_VALIDITY_DAYS = 365
+
+#: The sources where the BUSINESS asked the person (D-943). The 90-day lockout governs an
+#: ask; a person who comes back on their own (writes in on WhatsApp, fills a form) has not
+#: been asked, and their new yes lifts the lockout.
+ASKED_CONSENT_SOURCES = AGENT_RECORDED_CONSENT_SOURCES
+
+#: The latest no to `purpose` (or to marketing at all) inside the lockout, unless the person
+#: has said yes since. `marketing` rows are the opt-outs callers speak on a call
+#: (`optout.OPTOUT_PURPOSE`): a person who said "stop calling me" was not asking to be
+#: asked about WhatsApp either.
+_REASK_LOCK_SQL = (
+    "SELECT r.captured_at FROM consent_ledger r "
+    "WHERE r.tenant_id = :tid AND r.phone_e164 = :phone "
+    "AND r.purpose IN (CAST(:purpose AS text), 'marketing') "
+    "AND r.status IN ('declined', 'withdrawn') AND r.captured_at > :since "
+    "AND NOT EXISTS (SELECT 1 FROM consent_ledger g WHERE g.tenant_id = :tid "
+    "AND g.phone_e164 = :phone AND g.purpose = CAST(:purpose AS text) "
+    "AND g.status = 'granted' AND g.captured_at > r.captured_at) "
+    "ORDER BY r.captured_at DESC LIMIT 1"
+)
+
+
+def relationship_window(consent_basis: str) -> tuple[int, int]:
+    """`(months, days)` a form consent stays valid for, by what the form was (D-943).
+
+    An inquiry: `INQUIRY_CONSENT_WINDOW_DAYS`. An application:
+    `APPLICATION_CONSENT_WINDOW_MONTHS` calendar months — PostgreSQL's `make_interval`
+    adds months on the calendar, so 30 Nov + 3 months is 28 Feb, not 1 Mar.
+    """
+    if consent_basis not in LEAD_CONSENT_BASES:
+        raise ValueError(f"unknown consent basis: {consent_basis}")
+    if consent_basis == "application":
+        return APPLICATION_CONSENT_WINDOW_MONTHS, 0
+    return 0, INQUIRY_CONSENT_WINDOW_DAYS
+
+
+async def reask_locked_until(
+    session: AsyncSession, *, tenant_id: UUID, phone_e164: str, purpose: str
+) -> datetime | None:
+    """Until when the business may not ASK this person for `purpose` again, or None.
+
+    TCCCPR 2025 Schedule I item 2(2)(g): after a person revokes consent it may be sought
+    again only after `RECONSENT_LOCKOUT_DAYS` (official text, D-943). Read as covering a
+    `declined` too: asking again inside the same window after a plain no is the same
+    pressure the rule exists to stop.
+    """
+    since = datetime.now(UTC) - timedelta(days=RECONSENT_LOCKOUT_DAYS)
+    row = (
+        await session.execute(
+            text(_REASK_LOCK_SQL),
+            {"tid": tenant_id, "phone": phone_e164, "purpose": purpose, "since": since},
+        )
+    ).first()
+    if row is None:
+        return None
+    refused_at: datetime = row[0]
+    return refused_at + timedelta(days=RECONSENT_LOCKOUT_DAYS)
+
+
+def reask_locked(until: datetime) -> ProblemError:
+    """The refusal both the consent writer and the in-call action raise."""
+    return ProblemError.business_rule(
+        "consent_reask_locked",
+        "This person said no recently, so they may not be asked again yet.",
+        remediation=(
+            f"Do not ask again before {until.astimezone(IST).date().isoformat()} (IST). "
+            "If they ask you themselves, "
+            "record it where they asked (a form or their own WhatsApp message)."
+        ),
+    )
+
 
 # The statuses this surface may record. `declined` is the live "no thanks" of a caller
 # who was asked during a call and said no; `withdrawn` is a later retraction of a yes.
@@ -307,6 +383,19 @@ async def record_messaging_consent(
     # evidence rule so "you did not say what this rests on" still outranks "that is not
     # your call", and before the INSERT so nothing is written either way.
     await assert_visible(session, "call", call_id)
+
+    # A yes to OUR question inside the lockout is a yes we were not allowed to ask for
+    # (D-943), so it is refused rather than filed as consent.
+    if status == "granted" and source in ASKED_CONSENT_SOURCES:
+        locked_until = await reask_locked_until(
+            session, tenant_id=tenant_id, phone_e164=phone_e164, purpose=MESSAGING_PURPOSE
+        )
+        if locked_until is not None:
+            log.info(
+                "consent_reask_refused",
+                extra={"tenant_id": str(tenant_id), "purpose": MESSAGING_PURPOSE, "source": source},
+            )
+            raise reask_locked(locked_until)
 
     captured_at = await _append_consent_row(
         session,
@@ -686,6 +775,7 @@ def _assert_grant_is_evidenced(
 
 
 __all__ = [
+    "ASKED_CONSENT_SOURCES",
     "GRANT_CAPABLE_SOURCES",
     "MESSAGING_CONSENT_VALIDITY_DAYS",
     "NO_CONSENT",
@@ -694,8 +784,11 @@ __all__ = [
     "CallConsent",
     "MessagingConsent",
     "read_messaging_consent",
+    "reask_locked",
+    "reask_locked_until",
     "record_call_consent",
     "record_callback_request_consent",
     "record_messaging_consent",
     "record_recording_notice",
+    "relationship_window",
 ]

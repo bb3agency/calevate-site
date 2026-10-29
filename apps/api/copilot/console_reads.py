@@ -35,7 +35,7 @@ move. New tools APPEND.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Final
 from uuid import UUID
 
@@ -50,9 +50,12 @@ from apps.api.billing.wallet import read_wallet
 from apps.api.callbacks import service as callbacks_service
 from apps.api.campaigns import results as campaign_results
 from apps.api.campaigns import service as campaigns_service
+from apps.api.compliance import promo_checks, rights_desk
 from apps.api.compliance.audit import write_audit
+from apps.api.compliance.call_purpose import FIX, WHY
 from apps.api.compliance.kyc import kyc_not_verified_reason, read_kyc
 from apps.api.compliance.kyc_documents import current_documents
+from apps.api.compliance.models import RIGHTS_REMINDER_DAYS
 from apps.api.compliance.outbound_pledge import pledge_blocker
 from apps.api.compliance.service import credits_exhausted
 from apps.api.copilot.agent_reads import AGENT_SETTINGS_READ
@@ -646,6 +649,7 @@ async def _verification_status(
         "your business screen; the business profile is on the Business profile screen. "
         "The assistant cannot upload documents or accept anything for them."
     )
+    lines.extend(await _rights_desk_lines(session))
     return _clean("\n".join(lines))
 
 
@@ -974,6 +978,78 @@ async def _billing_settings(
     return _clean("\n".join(lines))
 
 
+# --- script_promo_check / rights_desk_status (D-943) ------------------------------------
+
+
+async def _script_promo_check(
+    session: AsyncSession, context: ToolContext, args: Mapping[str, Any]
+) -> str:
+    """`promo_checks.agent_check` on an agent's script being edited. Explains each finding;
+    the rewrite is the model's to offer, through the script tools."""
+    del context
+    agent_id = _uuid_arg(args, "agent_id")
+    if agent_id is None:
+        return _missing_id("agent_id", "an `agents_list` lookup")
+    try:
+        check = await promo_checks.agent_check(session, agent_id)
+    except ProblemError:
+        return "No agent with that id in this account."
+    report = check.report
+    header = f"Checked the agent's {check.reading} script."
+    if not check.places_calls:
+        header += " It only answers calls, so this matters only if it starts placing them."
+    if report.verdict == "clear":
+        return _clean(f"{header} Nothing promotional found: it reads as a service call.")
+    lines = [
+        header,
+        "Verdict: "
+        + (
+            "PROMOTIONAL — a campaign using it cannot launch until this is taken out."
+            if report.verdict == "promotional"
+            else "check these lines — sometimes promotional, never blocking."
+        ),
+    ]
+    for finding in report.findings[:10]:
+        lines.append(
+            f"- {finding.where}: “{finding.quote}” ({finding.severity}). {WHY[finding.category]}"
+        )
+    lines.append(f"How to fix: {FIX} Offer to rewrite those lines as a service call.")
+    return _clean("\n".join(lines))
+
+
+async def _rights_desk_lines(session: AsyncSession) -> list[str]:
+    """The Data rights screen's desk, for `verification_status`: counts and the open
+    requests by deadline. Never a number; a request is answered on that screen.
+
+    A line of an existing read rather than a tool of its own: Pip's tool array is held to
+    a token budget (`prompt_budget_test.py`), and the desk is account compliance status."""
+    counts = await rights_desk.counts(session)
+    if not counts.open:
+        return [
+            "Customer data requests: none open. Log one on Data rights when a customer asks "
+            "to see, correct or erase their data; it must be answered within 90 days."
+        ]
+    now = datetime.now(UTC)
+    lines = [
+        f"Customer data requests: {counts.open} open, {counts.overdue} past the 90-day deadline, "
+        f"{counts.due_soon} due within {RIGHTS_REMINDER_DAYS} days."
+    ]
+    for request in [
+        r for r in await rights_desk.list_requests(session, limit=20) if r.status == "open"
+    ]:
+        days = request.days_left(now)
+        when = f"{-days} day(s) overdue" if days < 0 else f"{days} day(s) left"
+        lines.append(
+            f"- {request.kind}, asked by {request.channel} on "
+            f"{ist_stamp(request.received_at)}: {when} [ref {request.subject_ref[:8]}]"
+        )
+    lines.append(
+        "Answer them on Data rights: Export answers an access request, Erase an erasure "
+        "request; the person's number is typed there. The assistant cannot answer one."
+    )
+    return lines
+
+
 # --- the registry ----------------------------------------------------------------------
 
 
@@ -1252,6 +1328,21 @@ CONSOLE_READ_TOOLS: Final[tuple[ReadTool, ...]] = (
     ),
 )
 
+#: Client-only reads (D-943). The promo check helps the person rewriting their own script;
+#: an operator reads the same verdict on the campaign's launch check (`campaign_detail`).
+PROMO_READS: Final[tuple[ReadTool, ...]] = (
+    ReadTool(
+        name="script_promo_check",
+        description=(
+            "Whether an agent's script has offers or selling in it — which would make a "
+            "placed call promotional and block a service campaign — with each line and why."
+        ),
+        parameters=_object(_id_param("agent_id", "agent")),
+        permission="agents:read",
+        run=_script_promo_check,
+    ),
+)
+
 CONSOLE_READ_TOOL_NAMES: Final[frozenset[str]] = frozenset(t.name for t in CONSOLE_READ_TOOLS)
 
-__all__ = ["CONSOLE_READ_TOOLS", "CONSOLE_READ_TOOL_NAMES"]
+__all__ = ["CONSOLE_READ_TOOLS", "CONSOLE_READ_TOOL_NAMES", "PROMO_READS"]

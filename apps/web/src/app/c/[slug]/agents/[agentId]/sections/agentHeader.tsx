@@ -49,6 +49,7 @@ import { lookup } from "@/lib/lookup";
 import { LiveBadge, liveState } from "../../AgentBadge";
 import { LifecycleError, MOVE_COPY } from "../../AgentLifecycle";
 import { stagedScript, voiceTierLine } from "../../panels/publishing";
+import { PromoWarning } from "../script/PromoWarning";
 import { PutLiveDialog, usePutLive } from "../script/PutLive";
 import { TRY_IT_ANCHOR } from "../tour/tourModel";
 import { hasUnpublished, workingCopy } from "../script/scriptDraft";
@@ -333,6 +334,7 @@ function PutLiveButton({
           draft={local}
           agentOn={agent.published && agent.status === "live"}
           voiceLine={voiceLine}
+          promo={<PromoWarning session={session} agentId={agent.id} agentName={agent.name} />}
           pending={putLive.pending}
           status={putLive.status}
           error={putLive.error}

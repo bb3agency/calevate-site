@@ -472,6 +472,14 @@ ENTRYPOINT_EXEMPT: dict[str, dict[str, str]] = {
             "caller's deletion request has nothing to erase here; the number ends with the "
             "engagement, which `execute_tenant_erasure` covers."
         ),
+        "data_rights_requests": (
+            "The client's rights desk (D-943): that a person asked to see, correct or erase "
+            "their data, when, by which channel and how it was answered — keyed by the same "
+            "`subject_ref` the erasure register keeps after completion, and never a number. "
+            "It is the record that the erasure request was made and answered, which the "
+            "erasure must not destroy any more than it destroys `deletion_requests`; it ends "
+            "with the engagement, which `execute_tenant_erasure` covers."
+        ),
         "copilot_plan_targets": (
             "One target of a Pip plan (D-893): a lead id, its order, and OUR OWN sentence for "
             "why it was left out or skipped (a do-not-call match, 'already hot', the calling "

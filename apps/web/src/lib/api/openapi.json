@@ -3723,6 +3723,39 @@
         "title": "AgentOwnCallHandlingOut",
         "type": "object"
       },
+      "AgentPromoCheckOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "places_calls": {
+            "title": "Places Calls",
+            "type": "boolean"
+          },
+          "reading": {
+            "enum": [
+              "draft",
+              "saved"
+            ],
+            "title": "Reading",
+            "type": "string"
+          },
+          "report": {
+            "$ref": "#/components/schemas/PromoReportOut"
+          }
+        },
+        "required": [
+          "agent_id",
+          "places_calls",
+          "reading",
+          "report"
+        ],
+        "title": "AgentPromoCheckOut",
+        "type": "object"
+      },
       "AgentPromptLayersOut": {
         "additionalProperties": false,
         "properties": {
@@ -6015,7 +6048,8 @@
               "call_failed",
               "credit_low",
               "forwarded_line_quiet",
-              "caller_memory_paused"
+              "caller_memory_paused",
+              "rights_request_due"
             ],
             "title": "Kind",
             "type": "string"
@@ -11204,6 +11238,40 @@
           "status_counts"
         ],
         "title": "CampaignPageOut",
+        "type": "object"
+      },
+      "CampaignPurposeOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "blocks_launch": {
+            "title": "Blocks Launch",
+            "type": "boolean"
+          },
+          "campaign_id": {
+            "format": "uuid",
+            "title": "Campaign Id",
+            "type": "string"
+          },
+          "purpose": {
+            "$ref": "#/components/schemas/PurposeOut"
+          },
+          "report": {
+            "$ref": "#/components/schemas/PromoReportOut"
+          }
+        },
+        "required": [
+          "campaign_id",
+          "agent_id",
+          "purpose",
+          "report",
+          "blocks_launch"
+        ],
+        "title": "CampaignPurposeOut",
         "type": "object"
       },
       "CampaignResultsOut": {
@@ -23661,6 +23729,66 @@
         "title": "FieldValueCountOut",
         "type": "object"
       },
+      "FindingOut": {
+        "additionalProperties": false,
+        "properties": {
+          "category": {
+            "enum": [
+              "discount",
+              "urgency",
+              "free_offer",
+              "cross_sell",
+              "buy_now"
+            ],
+            "title": "Category",
+            "type": "string"
+          },
+          "language": {
+            "enum": [
+              "en",
+              "hi",
+              "te"
+            ],
+            "title": "Language",
+            "type": "string"
+          },
+          "phrase": {
+            "title": "Phrase",
+            "type": "string"
+          },
+          "quote": {
+            "title": "Quote",
+            "type": "string"
+          },
+          "severity": {
+            "enum": [
+              "strong",
+              "soft"
+            ],
+            "title": "Severity",
+            "type": "string"
+          },
+          "where": {
+            "title": "Where",
+            "type": "string"
+          },
+          "why": {
+            "title": "Why",
+            "type": "string"
+          }
+        },
+        "required": [
+          "phrase",
+          "category",
+          "language",
+          "severity",
+          "where",
+          "quote",
+          "why"
+        ],
+        "title": "FindingOut",
+        "type": "object"
+      },
       "FirstRunOut": {
         "additionalProperties": false,
         "properties": {
@@ -30716,6 +30844,48 @@
         "title": "LeadSourceAgentOut",
         "type": "object"
       },
+      "LeadSourceConsentBasisIn": {
+        "additionalProperties": false,
+        "properties": {
+          "consent_basis": {
+            "enum": [
+              "inquiry",
+              "application"
+            ],
+            "title": "Consent Basis",
+            "type": "string"
+          }
+        },
+        "required": [
+          "consent_basis"
+        ],
+        "title": "LeadSourceConsentBasisIn",
+        "type": "object"
+      },
+      "LeadSourceConsentBasisOut": {
+        "additionalProperties": false,
+        "properties": {
+          "consent_basis": {
+            "enum": [
+              "inquiry",
+              "application"
+            ],
+            "title": "Consent Basis",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "consent_basis"
+        ],
+        "title": "LeadSourceConsentBasisOut",
+        "type": "object"
+      },
       "LeadSourceCreatedOut": {
         "additionalProperties": false,
         "description": "The one moment a minted secret is ever returned.",
@@ -30921,6 +31091,14 @@
             ],
             "title": "Agent Id"
           },
+          "consent_basis": {
+            "enum": [
+              "inquiry",
+              "application"
+            ],
+            "title": "Consent Basis",
+            "type": "string"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -30978,7 +31156,8 @@
           "secret_fingerprint",
           "previous_secret_expires_at",
           "created_at",
-          "updated_at"
+          "updated_at",
+          "consent_basis"
         ],
         "title": "LeadSourceOut",
         "type": "object"
@@ -39039,6 +39218,67 @@
         "title": "ProgressOut",
         "type": "object"
       },
+      "PromoCheckIn": {
+        "additionalProperties": false,
+        "properties": {
+          "parts": {
+            "items": {
+              "$ref": "#/components/schemas/WordingIn"
+            },
+            "maxItems": 60,
+            "minItems": 1,
+            "title": "Parts",
+            "type": "array"
+          }
+        },
+        "required": [
+          "parts"
+        ],
+        "title": "PromoCheckIn",
+        "type": "object"
+      },
+      "PromoReportOut": {
+        "additionalProperties": false,
+        "properties": {
+          "blocks_launch": {
+            "title": "Blocks Launch",
+            "type": "boolean"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/FindingOut"
+            },
+            "title": "Findings",
+            "type": "array"
+          },
+          "fix": {
+            "title": "Fix",
+            "type": "string"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          },
+          "verdict": {
+            "enum": [
+              "clear",
+              "check",
+              "promotional"
+            ],
+            "title": "Verdict",
+            "type": "string"
+          }
+        },
+        "required": [
+          "verdict",
+          "blocks_launch",
+          "findings",
+          "truncated",
+          "fix"
+        ],
+        "title": "PromoReportOut",
+        "type": "object"
+      },
       "PromptLayerOut": {
         "additionalProperties": false,
         "properties": {
@@ -39715,6 +39955,55 @@
           "first_period"
         ],
         "title": "PurchasedOwnNumberOut",
+        "type": "object"
+      },
+      "PurposeOut": {
+        "additionalProperties": false,
+        "properties": {
+          "basis": {
+            "title": "Basis",
+            "type": "string"
+          },
+          "explanation": {
+            "title": "Explanation",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "purpose": {
+            "enum": [
+              "transactional",
+              "service_own_customer",
+              "relationship_enquiry",
+              "relationship_application",
+              "promotional",
+              "unclear"
+            ],
+            "title": "Purpose",
+            "type": "string"
+          },
+          "window": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window"
+          }
+        },
+        "required": [
+          "purpose",
+          "label",
+          "basis",
+          "window",
+          "explanation"
+        ],
+        "title": "PurposeOut",
         "type": "object"
       },
       "QaQueueClient": {
@@ -42992,6 +43281,281 @@
         "title": "RewrapOut",
         "type": "object"
       },
+      "RightsDeskOut": {
+        "additionalProperties": false,
+        "properties": {
+          "due_soon": {
+            "title": "Due Soon",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RightsRequestOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "open": {
+            "title": "Open",
+            "type": "integer"
+          },
+          "overdue": {
+            "title": "Overdue",
+            "type": "integer"
+          },
+          "reminder_days": {
+            "title": "Reminder Days",
+            "type": "integer"
+          },
+          "response_days": {
+            "title": "Response Days",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "open",
+          "due_soon",
+          "overdue",
+          "response_days",
+          "reminder_days"
+        ],
+        "title": "RightsDeskOut",
+        "type": "object"
+      },
+      "RightsRequestCloseIn": {
+        "additionalProperties": false,
+        "properties": {
+          "deletion_request_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deletion Request Id"
+          },
+          "outcome": {
+            "enum": [
+              "exported",
+              "erased",
+              "corrected",
+              "nominated",
+              "explained",
+              "identity_not_confirmed",
+              "not_held"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "answered",
+              "refused"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "outcome"
+        ],
+        "title": "RightsRequestCloseIn",
+        "type": "object"
+      },
+      "RightsRequestIn": {
+        "additionalProperties": false,
+        "properties": {
+          "channel": {
+            "enum": [
+              "phone",
+              "email",
+              "whatsapp",
+              "letter",
+              "in_person",
+              "other"
+            ],
+            "title": "Channel",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "access",
+              "correction",
+              "erasure",
+              "nomination",
+              "grievance"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "phone": {
+            "maxLength": 32,
+            "minLength": 8,
+            "title": "Phone",
+            "type": "string"
+          },
+          "received_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Received At"
+          }
+        },
+        "required": [
+          "kind",
+          "channel",
+          "phone"
+        ],
+        "title": "RightsRequestIn",
+        "type": "object"
+      },
+      "RightsRequestOut": {
+        "additionalProperties": false,
+        "properties": {
+          "channel": {
+            "enum": [
+              "phone",
+              "email",
+              "whatsapp",
+              "letter",
+              "in_person",
+              "other"
+            ],
+            "title": "Channel",
+            "type": "string"
+          },
+          "closed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed At"
+          },
+          "days_left": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Days Left"
+          },
+          "deletion_request_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deletion Request Id"
+          },
+          "due_at": {
+            "format": "date-time",
+            "title": "Due At",
+            "type": "string"
+          },
+          "due_soon": {
+            "title": "Due Soon",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "access",
+              "correction",
+              "erasure",
+              "nomination",
+              "grievance"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "enum": [
+                  "exported",
+                  "erased",
+                  "corrected",
+                  "nominated",
+                  "explained",
+                  "identity_not_confirmed",
+                  "not_held"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcome"
+          },
+          "overdue": {
+            "title": "Overdue",
+            "type": "boolean"
+          },
+          "received_at": {
+            "format": "date-time",
+            "title": "Received At",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "open",
+              "answered",
+              "refused"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "subject_ref": {
+            "title": "Subject Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "channel",
+          "subject_ref",
+          "received_at",
+          "due_at",
+          "status",
+          "outcome",
+          "closed_at",
+          "deletion_request_id",
+          "days_left",
+          "due_soon",
+          "overdue"
+        ],
+        "title": "RightsRequestOut",
+        "type": "object"
+      },
       "RollbackIn": {
         "additionalProperties": false,
         "properties": {
@@ -45229,6 +45793,36 @@
           "access_token"
         ],
         "title": "SheetsPickerOut",
+        "type": "object"
+      },
+      "ShortNoticeOut": {
+        "additionalProperties": false,
+        "description": "The short notice in one language (D-943). Same blanks as the full draft.",
+        "properties": {
+          "disclaimer": {
+            "title": "Disclaimer",
+            "type": "string"
+          },
+          "language": {
+            "enum": [
+              "en",
+              "te",
+              "hi"
+            ],
+            "title": "Language",
+            "type": "string"
+          },
+          "notice_markdown": {
+            "title": "Notice Markdown",
+            "type": "string"
+          }
+        },
+        "required": [
+          "language",
+          "disclaimer",
+          "notice_markdown"
+        ],
+        "title": "ShortNoticeOut",
         "type": "object"
       },
       "SignInOptionsOut": {
@@ -57688,6 +58282,38 @@
           "example"
         ],
         "title": "WhatsAppTemplateVariableIn",
+        "type": "object"
+      },
+      "WordingIn": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "default": "instruction",
+            "enum": [
+              "opening",
+              "instruction",
+              "answer",
+              "template"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "where": {
+            "default": "Your wording",
+            "maxLength": 120,
+            "title": "Where",
+            "type": "string"
+          },
+          "wording": {
+            "maxLength": 20000,
+            "title": "Wording",
+            "type": "string"
+          }
+        },
+        "required": [
+          "wording"
+        ],
+        "title": "WordingIn",
         "type": "object"
       },
       "WorkspaceFailureOut": {
@@ -77916,6 +78542,46 @@
         "x-calevate-permission": "org:manage"
       }
     },
+    "/v1/compliance/call-purpose/campaigns/{campaign_id}": {
+      "get": {
+        "operationId": "campaign_call_purpose_v1_compliance_call_purpose_campaigns__campaign_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignPurposeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "What kind of call this campaign places, and whether its script is promotional",
+        "tags": [
+          "compliance"
+        ],
+        "x-calevate-permission": "leads:read"
+      }
+    },
     "/v1/compliance/caller-notice": {
       "get": {
         "description": "Indian data-protection law requires you to tell your callers, item by item, what you collect from them and how long you keep it. For a Calevate account that list is the fields your agents capture, your retention settings and your announcement settings \u2014 which live here. This generates a DRAFT from them, with blanks marked where only you can answer. It is not legal advice and must be reviewed by your own advocate before you publish it.",
@@ -77939,6 +78605,52 @@
           }
         },
         "summary": "A draft of the privacy notice you owe your own callers",
+        "tags": [
+          "compliance"
+        ],
+        "x-calevate-permission": "org:read"
+      }
+    },
+    "/v1/compliance/caller-notice/short": {
+      "get": {
+        "description": "A one-page notice built from the same settings as the full draft, to put on your website or send to a customer. The Telugu and Hindi are machine-drafted; have them checked. Not legal advice.",
+        "operationId": "read_short_notice_v1_compliance_caller_notice_short_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "language",
+            "required": false,
+            "schema": {
+              "default": "en",
+              "enum": [
+                "en",
+                "te",
+                "hi"
+              ],
+              "title": "Language",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShortNoticeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The short privacy notice for your callers, in English, Telugu or Hindi",
         "tags": [
           "compliance"
         ],
@@ -78496,6 +79208,212 @@
           }
         },
         "summary": "Accept the current no-cold-calls pledge",
+        "tags": [
+          "compliance"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/compliance/promo-check": {
+      "post": {
+        "operationId": "promo_check_v1_compliance_promo_check_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromoCheckIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromoReportOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Check wording for offers and selling before a call says it",
+        "tags": [
+          "compliance"
+        ],
+        "x-calevate-permission": "agents:read"
+      }
+    },
+    "/v1/compliance/promo-check/agents/{agent_id}": {
+      "get": {
+        "operationId": "agent_promo_check_v1_compliance_promo_check_agents__agent_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentPromoCheckOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Check an agent's script for offers and selling",
+        "tags": [
+          "compliance"
+        ],
+        "x-calevate-permission": "agents:read"
+      }
+    },
+    "/v1/compliance/rights-requests": {
+      "get": {
+        "operationId": "list_rights_requests_v1_compliance_rights_requests_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RightsDeskOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Your customers' data requests and the 90-day clock on each",
+        "tags": [
+          "compliance"
+        ],
+        "x-calevate-permission": "org:read"
+      },
+      "post": {
+        "operationId": "log_rights_request_v1_compliance_rights_requests_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RightsRequestIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RightsRequestOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Log a customer's request to see, correct or erase their data",
+        "tags": [
+          "compliance"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/compliance/rights-requests/{request_id}/close": {
+      "post": {
+        "operationId": "close_rights_request_v1_compliance_rights_requests__request_id__close_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RightsRequestCloseIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RightsRequestOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Mark a data request answered or refused",
         "tags": [
           "compliance"
         ],
@@ -84866,6 +85784,57 @@
           }
         },
         "summary": "Choose which agent answers leads from this source",
+        "tags": [
+          "lead-ingest"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/lead-sources/{webhook_id}/consent-basis": {
+      "put": {
+        "description": "An enquiry form's permission to call lasts seven days from the submission; an application form's (admission, loan, membership, job) lasts three months. Leads already received keep the window they were saved with.",
+        "operationId": "put_lead_source_consent_basis_v1_lead_sources__webhook_id__consent_basis_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "webhook_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Webhook Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LeadSourceConsentBasisIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeadSourceConsentBasisOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Say whether this source's forms are enquiries or applications",
         "tags": [
           "lead-ingest"
         ],

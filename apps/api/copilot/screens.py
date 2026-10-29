@@ -275,9 +275,8 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         name="Verify your business",
         group="Compliance & data",
         summary=(
-            "Where the owner verifies the business and their own ID and accepts the "
-            "no-cold-calls pledge, which together unlock outbound calling; it also shows "
-            "what is on file from the business checks and anything still blocking calls."
+            "Where the owner verifies the business and their ID and accepts the "
+            "no-cold-calls pledge to unlock outbound calling, and sees what still blocks it."
         ),
         aliases=(
             "kyc",
@@ -311,9 +310,8 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         name="Leads & hours",
         group="Compliance & data",
         summary=(
-            "How new leads are called: which agent, how soon, calling hours and holidays, "
-            "after-hours handling and leads held for you, retries, answering machines; and "
-            "where leads come from."
+            "How new leads are called (agent, timing, hours, holidays, held leads, retries, "
+            "answering machines) and where they come from."
         ),
         aliases=(
             "lead sources",
@@ -340,6 +338,13 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         group="Compliance & data",
         summary="The privacy notice this business shows its own callers.",
         aliases=("privacy policy", "privacy notice", "caller notice"),
+    ),
+    Screen(
+        route="/c/{slug}/breach-playbook",
+        name="If data leaks",
+        group="Compliance & data",
+        summary="Steps if customer data leaks.",
+        aliases=("data breach",),
     ),
     Screen(
         route="/c/{slug}/settings/business",

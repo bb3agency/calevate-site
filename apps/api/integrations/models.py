@@ -40,12 +40,17 @@ class InboundWebhook(PKMixin, TimestampMixin, Base):
             "(previous_secret_ref IS NULL) = (previous_secret_expires_at IS NULL)",
             name="previous_secret_paired",
         ),
+        # Mirrors `compliance.models.LEAD_CONSENT_BASES` (D-943, migration f2a9c4e7d613).
+        CheckConstraint("consent_basis IN ('inquiry', 'application')", name="consent_basis_enum"),
     )
 
     tenant_id: Mapped[UUID] = mapped_column(
         ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
     )
     source: Mapped[str] = mapped_column(String, nullable=False)
+    #: What a submission to this source IS (D-943): an `inquiry` grants the 7-day window,
+    #: an `application` the 3-month one (`compliance.consent.relationship_window`).
+    consent_basis: Mapped[str] = mapped_column(String(16), nullable=False, server_default="inquiry")
     secret_ref: Mapped[str] = mapped_column(Text, nullable=False)  # secrets-manager ref, never raw
     # The secret this one replaced, honoured until `previous_secret_expires_at` so a
     # rotation does not 401 every submission a client has not finished re-pasting yet

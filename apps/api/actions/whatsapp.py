@@ -79,7 +79,12 @@ from apps.api.actions.schema import (
     PreparedRequest,
     WhatsAppConfig,
 )
-from apps.api.compliance.consent import read_messaging_consent, record_messaging_consent
+from apps.api.compliance.consent import (
+    read_messaging_consent,
+    reask_locked_until,
+    record_messaging_consent,
+)
+from apps.api.compliance.models import MESSAGING_PURPOSE
 from apps.api.compliance.service import check_dispatch
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -173,6 +178,27 @@ class WhatsAppNotOptedInError(ProblemError):
             title="This number has not opted in to WhatsApp",
             detail="We do not have messaging consent on file for this caller.",
             remediation="Ask the caller for consent and record it before sending.",
+        )
+
+
+class WhatsAppReaskLockedError(WhatsAppNotOptedInError):
+    """The caller said no inside the last 90 days, so the agent must NOT ask (D-943).
+
+    A subclass of the not-opted-in refusal so every caller that already handles that one
+    still refuses the send; the code and the agent's instruction are what differ — "ask"
+    would be the wrong next step here.
+    """
+
+    def __init__(self) -> None:
+        ProblemError.__init__(
+            self,
+            kind="business_rule",
+            code="whatsapp_consent_reask_locked",
+            title="Do not ask this caller",
+            detail=(
+                "Nothing was sent. This caller said no to messages recently, so do not ask "
+                "them again. Read the details aloud instead."
+            ),
         )
 
 
@@ -280,11 +306,17 @@ async def assert_recipient_may_be_messaged(
         )
         return phone_e164
     if not consent.messageable:
+        locked = await reask_locked_until(
+            session, tenant_id=tenant_id, phone_e164=phone_e164, purpose=MESSAGING_PURPOSE
+        )
         log.info(
             "whatsapp_send_blocked_no_consent",
-            extra={"tenant_id": str(tenant_id), "reason": "not_opted_in"},
+            extra={
+                "tenant_id": str(tenant_id),
+                "reason": "reask_locked" if locked else "not_opted_in",
+            },
         )
-        raise WhatsAppNotOptedInError()
+        raise WhatsAppReaskLockedError() if locked else WhatsAppNotOptedInError()
     return phone_e164
 
 
@@ -322,6 +354,15 @@ async def _apply_spoken(
             extra={"tenant_id": str(tenant_id), "reason": "not_asked"},
         )
         raise WhatsAppConsentNotAskedError()
+    if await reask_locked_until(
+        session, tenant_id=tenant_id, phone_e164=phone_e164, purpose=MESSAGING_PURPOSE
+    ):
+        # Asked inside the lockout: the yes is not consent we may file (D-943).
+        log.info(
+            "whatsapp_send_blocked_no_consent",
+            extra={"tenant_id": str(tenant_id), "reason": "reask_locked"},
+        )
+        raise WhatsAppReaskLockedError()
     await _record_spoken(
         session, tenant_id=tenant_id, phone_e164=phone_e164, spoken=spoken, consent="granted"
     )
@@ -524,6 +565,7 @@ __all__ = [
     "WhatsAppCallerDeclinedError",
     "WhatsAppConsentNotAskedError",
     "WhatsAppNotOptedInError",
+    "WhatsAppReaskLockedError",
     "assert_business_contact_may_be_messaged",
     "assert_recipient_may_be_messaged",
     "build_aisensy",

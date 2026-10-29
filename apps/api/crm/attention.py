@@ -33,8 +33,10 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.display import display_inr
+from apps.api.billing.plans import IST
 from apps.api.billing.service import low_balance_line
 from apps.api.compliance.caller_memory import MEMORY_ON_SQL
+from apps.api.compliance.models import RIGHTS_REMINDER_DAYS
 from apps.api.core.logging import get_logger
 from apps.api.crm.schemas import AttentionKind
 from apps.api.db.session import session_tenant
@@ -794,6 +796,42 @@ async def caller_memory_paused(session: AsyncSession) -> AttentionSource:
     return AttentionSource(kind="caller_memory_paused", items=[item], total=1)
 
 
+#: What the owner is told about a customer data request nearing its deadline (D-943).
+RIGHTS_REQUEST_DUE_DETAIL = "A customer asked about their data. Answer it on Data rights."
+
+_RIGHTS_DUE_SQL = (
+    "SELECT id, kind, due_at, count(*) OVER () AS matching FROM data_rights_requests "
+    "WHERE status = 'open' AND due_at <= now() + make_interval(days => :days) "
+    "ORDER BY due_at, id LIMIT :limit"
+)
+
+
+async def rights_requests_due(
+    session: AsyncSession, *, limit: int = DEFAULT_LIMIT
+) -> AttentionSource:
+    """Open customer data requests within `RIGHTS_REMINDER_DAYS` of their 90-day deadline,
+    or past it (a LIVE state, like `forwarded_line_quiet`): answering one clears it."""
+    rows = (
+        await session.execute(text(_RIGHTS_DUE_SQL), {"days": RIGHTS_REMINDER_DAYS, "limit": limit})
+    ).all()
+    return AttentionSource(
+        kind="rights_request_due",
+        items=[
+            AttentionItem(
+                kind="rights_request_due",
+                id=str(row[0]),
+                title=f"Answer a customer's {row[1]} request by {row[2].astimezone(IST):%d %b}",
+                detail=RIGHTS_REQUEST_DUE_DETAIL,
+                rule=None,
+                occurred_at=row[2],
+                href="/data-rights",
+            )
+            for row in rows
+        ],
+        total=_matching(rows),
+    )
+
+
 async def attention_queue(session: AsyncSession, *, limit: int = DEFAULT_LIMIT) -> dict[str, Any]:
     """Every source, newest first, with per-kind counts for the nav badge.
 
@@ -857,6 +895,7 @@ async def attention_queue(session: AsyncSession, *, limit: int = DEFAULT_LIMIT) 
         await forwarded_line_quiet(session, limit=limit),
         await low_credit(session),
         await caller_memory_paused(session),
+        await rights_requests_due(session, limit=limit),
     ]
     items = sorted(
         (item for source in sources for item in source.items),
@@ -901,5 +940,6 @@ __all__ = [
     "hot_leads",
     "knowledge_waiting",
     "low_credit",
+    "rights_requests_due",
     "stalled_campaigns",
 ]

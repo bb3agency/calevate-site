@@ -78,6 +78,7 @@ import EditCampaignPage from "@/app/c/[slug]/campaigns/[campaignId]/edit/page";
 import NewCampaignPage from "@/app/c/[slug]/campaigns/new/page";
 import CampaignsPage from "@/app/c/[slug]/campaigns/page";
 import DataRightsPage from "@/app/c/[slug]/data-rights/page";
+import BreachPlaybookPage from "@/app/c/[slug]/breach-playbook/page";
 import CallerNoticePage from "@/app/c/[slug]/caller-notice/page";
 import CallbacksPage from "@/app/c/[slug]/callbacks/page";
 import AssistantPage from "@/app/c/[slug]/assistant/page";
@@ -3250,6 +3251,46 @@ const CLIENT_SCREENS: Screen[] = [
     element: () => <DataRightsPage />,
     routes: {
       "/v1/me": ME,
+      // One open request per kind of row action, so the desk's buttons are swept.
+      "/v1/compliance/rights-requests?limit=100": {
+        items: [
+          {
+            id: "0192f0aa-5555-7000-8000-0000000000a1",
+            kind: "erasure",
+            channel: "email",
+            subject_ref: "b1946ac92492d2347c6235b4d2611184",
+            received_at: "2026-08-14T06:00:00Z",
+            due_at: "2026-11-12T06:00:00Z",
+            status: "open",
+            outcome: null,
+            closed_at: null,
+            deletion_request_id: null,
+            days_left: 9,
+            due_soon: true,
+            overdue: false,
+          },
+          {
+            id: "0192f0aa-5555-7000-8000-0000000000a2",
+            kind: "access",
+            channel: "phone",
+            subject_ref: "c1946ac92492d2347c6235b4d2611184",
+            received_at: "2026-10-14T06:00:00Z",
+            due_at: "2027-01-12T06:00:00Z",
+            status: "open",
+            outcome: null,
+            closed_at: null,
+            deletion_request_id: null,
+            days_left: 70,
+            due_soon: false,
+            overdue: false,
+          },
+        ],
+        open: 2,
+        due_soon: 1,
+        overdue: 0,
+        response_days: 90,
+        reminder_days: 14,
+      },
       "/v1/compliance/deletion-requests?limit=100": [
         {
           request_id: "0192f0aa-4444-7000-8000-0000000000ab",
@@ -3300,7 +3341,19 @@ const CLIENT_SCREENS: Screen[] = [
         notice_markdown:
           "# Privacy notice\n\nWhen you call us, an AI assistant answers.\n",
       },
+      "/v1/compliance/caller-notice/short?language=en": {
+        language: "en",
+        disclaimer: "DRAFT — not legal advice.",
+        notice_markdown: "# Your information when you call us\n\nTo ask: {{YOUR CONTACT}}\n",
+      },
     },
+  },
+  {
+    /** Static: every step, its "Why?" and its button render from constants. */
+    file: "c/[slug]/breach-playbook/page.tsx",
+    realm: "client",
+    element: () => <BreachPlaybookPage />,
+    routes: { "/v1/me": ME },
   },
   {
     file: "c/[slug]/do-not-call/page.tsx",

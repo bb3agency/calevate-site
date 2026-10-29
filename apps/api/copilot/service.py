@@ -1074,6 +1074,8 @@ def realm_read_tools(realm: CopilotRealm) -> tuple[tools_module.ReadTool, ...]:
         *diagnostics.DIAGNOSE_READS,
         *coverage_actions.COVERAGE_READS,
         *charts_module.CHART_READS,
+        # D-943: appended, so every earlier tool keeps its place in the cached prefix.
+        *console_reads.PROMO_READS,
     )
 
 

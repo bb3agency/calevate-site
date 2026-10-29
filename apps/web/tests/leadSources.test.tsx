@@ -125,6 +125,7 @@ function leadSource(over: Partial<LeadSource> = {}): LeadSource {
     mapping: { phone: "phone_number" },
     secret_fingerprint: "a1b2c3d4",
     previous_secret_expires_at: null,
+    consent_basis: "inquiry",
     created_at: "2026-08-01T09:00:00Z",
     updated_at: "2026-08-01T09:00:00Z",
     ...over,

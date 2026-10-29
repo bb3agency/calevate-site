@@ -173,6 +173,7 @@ TABLE_TOPICS: Final[dict[str, Topic]] = {
     "business_copies": "account",
     "legal_acceptances": "account",
     "deletion_requests": "account",
+    "data_rights_requests": "account",
     "tenant_erasure_requests": "account",
     "processor_erasure_tasks": "account",
     "recording_erasure_holds": "account",

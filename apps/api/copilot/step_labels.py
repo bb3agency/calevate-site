@@ -56,7 +56,9 @@ STEP_LABELS: Final[dict[str, StepLabel]] = {
     "voices_offered": _l("Checking the voices", "Checked the voices"),
     "agent_settings": _l("Reading the agent's set-up", "Read the agent's set-up"),
     "agent_known_facts": _l("Checking what it knows by heart", "Checked what it knows by heart"),
-    # D-935: troubleshoot mode.
+    "script_promo_check": _l(
+        "Checking the script for offers", "Checked the script for offers"
+    ),  # D-935: troubleshoot mode.
     "agent_diagnose": _l("Checking why the agent did not answer", "Checked the agent"),
     "call_diagnose": _l("Checking why the call failed", "Checked the call"),
     "campaign_diagnose": _l("Checking why the campaign is not calling", "Checked the campaign"),

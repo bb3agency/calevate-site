@@ -32,11 +32,13 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance.caller_notice import DRAFT_WARNING, build_caller_notice
+from apps.api.compliance.privacy_notice import DISCLAIMER as SHORT_DISCLAIMER
+from apps.api.compliance.privacy_notice import NoticeLanguage, build_short_notice
 from apps.api.core.auth import requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
@@ -118,4 +120,37 @@ async def read_caller_notice(session: Session, principal: NoticeReader) -> Calle
         recording_notice_off=draft.recording_notice_off,
         open_questions=draft.open_questions,
         notice_markdown=draft.markdown,
+    )
+
+
+class ShortNoticeOut(BaseModel):
+    """The short notice in one language (D-943). Same blanks as the full draft."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    language: NoticeLanguage
+    disclaimer: str
+    notice_markdown: str
+
+
+@router.get(
+    "/short",
+    response_model=ShortNoticeOut,
+    openapi_extra=permission_meta("org:read"),
+    summary="The short privacy notice for your callers, in English, Telugu or Hindi",
+    description=(
+        "A one-page notice built from the same settings as the full draft, to put on your "
+        "website or send to a customer. The Telugu and Hindi are machine-drafted; have them "
+        "checked. Not legal advice."
+    ),
+)
+async def read_short_notice(
+    session: Session,
+    principal: NoticeReader,
+    language: Annotated[NoticeLanguage, Query()] = "en",
+) -> ShortNoticeOut:
+    assert principal.tenant_id is not None
+    body = await build_short_notice(session, tenant_id=principal.tenant_id, language=language)
+    return ShortNoticeOut(
+        language=language, disclaimer=SHORT_DISCLAIMER[language], notice_markdown=body
     )

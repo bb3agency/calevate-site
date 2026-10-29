@@ -210,6 +210,22 @@ export function useSetLeadSourceMapping(session: Session) {
   });
 }
 
+/**
+ * `PUT /v1/lead-sources/{id}/consent-basis` (D-943) — whether the form is an enquiry
+ * (calls allowed for 7 days after it) or an application (3 months).
+ */
+export function useSetLeadSourceConsentBasis(session: Session) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ webhookId, consentBasis }: { webhookId: string; consentBasis: "inquiry" | "application" }) =>
+      apiRequest<Schemas["LeadSourceConsentBasisOut"]>(session, `/v1/lead-sources/${webhookId}/consent-basis`, {
+        method: "PUT",
+        body: { consent_basis: consentBasis },
+      }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: listKey(session) }),
+  });
+}
+
 export function useSetLeadSourceActive(session: Session) {
   const client = useQueryClient();
   return useMutation({

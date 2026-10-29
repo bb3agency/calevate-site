@@ -217,6 +217,45 @@ CALLBACK_CONSENT_WITHDRAWN_REASON = (
 #: Applied only where we witnessed the inquiry; a consent a client asserts from before it
 #: reached us is gate 60's open question, not this window.
 INQUIRY_CONSENT_WINDOW_DAYS = 7
+#: How long a consent recorded from an APPLICATION authorises calls (D-943): TCCCPR Third
+#: Amendment 2026 (05 of 2026, 18 Sep 2026) cl.2(bb)(iii), "an application by the recipient
+#: within the preceding three months" — official text as read from the TRAI PDF in
+#: `docs/research/research_notes/Calevate market and technology edge/india_regulation.md` §1
+#: (30 Oct 2026). Calendar months, not 90 days: the regulation says months.
+APPLICATION_CONSENT_WINDOW_MONTHS = 3
+#: What a lead source's submissions ARE, declared by the client per source (D-943). An
+#: `inquiry` is a question about the business; an `application` is the person asking to
+#: become a customer — an admission, loan, membership or job application form. The basis
+#: picks the window above, and nothing else.
+LEAD_CONSENT_BASES = ("inquiry", "application")
+#: After a person says no, or takes back a yes, the business may not ask them again for
+#: this long (D-943): TCCCPR Second Amendment 2025 (1 of 2025) Schedule I item 2(2)(g),
+#: re-acquisition "only after 90 days" — official text, same research note §1.
+RECONSENT_LOCKOUT_DAYS = 90
+#: How long a business has to answer a data principal's rights request (D-943): DPDP Rules
+#: 2025, 90 days — official, PIB backgrounder of 17 Nov 2025 as read in the same note §3.
+#: The fiduciary duties commence about 13 May 2027 (SECONDARY; a proposed 12-month
+#: compression would make it 13 Nov 2026 and is UNKNOWN as of 30 Oct 2026).
+RIGHTS_RESPONSE_DAYS = 90
+#: When an open request starts appearing in the client's attention queue and the
+#: operators' alarm: ours, not the law's — two weeks to act before the deadline.
+RIGHTS_REMINDER_DAYS = 14
+#: The rights a data principal may exercise under DPDP §11-§14 that a client logs here.
+RIGHTS_REQUEST_KINDS = ("access", "correction", "erasure", "nomination", "grievance")
+#: How the request reached the business.
+RIGHTS_REQUEST_CHANNELS = ("phone", "email", "whatsapp", "letter", "in_person", "other")
+RIGHTS_REQUEST_STATUSES = ("open", "answered", "refused")
+#: What answering it consisted of. `exported`/`erased` are the platform's own machinery
+#: (`compliance/export.py`, `compliance/deletion.py`); the rest the business did itself.
+RIGHTS_REQUEST_OUTCOMES = (
+    "exported",
+    "erased",
+    "corrected",
+    "nominated",
+    "explained",
+    "identity_not_confirmed",
+    "not_held",
+)
 # The categories a tenant may set a retention period for. Mirrors
 # `ck_retention_policies_category_enum` — the CHECK is the source of truth and this
 # tuple must not drift from it (DATA-MODEL §9, §10).
@@ -1536,3 +1575,62 @@ class AutodialerNotice(PKMixin, Base):
         ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+
+class DataRightsRequest(PKMixin, TimestampMixin, Base):
+    """One rights request a client's customer made of the client (D-943, DPDP §11-§14).
+
+    The client is the Data Fiduciary; this is their desk. The 90-day clock
+    (`RIGHTS_RESPONSE_DAYS`) runs from when the PERSON asked, which can be before anyone
+    logged it, so `received_at` is entered and `due_at` is fixed from it by a CHECK.
+
+    The person is named only by `subject_ref` — `compliance.export.subject_ref`, the handle
+    the erasure register and the subject export already share — so the desk never holds a
+    number. Answering an access or erasure request asks for the number again, on the export
+    and erasure forms, which is what turns the handle back into a person.
+
+    NOT append-only: a request is opened, then answered or refused once, by a CAS on
+    `status`; each change also writes an `audit_log` row, which is the record.
+    """
+
+    __tablename__ = "data_rights_requests"
+    __table_args__ = (
+        CheckConstraint(f"kind IN {RIGHTS_REQUEST_KINDS!r}", name="kind_enum"),
+        CheckConstraint(f"channel IN {RIGHTS_REQUEST_CHANNELS!r}", name="channel_enum"),
+        CheckConstraint(f"status IN {RIGHTS_REQUEST_STATUSES!r}", name="status_enum"),
+        CheckConstraint(
+            f"outcome IS NULL OR outcome IN {RIGHTS_REQUEST_OUTCOMES!r}", name="outcome_enum"
+        ),
+        CheckConstraint(
+            f"due_at = received_at + interval '{RIGHTS_RESPONSE_DAYS} days'",
+            name="due_after_response_days",
+        ),
+        CheckConstraint(
+            "((status = 'open') = (closed_at IS NULL)) AND ((status = 'open') = (outcome IS NULL))",
+            name="closed_is_complete",
+        ),
+        CheckConstraint("subject_ref ~ '^[0-9a-f]{32}$'", name="subject_ref_shape"),
+        Index(
+            "ix_data_rights_requests_open_due",
+            "tenant_id",
+            "due_at",
+            postgresql_where=text("status = 'open'"),
+        ),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    channel: Mapped[str] = mapped_column(String(16), nullable=False)
+    subject_ref: Mapped[str] = mapped_column(Text, nullable=False)
+    received_at: Mapped[datetime] = mapped_column(nullable=False)
+    due_at: Mapped[datetime] = mapped_column(nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, server_default="open")
+    outcome: Mapped[str | None] = mapped_column(String(32))
+    closed_at: Mapped[datetime | None]
+    deletion_request_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("deletion_requests.id", ondelete="SET NULL")
+    )
+    created_by: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    closed_by: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))

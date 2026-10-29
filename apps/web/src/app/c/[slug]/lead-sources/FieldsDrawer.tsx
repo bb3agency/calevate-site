@@ -7,7 +7,11 @@ import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { Drawer } from "@/components/console/drawer";
 import { FIELD_HINT, FIELD_LABEL, ProblemNotice, SECONDARY_BUTTON } from "@/components/ui";
 import type { Session } from "@/lib/api/client";
-import { useSetLeadSourceMapping, type LeadSource } from "@/lib/api/leadSources";
+import {
+  useSetLeadSourceConsentBasis,
+  useSetLeadSourceMapping,
+  type LeadSource,
+} from "@/lib/api/leadSources";
 
 import { rowName } from "./SourcesList";
 import { FIELD, QUIET_BUTTON } from "./styles";
@@ -44,7 +48,11 @@ export function FieldsDrawer({
 }) {
   const ids = useId();
   const save = useSetLeadSourceMapping(session);
+  const saveBasis = useSetLeadSourceConsentBasis(session);
+  useActionFeedback(saveBasis, { errorDisplay: "inline" });
   const feedback = useActionFeedback(save, { errorDisplay: "inline", successToast: "Saved" });
+  const savedBasis = source.consent_basis === "application" ? "application" : "inquiry";
+  const [basis, setBasis] = useState<"inquiry" | "application">(savedBasis);
   const current = source.mapping ?? {};
   const [phone, setPhone] = useState(current.phone ?? current.phone_number ?? "");
   const [name, setName] = useState(current.name ?? "");
@@ -109,7 +117,17 @@ export function FieldsDrawer({
             disabled={missingPhone || half}
             pendingLabel="Saving…"
             successLabel="Saved"
-            onClick={() => save.mutate({ webhookId: source.id, mapping }, { onSuccess: onClose })}
+            onClick={() =>
+              save.mutate(
+                { webhookId: source.id, mapping },
+                {
+                  onSuccess: () =>
+                    basis === savedBasis
+                      ? onClose()
+                      : saveBasis.mutate({ webhookId: source.id, consentBasis: basis }, { onSuccess: onClose }),
+                },
+              )
+            }
           >
             Save
           </ActionButton>
@@ -118,6 +136,7 @@ export function FieldsDrawer({
     >
       <div className="space-y-4">
         {save.error && <ProblemNotice error={save.error} />}
+        {saveBasis.error && <ProblemNotice error={saveBasis.error} />}
         <p className="text-meta text-ink-muted">Your form&apos;s name for each field. Empty uses ours.</p>
         {field("Phone", phone, setPhone, "Needed whenever you name any field here.", "phone_number")}
         {missingPhone && (
@@ -133,6 +152,30 @@ export function FieldsDrawer({
           "Optional. Leads who don't agree aren't called.",
           "consent_to_call",
         )}
+        <fieldset className="space-y-1">
+          <legend className={FIELD_LABEL}>What this form is</legend>
+          {(
+            [
+              ["inquiry", "A question about you", "We may call for 7 days after it."],
+              ["application", "An application (admission, loan, membership, job)", "We may call for 3 months after it."],
+            ] as const
+          ).map(([value, label, hint]) => (
+            <label key={value} className="flex items-start gap-2 text-body text-ink">
+              <input
+                type="radio"
+                name={`${ids}-basis`}
+                value={value}
+                checked={basis === value}
+                onChange={() => setBasis(value)}
+                className="mt-1"
+              />
+              <span>
+                {label}
+                <span className={FIELD_HINT}>{hint}</span>
+              </span>
+            </label>
+          ))}
+        </fieldset>
 
         <fieldset className="space-y-2">
           <legend className={FIELD_LABEL}>Other details</legend>

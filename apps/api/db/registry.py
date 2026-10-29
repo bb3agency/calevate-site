@@ -318,6 +318,11 @@ TENANT_TABLES = [
     # exists to avoid.
     "retention_worklist",
     "deletion_requests",
+    # The client's rights desk (D-943, migration f2a9c4e7d613): its customers' DPDP
+    # requests and the 90-day clock on each, named by `subject_ref` only. NOT append-only:
+    # opened, then answered or refused once; each step is an `audit_log` row. DELETEd by
+    # tenant erasure.
+    "data_rights_requests",
     # The END of an engagement, executed and certified (migration f3a71c9e26b4): the
     # request that erases one client's caller data and is the only thing in this product
     # that writes `organizations.deleted_at`. Tenant data — it names one client and

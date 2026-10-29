@@ -4,9 +4,12 @@ import { CheckCircle2 } from "lucide-react";
 
 import type { ActionFeedback } from "@/components/arc/feedback";
 import { Checklist, type ChecklistItem } from "@/components/console/checklist";
+import { AskAssistant } from "@/components/copilot/AskAssistant";
+import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { Section } from "@/components/console/section";
 import { PRIMARY_BUTTON, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton } from "@/components/ui";
 import { type useCampaignProgress, type useLaunchCheck } from "@/lib/api/campaigns";
+import { useCampaignPurpose } from "@/lib/api/compliancePack";
 import { useClientRealm } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
 
@@ -19,6 +22,7 @@ import {
   PROVENANCE_RULES,
   blockerDestination,
   blockerInPage,
+  rewritePrompt,
 } from "./blockerCopy";
 
 /**
@@ -57,7 +61,9 @@ export function LaunchGate({
   /** Opens the add-people panel on this page. */
   onAddPeople: () => void;
 }) {
-  const { href } = useClientRealm();
+  const { href, session } = useClientRealm();
+  // What kind of call the client's choices make this (D-943): said, never blocking by itself.
+  const purpose = useCampaignPurpose(session, campaignId);
 
   // A scheduled campaign has not launched either; the same gate runs when it fires.
   if (status !== "draft" && status !== "scheduled") return null;
@@ -86,7 +92,16 @@ export function LaunchGate({
         <button type="button" className={SECONDARY_BUTTON_SM} onClick={jumpToListSource}>
           {blocker.rule === "consent_source_refused" ? "Correct answer" : "Answer"}
         </button>
+      ) : inPage === "rewrite" ? (
+        <AskAssistant
+          label={`Ask ${ASSISTANT_NAME} to rewrite it`}
+          prompt={rewritePrompt(progress.data?.agent_name ?? "this campaign's agent")}
+        />
       ) : undefined;
+    const link =
+      blocker.rule === "script_promotional" && progress.data?.agent_id
+        ? { href: at(`/agents/${progress.data.agent_id}`), label: "Open the agent" }
+        : blockerDestination(blocker.rule, at, campaignId);
     const detail =
       note?.owner || note?.why ? (
         <>
@@ -100,7 +115,7 @@ export function LaunchGate({
       // A rule we chase is a wait, not a task; the line under it says whose desk it is on.
       state: note?.owner === "calevate" ? "waiting" : "todo",
       detail,
-      link: blockerDestination(blocker.rule, at, campaignId),
+      link,
       action,
     };
   });
@@ -108,6 +123,12 @@ export function LaunchGate({
 
   return (
     <Section title={status === "scheduled" ? "Before it starts" : "Before you launch"}>
+      {purpose.data && purpose.data.purpose.purpose !== "unclear" && (
+        <p className="mb-3 text-meta text-ink-muted">
+          Call type: {purpose.data.purpose.label}
+          {purpose.data.purpose.window ? ` (permission lasts ${purpose.data.purpose.window})` : ""}
+        </p>
+      )}
       {check.isLoading ? (
         <Skeleton rows={3} />
       ) : check.error || !check.data ? (
