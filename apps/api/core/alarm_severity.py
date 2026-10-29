@@ -167,6 +167,8 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # woken, and the operator sees it on the board next time they look, which is the
     # right latency for "a capability is off" — it was already off yesterday.
     "kb_detach_failed": "attention",
+    # A client's knowledge upload has failed to publish for hours and is still being retried.
+    "kb_ingest_stuck": "attention",
     "engine_capability_absent": "attention",
     "engine_not_configured": "attention",
     # A number cannot be sold until an operator attests its monthly price (hard rule 7),
