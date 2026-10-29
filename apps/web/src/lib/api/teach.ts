@@ -115,7 +115,7 @@ export function useOpenTeaching(session: Session): UseQueryResult<Teaching | nul
   return useQuery({
     queryKey: openTeachingKey(session.orgSlug),
     queryFn: async () =>
-      (await apiRequest<{ teaching: Teaching | null }>(session, "/v1/kb/teach/open")).teaching,
+      (await apiRequest<Schemas["OpenTeachingOut"]>(session, "/v1/kb/teach/open")).teaching,
     refetchInterval: (query) => (isTeachingBusy(query.state.data?.status) ? 1_500 : false),
   });
 }

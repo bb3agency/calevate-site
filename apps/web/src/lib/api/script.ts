@@ -143,6 +143,15 @@ export interface CallScript {
   adherence?: "flexible" | "strict";
 }
 
+/**
+ * A response model from the schema with its script fields read as `CallScript`. The
+ * generated `CallScript` is the request-side shape (every defaulted field optional), while a
+ * script the server sends back always carries them; the envelope stays the schema's.
+ */
+type WithCallScripts<T, K extends keyof T> = Omit<T, K> & {
+  [P in K]: null extends T[P] ? CallScript | null : CallScript;
+};
+
 /** The empty structured script a brand-new agent opens on. */
 export const EMPTY_SCRIPT: CallScript = {
   opening_line: "",
@@ -441,15 +450,17 @@ export function usePublishScript(
   });
 }
 
+export type OpeningRewritten = components["schemas"]["OpeningRewrittenOut"];
+
 /** The ready-made opening line in the agent's main language, put into the script draft. */
 export function useRewriteOpeningInLanguage(
   session: Session,
   agentId: string,
-): UseMutationResult<{ opening_line: string; saved_at: string }, Error, void> {
+): UseMutationResult<OpeningRewritten, Error, void> {
   const client = useQueryClient();
   return useMutation({
     mutationFn: () =>
-      apiRequest<{ opening_line: string; saved_at: string }>(
+      apiRequest<OpeningRewritten>(
         session,
         `${base(agentId)}/opening-line/in-language`,
         { method: "POST" },
@@ -502,15 +513,17 @@ export function useScriptVersions(
   });
 }
 
+export type RestoredDraft = WithCallScripts<components["schemas"]["DraftOut"], "script">;
+
 /** Copy an earlier entry into the draft; callers keep the live one. */
 export function useRestoreVersion(
   session: Session,
   agentId: string,
-): UseMutationResult<{ script: CallScript; saved_at: string }, Error, number> {
+): UseMutationResult<RestoredDraft, Error, number> {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (version: number) =>
-      apiRequest<{ script: CallScript; saved_at: string }>(
+      apiRequest<RestoredDraft>(
         session,
         `${base(agentId)}/versions/${version}/restore`,
         { method: "POST" },
@@ -521,26 +534,13 @@ export function useRestoreVersion(
 
 // --- the suggestion Pip prepared (D-820) --------------------------------------------------
 
-/** Mirrors `ScriptProposalOut`. */
-export interface ScriptProposal {
-  id: string;
-  /**
-   * `change` (one change), `whole` (from the owner's answers), `steps` (from hand-writing),
-   * `knowledge` (files added to the knowledge, worked into the current script, D-923).
-   */
-  mode: "change" | "whole" | "steps" | "knowledge";
-  /** The files a `knowledge` suggestion was written from, by name. */
-  documents: string[];
-  status: "drafting" | "ready" | "failed";
-  request: string | null;
-  /** What it was made from: list the changes against this, apply them to the working copy. */
-  base_script: CallScript;
-  script: CallScript | null;
-  unplaced: string[];
-  disclosure: string | null;
-  note: string | null;
-  requested_at: string;
-}
+/**
+ * The suggestion Pip prepared. `mode`: `change` (one change), `whole` (from the owner's
+ * answers), `steps` (from hand-writing), `knowledge` (files worked into the script, D-923).
+ * `base_script` is what it was made from: changes are listed against it.
+ */
+export type ScriptProposal = WithCallScripts<components["schemas"]["ScriptProposalOut"], "base_script" | "script">;
+type PendingProposal = { proposal: ScriptProposal | null } & Omit<components["schemas"]["PendingProposalOut"], "proposal">;
 
 export const proposalKey = (org: string, agentId: string) => ["script-proposal", org, agentId] as const;
 
@@ -552,7 +552,7 @@ export function useScriptProposal(
   return useQuery({
     queryKey: proposalKey(session.orgSlug, agentId),
     queryFn: async () =>
-      (await apiRequest<{ proposal: ScriptProposal | null }>(session, `${base(agentId)}/proposal`)).proposal,
+      (await apiRequest<PendingProposal>(session, `${base(agentId)}/proposal`)).proposal,
     refetchInterval: (query) => (query.state.data?.status === "drafting" ? 3000 : false),
   });
 }

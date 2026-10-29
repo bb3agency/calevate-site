@@ -38,6 +38,25 @@ export const isPushSource = (source: string): source is PushSource =>
 /** Portals whose push an account manager switches on, rather than a screen the client uses. */
 export const ACCOUNT_MANAGER_PORTALS: readonly string[] = ["99acres", "magicbricks", "housing"];
 
+/**
+ * Senders whose payload shape is the vendor's own documented, fixed one: the preset reads it
+ * and there are no field names to change. The account-manager portals are not among them —
+ * their preset is the list we publish and ask the manager to send (OPERATIONS gate A-14), so
+ * a manager who sends other names is the case their editor stays for.
+ */
+export const FIXED_FIELD_SOURCES: readonly string[] = ["indiamart", "leadsquared"];
+
+export const hasFixedFields = (source: string): boolean => FIXED_FIELD_SOURCES.includes(source);
+
+/** The row menu's words for the drawer that holds the field names (and what the form is). */
+export function fieldsMenuLabel(source: string): string {
+  if (hasFixedFields(source)) return "What these leads are";
+  if (ACCOUNT_MANAGER_PORTALS.includes(source)) {
+    return "Adjust field names (if your manager sends others)";
+  }
+  return "Change field names";
+}
+
 export const sourceLabel = (source: string) => lookup(SOURCE_LABELS, source) ?? source;
 
 /** The one kind with its own receiver, its own secret and its own setup. */

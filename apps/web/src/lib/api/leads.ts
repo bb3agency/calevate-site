@@ -466,7 +466,7 @@ export function useSavedViews(session: Session): UseQueryResult<SavedView[]> {
   return useQuery({
     queryKey: ["lead-views", session.orgSlug],
     queryFn: async () =>
-      (await apiRequest<{ items: SavedView[] }>(session, "/v1/leads/views")).items,
+      (await apiRequest<Schemas["SavedViewListOut"]>(session, "/v1/leads/views")).items,
   });
 }
 

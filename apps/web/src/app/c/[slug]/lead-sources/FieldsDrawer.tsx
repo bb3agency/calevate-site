@@ -14,6 +14,7 @@ import {
 } from "@/lib/api/leadSources";
 
 import { rowName } from "./SourcesList";
+import { hasFixedFields } from "./sourceKinds";
 import { FIELD, QUIET_BUTTON } from "./styles";
 
 /** Our three named fields; every other mapping entry is a detail the form sends. */
@@ -49,7 +50,7 @@ export function FieldsDrawer({
   const ids = useId();
   const save = useSetLeadSourceMapping(session);
   const saveBasis = useSetLeadSourceConsentBasis(session);
-  useActionFeedback(saveBasis, { errorDisplay: "inline" });
+  const basisFeedback = useActionFeedback(saveBasis, { errorDisplay: "inline" });
   const feedback = useActionFeedback(save, { errorDisplay: "inline", successToast: "Saved" });
   const savedBasis = source.consent_basis === "application" ? "application" : "inquiry";
   const [basis, setBasis] = useState<"inquiry" | "application">(savedBasis);
@@ -71,9 +72,16 @@ export function FieldsDrawer({
   for (const extra of extras) {
     if (extra.ours.trim() && extra.theirs.trim()) mapping[extra.ours.trim()] = extra.theirs.trim();
   }
+  // A sender with a fixed, documented payload keeps its preset: only what the leads are is
+  // chosen here, and the mapping is never written.
+  const fixed = hasFixedFields(source.source);
   const named = Object.keys(mapping).length > 0;
-  const missingPhone = named && !mapping.phone;
-  const half = extras.some((e) => Boolean(e.ours.trim()) !== Boolean(e.theirs.trim()));
+  const missingPhone = !fixed && named && !mapping.phone;
+  const half = !fixed && extras.some((e) => Boolean(e.ours.trim()) !== Boolean(e.theirs.trim()));
+  const saveBasisThenClose = () =>
+    basis === savedBasis
+      ? onClose()
+      : saveBasis.mutate({ webhookId: source.id, consentBasis: basis }, { onSuccess: onClose });
 
   const field = (label: string, value: string, onChange: (next: string) => void, hint: string, placeholder: string) => {
     const id = `${ids}-${label}`;
@@ -104,7 +112,7 @@ export function FieldsDrawer({
     <Drawer
       open
       onClose={onClose}
-      title="Fields your form sends"
+      title={fixed ? "What these leads are" : "Fields your form sends"}
       description={rowName(source)}
       footer={
         <>
@@ -113,20 +121,14 @@ export function FieldsDrawer({
           </button>
           <ActionButton
             type="button"
-            status={feedback.status}
+            status={fixed ? basisFeedback.status : feedback.status}
             disabled={missingPhone || half}
             pendingLabel="Saving…"
             successLabel="Saved"
             onClick={() =>
-              save.mutate(
-                { webhookId: source.id, mapping },
-                {
-                  onSuccess: () =>
-                    basis === savedBasis
-                      ? onClose()
-                      : saveBasis.mutate({ webhookId: source.id, consentBasis: basis }, { onSuccess: onClose }),
-                },
-              )
+              fixed
+                ? saveBasisThenClose()
+                : save.mutate({ webhookId: source.id, mapping }, { onSuccess: saveBasisThenClose })
             }
           >
             Save
@@ -137,20 +139,26 @@ export function FieldsDrawer({
       <div className="space-y-4">
         {save.error && <ProblemNotice error={save.error} />}
         {saveBasis.error && <ProblemNotice error={saveBasis.error} />}
-        <p className="text-meta text-ink-muted">Your form&apos;s name for each field. Empty uses ours.</p>
-        {field("Phone", phone, setPhone, "Needed whenever you name any field here.", "phone_number")}
-        {missingPhone && (
-          <p role="alert" className="-mt-2 text-meta text-danger">
-            Name the phone field too, or leads are turned away.
-          </p>
-        )}
-        {field("Name", name, setName, "The person's name.", "full_name")}
-        {field(
-          "Permission to call",
-          consent,
-          setConsent,
-          "Optional. Leads who don't agree aren't called.",
-          "consent_to_call",
+        {fixed ? (
+          <p className="text-body text-ink">Fields are read automatically.</p>
+        ) : (
+          <>
+            <p className="text-meta text-ink-muted">Your form&apos;s name for each field. Empty uses ours.</p>
+            {field("Phone", phone, setPhone, "Needed whenever you name any field here.", "phone_number")}
+            {missingPhone && (
+              <p role="alert" className="-mt-2 text-meta text-danger">
+                Name the phone field too, or leads are turned away.
+              </p>
+            )}
+            {field("Name", name, setName, "The person's name.", "full_name")}
+            {field(
+              "Permission to call",
+              consent,
+              setConsent,
+              "Optional. Leads who don't agree aren't called.",
+              "consent_to_call",
+            )}
+          </>
         )}
         <fieldset className="space-y-1">
           <legend className={FIELD_LABEL}>What this form is</legend>
@@ -177,6 +185,7 @@ export function FieldsDrawer({
           ))}
         </fieldset>
 
+        {fixed ? null : (
         <fieldset className="space-y-2">
           <legend className={FIELD_LABEL}>Other details</legend>
           {extras.length === 0 && (
@@ -246,6 +255,7 @@ export function FieldsDrawer({
             </button>
           )}
         </fieldset>
+        )}
       </div>
     </Drawer>
   );

@@ -20,7 +20,7 @@ import type { Agent } from "@/lib/api/agents";
 import { API_BASE } from "@/lib/api/client";
 import type { IngestActivity, LeadSource, useLeadSources } from "@/lib/api/leadSources";
 
-import { META_SOURCE, isPushSource, sourceLabel, sourceLogo } from "./sourceKinds";
+import { META_SOURCE, fieldsMenuLabel, isPushSource, sourceLabel, sourceLogo } from "./sourceKinds";
 
 /** One row's name, everywhere it is spoken: the kind plus the last eight characters of its id (uuid7 ids share their leading, time-ordered half). */
 export function rowName(source: LeadSource): string {
@@ -171,7 +171,7 @@ export function SourcesList({
           },
           {
             id: "fields",
-            label: "Change field names",
+            label: fieldsMenuLabel(row.source),
             onSelect: () => onFields(row),
             disabled: !canWrite,
           },

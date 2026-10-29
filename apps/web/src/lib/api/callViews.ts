@@ -30,7 +30,7 @@ export function useCallViews(session: Session): UseQueryResult<CallView[]> {
   return useQuery({
     queryKey: callViewsKey(session),
     queryFn: async () =>
-      (await apiRequest<{ items: CallView[] }>(session, "/v1/calls/views")).items,
+      (await apiRequest<Schemas["CallSavedViewListOut"]>(session, "/v1/calls/views")).items,
   });
 }
 
