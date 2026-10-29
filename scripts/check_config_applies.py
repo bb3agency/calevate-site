@@ -106,6 +106,10 @@ def _unbounded_reason(field: str) -> str | None:
         # version bump.
         if "maxLength" in schema:
             return None
+        # A `date` validates only as an ISO calendar day, which bounds it as tightly as a
+        # maxLength would; `date-time` is not listed because it admits arbitrary offsets.
+        if schema.get("format") == "date":
+            return None
         return "a string with no maxLength — one value would be replicated to every process"
     # FAIL CLOSED on a shape this guard does not recognise. A field whose type it cannot
     # read is a field whose bounds it cannot verify, and "I could not check" must not be
