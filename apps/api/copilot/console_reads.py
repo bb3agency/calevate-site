@@ -753,7 +753,11 @@ async def _integrations_status(
     )
     lines.append(
         "A new source's address and secret, and a new endpoint's secret, are shown once to "
-        "the person who confirms; Meta Lead Ads is set up on the Lead sources screen."
+        "the person who confirms; Meta Lead Ads is set up on the Lead sources screen. "
+        "IndiaMART, 99acres, MagicBricks, Housing.com and LeadSquared get one address with "
+        "the secret in it: pasted into IndiaMART's Lead Manager or a LeadSquared webhook, "
+        "or sent to the portal's account manager. LeadSquared as a destination for leads "
+        "and call results is added on the Integrations screen."
     )
     return "\n".join(lines)
 

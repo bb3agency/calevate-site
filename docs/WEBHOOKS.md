@@ -441,7 +441,39 @@ path a live delivery takes, compliance gate included. It answers counts:
 `candidates`, `accepted`, `duplicate`, `refused`, `deferred` — where `deferred` means we
 could not reach Meta just now and those leads are still waiting, so press it again.
 
-### 2.7 Dry-run tester
+### 2.7 IndiaMART, property portals and LeadSquared (push addresses)
+
+These senders post to an address and cannot add a header, so their source (kinds
+`indiamart`, `99acres`, `magicbricks`, `housing`, `leadsquared`) gets ONE address with the
+secret in it, shown once when the source is created (or when a new one is issued):
+
+```
+POST /hooks/v1/ingest/push/{webhook_id}?token=<secret>
+```
+
+- **Body**: JSON or `application/x-www-form-urlencoded`. IndiaMART's envelope
+  (`RESPONSE`) and LeadSquared's (`Current`, else `After`) are unwrapped for you. The
+  `X-Ingest-Secret` header is accepted as well as the `token`.
+- **Fields**: each kind starts on a preset mapping (IndiaMART's `SENDER_MOBILE`,
+  `SENDER_NAME`, `QUERY_MESSAGE`, …; LeadSquared's `Phone`, `FirstName`, `DoNotCall`, …).
+  99acres, MagicBricks and Housing.com publish no format, so ask the account manager to
+  send `name`, `phone`, `email`, `city`, `project`, `message` and `lead_id`, or change the
+  mapping to what they send.
+- **Answer**: always `200` with counts (`received`, `accepted`, `duplicate`, `refused`)
+  once the token is right, including for leads we cannot use, which appear in the delivery
+  log with the reason. IndiaMART switches a push off after 48 hours of other answers.
+- **Duplicates**: deduplicated on the sender's own id (`UNIQUE_QUERY_ID`, `ProspectID`,
+  `lead_id`), so a retry is one lead and one call.
+- **Calls**: a portal enquiry addressed to you is called and recorded as your permission
+  to call for seven days from the enquiry. A bought lead or catalogue view (IndiaMART
+  `QUERY_TYPE` `B`/`BIZ`), an enquiry more than seven days old, and a LeadSquared lead
+  marked Do Not Call are saved and not called.
+
+The other direction, writing leads and call results INTO LeadSquared, is a destination:
+`POST /v1/integrations/endpoints/leadsquared` with the API host, access key and secret key
+(sealed, never returned) and the events.
+
+### 2.8 Dry-run tester
 
 ```
 POST /v1/lead-sources/{webhook_id}/test

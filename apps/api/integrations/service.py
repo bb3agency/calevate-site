@@ -101,6 +101,7 @@ from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.core.spreadsheet_safety import disarm_for_sheets
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
+from apps.api.integrations import leadsquared
 from apps.api.integrations.egress_guard import (
     EgressRefusedError,
     assert_public_http_url,
@@ -168,13 +169,15 @@ RAW_TRANSCRIPT_INCLUDED_ACTION = "webhook.raw_transcript_included"
 # The endpoint kinds in `outbound_webhooks.kind`.
 WEBHOOK_KIND = "webhook"
 SHEET_KIND = "google_sheets"
+#: The client's own LeadSquared, written through Lead.Capture (D-942, `leadsquared.py`).
+LEADSQUARED_KIND = "leadsquared"
 
 # Kinds `enqueue_event` will fan out to. Deliberately NOT `models.OUTBOUND_KINDS`: that
 # tuple is the CHECK constraint — what may EXIST — and a kind added there must not start
 # queueing deliveries into a worker that has no branch for it. A kind joins this tuple
 # when it has a delivery path, and `tests/sheets_sync_test.py` asserts the two sets match
 # so the reverse (a kind a client can configure and nothing delivers) cannot come back.
-DELIVERABLE_KINDS: tuple[str, ...] = (WEBHOOK_KIND, SHEET_KIND)
+DELIVERABLE_KINDS: tuple[str, ...] = (WEBHOOK_KIND, SHEET_KIND, LEADSQUARED_KIND)
 
 
 def subscribed_endpoint_sql(alias: str) -> str:
@@ -825,6 +828,20 @@ async def read_endpoint_choices(session: AsyncSession, endpoint_id: UUID) -> End
     )
 
 
+def assert_leadsquared_events(events: Sequence[str]) -> None:
+    """A LeadSquared destination writes a lead and its call results, nothing else."""
+    unsupported = sorted(set(events) - set(leadsquared.EVENTS))
+    if unsupported:
+        raise ProblemError(
+            kind="validation",
+            code="leadsquared_event_unsupported",
+            title="LeadSquared cannot take that event",
+            detail="A LeadSquared destination takes leads and call results only: "
+            + ", ".join(unsupported),
+            remediation="Choose new leads, lead changes or call results.",
+        )
+
+
 async def update_endpoint(
     session: AsyncSession,
     *,
@@ -871,6 +888,8 @@ async def update_endpoint(
             "A Google Sheets destination writes rows; it cannot carry recordings or transcripts.",
             remediation="Change only the events for this destination.",
         )
+    if before.kind == LEADSQUARED_KIND:
+        assert_leadsquared_events(events)
     assert_raw_transcript_opt_in(
         include_transcript=include_transcript,
         include_raw_transcript=include_raw_transcript,

@@ -794,6 +794,9 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "POST /v1/integrations/endpoints/sheets": BoundedByConstruction(
         by="`events` of the ONE endpoint just created, a subset of `EVENT_TYPES`."
     ),
+    "POST /v1/integrations/endpoints/leadsquared": BoundedByConstruction(
+        by="`events` of the ONE endpoint just created, a subset of `leadsquared.EVENTS`."
+    ),
     "PATCH /v1/integrations/endpoints/{endpoint_id}": BoundedByConstruction(
         by="`events` of the ONE endpoint just edited, a subset of `EVENT_TYPES`."
     ),

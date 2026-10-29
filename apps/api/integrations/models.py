@@ -24,8 +24,20 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from apps.api.db.base import Base, PKMixin, TimestampMixin
 
-INBOUND_SOURCES = ("meta_lead_ads", "website_form", "zoho", "sheets", "custom")
-OUTBOUND_KINDS = ("webhook", "google_sheets")
+INBOUND_SOURCES = (
+    "meta_lead_ads",
+    "website_form",
+    "zoho",
+    "sheets",
+    "custom",
+    # D-942: senders that post to a URL and cannot set our header (`ingest/portals.py`).
+    "indiamart",
+    "99acres",
+    "magicbricks",
+    "housing",
+    "leadsquared",
+)
+OUTBOUND_KINDS = ("webhook", "google_sheets", "leadsquared")
 DELIVERY_DIRECTIONS = ("in", "out")
 
 

@@ -9,6 +9,8 @@ import type { Session } from "@/lib/api/client";
 import type { WriteAccess } from "@/lib/api/hooks";
 import {
   EVENT_LABELS,
+  LEADSQUARED_EVENTS,
+  LEADSQUARED_KIND,
   SHEET_KIND,
   useUpdateEndpoint,
   type Endpoint,
@@ -44,6 +46,9 @@ export function EditEndpointDrawer({
   const update = useUpdateEndpoint(session);
   const feedback = useActionFeedback(update, { errorDisplay: "inline", successToast: "Saved" });
   const sheet = endpoint.kind === SHEET_KIND;
+  const crm = endpoint.kind === LEADSQUARED_KIND;
+  // Only a signed webhook carries recordings and transcripts; a sheet and LeadSquared take events.
+  const eventsOnly = sheet || crm;
   const [events, setEvents] = useState<OutboundEvent[]>(
     endpoint.events.filter((name): name is OutboundEvent => hasKey(EVENT_LABELS, name)),
   );
@@ -54,13 +59,17 @@ export function EditEndpointDrawer({
   });
   // A sheet cannot carry the recording link, so the one event that exists to send it is
   // not offered for one.
-  const offered = sheet ? catalogue.filter((name) => name !== "call.recording_ready") : catalogue;
+  const offered = crm
+    ? catalogue.filter((name) => (LEADSQUARED_EVENTS as readonly string[]).includes(name))
+    : sheet
+      ? catalogue.filter((name) => name !== "call.recording_ready")
+      : catalogue;
 
   const save = () =>
     update.mutate(
       {
         endpointId: endpoint.id,
-        change: sheet
+        change: eventsOnly
           ? {
               events,
               include_recording_url: false,
@@ -98,7 +107,7 @@ export function EditEndpointDrawer({
     >
       <div className="space-y-4">
         <p className="text-body text-ink-muted">
-          {sheet ? "Your spreadsheet" : "Your system at"}{" "}
+          {sheet ? "Your spreadsheet" : crm ? "Your LeadSquared at" : "Your system at"}{" "}
           <span className="break-all font-mono text-ink">{endpoint.url}</span>
         </p>
         {update.error && <ProblemNotice error={update.error} />}
@@ -117,7 +126,7 @@ export function EditEndpointDrawer({
             Choose at least one, or stop this destination.
           </p>
         )}
-        {!sheet && (
+        {!eventsOnly && (
           <EndpointExtras
             events={events}
             extras={extras}

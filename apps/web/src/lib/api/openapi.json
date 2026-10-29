@@ -19003,7 +19003,12 @@
               "website_form",
               "zoho",
               "sheets",
-              "custom"
+              "custom",
+              "indiamart",
+              "99acres",
+              "magicbricks",
+              "housing",
+              "leadsquared"
             ],
             "title": "Source",
             "type": "string"
@@ -19013,6 +19018,69 @@
           "source"
         ],
         "title": "CreateLeadSourceIn",
+        "type": "object"
+      },
+      "CreateLeadSquaredEndpointIn": {
+        "additionalProperties": false,
+        "properties": {
+          "access_key": {
+            "maxLength": 200,
+            "minLength": 4,
+            "title": "Access Key",
+            "type": "string"
+          },
+          "api_host": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Api Host",
+            "type": "string"
+          },
+          "events": {
+            "items": {
+              "enum": [
+                "lead.created",
+                "lead.updated",
+                "call.completed",
+                "call.updated"
+              ],
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Events",
+            "type": "array"
+          },
+          "fields": {
+            "additionalProperties": {
+              "enum": [
+                "name",
+                "source",
+                "status",
+                "outcome",
+                "summary",
+                "duration_s",
+                "sentiment",
+                "business_outcome_label"
+              ],
+              "type": "string"
+            },
+            "maxProperties": 20,
+            "title": "Fields",
+            "type": "object"
+          },
+          "secret_key": {
+            "maxLength": 200,
+            "minLength": 4,
+            "title": "Secret Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "api_host",
+          "access_key",
+          "secret_key",
+          "events"
+        ],
+        "title": "CreateLeadSquaredEndpointIn",
         "type": "object"
       },
       "CreateOrgIn": {
@@ -32961,6 +33029,17 @@
             "title": "Ingest Path",
             "type": "string"
           },
+          "push_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Push Path"
+          },
           "secret": {
             "anyOf": [
               {
@@ -33213,6 +33292,52 @@
           "updated_at"
         ],
         "title": "LeadSourceOut",
+        "type": "object"
+      },
+      "LeadSquaredEndpointOut": {
+        "additionalProperties": false,
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "api_host": {
+            "title": "Api Host",
+            "type": "string"
+          },
+          "events": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "fields": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "object"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "api_host",
+          "events",
+          "fields",
+          "active"
+        ],
+        "title": "LeadSquaredEndpointOut",
         "type": "object"
       },
       "LeadSuggestionAnsweredOut": {
@@ -42165,6 +42290,36 @@
         "title": "PurchasedOwnNumberOut",
         "type": "object"
       },
+      "PushAckOut": {
+        "additionalProperties": false,
+        "description": "One push from a portal or a CRM, counted. Ids and counts only, never the lead.\n\nEvery outcome here is a 200, refusals included: IndiaMART retries a non-200 and turns\nthe push OFF after 48 hours of them, and a lead we cannot read or dial will not become\nreadable on retry. The refusal is recorded on the inbox row, where the delivery log\nshows it to the client.",
+        "properties": {
+          "accepted": {
+            "title": "Accepted",
+            "type": "integer"
+          },
+          "duplicate": {
+            "title": "Duplicate",
+            "type": "integer"
+          },
+          "received": {
+            "title": "Received",
+            "type": "integer"
+          },
+          "refused": {
+            "title": "Refused",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "received",
+          "accepted",
+          "duplicate",
+          "refused"
+        ],
+        "title": "PushAckOut",
+        "type": "object"
+      },
       "QaQueueClient": {
         "additionalProperties": false,
         "description": "One client with anything drawn, and where its queue stands \u2014 the client picker's\nrows and the group headers on the queue.",
@@ -45631,6 +45786,17 @@
               }
             ],
             "title": "Previous Secret Expires At"
+          },
+          "push_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Push Path"
           },
           "secret": {
             "anyOf": [
@@ -61999,6 +62165,46 @@
           }
         },
         "summary": "Meta Lead Ads leadgen notifications, X-Hub-Signature-256 verified (SURFACES \u00a72b)",
+        "tags": [
+          "lead-ingest"
+        ]
+      }
+    },
+    "/hooks/v1/ingest/push/{webhook_id}": {
+      "post": {
+        "description": "For senders that post to a URL and cannot add a header. The secret travels in the `token` query parameter of the address shown once when the source is created; the `X-Ingest-Secret` header is accepted too. Every verified push is answered 200, including the leads we could not use, which appear in the delivery log with the reason.",
+        "operationId": "ingest_push_hooks_v1_ingest_push__webhook_id__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "webhook_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Webhook Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushAckOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Lead push from IndiaMART, a property portal or LeadSquared (D-942)",
         "tags": [
           "lead-ingest"
         ]
@@ -86762,6 +86968,63 @@
           }
         },
         "summary": "Register a webhook endpoint \u2014 the signing secret is shown once",
+        "tags": [
+          "integrations"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/integrations/endpoints/leadsquared": {
+      "post": {
+        "description": "Connects your LeadSquared account with its API host, access key and secret key (sealed, never shown again) and sends the chosen events to it: a new lead becomes or updates a LeadSquared lead matched on the phone number, and a call's result fills the LeadSquared fields you name. Refused with `leadsquared_host_unknown` for a host LeadSquared does not publish, and `leadsquared_call_needs_a_field` when a call event is chosen with no field to write it to.",
+        "operationId": "create_leadsquared_endpoint_v1_integrations_endpoints_leadsquared_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Confirm-Action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateLeadSquaredEndpointIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeadSquaredEndpointOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Write leads and call results into your LeadSquared (D-942)",
         "tags": [
           "integrations"
         ],

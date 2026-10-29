@@ -100,6 +100,16 @@ BLOCK_REMEDIES: dict[str, str] = {
     "no_form_consent": "The form did not confirm permission to call. Add the consent "
     "checkbox to your form, or call them yourself.",
     "agent_not_live": "Your agent is not published yet.",
+    # Pushed lead sources (D-942, `ingest/portals.py`).
+    "marked_do_not_call": "Your CRM marks this person do-not-call, so we did not ring them.",
+    "not_a_direct_enquiry": (
+        "This was a bought lead or a catalogue view, not an enquiry sent to you, so we do "
+        "not call it. Call them yourself if you have their permission."
+    ),
+    "enquiry_window_closed": (
+        "This enquiry reached us more than seven days after it was made, which is too late "
+        "to call about it."
+    ),
     "big_red_switch": "Outgoing calls are paused platform-wide. We are on it.",
     "disclosure_missing": "The agent has no AI disclosure line, so it may not dial.",
 }
@@ -272,6 +282,28 @@ SHEET_FAILURE_REMEDIES: dict[str, str] = {
 }
 
 
+#: A failed LeadSquared write (D-942), keyed by `integrations/leadsquared.py`'s codes.
+LEADSQUARED_FAILURE_REMEDIES: dict[str, str] = {
+    "leadsquared_auth_failed": (
+        "LeadSquared refused your keys. Copy the access key and secret key again from "
+        "LeadSquared (Settings → API and Webhooks) and reconnect it on the Integrations page."
+    ),
+    "leadsquared_not_connected": (
+        "This LeadSquared connection has no keys we can use. Remove it and connect "
+        "LeadSquared again on the Integrations page."
+    ),
+    "leadsquared_rejected": (
+        "LeadSquared would not save this lead. Check that the field names you gave match "
+        "fields in your LeadSquared account."
+    ),
+    "leadsquared_no_phone": "This lead has no phone number, so LeadSquared had nothing to match.",
+    "leadsquared_nothing_to_write": (
+        "No LeadSquared field was chosen for call results, so there was nothing to write. "
+        "Choose one on the Integrations page."
+    ),
+}
+
+
 def _sheet_failure_detail(reason: str | None) -> str:
     """One sheets failure → one sentence. Unknown codes degrade to something honest.
 
@@ -375,6 +407,14 @@ async def failed_deliveries(
             # reason here is what lets a support person see six identical
             # `sheet_not_shared` rows and fix one thing.
             rule = reason if reason in SHEET_FAILURE_REMEDIES else None
+        elif kind == "leadsquared":
+            title = f"{event_type} did not reach LeadSquared"
+            detail = LEADSQUARED_FAILURE_REMEDIES.get(
+                str(reason),
+                "LeadSquared did not accept it after several tries. We keep the lead here; "
+                "check that LeadSquared is up, then send it again from the delivery log.",
+            )
+            rule = reason if reason in LEADSQUARED_FAILURE_REMEDIES else None
         else:
             title = f"{event_type} did not reach your system"
             detail = _webhook_failure_detail(source, reason, int(attempts or 1))

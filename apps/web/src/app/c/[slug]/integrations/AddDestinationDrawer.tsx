@@ -13,12 +13,14 @@ import type { EndpointOptions } from "@/lib/api/integrations";
 
 import { ChoiceCards } from "@/components/console/choiceCards";
 import { CopyRow } from "../lead-sources/IssuedSecretNotice";
+import { LeadSquaredForm } from "./LeadSquaredForm";
 import { SheetsForm, SheetsUnavailable } from "./SheetsForm";
 import { WebhookForm } from "./WebhookForm";
 
 const KINDS = [
   { value: "webhook", label: "Send events to your own system", hint: "Your CRM or any web address." },
   { value: "sheet", label: "Send events to a Google Sheet", hint: "A row per event." },
+  { value: "leadsquared", label: "Send leads to LeadSquared", hint: "New leads and call results." },
 ] as const;
 
 /**
@@ -43,7 +45,7 @@ export function AddDestinationDrawer({
   write: WriteAccess;
 }) {
   const name = useId();
-  const [kind, setKind] = useState<"webhook" | "sheet">("webhook");
+  const [kind, setKind] = useState<(typeof KINDS)[number]["value"]>("webhook");
   const [secret, setSecret] = useState<string | null>(null);
 
   const close = () => {
@@ -91,9 +93,11 @@ export function AddDestinationDrawer({
               icon: <IconTile service={option.value === "sheet" ? "google_sheets" : null} icon={Webhook} />,
             }))}
             onChange={setKind}
-            columns="sm:grid-cols-2"
+            columns="sm:grid-cols-3"
           />
-          {kind === "webhook" ? (
+          {kind === "leadsquared" ? (
+            <LeadSquaredForm session={session} write={write} />
+          ) : kind === "webhook" ? (
             <WebhookForm session={session} catalogue={options.events} write={write} onSecret={setSecret} />
           ) : options.sheets_delivery_available ? (
             <SheetsForm session={session} catalogue={options.events} write={write} />

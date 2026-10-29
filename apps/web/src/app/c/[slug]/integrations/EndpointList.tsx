@@ -8,7 +8,13 @@ import { EmptyState } from "@/components/console/emptyState";
 import { IconTile } from "@/components/console/iconTile";
 import { ProblemNotice, SECONDARY_BUTTON_SM, Skeleton, formatIST } from "@/components/ui";
 import type { WriteAccess } from "@/lib/api/hooks";
-import { SHEET_KIND, eventLabel, useEndpoints, type Endpoint } from "@/lib/api/integrations";
+import {
+  LEADSQUARED_KIND,
+  SHEET_KIND,
+  eventLabel,
+  useEndpoints,
+  type Endpoint,
+} from "@/lib/api/integrations";
 import { StatusPill } from "@/components/console/statusPill";
 
 /**
@@ -56,6 +62,9 @@ export function EndpointList({
                 Google Sheet
               </span>
             )}
+            {endpoint.kind === LEADSQUARED_KIND && (
+              <span className="text-meta text-ink-muted">LeadSquared</span>
+            )}
             {!endpoint.active && (
               <StatusPill>Off</StatusPill>
             )}
@@ -82,7 +91,9 @@ export function EndpointList({
       // webhook, and only "is a Google credential attached yet" for a sheet.
       cell: (endpoint) => (
         <span className="text-xs text-ink-faint">
-          {endpoint.kind === SHEET_KIND
+          {endpoint.kind === LEADSQUARED_KIND
+            ? "LeadSquared keys saved"
+            : endpoint.kind === SHEET_KIND
             ? endpoint.secret_fingerprint
               ? "Google connection ready"
               : "Not connected to Google yet — deliveries fail"
@@ -111,7 +122,7 @@ export function EndpointList({
             >
               Change
             </button>
-            {endpoint.kind !== SHEET_KIND && (
+            {endpoint.kind === "webhook" && (
               <button
                 type="button"
                 disabled={!write.allowed || busy}

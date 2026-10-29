@@ -65,10 +65,17 @@ CONSENT_SOURCES = (
     # obtained, and `compliance/spoken_consent.py` checks it against the transcript after the
     # call. Like `inbound_call_verbal`, a grant must name the call.
     "in_call_agent_question",
+    # The person's own enquiry to this business on a listing portal (IndiaMART, 99acres,
+    # MagicBricks, Housing.com), delivered to us by the portal (D-942). A "relationship"
+    # under TCCCPR cl.2(bb)(ii): calls are permitted for seven days from a written or digital
+    # inquiry kept in verifiable form, so the grant carries the portal's enquiry id and
+    # expires `INQUIRY_CONSENT_WINDOW_DAYS` after the enquiry.
+    "portal_enquiry",
 )
 #: Sources only the platform writes, never a client through the consent screen: the agent's
-#: in-call question is recorded by the WhatsApp action, with the call it was asked on.
-AGENT_RECORDED_CONSENT_SOURCES = ("in_call_agent_question",)
+#: in-call question is recorded by the WhatsApp action, with the call it was asked on, and a
+#: portal enquiry by the lead-source receiver, with the portal's own enquiry id.
+AGENT_RECORDED_CONSENT_SOURCES = ("in_call_agent_question", "portal_enquiry")
 #: Sources whose grant was spoken on a call and so must name that call.
 CALL_BOUND_CONSENT_SOURCES = ("inbound_call_verbal", "in_call_agent_question")
 WITHDRAWAL_ONLY_CONSENT_SOURCES = ("staff_recorded_request",)

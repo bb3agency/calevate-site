@@ -23,6 +23,9 @@ export function sampleFor(source: Pick<LeadSource, "mapping">): Record<string, s
     [mapping.name || "name"]: "Priya",
   };
   if (mapping.consent_field) sample[mapping.consent_field] = "yes";
+  // IndiaMART's preset reads the enquiry type; `W` is a direct enquiry to the seller, the
+  // kind that is called (`apps/api/ingest/portals.py`).
+  if (mapping.enquiry_type) sample[mapping.enquiry_type] = "W";
   return sample;
 }
 

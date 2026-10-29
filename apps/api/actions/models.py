@@ -60,6 +60,8 @@ INTEGRATION_KINDS = (
     # D-703: the client's own Google connection for Sheets, scope `drive.file`: it reaches
     # only the spreadsheets they pick in Google's Picker.
     "google_sheets",
+    # D-942: the client's LeadSquared access key and secret key, sealed together.
+    "leadsquared",
 )
 
 # The three top-level action types the founder's spec names. The WhatsApp BSP variant and

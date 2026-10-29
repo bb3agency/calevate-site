@@ -108,6 +108,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/hooks/v1/ingest/push/{webhook_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Lead push from IndiaMART, a property portal or LeadSquared (D-942)
+         * @description For senders that post to a URL and cannot add a header. The secret travels in the `token` query parameter of the address shown once when the source is created; the `X-Ingest-Secret` header is accepted too. Every verified push is answered 200, including the leads we could not use, which appear in the delivery log with the reason.
+         */
+        post: operations["ingest_push_hooks_v1_ingest_push__webhook_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/hooks/v1/ingest/{webhook_id}": {
         parameters: {
             query?: never;
@@ -9437,6 +9457,26 @@ export interface paths {
          *     (hard rule 6). The host is the fact an investigator needs — where the leads went.
          */
         post: operations["create_endpoint_v1_integrations_endpoints_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/endpoints/leadsquared": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Write leads and call results into your LeadSquared (D-942)
+         * @description Connects your LeadSquared account with its API host, access key and secret key (sealed, never shown again) and sends the chosen events to it: a new lead becomes or updates a LeadSquared lead matched on the phone number, and a call's result fills the LeadSquared fields you name. Refused with `leadsquared_host_unknown` for a host LeadSquared does not publish, and `leadsquared_call_needs_a_field` when a call event is chosen with no field to write it to.
+         */
+        post: operations["create_leadsquared_endpoint_v1_integrations_endpoints_leadsquared_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -20029,7 +20069,22 @@ export interface components {
              * Source
              * @enum {string}
              */
-            source: "meta_lead_ads" | "website_form" | "zoho" | "sheets" | "custom";
+            source: "meta_lead_ads" | "website_form" | "zoho" | "sheets" | "custom" | "indiamart" | "99acres" | "magicbricks" | "housing" | "leadsquared";
+        };
+        /** CreateLeadSquaredEndpointIn */
+        CreateLeadSquaredEndpointIn: {
+            /** Access Key */
+            access_key: string;
+            /** Api Host */
+            api_host: string;
+            /** Events */
+            events: ("lead.created" | "lead.updated" | "call.completed" | "call.updated")[];
+            /** Fields */
+            fields?: {
+                [key: string]: "name" | "source" | "status" | "outcome" | "summary" | "duration_s" | "sentiment" | "business_outcome_label";
+            };
+            /** Secret Key */
+            secret_key: string;
         };
         /** CreateOrgIn */
         CreateOrgIn: {
@@ -25207,6 +25262,8 @@ export interface components {
             id: string;
             /** Ingest Path */
             ingest_path: string;
+            /** Push Path */
+            push_path?: string | null;
             /** Secret */
             secret: string | null;
             /** Secret Header */
@@ -25322,6 +25379,26 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /** LeadSquaredEndpointOut */
+        LeadSquaredEndpointOut: {
+            /** Active */
+            active: boolean;
+            /** Api Host */
+            api_host: string;
+            /** Events */
+            events: string[];
+            /** Fields */
+            fields: {
+                [key: string]: string;
+            };
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Kind */
+            kind: string;
         };
         /** LeadSuggestionAnsweredOut */
         LeadSuggestionAnsweredOut: {
@@ -28521,6 +28598,25 @@ export interface components {
             replayed: boolean;
         };
         /**
+         * PushAckOut
+         * @description One push from a portal or a CRM, counted. Ids and counts only, never the lead.
+         *
+         *     Every outcome here is a 200, refusals included: IndiaMART retries a non-200 and turns
+         *     the push OFF after 48 hours of them, and a lead we cannot read or dial will not become
+         *     readable on retry. The refusal is recorded on the inbox row, where the delivery log
+         *     shows it to the client.
+         */
+        PushAckOut: {
+            /** Accepted */
+            accepted: number;
+            /** Duplicate */
+            duplicate: number;
+            /** Received */
+            received: number;
+            /** Refused */
+            refused: number;
+        };
+        /**
          * QaQueueClient
          * @description One client with anything drawn, and where its queue stands — the client picker's
          *     rows and the group headers on the queue.
@@ -29874,6 +29970,8 @@ export interface components {
             id: string;
             /** Previous Secret Expires At */
             previous_secret_expires_at: string | null;
+            /** Push Path */
+            push_path?: string | null;
             /** Secret */
             secret: string | null;
             /** Secret Header */
@@ -36028,6 +36126,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MetaLeadgenAckOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    ingest_push_hooks_v1_ingest_push__webhook_id__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                webhook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PushAckOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -53003,6 +53132,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CreateEndpointOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    create_leadsquared_endpoint_v1_integrations_endpoints_leadsquared_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Confirm-Action"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateLeadSquaredEndpointIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadSquaredEndpointOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

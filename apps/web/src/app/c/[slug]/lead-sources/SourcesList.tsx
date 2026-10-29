@@ -20,7 +20,7 @@ import type { Agent } from "@/lib/api/agents";
 import { API_BASE } from "@/lib/api/client";
 import type { IngestActivity, LeadSource, useLeadSources } from "@/lib/api/leadSources";
 
-import { META_SOURCE, sourceLabel, sourceLogo } from "./sourceKinds";
+import { META_SOURCE, isPushSource, sourceLabel, sourceLogo } from "./sourceKinds";
 
 /** One row's name, everywhere it is spoken: the kind plus the last eight characters of its id (uuid7 ids share their leading, time-ordered half). */
 export function rowName(source: LeadSource): string {
@@ -177,7 +177,8 @@ export function SourcesList({
           },
           {
             id: "rotate",
-            label: "Issue a new secret",
+            // A pushed sender's secret IS its address, so a new one is a new address to paste.
+            label: isPushSource(row.source) ? "Issue a new address" : "Issue a new secret",
             onSelect: () => onRotate(row),
             disabled: !canWrite,
           },
@@ -194,10 +195,14 @@ export function SourcesList({
               <FlaskConical aria-hidden className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">Send test lead</span>
             </button>
-            <CopyButton
-              value={`${API_BASE}${row.ingest_path}`}
-              label={`Copy the address for ${rowName(row)}`}
-            />
+            {/* A pushed sender's address carries its secret and is shown once; the bare
+                path would be refused, so there is nothing to copy here. */}
+            {isPushSource(row.source) ? null : (
+              <CopyButton
+                value={`${API_BASE}${row.ingest_path}`}
+                label={`Copy the address for ${rowName(row)}`}
+              />
+            )}
             <RowMenu label={rowName(row)} items={menu} />
           </div>
         );

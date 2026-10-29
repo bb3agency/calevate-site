@@ -64,7 +64,7 @@ from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.integrations import service
 from apps.api.reliability.service import outbox_message_id
-from apps.workers import sheets_sync, storage
+from apps.workers import leadsquared_sync, sheets_sync, storage
 
 log = get_logger(__name__)
 
@@ -147,6 +147,13 @@ async def _deliver_to_endpoint(
             data=data,
             delivery_id=delivery_id,
             attempt=attempt,
+        )
+
+    if kind == service.LEADSQUARED_KIND:
+        # An upsert matched on the phone, so a retry lands on the lead the first attempt
+        # wrote; it needs neither the sheets read-back nor the webhook envelope.
+        return await leadsquared_sync.push_event(
+            endpoint=endpoint, tenant_id=tenant_id, event=event, data=data
         )
 
     if kind == service.WEBHOOK_KIND:
