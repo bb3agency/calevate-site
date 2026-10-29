@@ -17,7 +17,7 @@ import re
 import tomllib
 from collections.abc import Iterable, Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -73,6 +73,29 @@ def test_the_image_set_reaches_every_member_the_image_runs_and_sentry() -> None:
         "(D-188's empty-venv shape). Root pyproject `dependencies` must list the three "
         "server members, and the `errors` group must stay a ROOT group."
     )
+
+
+#: Third-party parsers the worker runs on a client's uploaded file, with the oldest release
+#: carrying the fixes for the published advisories on crafted input. `pypdf` was declared only
+#: in the root `dev` group while `apps/workers/kb_read.py` imported it, so `--no-dev` shipped
+#: a worker that could not read a PDF at all.
+UPLOAD_PARSER_FLOORS: Final = {"pypdf": (6, 21, 2)}
+
+
+def _release(version: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in re.findall(r"\d+", version)[:3])
+
+
+def test_the_image_carries_every_upload_parser_at_its_security_floor() -> None:
+    lock = _lock()
+    image = _server_image_set(lock)
+    for name, floor in UPLOAD_PARSER_FLOORS.items():
+        assert name in image, (
+            f"{name} parses client uploads in the worker but is not in the server image's "
+            "dependency closure; declare it in apps/workers/pyproject.toml, not a dev group"
+        )
+        locked = _release(str(lock[name]["version"]))
+        assert locked >= floor, f"{name} {locked} is below its security floor {floor}"
 
 
 def test_a_root_with_no_dependencies_is_caught() -> None:

@@ -135,6 +135,19 @@ def test_pypdf_reads_the_text_pages_and_hands_the_scans_to_the_reader() -> None:
     assert [number for number, _data, _mime in reading.scans] == [3]
 
 
+def test_a_pdf_that_outruns_its_time_stops_at_the_next_page(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The reading runs in a thread nothing can cancel, so it watches its own clock: once
+    `MAX_PDF_READ_S` has passed, no further page is parsed."""
+    ticks = iter([0.0, 0.0, kb_read.MAX_PDF_READ_S + 1])
+    monkeypatch.setattr(kb_read, "_clock", lambda: next(ticks, kb_read.MAX_PDF_READ_S + 1))
+    reading = kb_read.read_pdf(_pdf(PRICE_PAGE, HOURS_PAGE, HOURS_PAGE))
+    assert reading.page_count == 3
+    assert reading.examined == 1
+    assert [number for number, _ in reading.pages] == [1]
+
+
 def test_a_damaged_pdf_is_refused_with_a_sentence_the_owner_can_act_on() -> None:
     with pytest.raises(kb_read.UnreadablePdfError) as refused:
         kb_read.read_pdf(b"%PDF-1.4 this is not a pdf at all")

@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import time
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from typing import Any, Final
@@ -70,6 +71,13 @@ MAX_PDF_PAGES: Final = 500
 MAX_PAGE_CHARS: Final = 20_000
 #: Scanned pages read by the Gemini reader per document: the photograph upload's own bound.
 MAX_OCR_PAGES: Final = MAX_OCR_IMAGES
+#: The wall-clock seconds one PDF's pages may take, checked before each page. `read_pdf` runs
+#: in a thread, which `asyncio` cannot cancel: when the job overruns `job_timeout` (300 s) the
+#: thread keeps parsing, and arq's retry starts a second one on the same file. A crafted page
+#: costs at most one page past this, not the remaining pages times the retries.
+MAX_PDF_READ_S: Final = 60.0
+#: Read through the module so a test can move time instead of waiting for it.
+_clock = time.monotonic
 
 _IMAGE_TYPES: Final[dict[str, str]] = {
     "jpg": "image/jpeg",
@@ -98,6 +106,8 @@ class PdfReading:
     scans: list[tuple[int, bytes, str]] = field(default_factory=list)
     #: Pages with neither words nor an image we can hand the reader.
     blank: int = 0
+    #: Pages looked at before `MAX_PDF_PAGES` or `MAX_PDF_READ_S` stopped the reading.
+    examined: int = 0
 
 
 def read_pdf(data: bytes) -> PdfReading:
@@ -121,7 +131,12 @@ def read_pdf(data: bytes) -> PdfReading:
             "We could not open this PDF. It may be damaged: save it again and send it."
         ) from None
     reading = PdfReading(page_count=len(pages))
+    deadline = _clock() + MAX_PDF_READ_S
     for number, page in enumerate(pages[:MAX_PDF_PAGES], start=1):
+        if _clock() >= deadline:
+            log.info("kb_read_pdf_out_of_time", extra={"pages": reading.examined})
+            break
+        reading.examined = number
         try:
             words = (page.extract_text() or "").strip()[:MAX_PAGE_CHARS]
         except Exception as exc:
@@ -327,9 +342,9 @@ async def read_saved_copy(
             (number, words) for number, words in sorted([*reading.pages, *scanned])
         ]
         pages = reading.page_count
-        detail = _partial_detail(read=len(sections), total=min(pages, MAX_PDF_PAGES))
-        if pages > MAX_PDF_PAGES:
-            detail = f"We read the first {MAX_PDF_PAGES} pages of {pages}."
+        detail = _partial_detail(read=len(sections), total=reading.examined)
+        if reading.examined < pages:
+            detail = f"We read the first {reading.examined} pages of {pages}."
         empty = (
             "There are no words we could read in this PDF. If it is a scan, send the pages "
             "as photos."

@@ -236,10 +236,12 @@ def classify_upload(*, filename: str, content_type: str | None) -> str:
     magic bytes tells you what a file IS, which sounds stronger and is the wrong question
     HERE: the reader has to open the file anyway and refuses a mislabelled one by name
     (`document_ingest.DocumentUnreadableError`), so sniffing at the door would be a second
-    implementation of "what is this" that can disagree with the first. What it would not
-    buy is safety — nothing on this path executes, renders or parses the bytes; they are
-    stored opaquely and handed to the reader or to the vendor. The kind is a ROUTING
-    decision, and the client's own filename is the honest input to it.
+    implementation of "what is this" that can disagree with the first. The kind is a
+    ROUTING decision, and the client's own filename is the honest input to it.
+
+    THE ONE EXCEPTION IS A PDF (`assert_pdf_signature`): no reader of ours stands between it
+    and the voice platform, which is handed the file as it is, so the door is the only
+    place it can be refused before it leaves.
 
     A NEAR MISS GETS A DIFFERENT SENTENCE. `.doc`, `.xls` and `.pages` are the formats a
     shop owner actually has, and "we cannot read that" is a dead end where "save it as
@@ -292,6 +294,33 @@ def safe_name(*, given: str | None, fallback: str) -> str:
             status=422,
         )
     return cleaned[:_MAX_NAME]
+
+
+#: Where a PDF's `%PDF-` header may sit. ISO 32000 puts it on the first line; readers in the
+#: wild (and the Acrobat implementation notes) accept it anywhere in the first 1024 bytes,
+#: so a PDF with a few junk bytes in front, which the platform opens, is not refused here.
+_PDF_HEADER_WINDOW: Final = 1024
+
+
+def assert_pdf_signature(data: bytes) -> None:
+    """A file named `.pdf` must carry a PDF header, or a 422 before it is stored.
+
+    A PDF goes to the voice platform as its file (`create_upload`, `native`) with no reader
+    of ours in between: our copy is read later and its failure never blocks the publish
+    (`workers/kb_read.py`). So without this, any bytes renamed `.pdf` reach the vendor and
+    sit in the bucket under `application/pdf`. OWASP's File Upload cheat sheet: the
+    extension and the declared type are client input, and a signature check is one layer
+    beside the allow-list (cheatsheetseries.owasp.org, read 29 Oct 2026).
+    """
+    if b"%PDF-" not in data[:_PDF_HEADER_WINDOW]:
+        raise ProblemError(
+            kind="validation",
+            code="kb_upload_not_a_pdf",
+            title="That file is not a PDF",
+            detail="The file is named .pdf, but what is inside is not a PDF.",
+            remediation="Open it on your device, save or export it as PDF, then upload that.",
+            status=422,
+        )
 
 
 def assert_within_limit(byte_size: int) -> None:
@@ -367,6 +396,8 @@ async def create_upload(
     """
     assert_within_limit(len(data))
     kind = classify_upload(filename=filename, content_type=content_type)
+    if kind == "pdf":
+        assert_pdf_signature(data)
     source_name = safe_name(given=name, fallback=filename)
 
     upload_id = uuid7()

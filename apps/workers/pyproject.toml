@@ -41,6 +41,13 @@ dependencies = [
     "opentelemetry-sdk>=1.30",
     "opentelemetry-exporter-otlp-proto-http>=1.30",
     "openpyxl>=3.1",
+    # Reads a client's uploaded PDF into our copy (`kb_read.read_pdf`), so it parses files
+    # from the internet in the worker image. The floor is a security floor: pypdf < 6.21.2
+    # has published resource-exhaustion advisories on crafted files (GHSA-6c7f-9265-g8fw,
+    # GHSA-jr96-gvgh-j3r4, GHSA-gmh7-3g9r-mjh5 fixed in 6.21.2; GHSA-cgf9-327m-v77c in
+    # 6.21.0; github.com/py-pdf/pypdf/security/advisories, read 29 Oct 2026). Pure Python,
+    # no build hooks, no required dependencies.
+    "pypdf>=6.21.2",
 ]
 
 # Virtual member: run from the repo root as `apps.workers.settings.WorkerSettings`.
