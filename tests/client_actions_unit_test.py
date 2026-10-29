@@ -314,6 +314,34 @@ async def test_a_huge_answer_is_read_only_to_the_cap(public_dns: None) -> None:
     assert len(json.dumps(result.payload)) <= execution.MAX_ANSWER_CHARS + 100
 
 
+async def test_a_gzip_compressed_answer_is_read_as_its_json(public_dns: None) -> None:
+    """httpx asks for gzip by default, so a receiver that compresses is the ordinary case;
+    the capped read must hand on the decoded document, not fail to decode it twice."""
+    import gzip
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"Content-Encoding": "gzip", "Content-Type": "application/json"},
+            content=gzip.compress(json.dumps({"order": "shipped"}).encode()),
+        )
+
+    tool = _tool(
+        config=CustomApiConfig(method="GET", url="https://api.shop.example/x").model_dump()
+    )
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        result = await execution.execute_action(
+            object(),  # type: ignore[arg-type]
+            tool=tool,
+            received={},
+            source="test",
+            client=client,
+            audit=False,
+        )
+    assert result.ok is True
+    assert result.payload == {"status_code": 200, "data": {"order": "shipped"}}
+
+
 async def test_a_slow_action_answers_within_the_budget(public_dns: None) -> None:
     import asyncio
 

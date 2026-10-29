@@ -116,6 +116,7 @@ id is phone-shaped and the redactor cannot tell it from a number it must mask.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Final
 from uuid import UUID
 
@@ -141,6 +142,10 @@ PROVIDER: Final = GRAPH_PROVIDER
 GRAPH_HOST: Final = "https://graph.facebook.com"
 # See the docstring: pinned in code, from Meta's own SDKs, never from configuration.
 GRAPH_API_VERSION: Final = "v26.0"
+# A Graph node id as it may appear in a path segment: admits a digit-string id (the shape of
+# every lead id in Meta's samples, `meta.MAX_OBJECT_ID_LEN`) and nothing that could end the
+# segment or climb out of it.
+_GRAPH_NODE_ID: Final = re.compile(r"[0-9A-Za-z_]{1,128}")
 
 # The ONLY field we ask for. Everything else about the lead — which ad, which form, when
 # — is already in the notification we authenticated, so requesting more would be reading
@@ -275,6 +280,12 @@ class GraphLeadRetriever:
             # condition rather than inventing a second name for it here.
             return RetrievedLead(status=RetrievalStatus.PERMANENT, reason=NO_TOKEN_REASON)
 
+        if not _GRAPH_NODE_ID.fullmatch(leadgen_id):
+            # The id is spliced into the Graph path, and it comes from a notification signed
+            # with a secret the client may hold: a `/`, `?` or dot segment in it would read
+            # another node with this source's token (OWASP API Top 10 2023, API10).
+            log.error("meta_graph_lead_id_refused", extra={"source_id": str(source_id)})
+            return RetrievedLead(status=RetrievalStatus.PERMANENT, reason=MALFORMED_REASON)
         owns_client = self._client is None
         http = self._client or httpx.AsyncClient(
             timeout=REQUEST_TIMEOUT_S,
