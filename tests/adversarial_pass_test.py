@@ -8,7 +8,9 @@ Each test names the property it defends rather than the code path it walks.
      object ids and a valid token. `tests/rls_sweep_test.py` proves the policies exist and
      `tests/realm_boundary_test.py` drives the mutating routes with *invented* uuids; this
      drives them with ids that really do name a row, in another tenant, so a handler that
-     read the row before checking the tenant would answer 200 here and nowhere else.
+     read the row before checking the tenant would answer 200 here and nowhere else. A
+     second sweep names a neighbour's row in the BODY of a request on the caller's own
+     row, the shape a foreign key accepts because PostgreSQL checks it without RLS.
 
   2. **One credential is one rate-limit bucket.** The per-caller dimension keyed on the
      RAW `Authorization` header, so the same session respelled — case, extra spaces —
@@ -1120,6 +1122,83 @@ async def test_every_id_route_in_the_client_space_is_swept() -> None:
     }
     stale = sorted(set(_NOT_AN_OBJECT_REFERENCE) - live)
     assert not stale, f"_NOT_AN_OBJECT_REFERENCE names routes that no longer exist: {stale}"
+
+
+#: (method, template, body, headers, what the 404 must name). The PATH addresses the
+#: caller's OWN row and the BODY names the neighbour's, so a refusal can only come from the
+#: body reference. The path sweep above cannot see this shape: there the path is the
+#: neighbour's too, and the path's 404 hides whatever the handler does with the body.
+#: PostgreSQL validates foreign keys with row security bypassed, so a handler that writes a
+#: body id without first reading it under the caller's RLS (`db/ownership.assert_visible`)
+#: stores a cross-tenant reference and answers 2xx (OWASP API1:2023, BOLA).
+_BODY_REFERENCE_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str], str], ...] = (
+    # D-904: the team address an agent's alerts go to; a neighbour's would send this
+    # business's callers' numbers to the other business's team.
+    ("PUT", "/v1/agents/{agent_id}/team-alert", {"contact_id": "{contact_id}"}, {}, "Team address"),
+    ("POST", "/v1/lead-fields/replace", {"agent_ids": ["{agent_id}"]}, {}, "Agent"),
+    (
+        "POST",
+        "/v1/leads/{lead_id}/callbacks",
+        {"at": _TOMORROW_NOON_IST, "agent_id": "{agent_id}"},
+        {"Idempotency-Key": "idor-body-callback"},
+        "Agent",
+    ),
+    (
+        "POST",
+        "/v1/whatsapp/templates",
+        {
+            "account_id": "{account_id}",
+            "name": "idor_body",
+            "language": "en",
+            "category": "UTILITY",
+            "body": "Hello",
+        },
+        {},
+        "WhatsApp account",
+    ),
+    ("POST", "/v1/lead-sources", {"source": "website_form", "agent_id": "{agent_id}"}, {}, "Agent"),
+    ("PATCH", "/v1/lead-sources/{webhook_id}", {"agent_id": "{agent_id}"}, {}, "Agent"),
+)
+
+
+def _fill(value: object, ids: dict[str, str]) -> object:
+    if isinstance(value, str):
+        return ids.get(value.strip("{}"), value) if value.startswith("{") else value
+    if isinstance(value, list):
+        return [_fill(item, ids) for item in value]
+    return value
+
+
+async def test_a_neighbours_id_in_the_body_of_ones_own_request_is_not_found() -> None:
+    """Tenant B, on B's own agent, lead or lead source, names tenant A's real row in the
+    body. Every such request is 404 naming the BODY's kind of row, so the refusal is the
+    reference and not the path."""
+    org_a, org_b = await _make_org(), await _make_org()
+    tenant_a, tenant_b = uuid.UUID(str(org_a["id"])), uuid.UUID(str(org_b["id"]))
+    user_a, _token_a = await _make_member(tenant_a)
+    user_b, token_b = await _make_member(tenant_b)
+    theirs = await _seed_one_of_everything(tenant_a, user_a)
+    own = await _seed_one_of_everything(tenant_b, user_b)
+
+    headers = {"Authorization": f"Bearer {token_b}", "X-Org-Slug": str(org_b["slug"])}
+    offenders: list[str] = []
+    async with _client() as http:
+        for method, template, body, extra, noun in _BODY_REFERENCE_ROUTES:
+            path = template
+            for key, value in own.items():
+                path = path.replace("{" + key + "}", value)
+            assert "{" not in path, f"{template}: no own id for this parameter"
+            sent = {k: _fill(v, theirs) for k, v in body.items()}
+            response = await http.request(method, path, headers={**headers, **extra}, json=sent)
+            payload = response.json() if response.content else {}
+            title = payload.get("title") if isinstance(payload, dict) else None
+            if response.status_code != 404 or title != f"{noun} not found":
+                offenders.append(f"{method} {template} -> {response.status_code} {title!r}")
+
+    assert not offenders, (
+        "a request on the caller's own row that names a neighbour's row in its body was not "
+        f"refused as that row being absent: {offenders}"
+    )
 
 
 # --- 2. one credential, one bucket ---------------------------------------------------
