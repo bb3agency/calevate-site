@@ -253,7 +253,7 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
     AreaEntry(
         "business_profile_set",
         "settings",
-        "replace WHOLE profile sections (branches, services, faqs, staff, rules, languages)",
+        "replace WHOLE profile sections",
     ),
     AreaEntry(
         "agent_script_suggest",
@@ -372,12 +372,12 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
     AreaEntry(
         "knowledge_note_save",
         "knowledge",
-        "a note's new text, or a note correcting a file or link, in the person's words",
+        "a note's new text, or a note correcting a file or link",
     ),
     AreaEntry(
         "knowledge_question_settle",
         "knowledge",
-        "answer a knowledge_questions question in their words, or null to dismiss it",
+        "answer a question in their words; null dismisses it",
     ),
     AreaEntry("knowledge_fact_change", "knowledge", "edit, pin, unpin, move or remove one fact"),
     AreaEntry("agent_tests_run", "agents", "run an agent's practice tests"),
@@ -421,6 +421,14 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
     AreaEntry("lead_view_save", "leads", "save `lens` as a named view"),
     AreaEntry("leads_export", "leads", "spreadsheet of the `lens` leads"),
     AreaEntry("calls_export", "calls", "spreadsheet of the `call_lens` calls"),
+    # D-935: troubleshoot mode. Each runs ordered checks and names the first cause and fix.
+    AreaEntry("agent_diagnose", "agents", "why it does not pick up or answer"),
+    AreaEntry("call_diagnose", "calls", "why one call failed"),
+    AreaEntry("campaign_diagnose", "campaigns", "why it is not calling"),
+    AreaEntry(
+        "delivery_diagnose", "integrations", "why a lead did not reach a Sheet, webhook or WhatsApp"
+    ),
+    AreaEntry("knowledge_diagnose", "knowledge", "why agents do not use what they were given"),
     # D-938: the coverage audit's missing buttons and "how do I" (`coverage_actions.py`).
     AreaEntry("help_lookup", "settings", "how to do anything in Calevate: screen, term, action"),
     AreaEntry("connection_check", "integrations", "does a connected account still work"),

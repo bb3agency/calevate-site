@@ -41,6 +41,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any, Final
+from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -439,32 +440,18 @@ async def _admin_voices(
     )
 
 
+#: What `admin_diagnose` asks about: a troubleshoot family, with delivery named by channel.
+ADMIN_QUESTIONS: Final = ("agent", "call", "campaign", "sheet", "webhook", "whatsapp", "knowledge")
+
 #: The most clients a name can match before the tool asks which one was meant.
 _STANDING_CANDIDATES: Final = 5
 
 
-async def _admin_client_standing(
-    session: AsyncSession, context: ToolContext, args: Mapping[str, Any]
-) -> str:
-    """ONE client's standing, named by slug or by name, from any admin screen.
-
-    The account tools (`verification_status` and the live block's `<account>` line) answer
-    for the client whose page is open; an operator on the clients list or the dashboard who
-    asks "is Raghava Organics verified?" has no page open. This resolves the name in the
-    directory session, then reads the client under its OWN tenant session with the same
-    readers the live block uses and the readiness gates' own rows — nothing re-derived.
-    """
-    del context
+async def _resolve_client(session: AsyncSession, asked: str) -> tuple[UUID, str, str] | str:
+    """(tenant_id, name, slug) for a slug or part of a name, in the directory session, or
+    the sentence the model should read when none or several match."""
     from sqlalchemy import text
 
-    from apps.api.copilot.context import read_account_standing
-    from apps.api.core.loadshed import get_platform_status
-    from apps.api.db.session import tenant_session
-    from apps.api.legal.readiness import readiness_rows
-
-    asked = str(args.get("client") or "").strip()
-    if not asked:
-        return "Name the client: its slug or part of its name."
     matches = (
         await session.execute(
             text(
@@ -489,6 +476,66 @@ async def _admin_client_standing(
         names = "; ".join(f"{row[1]} ({row[2]})" for row in matches)
         return _clean(f"More than one client matches: {names}. Ask again with the slug.")
     tenant_id, name, slug = (exact or matches)[0]
+    return UUID(str(tenant_id)), str(name), str(slug)
+
+
+async def _admin_diagnose(
+    session: AsyncSession, context: ToolContext, args: Mapping[str, Any]
+) -> str:
+    """D-935's admin twin: one client's troubleshoot family, under that client's own tenant
+    session, after the platform's own checks (calling platform, outbox, workspace). The
+    client is the one named, else the one whose page is open."""
+    from apps.api.copilot import diagnostics
+    from apps.api.db.session import tenant_session
+
+    question = args.get("question")
+    if question not in ADMIN_QUESTIONS:
+        return "`question` must be one of: " + ", ".join(ADMIN_QUESTIONS) + "."
+    # A delivery question is named by its channel, which keeps the schema one argument short.
+    family = "delivery" if question in diagnostics.CHANNELS else question
+    asked_args = {**args, "channel": question} if family == "delivery" else args
+    asked = str(args.get("client") or "").strip()
+    if asked:
+        found = await _resolve_client(session, asked)
+        if isinstance(found, str):
+            return found
+        tenant_id = found[0]
+    elif context.tenant_id is not None:
+        tenant_id = context.tenant_id
+    else:
+        return "Name the client: its slug or part of its name, or open its page."
+    platform = await diagnostics.platform_checks(session, tenant_id)
+    async with tenant_session(tenant_id) as scoped:
+        result = await diagnostics.diagnose_family(scoped, tenant_id, family, asked_args)
+    if isinstance(result, str):
+        return result
+    return diagnostics.render(diagnostics.with_platform(result, platform))
+
+
+async def _admin_client_standing(
+    session: AsyncSession, context: ToolContext, args: Mapping[str, Any]
+) -> str:
+    """ONE client's standing, named by slug or by name, from any admin screen.
+
+    The account tools (`verification_status` and the live block's `<account>` line) answer
+    for the client whose page is open; an operator on the clients list or the dashboard who
+    asks "is Raghava Organics verified?" has no page open. This resolves the name in the
+    directory session, then reads the client under its OWN tenant session with the same
+    readers the live block uses and the readiness gates' own rows — nothing re-derived.
+    """
+    del context
+    from apps.api.copilot.context import read_account_standing
+    from apps.api.core.loadshed import get_platform_status
+    from apps.api.db.session import tenant_session
+    from apps.api.legal.readiness import readiness_rows
+
+    asked = str(args.get("client") or "").strip()
+    if not asked:
+        return "Name the client: its slug or part of its name."
+    found = await _resolve_client(session, asked)
+    if isinstance(found, str):
+        return found
+    tenant_id, name, slug = found
     platform = await get_platform_status()
     async with tenant_session(tenant_id) as scoped:
         account = await read_account_standing(scoped, tenant_id=tenant_id)
@@ -949,6 +996,27 @@ ADMIN_READ_TOOLS: Final[tuple[ReadTool, ...]] = (
         permission="ops:manage",
         scope="platform",
         run=_healer_money_review,
+    ),
+    ReadTool(
+        name="admin_diagnose",
+        description=(
+            "Why something fails for a client (null: the open one): ordered checks, the "
+            "first cause and its fix. `id`: the agent, call or campaign; for a lead not "
+            "reaching sheet/webhook/whatsapp, the call."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "client": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+                "question": {"type": "string", "enum": list(ADMIN_QUESTIONS)},
+                "id": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+            },
+            "required": ["client", "question", "id"],
+            "additionalProperties": False,
+        },
+        permission="admin:tenants",
+        scope="platform",
+        run=_admin_diagnose,
     ),
     # D-938: the rate card, as the Rate card panel shows it.
     ReadTool(

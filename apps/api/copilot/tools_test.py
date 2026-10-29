@@ -27,6 +27,7 @@ from apps.api.copilot import (
     admin_tools,
     console_reads,
     coverage_actions,
+    diagnostics,
     routine_actions,
     tools,
     write_tools,
@@ -990,11 +991,13 @@ def test_the_admin_array_is_a_strict_superset_of_the_client_read_tools() -> None
     ]
     client_names = [tool.name for tool in copilot_service.realm_read_tools("client")]
     admin_names = [tool.name for tool in copilot_service.realm_read_tools("admin")]
-    # A person's own routines are a client read an operator cannot have (D-893 L7), and so
-    # are help and the connection check (D-938).
+    # A person's own routines are a client read an operator cannot have (D-893 L7); the
+    # troubleshoot reads reach an operator as `admin_diagnose` instead (D-935); help and the
+    # connection check are client-only too (D-938).
     assert client_names == [
         *shared,
         *[tool.name for tool in routine_actions.ROUTINE_READS],
+        *[tool.name for tool in diagnostics.DIAGNOSE_READS],
         *[tool.name for tool in coverage_actions.COVERAGE_READS],
     ]
     client_names = shared
@@ -1014,11 +1017,12 @@ def test_a_client_realm_caller_cannot_even_name_a_platform_tool() -> None:
     could plausibly hold the permission.
     """
     registry = copilot_service._read_tool_registry("client")
-    assert set(registry) == tools.READ_TOOL_NAMES | console_reads.CONSOLE_READ_TOOL_NAMES | {
-        "routines_list",
-        "help_lookup",
-        "connection_check",
-    }
+    assert set(registry) == (
+        tools.READ_TOOL_NAMES
+        | console_reads.CONSOLE_READ_TOOL_NAMES
+        | {"routines_list", "help_lookup", "connection_check"}
+        | diagnostics.DIAGNOSE_READ_NAMES
+    )
     assert "platform_tenants" not in registry
 
 
@@ -1037,11 +1041,12 @@ def test_the_array_offers_set_fields_then_every_read_tool_then_every_write_tool(
     # D-893: the reads and actions reach the model as the area tools, in `areas.AREAS` order.
     assert names == ["set_fields", *area_names, "open_screen", "run_in_background"]
     read_names = [tool.name for tool in copilot_service.realm_read_tools("client")]
-    assert set(read_names) == tools.READ_TOOL_NAMES | console_reads.CONSOLE_READ_TOOL_NAMES | {
-        "routines_list",
-        "help_lookup",
-        "connection_check",
-    }
+    assert set(read_names) == (
+        tools.READ_TOOL_NAMES
+        | console_reads.CONSOLE_READ_TOOL_NAMES
+        | {"routines_list", "help_lookup", "connection_check"}
+        | diagnostics.DIAGNOSE_READ_NAMES
+    )
     reachable = copilot_service.offered_names("client")
     assert set(reachable) == {
         "set_fields",
