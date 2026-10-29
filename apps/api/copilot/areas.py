@@ -253,7 +253,7 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
     AreaEntry(
         "business_profile_set",
         "settings",
-        "replace WHOLE profile sections (branches, services, faqs, staff, rules, languages)",
+        "replace WHOLE profile sections",
     ),
     AreaEntry(
         "agent_script_suggest",
@@ -372,12 +372,12 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
     AreaEntry(
         "knowledge_note_save",
         "knowledge",
-        "a note's new text, or a note correcting a file or link, in the person's words",
+        "a note's new text, or a note correcting a file or link",
     ),
     AreaEntry(
         "knowledge_question_settle",
         "knowledge",
-        "answer a knowledge_questions question in their words, or null to dismiss it",
+        "answer a question in their words; null dismisses it",
     ),
     AreaEntry("knowledge_fact_change", "knowledge", "edit, pin, unpin, move or remove one fact"),
     AreaEntry("agent_tests_run", "agents", "run an agent's practice tests"),
@@ -429,6 +429,23 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
         "delivery_diagnose", "integrations", "why a lead did not reach a Sheet, webhook or WhatsApp"
     ),
     AreaEntry("knowledge_diagnose", "knowledge", "why agents do not use what they were given"),
+    # D-938: the coverage audit's missing buttons and "how do I" (`coverage_actions.py`).
+    AreaEntry("help_lookup", "settings", "how to do anything in Calevate: screen, term, action"),
+    AreaEntry("connection_check", "integrations", "does a connected account still work"),
+    AreaEntry(
+        "account_model_tier_set", "settings", "AI model tier of agents with none of their own"
+    ),
+    AreaEntry(
+        "agent_team_alert_set", "agents", "when it tells the team of a caller; ids: part handover"
+    ),
+    AreaEntry("team_alert_contact", "team", "add, remove, make default a team alert email"),
+    AreaEntry("knowledge_refresh", "knowledge", "approve a waiting file or link, or read it again"),
+    AreaEntry("connection_disconnect", "integrations", "disconnect a connected account"),
+    AreaEntry(
+        "account_switch_set",
+        "settings",
+        "staff may edit knowledge, call only opted-in, save-our-number WhatsApp",
+    ),
 )
 
 AREA_OF: Final[dict[str, Area]] = {entry.tool: entry.area for entry in ENTRIES}
@@ -646,7 +663,9 @@ def _area_tool(
             by_name.setdefault(key, []).append(schema)
     tool = function_tool(
         name=find_name(area) if kind == "find" else do_name(area),
-        description=f"{intro} Pick `action`; put its arguments in `args`.\n" + "\n".join(lines),
+        # How to call an area tool (`action` plus `args`) is said once, in the system prompt,
+        # rather than in each of the ~26 area descriptions (D-938 paid for its actions so).
+        description=f"{intro}\n" + "\n".join(lines),
         parameters={
             "type": "object",
             "properties": {

@@ -136,8 +136,46 @@ async def _handover_part(session: AsyncSession, agent_id: UUID) -> list[str]:
         ),
         "Business contacts who can be added: "
         + ("; ".join(f"{r[1]} [contact_id {r[0]}]" for r in contacts) or "none yet"),
+        *await _team_alert_lines(session, agent_id),
     ]
     return lines
+
+
+async def _team_alert_lines(session: AsyncSession, agent_id: UUID) -> list[str]:
+    """ "Tell my team" (D-904): the agent's rule and the keys and ids
+    `agent_team_alert_set` and `team_alert_contact` take."""
+    from apps.api.team_alerts import service as team_alerts
+
+    view = await team_alerts.read_rule(session, agent_id=agent_id)
+    rule = view.rule
+    addresses = await team_alerts.list_contacts(session)
+    return [
+        "Tells the team: outcomes "
+        + (", ".join(rule.on_outcomes) or "none")
+        + "; answers "
+        + ("; ".join(f"{t.key}={'|'.join(t.values)}" for t in rule.on_fields) or "none")
+        + f"; during the call {_on(rule.in_call)}; "
+        + (
+            "sends to "
+            + (f"[team_contact_id {rule.contact_id}]" if rule.contact_id else "the default")
+        )
+        + ("." if view.sends_to else ", but no confirmed team address, so nothing is sent."),
+        "Outcomes it can watch: "
+        + (", ".join(f"{o.label} ({o.key})" for o in view.outcomes) or "none"),
+        "Answers it can watch: "
+        + ("; ".join(f"{f.label} ({f.key}): {', '.join(f.values)}" for f in view.fields) or "none"),
+        "Team alert addresses: "
+        + (
+            "; ".join(
+                f"{c.address} ({c.channel}"
+                + (", default" if c.is_default else "")
+                + ("" if c.verified else ", code not typed yet")
+                + f") [team_contact_id {c.id}]"
+                for c in addresses
+            )
+            or "none"
+        ),
+    ]
 
 
 async def _actions_part(session: AsyncSession, agent_id: UUID) -> list[str]:

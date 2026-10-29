@@ -309,10 +309,11 @@ def test_the_prompt_names_the_money_capabilities_the_copilot_still_does_not_have
     the model it could not do them would be a prompt disagreeing with its own tool array —
     which is how a model comes to apologise for something it has just been handed a tool
     for. What is unchanged is the BILLING boundary, which the same instruction explicitly
-    withheld: no buying credits, no plan changes, no raising a spend cap. That is what is
-    pinned now, plus the sentence that keeps a suggestion from being reported as a done
-    thing."""
-    for phrase in ("buy credits", "change a plan", "raise a spending limit"):
+    withheld: no buying credits and no plan changes. (Spending limits are `spend_caps_set`,
+    a confirm action since D-893 L6, so the prompt no longer says Pip cannot raise one.)
+    That is what is pinned now, plus the sentence that keeps a suggestion from being
+    reported as a done thing."""
+    for phrase in ("buy credits", "change a plan"):
         assert phrase in prompt_module.SYSTEM_PROMPT
     assert "never say it is only suggested when it has already happened" in (
         prompt_module.SYSTEM_PROMPT

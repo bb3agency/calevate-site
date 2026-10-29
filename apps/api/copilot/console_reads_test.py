@@ -40,8 +40,9 @@ def test_the_console_reads_follow_the_first_reads_in_both_realms() -> None:
     admin = [tool.name for tool in service.realm_read_tools("admin")]
     console = [tool.name for tool in CONSOLE_READ_TOOLS]
     diagnose = [tool.name for tool in DIAGNOSE_READS]
-    assert client == [*[t.name for t in tools.READ_TOOLS], *console, "routines_list", *diagnose]
-    client = client[: -1 - len(diagnose)]
+    client_only = ["routines_list", *diagnose, "help_lookup", "connection_check"]
+    assert client == [*[t.name for t in tools.READ_TOOLS], *console, *client_only]
+    client = client[: -len(client_only)]
     assert admin[-len(client) :] == client
     assert not CONSOLE_READ_TOOL_NAMES & tools.READ_TOOL_NAMES
 
