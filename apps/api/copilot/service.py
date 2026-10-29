@@ -58,6 +58,7 @@ from apps.api.copilot import (
     areas,
     attachments,
     console_reads,
+    coverage_actions,
     jobs,
     navigation,
     routine_actions,
@@ -1062,7 +1063,8 @@ def realm_read_tools(realm: CopilotRealm) -> tuple[tools_module.ReadTool, ...]:
         return (*admin_tools.ADMIN_READ_TOOLS, *_shared_reads())
     # A routine is one client person's; an operator has none in the account, so the admin
     # surfaces do not carry a read that could only refuse (D-816).
-    return (*_shared_reads(), *routine_actions.ROUTINE_READS)
+    # D-938: help and the connection check are client-only for the same reason.
+    return (*_shared_reads(), *routine_actions.ROUTINE_READS, *coverage_actions.COVERAGE_READS)
 
 
 def _read_tool_registry(realm: CopilotRealm) -> Mapping[str, tools_module.ReadTool]:

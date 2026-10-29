@@ -135,7 +135,7 @@ def test_the_account_actions_are_appended_as_one_block_and_each_has_an_area() ->
     mine = [tool.name for tool in ACCOUNT_ACTIONS]
     start = names.index(mine[0])
     assert names[start : start + len(mine)] == mine
-    assert start > len(names) // 2
+    assert start > names.index("agent_create")
     assert {areas.AREA_OF[name] for name in mine} == {
         "numbers",
         "team",

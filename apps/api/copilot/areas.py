@@ -421,6 +421,23 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
     AreaEntry("lead_view_save", "leads", "save `lens` as a named view"),
     AreaEntry("leads_export", "leads", "spreadsheet of the `lens` leads"),
     AreaEntry("calls_export", "calls", "spreadsheet of the `call_lens` calls"),
+    # D-938: the coverage audit's missing buttons and "how do I" (`coverage_actions.py`).
+    AreaEntry("help_lookup", "settings", "how to do anything in Calevate: screen, term, action"),
+    AreaEntry("connection_check", "integrations", "does a connected account still work"),
+    AreaEntry(
+        "account_model_tier_set", "settings", "AI model tier of agents with none of their own"
+    ),
+    AreaEntry(
+        "agent_team_alert_set", "agents", "when it tells the team of a caller; ids: part handover"
+    ),
+    AreaEntry("team_alert_contact", "team", "add, remove, make default a team alert email"),
+    AreaEntry("knowledge_refresh", "knowledge", "approve a waiting file or link, or read it again"),
+    AreaEntry("connection_disconnect", "integrations", "disconnect a connected account"),
+    AreaEntry(
+        "account_switch_set",
+        "settings",
+        "staff may edit knowledge, call only opted-in, save-our-number WhatsApp",
+    ),
 )
 
 AREA_OF: Final[dict[str, Area]] = {entry.tool: entry.area for entry in ENTRIES}
@@ -638,7 +655,9 @@ def _area_tool(
             by_name.setdefault(key, []).append(schema)
     tool = function_tool(
         name=find_name(area) if kind == "find" else do_name(area),
-        description=f"{intro} Pick `action`; put its arguments in `args`.\n" + "\n".join(lines),
+        # How to call an area tool (`action` plus `args`) is said once, in the system prompt,
+        # rather than in each of the ~26 area descriptions (D-938 paid for its actions so).
+        description=f"{intro}\n" + "\n".join(lines),
         parameters={
             "type": "object",
             "properties": {

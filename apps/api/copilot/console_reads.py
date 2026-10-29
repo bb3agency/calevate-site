@@ -706,7 +706,18 @@ async def _integrations_status(
         + f" [endpoint_id {e.id}]"
         for e in endpoints[:10]
     )
-    google = [c for c in await list_credentials(session) if c.kind == "google_sheets"]
+    connected = await list_credentials(session)
+    google = [c for c in connected if c.kind == "google_sheets"]
+    lines.append(
+        "Connected accounts: "
+        + (
+            "; ".join(
+                _clean(f"{c.label} ({c.kind})") + f" [connection_id {c.id}]" for c in connected
+            )
+            or "none"
+        )
+        + "."
+    )
     lines.append(
         "Google Sheets: connected."
         if google
