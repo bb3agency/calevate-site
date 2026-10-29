@@ -364,11 +364,11 @@ async def test_a_platform_setting_live_agents_carry_queues_the_platform_run() ->
 
     admin_id = await _admin_id()
     async with untenanted_session() as session:
-        before = (await config_service.read_rows(session)).get("stt_autodetect_language")
+        before = (await config_service.read_rows(session)).get("thinnest_byok_enabled")
         written = await config_service.set_value(
             session,
-            key="stt_autodetect_language",
-            value=not get_settings().stt_autodetect_language,
+            key="thinnest_byok_enabled",
+            value=not get_settings().thinnest_byok_enabled,
             note="live apply test",
             actor_id=admin_id,
             expected_revision=before.revision if before else 0,
@@ -377,13 +377,13 @@ async def test_a_platform_setting_live_agents_carry_queues_the_platform_run() ->
         assert written.live_apply_run_id is not None
         run = await _run(written.live_apply_run_id)
         assert run.scope == "platform"
-        assert "stt_autodetect_language" in run.reasons
+        assert "thinnest_byok_enabled" in run.reasons
         assert await _outbox(APPLY_JOB, written.live_apply_run_id) == 1
     finally:
         async with untenanted_session() as session:
             await config_service.clear_value(
                 session,
-                key="stt_autodetect_language",
+                key="thinnest_byok_enabled",
                 actor_id=admin_id,
                 expected_revision=written.revision,
             )

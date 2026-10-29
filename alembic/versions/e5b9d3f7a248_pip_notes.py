@@ -1,7 +1,7 @@
 """copilot_notes: what Pip noticed in an account and said on its own (D-936)
 
 Revision ID: e5b9d3f7a248
-Revises: f3a8c2d61b07
+Revises: d9e2b4f7a160
 Create Date: 2026-10-29 16:00:00.000000
 
 One row per episode of something Pip's hourly detectors noticed (`copilot/notes.py`): a hot
@@ -19,7 +19,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "e5b9d3f7a248"
-down_revision: str | None = "f3a8c2d61b07"
+down_revision: str | None = "d9e2b4f7a160"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

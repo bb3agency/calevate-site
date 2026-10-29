@@ -1138,17 +1138,6 @@ class Settings(BaseSettings):
     pip_notes_gap_repeat_calls: int = Field(default=3, ge=2, le=100)
     # Calls AND new leads both up at least this many percent on the week before: a good week.
     pip_notes_good_week_percent: int = Field(default=20, ge=5, le=500)
-    # HOW MANY LIVE AGENTS MAY BE ON THE CARTESIA VOICE TIER, PLATFORM-WIDE (D-547 §0 Q10).
-    # Cartesia's TTS is a monthly PLAN with a concurrency ceiling, not a per-character
-    # meter, so the third clinic on it does not cost a third more — it forces the next plan
-    # (₹26,312/month at the time of the decision) with nothing in the ledger to say so.
-    # `agents/voice_offer.py` refuses a Cartesia voice by name when the count of live
-    # Cartesia agents across every tenant has reached this; an operator raises it here, on
-    # a screen, after choosing to. Default 2, the founder's rule; 0 switches the tier off.
-    #
-    # Raising it is a plan-cost decision, a founder's to make on a screen — an engineer
-    # raising it to make an onboarding work is a vendor bill nobody decided to take on.
-    cartesia_agent_cap: int = Field(default=2, ge=0, le=10_000)
     # WHICH SARVAM TRANSCRIBER EVERY AGENT IS PUBLISHED WITH (D-583).
     #
     # A SETTING RATHER THAN THE CONSTANT IT WAS, AND THE REASON IS A LIVE REFUSAL. The
@@ -1192,27 +1181,6 @@ class Settings(BaseSettings):
     # message about what it would do to Telugu transcripts, which is a better error than
     # a type failure on a screen.
     sarvam_stt_model: SarvamSttModel = SARVAM_DEFAULT_STT
-    # LET THE TRANSCRIBER DETECT THE SPOKEN LANGUAGE INSTEAD OF BEING TOLD IT (D-584).
-    #
-    # **THE VENDOR LEFT NO OTHER PATH TO TELUGU.** Four live refusals exhausted their model
-    # enum against `te-IN` — `saaras:v3` no, `saarika:v2.5` deprecated ("Use 'saaras:v4'
-    # instead"), `saaras:v4` no, `saaras:v2.5` transcribes to English and is banned by
-    # `SARVAM_TRANSLATING_STT`. Their `language` enum has exactly one value left, `unknown`,
-    # documented for automatic detection (`api-reference/agent/v2/create.md:1078-1091`).
-    # `ModelConfig.stt_autodetect` carries the normalized question; each adapter owns its
-    # spelling.
-    #
-    # **DEFAULT `False`, AND IT MUST STAY THAT WAY UNTIL A CALL IS HEARD.** Detection is a
-    # strictly weaker guarantee than pinning, and weaker in the direction this product
-    # cannot afford: a Telugu-English code-mixed opening turn is exactly what a detector
-    # mislabels as English, and every compliance surface downstream (`compliance/optout.py`,
-    # `workers/redaction.py`) matches romanised Telugu. Whether it works AT ALL for Telugu
-    # here is UNVERIFIED (hard rule 11) — it is the last untried value in the vendor's own
-    # vocabulary, not a reading of one that succeeded.
-    #
-    # `live_agents` for `sarvam_stt_model`'s reason exactly: it resolves at publish time
-    # into the agent object the engine stores, so saving it republishes every live agent.
-    stt_autodetect_language: bool = False
     # `COHERE_API_KEY` WAS HERE AND IS GONE, for the reason the paragraph below gives
     # about Clerk. It was declared, classified `applies: live` in `platform_config`, and
     # therefore offered to an operator on the ops console as a key they could install —

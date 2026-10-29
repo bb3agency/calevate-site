@@ -682,20 +682,6 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "The transcriber every agent is published with.",
         _OUR_STT,
     ),
-    "stt_autodetect_language": _m(
-        "speech",
-        "stt",
-        "Detect the caller's language",
-        "Let the transcriber detect the spoken language instead of pinning it. Off until "
-        "it is proven on a real call.",
-        _OUR_STT,
-    ),
-    "cartesia_agent_cap": _m(
-        "speech",
-        "tts",
-        "Live agents allowed on the Studio voice",
-        "Platform-wide ceiling on live agents using a Cartesia (Studio) voice; 0 switches it off.",
-    ),
     # ---- knowledge -------------------------------------------------------------------
     "retrieval_provider": _m(
         "knowledge",
@@ -1422,7 +1408,6 @@ CONTROL_HINTS: Final[dict[str, ControlHint]] = {
     "pip_notes_runway_days": ControlHint(unit="days"),
     "pip_notes_gap_repeat_calls": ControlHint(unit="calls"),
     "pip_notes_good_week_percent": ControlHint(unit="percent"),
-    "cartesia_agent_cap": ControlHint(unit="agents", help="0 switches the Studio voice off."),
     "auto_recharge_max_failures": ControlHint(unit="failures in a row"),
     "number_hold_after_negative_days": ControlHint(unit="days"),
     "db_pool_size": ControlHint(unit="connections"),
