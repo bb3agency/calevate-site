@@ -126,7 +126,9 @@ def test_arq_still_ends_these_two_paths_without_running_the_job() -> None:
 def test_the_alerter_is_installed_at_worker_startup() -> None:
     """A handler nothing attaches is the half-wired feature CLAUDE.md names. Read off the
     function's source rather than by booting a worker, which needs Redis."""
-    assert "install_arq_terminal_alerter()" in inspect.getsource(worker_settings.startup)
+    assert "install_arq_terminal_alerter()" in inspect.getsource(worker_settings._boot)
+    for start in (worker_settings.startup, worker_settings.bulk_startup):
+        assert "_boot(" in inspect.getsource(start)
 
 
 def test_installing_twice_does_not_double_the_alert() -> None:
