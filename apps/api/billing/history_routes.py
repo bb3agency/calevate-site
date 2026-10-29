@@ -56,6 +56,8 @@ class StatementSummaryOut(Strict):
     #: What left the wallet in the month: calls, extra dashboard AI and negative
     #: corrections — the wallet screen's "spent" definition, by debit date.
     wallet_spent_inr: str
+    #: Credit that lapsed unused in the month ("Credit expired"); not in `wallet_spent_inr`.
+    credit_expired_inr: str
     calls: int
     minutes_used: str
 
@@ -101,6 +103,8 @@ class SpendSeriesOut(Strict):
     number_rental_inr: str
     spent_inr: str
     by_agent: list[AgentDailySpendOut]
+    #: Credit that lapsed unused in the window; not spend, so in no `spent_inr`.
+    expired_inr: str
 
 
 @router.get(
@@ -134,6 +138,7 @@ async def list_statements(
                 total_inr=str(row.total_inr),
                 credit_added_inr=str(row.credit_added_inr),
                 wallet_spent_inr=str(row.wallet_spent_inr),
+                credit_expired_inr=str(row.credit_expired_inr),
                 calls=row.calls,
                 minutes_used=str(row.minutes_used),
             )
@@ -192,6 +197,7 @@ async def daily_spend(
             )
             for agent in series.by_agent
         ],
+        expired_inr=str(series.expired_inr),
     )
 
 

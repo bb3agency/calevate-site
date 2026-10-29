@@ -68,6 +68,8 @@ LAPSE_NOTICE_WINDOW: Final = timedelta(days=30)
 
 #: `credit_ledger.meta.kind` of an expiry row; `reason` stays `adjustment`.
 CREDIT_EXPIRY_META_KIND: Final = "credit_expiry"
+#: What the wallet and its ledger call an expiry row.
+CREDIT_EXPIRY_LABEL: Final = "Credit expired"
 CREDIT_EXPIRY_REF_PREFIX: Final = "credit_expiry"
 
 #: How many lots one tenant's sweep expires per run; the rest wait a day.
@@ -257,6 +259,7 @@ async def due_lots(session: AsyncSession, *, now: datetime) -> list[UUID]:
 
 
 __all__ = [
+    "CREDIT_EXPIRY_LABEL",
     "CREDIT_EXPIRY_META_KIND",
     "CREDIT_EXPIRY_REF_PREFIX",
     "EXPIRY_BATCH",

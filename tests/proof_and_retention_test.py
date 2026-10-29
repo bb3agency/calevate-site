@@ -302,6 +302,10 @@ async def test_cost_per_result_divides_wallet_spend_by_each_result() -> None:
         await _call(
             session, tenant_id, agent_id, at=_ist(yesterday, 12), status="no_answer", duration_s=0
         )
+        # The owner ringing their own agent is neither an answered call nor a booking.
+        await _call(
+            session, tenant_id, agent_id, at=_ist(yesterday, 13), outcome="wants_to_buy", trial=True
+        )
         await _lead(session, tenant_id, agent_id, at=_ist(yesterday, 10))
         await _debit(session, tenant_id, "10.00", _ist(yesterday, 10, 30))
     async with _client() as client:

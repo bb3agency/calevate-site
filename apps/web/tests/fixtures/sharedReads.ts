@@ -486,6 +486,7 @@ export function prepaidWallet(over: Partial<Wallet> = {}): Wallet {
       spent_inr: "8400.00",
       added_inr: "12100.00",
       refunded_inr: "0.00",
+      expired_inr: "0.00",
     },
     ...over,
   };

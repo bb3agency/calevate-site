@@ -497,8 +497,24 @@ describe("the pricing page", () => {
       ...RATE_CARD_ROUTES,
       "/v1/public/rate-card": { ...RATE_CARD, number_inr_per_month: "250.00" },
     });
+    const whole = render(await PricingPage());
+    expect(bodyText(whole.container)).toMatch(/each phone number is ₹250 a month/i);
+    whole.unmount();
+
+    // A fee with paise reads exactly what is charged, never rounded to one decimal.
+    stubApi({
+      ...RATE_CARD_ROUTES,
+      "/v1/public/rate-card": {
+        ...RATE_CARD,
+        number_inr_per_month: "399.75",
+        platform_fee_inr_per_month: "1999.75",
+      },
+    });
     const { container } = render(await PricingPage());
-    expect(bodyText(container)).toMatch(/each phone number is ₹250 a month/i);
+    expect(bodyText(container)).toMatch(/each phone number is ₹399\.75 a month/i);
+    expect(container.querySelector("#platform-fee")?.textContent ?? "").toContain(
+      "₹1,999.75 a month",
+    );
   });
 
   /**

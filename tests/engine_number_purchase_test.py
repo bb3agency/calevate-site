@@ -321,6 +321,41 @@ async def test_a_number_somebody_else_holds_is_refused_and_nothing_is_charged(
     assert held == 0
 
 
+async def test_a_price_changed_since_the_quote_is_refused_before_renting(
+    account: FakeAccount,
+) -> None:
+    """The client confirms the monthly price the screen showed; an attestation recorded
+    after that quote must not charge them a figure they never saw."""
+    price = await _attested()
+    tenant_id, _workspace = await _client(account)
+    before = await _balance(tenant_id)
+    with pytest.raises(ProblemError) as refused:
+        await purchase_engine_number(
+            tenant_id=tenant_id,
+            number=account.available[2],
+            agent_id=None,
+            direction="both",
+            idempotency_key=f"key-{uuid.uuid4().hex}",
+            requested_by="client",
+            quoted_inr_per_month=price - Decimal("100.00"),
+        )
+    assert refused.value.code == "number_price_changed"
+    assert not [s for s in account.sent if s.method == "POST" and s.path == "/phone-numbers"]
+    assert await _balance(tenant_id) == before
+
+    bought = await purchase_engine_number(
+        tenant_id=tenant_id,
+        number=account.available[2],
+        agent_id=None,
+        direction="both",
+        idempotency_key=f"key-{uuid.uuid4().hex}",
+        requested_by="client",
+        quoted_inr_per_month=Decimal("499"),
+    )
+    assert bought.client_inr_per_month == price
+    assert await _balance(tenant_id) == before - price
+
+
 async def test_an_agent_still_in_the_platform_account_is_refused_before_renting(
     account: FakeAccount,
 ) -> None:

@@ -45,6 +45,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from typing import Annotated, Any, Final, Literal
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
@@ -2954,6 +2955,9 @@ async def _plan_number_buy(
             "direction": parsed.direction,
             "number": number,
             "attempt": str(uuid4()),
+            # Signed with the card, so the confirm buys at the price the card showed or is
+            # refused (`number_price_changed`), as the screen's purchase is.
+            "inr_per_month": None if price is None else str(price),
         },
     )
 
@@ -2961,6 +2965,7 @@ async def _plan_number_buy(
 class _NumberBuySigned(_NumberBuyArgs):
     number: str
     attempt: UUID
+    inr_per_month: Decimal | None = None
 
 
 async def _execute_number_buy(
@@ -2979,6 +2984,7 @@ async def _execute_number_buy(
         direction=parsed.direction,
         idempotency_key=f"copilot:{parsed.attempt}",
         requested_by="client",
+        quoted_inr_per_month=parsed.inr_per_month,
     )
     return Executed(
         applied=not bought.replayed,

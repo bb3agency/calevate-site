@@ -129,8 +129,18 @@ async def test_a_replayed_purchase_says_so_in_first_period(account: FakeAccount)
     await _attested()
     tenant_id, _workspace = await _client(account)
     headers = await _client_headers(tenant_id)
-    body = {"number": account.available[0], "request_key": f"key-{uuid.uuid4().hex}"}
+    body = {
+        "number": account.available[0],
+        "request_key": f"key-{uuid.uuid4().hex}",
+        "inr_per_month": "499.00",
+    }
     async with _http() as http:
+        as_float = await http.post(
+            "/v1/numbers/own/purchase",
+            json={**body, "inr_per_month": 499.0},
+            headers=_buy_headers(headers),
+        )
+        assert as_float.status_code == 422, "the confirmed price is a string, never a float"
         first = await http.post(
             "/v1/numbers/own/purchase", json=body, headers=_buy_headers(headers)
         )

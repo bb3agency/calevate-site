@@ -382,7 +382,9 @@ async def apply_refund_failed(envelope: Any) -> EventResult:
         await _require_tenant(session, refund.tenant_id)
         key = await claim_of_failed_refund(session, tenant_id=refund.tenant_id, refund=refund)
         if key is not None:
-            await release_refund_claim(session, tenant_id=refund.tenant_id, refund_key=key)
+            await release_refund_claim(
+                session, tenant_id=refund.tenant_id, refund_key=key, refund_id=refund.refund_id
+            )
         await write_audit(
             session,
             action="refund.failed",

@@ -97,6 +97,7 @@ function wallet(over: Partial<Wallet> = {}): Wallet {
       spent_inr: "8700.00",
       added_inr: "12100.00",
       refunded_inr: "0.00",
+      expired_inr: "0.00",
     },
     ...over,
   };
@@ -491,6 +492,7 @@ describe("an empty wallet: what stopped, and what emphatically did not", () => {
             spent_inr: "0.00",
             added_inr: "0.00",
             refunded_inr: "0.00",
+            expired_inr: "0.00",
           },
         }),
         [LEDGER]: { entries: [], payments: [] },
@@ -860,6 +862,7 @@ function creditUsage(
     ai_assist_inr: "0.00",
     number_rental_inr: "0.00",
     adjustments_inr: "0.00",
+    expired_inr: "0.00",
     ...over,
   });
   return { month: "2026-10", this_month: period("this_month", thisMonth), all_time: period("all_time", allTime) };
@@ -889,6 +892,22 @@ describe("where the money went", () => {
     // MESSAGING IS NOT A BUCKET, and a zero bucket is left out.
     expect(container.textContent).not.toContain("Messaging");
     expect(table.textContent).not.toContain("Corrections");
+  });
+
+  it("shows lapsed credit as its own line, never as a part of what was spent", async () => {
+    await renderBillingHub(
+      routes({
+        [CREDIT_USAGE_PATH]: creditUsage({
+          calls_inr: "40.00",
+          spent_inr: "40.00",
+          expired_inr: "500.00",
+        }),
+      }),
+    );
+    const panel = await card();
+    await within(panel).findAllByText("₹40");
+    expect(panel.textContent).toMatch(/Credit expired in .*₹500/);
+    expect(within(panel).getByRole("table").textContent).not.toContain("expired");
   });
 
   it("switches to the wallet's whole life on All time", async () => {
@@ -1127,6 +1146,7 @@ describe("the ledger and its receipts", () => {
             spent_inr: "8400.00",
             added_inr: "12100.00",
             refunded_inr: "500.00",
+            expired_inr: "0.00",
           },
         }),
         [LEDGER]: {

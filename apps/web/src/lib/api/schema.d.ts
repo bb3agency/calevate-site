@@ -20491,6 +20491,8 @@ export interface components {
             ai_assist_inr: string;
             /** Calls Inr */
             calls_inr: string;
+            /** Expired Inr */
+            expired_inr: string;
             /** Number Rental Inr */
             number_rental_inr: string;
             /**
@@ -21302,6 +21304,8 @@ export interface components {
             ai_assist_inr: string;
             /** Calls Inr */
             calls_inr: string;
+            /** Expired Inr */
+            expired_inr: string;
             /** Number Rental Inr */
             number_rental_inr: string;
             /** Refunded Inr */
@@ -28801,6 +28805,8 @@ export interface components {
              * @enum {string}
              */
             direction: "inbound" | "outbound" | "both";
+            /** Inr Per Month */
+            inr_per_month?: number | string | null;
             /** Number */
             number: string;
             /** Request Key */
@@ -31677,6 +31683,8 @@ export interface components {
             calls_inr: string;
             /** Days */
             days: components["schemas"]["SpendDayOut"][];
+            /** Expired Inr */
+            expired_inr: string;
             /** From Date */
             from_date: string;
             /** Number Rental Inr */
@@ -31856,6 +31864,8 @@ export interface components {
             closed: boolean;
             /** Credit Added Inr */
             credit_added_inr: string;
+            /** Credit Expired Inr */
+            credit_expired_inr: string;
             /** Document Type */
             document_type: string;
             /** Invoice Number */

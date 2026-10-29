@@ -37,9 +37,9 @@ import {
   SECONDARY_BUTTON_SM,
   Skeleton,
   formatIST,
-  formatINR,
   formatPhone,
 } from "@/components/ui";
+import { formatPayableINR } from "@/lib/numberDisplay";
 import { useAgents } from "@/lib/api/agents";
 import { ApiProblem } from "@/lib/api/client";
 import { useWriteAccess } from "@/lib/api/hooks";
@@ -103,12 +103,12 @@ export function OwnNumberProblem({ error }: { error: unknown }) {
  * server says one happened.
  */
 export function firstPeriodSentence(period: FirstPeriod, inrPerMonth: string | null): string {
-  const monthly = inrPerMonth === null ? null : `${formatINR(inrPerMonth)} a month`;
+  const monthly = inrPerMonth === null ? null : `${formatPayableINR(inrPerMonth)} a month`;
   switch (period) {
     case "charged":
       return inrPerMonth === null
         ? "The first month was charged now."
-        : `${formatINR(inrPerMonth)} charged now, then monthly.`;
+        : `${formatPayableINR(inrPerMonth)} charged now, then monthly.`;
     case "invoiced":
       return `${monthly ?? "The monthly charge"}. First month on your next invoice.`;
     case "trial":
@@ -231,7 +231,7 @@ function CreditFirst({ status, stage }: { status: OwnNumbersStatus; stage: "tria
             <StepRow index={3} title="Buy a number" state="later">
               <p>
                 {status.inr_per_month !== null
-                  ? `${formatINR(status.inr_per_month)} a month per number.`
+                  ? `${formatPayableINR(status.inr_per_month)} a month per number.`
                   : "Pick a number in your business's name."}
               </p>
             </StepRow>
@@ -327,7 +327,7 @@ function Journey({ status }: { status: OwnNumbersStatus }) {
 
           <StepRow index={3} title="Buy a number" state={ready ? "now" : "waiting"}>
             {status.inr_per_month !== null && (
-              <p>{formatINR(status.inr_per_month)} a month per number.</p>
+              <p>{formatPayableINR(status.inr_per_month)} a month per number.</p>
             )}
             {status.step === "price" ? (
               <p>Not on sale yet. We will tell you.</p>
@@ -479,7 +479,7 @@ function BuyOwnNumber({ canBuy }: { canBuy: boolean }) {
                   </div>
                   <div className="flex flex-wrap items-center gap-3">
                     {offer.inr_per_month !== null && (
-                      <span className="text-body font-medium text-ink">{formatINR(offer.inr_per_month)} a month</span>
+                      <span className="text-body font-medium text-ink">{formatPayableINR(offer.inr_per_month)} a month</span>
                     )}
                     <button
                       type="button"
@@ -523,6 +523,8 @@ function BuyOwnNumber({ canBuy }: { canBuy: boolean }) {
                 agent_id: agentId === NO_AGENT ? null : agentId,
                 direction,
                 request_key: requestKey,
+                // The price this dialog showed: a rate changed since is refused, not charged.
+                inr_per_month: chosen.inr_per_month,
               },
               {
                 onSuccess: (result) => {
@@ -534,7 +536,7 @@ function BuyOwnNumber({ canBuy }: { canBuy: boolean }) {
           }
         >
           {chosen.inr_per_month !== null && (
-            <p className="text-ink">{formatINR(chosen.inr_per_month)} a month while you keep it.</p>
+            <p className="text-ink">{formatPayableINR(chosen.inr_per_month)} a month while you keep it.</p>
           )}
           <p>Registered in your business&apos;s name.</p>
           <label className="block">

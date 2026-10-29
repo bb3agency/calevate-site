@@ -70,6 +70,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.ai_quota import OVERAGE_META_KIND
+from apps.api.billing.credit_expiry import CREDIT_EXPIRY_META_KIND
 from apps.api.billing.lots import runway as lot_runway
 from apps.api.billing.number_rental import RENTAL_CHARGE_META_KIND
 from apps.api.billing.rates import VOICE_TIERS, VoiceTier, voice_tier_label
@@ -130,16 +131,22 @@ PENDING_GRACE_HOURS: Final = 24
 
 #: THE FOUR OUTGOING BUCKETS, as SQL select-list expressions over `credit_ledger`'s own
 #: `delta`, `reason` and `meta` — calls, dashboard-AI blocks, operator corrections and
-#: phone number rental, in that order (the rental is LAST so every reader that predates it
-#: keeps its column positions). ONE spelling, read by the trailing-window drawdown below
-#: and by the daily spend series (`billing/history.py`), so "what left the wallet" has one
-#: definition and the series sums to the drawdown for the same window by construction.
+#: phone number rental, in that order, then lapsed credit (`_EXPIRY_KIND_SQL`), which is
+#: not spend. New columns go last so earlier column positions hold. ONE spelling, read
+#: by the trailing-window drawdown below and by the daily spend series
+#: (`billing/history.py`), so "what left the wallet" has one definition and the series
+#: sums to the drawdown for the same window by construction.
 #:
 #: The AI and rental buckets are separated by `meta->>'kind'` rather than by another
 #: ledger `reason`, because that is how their writers distinguish them
 #: (`ai_quota.purchase_ai_overage`, `number_rental.charge_number_rental`); the calls bucket
 #: is every other `usage` row. Binds `:ai_kind`; the rental kind is a module constant.
 _RENTAL_KIND_SQL: Final = f"'{RENTAL_CHARGE_META_KIND}'"
+#: Credit a lot lost when it lapsed (`credit_expiry.expire_lot`). It is an `adjustment` row
+#: but nothing was bought with it, so it is NOT spend: counting it would put a lapse on the
+#: spend chart, the cost per lead and the daily summary. It is the fifth column of
+#: `DRAWDOWN_BUCKETS_SQL`, which no reader adds into what was spent.
+_EXPIRY_KIND_SQL: Final = f"'{CREDIT_EXPIRY_META_KIND}'"
 DRAWDOWN_BUCKETS_SQL: Final = (
     "COALESCE(SUM(-delta) FILTER ("
     "  WHERE delta < 0 AND reason = 'usage'"
@@ -148,10 +155,14 @@ DRAWDOWN_BUCKETS_SQL: Final = (
     "COALESCE(SUM(-delta) FILTER ("
     "  WHERE delta < 0 AND reason = 'usage'"
     "  AND (meta->>'kind') = :ai_kind), 0), "
-    "COALESCE(SUM(-delta) FILTER (WHERE delta < 0 AND reason = 'adjustment'), 0), "
+    "COALESCE(SUM(-delta) FILTER (WHERE delta < 0 AND reason = 'adjustment'"
+    f"  AND (meta->>'kind') IS DISTINCT FROM {_EXPIRY_KIND_SQL}), 0), "
     "COALESCE(SUM(-delta) FILTER ("
     "  WHERE delta < 0 AND reason = 'usage'"
-    f"  AND (meta->>'kind') = {_RENTAL_KIND_SQL}), 0)"
+    f"  AND (meta->>'kind') = {_RENTAL_KIND_SQL}), 0), "
+    # The fifth column: credit that lapsed unused. Never summed into spend.
+    "COALESCE(SUM(-delta) FILTER (WHERE delta < 0 AND reason = 'adjustment'"
+    f"  AND (meta->>'kind') = {_EXPIRY_KIND_SQL}), 0)"
 )
 
 #: Credit that LANDED: payments, pack bonuses, positive adjustments and goodwill grants
@@ -214,6 +225,9 @@ class Drawdown:
     refunded_inr: Decimal
     #: Phone number rental debited in the window (D-665).
     number_rental_inr: Decimal
+    #: Credit that lapsed unused in the window. It left the balance but was not spent, so
+    #: it is not in `spent_inr`.
+    expired_inr: Decimal = Decimal("0")
 
 
 @dataclass(frozen=True, slots=True)
@@ -339,8 +353,8 @@ async def read_runway(
     # other NUMERIC read in this tree keeps (`service._newest_balance` argues it): the day
     # a driver hands back a float, `Decimal(340.10)` carries the binary error into a figure
     # a client checks against their own books.
-    sums = tuple(Decimal(str(value)) for value in row) if row is not None else (Decimal("0"),) * 6
-    calls, ai_assist, adjustments, rental, added, refunded = sums
+    sums = tuple(Decimal(str(value)) for value in row) if row is not None else (Decimal("0"),) * 7
+    calls, ai_assist, adjustments, rental, expired, added, refunded = sums
     drawdown = Drawdown(
         calls_inr=calls,
         ai_assist_inr=ai_assist,
@@ -353,6 +367,7 @@ async def read_runway(
         added_inr=added,
         refunded_inr=refunded,
         number_rental_inr=rental,
+        expired_inr=expired,
     )
 
     # HOW LONG WE HAVE BEEN WATCHING. The first entry on the wallet, floored to whole days

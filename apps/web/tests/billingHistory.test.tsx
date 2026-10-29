@@ -47,6 +47,7 @@ const SERIES: SpendSeries = {
   adjustments_inr: "0.00",
   spent_inr: "0.30",
   by_agent: [{ agent_id: "agent-1", agent_name: "Front desk", calls_inr: "0.30" }],
+  expired_inr: "0.00",
 };
 
 function statementPage(months: string[], next: string | null): StatementList {
@@ -59,6 +60,7 @@ function statementPage(months: string[], next: string | null): StatementList {
       total_inr: "0.00",
       credit_added_inr: "1000.00",
       wallet_spent_inr: "12.35",
+      credit_expired_inr: "0.00",
       calls: 3,
       minutes_used: "4.50",
     })),

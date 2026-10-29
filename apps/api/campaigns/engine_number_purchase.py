@@ -46,7 +46,9 @@ from calevate_shared.engine_scope import scope_of, scoped_handle
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.billing.display import display_inr
 from apps.api.billing.number_rental import RentalOutcome
+from apps.api.billing.service import to_paise
 from apps.api.campaigns.engine_numbers import (
     engine_number_provider,
     is_platform_held,
@@ -274,9 +276,14 @@ async def purchase_engine_number(
     direction: NumberDirection,
     idempotency_key: str,
     requested_by: Literal["client", "admin"],
+    quoted_inr_per_month: Decimal | None = None,
 ) -> PurchasedEngineNumber:
     """Rent `number` in the client's own workspace, record it, charge the client's first
-    month, attach it. Opens its own sessions; holds none across the vendor call."""
+    month, attach it. Opens its own sessions; holds none across the vendor call.
+
+    `quoted_inr_per_month` is the monthly price the buyer was shown. When given, a new
+    purchase is refused before anything is rented unless it is still the attested price:
+    a rate an operator changed after the screen loaded is never charged unseen."""
     wanted = digits(number)
     async with tenant_session(tenant_id) as session:
         await assert_account_open(session, tenant_id=tenant_id)
@@ -323,6 +330,10 @@ async def purchase_engine_number(
             workspace = state.workspace_id
             await _assert_agent_can_take_it(session, agent_id=agent_id, workspace=workspace)
             price = await require_attested_price_inr(session)
+            if quoted_inr_per_month is not None and to_paise(quoted_inr_per_month) != to_paise(
+                price.inr_per_month
+            ):
+                raise _price_changed(price.inr_per_month)
             await assert_can_afford(session, tenant_id=tenant_id, amount=price.inr_per_month)
             purchase_id = uuid7()
             await session.execute(
@@ -415,6 +426,15 @@ async def purchase_engine_number(
         client_inr_per_month=recorded.client_inr_per_month,
         attachment=recorded.attachment,
         first_period=recorded.first_period,
+    )
+
+
+def _price_changed(now_inr: Decimal) -> ProblemError:
+    return ProblemError.conflict(
+        "number_price_changed",
+        f"The monthly price of a number is now {display_inr(now_inr)}, not the price "
+        "you were shown. Nothing has been charged.",
+        remediation="Check the new price and press Buy again.",
     )
 
 

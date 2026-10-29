@@ -16,13 +16,15 @@ the screens, so support impersonating a client can read them.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Literal
+from decimal import Decimal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.billing.credit_routes import refuse_json_float
 from apps.api.billing.first_payment import has_paid
 from apps.api.billing.number_rental import RentalOutcome
 from apps.api.campaigns import engine_numbers
@@ -294,6 +296,15 @@ class PurchaseOwnNumberIn(BaseModel):
     direction: NumberDirection = "both"
     #: One per click of Buy, kept across retries of that click: a repeat buys one number.
     request_key: str = Field(min_length=8, max_length=100, pattern=r"^[A-Za-z0-9_-]+$")
+    #: The monthly price the screen showed (the search's `inr_per_month`), as a decimal
+    #: string. A purchase is refused (`number_price_changed`) when it is no longer the
+    #: price, so nobody is charged a rate changed after they looked.
+    inr_per_month: Decimal | None = Field(default=None, max_digits=12, decimal_places=2, gt=0)
+
+    @field_validator("inr_per_month", mode="before")
+    @classmethod
+    def _never_a_float(cls, value: Any) -> Any:
+        return refuse_json_float(value)
 
 
 class PurchasedOwnNumberOut(BaseModel):
@@ -345,6 +356,7 @@ async def purchase_own_number(
         direction=payload.direction,
         idempotency_key=payload.request_key,
         requested_by="client",
+        quoted_inr_per_month=payload.inr_per_month,
     )
     if not bought.replayed:
         async with tenant_session(principal.tenant_id) as session:
