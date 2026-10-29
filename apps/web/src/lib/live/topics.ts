@@ -140,6 +140,8 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "teach-questions",
     "admin/kb",
     "admin/kb-preview",
+    // A source waiting for approval is a row on the operator's health board.
+    "admin/client-health",
     "readiness",
   ],
   wallet: [
