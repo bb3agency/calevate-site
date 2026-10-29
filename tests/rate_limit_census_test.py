@@ -154,7 +154,7 @@ def test_every_rule_names_a_profile_that_exists() -> None:
         # queued for a fetch of a host the client names.
         ("/v1/agents/{agent_id}/activate", "POST", "costly"),
         ("/v1/agents/{agent_id}/prepare", "POST", "costly"),
-        ("/v1/agents/{agent_id}/deactivate", "POST", "costly"),
+        ("/v1/agents/{agent_id}/deactivate", "POST", "stop"),
         ("/v1/agents/{agent_id}/script/opening-line", "PUT", "costly"),
         ("/v1/numbers/own/purchase", "POST", "costly"),
         ("/v1/numbers/own/{number_id}/release", "POST", "costly"),

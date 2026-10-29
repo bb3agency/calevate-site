@@ -120,6 +120,11 @@ PROFILES: dict[str, LimitProfile] = {
     # A vendor round trip, an LLM call or an email send. Each one costs money or a
     # third-party quota, and no human clicks these 30 times a minute.
     "costly": LimitProfile("costly", per_client=30, per_tenant=60, fail_closed=True),
+    # The same ceiling for the one costly act that moves toward SAFETY: switching an agent
+    # off. It stays available while the counter is unreachable, because refusing a client
+    # who is trying to stop their agent answering calls is worse than one unmetered vendor
+    # write; the per-IP nginx zone still bounds it.
+    "stop": LimitProfile("stop", per_client=30, per_tenant=60),
     # Pip's file upload (D-781): each request streams up to 20 MB into storage, so it has a
     # ceiling of its own, per person and per account, below `costly`.
     "upload": LimitProfile("upload", per_client=20, per_tenant=60, fail_closed=True),
@@ -387,7 +392,7 @@ RULES: tuple[Rule, ...] = (
     # stop answering the agent's numbers, and the opening-line edit puts the script live.
     Rule("/v1/agents/*/activate", "costly", _m("POST")),
     Rule("/v1/agents/*/prepare", "costly", _m("POST")),
-    Rule("/v1/agents/*/deactivate", "costly", _m("POST")),
+    Rule("/v1/agents/*/deactivate", "stop", _m("POST")),
     Rule("/v1/agents/*/script/opening-line", "costly", _m("PUT")),
     # A number bought or released in the client's own workspace on the voice platform.
     Rule("/v1/numbers/own/purchase", "costly", _m("POST")),

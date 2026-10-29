@@ -386,6 +386,17 @@ async def test_a_spend_or_bulk_route_refuses_rather_than_runs_unmetered_when_red
     assert refused.headers.get("Retry-After")
 
 
+async def test_switching_an_agent_off_still_works_when_redis_is_gone(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Stopping an agent is the safe direction, so the limiter never stands in its way: with
+    no counter it reaches the handler (401 here, unauthenticated), not a 503."""
+    monkeypatch.setattr(ratelimit, "get_redis", _broken_redis)
+    async with _client() as http:
+        answer = await http.post(f"/v1/agents/{uuid.uuid4()}/deactivate")
+    assert answer.status_code == 401, answer.text
+
+
 async def test_the_tenant_charge_follows_the_profile_policy_when_redis_is_gone(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
