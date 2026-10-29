@@ -47,7 +47,7 @@ from apps.api.crm.lens import (
     call_where,
     lead_row_clauses,
 )
-from apps.api.crm.live_calls import LIVE_STATE_SQL, live_state_params
+from apps.api.crm.live_calls import LIVE_STATE_SQL, RUNNING_SQL, live_state_params
 from apps.api.crm.outcomes import normalise as normalise_outcome
 from apps.api.crm.performance import IST_DAY_SQL, IST_HOUR_SQL, IST_TODAY_SQL
 from apps.api.crm.schemas import (
@@ -206,6 +206,7 @@ def redacted_summary(value: str | None) -> str | None:
 #: Which calls (`crm/lens.py`, D-893): one definition for the log, its export and Pip.
 _CALL_AT: Final = CALL_AT
 _LIVE_STATE: Final = f"({LIVE_STATE_SQL})"
+_RUNNING: Final = RUNNING_SQL
 
 
 async def list_calls(
@@ -220,22 +221,39 @@ async def list_calls(
     with_previews: bool = False,
 ) -> list[CallSummaryOut]:
     where, params = call_where(filters or CallFilters(status=status, agent_id=agent_id))
-    params |= {"limit": min(limit, MAX_PAGE), "offset": offset} | live_state_params()
+    page_size = min(limit, MAX_PAGE)
+    params |= {"limit": page_size, "offset": offset, "window": page_size + offset}
+    params |= live_state_params()
+    narrowed = f"{where} AND" if where else "WHERE"
 
     credits_column = _CREDITS_USED_COLUMN if include_credits else "NULL"
     rows = (
         await session.execute(
             text(
+                # The page is chosen from `calls` alone, then joined. Ordering the joined
+                # rows instead ran the callback LATERAL and the lead-name subquery for every
+                # call the account ever had before the sort kept 50 (132 ms at 60k calls).
+                # Calls still running head the log (D-886), then newest first: the two
+                # halves are separate branches so each is a plain `CALL_AT DESC` read the
+                # running half answers from `ix_calls_tenant_created` (it is the last
+                # `LIVE_LINE_HORIZON` of rows) and the rest can be read in index order.
+                "WITH page AS (SELECT p.id, p.live FROM ("
+                f"(SELECT c.id, true AS live, {_CALL_AT} AS call_at FROM calls c "
+                f"{narrowed} {_RUNNING} ORDER BY call_at DESC, c.id DESC LIMIT :window) "
+                "UNION ALL "
+                f"(SELECT c.id, false AS live, {_CALL_AT} AS call_at FROM calls c "
+                f"{narrowed} NOT ({_RUNNING}) ORDER BY call_at DESC, c.id DESC LIMIT :window)"
+                ") p ORDER BY p.live DESC, p.call_at DESC, p.id DESC "
+                "LIMIT :limit OFFSET :offset) "
                 "SELECT c.id, c.agent_id, a.name, c.direction, c.status, c.from_e164, "
                 "c.to_e164, c.started_at, c.duration_s, c.outcome_tag, c.sentiment, "
                 "c.summary, c.lead_id, c.summary_state, c.headline, c.trial_call, "
                 f"{_CALLBACK_COLUMNS}, {_LEAD_NAME_COLUMN}, {credits_column}, "
                 "c.business_outcome, c.business_outcome_label, c.follow_up_state, c.created_at, "
                 f"a.business_outcomes, {_LIVE_STATE} AS live_state "
-                f"FROM calls c JOIN agents a ON a.id = c.agent_id {_CALLBACK_JOIN} {where} "
-                # Calls still running head the log (D-886), then newest first.
-                f"ORDER BY ({_LIVE_STATE} = 'live') IS TRUE DESC, {_CALL_AT} DESC, c.id DESC "
-                "LIMIT :limit OFFSET :offset"
+                "FROM page JOIN calls c ON c.id = page.id JOIN agents a ON a.id = c.agent_id "
+                f"{_CALLBACK_JOIN} "
+                f"ORDER BY page.live DESC, {_CALL_AT} DESC, c.id DESC"
             ),
             params,
         )
