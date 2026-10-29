@@ -43,6 +43,7 @@ from apps.api.authn.credentials import authenticate_subject, set_password
 from apps.api.authn.sessions import issue_session, verify_session
 from apps.api.authn.stepup import REAUTH_MAX_AGE
 from apps.api.authn.throttle import KEY_PREFIX, PASSWORD_ACCOUNT_CEILING
+from apps.api.authn.tokens import issue_token, redeem_token
 from apps.api.core.redis import get_redis
 from apps.api.db.session import credential_session, untenanted_session
 from apps.api.main import app
@@ -103,7 +104,12 @@ async def subject_ids() -> AsyncIterator[dict[str, uuid.UUID]]:
         yield {"admin": admin_id, "client": user_id}
     finally:
         async with credential_session() as session:
-            for table in ("auth_otp_challenges", "auth_sessions", "auth_credentials"):
+            for table in (
+                "auth_otp_challenges",
+                "auth_email_tokens",
+                "auth_sessions",
+                "auth_credentials",
+            ):
                 await session.execute(
                     text(f"DELETE FROM {table} WHERE subject_id = ANY(:s)"),
                     {"s": [admin_id, user_id]},
@@ -177,6 +183,32 @@ async def test_a_change_replaces_the_password_and_ends_every_other_session(
     assert not await _live(realm, stolen)
     assert await _password_is(realm, subject_id, NEW_PASSWORD)
     assert not await _password_is(realm, subject_id, OLD_PASSWORD)
+
+
+@pytest.mark.parametrize("realm", ["admin", "client"])
+async def test_a_change_burns_a_reset_link_mailed_before_it(
+    realm: str, subject_ids: dict[str, uuid.UUID]
+) -> None:
+    """A reset link issued before the change must not replace the password just chosen:
+    the person changing it may be doing so because somebody else had their mailbox."""
+    subject_id = subject_ids[realm]
+    async with credential_session() as session:
+        link = await issue_token(
+            session, purpose="password_reset", realm=realm, subject_id=subject_id
+        )
+    caller = await _token(realm, subject_id)
+
+    async with _client() as http:
+        response = await http.post(
+            _path(realm),
+            json={"current_password": OLD_PASSWORD, "new_password": NEW_PASSWORD},
+            cookies=await _cookies(realm, caller),
+        )
+
+    assert response.status_code == 200, response.text
+    async with credential_session() as session:
+        redeemed = await redeem_token(session, purpose="password_reset", token=link.token)
+    assert redeemed is None, "a reset link minted before the change must be dead after it"
 
 
 @pytest.mark.parametrize("realm", ["admin", "client"])

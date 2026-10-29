@@ -999,6 +999,12 @@ async def change_password(
             email=subject.email,
             now=at,
         )
+        # A reset link mailed before the change would otherwise stay redeemable for the
+        # rest of its hour, and whoever holds it could replace the password just chosen
+        # (OWASP Forgot Password Cheat Sheet; `confirm_password_reset` burns them too).
+        await tokens.invalidate_outstanding(
+            session, purpose="password_reset", realm=realm, subject_id=subject_id, now=at
+        )
         rotated = await rotate_session(session, verified=verified, now=at)
         revoked = await revoke_subject_sessions(
             session,
