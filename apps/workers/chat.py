@@ -33,8 +33,10 @@ error bodies quote the request, and on some callers the request is a call transc
 
 from __future__ import annotations
 
+import asyncio
 import json
 import math
+import weakref
 from collections.abc import AsyncIterator, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any, Final, Literal
@@ -44,6 +46,35 @@ import httpx
 from apps.api.core.logging import get_logger
 
 log = get_logger(__name__)
+
+#: One pooled client per running event loop, shared by every model leg in the process.
+#:
+#: A Pip question is a loop of model turns with tool calls between them, and a fresh
+#: `httpx.AsyncClient` per turn paid a new TCP and TLS handshake to the provider on every
+#: turn, inside the person's wait. A pooled client reuses the connection ("Reduced latency
+#: across requests (no handshaking)", python-httpx.org/advanced/clients). The pool is per
+#: origin, so one client serves Gemini, Azure and Sarvam without mixing their connections.
+#: Keyed by loop because an httpx connection belongs to the loop that opened it; a dead
+#: loop's entry goes with the loop. No client-level timeout: every call passes its own,
+#: because the legs' budgets differ (`stream` bounds silence, `complete` the request).
+_POOLED: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, httpx.AsyncClient] = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def pooled_client() -> httpx.AsyncClient:
+    """The shared client for the running loop. Callers never close it.
+
+    `follow_redirects=False` is load-bearing: a redirect off the configured host is a
+    residency question, and following the hop silently is what these legs must not do.
+    """
+    loop = asyncio.get_running_loop()
+    client = _POOLED.get(loop)
+    if client is None or client.is_closed:
+        client = httpx.AsyncClient(follow_redirects=False)
+        _POOLED[loop] = client
+    return client
+
 
 #: A chat message, in the vendor's own vocabulary (`role`, `content`, `tool_calls`,
 #: `tool_call_id`). Deliberately a plain mapping rather than a typed model: this is the
@@ -598,29 +629,26 @@ async def complete(
     redirect off the configured host is a residency question, and answering it silently by
     following the hop is the one thing these legs must not do. A caller-supplied client is
     the caller's to configure and to close — the ownership rule
-    `AzureOpenAIExtractor` and `GoogleSheetsTransport` already keep.
+    `AzureOpenAIExtractor` and `GoogleSheetsTransport` already keep. Without one the
+    process's `pooled_client()` carries the request, with `timeout_s` set per request.
     """
-    owns_client = client is None
-    http = client or httpx.AsyncClient(timeout=timeout_s, follow_redirects=False)
-    try:
-        response = await http.post(
-            leg.url,
-            headers=_headers(leg),
-            json=_request_body(
-                leg,
-                messages,
-                temperature=temperature,
-                response_format=response_format,
-                tools=tools,
-                tool_choice=tool_choice,
-                stream=False,
-                max_tokens=max_tokens,
-                reasoning_effort=reasoning_effort,
-            ),
-        )
-    finally:
-        if owns_client:
-            await http.aclose()
+    http = client or pooled_client()
+    response = await http.post(
+        leg.url,
+        headers=_headers(leg),
+        json=_request_body(
+            leg,
+            messages,
+            temperature=temperature,
+            response_format=response_format,
+            tools=tools,
+            tool_choice=tool_choice,
+            stream=False,
+            max_tokens=max_tokens,
+            reasoning_effort=reasoning_effort,
+        ),
+        timeout=timeout_s,
+    )
     response.raise_for_status()
     body = _json_body(response)
     if not isinstance(body, dict):  # pragma: no cover - a provider that is not this API
@@ -773,64 +801,58 @@ async def stream(
     JSON parse as an ordinary refusal — visible, never a silently mis-joined call. The
     fragmented-without-index case is UNKNOWN (OPERATIONS §2 gate 61).
     """
-    owns_client = client is None
-    http = client or httpx.AsyncClient(
-        timeout=httpx.Timeout(timeout_s, connect=timeout_s), follow_redirects=False
-    )
+    http = client or pooled_client()
     accumulator = _ToolCallAccumulator(whole_calls_without_index=leg.dialect == "google")
     content: list[str] = []
     finish_reason: str | None = None
     usage: TokenUsage | None = None
-    try:
-        async with http.stream(
-            "POST",
-            leg.url,
-            headers=_headers(leg),
-            json=_request_body(
-                leg,
-                messages,
-                temperature=temperature,
-                response_format=None,
-                tools=tools,
-                tool_choice=tool_choice,
-                stream=True,
-                max_tokens=max_tokens,
-            ),
-        ) as response:
-            if response.is_error:
-                # The body has not been read yet on a streaming response, and
-                # `raise_for_status()` needs it to build its message. Read it, then raise —
-                # the body itself is never logged (hard rule 6: a provider's error body
-                # quotes the request, and on the copilot leg the request is a screen).
-                await response.aread()
-                log.warning(
-                    "chat_stream_refused",
-                    extra={"status": response.status_code, "model": leg.wire_model},
-                )
-                response.raise_for_status()
-            async for line in response.aiter_lines():
-                frame = _stream_frames(line)
-                if frame is None:
-                    continue
-                usage = usage_from_body(frame) or usage
-                choices = frame.get("choices") or []
-                if not choices or not isinstance(choices[0], dict):
-                    continue
-                choice = choices[0]
-                reason = choice.get("finish_reason")
-                if isinstance(reason, str):
-                    finish_reason = reason
-                delta = choice.get("delta")
-                if not isinstance(delta, dict):
-                    continue
-                accumulator.feed(delta.get("tool_calls"))
-                fragment = delta.get("content")
-                if isinstance(fragment, str) and fragment:
-                    content.append(fragment)
-                    yield StreamEvent(text=fragment)
-    finally:
-        if owns_client:
-            await http.aclose()
+    async with http.stream(
+        "POST",
+        leg.url,
+        headers=_headers(leg),
+        json=_request_body(
+            leg,
+            messages,
+            temperature=temperature,
+            response_format=None,
+            tools=tools,
+            tool_choice=tool_choice,
+            stream=True,
+            max_tokens=max_tokens,
+        ),
+        timeout=httpx.Timeout(timeout_s, connect=timeout_s),
+    ) as response:
+        if response.is_error:
+            # The body has not been read yet on a streaming response, and
+            # `raise_for_status()` needs it to build its message. Read it, then raise —
+            # the body itself is never logged (hard rule 6: a provider's error body
+            # quotes the request, and on the copilot leg the request is a screen).
+            await response.aread()
+            log.warning(
+                "chat_stream_refused",
+                extra={"status": response.status_code, "model": leg.wire_model},
+            )
+            response.raise_for_status()
+        async for line in response.aiter_lines():
+            frame = _stream_frames(line)
+            if frame is None:
+                continue
+            usage = usage_from_body(frame) or usage
+            choices = frame.get("choices") or []
+            if not choices or not isinstance(choices[0], dict):
+                continue
+            choice = choices[0]
+            reason = choice.get("finish_reason")
+            if isinstance(reason, str):
+                finish_reason = reason
+            delta = choice.get("delta")
+            if not isinstance(delta, dict):
+                continue
+            accumulator.feed(delta.get("tool_calls"))
+            fragment = delta.get("content")
+            if isinstance(fragment, str) and fragment:
+                content.append(fragment)
+                yield StreamEvent(text=fragment)
     yield StreamEvent(
         outcome=ChatOutcome(
             content="".join(content),
@@ -890,17 +912,13 @@ async def embed(
     `follow_redirects=False` and the client-ownership rule are `complete`'s, verbatim and
     for its reasons.
     """
-    owns_client = client is None
-    http = client or httpx.AsyncClient(timeout=timeout_s, follow_redirects=False)
-    try:
-        response = await http.post(
-            leg.url,
-            headers=_headers(leg),
-            json={"model": leg.wire_model, "input": list(inputs), "dimensions": dimensions},
-        )
-    finally:
-        if owns_client:
-            await http.aclose()
+    http = client or pooled_client()
+    response = await http.post(
+        leg.url,
+        headers=_headers(leg),
+        json={"model": leg.wire_model, "input": list(inputs), "dimensions": dimensions},
+        timeout=timeout_s,
+    )
     response.raise_for_status()
     body = _json_body(response)
     if not isinstance(body, dict):  # pragma: no cover - a provider that is not this API
@@ -958,6 +976,7 @@ __all__ = [
     "ToolCall",
     "complete",
     "embed",
+    "pooled_client",
     "provider_of",
     "refused_this_input",
     "replayed_tool_call",

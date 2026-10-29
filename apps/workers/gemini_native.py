@@ -42,7 +42,15 @@ from typing import Any, Final
 import httpx
 
 from apps.api.core.logging import get_logger
-from apps.workers.chat import ChatLeg, ChatMessage, ChatOutcome, StreamEvent, TokenUsage, ToolCall
+from apps.workers.chat import (
+    ChatLeg,
+    ChatMessage,
+    ChatOutcome,
+    StreamEvent,
+    TokenUsage,
+    ToolCall,
+    pooled_client,
+)
 
 log = get_logger(__name__)
 
@@ -216,64 +224,56 @@ async def stream(
     RAISES `httpx.HTTPStatusError` on a non-2xx, read before any frame, as `chat.stream`
     does. `leg.url` is the full `:streamGenerateContent?alt=sse` address.
     """
-    owns_client = client is None
-    http = client or httpx.AsyncClient(
-        timeout=httpx.Timeout(timeout_s, connect=timeout_s), follow_redirects=False
-    )
+    http = client or pooled_client()
     content: list[str] = []
     calls: list[ToolCall] = []
     parts: list[Mapping[str, Any]] = []
     finish_reason: str | None = None
     usage: TokenUsage | None = None
-    try:
-        async with http.stream(
-            "POST",
-            leg.url,
-            headers={"x-goog-api-key": leg.api_key},
-            json=request_body(
-                messages, tools=tools, temperature=temperature, max_tokens=max_tokens
-            ),
-        ) as response:
-            if response.is_error:
-                await response.aread()
-                log.warning(
-                    "gemini_native_refused",
-                    extra={"status": response.status_code, "model": leg.wire_model},
-                )
-                response.raise_for_status()
-            async for line in response.aiter_lines():
-                frame = _frame(line)
-                if frame is None:
+    async with http.stream(
+        "POST",
+        leg.url,
+        headers={"x-goog-api-key": leg.api_key},
+        json=request_body(messages, tools=tools, temperature=temperature, max_tokens=max_tokens),
+        timeout=httpx.Timeout(timeout_s, connect=timeout_s),
+    ) as response:
+        if response.is_error:
+            await response.aread()
+            log.warning(
+                "gemini_native_refused",
+                extra={"status": response.status_code, "model": leg.wire_model},
+            )
+            response.raise_for_status()
+        async for line in response.aiter_lines():
+            frame = _frame(line)
+            if frame is None:
+                continue
+            usage = usage_of(frame) or usage
+            candidates = frame.get("candidates") or []
+            if not candidates or not isinstance(candidates[0], Mapping):
+                continue
+            candidate = candidates[0]
+            reason = candidate.get("finishReason")
+            if isinstance(reason, str):
+                finish_reason = _FINISH.get(reason, reason.lower())
+            body = candidate.get("content")
+            for part in (body.get("parts") or []) if isinstance(body, Mapping) else []:
+                if not isinstance(part, Mapping):
                     continue
-                usage = usage_of(frame) or usage
-                candidates = frame.get("candidates") or []
-                if not candidates or not isinstance(candidates[0], Mapping):
-                    continue
-                candidate = candidates[0]
-                reason = candidate.get("finishReason")
-                if isinstance(reason, str):
-                    finish_reason = _FINISH.get(reason, reason.lower())
-                body = candidate.get("content")
-                for part in (body.get("parts") or []) if isinstance(body, Mapping) else []:
-                    if not isinstance(part, Mapping):
-                        continue
-                    parts.append(part)
-                    text = part.get("text")
-                    if isinstance(text, str) and text and not part.get("thought"):
-                        content.append(text)
-                        yield StreamEvent(text=text)
-                    call = part.get("functionCall")
-                    if isinstance(call, Mapping):
-                        calls.append(
-                            ToolCall(
-                                id=str(call.get("id") or f"{_LOCAL_ID}{uuid.uuid4().hex[:12]}"),
-                                name=str(call.get("name", "")),
-                                arguments=json.dumps(call.get("args") or {}),
-                            )
+                parts.append(part)
+                text = part.get("text")
+                if isinstance(text, str) and text and not part.get("thought"):
+                    content.append(text)
+                    yield StreamEvent(text=text)
+                call = part.get("functionCall")
+                if isinstance(call, Mapping):
+                    calls.append(
+                        ToolCall(
+                            id=str(call.get("id") or f"{_LOCAL_ID}{uuid.uuid4().hex[:12]}"),
+                            name=str(call.get("name", "")),
+                            arguments=json.dumps(call.get("args") or {}),
                         )
-    finally:
-        if owns_client:
-            await http.aclose()
+                    )
     if calls and finish_reason == "stop":
         finish_reason = "tool_calls"
     yield StreamEvent(
