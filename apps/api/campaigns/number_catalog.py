@@ -60,6 +60,7 @@ from apps.api.campaigns.provisioning import (
 from apps.api.compliance.kyc import read_kyc
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
+from apps.api.db.ownership import assert_visible
 
 log = get_logger(__name__)
 
@@ -341,8 +342,11 @@ async def assign_number_to_agent(
 
     Every refusal about the AGENT — a neighbour's id, an archived agent, an agent that does
     not answer inbound — belongs to `agents/service.attach_number_to_agent` and is not
-    re-implemented here (one way per problem).
+    re-implemented here (one way per problem). The one exception is visibility, checked
+    first: the activation write and the holder gate below must not run for a neighbour's
+    agent id, even though the 404 that follows would roll them back.
     """
+    await assert_visible(session, "agent", agent_id)
     row = (await session.execute(text(_NUMBER_STATE), {"nid": number_id})).first()
     if row is None:
         raise ProblemError.not_found("Number")

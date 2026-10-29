@@ -543,6 +543,35 @@ async def test_an_unverified_holders_number_cannot_be_given_to_an_agent(
     assert bound is None, "a refused assignment must leave the number unbound"
 
 
+async def test_a_neighbours_agent_is_not_found_before_the_activation_gate_runs(
+    authorized: None,
+) -> None:
+    """Naming another client's agent must answer 404 before the holder gate or the
+    activation write runs, so it can neither reveal this account's verification state nor
+    write on the neighbour's behalf (`db/ownership.assert_visible`: check before any write)."""
+    await _attest_price()
+    org = await _tenant()
+    tenant_id = uuid.UUID(str(org["id"]))
+    await _with_holder(tenant_id)
+    neighbour = await _tenant()
+    neighbours_agent = await _agent(uuid.UUID(str(neighbour["id"])))
+
+    pattern = _pattern()
+    async with tenant_session(tenant_id) as session:
+        offers = await number_catalog.browse_numbers(session, get_engine(), pattern=pattern)
+        bought = await number_catalog.purchase_number(
+            session, get_engine(), tenant_id=tenant_id, e164=offers[0].e164, pattern=pattern
+        )
+        with pytest.raises(ProblemError) as raised:
+            await number_catalog.assign_number_to_agent(
+                session,
+                tenant_id=tenant_id,
+                number_id=bought.number_id,
+                agent_id=neighbours_agent,
+            )
+    assert raised.value.code == "not_found"
+
+
 async def test_assigning_binds_the_number_and_records_what_it_is_for(
     authorized: None,
 ) -> None:

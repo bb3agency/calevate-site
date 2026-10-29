@@ -650,3 +650,17 @@ def test_every_plan_backed_tool_is_confirm_tier_and_registered() -> None:
     ):
         assert write_tools.tier_of(name) == "confirm", name
         assert plans.set_action_of(name) is not None, name
+
+
+async def test_a_deactivated_approver_no_longer_runs_a_plan() -> None:
+    """Deactivating a person stops the plans they approved, like removing their membership:
+    the runner resolves no actor for them."""
+    tenant_id, _slug, token = await _make_tenant()
+    user_id = _user_of(token)
+    assert await worker._actor(tenant_id, user_id) is not None
+
+    async with untenanted_session() as session:
+        await session.execute(
+            text("UPDATE users SET deactivated_at = now() WHERE id = :id"), {"id": user_id}
+        )
+    assert await worker._actor(tenant_id, user_id) is None

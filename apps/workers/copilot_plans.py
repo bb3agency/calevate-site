@@ -58,7 +58,13 @@ async def _actor(tenant_id: UUID, user_id: UUID) -> ToolActor | None:
     async with tenant_session(tenant_id) as session:
         role = (
             await session.execute(
-                text("SELECT role FROM memberships WHERE user_id = :uid"), {"uid": user_id}
+                # A deactivated person's approval stops counting the moment they are
+                # deactivated, exactly like a removed membership.
+                text(
+                    "SELECT m.role FROM memberships m JOIN users u ON u.id = m.user_id "
+                    "WHERE m.user_id = :uid AND u.deactivated_at IS NULL"
+                ),
+                {"uid": user_id},
             )
         ).scalar_one_or_none()
     if role is None:
