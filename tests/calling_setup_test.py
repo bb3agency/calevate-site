@@ -13,10 +13,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, time, timedelta
+from time import perf_counter
 from typing import Any
 
 import httpx
@@ -645,6 +647,83 @@ async def test_a_repeat_for_the_same_call_gets_the_same_answer_without_a_second_
     assert answers[0].json() == answers[1].json()
     assert answers[0].json()["variables"]["first_name"] == "Ravi"
     assert looked == [phone]
+
+
+def _call_start(ref: str, phone: str) -> bytes:
+    return json.dumps(
+        {
+            "event": "call.started",
+            "callId": f"CA{uuid.uuid4().hex[:8]}",
+            "surface": "phone",
+            "agentId": ref,
+            "from": phone,
+            "to": "+918000000000",
+            "direction": "inbound",
+            "contact": None,
+        }
+    ).encode()
+
+
+async def _timed_lookup(ref: str, body: bytes) -> tuple[httpx.Response, float]:
+    transport = httpx.ASGITransport(app=api_app, client=("127.0.0.1", 44444))
+    async with httpx.AsyncClient(transport=transport, base_url="http://api") as raw:
+        started = perf_counter()
+        answer = await raw.post(
+            f"/v1/worker/engine-lookups/thinnest?agent={ref}",
+            content=body,
+            headers=_signed(body, "cs_1"),
+        )
+    return answer, perf_counter() - started
+
+
+class _HungRedis:
+    """A Redis that accepts the connection and never answers."""
+
+    async def set(self, *_a: Any, **_k: Any) -> bool:
+        await asyncio.sleep(30)
+        return True
+
+    async def get(self, *_a: Any, **_k: Any) -> None:
+        await asyncio.sleep(30)
+
+
+async def test_a_hung_redis_still_answers_the_caller_inside_the_vendors_two_seconds(
+    vendor: FakeVendor, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Redis only dedupes repeats; a store that stops answering must not hold the caller's
+    ringing past the vendor's two seconds (docs.thinnest.ai channels/voice "Who-is-calling
+    lookup", mirror snapshots/2026-10-28/pages/channels/voice.md:449-462)."""
+    from apps.api.worker import engine_lookups as lookup_route
+
+    tenant_id, agent_id = await _tenant()
+    ref = await _route(tenant_id, agent_id)
+    await _ensure(tenant_id, ref)
+    phone = "+919822233366"
+    await _lead(tenant_id, agent_id, phone=phone, name="Lata")
+    monkeypatch.setattr(lookup_route, "get_redis", _HungRedis)
+    answer, took = await _timed_lookup(ref, _call_start(ref, phone))
+    assert took < 2.0
+    assert answer.status_code == 200
+    assert answer.json()["variables"]["first_name"] == "Lata"
+
+
+async def test_a_slow_secret_read_answers_at_once_without_variables(
+    vendor: FakeVendor, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from apps.api.worker import engine_lookups as lookup_route
+
+    tenant_id, agent_id = await _tenant()
+    ref = await _route(tenant_id, agent_id)
+    await _ensure(tenant_id, ref)
+
+    async def stuck(*_a: Any, **_k: Any) -> Any:
+        await asyncio.sleep(30)
+
+    monkeypatch.setattr(lookup_route, "read_call_start_secret", stuck)
+    answer, took = await _timed_lookup(ref, _call_start(ref, "+919822233377"))
+    assert took < lookup_route.SECRET_BUDGET_S + 1.0
+    assert answer.status_code == 503
+    assert "variables" not in answer.json()
 
 
 # --- 5. call settings on ThinnestAI ---------------------------------------------------------
