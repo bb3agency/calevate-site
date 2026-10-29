@@ -12,11 +12,13 @@ stamped here and threaded through rather than measured inside the service.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 from collections import Counter
 from datetime import datetime
 from typing import Annotated, Any, Final, Literal
+from urllib.parse import parse_qsl, urlencode
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -35,7 +37,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
 from apps.api.db.session import ingest_config_session, tenant_session
-from apps.api.ingest import meta, service
+from apps.api.ingest import meta, portals, service
 from apps.api.ingest.service import (
     STALE_SUBMISSION_RULE,
     IngestConfig,
@@ -71,6 +73,18 @@ SECRET_HEADER = "X-Ingest-Secret"
 # imported from `integrations.models.INBOUND_SOURCES` because this is not "one of the
 # valid sources" — it is THE source this receiver is written for.
 META_SOURCE = "meta_lead_ads"
+
+#: The path segment of the receiver for senders that cannot set a header (D-942).
+PUSH_PREFIX: Final = "push"
+#: Why a verified push that carried no lead record we could read was refused.
+PUSH_UNREADABLE_REASON: Final = "push_not_a_lead"
+#: The client's own LeadSquared, which may also be a destination of ours (D-942).
+LEADSQUARED_SOURCE: Final = "leadsquared"
+#: How recent a lead with the same number must be for a LeadSquared lead-create to be read
+#: as the echo of our own write rather than a new enquiry. Our write lands within the
+#: delivery ladder's minutes; an hour covers the ladder with room and is short enough that a
+#: genuine second enquiry the next day is still called.
+ECHO_WINDOW_MINUTES: Final = 60
 
 
 class IngestAckOut(BaseModel):
@@ -145,12 +159,14 @@ async def ingest(webhook_id: UUID, request: Request) -> IngestAckOut:
     # routing key, same shape as engine_agent_routes (see ingest_config_session).
     async with ingest_config_session(webhook_id) as session:
         config = await load_config(session, webhook_id)
-    if config is None or config.source == META_SOURCE:
+    if config is None or config.source == META_SOURCE or portals.is_push_source(config.source):
         # 404, not 401: an inactive or unknown endpoint should be indistinguishable
         # from a nonexistent one to a probing sender. A Meta source is unknown HERE for
         # the reason `_meta_config` gives in the other direction: its stored secret is the
         # Meta App Secret, which signs a body and must never also open this
         # bearer-header door — and a Meta lead arrives only signed, at `/ingest/meta/`.
+        # A pushed sender's body needs unwrapping and per-lead dedupe that this path does
+        # not do, so it has one receiver, `/ingest/push/`.
         raise ProblemError.not_found("Lead source")
 
     if not verify_ingest_secret(config, request.headers.get(SECRET_HEADER)):
@@ -193,6 +209,179 @@ async def ingest(webhook_id: UUID, request: Request) -> IngestAckOut:
         blocked=result.get("blocked"),
         callback_at=result.get("callback_at"),
     )
+
+
+class PushAckOut(BaseModel):
+    """One push from a portal or a CRM, counted. Ids and counts only, never the lead.
+
+    Every outcome here is a 200, refusals included: IndiaMART retries a non-200 and turns
+    the push OFF after 48 hours of them, and a lead we cannot read or dial will not become
+    readable on retry. The refusal is recorded on the inbox row, where the delivery log
+    shows it to the client.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    received: int
+    accepted: int
+    duplicate: int
+    refused: int
+
+
+def _push_body(raw: bytes, content_type: str) -> Any:
+    """JSON, or a form-encoded body: the property portals' format is the receiving CRM's
+    to name and some send form posts. Anything else reads as no records."""
+    if "application/x-www-form-urlencoded" in content_type:
+        try:
+            return dict(parse_qsl(raw.decode("utf-8"), keep_blank_values=True))
+        except UnicodeDecodeError:
+            return None
+    try:
+        return json.loads(raw)
+    except (ValueError, RecursionError):
+        return None
+
+
+@router.post(
+    f"/ingest/{PUSH_PREFIX}/{{webhook_id}}",
+    response_model=PushAckOut,
+    summary="Lead push from IndiaMART, a property portal or LeadSquared (D-942)",
+    description=(
+        "For senders that post to a URL and cannot add a header. The secret travels in the "
+        "`token` query parameter of the address shown once when the source is created; the "
+        "`X-Ingest-Secret` header is accepted too. Every verified push is answered 200, "
+        "including the leads we could not use, which appear in the delivery log with the "
+        "reason."
+    ),
+)
+async def ingest_push(webhook_id: UUID, request: Request) -> PushAckOut:
+    received_at = time.time()
+    async with ingest_config_session(webhook_id) as session:
+        config = await load_config(session, webhook_id)
+    if config is None or not portals.is_push_source(config.source):
+        raise ProblemError.not_found("Lead source")
+
+    presented = request.query_params.get(portals.TOKEN_PARAM) or request.headers.get(SECRET_HEADER)
+    if not verify_ingest_secret(config, presented):
+        # An alert, as for Meta's signature: a push URL refusing its own sender means the
+        # client rotated the secret and the portal still holds the old address, and every
+        # lead until they re-paste it is being refused.
+        alert("ROUTE_HANDLER", "lead_push_bad_token", webhook_id=str(webhook_id))
+        raise ProblemError.unauthorized("This lead source rejected the credentials.")
+
+    raw = await meta.read_bounded_body(request)
+    if raw is None:
+        raise ProblemError(
+            kind="validation",
+            code="payload_too_large",
+            title="Payload too large",
+            detail="The push body exceeds the accepted size.",
+            status=413,
+        )
+    body = _push_body(raw, request.headers.get("content-type", ""))
+    items = portals.records(config.source, body)
+    outcomes: Counter[str] = Counter()
+    if not items:
+        outcomes[await _absorb_unreadable_push(config, raw)] += 1
+    for record in items:
+        outcomes[await _absorb_push_record(config, record, received_at=received_at)] += 1
+    ack = PushAckOut(
+        received=max(len(items), 1),
+        accepted=outcomes["accepted"],
+        duplicate=outcomes["duplicate"],
+        refused=outcomes["refused"],
+    )
+    log.info("lead_push_received", extra={"webhook_id": str(webhook_id), **ack.model_dump()})
+    return ack
+
+
+async def _absorb_unreadable_push(config: IngestConfig, raw: bytes) -> Literal["refused"]:
+    """A verified push we could not read as a lead, recorded under its body digest so the
+    client sees it in the delivery log. Never retried: the same bytes read the same way."""
+    digest = hashlib.sha256(raw).hexdigest()
+    async with tenant_session(config.tenant_id) as session:
+        claim = await claim_inbox_event(
+            session,
+            provider=f"ingest:{config.id}",
+            event_key=digest,
+            payload_hash=digest,
+            event_name=config.source,
+        )
+        if claim.state != "duplicate":
+            await mark_inbox_failed(session, row_id=claim.row_id, error=PUSH_UNREADABLE_REASON)
+    return "refused"
+
+
+async def _absorb_push_record(
+    config: IngestConfig, record: dict[str, Any], *, received_at: float
+) -> Literal["accepted", "duplicate", "refused"]:
+    """One lead, one claim, one transaction: a batch's bad record must not roll back its
+    neighbours, and a retry's siblings that already committed come back as duplicates."""
+    name_field = config.mapping.get("name")
+    if isinstance(name_field, str):
+        record = portals.without_placeholder_name(config.source, record, name_field)
+    mapped = apply_mapping(config.mapping, record) if config.mapping else dict(record)
+    vendor_key = portals.record_key(mapped)
+    # Keyed on the SENDER's id when there is one, and hashed from that id alone: a retry
+    # whose envelope text changed is the same lead, and hashing the body would read it as a
+    # doctored replay (`webhook_payload_mismatch`) and refuse the sender forever.
+    event_key = f"{PUSH_PREFIX}:{vendor_key}" if vendor_key else body_hash(record)
+    payload_hash = body_hash({"source": config.source, "key": event_key})
+    claim_args = {
+        "provider": f"ingest:{config.id}",
+        "event_key": event_key,
+        "payload_hash": payload_hash,
+        "event_name": config.source,
+    }
+    try:
+        # Claim and lead in ONE transaction, as on the shared-secret path: a crash between
+        # a committed claim and the lead would answer the sender's retry "duplicate" and
+        # lose the enquiry.
+        async with tenant_session(config.tenant_id) as session:
+            claim = await claim_inbox_event(session, **claim_args)
+            if claim.state == "duplicate":
+                return "duplicate"
+            if config.source == LEADSQUARED_SOURCE and await _recent_lead(session, mapped):
+                # Our own write coming back: a lead we sent to LeadSquared moments ago fires
+                # LeadSquared's lead-create webhook at us, and ringing them a second time
+                # for it would be our echo, not their enquiry.
+                await mark_inbox_processed(session, row_id=claim.row_id)
+                return "duplicate"
+            await ingest_lead(session, config=config, payload=record, received_at=received_at)
+            await mark_inbox_processed(session, row_id=claim.row_id)
+    except ProblemError as exc:
+        if exc.kind == "transient":
+            # Not a verdict about the lead: nothing committed, so the sender's retry is
+            # the second attempt.
+            raise
+        # A verdict (no dialable number, no agent, agent unpublished), recorded and acked
+        # for `_record_refusal`'s reason: the sender would retry it to the same answer.
+        async with tenant_session(config.tenant_id) as session:
+            claim = await claim_inbox_event(session, **claim_args)
+            if claim.state != "duplicate":
+                await mark_inbox_failed(session, row_id=claim.row_id, error=exc.code)
+        log.warning("lead_push_refused", extra={"webhook_id": str(config.id), "reason": exc.code})
+        return "refused"
+    return "accepted"
+
+
+async def _recent_lead(session: AsyncSession, mapped: dict[str, Any]) -> bool:
+    """Whether this account already has a lead with this number from the last
+    `ECHO_WINDOW_MINUTES`. RLS scopes it to the tenant (hard rule 1)."""
+    raw = str(mapped.get("phone") or mapped.get("phone_number") or "")
+    phone = normalize_phone(raw) if raw else None
+    if phone is None:
+        return False
+    found = (
+        await session.execute(
+            text(
+                "SELECT 1 FROM leads WHERE phone_e164 = :phone AND deleted_at IS NULL "
+                "AND created_at > now() - make_interval(mins => :window) LIMIT 1"
+            ),
+            {"phone": phone, "window": ECHO_WINDOW_MINUTES},
+        )
+    ).first()
+    return found is not None
 
 
 async def _meta_config(webhook_id: UUID) -> IngestConfig:
@@ -606,6 +795,21 @@ class LeadSourceDryRunStepOut(BaseModel):
     mapped_fields: list[str] | None = None
 
 
+#: What the dry run says about each pushed-lead refusal (`ingest/portals.py`).
+_PORTAL_RULE_DETAIL: Final[dict[str, str]] = {
+    portals.CRM_DO_NOT_CALL_RULE: (
+        "Your CRM marks this person do-not-call — the lead would be saved but never dialled."
+    ),
+    portals.NOT_AN_ENQUIRY_RULE: (
+        "This is not an enquiry sent to you (a bought lead or a catalogue view) — the lead "
+        "would be saved but never dialled."
+    ),
+    portals.ENQUIRY_WINDOW_RULE: (
+        "This enquiry is more than seven days old — the lead would be saved but not dialled."
+    ),
+}
+
+
 class LeadSourceDryRunOut(BaseModel):
     """Would a submission like this get a call right now, and every decision behind it.
 
@@ -642,7 +846,18 @@ class LeadSourceDryRunOut(BaseModel):
 class CreateLeadSourceIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    source: Literal["meta_lead_ads", "website_form", "zoho", "sheets", "custom"]
+    source: Literal[
+        "meta_lead_ads",
+        "website_form",
+        "zoho",
+        "sheets",
+        "custom",
+        "indiamart",
+        "99acres",
+        "magicbricks",
+        "housing",
+        "leadsquared",
+    ]
     # Which agent answers leads from this source. Optional because the honest answer at
     # setup time is often "not yet" — `ingest_lead` refuses with `ingest_no_agent` and
     # names the fix, rather than this route forcing a guess.
@@ -668,6 +883,9 @@ class LeadSourceCreatedOut(BaseModel):
     # to show once. Never re-readable: no other route returns this field.
     secret: str | None
     secret_header: str
+    # For a sender that cannot set a header (IndiaMART, the property portals, LeadSquared):
+    # the path WITH the secret as its `token`, the one address to paste. Null otherwise.
+    push_path: str | None = None
 
 
 class LeadSourceOut(BaseModel):
@@ -715,6 +933,8 @@ class RotateSecretOut(BaseModel):
     secret_header: str
     # When the OLD secret stops working; `null` means it already has.
     previous_secret_expires_at: datetime | None
+    # A pushed sender's new address, which the client must give the sender again.
+    push_path: str | None = None
 
 
 class IngestActivityItemOut(BaseModel):
@@ -1147,7 +1367,16 @@ async def test_webhook(
     if config is None:
         raise ProblemError.not_found("Lead source")
 
-    mapped = apply_mapping(config.mapping, body.payload) if config.mapping else dict(body.payload)
+    # A pushed sender's sample is tried as the sender sends it (IndiaMART's envelope,
+    # LeadSquared's `Current`), and as the bare lead when that is what was pasted.
+    sample: dict[str, Any] = body.payload
+    if portals.is_push_source(config.source):
+        unwrapped = portals.records(config.source, sample)
+        sample = unwrapped[0] if unwrapped else sample
+        name_field = config.mapping.get("name")
+        if isinstance(name_field, str):
+            sample = portals.without_placeholder_name(config.source, sample, name_field)
+    mapped = apply_mapping(config.mapping, sample) if config.mapping else dict(sample)
     raw_phone = str(mapped.get("phone") or mapped.get("phone_number") or "")
     phone = normalize_phone(raw_phone) if raw_phone else None
 
@@ -1193,7 +1422,7 @@ async def test_webhook(
         )
         return LeadSourceDryRunOut(would_call=False, steps=steps)
     if isinstance(consent_field, str) and consent_field:
-        affirmed = str(body.payload.get(consent_field, "")).strip().lower() in (
+        affirmed = str(sample.get(consent_field, "")).strip().lower() in (
             "true",
             "yes",
             "1",
@@ -1214,8 +1443,33 @@ async def test_webhook(
         if not affirmed:
             return LeadSourceDryRunOut(would_call=False, steps=steps)
 
+    portal_rule, portal_enquiry, _ = service.portal_verdict(
+        config.source, mapped, received_at=time.time()
+    )
+    if portal_rule is not None:
+        steps.append(
+            LeadSourceDryRunStepOut(
+                step="form_consent",
+                ok=False,
+                detail=_PORTAL_RULE_DETAIL[portal_rule],
+                rule=portal_rule,
+            )
+        )
+        return LeadSourceDryRunOut(would_call=False, steps=steps)
+    if portal_enquiry is not None:
+        steps.append(
+            LeadSourceDryRunStepOut(
+                step="form_consent",
+                ok=True,
+                detail=(
+                    "This is the person's own enquiry to you, so we may call about it for "
+                    "seven days."
+                ),
+            )
+        )
+
     # Reported on the gate step: the real path records it as a block with this rule.
-    if submission_is_stale(submission_instant(mapped, body.payload), received_at=time.time()):
+    if submission_is_stale(submission_instant(mapped, sample), received_at=time.time()):
         steps.append(
             LeadSourceDryRunStepOut(
                 step="compliance_gate",
@@ -1254,11 +1508,18 @@ def _ingest_path(webhook_id: UUID, source: str) -> str:
     and handing a client the shared-secret path for it would produce a source that
     authenticates with a header Meta never sends.
     """
-    return (
-        f"/hooks/v1/ingest/meta/{webhook_id}"
-        if source == META_SOURCE
-        else f"/hooks/v1/ingest/{webhook_id}"
-    )
+    if source == META_SOURCE:
+        return f"/hooks/v1/ingest/meta/{webhook_id}"
+    if portals.is_push_source(source):
+        return f"/hooks/v1/ingest/{PUSH_PREFIX}/{webhook_id}"
+    return f"/hooks/v1/ingest/{webhook_id}"
+
+
+def _push_path(webhook_id: UUID, source: str, secret: str | None) -> str | None:
+    """The address a pushed sender is given, secret included; None for every other kind."""
+    if not secret or not portals.is_push_source(source):
+        return None
+    return f"{_ingest_path(webhook_id, source)}?{urlencode({portals.TOKEN_PARAM: secret})}"
 
 
 @sources_router.get(
@@ -1367,6 +1628,7 @@ async def create_lead_source(
         ingest_path=_ingest_path(webhook_id, payload.source),
         secret=minted,
         secret_header=SECRET_HEADER,
+        push_path=_push_path(webhook_id, payload.source, minted),
     )
 
 
@@ -1418,6 +1680,7 @@ async def rotate_lead_source_secret(
         secret=rotation.secret,
         secret_header=SECRET_HEADER,
         previous_secret_expires_at=rotation.previous_secret_expires_at,
+        push_path=_push_path(webhook_id, rotation.source, rotation.secret),
     )
 
 
@@ -1593,4 +1856,4 @@ async def put_lead_source_mapping(
     return LeadSourceMappingOut(id=webhook_id, mapping=cleaned)
 
 
-__all__ = ["META_SOURCE", "SECRET_HEADER", "router", "sources_router"]
+__all__ = ["META_SOURCE", "PUSH_PREFIX", "SECRET_HEADER", "router", "sources_router"]

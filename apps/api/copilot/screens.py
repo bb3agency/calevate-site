@@ -325,6 +325,7 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
             "lists",
             "imports",
             "data source",
+            "indiamart",
         ),
     ),
     Screen(

@@ -23,13 +23,26 @@ import type { useCreateLeadSource } from "@/lib/api/leadSources";
 
 import { ChoiceCards } from "@/components/console/choiceCards";
 import { IssuedSecretNotice, type IssuedSecret } from "./IssuedSecretNotice";
-import { META_SOURCE, WEBHOOK_KINDS, sourceLabel, sourceLogo } from "./sourceKinds";
+import {
+  META_SOURCE,
+  PUSH_SOURCES,
+  WEBHOOK_KINDS,
+  sourceLabel,
+  sourceLogo,
+  type PushSource,
+} from "./sourceKinds";
 import { FIELD } from "./styles";
 
 const KINDS = [
   { value: "webhook", label: "Website or app form", hint: "Your website, Zoho, Sheets or any app." },
   { value: "meta", label: "Meta Lead Ads", hint: "Facebook and Instagram lead forms." },
+  {
+    value: "push",
+    label: "Portal or CRM",
+    hint: "IndiaMART, 99acres, MagicBricks, Housing.com, LeadSquared.",
+  },
 ] as const;
+type Kind = (typeof KINDS)[number]["value"];
 
 /**
  * ADD A LEAD SOURCE: which kind, which agent answers, and (rarely) the form's own field
@@ -55,8 +68,9 @@ export function AddSourceDrawer({
   canWrite: boolean;
 }) {
   const formId = useId();
-  const [kind, setKind] = useState<"webhook" | "meta">("webhook");
+  const [kind, setKind] = useState<Kind>("webhook");
   const [webhookKind, setWebhookKind] = useState<string>("website_form");
+  const [pushKind, setPushKind] = useState<PushSource>("indiamart");
   const [agentId, setAgentId] = useState("");
   const [phoneField, setPhoneField] = useState("phone");
   const [nameField, setNameField] = useState("name");
@@ -67,6 +81,7 @@ export function AddSourceDrawer({
   const appSecretTrack = valid.track("appSecret", "Paste your Meta App Secret.");
   const appSecretErrorId = `${useId()}-app-secret-error`;
   const isMeta = kind === "meta";
+  const isPush = kind === "push";
   /** §52: no agent list (failed, or paused offline) means the choice cannot be made yet. */
   const agentsUnread = agents.error != null || (!agents.isLoading && !agents.data);
 
@@ -78,20 +93,30 @@ export function AddSourceDrawer({
   };
 
   const submit = () => {
+    // A pushed sender's body is not ours to shape: an empty mapping takes its preset.
     const mapping: Record<string, string> = {};
-    if (phoneField.trim()) mapping.phone = phoneField.trim();
-    if (nameField.trim()) mapping.name = nameField.trim();
-    if (consentField.trim()) mapping.consent_field = consentField.trim();
+    if (!isPush) {
+      if (phoneField.trim()) mapping.phone = phoneField.trim();
+      if (nameField.trim()) mapping.name = nameField.trim();
+      if (consentField.trim()) mapping.consent_field = consentField.trim();
+    }
     create.mutate(
       {
-        source: isMeta ? META_SOURCE : webhookKind,
+        source: isMeta ? META_SOURCE : isPush ? pushKind : webhookKind,
         agent_id: agentId || null,
         mapping,
         ...(isMeta && appSecret.trim() ? { app_secret: appSecret.trim() } : {}),
       },
       {
         onSuccess: (made) => {
-          setIssued({ secret: made.secret, header: made.secret_header, path: made.ingest_path, expiresAt: null });
+          setIssued({
+            secret: made.secret,
+            header: made.secret_header,
+            path: made.ingest_path,
+            expiresAt: null,
+            pushPath: made.push_path ?? null,
+            source: made.source,
+          });
           setAppSecret("");
         },
       },
@@ -146,10 +171,29 @@ export function AddSourceDrawer({
                 icon: <IconTile service={sourceLogo(option.value)} icon={Webhook} />,
               }))}
               onChange={setKind}
-              columns="sm:grid-cols-2"
+              columns="sm:grid-cols-3"
             />
 
-            {!isMeta && (
+            {isPush && (
+              <label className="block">
+                <span className={FIELD_LABEL}>Which one</span>
+                <select
+                  aria-label="Portal or CRM"
+                  value={pushKind}
+                  onChange={(e) => setPushKind(e.target.value as PushSource)}
+                  className={`${FIELD} mt-1 block w-full`}
+                >
+                  {PUSH_SOURCES.map((option) => (
+                    <option key={option} value={option}>
+                      {sourceLabel(option)}
+                    </option>
+                  ))}
+                </select>
+                <span className={FIELD_HINT}>You get one address to paste. Fields are read for you.</span>
+              </label>
+            )}
+
+            {!isMeta && !isPush && (
               <label className="block">
                 <span className={FIELD_LABEL}>What sends them</span>
                 <span className="mt-1 flex items-center gap-2">
@@ -230,9 +274,17 @@ export function AddSourceDrawer({
 
             {/* Consent is not a formality on this path: a lead that does not affirm it is
                 saved and never dialled (FLOWS §4). The sentence stays visible. */}
-            <p className="text-meta text-ink-muted">
-              Leads who don&apos;t agree to calls are never called.
-            </p>
+            {isPush ? (
+              <div className="text-meta text-ink-muted">
+                <p>Enquiries sent to you are called within seven days.</p>
+                <p>Bought leads are saved, not called.</p>
+              </div>
+            ) : (
+              <p className="text-meta text-ink-muted">
+                Leads who don&apos;t agree to calls are never called.
+              </p>
+            )}
+            {isPush ? null : (
             <Disclosure
               variant="inline"
               headingLevel={3}
@@ -273,6 +325,7 @@ export function AddSourceDrawer({
                 </label>
               </fieldset>
             </Disclosure>
+            )}
           </fieldset>
         </form>
       )}

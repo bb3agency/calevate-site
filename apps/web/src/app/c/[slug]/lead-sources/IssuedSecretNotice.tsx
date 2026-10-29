@@ -6,6 +6,7 @@ import { CopyButton } from "@/components/interior/copy-button";
 import { formatIST } from "@/components/ui";
 import { API_BASE } from "@/lib/api/client";
 
+import { PushSetup } from "./PushSetup";
 import { CODE } from "./styles";
 
 export interface IssuedSecret {
@@ -16,15 +17,35 @@ export interface IssuedSecret {
   path: string | null;
   /** When the previous secret stops working, on a rotation with a grace window. */
   expiresAt: string | null;
+  /** A pushed sender's address with its secret in it (D-942); null for every other kind. */
+  pushPath?: string | null;
+  /** The source's kind, which picks the set-up steps for a pushed sender. */
+  source?: string;
 }
 
 /**
  * What a create or a rotation just issued, each value with its own copy button.
  *
  * The secret exists in plaintext only in this response: nothing re-reads it, so the
- * sentence that says so is the first thing on the panel and is not softened.
+ * sentence that says so is the first thing on the panel and is not softened. A pushed
+ * sender gets ONE thing to copy, the address with the secret in it, and where to paste it.
  */
 export function IssuedSecretNotice({ issued }: { issued: IssuedSecret }) {
+  if (issued.pushPath) {
+    const address = `${API_BASE}${issued.pushPath}`;
+    return (
+      <div className="space-y-4 text-body">
+        <p className="font-medium text-ink">Copy this address now — we will not show it again.</p>
+        <CopyRow label="Address" value={address} copyLabel="Copy address" />
+        {issued.source ? <PushSetup source={issued.source} address={address} /> : null}
+        {issued.expiresAt && (
+          <p className="text-ink-muted">
+            The old address keeps working until {formatIST(issued.expiresAt)}.
+          </p>
+        )}
+      </div>
+    );
+  }
   return (
     <div className="space-y-4 text-body">
       {issued.secret ? (

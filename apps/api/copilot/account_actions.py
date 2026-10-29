@@ -1053,13 +1053,34 @@ LINE_PROTECTION_PHONE: Final = ActionTool(
 )
 
 
-_SOURCE_KINDS: Final = ["website_form", "zoho", "sheets", "custom"]
+_SOURCE_KINDS: Final = [
+    "website_form",
+    "zoho",
+    "sheets",
+    "custom",
+    # D-942: senders that post to an address carrying its own secret.
+    "indiamart",
+    "99acres",
+    "magicbricks",
+    "housing",
+    "leadsquared",
+]
 
 
 class _SourceCreateArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    source: Literal["website_form", "zoho", "sheets", "custom"]
+    source: Literal[
+        "website_form",
+        "zoho",
+        "sheets",
+        "custom",
+        "indiamart",
+        "99acres",
+        "magicbricks",
+        "housing",
+        "leadsquared",
+    ]
     agent_id: UUID | None
 
 
@@ -1093,7 +1114,7 @@ async def _execute_source_create(
 ) -> Executed:
     """`ingest.service.create_lead_source` — `POST /v1/lead-sources`'s call. The secret
     goes in `detail` only, shown once to the person who confirmed."""
-    from apps.api.ingest.routes import SECRET_HEADER, _ingest_path
+    from apps.api.ingest.routes import SECRET_HEADER, _ingest_path, _push_path
     from apps.api.ingest.service import create_lead_source
 
     parsed = parse_args(_SourceCreateArgs, args)
@@ -1105,12 +1126,17 @@ async def _execute_source_create(
         mapping={},
         supplied_secret=None,
     )
+    push_path = _push_path(webhook_id, parsed.source, minted)
+    detail = (
+        f"Added. Paste this address into {parsed.source}: {push_path}. Copy it now; it is "
+        "not shown again."
+        if push_path
+        else f"Added. Send leads to {_ingest_path(webhook_id, parsed.source)} with the header "
+        f"{SECRET_HEADER}: {minted}. Copy it now; it is not shown again."
+    )
     return Executed(
         applied=True,
-        detail=(
-            f"Added. Send leads to {_ingest_path(webhook_id, parsed.source)} with the header "
-            f"{SECRET_HEADER}: {minted}. Copy it now; it is not shown again."
-        ),
+        detail=detail,
         recorded="Added a lead source; its secret was shown once.",
         audit_summary={"source": parsed.source},
         object_id=str(webhook_id),
@@ -1127,8 +1153,8 @@ LEAD_SOURCE_CREATE: Final = ActionTool(
     where="on the Lead sources screen",
     schema=action_schema(
         "lead_source_create",
-        "Propose a new lead source address. Meta Lead Ads is set up on the Lead sources screen."
-        + PROPOSES_ONLY,
+        "Propose a new lead source address (portals and LeadSquared get one with the secret "
+        "in it). Meta Lead Ads is set up on the Lead sources screen." + PROPOSES_ONLY,
         {
             "source": {"type": "string", "enum": _SOURCE_KINDS},
             "agent_id": {"anyOf": [{"type": "string"}, {"type": "null"}]},
@@ -1509,7 +1535,7 @@ async def _execute_source_rotate(
 ) -> Executed:
     """`ingest.service.rotate_secret` — `POST /v1/lead-sources/{id}/rotate-secret`'s call,
     with the route's default grace (60 minutes) or none."""
-    from apps.api.ingest.routes import SECRET_HEADER
+    from apps.api.ingest.routes import SECRET_HEADER, _push_path
     from apps.api.ingest.service import rotate_secret
 
     del actor
@@ -1518,11 +1544,15 @@ async def _execute_source_rotate(
     rotation = await rotate_secret(
         session, webhook_id=parsed.lead_source_id, grace_minutes=grace, supplied_secret=None
     )
+    push_path = _push_path(parsed.lead_source_id, rotation.source, rotation.secret)
     return Executed(
         applied=True,
         detail=(
-            f"New secret for the {SECRET_HEADER} header: {rotation.secret}. Copy it now; it is "
+            f"New address to paste where the old one was: {push_path}. Copy it now; it is "
             "not shown again."
+            if push_path
+            else f"New secret for the {SECRET_HEADER} header: {rotation.secret}. Copy it now; "
+            "it is not shown again."
         ),
         recorded="Issued a new lead source secret; it was shown once.",
         audit_summary={"grace_minutes": grace},

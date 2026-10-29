@@ -97,6 +97,8 @@ export function RotateDrawer({
                       header: result.secret_header,
                       path: null,
                       expiresAt: result.previous_secret_expires_at,
+                      pushPath: result.push_path ?? null,
+                      source: source.source,
                     });
                     setAppSecret("");
                   },

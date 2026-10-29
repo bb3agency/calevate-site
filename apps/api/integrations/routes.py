@@ -47,6 +47,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
 from apps.api.core.stepup import ClientActionCode, client_confirmation
 from apps.api.db.base import uuid7
+from apps.api.integrations import leadsquared as lsq
 from apps.api.integrations import service
 from apps.api.integrations.service import (
     ENDPOINT_OPT_IN_VERB,
@@ -748,6 +749,154 @@ async def create_sheets_endpoint(
         events=list(payload.events),
         active=True,
         credential_attached=credential_ref is not None,
+    )
+
+
+#: Our event fields a LeadSquared attribute may be filled from.
+LeadSquaredSourceField = Literal[
+    "name",
+    "source",
+    "status",
+    "outcome",
+    "summary",
+    "duration_s",
+    "sentiment",
+    "business_outcome_label",
+]
+LeadSquaredEvent = Literal["lead.created", "lead.updated", "call.completed", "call.updated"]
+
+
+class CreateLeadSquaredEndpointIn(Strict):
+    #: The API host from LeadSquared → Settings → API and Webhooks, URL or bare host.
+    api_host: str = Field(min_length=1, max_length=200)
+    access_key: str = Field(min_length=4, max_length=200)
+    secret_key: str = Field(min_length=4, max_length=200)
+    events: list[LeadSquaredEvent] = Field(min_length=1)
+    #: LeadSquared attribute → our field, e.g. `{"mx_Call_Outcome": "outcome"}`. Empty
+    #: writes the name on a lead event and nothing extra on a call event.
+    fields: dict[str, LeadSquaredSourceField] = Field(default_factory=dict, max_length=20)
+
+
+class LeadSquaredEndpointOut(Strict):
+    id: UUID
+    kind: str
+    api_host: str
+    events: list[str]
+    fields: dict[str, str]
+    active: bool
+
+
+@router.post(
+    "/endpoints/leadsquared",
+    response_model=LeadSquaredEndpointOut,
+    status_code=201,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Write leads and call results into your LeadSquared (D-942)",
+    description=(
+        "Connects your LeadSquared account with its API host, access key and secret key "
+        "(sealed, never shown again) and sends the chosen events to it: a new lead becomes "
+        "or updates a LeadSquared lead matched on the phone number, and a call's result "
+        "fills the LeadSquared fields you name. Refused with `leadsquared_host_unknown` for "
+        "a host LeadSquared does not publish, and `leadsquared_call_needs_a_field` when a "
+        "call event is chosen with no field to write it to."
+    ),
+)
+async def create_leadsquared_endpoint(
+    payload: CreateLeadSquaredEndpointIn,
+    session: Session,
+    request: Request,
+    principal: EndpointOwner,
+    code: ClientActionCode,
+    x_confirm_action: ConfirmAction = None,
+) -> LeadSquaredEndpointOut:
+    """One act, one code: the keys are sealed as an `integration_credentials` row and the
+    endpoint points at it, in the same transaction, so a half-connected LeadSquared (keys
+    with no destination, or a destination with no keys) cannot exist."""
+    await code.require(x_confirm_action, client_confirmation(request, "create_endpoint"))
+    assert principal.tenant_id is not None
+    host = lsq.host_of(payload.api_host)
+    if host is None:
+        raise ProblemError(
+            kind="validation",
+            code="leadsquared_host_unknown",
+            title="That is not a LeadSquared API host",
+            detail=(
+                "Use the API host LeadSquared shows for your account, like "
+                "api-in21.leadsquared.com."
+            ),
+            remediation="In LeadSquared: My Profile → Settings → API and Webhooks.",
+            fields=[{"field": "api_host", "rule": "leadsquared_host", "message": "Unknown host"}],
+        )
+    bad = [name for name in payload.fields if not lsq.valid_attribute(name)]
+    if bad:
+        raise ProblemError(
+            kind="validation",
+            code="leadsquared_field_name_invalid",
+            title="That is not a LeadSquared field name",
+            detail="Field names are letters, digits and underscores, like mx_Call_Outcome.",
+            fields=[{"field": "fields", "rule": "attribute", "message": name} for name in bad],
+        )
+    call_events = [event for event in payload.events if event.startswith("call.")]
+    if call_events and not payload.fields:
+        raise ProblemError(
+            kind="validation",
+            code="leadsquared_call_needs_a_field",
+            title="Choose where call results go",
+            detail="A call result needs a LeadSquared field to be written into.",
+            remediation="Name a field such as mx_Call_Outcome, or send new leads only.",
+            fields=[{"field": "fields", "rule": "required_for_calls", "message": "none"}],
+        )
+    service.assert_leadsquared_events(list(payload.events))
+
+    credential = await creds.create_credential(
+        session,
+        tenant_id=principal.tenant_id,
+        kind=lsq.KIND,
+        label=f"LeadSquared ({host})",
+        secret=lsq.seal_keys(payload.access_key, payload.secret_key),
+        non_secret={"api_host": host},
+    )
+    endpoint_id = uuid7()
+    mapping = {"api_host": host, "fields": dict(payload.fields)}
+    await session.execute(
+        text(
+            "INSERT INTO outbound_webhooks (id, tenant_id, kind, url, secret_ref, events, "
+            "mapping, active, created_at, updated_at) VALUES (:id, :tid, 'leadsquared', "
+            ":url, :secret, :events, CAST(:mapping AS jsonb), true, now(), now())"
+        ),
+        {
+            "id": endpoint_id,
+            "tid": principal.tenant_id,
+            "url": f"https://{host}",
+            # The credential's id, resolved inside this tenant at delivery time, as a
+            # sheet's connection is.
+            "secret": str(credential.id),
+            "events": list(payload.events),
+            "mapping": json.dumps(mapping),
+        },
+    )
+    await write_audit(
+        session,
+        action=ENDPOINT_CREATED,
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="outbound_webhook",
+        object_id=str(endpoint_id),
+        ip=client_request_ip(request),
+        summary={
+            "kind": lsq.KIND,
+            "host": host,
+            "credential_id": str(credential.id),
+            "events": ",".join(sorted(payload.events)),
+        },
+    )
+    return LeadSquaredEndpointOut(
+        id=endpoint_id,
+        kind=lsq.KIND,
+        api_host=host,
+        events=list(payload.events),
+        fields=dict(payload.fields),
+        active=True,
     )
 
 

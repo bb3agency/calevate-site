@@ -610,6 +610,9 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # Unauthenticated, from anywhere on the internet, with no credential. The class
     # `core/alerting.py`'s docstring already singles out as free to raise.
     "meta_signature_rejected": "record",
+    # A lead push (D-942) with the wrong token: usually a client who issued a new address
+    # and has not re-pasted it, sometimes a prober. Read on the console, never paged.
+    "lead_push_bad_token": "record",
     "meta_batch_over_cap": "attention",
     # ── The reliability path ──────────────────────────────────────────────────
     # arq accepted work for a job name no worker registered AND DROPPED IT. This is deploy

@@ -294,6 +294,7 @@ export const PROVIDER_LABELS: Record<string, string> = {
   sheet: "Google Sheet",
   api: "Your own API",
   custom_api: "Your own API key",
+  leadsquared: "LeadSquared",
 };
 
 /** What an outcome code means, in the client's words, for the run log and test results. */

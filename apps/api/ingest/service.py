@@ -73,6 +73,7 @@ from apps.api.db.ownership import assert_visible
 from apps.api.db.result import rowcount_of
 from apps.api.engine.dial_lines import LINES_BUSY_RULE
 from apps.api.engine.vendor_http import NUMBER_DAILY_LIMIT_CODE
+from apps.api.ingest import portals
 from apps.api.ingest.lead_policy import (
     LEAD_INGEST_PREFIX,
     align,
@@ -567,6 +568,17 @@ async def ingest_lead(
             source=config.source,
         )
 
+    # 2a. The pushed senders' own grounds (D-942, `ingest/portals.py`): a CRM's do-not-call
+    # flag refuses, and a portal record is dialled only when it is the person's own enquiry,
+    # inside the seven days that enquiry supports.
+    portal_block = await _portal_ground(
+        session, config=config, mapped=mapped, phone_e164=phone, received_at=received_at
+    )
+    if portal_block is not None:
+        await _timeline(session, config.tenant_id, resolved_lead, "blocked", {"rule": portal_block})
+        record_speed_to_lead(time.time() - received_at, outcome=f"blocked_{portal_block}")
+        return {"lead_id": resolved_lead, "dispatched": False, "blocked": portal_block}
+
     # 2b. The transactional window (see STALE_SUBMISSION_RULE). Placed AFTER consent so
     # that a person who declined is recorded as having declined rather than as a late
     # delivery, and BEFORE the compliance gate because a call we will not place should
@@ -898,6 +910,66 @@ async def _record_dial_consent_granted(
     )
 
 
+def portal_verdict(
+    source: str, mapped: dict[str, Any], *, received_at: float
+) -> tuple[str | None, portals.EnquiryGround | None, datetime | None]:
+    """`(refusing rule, enquiry, window end)` for a pushed lead, deciding nothing durable:
+    the receiver writes the grant from it and the dry run reports it."""
+    if not portals.is_push_source(source):
+        return None, None, None
+    if portals.marked_do_not_call(mapped):
+        return portals.CRM_DO_NOT_CALL_RULE, None, None
+    ground = portals.enquiry_ground(source, mapped)
+    if ground is None:
+        return None, None, None
+    if not ground.is_enquiry():
+        return portals.NOT_AN_ENQUIRY_RULE, ground, None
+    received = datetime.fromtimestamp(received_at, UTC)
+    expires = ground.expires_at(
+        received_at=received, window=timedelta(days=INQUIRY_CONSENT_WINDOW_DAYS)
+    )
+    if expires <= received:
+        return portals.ENQUIRY_WINDOW_RULE, ground, None
+    return None, ground, expires
+
+
+async def _portal_ground(
+    session: AsyncSession,
+    *,
+    config: IngestConfig,
+    mapped: dict[str, Any],
+    phone_e164: str,
+    received_at: float,
+) -> str | None:
+    """The rule that refuses this pushed lead's dial, or None to go on to the gate.
+
+    For a portal enquiry the grant is written here, before the gate reads the ledger, so
+    `check_dispatch` and every later dial path (call-back, retry, "call now") see the same
+    seven-day expiry rather than this function's own reading of it.
+    """
+    rule, ground, expires = portal_verdict(config.source, mapped, received_at=received_at)
+    if rule is not None or ground is None or expires is None:
+        return rule
+    received = datetime.fromtimestamp(received_at, UTC)
+    await session.execute(
+        text(
+            "INSERT INTO consent_ledger (id, tenant_id, phone_e164, purpose, status, "
+            "consent_source, captured_at, expires_at, evidence, created_at) VALUES (:id, "
+            ":tid, :phone, 'callback', 'granted', 'portal_enquiry', :captured, :expires, "
+            "CAST(:evidence AS jsonb), now())"
+        ),
+        {
+            "id": uuid7(),
+            "tid": config.tenant_id,
+            "phone": phone_e164,
+            "captured": received,
+            "expires": expires,
+            "evidence": json.dumps(ground.evidence(lead_source_id=str(config.id))),
+        },
+    )
+    return None
+
+
 async def _record_dial_consent_declined(
     session: AsyncSession, *, tenant_id: UUID, phone_e164: str
 ) -> None:
@@ -1146,7 +1218,9 @@ async def create_lead_source(
     disable and a route to re-enable, so an inactive-on-create row would be a source
     that silently 404s every delivery while its screen says it exists.
     """
-    cleaned = validate_mapping(mapping)
+    # A pushed sender's body is not ours to shape, so an empty mapping on one of them means
+    # "the sender's documented fields", never "take the body as it comes".
+    cleaned = validate_mapping(mapping or portals.preset_mapping(source))
     # The FK on `inbound_webhooks.agent_id` is to `agents` and knows nothing about
     # tenancy — PostgreSQL checks it with row security bypassed — so without this a
     # config row could dispatch through another tenant's agent (`db/ownership.py`).
@@ -1252,6 +1326,8 @@ async def list_lead_sources(session: AsyncSession, *, limit: int = 200) -> list[
 class Rotation:
     secret: str | None
     previous_secret_expires_at: datetime | None
+    #: The source's kind: a pushed sender's new secret is a new ADDRESS to re-paste.
+    source: str = ""
 
 
 async def rotate_secret(
@@ -1287,14 +1363,15 @@ async def rotate_secret(
     # The tenant is the sealing context's (D-735), so it is read before the rotation. The
     # read locks the row: the UPDATE below then always finds it, and under RLS another
     # tenant's source and no source are the same 404 here (ProblemError.not_found says so).
-    tenant_id = (
+    locked = (
         await session.execute(
-            text("SELECT tenant_id FROM inbound_webhooks WHERE id = :id FOR UPDATE"),
+            text("SELECT tenant_id, source FROM inbound_webhooks WHERE id = :id FOR UPDATE"),
             {"id": webhook_id},
         )
-    ).scalar()
-    if tenant_id is None:
+    ).first()
+    if locked is None:
         raise ProblemError.not_found("Lead source")
+    tenant_id, source = locked[0], str(locked[1])
     sealed = seal_source_secret(
         supplied_secret or minted or "", tenant_id=tenant_id, webhook_id=webhook_id
     )
@@ -1312,7 +1389,7 @@ async def rotate_secret(
             {"id": webhook_id, "new": sealed, "grace": grace_minutes},
         )
     ).one()
-    return Rotation(secret=minted, previous_secret_expires_at=row[0])
+    return Rotation(secret=minted, previous_secret_expires_at=row[0], source=source)
 
 
 async def set_source_agent(
@@ -1350,16 +1427,17 @@ async def set_source_mapping(
 
     Checked exactly as at creation (`validate_mapping`); the secret, the address and the
     agent are unchanged. Leads already received keep what they were saved with. The row is
-    locked so two edits serialise."""
-    cleaned = validate_mapping(mapping)
+    locked so two edits serialise. An empty mapping on a pushed sender restores its preset,
+    as at creation."""
     row = (
         await session.execute(
-            text("SELECT mapping FROM inbound_webhooks WHERE id = :id FOR UPDATE"),
+            text("SELECT mapping, source FROM inbound_webhooks WHERE id = :id FOR UPDATE"),
             {"id": webhook_id},
         )
     ).first()
     if row is None:
         raise ProblemError.not_found("Lead source")
+    cleaned = validate_mapping(mapping or portals.preset_mapping(str(row[1])))
     await session.execute(
         text(
             "UPDATE inbound_webhooks SET mapping = CAST(:mapping AS jsonb), updated_at = now() "

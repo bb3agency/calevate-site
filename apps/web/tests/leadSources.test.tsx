@@ -1140,3 +1140,63 @@ describe("the fields a lead source reads", () => {
     expect(screen.getByLabelText("Phone")).toBeTruthy();
   });
 });
+
+/**
+ * Portals and CRMs that push to an address (D-942). They cannot add our header, so the
+ * secret is IN the address, shown once; the form asks nothing about field names because
+ * the server holds each sender's preset.
+ */
+describe("a portal or CRM that pushes to an address", () => {
+  const PUSH_ID = "018f3c00-0000-7000-8000-0000000000bb";
+  const PUSHED = {
+    id: PUSH_ID,
+    source: "indiamart",
+    ingest_path: `/hooks/v1/ingest/push/${PUSH_ID}`,
+    secret: "push-secret-shown-once-abcdefgh",
+    secret_header: "X-Ingest-Secret",
+    push_path: `/hooks/v1/ingest/push/${PUSH_ID}?token=push-secret-shown-once-abcdefgh`,
+  };
+
+  async function addPush(kind: string, created: Record<string, unknown>) {
+    const rendered = await renderPage({ [SOURCES_PATH]: sourceList(), [CREATE_PATH]: created });
+    await openAdd();
+    fireEvent.click(screen.getByRole("radio", { name: /Portal or CRM/ }));
+    fireEvent.change(screen.getByLabelText("Portal or CRM"), { target: { value: kind } });
+    fireEvent.click(screen.getByRole("button", { name: "Add lead source" }));
+    await screen.findByText("Copy this address now — we will not show it again.");
+    return rendered;
+  }
+
+  it("sends no field names and shows one address with IndiaMART's steps", async () => {
+    const { calls } = await addPush("indiamart", PUSHED);
+    const posted = calls.filter((c) => c.path === SOURCES_PATH && c.method === "POST");
+    expect(JSON.parse(posted[0].body ?? "{}")).toMatchObject({ source: "indiamart", mapping: {} });
+    expect(document.body.textContent).toContain(PUSHED.push_path);
+    expect(document.body.textContent).toContain("Lead Manager");
+    // One thing to copy: the header is not part of a portal's set-up.
+    expect(document.body.textContent).not.toContain("X-Ingest-Secret");
+  });
+
+  it("tells a 99acres client to send the address to their account manager", async () => {
+    await addPush("99acres", { ...PUSHED, source: "99acres" });
+    expect(document.body.textContent).toContain(
+      "Send this address to your 99acres account manager.",
+    );
+    expect(screen.getByRole("button", { name: "Copy message for account manager" })).toBeTruthy();
+  });
+
+  it("offers no bare address to copy and names the rotation for what it gives", async () => {
+    await renderPage({
+      [SOURCES_PATH]: sourceList(
+        leadSource({ id: PUSH_ID, source: "indiamart", ingest_path: PUSHED.ingest_path }),
+      ),
+    });
+    expect(screen.queryByRole("button", { name: /Copy the address for IndiaMART/ })).toBeNull();
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: new RegExp(`More actions for .* · ${PUSH_ID.slice(-8)}$`),
+      }),
+    );
+    expect(await screen.findByRole("menuitem", { name: "Issue a new address" })).toBeTruthy();
+  });
+});

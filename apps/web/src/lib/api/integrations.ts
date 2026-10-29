@@ -14,6 +14,7 @@ import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tan
 import { lookup } from "@/lib/lookup";
 
 import { accountAction, withAccountCode } from "./accountCode";
+import { actionKeys } from "./actions";
 import { ApiProblem, apiRequest, type Session } from "./client";
 import type { components } from "./schema";
 
@@ -251,6 +252,38 @@ export const SHEETS_UNAVAILABLE_CODE = "sheets_delivery_unavailable";
  * rather than being spelled at each comparison in a screen.
  */
 export const SHEET_KIND = "google_sheets";
+
+/** `outbound_webhooks.kind` for the client's own LeadSquared (D-942). */
+export const LEADSQUARED_KIND = "leadsquared";
+/** The events a LeadSquared destination takes (`integrations/leadsquared.EVENTS`). */
+export const LEADSQUARED_EVENTS = ["lead.created", "lead.updated", "call.completed", "call.updated"] as const;
+
+export type NewLeadSquaredEndpoint = Schemas["CreateLeadSquaredEndpointIn"];
+export type NewLeadSquaredEndpointResult = Schemas["LeadSquaredEndpointOut"];
+
+/**
+ * `POST /v1/integrations/endpoints/leadsquared` — keys and destination in one act, behind
+ * the same typed code as any other destination: the keys are sealed and never re-read.
+ */
+export function useCreateLeadSquaredEndpoint(session: Session) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: NewLeadSquaredEndpoint) => {
+      const confirmAction = accountAction(session, "create_endpoint");
+      return withAccountCode(confirmAction, "Sending your leads to LeadSquared.", () =>
+        apiRequest<NewLeadSquaredEndpointResult>(session, "/v1/integrations/endpoints/leadsquared", {
+          method: "POST",
+          body: payload,
+          confirmAction,
+        }),
+      );
+    },
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["endpoints", session.orgSlug] });
+      void client.invalidateQueries({ queryKey: actionKeys.credentials(session.orgSlug) });
+    },
+  });
+}
 
 /**
  * `POST /v1/integrations/endpoints/sheets` — D-23's other kind, from a screen at last.

@@ -164,6 +164,15 @@ UNAUTHENTICATED_ROUTES: dict[str, PublicRoute] = {
         ),
         credential="verify_ingest_secret",
     ),
+    "POST /hooks/v1/ingest/push/{webhook_id}": PublicRoute(
+        why=(
+            "Lead pushes from IndiaMART, the property portals and LeadSquared (D-942), "
+            "which post to an address and cannot set a header. The per-source secret rides "
+            "in the `token` query parameter (or the header) and is checked before the body "
+            "is read; an unknown id or a non-push source answers 404."
+        ),
+        credential="verify_ingest_secret",
+    ),
     "GET /hooks/v1/ingest/meta/{webhook_id}": PublicRoute(
         why=(
             "Meta's subscription handshake, which must echo `hub.challenge` verbatim as "
