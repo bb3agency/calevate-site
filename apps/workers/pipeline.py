@@ -178,6 +178,7 @@ from apps.api.team_alerts import service as team_alerts
 from apps.api.tenancy.engine_workspace import engine_has_workspaces
 from apps.workers import call_language, call_timeline, storage
 from apps.workers import extraction as extraction_module
+from apps.workers.caller_name import self_names, without_self_names
 from apps.workers.engine_charges import reconcile_call_charge
 from apps.workers.engine_delivery import (
     UNSTATED_STATUS,
@@ -1804,6 +1805,21 @@ async def _extract_stage(
         )
 
     if extraction is not None:
+        # Before the moments and the persist, so a rejected name is neither a "Name
+        # captured" marker on the call nor a lead's name (`caller_name`).
+        agent_names, business_names = await _agent_self_names(tenant_id, agent_id)
+        cleaned, dropped = without_self_names(
+            extraction.data,
+            agent_names=agent_names,
+            business_names=business_names,
+            turns=snapshot.transcript or [],
+        )
+        if dropped:
+            extraction = extraction.model_copy(update={"data": cleaned})
+            log.info(
+                "extraction_self_name_dropped",
+                extra={"tenant_id": str(tenant_id), "call_id": str(call_id)},
+            )
         # STEP 3b — the key moments a client jumps to instead of replaying the call
         # (D-156). The derived half is a string match over the turns just persisted; the
         # model half came back with the extraction above. On a reuse the model's earlier
@@ -1860,6 +1876,29 @@ async def _extract_stage(
                 )
 
     return extraction
+
+
+async def _agent_self_names(
+    tenant_id: UUID, agent_id: UUID
+) -> tuple[frozenset[str], frozenset[str]]:
+    """The agent's and the business's own names, folded (`caller_name.self_names`), read
+    from the agent's applied script so a taught Telugu spelling is matched too."""
+    async with tenant_session(tenant_id) as session:
+        row = (
+            await session.execute(
+                text(
+                    "SELECT a.name, o.name, pv.body FROM agents a "
+                    "LEFT JOIN organizations o ON o.id = a.tenant_id "
+                    "LEFT JOIN prompt_versions pv "
+                    "ON pv.id = COALESCE(a.live_prompt_id, a.system_prompt_id) "
+                    "WHERE a.id = :aid"
+                ),
+                {"aid": agent_id},
+            )
+        ).first()
+    if row is None:
+        return frozenset(), frozenset()
+    return self_names(agent_name=row[0], business_name=row[1], script_body=row[2])
 
 
 def call_event_data(
@@ -3298,9 +3337,12 @@ async def _upsert_lead(
                     "    THEN leads.data || EXCLUDED.data ELSE EXCLUDED.data || leads.data END, "
                     f"  schema_version = CASE WHEN {_LEAD_CALL_IS_LATEST} "
                     "    THEN EXCLUDED.schema_version ELSE leads.schema_version END, "
-                    f"  name = CASE WHEN {_LEAD_CALL_IS_LATEST} "
-                    "    THEN COALESCE(EXCLUDED.name, leads.name) "
-                    "    ELSE COALESCE(leads.name, EXCLUDED.name) END, "
+                    # A name a call heard only fills a lead that has none. The one it
+                    # already has came from a lead source, the client or an earlier call,
+                    # and a mishearing must not silently replace it; a different name
+                    # heard stays in `data` as this call's captured "Name", where the
+                    # client sees it and can rename the lead.
+                    "  name = COALESCE(leads.name, EXCLUDED.name), "
                     f"  last_call_id = CASE WHEN {_LEAD_CALL_IS_LATEST} "
                     "    THEN EXCLUDED.last_call_id ELSE leads.last_call_id END, "
                     f"  first_call_id = CASE WHEN {_LEAD_CALL_IS_EARLIEST} "
