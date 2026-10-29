@@ -988,3 +988,55 @@ async def test_business_profile_sections_go_through_the_profile_service() -> Non
     row = await _one(tenant_id, "SELECT services, booking_rules FROM business_profiles")
     assert row[0][0]["name"] == "Cleaning" and row[1] == "Bookings a day ahead."
     assert ("business_profile.updated", "organization", str(tenant_id)) in await _audit(tenant_id)
+
+
+async def test_pip_buys_a_number_only_at_the_price_its_card_showed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The card's attested price is signed into the proposal and carried into the purchase,
+    so an attestation recorded between card and confirm is refused like the screen's buy."""
+    from decimal import Decimal
+    from types import SimpleNamespace
+
+    from apps.api.campaigns import engine_number_purchase, engine_numbers
+    from apps.api.copilot import console_actions
+    from apps.api.tenancy import engine_workspace
+
+    monkeypatch.setattr(engine_workspace, "engine_has_workspaces", lambda: True)
+
+    async def ready(_session: Any, *, tenant_id: UUID) -> Any:
+        return SimpleNamespace(step="ready", blocker=None, client_inr_per_month=Decimal("399.50"))
+
+    async def search(*_a: Any, **_k: Any) -> Any:
+        return SimpleNamespace(numbers=[SimpleNamespace(number="918012345671")])
+
+    sent: list[dict[str, Any]] = []
+
+    async def purchase(**kwargs: Any) -> Any:
+        sent.append(kwargs)
+        return SimpleNamespace(
+            replayed=False,
+            client_inr_per_month=kwargs["quoted_inr_per_month"],
+            attachment="not_applicable",
+            number_id=uuid.uuid4(),
+        )
+
+    monkeypatch.setattr(engine_number_purchase, "purchase_readiness", ready)
+    monkeypatch.setattr(engine_numbers, "search_available", search)
+    monkeypatch.setattr(engine_number_purchase, "purchase_engine_number", purchase)
+    actor = write_tools.ToolActor(
+        tenant_id=uuid.uuid4(), user_id=uuid.uuid4(), role="owner", impersonating=False
+    )
+    plan = await console_actions._plan_number_buy(
+        None,  # type: ignore[arg-type]
+        actor,
+        {"city": "Hyderabad", "agent_id": None, "direction": "both"},
+    )
+    assert plan.args["inr_per_month"] == "399.50"
+    # The signed args travel as JSON between the card and the confirm.
+    await console_actions._execute_number_buy(
+        None,  # type: ignore[arg-type]
+        actor,
+        json.loads(json.dumps(plan.args)),
+    )
+    assert sent[0]["quoted_inr_per_month"] == Decimal("399.50")
