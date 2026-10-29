@@ -373,3 +373,19 @@ def test_a_meta_verify_token_in_the_query_string_is_masked() -> None:
     scrubbed = scrub_event(event)
     assert scrubbed is not None
     assert "VTOKEN123" not in scrubbed["request"]["query_string"]
+
+
+def test_a_lead_push_token_is_masked_in_the_access_line_and_the_tracker() -> None:
+    """IndiaMART and the property portals cannot send a header, so a push source's secret
+    rides in `?token=` (`ingest/portals.TOKEN_PARAM`), and uvicorn's access line renders the
+    full request target into the log message."""
+    from apps.api.core.logging import redact_text
+    from apps.api.ingest.portals import TOKEN_PARAM
+
+    secret = "Zq8-pushSecret_tokenValue"
+    target = f"/v1/hooks/ingest/push/abc?{TOKEN_PARAM}={secret}"
+    line = f'10.0.0.1:5000 - "POST {target} HTTP/1.1" 200'
+    assert secret not in redact_text(line)
+    scrubbed = scrub_event({"request": {"query_string": f"{TOKEN_PARAM}={secret}"}})
+    assert scrubbed is not None
+    assert secret not in scrubbed["request"]["query_string"]
