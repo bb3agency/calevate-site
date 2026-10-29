@@ -1,8 +1,8 @@
 "use client";
 
 /**
- * An operator's turn detection for one agent (D-901): Silence, Ear or Smart for this agent
- * alone, or the console's mode that every agent follows. For trying a mode on one agent
+ * An operator's turn detection for one agent (D-901): Silence, Ear, Smart or Silence + check
+ * (D-940) for this agent alone, or the console's mode that every agent follows. For trying a mode on one agent
  * without moving every client; never on a client's screen.
  */
 
@@ -30,10 +30,12 @@ export const TURN_DETECTION_LABELS: Record<TurnDetection, string> = {
   timer: "Silence",
   ear: "Ear",
   smart: "Smart",
+  timer_v2: "Silence + check",
 };
 
 /** The pause this agent's calls use beside the mode, and whose it is. */
 function pauseInForce(data: AgentTurnDetection): string {
+  if (data.turn_detection_effective === "timer_v2") return "pause not used";
   return `pause ${formatPause(data.turn_silence_ms_effective)}, ${sourceLabel(data.turn_silence_source).toLowerCase()}`;
 }
 
@@ -43,7 +45,8 @@ type Choice = TurnDetection | typeof FOLLOW;
 const INFO =
   "Silence ends the caller's turn after the pause above, counted from their last words. Ear " +
   "listens live and waits through a pause mid-sentence; it does not use the pause. Smart lets " +
-  "a model judge, and replies start later. Set one here to try it on this agent alone; every " +
+  "a model judge, and replies start later. Silence + check asks a quick AI check at each " +
+  "pause whether the caller has finished; it does not use the pause. Set one here to try it on this agent alone; every " +
   "other agent keeps the console's mode. Put on Silence here with no pause of its own, the " +
   "agent starts from the console's pause for that trial.";
 

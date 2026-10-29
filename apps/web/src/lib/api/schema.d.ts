@@ -14384,7 +14384,7 @@ export interface components {
         /** AgentTurnDetectionIn */
         AgentTurnDetectionIn: {
             /** Turn Detection */
-            turn_detection: ("timer" | "ear" | "smart") | null;
+            turn_detection: ("timer" | "ear" | "smart" | "timer_v2") | null;
         };
         /**
          * AgentTurnDetectionOut
@@ -14401,14 +14401,14 @@ export interface components {
              * Console Turn Detection
              * @enum {string}
              */
-            console_turn_detection: "timer" | "ear" | "smart";
+            console_turn_detection: "timer" | "ear" | "smart" | "timer_v2";
             /** Turn Detection */
-            turn_detection: ("timer" | "ear" | "smart") | null;
+            turn_detection: ("timer" | "ear" | "smart" | "timer_v2") | null;
             /**
              * Turn Detection Effective
              * @enum {string}
              */
-            turn_detection_effective: "timer" | "ear" | "smart";
+            turn_detection_effective: "timer" | "ear" | "smart" | "timer_v2";
             /** Turn Silence Ms Effective */
             turn_silence_ms_effective: number;
             /**
@@ -15744,6 +15744,7 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            insights: components["schemas"]["CallInsightsOut"] | null;
             /** Language */
             language: string;
             /** Lead Id */
@@ -15935,6 +15936,53 @@ export interface components {
             turn_silence_max_ms: number;
             /** Turn Silence Min Ms */
             turn_silence_min_ms: number;
+        };
+        /** CallInsightNextStepOut */
+        CallInsightNextStepOut: {
+            /** At */
+            at: string | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "callback" | "promise_to_pay" | "send_info" | "visit" | "hand_to_sales";
+            /** Note */
+            note: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "open" | "done" | "replaced";
+        };
+        /**
+         * CallInsightNoteOut
+         * @description One objection or one problem the customer named. `text` is their words as stored,
+         *     already redacted (`workers/pipeline.stored_insights`).
+         */
+        CallInsightNoteOut: {
+            /** Kind */
+            kind: ("price" | "timing" | "trust" | "fit" | "need" | "authority" | "competitor" | "other") | ("payment" | "billing" | "login" | "delivery" | "product" | "other");
+            /** Text */
+            text: string;
+        };
+        /**
+         * CallInsightsOut
+         * @description What the call came to: how it ended, why a no was a no, the objections, problems on
+         *     the customer's side, and the next step agreed (D-940).
+         */
+        CallInsightsOut: {
+            /** Issues */
+            issues: components["schemas"]["CallInsightNoteOut"][];
+            next_step: components["schemas"]["CallInsightNextStepOut"] | null;
+            /** No Reason */
+            no_reason: ("price" | "timing" | "trust" | "fit" | "already_has" | "other") | null;
+            /** Objections */
+            objections: components["schemas"]["CallInsightNoteOut"][];
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "converted" | "interested" | "callback" | "promise_to_pay" | "not_interested" | "no_decision" | "wrong_person" | "do_not_call";
         };
         /**
          * CallLeadIn

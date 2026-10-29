@@ -25,6 +25,14 @@ from typing import Any, Literal
 from uuid import UUID
 
 from calevate_shared.business_outcomes import LeadMove
+from calevate_shared.events import (
+    InsightNoReason,
+    InsightOutcome,
+    IssueKind,
+    NextStepKind,
+    NextStepStatus,
+    ObjectionKind,
+)
 from calevate_shared.extraction import OutcomeTag
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -297,6 +305,34 @@ class CallSignalOut(Strict):
     occurred_at: datetime | None
 
 
+class CallInsightNoteOut(Strict):
+    """One objection or one problem the customer named. `text` is their words as stored,
+    already redacted (`workers/pipeline.stored_insights`)."""
+
+    text: str
+    kind: ObjectionKind | IssueKind
+
+
+class CallInsightNextStepOut(Strict):
+    kind: NextStepKind
+    #: The day (and time) agreed; null when the call settled none.
+    at: datetime | None
+    #: One short line, redacted; empty when there is none.
+    note: str
+    status: NextStepStatus
+
+
+class CallInsightsOut(Strict):
+    """What the call came to: how it ended, why a no was a no, the objections, problems on
+    the customer's side, and the next step agreed (D-940)."""
+
+    outcome: InsightOutcome
+    no_reason: InsightNoReason | None
+    objections: list[CallInsightNoteOut]
+    issues: list[CallInsightNoteOut]
+    next_step: CallInsightNextStepOut | None
+
+
 class CallDetailOut(CallSummaryOut):
     #: A forwarded call that showed the business's own number instead of the caller's
     #: (D-746): the caller was asked for a call-back number, and the lead carries that one.
@@ -346,6 +382,9 @@ class CallDetailOut(CallSummaryOut):
     summary_source: Literal["engine", "extraction"] | None = None
     #: What the business should do next, English, redacted. NULL when nothing.
     next_step: str | None = None
+    #: The voice platform's reading of the call (D-940), null when it did not read it.
+    #: Required for `moments`' reason.
+    insights: CallInsightsOut | None
     #: The caller asked to be called back (booked or not). NULL when no model read the call.
     callback_requested: bool | None = None
     #: Whether `transcript[].text_en` is written: `pending`, `ready`, `failed`,

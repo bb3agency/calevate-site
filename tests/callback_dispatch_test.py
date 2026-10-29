@@ -699,3 +699,58 @@ async def test_a_call_back_from_a_campaign_call_keeps_the_person_and_counts_for_
             )
         ).scalar()
     assert stamped == campaign_id
+
+
+async def test_a_call_back_outside_a_campaign_carries_the_leads_stored_details(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D-940: a call-back with no campaign row rings with the lead's own details, under each
+    field's label, through the same `contact_details` a campaign row takes; the name rides
+    as the name, a second number is not sent, and our nested provenance record is no
+    detail."""
+    tenant_id, agent_id = await _dialable_tenant()
+    lead_id = uuid7()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO leads (id, tenant_id, agent_id, phone_e164, name, source, status, "
+                "data, created_at, updated_at) VALUES (:id, :t, :a, :p, 'Ramu', "
+                "'inbound_call', 'new', CAST(:d AS jsonb), now(), now())"
+            ),
+            {
+                "id": lead_id,
+                "t": tenant_id,
+                "a": agent_id,
+                "p": CALLER,
+                "d": '{"name": "Ramu", "need": "2 BHK flat", "other_number": "+919800000000", '
+                '"budget_lakh": 80, "meta": {"form_id": "f1"}}',
+            },
+        )
+        booked = await callbacks.book(
+            session,
+            callback_id=uuid7(),
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            source_call_id=None,
+            source_execution_id=f"exec_{uuid.uuid4().hex[:10]}",
+            lead_id=lead_id,
+            phone_e164=CALLER,
+            requested_at=datetime.now(UTC) - timedelta(minutes=1),
+            booked_at=datetime.now(UTC),
+            note="call me back about the flat",
+            language="te",
+        )
+        await session.commit()
+    assert booked is not None
+
+    seen: list[CallContext] = []
+    engine = get_engine()
+    original = engine.start_outbound_call
+
+    async def _spy(ref: str, to: str, ctx: CallContext):  # type: ignore[no-untyped-def]
+        seen.append(ctx)
+        return await original(ref, to, ctx)
+
+    monkeypatch.setattr(engine, "start_outbound_call", _spy)
+    assert (await dispatch_due_callbacks(tenant_id, slots=5))["dialled"] == 1
+    assert seen[0].contact_details == {"What they want": "2 BHK flat", "Budget lakh": "80"}

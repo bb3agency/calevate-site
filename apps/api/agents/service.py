@@ -3964,7 +3964,8 @@ async def dispatch_call(
     lets ring outside the window; every other dial carries the window to the engine (D-872).
 
     `contact_details` is the person's row of the client's list (`campaign_contacts.custom`,
-    D-905), which the engine hands the agent as call variables.
+    D-905), which the engine hands the agent as call variables; without one, a dial for a
+    known lead carries the lead's stored details (`campaigns/contact_details.lead_details`).
     """
     if rings_at_any_hour and trial is None and owner_test is None:
         # Only a test call can be exempt from the window; a campaign, callback or lead dial
@@ -4073,6 +4074,16 @@ async def dispatch_call(
     if trial is not None:
         await _lend_trial_line(tenant_id, call_id=call_id, agent_ref=dial_ref)
     from apps.api.actions.pre_dial import CallerPrefill, pre_dial_lookup
+    from apps.api.campaigns.contact_details import lead_details
+
+    # A dial for a known lead that brings no list row of its own (a new lead's first call,
+    # a call-back outside a campaign, the "call this lead" button) carries the lead's stored
+    # details instead, through the same call variables and details line (D-940). A campaign
+    # row, when there is one, is what the client chose to say on that campaign's calls, so
+    # it is not mixed with the lead's.
+    details = dict(contact_details or {})
+    if not details and lead_id is not None:
+        details = await lead_details(session, lead_id=lead_id)
 
     engine = get_engine()
     # The client's caller lookup, BEFORE the dial on an engine that takes a name and call
@@ -4092,7 +4103,7 @@ async def dispatch_call(
                 lead_id=str(lead_id) if lead_id else None,
                 lead_name=lead_name or prefill.name,
                 fields=prefill.variables,
-                contact_details=dict(contact_details or {}),
+                contact_details=details,
                 context_note=context_note,
                 # WHAT THIS AGENT ALREADY KNOWS ABOUT THE PERSON BEING DIALLED (D-513).
                 # Resolved HERE because this function is the platform's single outbound

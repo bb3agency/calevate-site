@@ -331,6 +331,68 @@ class CallBilling(BaseModel):
     carrier_only: bool = False
 
 
+#: How a call ended, as the engine's call insights read it (D-940). `converted`: the customer
+#: agreed to what the call was for.
+InsightOutcome = Literal[
+    "converted",
+    "interested",
+    "callback",
+    "promise_to_pay",
+    "not_interested",
+    "no_decision",
+    "wrong_person",
+    "do_not_call",
+]
+#: Why a `not_interested` was a no.
+InsightNoReason = Literal["price", "timing", "trust", "fit", "already_has", "other"]
+ObjectionKind = Literal[
+    "price", "timing", "trust", "fit", "need", "authority", "competitor", "other"
+]
+#: A problem the customer has with the business's own service.
+IssueKind = Literal["payment", "billing", "login", "delivery", "product", "other"]
+NextStepKind = Literal["callback", "promise_to_pay", "send_info", "visit", "hand_to_sales"]
+#: `open` while on the follow-up list, `done` once marked done, `replaced` when a later call
+#: with the same contact settled a newer step.
+NextStepStatus = Literal["open", "done", "replaced"]
+
+
+class CallObjection(BaseModel):
+    #: In the customer's own words: personal data, redacted before it is stored and never
+    #: logged (hard rule 6).
+    text: str
+    kind: ObjectionKind
+
+
+class CallIssue(BaseModel):
+    #: In the customer's own words, handled like `CallObjection.text`.
+    text: str
+    kind: IssueKind
+
+
+class CallNextStep(BaseModel):
+    kind: NextStepKind
+    #: The day (and time) agreed; None when the call settled no date.
+    at: datetime | None = None
+    #: One short line, possibly empty; handled like `CallObjection.text`.
+    note: str = ""
+    status: NextStepStatus = "open"
+    #: When it was marked done or replaced; None while open.
+    followed_up_at: datetime | None = None
+
+
+class CallInsights(BaseModel):
+    """What a call came to, as the engine read it once after the call: how it ended, the
+    customer's objections, why a no was a no, problems on the customer's side, and the next
+    step agreed. Only what the customer said is noted; nothing is inferred. Absent (None on
+    the snapshot) when the engine did not read the call."""
+
+    outcome: InsightOutcome
+    no_reason: InsightNoReason | None = None
+    objections: list[CallObjection] = Field(default_factory=list)
+    issues: list[CallIssue] = Field(default_factory=list)
+    next_step: CallNextStep | None = None
+
+
 class TranscriptTurn(BaseModel):
     """One turn of a conversation.
 
@@ -359,8 +421,12 @@ __all__ = [
     "CallBilling",
     "CallDirection",
     "CallEvent",
+    "CallInsights",
+    "CallIssue",
     "CallKeys",
     "CallLlmUsage",
+    "CallNextStep",
+    "CallObjection",
     "CallQuality",
     "CallStatus",
     "CallTimeline",
@@ -373,6 +439,12 @@ __all__ = [
     "EngineOptOut",
     "EngineProblem",
     "EngineProblemKind",
+    "InsightNoReason",
+    "InsightOutcome",
+    "IssueKind",
+    "NextStepKind",
+    "NextStepStatus",
+    "ObjectionKind",
     "Speaker",
     "TranscriptTurn",
     "TurnFirstSound",

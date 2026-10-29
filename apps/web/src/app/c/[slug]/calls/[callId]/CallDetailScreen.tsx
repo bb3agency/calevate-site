@@ -37,6 +37,7 @@ import { CallVerdict } from "./CallVerdict";
 import { CapturedDetails } from "./CapturedDetails";
 import { DisclosureNotice } from "./DisclosureNotice";
 import { FollowUpAction } from "./FollowUpAction";
+import { InsightsCard } from "./InsightsCard";
 import { KeyMomentsCard } from "./KeyMomentsCard";
 import { RecordingCard } from "./RecordingCard";
 import { TranscriptCard } from "./TranscriptCard";
@@ -419,6 +420,7 @@ export function CallDetailScreen({
         <aside aria-label="More about this call" className="space-y-8 page-lg:col-start-2 page-lg:row-start-2">
           {/* How it went, from the voice platform's own figures: all of it, turn by turn, for
               an operator viewing as the client; the wait for an answer for the client. */}
+          {detail.insights && <InsightsCard insights={detail.insights} />}
           <CallQualityCard detail={detail} operator={viewAsRequested} />
           {detail.moments.length > 0 && (
             <KeyMomentsCard

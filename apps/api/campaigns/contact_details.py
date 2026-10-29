@@ -3,7 +3,9 @@
 The client's list carries columns beside the phone and the name (`campaign_contacts.custom`):
 a village, a crop, a registration number. They ride every dial placed for that person as the
 call's `contact_details` (`agents.service.dispatch_call`), on the campaign's own dial and on a
-call-back booked from one of its calls, which also belongs to the campaign's results.
+call-back booked from one of its calls, which also belongs to the campaign's results. A dial
+for a known lead with no list row carries the lead's own stored details the same way
+(`lead_details`, D-940).
 
 Client data about a person: never logged (hard rule 6).
 """
@@ -11,12 +13,14 @@ Client data about a person: never logged (hard rule 6).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Final
 from uuid import UUID
 
 from calevate_shared.engine import PLATFORM_CALL_VARIABLES, call_variable_key
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from apps.api.crm.captured import captured_fields
 
 
 def contact_details_of(custom: Any) -> dict[str, str]:
@@ -74,6 +78,50 @@ async def call_origin(
     )
 
 
+#: Lead fields a dial does not carry as details: the name already rides the dial as the
+#: person's name, and a second phone number is no detail the agent needs to read out (data
+#: minimisation; the number dialled is the call's own).
+_NOT_DETAILS: Final = frozenset({"name", "other_number"})
+
+
+def _detail_value(value: object) -> str | None:
+    """A stored lead value as one detail: text, a number or a yes/no. A nested value (our
+    own provenance record of where the lead came from) is not a detail."""
+    if isinstance(value, bool):
+        return "yes" if value else "no"
+    if isinstance(value, str | int | float):
+        return str(value)
+    return None
+
+
+async def lead_details(session: AsyncSession, *, lead_id: UUID) -> dict[str, str]:
+    """A lead's stored details (`leads.data`: the fields a form or webhook sent and the ones
+    its calls captured) as a dial's `contact_details`, each under its field's label, in the
+    order the lead's screen lists them. Read on the dialling session, so a lead inserted in
+    the same transaction (`ingest/service`) is seen. Never synced into the engine's own
+    contact store: the details travel with each call and nowhere else."""
+    row = (
+        await session.execute(
+            text(
+                "SELECT agent_id, data, schema_version FROM leads "
+                "WHERE id = :lid AND deleted_at IS NULL"
+            ),
+            {"lid": lead_id},
+        )
+    ).first()
+    if row is None or not isinstance(row[1], dict):
+        return {}
+    fields = await captured_fields(
+        session, agent_id=row[0], schema_version=row[2], data=dict(row[1])
+    )
+    details: dict[str, object] = {}
+    for captured in fields:
+        value = _detail_value(captured.value)
+        if captured.key not in _NOT_DETAILS and value is not None:
+            details.setdefault(captured.label, value)
+    return contact_details_of(details)
+
+
 #: How many list columns the script builder offers; a campaign holds at most ten per row.
 MAX_LIST_COLUMNS = 30
 
@@ -106,5 +154,6 @@ __all__ = [
     "CallOrigin",
     "call_origin",
     "contact_details_of",
+    "lead_details",
     "list_columns",
 ]

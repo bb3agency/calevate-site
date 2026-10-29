@@ -20,7 +20,7 @@ from typing import Any, Final, Literal, NamedTuple, get_args
 from uuid import UUID
 
 from calevate_shared.cut_off import likely_cut_off_rows
-from calevate_shared.events import CallStatus, CallTimeline
+from calevate_shared.events import CallInsights, CallStatus, CallTimeline
 from calevate_shared.extraction import (
     MOMENT_KINDS,
     ExtractionField,
@@ -55,6 +55,7 @@ from apps.api.crm.performance import IST_DAY_SQL, IST_HOUR_SQL, IST_TODAY_SQL
 from apps.api.crm.schemas import (
     CallCallbackOut,
     CallDetailOut,
+    CallInsightsOut,
     CallMomentOut,
     CallQualityOut,
     CallSignalOut,
@@ -470,6 +471,23 @@ def _stored_timeline(value: object) -> CallTimeline | None:
         return None
 
 
+def _insights_out(value: object) -> CallInsightsOut | None:
+    """A stored `calls.insights` (a dumped `CallInsights`, texts already redacted) for the
+    call view; None when there is none or it no longer reads as one."""
+    if not isinstance(value, dict):
+        return None
+    try:
+        held = CallInsights.model_validate(value)
+    except ValidationError:
+        return None
+    return CallInsightsOut.model_validate(
+        held.model_dump(
+            exclude={"next_step": {"followed_up_at"}},
+            mode="json",
+        )
+    )
+
+
 def _timeline_out(value: object) -> list[TurnTimingOut] | None:
     """A stored `calls.engine_timeline` for the operator's view."""
     timeline = _stored_timeline(value)
@@ -510,7 +528,7 @@ async def get_call(
                 f"{_LEAD_NAME_COLUMN}, a.language_primary, c.engine_quality, c.engine_call_id, "
                 "c.caller_id_hidden, c.forwarding_test_id IS NOT NULL, c.forwarded_to_phone, "
                 "c.business_outcome, c.business_outcome_label, c.not_placed_reason, "
-                "c.follow_up_state, a.business_outcomes, c.engine_timeline "
+                "c.follow_up_state, a.business_outcomes, c.engine_timeline, c.insights "
                 f"FROM calls c JOIN agents a ON a.id = c.agent_id {_CALLBACK_JOIN} "
                 "WHERE c.id = :cid"
             ),
@@ -606,6 +624,7 @@ async def get_call(
         summary_language=row[24],
         summary_source=row[25],
         next_step=row[26],
+        insights=_insights_out(row[42]),
         callback_requested=row[27],
         translation_state=row[28],
         lead_name=row[29],

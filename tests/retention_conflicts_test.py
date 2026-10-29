@@ -481,7 +481,7 @@ def test_the_derived_copy_map_still_names_a_category_the_schema_allows() -> None
     an invented `summary` category would be a copy that no `retention_policies` row can
     match — the CHECK constraint enumerates four categories, so a fifth is a migration
     (and someone else's territory), not a constant in this module."""
-    summary_copy = "calls.summary+summary_local+headline+next_step"
+    summary_copy = "calls.summary+summary_local+headline+next_step+insights"
     assert summary_copy in retention.DERIVED_COPIES["transcript"]
     assert set(retention.DERIVED_COPIES) <= set(SHIPPED_TTLS)
 

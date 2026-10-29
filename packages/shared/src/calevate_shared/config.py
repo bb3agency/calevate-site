@@ -518,7 +518,8 @@ class Settings(BaseSettings):
     thinnest_call_instructions: bool = False
     #: How every agent decides the caller has finished (`voice.turnDetection`, D-849). `timer`
     #: is what agents have always been sent (D-767); `ear` is for the founder's trial of
-    #: real-time recognition, which waits through a pause mid-sentence. Saving it republishes
+    #: real-time recognition, which waits through a pause mid-sentence; `timer_v2` (D-940) is
+    #: the timer with an AI check of whether the caller has finished. Saving it republishes
     #: every live agent.
     thinnest_turn_detection: TurnDetection = "timer"
     #: The pause, in milliseconds, of an agent an operator put on the timer on its own (D-901)

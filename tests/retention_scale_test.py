@@ -456,7 +456,7 @@ async def test_every_derived_copy_is_governed_by_a_category_a_tenant_actually_ha
 
     assert set(retention.DERIVED_COPIES) <= categories
     assert retention.DERIVED_COPIES["transcript"] == (
-        "calls.summary+summary_local+headline+next_step",
+        "calls.summary+summary_local+headline+next_step+insights",
         "transcript_turns.text_en",
         # The knowledge-gap quote columns hold the caller's own sentences, copied out of
         # `transcript_turns.text_redacted` by the gap detector. They were in NO category,

@@ -4225,7 +4225,8 @@
                 "enum": [
                   "timer",
                   "ear",
-                  "smart"
+                  "smart",
+                  "timer_v2"
                 ],
                 "type": "string"
               },
@@ -4255,7 +4256,8 @@
             "enum": [
               "timer",
               "ear",
-              "smart"
+              "smart",
+              "timer_v2"
             ],
             "title": "Console Turn Detection",
             "type": "string"
@@ -4266,7 +4268,8 @@
                 "enum": [
                   "timer",
                   "ear",
-                  "smart"
+                  "smart",
+                  "timer_v2"
                 ],
                 "type": "string"
               },
@@ -4280,7 +4283,8 @@
             "enum": [
               "timer",
               "ear",
-              "smart"
+              "smart",
+              "timer_v2"
             ],
             "title": "Turn Detection Effective",
             "type": "string"
@@ -8358,6 +8362,16 @@
             "title": "Id",
             "type": "string"
           },
+          "insights": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CallInsightsOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "language": {
             "title": "Language",
             "type": "string"
@@ -8600,6 +8614,7 @@
           "not_placed_reason",
           "moments",
           "captured",
+          "insights",
           "translation_state",
           "language",
           "quality",
@@ -9044,6 +9059,172 @@
           "platform_reask_after_ms"
         ],
         "title": "CallHandlingBoundsOut",
+        "type": "object"
+      },
+      "CallInsightNextStepOut": {
+        "additionalProperties": false,
+        "properties": {
+          "at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At"
+          },
+          "kind": {
+            "enum": [
+              "callback",
+              "promise_to_pay",
+              "send_info",
+              "visit",
+              "hand_to_sales"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "open",
+              "done",
+              "replaced"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "at",
+          "note",
+          "status"
+        ],
+        "title": "CallInsightNextStepOut",
+        "type": "object"
+      },
+      "CallInsightNoteOut": {
+        "additionalProperties": false,
+        "description": "One objection or one problem the customer named. `text` is their words as stored,\nalready redacted (`workers/pipeline.stored_insights`).",
+        "properties": {
+          "kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "price",
+                  "timing",
+                  "trust",
+                  "fit",
+                  "need",
+                  "authority",
+                  "competitor",
+                  "other"
+                ],
+                "type": "string"
+              },
+              {
+                "enum": [
+                  "payment",
+                  "billing",
+                  "login",
+                  "delivery",
+                  "product",
+                  "other"
+                ],
+                "type": "string"
+              }
+            ],
+            "title": "Kind"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "kind"
+        ],
+        "title": "CallInsightNoteOut",
+        "type": "object"
+      },
+      "CallInsightsOut": {
+        "additionalProperties": false,
+        "description": "What the call came to: how it ended, why a no was a no, the objections, problems on\nthe customer's side, and the next step agreed (D-940).",
+        "properties": {
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/CallInsightNoteOut"
+            },
+            "title": "Issues",
+            "type": "array"
+          },
+          "next_step": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CallInsightNextStepOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "no_reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "price",
+                  "timing",
+                  "trust",
+                  "fit",
+                  "already_has",
+                  "other"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "No Reason"
+          },
+          "objections": {
+            "items": {
+              "$ref": "#/components/schemas/CallInsightNoteOut"
+            },
+            "title": "Objections",
+            "type": "array"
+          },
+          "outcome": {
+            "enum": [
+              "converted",
+              "interested",
+              "callback",
+              "promise_to_pay",
+              "not_interested",
+              "no_decision",
+              "wrong_person",
+              "do_not_call"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          }
+        },
+        "required": [
+          "outcome",
+          "no_reason",
+          "objections",
+          "issues",
+          "next_step"
+        ],
+        "title": "CallInsightsOut",
         "type": "object"
       },
       "CallLeadIn": {

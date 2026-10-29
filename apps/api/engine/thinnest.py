@@ -102,8 +102,12 @@ from calevate_shared.events import (
     CallBilling,
     CallDirection,
     CallEvent,
+    CallInsights,
+    CallIssue,
     CallKeys,
     CallLlmUsage,
+    CallNextStep,
+    CallObjection,
     CallQuality,
     CallStatus,
     CallTimeline,
@@ -116,7 +120,13 @@ from calevate_shared.events import (
     EngineOptOut,
     EngineProblem,
     EngineProblemKind,
+    InsightNoReason,
+    InsightOutcome,
+    IssueKind,
+    NextStepKind,
+    NextStepStatus,
     NotPlacedReason,
+    ObjectionKind,
     Speaker,
     TranscriptTurn,
     TurnTiming,
@@ -920,6 +930,72 @@ def parse_billing(value: Any, *, hangup: str | None = None) -> CallBilling | Non
         currency=currency if currency in ("INR", "USD") else None,
         billed_seconds=_whole(value.get("billedSeconds")),
         carrier_only=hangup == _BEFORE_AGENT_HANGUP,
+    )
+
+
+_INSIGHT_OUTCOMES: Final[frozenset[str]] = frozenset(get_args(InsightOutcome))
+_NO_REASONS: Final[frozenset[str]] = frozenset(get_args(InsightNoReason))
+_OBJECTION_KINDS: Final[frozenset[str]] = frozenset(get_args(ObjectionKind))
+_ISSUE_KINDS: Final[frozenset[str]] = frozenset(get_args(IssueKind))
+_NEXT_STEP_KINDS: Final[frozenset[str]] = frozenset(get_args(NextStepKind))
+_NEXT_STEP_STATUSES: Final[frozenset[str]] = frozenset(get_args(NextStepStatus))
+#: The documented limits on the quoted texts (CallInsights, snapshots/2026-10-29/pages/
+#: api-reference/calls/get-call.md:1061-1203): five of each, 120 characters, a 300-character
+#: note. Held to them here so a looser answer cannot grow what we store.
+_INSIGHT_ITEMS_MAX: Final = 5
+_INSIGHT_TEXT_MAX: Final = 120
+_INSIGHT_NOTE_MAX: Final = 300
+
+
+def _insight_notes(value: Any, kinds: frozenset[str]) -> list[tuple[str, str]]:
+    """`objections` or `issues` as (text, kind) pairs: a blank text is dropped, and a kind
+    outside the documented set is `other` rather than the whole reading lost."""
+    if not isinstance(value, list):
+        return []
+    notes: list[tuple[str, str]] = []
+    for item in value[:_INSIGHT_ITEMS_MAX]:
+        if not isinstance(item, dict):
+            continue
+        words = (_str(item.get("text")) or "").strip()[:_INSIGHT_TEXT_MAX]
+        if words:
+            kind = item.get("kind")
+            notes.append((words, kind if kind in kinds else "other"))
+    return notes
+
+
+def _insight_next_step(value: Any) -> CallNextStep | None:
+    if not isinstance(value, dict) or value.get("kind") not in _NEXT_STEP_KINDS:
+        return None
+    status = value.get("status")
+    return CallNextStep(
+        kind=value["kind"],
+        at=_parse_dt(value.get("at")),
+        note=(_str(value.get("note")) or "").strip()[:_INSIGHT_NOTE_MAX],
+        status=status if status in _NEXT_STEP_STATUSES else "open",
+        followed_up_at=_parse_dt(value.get("followedUpAt")),
+    )
+
+
+def parse_insights(value: Any) -> CallInsights | None:
+    """The call's `insights` (CallInsights, snapshots/2026-10-29/pages/api-reference/calls/
+    get-call.md:1061-1203; on `call.analysed` too, api-reference/webhooks.md:413) in our
+    names. None when the engine sent none (Call insights off for the agent, a call not read)
+    or an `outcome` outside the documented set, which is no reading we can name."""
+    if not isinstance(value, dict) or value.get("outcome") not in _INSIGHT_OUTCOMES:
+        return None
+    reason = value.get("noReason")
+    return CallInsights(
+        outcome=value["outcome"],
+        no_reason=reason if reason in _NO_REASONS else None,
+        objections=[
+            CallObjection.model_validate({"text": words, "kind": kind})
+            for words, kind in _insight_notes(value.get("objections"), _OBJECTION_KINDS)
+        ],
+        issues=[
+            CallIssue.model_validate({"text": words, "kind": kind})
+            for words, kind in _insight_notes(value.get("issues"), _ISSUE_KINDS)
+        ],
+        next_step=_insight_next_step(value.get("nextStep")),
     )
 
 
@@ -2310,8 +2386,15 @@ class ThinnestEngine:
             # Seconds of quiet that end the caller's turn, a number 0.2 to 3 that reads back
             # null until set, "0.25 s on most lines" (same pages, read 11 Oct 2026). Always
             # stated, so a console reset to null reads as drift. Whole milliseconds on our
-            # side (`agents/call_handling`), divided only here.
-            "turnSilenceSeconds": cfg.turn_silence_ms / 1000,
+            # side (`agents/call_handling`), divided only here. Not sent under `timer_v2`,
+            # which does not read it (snapshots/2026-10-29/pages/api-reference/agents/
+            # update-agent.md:1470-1476): unsent, it is not compared, so a held value the
+            # mode ignores never reads as drift.
+            **(
+                {}
+                if cfg.turn_detection == "timer_v2"
+                else {"turnSilenceSeconds": cfg.turn_silence_ms / 1000}
+            ),
             # The console's mode or an operator's per agent (D-849, D-901), always stated so a
             # change of the vendor's default (`null`) cannot change what the client's pause
             # means: under `timer` it is silence counted from the recogniser's final words, so
@@ -4261,6 +4344,8 @@ class ThinnestEngine:
             llm_usage=parse_llm_usage(payload.get("usage")),
             tts_characters=parse_tts_characters(payload.get("usage")),
             billing=parse_billing(payload.get("billing"), hangup=hangup),
+            # Written once the call is read, before `call.analysed` (get-call.md:1061-1070).
+            insights=parse_insights(payload.get("insights")) if analysed else None,
             # List Calls rows carry `billing` once the vendor's release of 17 Oct 2026 is live
             # (snapshots/2026-10-18/pages/whats-new/index.md:20-23); a row from before it has
             # no key at all, which `billing_reported` tells apart from `billing: null`.

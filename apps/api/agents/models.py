@@ -210,7 +210,7 @@ REASK_AFTER_MAX_MS = 10_000
 REASK_AFTER_STEP_MS = 100
 #: `voice.turnDetection`'s values (`calevate_shared.engine.TurnDetection`), spelled here for
 #: the CHECK on `agents.turn_detection`.
-TURN_DETECTIONS: tuple[str, ...] = ("timer", "ear", "smart")
+TURN_DETECTIONS: tuple[str, ...] = ("timer", "ear", "smart", "timer_v2")
 
 
 # How a Studio voice sounds on one agent (`agents/voice_tuning`): the ranges and values
