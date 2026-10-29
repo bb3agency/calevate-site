@@ -34,6 +34,7 @@ import { useReadAhead } from "@/lib/readAhead";
 import { useVerticalExamples } from "@/lib/useVerticalExamples";
 
 import { AddToCampaign } from "./AddToCampaign";
+import { StartFollowUp } from "./StartFollowUp";
 import { BulkActionBar, EMPTY_SELECTION, type BulkSelection } from "./BulkActionBar";
 import { DialerPicker } from "./DialerPicker";
 import { LeadTable } from "./LeadTable";
@@ -407,6 +408,21 @@ export function LeadsScreen() {
           <PlanCard session={session} planId={planId} onDismiss={onDismiss} />
         )}
         onAdded={() => setSelection(EMPTY_SELECTION)}
+      />
+
+      <StartFollowUp
+        session={session}
+        slug={session.orgSlug}
+        href={href}
+        selection={selection}
+        lens={lens}
+        filteredTotal={leads.data?.total}
+        canStart={mayDispatch.allowed}
+        startReason={mayDispatch.reason}
+        renderPlan={(planId, onDismiss) => (
+          <PlanCard session={session} planId={planId} onDismiss={onDismiss} />
+        )}
+        onStarted={() => setSelection(EMPTY_SELECTION)}
       />
 
       {leads.error && <ProblemNotice error={leads.error} onRetry={() => leads.refetch()} />}

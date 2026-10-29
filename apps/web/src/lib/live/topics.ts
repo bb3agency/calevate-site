@@ -78,6 +78,8 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     // Pinned charts (D-934) re-run their chart; they move with the data they draw.
     "pin-card",
     "admin/pin-card",
+    // A Follow-up run moves on when its call ends (D-940).
+    "follow-ups",
   ],
   leads: [
     ...SUMMARY,
@@ -96,6 +98,8 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "calls",
     "calls-log",
     "ingest-activity",
+    // A new lead starts a Follow-up, and won, lost or erased stops one (D-940).
+    "follow-ups",
     "members",
     // `lead_field_drafts` announces `leads`; a draft that fails writes nothing else.
     "lead-fields",

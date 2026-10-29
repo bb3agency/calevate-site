@@ -80,6 +80,8 @@ import CampaignsPage from "@/app/c/[slug]/campaigns/page";
 import DataRightsPage from "@/app/c/[slug]/data-rights/page";
 import CallerNoticePage from "@/app/c/[slug]/caller-notice/page";
 import CallbacksPage from "@/app/c/[slug]/callbacks/page";
+import FollowUpsPage from "@/app/c/[slug]/follow-ups/page";
+import FollowUpPage from "@/app/c/[slug]/follow-ups/[followUpId]/page";
 import AssistantPage from "@/app/c/[slug]/assistant/page";
 import AdminAssistantPage from "@/app/admin/assistant/page";
 import PhoneNumberPage from "@/app/c/[slug]/phone-number/page";
@@ -3353,6 +3355,47 @@ const CLIENT_SCREENS: Screen[] = [
     realm: "client",
     element: () => <AssistantPage />,
     routes: { "/v1/me": ME, ...workspaceRoutes() },
+  },
+  {
+    // One Follow-up of each state a row can show, with the ready-made ones under them.
+    file: "c/[slug]/follow-ups/page.tsx",
+    realm: "client",
+    element: () => <FollowUpsPage />,
+    routes: {
+      "/v1/me": ME,
+      "/v1/follow-ups": { items: [{ id: "fu-1", name: "Qualify new leads", status: "live", starter: "qualify_new_leads", trigger: { kind: "new_lead", source_ids: null }, has_unpublished_changes: true, counts: { running: 2, waiting: 1, done_30d: 9, goal_30d: 4 }, updated_at: "2026-10-30T05:00:00Z" }] },
+      "/v1/follow-ups/starters": {
+        items: [{ key: "win_back", name: "Win back", trigger: { kind: "manual" }, steps: [], settings: {} }],
+      },
+    },
+  },
+  {
+    // Unpublished changes with a problem: the densest state, branches and the publish panel.
+    file: "c/[slug]/follow-ups/[followUpId]/page.tsx",
+    realm: "client",
+    element: () => <FollowUpPage params={Promise.resolve({ slug: "acme", followUpId: "fu-1" })} />,
+    routes: {
+      "/v1/me": ME,
+      "/v1/follow-ups/fu-1": {
+        id: "fu-1",
+        name: "Qualify new leads",
+        status: "live",
+        starter: "qualify_new_leads",
+        trigger: { kind: "new_lead", source_ids: null },
+        settings: {},
+        steps: [
+          { id: "s1", kind: "call", summary: "Call with Front desk, try 3 times, an hour apart", agent_id: "agent-1", wait_minutes: 0, exits: { answered: "s2", not_reached: "s4" } },
+          { id: "s2", kind: "decide", summary: "How did the call go?", on: { interested: "s3", not_interested: null }, other: null },
+          { id: "s3", kind: "assign", summary: "Give them to Kiran", user_id: "u2", next: null },
+          { id: "s4", kind: "whatsapp", summary: "Send “we tried to reach you”", template_id: "t1", exits: { sent: null, not_sent: null } },
+        ],
+        has_unpublished_changes: true,
+        live_version: { number: 1, published_at: "2026-10-29T05:00:00Z" },
+        counts: { running: 2, waiting: 1, done_30d: 9, goal_30d: 4 },
+        problems: [{ step_id: "s4", code: "template_not_approved", message: "This message is not approved yet." }],
+        updated_at: "2026-10-30T05:00:00Z",
+      },
+    },
   },
   {
     file: "c/[slug]/callbacks/page.tsx",
