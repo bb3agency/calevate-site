@@ -1070,3 +1070,90 @@ async def test_a_step_that_keeps_failing_ends_the_run_and_alarms(
     assert await worker.drive_follow_up_run({"job_try": 99}, payload) == "failed"
     assert alarms == ["follow_up_step_failed"]
     assert (await _run(tenant_id, follow_up_id))["end_reason"] == "step_failed"
+
+
+async def test_a_call_ending_does_not_stop_a_run_whose_lead_was_already_lost() -> None:
+    """A win-back of lost leads: the call ending must not end the run as `lead_lost`."""
+    tenant_id, agent_id = await _dialable_tenant()
+    follow_up_id = await _call_follow_up(tenant_id, agent_id)
+    lead_id, _p = await _lead(tenant_id, agent_id)
+    async with tenant_session(tenant_id) as session:
+        await crm.set_lead_status(session, lead_id, status="lost", actor="test")
+    run_id = await _start(tenant_id, follow_up_id, lead_id)
+    await runner.drive(tenant_id, run_id)
+    await _tick(tenant_id)
+    call_id = (await _run(tenant_id, follow_up_id))["waiting_call_id"]
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE calls SET status = 'completed' WHERE id = :c"), {"c": call_id}
+        )
+    await worker.follow_up_call_ended({}, {"tenant_id": str(tenant_id), "call_id": str(call_id)})
+    run = await _run(tenant_id, follow_up_id)
+    assert (run["status"], run["step_id"], run["end_reason"]) == ("waiting", "s2", None)
+
+
+async def test_the_hourly_cap_spreads_the_rest_over_the_following_hours() -> None:
+    tenant_id, agent_id = await _dialable_tenant()
+    follow_up_id = await publish(
+        tenant_id, steps=[{"id": "s1", "kind": "end"}], settings={"starts_per_hour": 2}
+    )
+    leads = [(await _lead(tenant_id, agent_id))[0] for _ in range(6)]
+    async with tenant_session(tenant_id) as session:
+        outcome = await service.start_leads(
+            session, follow_up_id, tenant_id=tenant_id, lead_ids=leads
+        )
+        assert outcome.started == 6
+        wakes = (
+            (
+                await session.execute(
+                    text(
+                        "SELECT wake_at FROM follow_up_runs WHERE follow_up_id = :f "
+                        "ORDER BY wake_at"
+                    ),
+                    {"f": follow_up_id},
+                )
+            )
+            .scalars()
+            .all()
+        )
+    now = datetime.now(UTC)
+    hours = [round((w - now).total_seconds() / 3600) for w in wakes]
+    assert hours == [0, 0, 1, 1, 2, 2], "two an hour, not everyone past the cap at once"
+
+
+async def test_a_paused_run_keeps_its_retry_when_a_try_goes_unanswered() -> None:
+    tenant_id, agent_id = await _dialable_tenant()
+    follow_up_id = await _call_follow_up(tenant_id, agent_id, retries=1, retry_minutes=30)
+    lead_id, _p = await _lead(tenant_id, agent_id)
+    run_id = await _start(tenant_id, follow_up_id, lead_id)
+    await runner.drive(tenant_id, run_id)
+    await _tick(tenant_id)
+    call_id = (await _run(tenant_id, follow_up_id))["waiting_call_id"]
+    async with tenant_session(tenant_id) as session:
+        await service.pause(session, follow_up_id)
+        await session.execute(
+            text("UPDATE calls SET status = 'no_answer' WHERE id = :c"), {"c": call_id}
+        )
+        assert await runner.on_call_ended(session, call_id=call_id) == []
+    run = await _run(tenant_id, follow_up_id)
+    assert (run["status"], run["step_id"], run["attempt"]) == ("waiting", "s1", 1)
+    async with tenant_session(tenant_id) as session:
+        await service.resume(session, follow_up_id, tenant_id=tenant_id)
+    await runner.drive(tenant_id, run_id)
+    booked = await _callbacks_of(tenant_id, run_id)
+    assert booked[-1][1] == "scheduled", (booked, await _run(tenant_id, follow_up_id))
+    assert booked[-1][0].startswith(runner.callback_key(run_id, "s1", 1) + ":")
+
+
+async def test_a_lead_source_condition_needs_a_new_lead_trigger() -> None:
+    from apps.api.follow_ups import definition as d
+
+    def codes(trigger: dict[str, Any]) -> list[str]:
+        problems = d.shape_problems(
+            d.load_trigger(trigger), d.load_steps([{"id": "s1", "kind": "end"}]), d.Settings()
+        )
+        return [p.code for p in problems]
+
+    only_if = {"source_ids": [str(uuid.uuid4())]}
+    assert "source_needs_new_lead" in codes({"kind": "manual", "only_if": only_if})
+    assert "source_needs_new_lead" not in codes({"kind": "new_lead", "only_if": only_if})

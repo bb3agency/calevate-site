@@ -7,8 +7,11 @@
 * `drive_follow_up_run`: `runner.drive` for one run. A step that keeps raising ends the run
   `step_failed` after the retry ladder and raises `follow_up_step_failed`.
 * `follow_up_call_ended`: queued once per finished call by the post-call pipeline. Runs
-  waiting on the call move on; a lead marked won or lost by the call ends runs that stop on
-  it; `call_ended` Follow-ups start.
+  waiting on the call move on and `call_ended` Follow-ups start. Won and lost are not read
+  here: a call never sets them (the after-call rules stop at `hot`), and every move to
+  them goes through `crm.set_lead_status`, which stops the runs itself. Reading the lead's
+  status here would stop runs of a lead that was ALREADY won or lost, such as a win-back
+  of lost leads or the run that marked its own lead won.
 
 Ids only in every log line (hard rule 6).
 """
@@ -144,17 +147,6 @@ async def follow_up_call_ended(ctx: dict[str, Any], payload: dict[str, Any]) -> 
     call_id = UUID(str(payload["call_id"]))
     async with tenant_session(tenant_id) as session:
         moved = await runner.on_call_ended(session, call_id=call_id)
-        lead = (
-            await session.execute(
-                text(
-                    "SELECT l.id, l.status FROM calls c JOIN leads l ON l.id = c.lead_id "
-                    "WHERE c.id = :cid AND l.status IN ('won', 'lost')"
-                ),
-                {"cid": call_id},
-            )
-        ).first()
-        if lead is not None:
-            await runner.stop_for_won_lost(session, lead_id=UUID(str(lead[0])), status=str(lead[1]))
         started = await runner.start_for_call(session, tenant_id=tenant_id, call_id=call_id)
     # A started run is queued by `start_run` itself, through the outbox.
     now = int(datetime.now(UTC).timestamp())

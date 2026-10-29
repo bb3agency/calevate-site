@@ -346,6 +346,9 @@ StartOutcome = Literal["started", "already_in", "not_again", "not_matched"]
 class Started:
     outcome: StartOutcome
     run: Run | None = None
+    #: The run was handed to a worker: always unless `queue=False` asked to take the first
+    #: step inline AND the run's turn is now.
+    queued: bool = True
 
 
 async def _matches_only_if(
@@ -400,7 +403,11 @@ async def _again_refused(
 async def _turn(
     session: AsyncSession, follow_up_id: UUID, cap: int | None, now: datetime
 ) -> datetime:
-    """When a new run may take its first step under `starts_per_hour`."""
+    """When a new run may take its first step under `starts_per_hour`.
+
+    A run's `started_at` is its turn, so runs still waiting for theirs count against the
+    hour they will start in: the cap-th latest turn plus an hour is the next free slot.
+    Counting only `now` would give every lead past the cap the same slot an hour out."""
     if cap is None:
         return now
     starts = (
@@ -419,7 +426,7 @@ async def _turn(
     if len(starts) < cap:
         return now
     earliest: datetime = min(starts)
-    return earliest + timedelta(hours=1)
+    return max(now, earliest + timedelta(hours=1))
 
 
 async def start_run(
@@ -439,6 +446,8 @@ async def start_run(
 
     `queue=False` is the inline new-lead path, which takes the first call itself; every
     other start is due now (or at its turn under `starts_per_hour`) and queued for a worker.
+    A capped run whose turn is later is queued even under `queue=False` (`Started.queued`),
+    so the inline call never jumps the cap.
     """
     moment = now or datetime.now(UTC)
     first = d.first_step(follow_up.steps)
@@ -449,6 +458,7 @@ async def start_run(
     if await _again_refused(session, follow_up.id, lead_id, follow_up.settings.again):
         return Started("not_again")
     wake_at = await _turn(session, follow_up.id, follow_up.settings.starts_per_hour, moment)
+    queue = queue or wake_at > moment
     row = (
         await session.execute(
             text(
@@ -469,7 +479,7 @@ async def start_run(
                 "wake": None if not queue else wake_at,
                 "call": started_call_id,
                 "ref": trigger_ref[:200],
-                "now": moment,
+                "now": wake_at,
             },
         )
     ).first()
@@ -479,7 +489,7 @@ async def start_run(
     await record(session, run, step_id=first.id, kind="start", result=trigger_ref.split(":")[0])
     if queue:
         await _queue_drive(session, run, reason="start")
-    return Started("started", run)
+    return Started("started", run, queued=queue)
 
 
 # --- moving --------------------------------------------------------------------------
@@ -908,9 +918,32 @@ async def on_call_ended(session: AsyncSession, *, call_id: UUID) -> list[UUID]:
                 {"rid": run.id, "attempt": attempt + 1, "cid": call_id},
             )
             continue
+        if attempt < step.retries and await _paused(session, run.follow_up_id):
+            # The pause called the booked next try off; the run keeps its tries rather than
+            # leaving the step as if every try was spent. Due now, so it books that try the
+            # moment the Follow-up is live again: the claim and the tick skip a paused one,
+            # and `resume`'s own wake would miss it while this try's call-back still reads
+            # `dialing`.
+            await session.execute(
+                text(
+                    "UPDATE follow_up_runs SET attempt = :attempt, waiting_call_id = NULL, "
+                    "wake_at = now(), last_call_id = :cid, updated_at = now() WHERE id = :rid"
+                ),
+                {"rid": run.id, "attempt": attempt + 1, "cid": call_id},
+            )
+            continue
         await advance(session, run, follow.steps, exit_name="not_reached", call_id=call_id)
         moved.append(run.id)
     return moved
+
+
+async def _paused(session: AsyncSession, follow_up_id: UUID) -> bool:
+    status = (
+        await session.execute(
+            text("SELECT status FROM follow_ups WHERE id = :fid"), {"fid": follow_up_id}
+        )
+    ).scalar()
+    return status == "paused"
 
 
 async def _book_call_step(
