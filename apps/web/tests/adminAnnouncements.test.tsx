@@ -84,6 +84,14 @@ describe("announcements screen", () => {
     expect(screen.getByText(/until ended IST/)).toBeTruthy();
   });
 
+  it("says when the list is only the newest slice of the total", async () => {
+    renderAdminPage(<AnnouncementsScreen />, {
+      "/v1/admin/me": ME,
+      "/v1/admin/announcements": { items: [SHOWING], total: 120 },
+    });
+    expect(await screen.findByText("The newest 1 of 120 are shown.")).toBeTruthy();
+  });
+
   it("says nothing is shown only when the server answered, and refuses a failed read", async () => {
     renderAdminPage(<AnnouncementsScreen />, {
       "/v1/admin/me": ME,
