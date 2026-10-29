@@ -8,15 +8,18 @@ import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { TEXT_ACTION } from "@/components/console/section";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { TypedConfirmation } from "@/components/typedConfirmation";
+import { AskAssistant } from "@/components/copilot/AskAssistant";
 import { FIELD_INLINE, FIELD_LABEL, NoticeBox, ProblemNotice, formatCount } from "@/components/ui";
-import type { Session } from "@/lib/api/client";
+import { ApiProblem, type Session } from "@/lib/api/client";
 import {
+  FOLLOW_UP_START_MAX,
   useFollowUps,
   useStartFollowUp,
   type FollowUpStartOut,
   type FollowUpSummaryOut,
 } from "@/lib/api/followUps";
 import type { LeadLens } from "@/lib/api/leads";
+import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 
 import { TYPED_CONFIRMATION_FROM, type BulkSelection } from "./BulkActionBar";
 
@@ -97,10 +100,12 @@ function Chooser({
   const [typed, setTyped] = useState("");
   const selectId = useId();
 
+  const resetStart = start.reset;
   useEffect(() => {
     setConfirming(false);
     setTyped("");
-  }, [selection]);
+    resetStart();
+  }, [selection, resetStart]);
 
   const startable = followUps.data
     ? followUps.data.items.filter((item) => item.status === "live" && item.trigger.kind === "manual")
@@ -110,6 +115,10 @@ function Chooser({
   const needsTyping = count !== undefined && count >= TYPED_CONFIRMATION_FROM;
   const armed = count !== undefined && (!needsTyping || typed.trim() === String(count));
   const noun = count === 1 ? "lead" : "leads";
+
+  // More than the server starts at once (422 `follow_up_start_too_many`): said before
+  // anyone confirms when the count is known, and again if the server says it anyway.
+  const tooMany = (count !== undefined && count > FOLLOW_UP_START_MAX) || isTooMany(start.error);
 
   const run = () => {
     if (!chosen || count === undefined) return;
@@ -122,6 +131,10 @@ function Chooser({
           onResult({ followUp: chosen, result });
           setConfirming(false);
           onStarted();
+        },
+        // Too many is answered beside the button, with Pip's offer, not inside the dialog.
+        onError: (error) => {
+          if (isTooMany(error)) setConfirming(false);
         },
       },
     );
@@ -160,7 +173,7 @@ function Chooser({
             </select>
           )}
         </div>
-        {startable.length > 0 && (
+        {startable.length > 0 && !tooMany && (
           <ActionButton
             variant="secondary-sm"
             disabled={!canStart || count === undefined || !chosen}
@@ -172,6 +185,24 @@ function Chooser({
         )}
       </div>
       {followUps.error != null && <ProblemNotice error={followUps.error} onRetry={() => followUps.refetch()} />}
+      {tooMany && chosen && (
+        <NoticeBox
+          tone="neutral"
+          role="status"
+          action={
+            canStart ? (
+              <AskAssistant
+                label={`Ask ${ASSISTANT_NAME} to start them`}
+                prompt={`Start my Follow-up “${chosen.name}” for ${
+                  selection.wholeQuery ? "every lead my Leads filter matches" : "the leads I ticked"
+                }${count !== undefined ? ` (${count} leads)` : ""}.`}
+              />
+            ) : undefined
+          }
+        >
+          {`Up to ${FOLLOW_UP_START_MAX} leads start here at once.`}
+        </NoticeBox>
+      )}
 
       {confirming && chosen && count !== undefined ? (
         <ConfirmDialog
@@ -196,6 +227,10 @@ function Chooser({
       ) : null}
     </div>
   );
+}
+
+function isTooMany(error: unknown): boolean {
+  return error instanceof ApiProblem && error.code === "follow_up_start_too_many";
 }
 
 function StartedNotice({

@@ -1,13 +1,14 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Plus } from "lucide-react";
+import { Lock, Plus } from "lucide-react";
 
 import { useActionFeedback } from "@/components/arc/feedback";
 import { Section } from "@/components/console/section";
 import { PipMark } from "@/components/illustration/pip";
-import { PRIMARY_BUTTON, ProblemNotice, Skeleton } from "@/components/ui";
+import { PRIMARY_BUTTON, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton } from "@/components/ui";
 import type { Session } from "@/lib/api/client";
 import {
   useCreateFollowUp,
@@ -15,8 +16,9 @@ import {
   type FollowUpStarterOut,
 } from "@/lib/api/followUps";
 import { openAssistant } from "@/lib/copilot/launcher";
+import { lookup } from "@/lib/lookup";
 
-import { triggerWords } from "./followUpCopy";
+import { NEED_FIXES, triggerWords } from "./followUpCopy";
 
 /** What "New Follow-up" puts in Pip's ask box. Prefilled, never sent. */
 export const NEW_FOLLOW_UP_PROMPT = "Make a new Follow-up. Describe what should happen to a lead: ";
@@ -81,6 +83,13 @@ export function Starters({
       ) : offered ? (
         <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {offered.map((starter) => {
+            if (!starter.available) {
+              return (
+                <li key={starter.key}>
+                  <NeedsCard starter={starter} href={href} slug={session.orgSlug} />
+                </li>
+              );
+            }
             const busy = feedback.status === "pending" && chosen === starter.key;
             return (
               <li key={starter.key}>
@@ -89,12 +98,13 @@ export function Starters({
                   disabled={feedback.status === "pending"}
                   onClick={() => choose(starter)}
                   aria-label={`Use ready-made: ${starter.name}`}
-                  className="press flex w-full items-start gap-3 rounded-lg border border-line px-3 py-2.5 text-left transition-colors duration-(--duration-fast) hover:bg-ink/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-60 touch:min-h-11"
+                  className="press flex h-full w-full items-start gap-3 rounded-lg border border-line px-3 py-2.5 text-left transition-colors duration-(--duration-fast) hover:bg-ink/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-60 touch:min-h-11"
                 >
                   <Plus aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
                   <span className="min-w-0">
                     <span className="block font-medium text-ink">{busy ? "Making it…" : starter.name}</span>
-                    <span className="block text-meta text-ink-muted">
+                    <span className="block text-meta text-ink-muted">{starter.description}</span>
+                    <span className="block text-meta text-ink-faint">
                       {triggerWords(starter.trigger)} · {starter.steps.length}{" "}
                       {starter.steps.length === 1 ? "step" : "steps"}
                     </span>
@@ -106,5 +116,40 @@ export function Starters({
         </ul>
       ) : null}
     </Section>
+  );
+}
+
+/**
+ * A ready-made Follow-up the account cannot use yet: what it is, and one button per thing
+ * it needs (`needs`). Not a button itself — making it now would make a draft that cannot
+ * publish.
+ */
+function NeedsCard({
+  starter,
+  href,
+  slug,
+}: {
+  starter: FollowUpStarterOut;
+  href: (path: string) => string;
+  slug: string;
+}) {
+  return (
+    <div className="flex h-full items-start gap-3 rounded-lg border border-dashed border-line px-3 py-2.5">
+      <Lock aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
+      <div className="min-w-0 space-y-1.5">
+        <p className="font-medium text-ink">{starter.name}</p>
+        <p className="text-meta text-ink-muted">{starter.description}</p>
+        <p className="flex flex-wrap gap-2">
+          {starter.needs.map((need) => {
+            const fix = lookup(NEED_FIXES, need);
+            return fix ? (
+              <Link key={need} href={href(`/c/${slug}/${fix.path}`)} className={SECONDARY_BUTTON_SM}>
+                {fix.label}
+              </Link>
+            ) : null;
+          })}
+        </p>
+      </div>
+    </div>
   );
 }

@@ -13,7 +13,7 @@ import { useClientRealm } from "@/lib/api/session";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { lookup } from "@/lib/lookup";
 
-import { STATUS_TONES, STATUS_WORDS, triggerWords } from "./followUpCopy";
+import { STATUS_TONES, STATUS_WORDS } from "./followUpCopy";
 import { NewFollowUpButton, Starters } from "./Starters";
 
 /**
@@ -83,7 +83,7 @@ export function FollowUpsScreen() {
           >
             {row.name}
           </Link>
-          <p className="text-meta text-ink-muted sm:hidden">{triggerWords(row.trigger)}</p>
+          <p className="text-meta text-ink-muted sm:hidden">{row.starts_when}</p>
         </div>
       ),
     },
@@ -91,7 +91,7 @@ export function FollowUpsScreen() {
       id: "trigger",
       header: "Starts when",
       hideBelow: "sm",
-      cell: (row) => <span className="text-ink-muted">{triggerWords(row.trigger)}</span>,
+      cell: (row) => <span className="text-ink-muted">{row.starts_when}</span>,
     },
     {
       id: "status",
