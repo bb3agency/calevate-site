@@ -195,6 +195,32 @@ describe("payments page", () => {
     expect(screen.getByRole("button", { name: /Accept \(refunds the customer/ })).toBeTruthy();
   });
 
+  it("says when the recent payments it lists are only the newest slice", async () => {
+    const payments = Array.from({ length: 50 }, (_, index) => ({
+      payment_id: `pay_${index}`,
+      status: "captured",
+      amount_inr: "500.00",
+      method: "upi",
+      international: false,
+      tenant_id: "t1",
+      created_at: "2026-10-09T00:00:00Z",
+    }));
+    renderAdminPage(<PaymentsScreen />, {
+      "/v1/admin/me": {
+        user_id: "admin-1",
+        realm: "admin",
+        role: "superadmin",
+        permissions: ["org:read", "admin:tenants"],
+        impersonating: false,
+      },
+      "/v1/admin/payments/status": STATUS,
+      "/v1/admin/payments/disputes?limit=200&include_closed=false": [],
+      "/v1/admin/payments/recent?limit=50": payments,
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Load the last three days" }));
+    expect(await screen.findByText(/The newest 50 are shown/)).toBeTruthy();
+  });
+
   it("takes at most five evidence files and says so before anything is uploaded", async () => {
     const { calls } = renderAdminPage(<PaymentsScreen />, {
       "/v1/admin/me": {

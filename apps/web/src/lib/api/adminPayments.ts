@@ -41,10 +41,18 @@ export function usePaymentStatus(enabled = true) {
   });
 }
 
+/**
+ * How many rows each list asks for. Neither route pages, so a list that comes back this
+ * long is the newest slice, not everything, and the screen says so.
+ */
+export const RECENT_PAYMENTS_LIMIT = 50;
+export const DISPUTES_LIMIT = 200;
+
 export function useRecentPayments(enabled: boolean) {
   return useQuery({
     queryKey: paymentKeys.recent,
-    queryFn: () => apiRequest<RecentPayment[]>(adminSession(), `${BASE}/recent?limit=50`),
+    queryFn: () =>
+      apiRequest<RecentPayment[]>(adminSession(), `${BASE}/recent?limit=${RECENT_PAYMENTS_LIMIT}`),
     enabled,
   });
 }
@@ -55,7 +63,7 @@ export function useDisputes(includeClosed: boolean, enabled = true) {
     queryFn: () =>
       apiRequest<Dispute[]>(
         adminSession(),
-        `${BASE}/disputes?limit=200&include_closed=${includeClosed ? "true" : "false"}`,
+        `${BASE}/disputes?limit=${DISPUTES_LIMIT}&include_closed=${includeClosed ? "true" : "false"}`,
       ),
     enabled,
   });
