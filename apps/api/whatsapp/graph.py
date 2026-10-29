@@ -41,7 +41,7 @@ import httpx
 from apps.api.actions.whatsapp import META_GRAPH_VERSION
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
-from apps.api.integrations.egress_guard import egress_client
+from apps.api.integrations.egress_guard import egress_client, read_capped
 
 log = get_logger(__name__)
 
@@ -49,6 +49,8 @@ GRAPH_BASE: Final = f"https://graph.facebook.com/{META_GRAPH_VERSION}"
 #: One Graph request. The code exchange must finish inside Meta's 30 seconds, and every
 #: other call runs on a person's connect click or in a worker.
 GRAPH_TIMEOUT_S: Final = 8.0
+#: The most of one Graph answer we read. Every object read here is a few hundred bytes.
+GRAPH_MAX_RESPONSE_BYTES: Final = 256 * 1024
 #: The phone number fields read after connecting and on every account refresh.
 PHONE_FIELDS: Final = (
     "display_phone_number,verified_name,quality_rating,name_status,"
@@ -107,10 +109,19 @@ async def _call(
     headers = {"Authorization": f"Bearer {token}"} if token else {}
     try:
         async with egress_client(timeout=GRAPH_TIMEOUT_S, follow_redirects=False) as http:
-            response = await http.request(method, url, headers=headers, json=body)
-    except httpx.HTTPError as exc:
+            capped = await read_capped(
+                http,
+                http.build_request(method, url, headers=headers, json=body),
+                max_bytes=GRAPH_MAX_RESPONSE_BYTES,
+                deadline_s=GRAPH_TIMEOUT_S,
+            )
+    except (httpx.HTTPError, TimeoutError) as exc:
         log.warning("whatsapp_graph_unreachable", extra={"step": step, "error": type(exc).__name__})
         raise GraphError(step, status=0, meta_code=None) from exc
+    response = capped.response
+    if capped.overflowed:
+        log.warning("whatsapp_graph_oversized", extra={"step": step})
+        raise GraphError(step, status=response.status_code, meta_code=None)
     parsed = _json(response)
     if not 200 <= response.status_code < 300:
         code = _meta_code(parsed)

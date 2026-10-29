@@ -77,6 +77,7 @@ from apps.api.integrations.egress_guard import (
     EgressRefusedError,
     assert_public_http_url,
     egress_client,
+    read_capped,
 )
 from apps.workers.redaction import redact
 
@@ -235,19 +236,10 @@ async def _send(request: PreparedRequest, *, client: httpx.AsyncClient) -> httpx
         data=request.form_body,
         timeout=REQUEST_TIMEOUT_S,
     )
-    body = bytearray()
-    async with asyncio.timeout(SEND_DEADLINE_S):
-        response = await client.send(req, stream=True, follow_redirects=False)
-        try:
-            async for chunk in response.aiter_bytes():
-                body.extend(chunk[: MAX_RESPONSE_BYTES - len(body)])
-                if len(body) >= MAX_RESPONSE_BYTES:
-                    break
-        finally:
-            await response.aclose()
-    return httpx.Response(
-        response.status_code, headers=response.headers, content=bytes(body), request=req
+    capped = await read_capped(
+        client, req, max_bytes=MAX_RESPONSE_BYTES, deadline_s=SEND_DEADLINE_S
     )
+    return capped.response
 
 
 async def send_prepared(request: PreparedRequest, *, client: httpx.AsyncClient) -> httpx.Response:

@@ -68,6 +68,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger, redact_text
 from apps.api.core.redis import get_redis
 from apps.api.engine.health import record_engine_failure
+from apps.api.integrations.egress_guard import read_capped
 
 log = get_logger(__name__)
 
@@ -150,6 +151,11 @@ REQUEST_TIMEOUT_S = 10.0
 # minutes into `engine_error_spike`, i.e. FAILURES, and a nine-second 200 is not one. If
 # that ever needs a control it is a LATENCY signal into that same surface — which already
 # has the table, the window and the page — not a breaker in front of the dial.
+
+#: The most one JSON answer from a vendor may carry, decoded. A page of calls with their
+#: transcripts is a few megabytes; the cap exists so a misbehaving edge or proxy cannot
+#: choose how much memory an api or worker process spends on one answer.
+VENDOR_RESPONSE_MAX_BYTES: Final = 16 * 1024 * 1024
 
 THROTTLE_STATUS = 429
 THROTTLE_MAX_ATTEMPTS = 3
@@ -753,6 +759,7 @@ async def _vendor_response(
     route: str,
     absent_is_success: bool,
     extra_refused_statuses: frozenset[int],
+    max_bytes: int = VENDOR_RESPONSE_MAX_BYTES,
     **kwargs: Any,
 ) -> httpx.Response | None:
     """The throttle ladder and every refusal rung of `vendor_request`, shared with
@@ -760,7 +767,9 @@ async def _vendor_response(
     assert_safe_vendor_path(path)
     for attempt in range(THROTTLE_MAX_ATTEMPTS):
         try:
-            response = await client.request(method, path, **kwargs)
+            capped = await read_capped(
+                client, client.build_request(method, path, **kwargs), max_bytes=max_bytes
+            )
         except httpx.HTTPError as exc:
             # Counted BEFORE it is raised. "The vendor did not answer" is half of
             # OPERATIONS §4's engine-spike alarm, and it is the half a TOTAL outage
@@ -785,6 +794,21 @@ async def _vendor_response(
                 detail="The voice platform did not respond.",
                 failure_stage="CORE_LOGIC",
             ) from exc
+        response = capped.response
+        if capped.overflowed:
+            # Refused rather than truncated: a cut JSON document either fails to parse or,
+            # worse, parses as a shorter list than the vendor sent.
+            log.warning(
+                "engine_response_too_large",
+                extra={"engine": engine, "route": route, "status": response.status_code},
+            )
+            raise ProblemError(
+                kind="dependency",
+                code="engine_bad_response",
+                title="Voice engine returned an unreadable response",
+                detail="The voice platform answered with more data than we accept.",
+                failure_stage="CORE_LOGIC",
+            )
         if response.status_code != THROTTLE_STATUS:
             break
         limit_type, body_retry_after = _throttle_details(response)
@@ -1051,6 +1075,7 @@ async def vendor_audio_request(
         route=route,
         absent_is_success=False,
         extra_refused_statuses=frozenset(),
+        max_bytes=AUDIO_MAX_BYTES,
         **kwargs,
     )
     content_type = (
@@ -1088,6 +1113,7 @@ __all__ = [
     "THROTTLE_MAX_ATTEMPTS",
     "THROTTLE_MAX_SLEEP_S",
     "THROTTLE_STATUS",
+    "VENDOR_RESPONSE_MAX_BYTES",
     "EngineRateLimitedError",
     "EngineRejectedError",
     "assert_safe_vendor_path",

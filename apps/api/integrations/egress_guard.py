@@ -657,10 +657,73 @@ def egress_client(**kwargs: Any) -> httpx.AsyncClient:
     return httpx.AsyncClient(transport=EgressTransport(), trust_env=False, **kwargs)
 
 
+#: Headers describing the bytes ON THE WIRE. A response rebuilt from the decoded body must
+#: drop them: httpx decodes a `content=` body again by its `Content-Encoding`, so a gzip
+#: answer rebuilt with its headers intact raises `DecodingError` on bytes already gunzipped.
+_WIRE_ENCODING_HEADERS: Final = frozenset(
+    {"content-encoding", "content-length", "transfer-encoding"}
+)
+
+
+@dataclass(frozen=True, slots=True)
+class CappedResponse:
+    response: httpx.Response
+    #: True when the sender had more than `max_bytes` to give; `response` holds the first
+    #: `max_bytes` of the decoded body.
+    overflowed: bool
+
+
+async def read_capped(
+    client: httpx.AsyncClient,
+    request: httpx.Request,
+    *,
+    max_bytes: int,
+    deadline_s: float | None = None,
+) -> CappedResponse:
+    """Send `request` and read at most `max_bytes` of its DECODED body, never following a
+    redirect (OWASP API Security Top 10 2023 API10, "Unsafe Consumption of APIs": bound
+    what a third party's answer can cost us).
+
+    Streamed rather than `client.send(request)`, which buffers whatever the sender chooses
+    to send; the cap counts decoded bytes, so a small compressed answer cannot inflate past
+    it. `deadline_s` bounds the whole exchange, because httpx's read timeout restarts on
+    every chunk and a sender dripping one byte at a time never trips it.
+    """
+
+    async def _exchange() -> CappedResponse:
+        response = await client.send(request, stream=True, follow_redirects=False)
+        body = bytearray()
+        overflowed = False
+        try:
+            async for chunk in response.aiter_bytes():
+                room = max_bytes - len(body)
+                body.extend(chunk[:room])
+                if len(chunk) > room:
+                    overflowed = True
+                    break
+        finally:
+            await response.aclose()
+        headers = [
+            (name, value)
+            for name, value in response.headers.multi_items()
+            if name.lower() not in _WIRE_ENCODING_HEADERS
+        ]
+        rebuilt = httpx.Response(
+            response.status_code, headers=headers, content=bytes(body), request=request
+        )
+        return CappedResponse(response=rebuilt, overflowed=overflowed)
+
+    if deadline_s is None:
+        return await _exchange()
+    async with asyncio.timeout(deadline_s):
+        return await _exchange()
+
+
 __all__ = [
     "ALLOWED_PORTS",
     "ALLOWED_SCHEMES",
     "DNS_TIMEOUT_S",
+    "CappedResponse",
     "EgressRefusedError",
     "EgressTransport",
     "VettedDestination",
@@ -668,5 +731,6 @@ __all__ = [
     "connectable_addresses",
     "egress_client",
     "loopback_is_allowed",
+    "read_capped",
     "resolve_addresses",
 ]
