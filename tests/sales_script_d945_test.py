@@ -213,6 +213,17 @@ def test_a_negation_in_another_clause_does_not_hide_a_promise() -> None:
     assert unbacked_promise("I can't connect you right now, sorry.", NOTHING) is None
 
 
+def test_an_sms_promise_is_unbacked_on_every_account() -> None:
+    """Calevate sends no SMS (messaging is WhatsApp only, D-700), so no manifest backs it."""
+    for manifest in (NOTHING, EVERYTHING):
+        assert unbacked_promise("I'll send you the location by SMS.", manifest)
+        assert unbacked_promise("I can't send it on WhatsApp, but I'll share it by SMS.", manifest)
+        assert unbacked_promise("Mee number ki SMS pampistanu.", manifest)
+        assert unbacked_promise("Main aapko text message bhej dungi.", manifest)
+    assert unbacked_promise("We cannot send an SMS.", NOTHING) is None
+    assert unbacked_promise("Did you get an SMS from the bank?", NOTHING) is None
+
+
 def test_figures_names_and_questions() -> None:
     assert unknown_figure("It starts at ₹ 45,00,000.", "A 2BHK starts at 60 lakh.") == "₹ 45,00,000"
     assert unknown_figure("It is 60 lakh.", "A 2BHK starts at 60 lakh.") is None

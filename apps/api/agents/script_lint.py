@@ -15,7 +15,8 @@ Five checks:
   shared with the put-live warning and the campaign launch block. A second list here
   would drift from the one that blocks a launch.
 * A PROMISE NOTHING ON THE ACCOUNT CAN KEEP: a WhatsApp send, a call back, a booking or a hand
-  to a person that the capability manifest says this agent cannot do. A sentence that makes
+  to a person that the capability manifest says this agent cannot do, and an SMS on every
+  account, since the platform sends none (messaging is WhatsApp only, D-700). A sentence that makes
   the action conditional ("only if you can") is left alone: the platform's WHAT YOU CAN DO
   block decides at call time.
 * A FIGURE THE OWNER NEVER GAVE: digits, a rupee sign or a percentage in a spoken line that no
@@ -73,6 +74,8 @@ class CapabilityManifest:
                 ("send a WhatsApp or any message", self.whatsapp),
                 ("offer a call back", self.call_backs),
                 ("put the caller through to a person", self.hand_over),
+                # Never on: the platform sends no SMS (D-700).
+                ("send an SMS", False),
             )
             if not on
         ]
@@ -131,6 +134,7 @@ _WHATSAPP: Final = re.compile(r"whats\s?app|వాట్సాప్|వాట�
 _SENDS: Final = re.compile(
     r"\bsend|\bsent\b|\bshare|\bpamp(?:i|u)|\bbhej|పంపి|పంపు|పంపా|షేర్|भेज|शेयर", re.IGNORECASE
 )
+_SMS: Final = re.compile(r"\bsms\b|\btext message|ఎస్ఎంఎస్|एसएमएस", re.IGNORECASE)
 _CALL_BACK: Final = re.compile(
     r"call (?:you )?back|call-back|callback|తిరిగి కాల్|కాల్ బ్యాక్|మళ్ళీ కాల్|वापस कॉल|कॉल बैक|"
     r"\b(?:malli|tirigi|tarvata|taruvata) call chest|\b(?:wapas|vapas|baad mein) call kar",
@@ -160,6 +164,11 @@ def unbacked_promise(text: str, manifest: CapabilityManifest) -> str | None:
             """The verb in a clause that does not itself say it will not happen."""
             return any(verb.search(c) and not _NEGATED.search(c) for c in clauses)
 
+        # No manifest backs an SMS: the platform sends none, its messaging is WhatsApp only
+        # (D-700, docs/FOLLOW-UPS.md). Read in the verb's own clause, so "can't send it on
+        # WhatsApp, but I'll share it by SMS" is the SMS promise it is.
+        if any(_SMS.search(c) and _SENDS.search(c) and not _NEGATED.search(c) for c in clauses):
+            return "an SMS, and this platform sends no SMS"
         # The channel may sit in another clause than the verb ("I'll send the brochure and
         # the location on WhatsApp"), so it is looked for in the whole sentence.
         if not manifest.whatsapp and _WHATSAPP.search(sentence) and promised(_SENDS):
