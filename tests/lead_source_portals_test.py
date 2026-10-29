@@ -460,6 +460,37 @@ async def test_leadsquared_echoing_our_own_write_is_not_a_second_call() -> None:
     assert len(await _leads(tenant_id)) == 1
 
 
+@pytest.mark.parametrize(
+    ("status", "consumed"),
+    [("published", True), ("failed", False)],
+    ids=["delivered", "dead_lettered"],
+)
+async def test_the_echo_is_recognised_after_our_write_has_left_the_queue(
+    status: str, consumed: bool
+) -> None:
+    """LeadSquared's webhook can arrive after our delivery finished: the outbox row is then
+    `published` with `consumed_at` set, or `failed` and replayable, never `pending`."""
+    tenant_id, agent_id, webhook_id = await _tenant_with_source("leadsquared")
+    await _lead_from_another_source(tenant_id, agent_id, "+919876507799", sent_to_leadsquared=True)
+    async with tenant_session(tenant_id) as session:
+        moved = await session.execute(
+            text(
+                "UPDATE outbox_messages SET status = :s, "
+                "consumed_at = CASE WHEN :c THEN now() END, updated_at = now() "
+                "WHERE payload->>'tenant_id' = :t AND job = :job"
+            ),
+            {
+                "s": status,
+                "c": consumed,
+                "t": str(tenant_id),
+                "job": integrations_service.OUTBOUND_WEBHOOK_JOB,
+            },
+        )
+        assert moved.rowcount == 1
+    echo = await _push(webhook_id, _leadsquared(phone="9876507799"))
+    assert echo.json()["duplicate"] == 1, echo.text
+
+
 async def test_a_new_leadsquared_lead_for_a_number_we_never_sent_it_is_ingested() -> None:
     """A recent lead from another source that we never wrote to LeadSquared is not an echo:
     the client entered this person in their CRM themselves."""
