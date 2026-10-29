@@ -8,7 +8,7 @@ import TenantReadinessPage from "@/app/admin/tenants/[tenantId]/readiness/page";
 import type { TenantSummary } from "@/lib/api/admin";
 import type { ActivityEntry, ReadinessRow } from "@/lib/api/adminAccount";
 
-import { problem, renderAdminPage, type Routes } from "./harness";
+import { problem, renderAdminPage, stillLoading, type Routes } from "./harness";
 import { NO_UNFINISHED } from "./businessProfileFixture";
 import { renderAdminRoute, routeParams } from "./adminRoute";
 
@@ -125,6 +125,23 @@ describe("the client directory scales", () => {
 
     await screen.findByText(/Next Page Motors/);
     expect(calls.some((call) => call.path.includes("offset=25"))).toBe(true);
+  });
+
+  it("marks the page it is leaving as loading and holds the pager until the next arrives", async () => {
+    const { container } = renderAdminPage(<AdminClientsPage />, {
+      [ADMIN_ME_PATH]: ME,
+      "/v1/admin/onboarding/unfinished": NO_UNFINISHED,
+      [DIRECTORY]: page([tenant()], 312),
+      [`${DIRECTORY}?offset=25&limit=25`]: stillLoading(),
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: /Next/ }));
+
+    await waitFor(() => expect(container.textContent).toContain("Loading…"));
+    // The rows of page one stay readable, marked as about to change, not presented as page two.
+    expect(screen.getByText(/Sri Traders/).closest("[aria-busy='true']")).not.toBeNull();
+    expect((screen.getByRole("button", { name: /Next/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: /Previous/ }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("says when each account was added, which is what newest-first orders by", async () => {
@@ -307,6 +324,29 @@ describe("the activity trail", () => {
     // "One of us did this wearing the client's face" is a different fact from either
     // "we did this" or "they did this", and it has to be visible as one.
     expect(container.textContent).toContain("as the client");
+  });
+
+  it("keeps the trail and its pager on screen while an older page loads", async () => {
+    const { container } = await renderAdminRoute(
+      <TenantActivityPage params={routeParams({ tenantId: TENANT })} />,
+      {
+        ...READINESS_ROUTES,
+        [`${ACTIVITY}?limit=25&offset=0`]: {
+          tenant_id: TENANT,
+          total: 60,
+          limit: 25,
+          offset: 0,
+          entries: [entry()],
+        },
+        [`${ACTIVITY}?limit=25&offset=25`]: stillLoading(),
+      },
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /Older/ }));
+
+    await waitFor(() => expect(container.textContent).toContain("Loading…"));
+    expect(screen.getByText("admin.plan_tier_changed").closest("[aria-busy='true']")).not.toBeNull();
+    expect((screen.getByRole("button", { name: /Older/ }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("asks the server to narrow by who acted", async () => {

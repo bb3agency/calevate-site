@@ -1,16 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
 
-import { StatusPill } from "@/components/admin/kit";
-import {
-  ProblemNotice,
-  SECONDARY_BUTTON_SM,
-  Skeleton,
-  formatCount,
-  formatIST,
-} from "@/components/ui";
+import { OffsetPager, PagedRows, StatusPill } from "@/components/admin/kit";
+import { ProblemNotice, SECONDARY_BUTTON_SM, Skeleton, formatIST } from "@/components/ui";
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import { EmptyState } from "@/components/console/emptyState";
 import { InfoTip } from "@/components/console/infoTip";
@@ -232,42 +225,28 @@ export function ActivityScreen({ tenantId }: { tenantId: string }) {
           }
         />
       ) : (
-        <DataTable
-          label="Account activity"
-          rows={entries}
-          columns={COLUMNS}
-          getRowId={(entry) => entry.id}
-          rowClassName={() => "align-top"}
-        />
+        <PagedRows busy={activity.isPlaceholderData}>
+          <DataTable
+            label="Account activity"
+            rows={entries}
+            columns={COLUMNS}
+            getRowId={(entry) => entry.id}
+            rowClassName={() => "align-top"}
+          />
+        </PagedRows>
       )}
 
       {page && page.total > entries.length && (
-        <div className="flex flex-wrap items-center justify-between gap-3 text-meta text-ink-muted">
-          <span aria-live="polite">
-            Showing {formatCount(page.offset + 1)}–{formatCount(page.offset + entries.length)} of{" "}
-            {formatCount(page.total)}
-          </span>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              className={SECONDARY_BUTTON_SM}
-              disabled={page.offset === 0}
-              onClick={() => setOffset(Math.max(0, page.offset - ACTIVITY_PAGE_SIZE))}
-            >
-              <ChevronLeft aria-hidden className="h-3.5 w-3.5" />
-              Newer
-            </button>
-            <button
-              type="button"
-              className={SECONDARY_BUTTON_SM}
-              disabled={page.offset + entries.length >= page.total}
-              onClick={() => setOffset(page.offset + ACTIVITY_PAGE_SIZE)}
-            >
-              Older
-              <ChevronRight aria-hidden className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        </div>
+        <OffsetPager
+          offset={page.offset}
+          shown={entries.length}
+          total={page.total}
+          pageSize={ACTIVITY_PAGE_SIZE}
+          busy={activity.isPlaceholderData}
+          onOffset={setOffset}
+          previousLabel="Newer"
+          nextLabel="Older"
+        />
       )}
     </div>
   );
