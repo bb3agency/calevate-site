@@ -218,6 +218,13 @@ from apps.workers.kb_orphans import ORPHAN_SWEEP_HOUR, ORPHAN_SWEEP_MINUTE, swee
 from apps.workers.kb_read import read_kb_upload, redeliver_extracted_knowledge
 from apps.workers.kb_reconciliation import KB_SWEEP_MINUTES, sweep_kb_drift
 from apps.workers.kb_teach import run_kb_teaching
+from apps.workers.kyc_notices import (
+    OVERDUE_MINUTES as KYC_OVERDUE_MINUTES,
+)
+from apps.workers.kyc_notices import (
+    alarm_overdue_kyc_reviews,
+    notify_kyc_decision,
+)
 from apps.workers.kyc_owner_id_purge import PURGE_HOUR, PURGE_MINUTE, sweep_abandoned_owner_ids
 from apps.workers.lead_fields_draft import draft_lead_fields
 from apps.workers.live_apply import (
@@ -536,6 +543,9 @@ FUNCTIONS: list[Any] = [
         # D-890. The client's notice and email and every super admin's alert after a grant
         # or a complimentary conversion, from the outbox (`billing/comp_notices`).
         notify_comp,
+        # D-932. The client's email after a KYC review is decided, promised through the
+        # outbox by `compliance/kyc_review.decide_kyc_review`.
+        notify_kyc_decision,
         # D-547 EDITABLE RATE CARD. Enqueued through the OUTBOX in the same transaction as
         # the `platform_list_rates` card it announces, so an unregistered name here is the
         # `check_job_wiring` shape 3 failure with a PRICE behind it: the outbox marks the
@@ -1509,6 +1519,16 @@ CRON_JOBS = [
         ),
         hour=set(PURGE_HOUR),
         minute=set(PURGE_MINUTE),
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # D-932. A KYC review waiting more than a day raises `kyc_review_overdue`. Every 30
+    # minutes, inside the alarm's one-hour quiet period, so one episode spans the wait and
+    # mails once. :09/:39 are free of every other fleet-wide walk.
+    _cron(
+        traced_job(alarm_overdue_kyc_reviews),
+        walk=fleet_wide("one directory read, then one tenant_session per organization"),
+        minute=set(KYC_OVERDUE_MINUTES),
+        second={30},
         max_tries=WORKER_MAX_TRIES,
     ),
     # THE ENGLISH GLOSS SWEEP. Not a drift sweep — it is INGESTION, finishing a chunk that

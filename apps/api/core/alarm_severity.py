@@ -906,6 +906,10 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # promise an operator should see the same day.
     "kyc_owner_id_purge_abandoned": "attention",
     "kyc_purge_stuck": "attention",
+    # A client has waited a day for a KYC decision only we can make, and cannot dial out
+    # until we do. A page mails once per episode; the 30-minute check keeps it open.
+    "kyc_review_overdue": "page",
+    "kyc_decision_notice_no_address": "attention",
     # The DigiLocker provider refused or did not answer a client's start or return (D-692).
     # The client sees the refusal and can retry or upload documents instead; nothing is
     # lost, so attention rather than a page.
