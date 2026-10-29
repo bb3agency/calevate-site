@@ -1065,19 +1065,30 @@ class DueRetry:
 #: Deliveries one sweep re-enqueues at most; the rest wait for the next tick, oldest first.
 RETRY_SWEEP_BATCH: Final = 200
 
+#: How long a claimed retry may stay in flight before the sweep takes it again. A claim
+#: pushes `next_attempt_at` this far ahead rather than clearing it (a visibility timeout,
+#: the SQS pattern): the attempt's own `record_delivery` overwrites it with the next
+#: scheduled time or NULL, so only an attempt that never recorded an outcome — a job that
+#: raised something other than `arq.Retry`, or hit `job_timeout` — is re-claimed. Clearing
+#: it left such a row `retrying` with no next attempt, which no sweep reads and "Send
+#: again" refuses (it needs `failed`). Longer than the worker's `job_timeout` (300 s) and
+#: than the job's result window (`OUTBOX_RESULT_WINDOW_S`, 5 min), so a live attempt is
+#: never doubled and arq accepts the re-enqueue under the same job id.
+RETRY_CLAIM_LEASE: Final = timedelta(minutes=15)
+
 
 async def claim_due_retries(
     session: AsyncSession, *, limit: int = RETRY_SWEEP_BATCH
 ) -> list[DueRetry]:
-    """The `retrying` deliveries whose time has come, claimed by clearing their
-    `next_attempt_at` (SKIP LOCKED, so two sweeps never take the same row), with the
-    outbox payload that is their body. Platform machinery: neither table has a tenant
-    policy, so this runs in an untenanted session and the caller enqueues in the same
-    transaction — a failed enqueue rolls the claim back."""
+    """The `retrying` deliveries whose time has come, claimed by moving their
+    `next_attempt_at` one `RETRY_CLAIM_LEASE` ahead (SKIP LOCKED, so two sweeps never take
+    the same row), with the outbox payload that is their body. Platform machinery: neither
+    table has a tenant policy, so this runs in an untenanted session and the caller
+    enqueues in the same transaction — a failed enqueue rolls the claim back."""
     rows = (
         await session.execute(
             text(
-                "UPDATE webhook_deliveries d SET next_attempt_at = NULL "
+                "UPDATE webhook_deliveries d SET next_attempt_at = now() + CAST(:lease AS interval) "
                 "FROM (SELECT id FROM webhook_deliveries WHERE status = :retrying "
                 "  AND next_attempt_at <= now() ORDER BY next_attempt_at "
                 "  LIMIT :limit FOR UPDATE SKIP LOCKED) due "
@@ -1085,7 +1096,7 @@ async def claim_due_retries(
                 "RETURNING d.id, d.attempts, "
                 "  (SELECT m.payload FROM outbox_messages m WHERE m.id = d.outbox_message_id)"
             ),
-            {"retrying": RETRYING, "limit": limit},
+            {"retrying": RETRYING, "limit": limit, "lease": RETRY_CLAIM_LEASE},
         )
     ).all()
     return [
