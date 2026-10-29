@@ -1260,6 +1260,37 @@ async def test_an_account_failed_on_three_ticks_running_is_named_in_an_alarm(
 
 
 @pytest.mark.asyncio
+async def test_a_filed_erasure_that_never_completes_is_named_in_an_alarm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Re-filing answers "already open"; that must count against the account rather than
+    reset its count every hour, or an erasure job that keeps rolling back is never named."""
+    from apps.workers import account_closure as worker
+
+    waiting = await _close_past_due(await _admin(), days_ago=1)
+    alarms: list[tuple[str, str]] = []
+
+    async def _due(_session: Any, **_kw: Any) -> list[tuple[uuid.UUID, str]]:
+        return [(waiting, "")]
+
+    monkeypatch.setattr(worker, "due_erasures", _due)
+    monkeypatch.setattr(
+        worker, "alert", lambda _s, code, *, detail, **_kw: alarms.append((code, detail))
+    )
+
+    # The first tick files it; the job is queued and never runs here.
+    for _ in range(closure.ERASURE_STUCK_AFTER + 1):
+        totals = json.loads(await sweep_due_erasures({}))
+        assert totals["failed"] == 0
+
+    assert await _filed(waiting) == 1
+    stuck_alarms = [detail for code, detail in alarms if code == "closure_erasure_stuck"]
+    assert len(stuck_alarms) == 1
+    assert str(waiting) in stuck_alarms[0]
+    assert not [code for code, _ in alarms if code == "closure_sweep_incomplete"]
+
+
+@pytest.mark.asyncio
 async def test_the_repair_script_re_queues_an_erasure_that_never_completed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

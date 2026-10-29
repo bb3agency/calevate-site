@@ -33,6 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
+from apps.api.reliability.service import enqueue_outbox
 from apps.api.whatsapp import graph
 from apps.api.whatsapp.models import TEMPLATE_CATEGORIES
 
@@ -48,6 +49,9 @@ CLIENT_LANGUAGES: Final = ("te", "hi", "en", "en_US", "en_GB", "en_IN")
 #: message short and well inside "too many variable parameters relative to the length".
 MAX_VARIABLES: Final = 10
 MAX_TEMPLATES_PER_ACCOUNT: Final = 100
+#: The job that asks Meta for a submitted template's verdict once review should be over
+#: (`workers/whatsapp_meta.check_whatsapp_template`).
+TEMPLATE_CHECK_JOB: Final = "check_whatsapp_template"
 
 _NAME_RE: Final = re.compile(r"^[a-z0-9_]{1,512}$")
 _BLANK_RE: Final = re.compile(r"\{\{\s*(\d+)\s*\}\}")
@@ -311,8 +315,8 @@ async def submit(session: AsyncSession, *, template_id: UUID, waba_id: str, toke
     row = (
         await session.execute(
             text(
-                "SELECT name, language, category, body, variables FROM whatsapp_templates "
-                "WHERE id = :id"
+                "SELECT name, language, category, body, variables, tenant_id "
+                "FROM whatsapp_templates WHERE id = :id"
             ),
             {"id": template_id},
         )
@@ -347,6 +351,14 @@ async def submit(session: AsyncSession, *, template_id: UUID, waba_id: str, toke
         ),
         {"id": template_id, "status": status, "meta": meta_status, "mid": meta_id},
     )
+    if status == "pending" and meta_id is not None:
+        # Meta's verdict normally arrives as a webhook; this asks Meta directly once review
+        # should be over, so a lost webhook cannot leave the template pending for ever.
+        await enqueue_outbox(
+            session,
+            job=TEMPLATE_CHECK_JOB,
+            payload={"tenant_id": str(row[5]), "template_id": str(template_id), "check": 0},
+        )
     return status
 
 
@@ -441,6 +453,7 @@ __all__ = [
     "META_STATUS",
     "STANDARD",
     "STANDARD_LANGUAGES",
+    "TEMPLATE_CHECK_JOB",
     "StandardTemplate",
     "StatusUpdate",
     "apply_status_update",

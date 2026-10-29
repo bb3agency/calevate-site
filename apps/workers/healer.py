@@ -65,6 +65,9 @@ SCORE_MINUTES: Final = frozenset({1, 16, 32, 47})
 INCIDENT_BATCH: Final = 20
 #: How many tenants' notices one tick delivers.
 NOTICE_BATCH: Final = 25
+#: How long a client notice that reached nobody is retried, once a tick, before it is
+#: recorded as undelivered.
+NOTICE_RETRY_WINDOW: Final = timedelta(minutes=30)
 #: How far back a new page alarm is still worth a WhatsApp.
 PAGE_FRESHNESS: Final = timedelta(hours=1)
 #: The scorer opens one platform incident when this many clients' lines break at once.
@@ -1292,7 +1295,8 @@ async def _notify_tenant(tenant_id: UUID) -> int:
                 text(
                     "SELECT ci.id, ci.kind, ci.protection, ci.state, ci.campaigns_paused, "
                     "ci.missed_calls, ci.requeued, ci.must_act, ci.notified_at, ci.notified_by, "
-                    "a.name, o.slug, i.last_outcome FROM heal_client_incidents ci "
+                    "a.name, o.slug, i.last_outcome, ci.opened_at, ci.resolved_at "
+                    "FROM heal_client_incidents ci "
                     "JOIN organizations o ON o.id = ci.tenant_id "
                     "JOIN heal_incidents i ON i.id = ci.incident_id "
                     "LEFT JOIN agents a ON a.id = ci.agent_id WHERE ci.notified_at IS NULL "
@@ -1324,6 +1328,8 @@ async def _notify_tenant(tenant_id: UUID) -> int:
                 agent_name,
                 slug,
                 last_outcome,
+                opened_at,
+                resolved_at,
             ) = row
             restored = notified_at is not None
             line_changed = prot != "none" or kind == "platform_outage"
@@ -1343,8 +1349,6 @@ async def _notify_tenant(tenant_id: UUID) -> int:
                     {"id": row_id},
                 )
                 continue
-            if kind == "platform_outage":
-                outage_told.add(f"{kind}:{restored}")
             notice = notices.line_notice(
                 kind=str(kind),
                 protection=str(prot),
@@ -1395,6 +1399,21 @@ async def _notify_tenant(tenant_id: UUID) -> int:
                 )
                 if result.delivered:
                     channels.append("whatsapp")
+            if len(channels) == 1:
+                # Nothing reached them. Left unstamped, the next tick (every minute) sends it
+                # again, inside `NOTICE_RETRY_WINDOW`. Past it the row is stamped with
+                # `undelivered` rather than plain `dashboard`, which is the quiet-row marker
+                # and would make the selection above skip this incident's restored notice.
+                since = resolved_at if restored else opened_at
+                if since is not None and _now() - since < NOTICE_RETRY_WINDOW:
+                    log.warning(
+                        "healer_notice_retrying",
+                        extra={"tenant_id": str(tenant_id), "incident_id": str(row_id)},
+                    )
+                    continue
+                channels.append("undelivered")
+            if kind == "platform_outage":
+                outage_told.add(f"{kind}:{restored}")
             column = "restored_notified_at" if restored else "notified_at"
             await session.execute(
                 text(

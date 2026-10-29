@@ -31,6 +31,7 @@ from apps.api.actions.service import actions_enabled, get_tool, list_tools
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.core.redis import get_redis
 from apps.api.db.session import tenant_session
 
 log = get_logger(__name__)
@@ -46,7 +47,7 @@ _TRANSIENT_PREFIXES: Final = (
     "ConnectTimeout",
     "ConnectError",
 )
-_TRANSIENT_CODES: Final = frozenset({"crm_error", "sheet_error"})
+_TRANSIENT_CODES: Final = frozenset({"crm_error", "sheet_error", "auth_unavailable"})
 
 
 def _transient(status: str, payload: dict[str, Any]) -> bool:
@@ -103,10 +104,17 @@ async def run_after_call_actions(ctx: dict[str, Any], payload: dict[str, Any]) -
     pipeline has finished (a thank-you WhatsApp with a booking link, a CRM record, a sheet
     row). The values an action collects are read from the call's extraction by name, so an
     action asking for `name` gets the extracted `name`; the caller's number is the call
-    row's. Queued through the outbox, once per call (`pipeline._post_call_stages`)."""
+    row's. Queued through the outbox, once per call (`pipeline._post_call_stages`).
+
+    A transient failure retries the job on `RETRY_BACKOFF_S`, and the re-run skips every
+    action already finished for this call (a Redis marker per call and action), so a
+    thank-you message that went out is not sent again. A refusal is not retried."""
     tenant_id = UUID(str(payload["tenant_id"]))
     call_id = UUID(str(payload["call_id"]))
+    attempt = int(ctx.get("job_try", 1) or 1)
     ran: list[str] = []
+    retry_kinds: list[str] = []
+    unmarked = False
     async with tenant_session(tenant_id) as session:
         row = (
             await session.execute(
@@ -127,15 +135,63 @@ async def run_after_call_actions(ctx: dict[str, Any], payload: dict[str, Any]) -
         for tool in await list_tools(session, agent_id=UUID(str(row[0]))):
             if not tool.enabled or tool.trigger != "after_call":
                 continue
+            if await _after_call_done(call_id, tool.id):
+                continue
             result = await execute_action(
                 session, tool=tool, received=received, source="after_call", call=facts
             )
             ran.append(result.status)
-    log.info(
-        "after_call_actions_ran",
-        extra={"tenant_id": str(tenant_id), "call_id": str(call_id), "count": len(ran)},
-    )
+            if not result.ok and _transient(result.status, result.payload):
+                retry_kinds.append(f"{tool.kind}:{result.status}")
+            elif not await _mark_after_call_done(call_id, tool.id):
+                unmarked = True
+    ids = {"tenant_id": str(tenant_id), "call_id": str(call_id)}
+    log.info("after_call_actions_ran", extra={**ids, "count": len(ran)})
+    if retry_kinds:
+        # Only when every finished action is recorded as done: otherwise a re-run would
+        # send a thank-you message or a record a second time.
+        if attempt < WORKER_MAX_TRIES and not unmarked:
+            raise Retry(defer=ladder_delay_s(RETRY_BACKOFF_S, attempt))
+        alert(
+            "WORKER_TERMINAL",
+            "client_action_not_completed",
+            detail=(
+                f"{len(retry_kinds)} after-call action(s) of a client's agent failed on "
+                f"attempt {attempt} ({', '.join(retry_kinds)}) and will not be tried again. "
+                "Check the client's connection on their Connections screen."
+            ),
+            **ids,
+        )
     return ",".join(ran) or "none"
+
+
+#: How long an after-call action is remembered as done for its call: longer than the whole
+#: retry ladder, so a re-run of the job never repeats one that went out.
+AFTER_CALL_DONE_TTL_S: Final = 2 * 86_400
+
+
+def _after_call_done_key(call_id: UUID, tool_id: UUID) -> str:
+    return f"after_call:done:{call_id}:{tool_id}"
+
+
+async def _after_call_done(call_id: UUID, tool_id: UUID) -> bool:
+    """True when this action already finished for this call. Unreadable reads as not done:
+    on the first run nothing can be marked yet, and a re-run is only scheduled when every
+    finished action was marked (`run_after_call_actions`)."""
+    try:
+        return bool(await get_redis().exists(_after_call_done_key(call_id, tool_id)))
+    except Exception as exc:
+        log.warning("after_call_done_unreadable", extra={"error": type(exc).__name__})
+        return False
+
+
+async def _mark_after_call_done(call_id: UUID, tool_id: UUID) -> bool:
+    try:
+        await get_redis().set(_after_call_done_key(call_id, tool_id), "1", ex=AFTER_CALL_DONE_TTL_S)
+    except Exception as exc:
+        log.warning("after_call_done_unsaved", extra={"error": type(exc).__name__})
+        return False
+    return True
 
 
 __all__ = [

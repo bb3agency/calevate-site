@@ -276,12 +276,6 @@ ERASURE_EXEMPT: dict[str, str] = {
         "clearing it would delete the client's record of who takes their calls while "
         "removing nothing of the caller's. Staff numbers end with the ENGAGEMENT."
     ),
-    "business_contacts": (
-        "The client's escalation roster (D-695): the staff members an agent may hand a call "
-        "to, by name and mobile. The same data principal and the same position as "
-        "`agent_handoff_members`, which copies from it: a member of the client's staff, not "
-        "a caller, whose number ends with the ENGAGEMENT."
-    ),
     "admin_copilot_conversation_turns": (
         "What a CALEVATE OPERATOR typed to the admin console assistant, redacted on write. "
         "It is platform-scoped (no tenant_id, RLS-exempt for that reason) and holds our "
@@ -471,6 +465,12 @@ ENTRYPOINT_EXEMPT: dict[str, dict[str, str]] = {
             "(D-701), set by the account owner: a member of the client's staff, not a "
             "caller. A caller's deletion request has nothing to erase here; the number "
             "ends with the engagement, which `execute_tenant_erasure` covers."
+        ),
+        "business_contacts": (
+            "The client's escalation roster (D-695): the staff members an agent may hand a "
+            "call to, by name and mobile. A member of the client's staff, not a caller, so a "
+            "caller's deletion request has nothing to erase here; the number ends with the "
+            "engagement, which `execute_tenant_erasure` covers."
         ),
         "copilot_plan_targets": (
             "One target of a Pip plan (D-893): a lead id, its order, and OUR OWN sentence for "

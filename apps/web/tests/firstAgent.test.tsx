@@ -760,6 +760,28 @@ describe("meet your agent", () => {
     expect(screen.getByRole("button", { name: /Skip the questions and build/ })).toBeTruthy();
   });
 
+  it("says the questions could not be written, with a retry and a way to build", async () => {
+    const failed = run({
+      jobs: ["answer_calls"],
+      language_primary: "te-IN",
+      brief: "We sell flats in Kondapur.",
+      questions: { status: "failed", items: [], disclosure: null },
+    });
+    const { calls } = await renderClientPage(
+      page,
+      routes({ "/v1/first-run": failed, "/v1/first-run/brief": failed }),
+    );
+    expect(await screen.findByRole("heading", { name: "We couldn't write your questions" })).toBeTruthy();
+    expect(screen.queryByText("Your description covers it")).toBeNull();
+    expect(screen.getByRole("button", { name: /Build my agent/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Try again/ }));
+    await waitFor(() =>
+      expect(calls.some((call) => call.method === "PUT" && call.path === "/v1/first-run/brief")).toBe(true),
+    );
+    const sent = calls.find((call) => call.method === "PUT" && call.path === "/v1/first-run/brief");
+    expect(JSON.parse(sent?.body ?? "{}")).toEqual({ brief: "We sell flats in Kondapur." });
+  });
+
   it("asks for a price list as a list of services, each with a rupee price", async () => {
     const asked = run({
       jobs: ["answer_calls"],

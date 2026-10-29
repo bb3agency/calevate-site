@@ -327,7 +327,11 @@ from apps.workers.trials import sweep_trials
 from apps.workers.voice_catalogue import REFRESH_MINUTE, refresh_voice_catalogue
 from apps.workers.wallet_alerts import notify_low_balance
 from apps.workers.whatsapp import escalate_campaign_contact, notify_hot_lead_whatsapp
-from apps.workers.whatsapp_meta import ingest_whatsapp_event, seed_whatsapp_templates
+from apps.workers.whatsapp_meta import (
+    check_whatsapp_template,
+    ingest_whatsapp_event,
+    seed_whatsapp_templates,
+)
 
 log = get_logger(__name__)
 
@@ -372,6 +376,8 @@ FUNCTIONS: list[Any] = [
         # standard templates submitted to a newly connected account (from the outbox).
         ingest_whatsapp_event,
         seed_whatsapp_templates,
+        # A pending template's verdict read from Meta once review should be over.
+        check_whatsapp_template,
         # Person-level writes in a client's OWN voice platform workspace, from the outbox
         # (D-691): its do-not-call additions and a DPDP erasure of its contact.
         push_engine_dnc,

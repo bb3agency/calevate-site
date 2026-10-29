@@ -229,6 +229,28 @@ async def create_template(
     )
 
 
+async def template_status(*, template_id: str, token: str) -> tuple[str | None, str | None]:
+    """Read one template's review state: (Meta's status word, its rejected reason).
+
+    `GET /<TEMPLATE_ID>` returns `status` by default and lists `rejected_reason` as a field
+    (developers.facebook.com/docs/graph-api/reference/whatsapp-business-hsm/, read 29 Oct
+    2026, VERIFIED-VENDOR-DOCS); both are asked for by name.
+    """
+    answer = await _call(
+        "template_read",
+        "GET",
+        f"/{template_id}",
+        token=token,
+        query={"fields": "status,rejected_reason"},
+    )
+    data = answer if isinstance(answer, dict) else {}
+    status, reason = data.get("status"), data.get("rejected_reason")
+    return (
+        status if isinstance(status, str) else None,
+        reason if isinstance(reason, str) else None,
+    )
+
+
 def dumps(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
 
@@ -244,4 +266,5 @@ __all__ = [
     "phone_info",
     "register_number",
     "subscribe_app",
+    "template_status",
 ]

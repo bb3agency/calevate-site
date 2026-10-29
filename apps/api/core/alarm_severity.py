@@ -170,6 +170,8 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # woken, and the operator sees it on the board next time they look, which is the
     # right latency for "a capability is off" — it was already off yesterday.
     "kb_detach_failed": "attention",
+    # A client's knowledge upload has failed to publish for hours and is still being retried.
+    "kb_ingest_stuck": "attention",
     "engine_capability_absent": "attention",
     "engine_not_configured": "attention",
     # A number cannot be sold until an operator attests its monthly price (hard rule 7),
@@ -584,6 +586,11 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "whatsapp_number_quality_dropped": "attention",
     "whatsapp_message_not_delivered": "attention",
     "whatsapp_templates_not_submitted": "attention",
+    # A Meta event (template verdict, account or number change) could not be applied after
+    # every retry; Meta will not resend it.
+    "whatsapp_event_not_applied": "attention",
+    # A client's template is still pending at Meta days after submission.
+    "whatsapp_templates_stuck_pending": "attention",
     "whatsapp_onboarding_limit_near": "attention",
     "whatsapp_spoken_consent_unconfirmed": "attention",
     # Our queue could not take a verified Meta delivery; Meta redelivers for up to 7 days.
@@ -738,6 +745,8 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "razorpay_reconciliation_failed": "attention",
     # One client's auto-recharge switched itself off after repeated failures; they are told.
     "auto_recharge_disabled": "attention",
+    # Our code raised for some wallets in a sweep tick; it runs again in five minutes.
+    "auto_recharge_sweep_crashed": "attention",
     "payment_notice_no_billing_email": "attention",
     "rate_card_notice_fanout_budget_reached": "attention",
     "rate_card_notice_no_billing_email": "attention",

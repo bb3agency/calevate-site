@@ -67,6 +67,7 @@ from apps.api.billing.ai_quota import new_assist_ref, record_ai_assist_usage
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
+from apps.api.core.redis import get_redis
 from apps.api.crm.assist import ASSIST_FEATURE_KB_OCR
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.integrations.egress_guard import (
@@ -497,6 +498,7 @@ async def ingest_kb_source(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
             )
             return "failed"
 
+    await _clear_failures(upload_id)
     async with tenant_session(tenant_id) as session:
         await _mark(session, upload_id, UPLOAD_PROCESSED)
         if version is not None:
@@ -572,6 +574,54 @@ async def _fail(
         "kb_ingest_failed",
         extra={"upload_id": str(upload_id), "code": code, "retryable": retryable},
     )
+    if retryable:
+        await _count_retryable_failure(tenant_id, upload_id, code=code)
+
+
+#: Consecutive retryable publish failures (one per sweep re-drive, every
+#: `RETRY_STALLED_AFTER`) before the row is alarmed: about six hours of the voice platform
+#: refusing it. The row keeps being re-driven; the alarm is what stops it looping unseen.
+STUCK_AFTER_FAILURES: Final = 12
+#: Long enough to span `STUCK_AFTER_FAILURES` re-drives with room; a row that stops failing
+#: has its count cleared on success.
+_FAILURE_COUNT_TTL_S: Final = 3 * 86_400
+
+
+def _failure_key(upload_id: UUID) -> str:
+    return f"kb_ingest:failures:{upload_id}"
+
+
+async def _count_retryable_failure(tenant_id: UUID, upload_id: UUID, *, code: str) -> None:
+    """Count a retryable failure in Redis (no column holds attempts), and alarm once the row
+    has failed `STUCK_AFTER_FAILURES` times running. Best effort: an unreadable Redis is
+    logged and the row is re-driven as before."""
+    key = _failure_key(upload_id)
+    try:
+        redis = get_redis()
+        failures = int(await redis.incr(key))
+        await redis.expire(key, _FAILURE_COUNT_TTL_S)
+    except Exception as exc:
+        log.warning("kb_ingest_failure_uncounted", extra={"error": type(exc).__name__})
+        return
+    if failures >= STUCK_AFTER_FAILURES:
+        alert(
+            "WORKER_TERMINAL",
+            "kb_ingest_stuck",
+            detail=(
+                f"a knowledge upload has failed to publish {failures} times running "
+                f"(last {code}); it stays 'processing' and the sweep keeps re-driving it"
+            ),
+            episode=str(upload_id),
+            tenant_id=str(tenant_id),
+            upload_id=str(upload_id),
+        )
+
+
+async def _clear_failures(upload_id: UUID) -> None:
+    try:
+        await get_redis().delete(_failure_key(upload_id))
+    except Exception as exc:
+        log.warning("kb_ingest_failure_unclear", extra={"error": type(exc).__name__})
 
 
 # --- The sweep: stalled ingests, and links whose page moved --------------------------

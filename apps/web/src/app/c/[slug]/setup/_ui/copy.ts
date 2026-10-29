@@ -145,6 +145,8 @@ export const FIRST = {
     `Speak ${language} or English. ${left} × 30 sec left.`,
   audioNotKept: "Only the text is kept, not the audio.",
   readingBrief: "Reading what you wrote…",
+  questionsFailed: "We couldn't write your questions",
+  questionsFailedHint: "Try again, or build without them.",
   hoursLater: "Different hours some days? Change later.",
   hearHint: "Chat with it on its page.",
   viewOnly: "Only the owner can do this step.",

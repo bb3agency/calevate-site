@@ -511,5 +511,68 @@ async def test_the_public_status_page_names_no_client() -> None:
     assert all(i.id != str(incident_id) for i in page.incidents)
 
 
+async def _notice_state(row_id: UUID, tenant_id: UUID) -> tuple[Any, Any, Any]:
+    async with tenant_session(tenant_id) as session:
+        row = (
+            await session.execute(
+                text(
+                    "SELECT notified_at, notified_by, restored_notified_at "
+                    "FROM heal_client_incidents WHERE id = :id"
+                ),
+                {"id": row_id},
+            )
+        ).one()
+    return row[0], row[1], row[2]
+
+
+async def test_a_notice_that_reached_nobody_is_retried_and_the_restore_still_goes() -> None:
+    """Stamped as plain `dashboard` on a failed send, an incident's restored notice was
+    then skipped for good, because `dashboard` marks a quiet row."""
+    from apps.workers import healer
+
+    tenant_id, agent_id, _ = await _org("notice")
+    incident_id = await _incident(tenant_id=tenant_id, agent_id=agent_id)
+    async with tenant_session(tenant_id) as session:
+        row_id = await protection.client_incident(
+            session,
+            tenant_id=tenant_id,
+            incident_id=incident_id,
+            agent_id=agent_id,
+            kind="line_protected",
+        )
+        await session.execute(
+            text("UPDATE heal_client_incidents SET protection = 'forwarded' WHERE id = :id"),
+            {"id": row_id},
+        )
+
+    # No address on file, so nothing is delivered: inside the window it waits for a retry.
+    assert await healer._notify_tenant(tenant_id) == 0
+    assert await _notice_state(row_id, tenant_id) == (None, None, None)
+
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE heal_client_incidents SET opened_at = now() - interval '2 hours' "
+                "WHERE id = :id"
+            ),
+            {"id": row_id},
+        )
+    assert await healer._notify_tenant(tenant_id) == 1
+    notified_at, notified_by, _ = await _notice_state(row_id, tenant_id)
+    assert notified_at is not None
+    assert notified_by == "dashboard,undelivered"
+
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE heal_client_incidents SET state = 'resolved', "
+                "resolved_at = now() - interval '2 hours' WHERE id = :id"
+            ),
+            {"id": row_id},
+        )
+    assert await healer._notify_tenant(tenant_id) == 1
+    assert (await _notice_state(row_id, tenant_id))[2] is not None
+
+
 def _unused(_: Any) -> None:  # pragma: no cover - keeps the import list honest for mypy
     return None

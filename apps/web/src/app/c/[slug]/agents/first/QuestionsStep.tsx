@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
-import { ArrowRight, Clock, MapPin, Plus, SkipForward, Sparkles, X } from "lucide-react";
+import { ArrowRight, Clock, MapPin, Plus, RotateCw, SkipForward, Sparkles, X } from "lucide-react";
 
 import { useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
 import { TEXT_ACTION } from "@/components/console/section";
@@ -16,7 +16,13 @@ import {
   QUIET_ICON_BUTTON,
   SECONDARY_BUTTON_SM,
 } from "@/components/ui";
-import { useBuildAgent, useSaveAnswers, type FirstRun, type FirstRunQuestion } from "@/lib/api/firstRun";
+import {
+  useBuildAgent,
+  useSaveAnswers,
+  useSaveBrief,
+  type FirstRun,
+  type FirstRunQuestion,
+} from "@/lib/api/firstRun";
 import { useClientSession } from "@/lib/api/session";
 import {
   DAYS,
@@ -64,9 +70,11 @@ export function QuestionsStep({
   const [at, setAt] = useState(0);
   const [answers, setAnswers] = useState<Record<string, DraftAnswer>>({});
   const [kept, setKept] = useState<Set<string>>(() => new Set());
+  const retry = useSaveBrief(session);
   const writing = run.questions.status === "writing";
+  const failed = run.questions.status === "failed";
   const question = questions[at] ?? null;
-  const pending = answer.isPending || build.isPending;
+  const pending = answer.isPending || build.isPending || retry.isPending;
   const status: FeedbackStatus = pending
     ? "pending"
     : answerFeedback.status === "error" || buildFeedback.status === "error"
@@ -84,6 +92,34 @@ export function QuestionsStep({
   };
   const go = (keep: ReadonlySet<string>, drafts?: Readonly<Record<string, DraftAnswer>>) =>
     void finish(keep, drafts).catch(() => undefined);
+
+  if (failed && question === null) {
+    // Saving the same brief again asks for the questions again (`save_brief` re-queues a
+    // brief whose questions are not `writing` or `ready`).
+    return (
+      <StepScreen
+        title={FIRST.questionsFailed}
+        hint={FIRST.questionsFailedHint}
+        onBack={onBack}
+        primary="Build my agent"
+        status={status}
+        onSubmit={() => go(kept)}
+        aside={
+          <button
+            type="button"
+            className={TEXT_ACTION}
+            disabled={pending}
+            onClick={() => retry.mutate({ brief: run.brief ?? "" })}
+          >
+            <RotateCw aria-hidden className="h-4 w-4" />
+            {retry.isPending ? "Trying…" : "Try again"}
+          </button>
+        }
+      >
+        <Errors errors={[retry.error, answer.error, build.error]} />
+      </StepScreen>
+    );
+  }
 
   if (writing || question === null) {
     return (
