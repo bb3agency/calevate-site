@@ -12,11 +12,14 @@ import {
   SECONDARY_BUTTON,
   Skeleton,
 } from "@/components/ui";
+import { AskAssistant } from "@/components/copilot/AskAssistant";
 import { canDialOut } from "@/lib/agentState";
+import { ApiProblem } from "@/lib/api/client";
 import { useAgents } from "@/lib/api/agents";
-import type { FollowUpStep, FollowUpStepEditIn } from "@/lib/api/followUps";
+import type { FollowUpStep, FollowUpStepEditIn, FollowUpWaitIn } from "@/lib/api/followUps";
 import { useClientRealm } from "@/lib/api/session";
 import { useWhatsAppTemplates } from "@/lib/api/whatsapp";
+import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 
 import { currentWait, type WaitUnit } from "../followUpCopy";
 
@@ -30,6 +33,15 @@ const TITLES: Record<EditMode, string> = {
 
 /** The longest wait before a first call, in minutes (the server's own bound: 0..1440). */
 const CALL_WAIT_MAX_MINUTES = 1440;
+/** A wait step's bounds on the server: a minute to 30 days. */
+const WAIT_MAX_MINUTES = 30 * 1440;
+
+/** One unit, as the PATCH `wait` takes it (`{minutes?, hours?, days?}`). */
+function waitIn(unit: WaitUnit, amount: number): FollowUpWaitIn {
+  if (unit === "days") return { days: amount };
+  if (unit === "hours") return { hours: amount };
+  return { minutes: amount };
+}
 
 /**
  * One small edit to one step: its wait, its WhatsApp message (from the account's approved
@@ -97,6 +109,9 @@ export function StepEditDialog({
           </p>
         )}
         <ProblemNotice error={error} />
+        {error instanceof ApiProblem && error.code === "follow_up_edit_invalid" && (
+          <AskAssistant label={`Ask ${ASSISTANT_NAME} to change it`} prompt={`Change this step: “${step.summary}”. `} />
+        )}
       </form>
     </ModalDialog>
   );
@@ -129,8 +144,12 @@ function WaitFields({
       onInvalid("Wait at most a day before the first call.");
       return;
     }
+    if (step.kind === "wait" && (minutes < 1 || minutes > WAIT_MAX_MINUTES)) {
+      onInvalid("Wait between a minute and 30 days.");
+      return;
+    }
     onInvalid(null);
-    onChange({ step_id: step.id, wait: { [nextUnit]: n } });
+    onChange({ step_id: step.id, remove: false, wait: waitIn(nextUnit, n) });
   };
 
   return (
@@ -167,7 +186,7 @@ function TemplateField({
 }) {
   const { session, href } = useClientRealm();
   const templates = useWhatsAppTemplates(session);
-  const [chosen, setChosen] = useState(step.template_id ?? "");
+  const [chosen, setChosen] = useState(step.kind === "whatsapp" ? step.template_id : "");
   if (templates.isPending) return <Skeleton rows={1} label="Loading your approved messages" />;
   if (templates.error || !templates.data) {
     return <ProblemNotice error={templates.error} onRetry={() => void templates.refetch()} />;
@@ -191,7 +210,7 @@ function TemplateField({
         value={chosen}
         onChange={(event) => {
           setChosen(event.target.value);
-          if (event.target.value) onChange({ step_id: step.id, template_id: event.target.value });
+          if (event.target.value) onChange({ step_id: step.id, remove: false, template_id: event.target.value });
         }}
       >
         {!approved.some((template) => template.id === chosen) && <option value="">Choose a message</option>}
@@ -210,17 +229,19 @@ function AgentField({
   onChange,
 }: {
   step: FollowUpStep;
-  onChange: (edit: FollowUpStepEditIn) => void;
+  onChange: (edit: FollowUpStepEditIn | null) => void;
 }) {
   const { session } = useClientRealm();
   const agents = useAgents(session);
-  const [chosen, setChosen] = useState(step.agent_id ?? "");
+  // No agent of its own (null) means the lead's own agent calls: the agent that took the lead.
+  const current = step.kind === "call" ? (step.agent_id ?? null) : null;
+  const [chosen, setChosen] = useState(current ?? "");
   if (agents.isPending) return <Skeleton rows={1} label="Loading your agents" />;
   if (agents.error || !agents.data) {
     return <ProblemNotice error={agents.error} onRetry={() => void agents.refetch()} />;
   }
   // Agents that can place calls, plus the current one so the select never lies about it.
-  const callers = agents.data.filter((agent) => canDialOut(agent) || agent.id === step.agent_id);
+  const callers = agents.data.filter((agent) => canDialOut(agent) || agent.id === current);
   if (callers.length === 0) {
     return <p className="text-body text-ink-muted">No agent can make calls yet.</p>;
   }
@@ -232,10 +253,14 @@ function AgentField({
         value={chosen}
         onChange={(event) => {
           setChosen(event.target.value);
-          if (event.target.value) onChange({ step_id: step.id, agent_id: event.target.value });
+          onChange(event.target.value ? { step_id: step.id, remove: false, agent_id: event.target.value } : null);
         }}
       >
-        {!callers.some((agent) => agent.id === chosen) && <option value="">Choose an agent</option>}
+        {current === null ? (
+          <option value="">The lead’s own agent</option>
+        ) : (
+          !callers.some((agent) => agent.id === chosen) && <option value="">Choose an agent</option>
+        )}
         {callers.map((agent) => (
           <option key={agent.id} value={agent.id}>
             {agent.name}

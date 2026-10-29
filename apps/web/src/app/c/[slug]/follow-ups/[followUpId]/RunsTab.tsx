@@ -68,13 +68,19 @@ export function RunsTab({ followUp, canStop }: { followUp: FollowUpOut; canStop:
       id: "where",
       header: "Where they are",
       card: "block",
-      cell: (run) => (
-        <span className="text-ink [overflow-wrap:anywhere]">
-          {run.status === "done" || run.status === "stopped"
-            ? "Finished"
-            : ((run.step_id && summaries.get(run.step_id)) ?? "Starting")}
-        </span>
-      ),
+      cell: (run) =>
+        run.status === "done" || run.status === "stopped" ? (
+          <span className="text-ink-muted">Finished</span>
+        ) : (
+          <span className="block min-w-0">
+            <span className="block text-ink [overflow-wrap:anywhere]">
+              {run.step_summary ?? summaries.get(run.step_id) ?? "Starting"}
+            </span>
+            {run.status === "waiting" && run.wake_at && (
+              <span className="block text-meta text-ink-muted">Next: {formatIST(run.wake_at)}</span>
+            )}
+          </span>
+        ),
     },
     {
       id: "last",

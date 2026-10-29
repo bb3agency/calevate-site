@@ -5,6 +5,7 @@
 
 import type { NoticeTone } from "@/components/ui";
 import type {
+  FollowUpStarterNeed,
   FollowUpStatus,
   FollowUpStep,
   FollowUpTrigger,
@@ -81,7 +82,17 @@ const RESULT_WORDS: Record<string, string> = {
   sent: "Message sent",
   done: "Done",
   failed: "Did not work",
+  booked: "Call booked",
+  not_placed: "Call not placed",
+  waiting: "Waiting",
+  waited: "Waited",
+  started: "Started",
+  assigned: "Given to a teammate",
+  unchanged: "No change needed",
+  end: "Finished",
   "blocked:dnc": "On do-not-call",
+  "blocked:agent": "The agent is not on",
+  "blocked:closed": "Lead already closed",
   "not_sent:no_consent": "Not sent: no consent",
   "not_sent:blocked": "Not sent: blocked",
   "not_sent:not_connected": "Not sent: WhatsApp not connected",
@@ -118,14 +129,30 @@ export type StepLine =
   | { type: "goto"; step: FollowUpStep; depth: number; branch: string | null }
   | { type: "end"; depth: number; branch: string };
 
-/** Where a step can go next, as labelled exits. A single `next` is unlabelled. */
+/** The named exits of each kind that has them, in the order the screen draws them. */
+const CALL_EXITS = ["answered", "not_reached"] as const;
+const SEND_EXITS = ["sent", "not_sent"] as const;
+const ACTION_EXITS = ["done", "failed"] as const;
+
+/**
+ * Where a step can go next, as labelled exits. A single `next` is unlabelled. An exit the
+ * server left out is null: the lead stops there.
+ */
 function exitsOf(step: FollowUpStep): [string, string | null][] {
-  if (step.kind === "decide") {
-    const named = Object.entries(step.on ?? {});
-    return step.other !== undefined ? [...named, ["other", step.other]] : named;
+  switch (step.kind) {
+    case "end":
+      return [];
+    case "decide":
+      return [...Object.entries(step.on ?? {}), ["other", step.other ?? null]];
+    case "call":
+      return CALL_EXITS.map((key) => [key, step.next?.[key] ?? null]);
+    case "whatsapp":
+      return SEND_EXITS.map((key) => [key, step.next?.[key] ?? null]);
+    case "action":
+      return ACTION_EXITS.map((key) => [key, step.next?.[key] ?? null]);
+    default:
+      return [["next", step.next ?? null]];
   }
-  if (step.exits) return Object.entries(step.exits);
-  return step.next !== undefined ? [["next", step.next]] : [];
 }
 
 /**
@@ -172,12 +199,15 @@ export function stepLines(steps: FollowUpStep[]): StepLine[] {
   return lines;
 }
 
-/** The small edits a step offers, by kind (founder decision 4). */
+/**
+ * The small edits a step offers, by kind (founder decision 4). A wait until a date on the
+ * lead has no length to change, and the server refuses one (`follow_up_edit_invalid`).
+ */
 export function editsFor(step: FollowUpStep): { wait: boolean; template: boolean; agent: boolean } {
   const plainWait =
     step.kind === "wait" &&
-    step.until_field === undefined &&
-    (step.minutes !== undefined || step.hours !== undefined || step.days !== undefined);
+    step.until_field == null &&
+    (step.minutes != null || step.hours != null || step.days != null);
   return {
     wait: step.kind === "call" || plainWait,
     template: step.kind === "whatsapp",
@@ -190,11 +220,27 @@ export type WaitUnit = "minutes" | "hours" | "days";
 /** A step's current wait as one number and unit, for the dialog's starting value. */
 export function currentWait(step: FollowUpStep): { amount: number; unit: WaitUnit } {
   if (step.kind === "call") {
-    const minutes = step.wait_minutes ?? 0;
+    // An exact wait carried over from the old plan wins over `wait_minutes`. The dialog
+    // offers whole minutes, and saving any wait clears the seconds on the server.
+    const minutes =
+      step.wait_seconds != null ? Math.round(step.wait_seconds / 60) : step.wait_minutes;
     if (minutes > 0 && minutes % 60 === 0) return { amount: minutes / 60, unit: "hours" };
     return { amount: minutes, unit: "minutes" };
   }
-  if (step.days !== undefined) return { amount: step.days, unit: "days" };
-  if (step.hours !== undefined) return { amount: step.hours, unit: "hours" };
-  return { amount: step.minutes ?? 0, unit: "minutes" };
+  if (step.kind === "wait") {
+    if (step.days != null) return { amount: step.days, unit: "days" };
+    if (step.hours != null) return { amount: step.hours, unit: "hours" };
+    return { amount: step.minutes ?? 0, unit: "minutes" };
+  }
+  return { amount: 0, unit: "minutes" };
 }
+
+/**
+ * What a ready-made Follow-up needs that the account lacks (`needs`), as the button that
+ * goes and fixes it. A team address is set on an agent's settings, so it opens Agents.
+ */
+export const NEED_FIXES: Record<FollowUpStarterNeed, { label: string; path: string }> = {
+  outbound_agent: { label: "Set up an agent that calls", path: "agents/new" },
+  whatsapp_template: { label: "Connect WhatsApp", path: "integrations" },
+  team_address: { label: "Add who to tell", path: "agents" },
+};

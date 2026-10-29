@@ -3,7 +3,7 @@
 /**
  * Follow-ups (D-940): per-lead journeys built by Pip, with small edits by hand.
  *
- *   GET  /v1/follow-ups                              `leads:read`
+ *   GET  /v1/follow-ups                              `leads:read`, at most 200 rows
  *   POST /v1/follow-ups                              `leads:dispatch` (a draft)
  *   GET  /v1/follow-ups/starters                     `leads:read`
  *   GET  /v1/follow-ups/{id}                         `leads:read`
@@ -14,15 +14,8 @@
  *   POST /v1/follow-ups/{id}/runs/{run_id}/stop      `leads:dispatch`
  *   GET  /v1/follow-ups/{id}/results                 `leads:read`
  *
- * TODO(follow-ups merge): HAND-WRITTEN WIRE TYPES. The backend lane is building this
- * contract (docs/FOLLOW-UPS.md, "HTTP contract") in parallel, so `schema.d.ts` does not
- * carry it yet. Once it lands and `pnpm -C apps/web gen:api` has run, replace every
- * interface in the "wire types" block below with its generated alias, keeping the names:
- *
- *   export type FollowUpOut = Schemas["FollowUpOut"];   // and so on for each name below
- *
- * then delete the block. The names are the contract's own. Fields the contract does not
- * spell out are marked ASSUMED; the generated types win wherever they disagree.
+ * Every shape is the generated one (`schema.d.ts`); the names below are aliases so a
+ * screen imports from here, not from the schema.
  */
 
 import {
@@ -37,214 +30,40 @@ import {
 
 import { apiRequest, type Session } from "./client";
 import { lensBody, type LeadLens } from "./leads";
+import type { components } from "./schema";
 
-// ---- wire types (hand-written; swap for schema.d.ts aliases once generated) ----------
+// ---- wire types ---------------------------------------------------------------------
 
-export type FollowUpStatus = "draft" | "live" | "paused" | "off";
+type Schemas = components["schemas"];
 
-export type FollowUpTrigger =
-  | { kind: "new_lead"; source_ids: string[] | null; only_if?: Record<string, unknown> | null }
-  | {
-      kind: "call_ended";
-      agent_ids: string[] | null;
-      calls: "inbound" | "outbound" | "both";
-      outcomes: string[] | null;
-      only_if?: Record<string, unknown> | null;
-    }
-  | { kind: "manual"; only_if?: Record<string, unknown> | null }
-  | {
-      kind: "lead_date";
-      field: string;
-      offset_days: number;
-      at: string;
-      only_if?: Record<string, unknown> | null;
-    };
+export type FollowUpOut = Schemas["FollowUpOut"];
+export type FollowUpSummaryOut = Schemas["FollowUpSummaryOut"];
+export type FollowUpListOut = Schemas["FollowUpListOut"];
+export type FollowUpStarterOut = Schemas["FollowUpStarterOut"];
+export type FollowUpStartersOut = Schemas["FollowUpStartersOut"];
+export type FollowUpCreateIn = Schemas["FollowUpCreateIn"];
+export type FollowUpEditIn = Schemas["FollowUpEditIn"];
+export type FollowUpStepEditIn = Schemas["StepEditIn"];
+export type FollowUpWaitIn = Schemas["WaitEditIn"];
+export type FollowUpStartOut = Schemas["FollowUpStartOut"];
+export type FollowUpRunOut = Schemas["FollowUpRunOut"];
+export type FollowUpRunsOut = Schemas["FollowUpRunsOut"];
+export type FollowUpResultsOut = Schemas["FollowUpResultsOut"];
+export type FollowUpProblem = Schemas["ProblemOut"];
+export type FollowUpSettings = Schemas["Settings"];
 
-export type FollowUpStepKind =
-  | "call"
-  | "decide"
-  | "wait"
-  | "whatsapp"
-  | "assign"
-  | "set_status"
-  | "tell_team"
-  | "action"
-  | "end";
+export type FollowUpStatus = FollowUpOut["status"];
+export type FollowUpTrigger = FollowUpOut["trigger"];
+/** One step as the server sends it back, with its plain-words `summary`. */
+export type FollowUpStep = FollowUpOut["steps"][number];
+export type FollowUpStepKind = FollowUpStep["kind"];
+export type FollowUpStarterNeed = FollowUpStarterOut["needs"][number];
+export type FollowUpRunStatus = FollowUpRunOut["status"];
 
-/**
- * One step. `summary` is the server's plain line. Where it goes next: `next` for a
- * single-exit step, `exits` for a step with named exits (ASSUMED: `{answered,
- * not_reached}`, `{sent, not_sent}`, `{done, failed}`), and `on` + `other` for `decide`.
- */
-export interface FollowUpStep {
-  id: string;
-  kind: FollowUpStepKind;
-  summary: string;
-  next?: string | null;
-  exits?: Record<string, string | null>;
-  on?: Record<string, string | null>;
-  other?: string | null;
-  agent_id?: string;
-  wait_minutes?: number;
-  retries?: number;
-  retry_minutes?: number;
-  minutes?: number;
-  hours?: number;
-  days?: number;
-  until_field?: string;
-  offset_days?: number;
-  at?: string;
-  template_id?: string;
-  values?: Record<string, unknown>;
-  user_id?: string;
-  status?: string;
-  contact_id?: string | null;
-  why?: string;
-  action_id?: string;
-  goal?: boolean;
-}
+/** More than this many leads at once is refused (`follow_up_start_too_many`); Pip starts
+ *  a larger set as a plan. */
+export const FOLLOW_UP_START_MAX = 200;
 
-export interface FollowUpSettings {
-  goal?: string | null;
-  stop_on_reply?: boolean;
-  stop_on_won_lost?: boolean;
-  again?: "never" | "after_last" | "after_30_days";
-  max_days?: number;
-  starts_per_hour?: number | null;
-}
-
-export interface FollowUpProblem {
-  step_id: string | null;
-  code: string;
-  message: string;
-}
-
-export interface FollowUpCounts {
-  running: number;
-  waiting: number;
-  done_30d: number;
-  goal_30d: number;
-}
-
-export interface FollowUpOut {
-  id: string;
-  name: string;
-  status: FollowUpStatus;
-  starter: string | null;
-  trigger: FollowUpTrigger;
-  settings: FollowUpSettings;
-  steps: FollowUpStep[];
-  has_unpublished_changes: boolean;
-  live_version: { number: number; published_at: string } | null;
-  counts: FollowUpCounts;
-  problems: FollowUpProblem[];
-  updated_at: string;
-}
-
-/** ASSUMED: the contract names the type, not its fields; a row needs these. */
-export interface FollowUpSummaryOut {
-  id: string;
-  name: string;
-  status: FollowUpStatus;
-  starter: string | null;
-  trigger: FollowUpTrigger;
-  has_unpublished_changes: boolean;
-  counts: FollowUpCounts;
-  updated_at: string;
-}
-
-export interface FollowUpListOut {
-  items: FollowUpSummaryOut[];
-}
-
-/** ASSUMED: one ready-made Follow-up, filled in for this account. */
-export interface FollowUpStarterOut {
-  key: string;
-  name: string;
-  trigger: FollowUpTrigger;
-  steps: FollowUpStep[];
-  settings: FollowUpSettings;
-}
-
-export interface FollowUpStarterListOut {
-  items: FollowUpStarterOut[];
-}
-
-export interface FollowUpCreateIn {
-  name: string;
-  trigger: FollowUpTrigger;
-  steps: FollowUpStep[];
-  settings?: FollowUpSettings;
-  starter?: string | null;
-}
-
-/** ASSUMED: `wait` carries one unit, as a `wait` step does; on a `call` step it is the
- *  wait before the first try. */
-export interface FollowUpWaitIn {
-  minutes?: number;
-  hours?: number;
-  days?: number;
-}
-
-export interface FollowUpStepEditIn {
-  step_id: string;
-  wait?: FollowUpWaitIn;
-  template_id?: string;
-  values?: Record<string, unknown>;
-  agent_id?: string;
-  remove?: boolean;
-}
-
-export interface FollowUpEditIn {
-  name?: string;
-  step_edits?: FollowUpStepEditIn[];
-  settings?: FollowUpSettings;
-}
-
-export interface FollowUpStartOut {
-  started: number;
-  skipped: number;
-  plan_id?: string | null;
-}
-
-export type FollowUpRunStatus = "running" | "waiting" | "done" | "stopped";
-
-export interface FollowUpRunEventOut {
-  step_id: string;
-  kind: string;
-  result: string;
-  at: string;
-  call_id: string | null;
-}
-
-/** ASSUMED beyond the table's columns: `lead_name` and `last_result` (the row needs them). */
-export interface FollowUpRunOut {
-  id: string;
-  follow_up_id: string;
-  lead_id: string | null;
-  lead_name: string | null;
-  status: FollowUpRunStatus;
-  step_id: string | null;
-  last_result: string | null;
-  started_at: string;
-  ended_at: string | null;
-  end_reason: string | null;
-  goal_reached: boolean;
-  events?: FollowUpRunEventOut[];
-}
-
-export interface FollowUpRunListOut {
-  items: FollowUpRunOut[];
-  next_cursor: string | null;
-}
-
-export interface FollowUpResultsOut {
-  days: number;
-  started: number;
-  finished: number;
-  goal_reached: number;
-  steps: { step_id: string; reached: number; exits: Record<string, number> }[];
-}
 
 // ---- hooks --------------------------------------------------------------------------
 
@@ -274,10 +93,10 @@ export function useFollowUps(session: Session): UseQueryResult<FollowUpListOut> 
 export function useFollowUpStarters(
   session: Session,
   enabled = true,
-): UseQueryResult<FollowUpStarterListOut> {
+): UseQueryResult<FollowUpStartersOut> {
   return useQuery({
     queryKey: followUpKeys.starters(session.orgSlug),
-    queryFn: () => apiRequest<FollowUpStarterListOut>(session, `${PATH}/starters`),
+    queryFn: () => apiRequest<FollowUpStartersOut>(session, `${PATH}/starters`),
     enabled,
   });
 }
@@ -295,7 +114,8 @@ export function useCreateFollowUp(
   const client = useQueryClient();
   return useMutation({
     mutationFn: (body) => apiRequest<FollowUpOut>(session, PATH, { method: "POST", body }),
-    onSuccess: () => refresh(client, session.orgSlug),
+    // Settled: a 409 `follow_up_starter_exists` means the list it was offered from is stale.
+    onSettled: () => refresh(client, session.orgSlug),
   });
 }
 
@@ -385,12 +205,12 @@ export function useFollowUpRuns(session: Session, id: string) {
   return useInfiniteQuery({
     queryKey: followUpKeys.runs(session.orgSlug, id),
     queryFn: ({ pageParam }) =>
-      apiRequest<FollowUpRunListOut>(
+      apiRequest<FollowUpRunsOut>(
         session,
         `${PATH}/${id}/runs${pageParam ? `?cursor=${encodeURIComponent(pageParam)}` : ""}`,
       ),
     initialPageParam: null as string | null,
-    getNextPageParam: (last: FollowUpRunListOut) => last.next_cursor,
+    getNextPageParam: (last: FollowUpRunsOut) => last.next_cursor,
   });
 }
 

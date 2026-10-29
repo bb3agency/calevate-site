@@ -13,8 +13,9 @@ import type {
   FollowUpListOut,
   FollowUpOut,
   FollowUpResultsOut,
-  FollowUpRunListOut,
-  FollowUpStarterListOut,
+  FollowUpRunsOut,
+  FollowUpSettings,
+  FollowUpStartersOut,
   FollowUpStep,
 } from "@/lib/api/followUps";
 import type { WhatsAppTemplate } from "@/lib/api/whatsapp";
@@ -54,15 +55,32 @@ const STEPS: FollowUpStep[] = [
     summary: "Call with Riya, try 3 times, an hour apart",
     agent_id: "agent-1",
     wait_minutes: 0,
+    wait_seconds: null,
     retries: 2,
     retry_minutes: 60,
-    exits: { answered: "s2", not_reached: "s5" },
+    next: { answered: "s2", not_reached: "s5" },
   },
   { id: "s2", kind: "decide", summary: "How did the call go?", on: { interested: "s3", not_interested: null }, other: "s4" },
   { id: "s3", kind: "assign", summary: "Give them to Kiran", user_id: "u2", next: null },
-  { id: "s4", kind: "wait", summary: "Wait 1 day", days: 1, next: null },
-  { id: "s5", kind: "whatsapp", summary: "Send “we tried to reach you”", template_id: "t1", exits: { sent: null, not_sent: null } },
+  { id: "s4", kind: "wait", summary: "Wait 1 day", days: 1, hours: null, minutes: null, until_field: null, at: null, offset_days: 0, next: null },
+  {
+    id: "s5",
+    kind: "whatsapp",
+    summary: "Send “we tried to reach you”",
+    template_id: "t1",
+    values: [{ source: "lead_name" }],
+    next: { sent: null, not_sent: null },
+  },
 ];
+
+const SETTINGS: FollowUpSettings = {
+  again: "never",
+  goal: null,
+  max_days: 14,
+  starts_per_hour: null,
+  stop_on_reply: true,
+  stop_on_won_lost: true,
+};
 
 function followUp(overrides: Partial<FollowUpOut> = {}): FollowUpOut {
   return {
@@ -71,7 +89,7 @@ function followUp(overrides: Partial<FollowUpOut> = {}): FollowUpOut {
     status: "live",
     starter: "qualify_new_leads",
     trigger: { kind: "new_lead", source_ids: null },
-    settings: { max_days: 14 },
+    settings: SETTINGS,
     steps: STEPS,
     has_unpublished_changes: false,
     live_version: { number: 2, published_at: "2026-10-29T05:00:00Z" },
@@ -89,6 +107,7 @@ const LIST: FollowUpListOut = {
       name: "Qualify new leads",
       status: "live",
       starter: "qualify_new_leads",
+      starts_when: "A new lead arrives from any source",
       trigger: { kind: "new_lead", source_ids: null },
       has_unpublished_changes: false,
       counts: { running: 2, waiting: 3, done_30d: 10, goal_30d: 4 },
@@ -99,6 +118,7 @@ const LIST: FollowUpListOut = {
       name: "Win back",
       status: "paused",
       starter: null,
+      starts_when: "You start it for leads",
       trigger: { kind: "manual" },
       has_unpublished_changes: true,
       counts: { running: 0, waiting: 0, done_30d: 1, goal_30d: 0 },
@@ -107,15 +127,37 @@ const LIST: FollowUpListOut = {
   ],
 };
 
-const STARTERS: FollowUpStarterListOut = {
+const STARTERS: FollowUpStartersOut = {
   items: [
-    { key: "qualify_new_leads", name: "Qualify new leads", trigger: { kind: "new_lead", source_ids: null }, steps: STEPS, settings: {} },
+    {
+      key: "qualify_new_leads",
+      name: "Qualify new leads",
+      description: "Call each new lead and pass the interested ones on.",
+      trigger: { kind: "new_lead", source_ids: null },
+      steps: STEPS,
+      settings: SETTINGS,
+      available: true,
+      needs: [],
+    },
     {
       key: "missed_call_callback",
       name: "Call back missed calls",
+      description: "Ring back anyone whose call you missed.",
       trigger: { kind: "call_ended", agent_ids: null, calls: "inbound", outcomes: ["missed"] },
       steps: [STEPS[3]],
-      settings: {},
+      settings: SETTINGS,
+      available: true,
+      needs: [],
+    },
+    {
+      key: "appointment_reminder",
+      name: "Appointment reminder",
+      description: "Message the lead the day before their visit.",
+      trigger: { kind: "lead_date", field: "visit_date", offset_days: -1, at: "10:00" },
+      steps: [STEPS[4]],
+      settings: SETTINGS,
+      available: false,
+      needs: ["whatsapp_template"],
     },
   ],
 };
@@ -179,9 +221,19 @@ describe("the step tree", () => {
 
   it("never hides a step nothing points at, and points back to one already drawn", () => {
     const lines = stepLines([
-      { id: "a", kind: "wait", summary: "Wait", minutes: 5, next: "b" },
-      { id: "b", kind: "end", summary: "End" },
-      { id: "c", kind: "call", summary: "Lonely call", exits: { answered: "b", not_reached: null } },
+      { id: "a", kind: "wait", summary: "Wait", minutes: 5, offset_days: 0, next: "b" },
+      { id: "b", kind: "end", summary: "End", goal: false },
+      {
+        id: "c",
+        kind: "call",
+        summary: "Lonely call",
+        agent_id: null,
+        wait_minutes: 0,
+        retries: 0,
+        retry_minutes: 10,
+        // `not_reached` left out: the server's default, which is where the lead stops.
+        next: { answered: "b" },
+      },
     ]);
     expect(lines.map((line) => `${line.type}:${line.type === "end" ? line.branch : line.step.id}`)).toEqual([
       "step:a",
@@ -211,7 +263,8 @@ describe("the Follow-ups list", () => {
     });
     const table = await screen.findByRole("table", { name: "Your Follow-ups" });
     const first = within(table).getByRole("link", { name: "Qualify new leads" }).closest("tr");
-    expect(first?.textContent).toContain("A new lead arrives");
+    // The server's own line, not one this screen composes.
+    expect(first?.textContent).toContain("A new lead arrives from any source");
     expect(first?.textContent).toContain("On");
     expect(first?.textContent).toContain("5");
     const second = within(table).getByRole("link", { name: "Win back" }).closest("tr");
@@ -276,6 +329,19 @@ describe("the Follow-ups list", () => {
     expect(sent.trigger.kind).toBe("call_ended");
   });
 
+  it("offers a ready-made one the account cannot use yet only as the fix for what it needs", async () => {
+    const { calls } = await renderClientPage(<FollowUpsPage />, {
+      "/v1/me": OWNER,
+      "/v1/follow-ups": LIST,
+      "/v1/follow-ups/starters": STARTERS,
+    });
+    expect(await screen.findByText("Appointment reminder")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Use ready-made: Appointment reminder" })).toBeNull();
+    const fix = screen.getByRole("link", { name: "Connect WhatsApp" });
+    expect(fix.getAttribute("href")).toBe("/c/acme/integrations");
+    expect(calls.some((call) => call.method === "POST")).toBe(false);
+  });
+
   it("shows a role without leads:dispatch no button that would be refused", async () => {
     const { calls } = await renderClientPage(<FollowUpsPage />, {
       "/v1/me": STAFF,
@@ -315,7 +381,7 @@ describe("one Follow-up's steps", () => {
     });
     await waitFor(() => expect(calls.some((call) => call.method === "PATCH")).toBe(true));
     expect(JSON.parse(calls.find((call) => call.method === "PATCH")?.body ?? "{}")).toEqual({
-      step_edits: [{ step_id: "s4", wait: { days: 2 } }],
+      step_edits: [{ step_id: "s4", remove: false, wait: { days: 2 } }],
     });
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
@@ -334,7 +400,7 @@ describe("one Follow-up's steps", () => {
     });
     await waitFor(() => expect(calls.some((call) => call.method === "PATCH")).toBe(true));
     expect(JSON.parse(calls.find((call) => call.method === "PATCH")?.body ?? "{}")).toEqual({
-      step_edits: [{ step_id: "s5", template_id: "t2" }],
+      step_edits: [{ step_id: "s5", remove: false, template_id: "t2" }],
     });
   });
 
@@ -436,15 +502,19 @@ describe("the status controls", () => {
 });
 
 describe("the leads in it", () => {
-  const RUNS: FollowUpRunListOut = {
+  const RUNS: FollowUpRunsOut = {
     items: [
       {
         id: "r1",
-        follow_up_id: ID,
         lead_id: "lead-1",
         lead_name: "Anil Kumar",
         status: "waiting",
-        step_id: "s4",
+        // A step the published version had and the draft no longer does: the run's own
+        // `step_summary` is the one that still names it.
+        step_id: "s-old",
+        step_summary: "Wait 2 days",
+        attempt: 1,
+        wake_at: "2026-10-31T04:30:00Z",
         last_result: "branch:call_back",
         started_at: "2026-10-29T06:00:00Z",
         ended_at: null,
@@ -453,11 +523,13 @@ describe("the leads in it", () => {
       },
       {
         id: "r2",
-        follow_up_id: ID,
         lead_id: "lead-2",
         lead_name: "Lakshmi",
         status: "done",
         step_id: "s3",
+        step_summary: "Give them to Kiran",
+        attempt: 1,
+        wake_at: null,
         last_result: "answered",
         started_at: "2026-10-28T06:00:00Z",
         ended_at: "2026-10-28T07:00:00Z",
@@ -477,7 +549,8 @@ describe("the leads in it", () => {
     const table = await screen.findByRole("table", { name: "Leads in this Follow-up" });
     const anil = within(table).getByRole("link", { name: "Anil Kumar" });
     expect(anil.getAttribute("href")).toBe("/c/acme/leads/lead-1");
-    expect(anil.closest("tr")?.textContent).toContain("Wait 1 day");
+    expect(anil.closest("tr")?.textContent).toContain("Wait 2 days");
+    expect(anil.closest("tr")?.textContent).toContain("Next:");
     expect(anil.closest("tr")?.textContent).toContain("Went: Call back");
     expect(within(table).getByRole("link", { name: "Lakshmi" }).closest("tr")?.textContent).toContain("Reached goal");
     // Only a lead still in it can be stopped.
@@ -537,6 +610,7 @@ describe("starting a Follow-up for picked leads", () => {
         name: "Payment reminder",
         status: "live",
         starter: null,
+        starts_when: "You start it for leads",
         trigger: { kind: "manual" },
         has_unpublished_changes: false,
         counts: { running: 0, waiting: 0, done_30d: 0, goal_30d: 0 },
@@ -545,7 +619,7 @@ describe("starting a Follow-up for picked leads", () => {
     ],
   };
 
-  function view(selection: BulkSelection, routes: Record<string, unknown>) {
+  function view(selection: BulkSelection, routes: Record<string, unknown>, filteredTotal = 3) {
     return renderClientPage(
       <StartFollowUp
         session={{ orgSlug: "acme" }}
@@ -553,7 +627,7 @@ describe("starting a Follow-up for picked leads", () => {
         href={(path) => path}
         selection={selection}
         lens={{ status: "hot" }}
-        filteredTotal={3}
+        filteredTotal={filteredTotal}
         canStart
         startReason={null}
         renderPlan={(planId) => <p>Plan {planId}</p>}
@@ -598,5 +672,42 @@ describe("starting a Follow-up for picked leads", () => {
       lens: { status: "hot" },
       expected_count: 3,
     });
+  });
+
+  it("answers the server's too-many refusal in plain words, with Pip's offer prefilled", async () => {
+    const asked: AssistantRequest[] = [];
+    function Listener() {
+      useAssistantRequests((request) => asked.push(request));
+      return null;
+    }
+    render(<Listener />);
+    await view(
+      { ids: [], wholeQuery: true },
+      {
+        [`POST /v1/follow-ups/${MANUAL_ID}/start`]: problem(422, {
+          type: "https://calevate.tech/problems/follow_up_start_too_many",
+          title: "Too many leads at once",
+          detail: "Start at most 200 leads at a time, or ask Pip.",
+        }),
+      },
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Start for 3 leads" }));
+    await act(async () => {
+      fireEvent.click(await screen.findByRole("button", { name: "Start for 3" }));
+    });
+    expect(await screen.findByText("Up to 200 leads start here at once.")).toBeTruthy();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.queryByRole("button", { name: "Start for 3 leads" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Ask Pip to start them/ }));
+    expect(asked).toHaveLength(1);
+    expect(asked[0].prompt).toContain("Payment reminder");
+  });
+
+  it("does not offer a start it knows will be refused for more than 200 leads", async () => {
+    const { calls } = await view({ ids: [], wholeQuery: true }, {}, 250);
+    expect(await screen.findByText("Up to 200 leads start here at once.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Start for 250/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /Ask Pip to start them/ })).toBeTruthy();
+    expect(calls.some((call) => call.method === "POST")).toBe(false);
   });
 });

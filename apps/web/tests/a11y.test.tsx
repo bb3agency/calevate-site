@@ -8,6 +8,12 @@ import { contactsFixture, dltRegistrationRoute, progressFixture, resultsFixture 
 import { ADMIN_FORWARDING, CODES, READY_TO_FORWARD, SETTLED_TEST, WITH_LINE } from "./fixtures/forwarding";
 
 import type { AiQuota } from "@/lib/api/aiQuota";
+import type {
+  FollowUpListOut,
+  FollowUpOut,
+  FollowUpSettings,
+  FollowUpStartersOut,
+} from "@/lib/api/followUps";
 import type { Margin } from "@/lib/api/admin";
 import type { HostedVoice } from "@/lib/api/opsHostedVoices";
 import type { CallDetail } from "@/lib/api/client";
@@ -1152,6 +1158,13 @@ const AI_QUOTA_AT_CEILING = {
   extra_available: true,
   extra_unavailable_reason: null,
 } satisfies AiQuota;
+
+const FOLLOW_UP_SETTINGS: FollowUpSettings = {
+  again: "never",
+  max_days: 14,
+  stop_on_reply: true,
+  stop_on_won_lost: true,
+};
 
 const ANALYTICS_WINDOW = { days: 30, from_date: "2026-09-25", to_date: todayIST(), timezone: "Asia/Kolkata" as const };
 
@@ -3363,10 +3376,16 @@ const CLIENT_SCREENS: Screen[] = [
     element: () => <FollowUpsPage />,
     routes: {
       "/v1/me": ME,
-      "/v1/follow-ups": { items: [{ id: "fu-1", name: "Qualify new leads", status: "live", starter: "qualify_new_leads", trigger: { kind: "new_lead", source_ids: null }, has_unpublished_changes: true, counts: { running: 2, waiting: 1, done_30d: 9, goal_30d: 4 }, updated_at: "2026-10-30T05:00:00Z" }] },
+      "/v1/follow-ups": {
+        items: [{ id: "fu-1", name: "Qualify new leads", status: "live", starter: "qualify_new_leads", starts_when: "A new lead arrives, from any source", trigger: { kind: "new_lead", source_ids: null }, has_unpublished_changes: true, counts: { running: 2, waiting: 1, done_30d: 9, goal_30d: 4 }, updated_at: "2026-10-30T05:00:00Z" }],
+      } satisfies FollowUpListOut,
+      // One the account can make and one it cannot yet: both card shapes are scanned.
       "/v1/follow-ups/starters": {
-        items: [{ key: "win_back", name: "Win back", trigger: { kind: "manual" }, steps: [], settings: {} }],
-      },
+        items: [
+          { key: "missed_call_callback", name: "Call back missed calls", description: "Ring back anyone whose call you missed.", trigger: { kind: "call_ended", calls: "inbound", outcomes: ["missed"] }, steps: [], settings: FOLLOW_UP_SETTINGS, available: true, needs: [] },
+          { key: "win_back", name: "Win back", description: "Call old enquiries that went quiet.", trigger: { kind: "manual" }, steps: [], settings: FOLLOW_UP_SETTINGS, available: false, needs: ["outbound_agent", "whatsapp_template"] },
+        ],
+      } satisfies FollowUpStartersOut,
     },
   },
   {
@@ -3382,19 +3401,19 @@ const CLIENT_SCREENS: Screen[] = [
         status: "live",
         starter: "qualify_new_leads",
         trigger: { kind: "new_lead", source_ids: null },
-        settings: {},
+        settings: FOLLOW_UP_SETTINGS,
         steps: [
-          { id: "s1", kind: "call", summary: "Call with Front desk, try 3 times, an hour apart", agent_id: "agent-1", wait_minutes: 0, exits: { answered: "s2", not_reached: "s4" } },
+          { id: "s1", kind: "call", summary: "Call with Front desk, try 3 times, an hour apart", agent_id: "agent-1", wait_minutes: 0, retries: 2, retry_minutes: 60, next: { answered: "s2", not_reached: "s4" } },
           { id: "s2", kind: "decide", summary: "How did the call go?", on: { interested: "s3", not_interested: null }, other: null },
           { id: "s3", kind: "assign", summary: "Give them to Kiran", user_id: "u2", next: null },
-          { id: "s4", kind: "whatsapp", summary: "Send “we tried to reach you”", template_id: "t1", exits: { sent: null, not_sent: null } },
+          { id: "s4", kind: "whatsapp", summary: "Send “we tried to reach you”", template_id: "t1", next: { sent: null, not_sent: null } },
         ],
         has_unpublished_changes: true,
         live_version: { number: 1, published_at: "2026-10-29T05:00:00Z" },
         counts: { running: 2, waiting: 1, done_30d: 9, goal_30d: 4 },
         problems: [{ step_id: "s4", code: "template_not_approved", message: "This message is not approved yet." }],
         updated_at: "2026-10-30T05:00:00Z",
-      },
+      } satisfies FollowUpOut,
     },
   },
   {

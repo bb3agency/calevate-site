@@ -1,6 +1,7 @@
 "use client";
 
 import { Lock, X } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { DatePicker } from "@/components/arc/calendar";
@@ -22,6 +23,7 @@ import {
 } from "@/components/ui";
 import type { Agent } from "@/lib/api/agents";
 import type { LeadCalling, LeadCallingInput } from "@/lib/api/leadCalling";
+import { useClientRealm } from "@/lib/api/session";
 
 type Plan = LeadCallingInput;
 type Weekday = NonNullable<Plan["days"]>[number];
@@ -142,6 +144,7 @@ export function CallingPlan({
   savedAgents: number | null;
   onSave: (next: Plan) => void;
 }) {
+  const { session, href } = useClientRealm();
   const [draft, setDraft] = useState<Plan | null>(null);
   const [holiday, setHoliday] = useState<string | null>(null);
 
@@ -197,8 +200,16 @@ export function CallingPlan({
         )}
 
         {newLeads && newLeads.status !== "live" && (
-          <NoticeBox tone="warn" title={`${newLeads.name} is off`}>
-            New leads are saved but not called. Turn it back on in Follow-ups.
+          <NoticeBox
+            tone="warn"
+            title={`${newLeads.name} is off`}
+            action={
+              <Link href={href(`/c/${session.orgSlug}/follow-ups/${newLeads.id}`)} className={SECONDARY_BUTTON_SM}>
+                Turn it back on
+              </Link>
+            }
+          >
+            New leads are saved but not called.
           </NoticeBox>
         )}
 
