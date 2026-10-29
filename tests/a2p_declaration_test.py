@@ -216,6 +216,37 @@ async def test_a_future_dated_declaration_counts_from_its_date(
     assert decision.reason is not None and "2026-11-20" in decision.reason
 
 
+async def test_a_future_dated_addition_keeps_the_numbers_already_declared_calling(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Adding a number declared next week must not stop the number declared last month."""
+    _today(monkeypatch, ENFORCED)
+    tenant_id, agent_id = await _tenant("a2p-addition")
+    numbers = await _agent_numbers(tenant_id, agent_id)
+    await _declare(tenant_id, numbers)
+    await _declare(tenant_id, [*numbers, "+919848022338"], notified_on=date(2026, 11, 20))
+    decision = await _gate(tenant_id, agent_id)
+    assert decision.allowed is True, decision.rule
+
+
+async def test_a_future_dated_row_carries_nothing_past_a_withdrawal_or_a_dropped_number(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _today(monkeypatch, ENFORCED)
+    tenant_id, agent_id = await _tenant("a2p-carry-stops")
+    numbers = await _agent_numbers(tenant_id, agent_id)
+    await _declare(tenant_id, numbers)
+    await _declare(tenant_id, [], withdraw=True)
+    await _declare(tenant_id, numbers, notified_on=date(2026, 11, 20))
+    assert (await _gate(tenant_id, agent_id)).rule == A2P_DECLARATION_NOT_YET_EFFECTIVE_RULE
+
+    tenant_id, agent_id = await _tenant("a2p-carry-dropped")
+    numbers = await _agent_numbers(tenant_id, agent_id)
+    await _declare(tenant_id, numbers)
+    await _declare(tenant_id, ["+919848022338"], notified_on=date(2026, 11, 20))
+    assert (await _gate(tenant_id, agent_id)).rule == A2P_DECLARATION_NOT_YET_EFFECTIVE_RULE
+
+
 async def test_a_withdrawal_is_a_new_row_and_stops_the_calls(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
