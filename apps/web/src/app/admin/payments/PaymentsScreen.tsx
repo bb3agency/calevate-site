@@ -306,7 +306,10 @@ function DisputeRow({ dispute, canAct }: { dispute: Dispute; canAct: boolean }) 
   const [kind, setKind] = useState(EVIDENCE_KINDS[0]?.value ?? "billing_proof");
   const [files, setFiles] = useState<File[]>([]);
   const [tooMany, setTooMany] = useState<string | null>(null);
-  const open = dispute.status === "open" || dispute.status === "under_review";
+  // The bank is deciding while a dispute is under review; it takes no answer then unless it asks
+  // for more evidence.
+  const open =
+    dispute.status === "open" || (dispute.status === "under_review" && dispute.action_required);
   const formId = `dispute-${dispute.dispute_id}`;
   const full = files.length >= EVIDENCE_MAX_FILES;
 

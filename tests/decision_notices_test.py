@@ -85,7 +85,7 @@ async def test_a_won_dispute_tells_the_owners_their_credit_is_back(
             ),
         )
     mailbox = Mailbox()
-    monkeypatch.setattr(razorpay_jobs, "get_transport", lambda: mailbox)
+    monkeypatch.setattr(razorpay_jobs, "get_transport", lambda _purpose=None: mailbox)
     payload = {"tenant_id": str(tenant_id), "kind": "dispute_won", "amount_inr": "400.00"}
     assert await razorpay_jobs.send_payment_notice({}, payload) == "sent"
 
@@ -186,7 +186,7 @@ async def test_a_rejection_emails_the_reason_and_the_screen_to_fix_it(
     assert await _decision_notices(tenant_id) == ["reject"]
 
     mailbox = Mailbox()
-    monkeypatch.setattr(kyc_notices, "get_transport", lambda: mailbox)
+    monkeypatch.setattr(kyc_notices, "get_transport", lambda _purpose=None: mailbox)
     payload = {"tenant_id": str(tenant_id), "decision": "reject"}
     assert await kyc_notices.notify_kyc_decision({}, payload) == "sent"
     assert len(mailbox.sent) == 2

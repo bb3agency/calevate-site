@@ -47,6 +47,7 @@ Sender purposes (Part 2): **SEC** security · **NOT** notifications · **BIL** b
 | N7 | Line notice (healer) | an agent's line is struggling, down, back, or a platform outage (D-701) | owners' addresses | the notice headline, e.g. "{agent} is not taking calls properly", "Calls are affected for everyone right now", "{agent} is answering calls again" | `workers/healer.py`, `healer/notices.py` |
 | N8 | Number held / released / calls stopped | a number goes on hold, is about to be released, or released | billing address + active owners | Calls to your phone number have stopped · Your phone number will be given up soon · We have given up your phone number(s) | `workers/number_holds.py` |
 | N9 | Weekly knowledge digest | weekly, per agent with enough calls | billing address | What your callers asked this week | `workers/kb_aggregation.py` |
+| N10 | Business verification approved / rejected | an operator decides a KYC review (D-932) | owners | Verification outcome, with the reason and a button to fix it when rejected | `workers/kyc_notices.py` |
 
 ### Billing (`BIL`)
 
@@ -59,6 +60,7 @@ Sender purposes (Part 2): **SEC** security · **NOT** notifications · **BIL** b
 | B5 | Mandate approved / ended | the card or UPI mandate is confirmed or ends | billing address | Automatic top-ups are approved · Your automatic top-up approval has ended | `workers/razorpay_jobs.py` |
 | B6 | Complimentary credit / made a paid account | a super admin grants credit or converts a trial | billing address | ₹X of credit added to your Calevate account · Your Calevate account is now a paid account | `workers/comp_notices.py` |
 | B7 | Calling rates changing | the rate card changes for this client | billing address | Your Calevate calling rates are changing | `workers/rate_card_notice.py` |
+| B8 | Dispute decided (won / lost / closed) | the first won, lost or closed outcome of a payment dispute (D-932) | billing address and owners | Dispute outcome wording, kinds `dispute_won` / `dispute_lost` / `dispute_closed` | `workers/razorpay_jobs.py` |
 
 ### Call, lead and team alerts (`ALR`)
 

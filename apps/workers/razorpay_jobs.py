@@ -317,7 +317,7 @@ async def _send_dispute_notice(
     message = from_text(
         subject=subject, preheader=subject, heading=subject, text=body, cta="See your credit"
     )
-    transport = get_transport()
+    transport = get_transport(EmailPurpose.BILLING)
     delivered = 0
     for address in recipients:
         delivered += bool(

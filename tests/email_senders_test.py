@@ -41,6 +41,7 @@ SENDERS: dict[str, frozenset[EmailPurpose]] = {
     "apps/workers/number_holds.py": frozenset({EmailPurpose.NOTIFICATIONS}),
     "apps/workers/rate_card_notice.py": frozenset({EmailPurpose.BILLING}),
     "apps/workers/razorpay_jobs.py": frozenset({EmailPurpose.BILLING}),
+    "apps/workers/kyc_notices.py": frozenset({EmailPurpose.NOTIFICATIONS}),
     "apps/workers/team_alerts.py": frozenset({EmailPurpose.ALERTS, EmailPurpose.SECURITY}),
     "apps/workers/trial_notices.py": frozenset({EmailPurpose.NOTIFICATIONS}),
     "apps/workers/wallet_alerts.py": frozenset({EmailPurpose.BILLING}),

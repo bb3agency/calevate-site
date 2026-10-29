@@ -129,6 +129,12 @@ DYNAMIC_ALERT_SITES: dict[str, tuple[tuple[str, ...], str]] = {
         "proposals, view-as grants). The factory is the right shape and the four literals "
         "are re-verified below, so a rename breaks the build rather than the index.",
     ),
+    "apps/api/core/envelope.py": (
+        ("platform_secret_unwrappable", "platform_secret_corrupt"),
+        "`_secret_refusal` is one factory for the two unseal refusals: it logs the "
+        "operator's fix and returns the client-safe body, so the code is its argument; "
+        "both literals are passed at its call sites and re-verified below",
+    ),
     "apps/api/billing/ai_quota.py": (
         ("ai_platform_brake_tripped", "ai_platform_brake_near"),
         "the two platform-AI headroom lines are walked as a tuple of "

@@ -27,7 +27,7 @@ from apps.api.compliance.kyc import read_kyc
 from apps.api.compliance.kyc_review import KYC_DECISION_NOTICE_JOB, waiting_reviews
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
-from apps.api.core.transport import get_transport
+from apps.api.core.transport import EmailPurpose, get_transport
 from apps.api.db.session import admin_session, tenant_session
 from apps.workers.account_closure import account_recipients
 from apps.workers.auth_email import CONSOLE_BASE
@@ -98,7 +98,7 @@ async def notify_kyc_decision(ctx: dict[str, Any], payload: dict[str, Any]) -> s
         text=body,
         cta="Open Verify your business" if decision == "approve" else "Fix and send again",
     )
-    transport = get_transport()
+    transport = get_transport(EmailPurpose.NOTIFICATIONS)
     delivered = 0
     for address in recipients:
         delivered += bool(
