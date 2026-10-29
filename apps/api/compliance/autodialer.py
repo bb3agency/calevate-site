@@ -215,6 +215,36 @@ async def outbound_in_use(session: AsyncSession) -> bool:
     return row.first() is not None
 
 
+#: How far back `_still_declared` reads. A tenant re-declares a handful of times a year.
+_HISTORY_LIMIT: Final = 50
+
+
+async def _still_declared(
+    session: AsyncSession, *, tenant_id: UUID, latest: Declaration, today: date | None
+) -> frozenset[str]:
+    """The numbers of a future-dated latest declaration that an earlier one already covers.
+
+    A client adding a number it will declare next week records the whole list again with
+    next week's date; the numbers it declared last month stay declared meanwhile. Only
+    numbers BOTH rows list carry over (the newer list is the client's current statement),
+    and nothing carries past a withdrawal.
+    """
+    rows = await session.execute(
+        text(
+            "SELECT state, notified_on, declared_clis, attestation_sha256 "
+            "FROM autodialer_notices WHERE tenant_id = :tid "
+            "ORDER BY created_at DESC, id DESC LIMIT :limit"
+        ),
+        {"tid": tenant_id, "limit": _HISTORY_LIMIT},
+    )
+    for state, notified_on, clis, attested in list(rows)[1:]:
+        if str(state) == "withdrawn":
+            return frozenset()
+        if attested is not None and notified_on <= (today or ist_today()):
+            return frozenset(clis or ()) & frozenset(latest.declared_clis)
+    return frozenset()
+
+
 async def a2p_declaration_blocker(
     session: AsyncSession,
     *,
@@ -234,6 +264,11 @@ async def a2p_declaration_blocker(
         return (A2P_DECLARATION_MISSING_RULE, A2P_DECLARATION_MISSING_REASON)
     if not declaration.is_effective(today=today):
         assert declaration.notified_on is not None
+        carried = await _still_declared(
+            session, tenant_id=tenant_id, latest=declaration, today=today
+        )
+        if caller_ids and all(cli in carried for cli in caller_ids):
+            return None
         return (
             A2P_DECLARATION_NOT_YET_EFFECTIVE_RULE,
             a2p_declaration_not_yet_effective_reason(declaration.notified_on),
