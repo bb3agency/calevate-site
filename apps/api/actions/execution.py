@@ -88,7 +88,8 @@ log = get_logger(__name__)
 # equal to `apps.workers.action_audit.ACTION_AUDIT_JOB` by a test.
 ACTION_AUDIT_JOB = "record_action_invocation"
 
-#: One external request. Two fit inside the in-call budget with room for a token refresh.
+#: One external request. Inside a call the outer `in_call.IN_CALL_BUDGET_S` (6 s) still caps a
+#: request plus a token refresh, so a second slow request is cut short there.
 REQUEST_TIMEOUT_S: Final = 4.0
 #: The most of an external response we read before parsing it.
 MAX_RESPONSE_BYTES: Final = 64 * 1024

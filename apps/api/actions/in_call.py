@@ -51,9 +51,10 @@ from apps.api.team_alerts import service as team_alerts
 
 log = get_logger(__name__)
 
-#: The whole in-call action, under the voice platform's ten seconds with room for our own
-#: authentication and the vendor's round trip to us.
-IN_CALL_BUDGET_S: Final = 7.0
+#: The whole in-call action. With the 2 s live-call read before it
+#: (`worker/engine_actions.LIVE_CALL_BUDGET_S`) that is 8 s of the voice platform's ten, leaving
+#: room for our own authentication and the vendor's round trip to us.
+IN_CALL_BUDGET_S: Final = 6.0
 #: A caller lookup runs under the agent's opening line; past this the agent carries on
 #: without a name rather than leave the caller waiting after the greeting.
 LOOKUP_BUDGET_S: Final = 4.0

@@ -310,7 +310,7 @@ def named_call_id(header: str | None, body_call_id: str | None) -> str | None:
 #: How long the read of the live call may take. The platform gives an action ten seconds
 #: ("Answer within 10 seconds", thinnest-findings/mirror/snapshots/2026-10-28/pages/mcp/
 #: own-database.md:48) and this read comes BEFORE the work: a client action then has
-#: `actions/in_call.IN_CALL_BUDGET_S` (7 s) and a repeat waits `in_call_once.WAIT_S` (6 s).
+#: `actions/in_call.IN_CALL_BUDGET_S` (6 s) and a repeat waits `in_call_once.WAIT_S` (6 s).
 #: The vendor client's own bound is `REQUEST_TIMEOUT_S` (10 s) plus a 429 retry ladder, so
 #: without this a slow vendor alone spends the whole ten seconds and the caller hears the
 #: platform's failure instead of our honest `unavailable`.
