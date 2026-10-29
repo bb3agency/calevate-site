@@ -516,18 +516,14 @@ async def test_a_lead_source_is_paused_resumed_and_repointed_only_on_a_click() -
 async def test_the_calling_rules_merge_with_the_plan_and_held_leads_are_decided() -> None:
     tenant_id, _slug, token = await _make_tenant()
     rules = {
-        "calling_agent_id": None,
-        "wait_seconds": 120,
         "hours_start": "10:00",
         "hours_end": None,
         "days": None,
         "after_hours": "hold",
-        "retry_attempts": None,
-        "retry_interval_minutes": None,
         "detect_machines": None,
     }
     planned = await _plan(tenant_id, token, "lead_calling_rules", rules)
-    assert planned.args["wait_seconds"] == 120
+    assert "wait_seconds" not in planned.args
     assert planned.args["hours_start"] == "10:00"
     assert planned.args["hours_end"] == "21:00"
     proposal = await _propose(tenant_id, token, "lead_calling_rules", rules)
@@ -542,7 +538,7 @@ async def test_the_calling_rules_merge_with_the_plan_and_held_leads_are_decided(
             agent_id=await _agent_of(tenant_id),
             source="website_form",
         )
-    assert (plan.wait_seconds, plan.after_hours) == (120, "hold")
+    assert (plan.hours_start.hour, plan.after_hours) == (10, "hold")
     status = await _read("integrations_status", tenant_id)
     assert f"[hold_id {hold_id}]" in status
     await _do(tenant_id, token, "held_lead_decide", {"hold_id": str(hold_id), "decision": "drop"})

@@ -1170,8 +1170,27 @@ class TestRedactionExposure:
             # D-744: the platform's spoken-style table under review, platform words.
             "EntryValue.text",
             "TurnBody.text",
+            # D-940: a Follow-up step's plain line, composed from the step itself, and the
+            # fixed text the business typed for one blank of a WhatsApp step.
+            *(
+                f"{kind}StepOut.summary"
+                for kind in (
+                    "Call",
+                    "Decide",
+                    "Wait",
+                    "WhatsApp",
+                    "Assign",
+                    "SetStatus",
+                    "TellTeam",
+                    "Action",
+                    "End",
+                )
+            ),
+            "TemplateValue.text",
         }
         assert set(check_redaction_exposure.ACKNOWLEDGED_PASSTHROUGH) == {
+            # D-940: a decide step's branches, short validated identifiers on both sides.
+            "DecideStepOut.on",
             # D-591: the `**ids` on an alert episode, redacted at the write by the same
             # function the alert email body uses.
             "AlertEpisode.ids",

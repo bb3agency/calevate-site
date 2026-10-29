@@ -207,7 +207,7 @@ async def test_a_user_from_another_tenant_is_refused_in_problem_json() -> None:
     isolation, because the FK is a constraint on `users` and `users` has no RLS. This
     one exists, is a legitimate member of a different organization, and satisfies the FK
     perfectly; the only thing standing between it and `leads.assigned_to` is the RLS on
-    `memberships` that `crm.service._assert_assignable` reads through.
+    `memberships` that `crm.service.assert_assignable` reads through.
     """
     tenant_id, slug, token = await _make_tenant()
     _other_tenant, _other_slug, _other_token = await _make_tenant()

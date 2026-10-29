@@ -155,10 +155,17 @@ async def test_a_saved_plan_is_the_tenants_own() -> None:
         stored, changed = await lead_policy.save_plan(
             session,
             tenant_id=tenant_id,
-            plan=LeadCallPlan(calling_agent_id=agent_id, detect_machines=True, retry_attempts=2),
+            plan=LeadCallPlan(
+                calling_agent_id=agent_id,
+                hours_start=time(10),
+                detect_machines=True,
+                retry_attempts=2,
+            ),
             user_id=None,
         )
-    assert changed and stored.retry_attempts == 2 and stored.calling_agent_id == agent_id
+    assert changed and stored.hours_start == time(10)
+    # The agent, wait and retries are "Call new leads"' (D-940) and no longer written here.
+    assert stored.retry_attempts == 0 and stored.calling_agent_id is None
     async with tenant_session(tenant_id) as session:
         assert await lead_policy.machine_detection_on(session)
     async with tenant_session(other) as session:
@@ -174,14 +181,17 @@ async def test_an_answer_only_agent_cannot_call_new_leads() -> None:
         await session.execute(
             text("UPDATE agents SET direction = 'inbound' WHERE id = :a"), {"a": agent_id}
         )
-        with pytest.raises(ProblemError) as caught:
-            await lead_policy.save_plan(
-                session,
-                tenant_id=tenant_id,
-                plan=LeadCallPlan(calling_agent_id=agent_id),
-                user_id=None,
-            )
-    assert caught.value.code == "lead_agent_cannot_call"
+        # The calling agent is "Call new leads"' call step now (D-940); publishing it with an
+        # agent that only answers is refused there.
+        from apps.api.follow_ups import definition, service
+
+        problems = await service.problems_of(
+            session,
+            definition.NewLeadTrigger(kind="new_lead"),
+            definition.load_steps([{"id": "s1", "kind": "call", "agent_id": str(agent_id)}]),
+            definition.Settings(),
+        )
+    assert [p.code for p in problems] == ["agent_cannot_call"]
 
 
 async def test_a_held_lead_is_held_once_and_released_as_a_call_back() -> None:

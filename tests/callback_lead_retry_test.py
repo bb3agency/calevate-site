@@ -17,7 +17,6 @@ from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.api.engine import reset_engine_cache
 from apps.api.ingest import lead_policy
-from apps.api.ingest.lead_policy import LeadCallPlan
 from apps.workers.callbacks import (
     ON_A_CALL_REASON,
     RETRY_NOT_NEEDED_REASON,
@@ -25,6 +24,7 @@ from apps.workers.callbacks import (
 )
 from sqlalchemy import text
 from tests.callback_dispatch_test import _dialable_tenant
+from tests.follow_ups_support import set_new_lead_call
 
 pytestmark = pytest.mark.anyio
 
@@ -147,14 +147,9 @@ async def test_a_retry_waits_while_a_call_with_them_is_still_on_the_line() -> No
 
 
 async def test_a_retry_still_wanted_dials_and_books_the_next_try_the_plan_allows() -> None:
+    """A retry booked before D-940 retries under "Call new leads"' call step."""
     tenant_id, agent_id = await _dialable_tenant()
-    async with tenant_session(tenant_id) as session:
-        await lead_policy.save_plan(
-            session,
-            tenant_id=tenant_id,
-            plan=LeadCallPlan(retry_attempts=2, retry_interval_minutes=30),
-            user_id=None,
-        )
+    await set_new_lead_call(tenant_id, retries=2, retry_minutes=30)
     phone = _phone()
     lead_id = await _lead(tenant_id, agent_id, phone)
     callback_id = await _first_retry(tenant_id, agent_id, lead_id, phone)
