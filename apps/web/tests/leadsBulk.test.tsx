@@ -168,6 +168,7 @@ function routes(over: Record<string, unknown> = {}) {
     "/v1/leads/facets": FACETS,
     "/v1/leads/views": { items: [] },
     "/v1/campaigns": [],
+    "/v1/follow-ups": { items: [] },
     "/v1/lead-fields": LEAD_FIELDS_CORE_ONLY,
     ...over,
   };

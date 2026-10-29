@@ -198,6 +198,28 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         aliases=("contacts", "customers", "enquiries", "crm", "prospects"),
     ),
     Screen(
+        route="/c/{slug}/follow-ups",
+        name="Follow-ups",
+        group=None,
+        summary=(
+            "The steps each lead goes through on its own after it arrives or after a call: "
+            "calls, waits, WhatsApp messages, handing to a teammate. Turn one on, pause it, "
+            "make small changes, start it for picked leads, and see where each lead is."
+        ),
+        aliases=(
+            "follow-up",
+            "follow-ups",
+            "followup",
+            "workflow",
+            "automation",
+            "sequence",
+            "drip",
+            "nurture",
+            "lead journey",
+        ),
+        permission="leads:read",
+    ),
+    Screen(
         route="/c/{slug}/callbacks",
         name="Call-backs",
         group=None,

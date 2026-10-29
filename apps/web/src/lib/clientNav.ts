@@ -51,6 +51,7 @@ import {
   UserCog,
   Users,
   Wallet,
+  Workflow,
 } from "lucide-react";
 
 import { PipIcon } from "@/components/illustration/pip";
@@ -95,6 +96,9 @@ export function clientNavigation(slug: string): NavGroup[] {
         { href: `/c/${slug}/agents`, label: "Agents", icon: Bot },
         { href: `/c/${slug}/calls`, label: "Call logs", icon: PhoneCall },
         { href: `/c/${slug}/leads`, label: "Leads", icon: Users },
+        // D-940: the steps each lead goes through after it arrives or after a call. Under
+        // Leads because it acts on leads and is checked by whoever watches them.
+        { href: `/c/${slug}/follow-ups`, label: "Follow-ups", icon: Workflow },
         // Beside Leads rather than under "Compliance & data": a promised call-back is
         // work waiting to happen, checked daily by whoever watches the leads, not a
         // record consulted when something goes wrong.
