@@ -76,11 +76,11 @@ Writes arriving during the restore are writes you will lose or have to reconcile
 # `workers` and no `voice-runtime` — so the command fails with "no such service" at the
 # top of a restore, which is the worst possible moment to debug a command.
 cd /var/www/calevate
-docker compose -p calevate -f compose.prod.yml stop api workers voice-runtime
+docker compose -p calevate -f compose.prod.yml stop api workers workers-bulk voice-runtime
 pm2 stop calevate-web
 ```
 
-With api, workers and voice-runtime stopped, ThinnestAI still runs calls but its webhooks to
+With api, both workers and voice-runtime stopped, ThinnestAI still runs calls but its webhooks to
 `hooks.calevate.tech` and its in-call actions to the api reach nothing: a caller asking to
 opt out or book a call-back gets a failed action, and a call that ends now is recorded only
 after the restore, from ThinnestAI's retried delivery or the reconciliation re-drive of
@@ -356,7 +356,7 @@ Then:
 ```sh
 # Point the application at the restored cluster and bring it back.
 cd /var/www/calevate
-docker compose -p calevate -f compose.prod.yml up -d api workers voice-runtime
+docker compose -p calevate -f compose.prod.yml up -d api workers workers-bulk voice-runtime
 # `start` by NAME works because §1 stopped it rather than deleting it, so pm2 still holds
 # the definition. If pm2's list is empty (a host reboot without a prior `pm2 save`):
 #   pm2 start apps/web/ecosystem.config.cjs && pm2 save

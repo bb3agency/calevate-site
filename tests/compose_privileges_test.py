@@ -13,7 +13,7 @@ from pathlib import Path
 import yaml
 
 COMPOSE_PROD = Path(__file__).resolve().parent.parent / "compose.prod.yml"
-APP_SERVICES = ("api", "voice-runtime", "workers", "migrate")
+APP_SERVICES = ("api", "voice-runtime", "workers", "workers-bulk", "migrate")
 
 
 def test_every_app_service_drops_capabilities_and_forbids_escalation() -> None:

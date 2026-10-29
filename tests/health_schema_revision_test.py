@@ -38,8 +38,8 @@ from httpx import ASGITransport, AsyncClient, Response
 UNAPPLIED = "0000deadbeef"
 
 
-async def _no_queue() -> tuple[int, float | None]:
-    return 0, None
+async def _no_queue() -> dict[str, tuple[int, float | None]]:
+    return {"default": (0, None), "bulk": (0, None)}
 
 
 async def _ready() -> Response:

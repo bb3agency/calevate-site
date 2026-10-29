@@ -43,7 +43,7 @@ def _functions(*names: str) -> str:
 
 _PRELUDE = r"""
 set -Eeuo pipefail
-readonly ALL_COMPONENTS=(api voice-runtime workers web nginx)
+readonly ALL_COMPONENTS=(api voice-runtime workers workers-bulk web nginx)
 COMPOSE_PROJECT=calevate
 COMPOSE_FILE=compose.prod.yml
 ROOT=/nonexistent
@@ -156,12 +156,80 @@ def test_a_partial_named_deploy_does_not_advance_the_pointer() -> None:
 
 
 def test_a_named_deploy_covering_every_change_advances_the_pointer() -> None:
-    assert _pointer_after("explicit", "api voice-runtime workers") == "new"
+    assert _pointer_after("explicit", "api voice-runtime workers workers-bulk") == "new"
 
 
 def test_a_changed_or_all_deploy_advances_the_pointer() -> None:
-    assert _pointer_after("changed", "api voice-runtime workers") == "new"
-    assert _pointer_after("all", "api voice-runtime workers web nginx") == "new"
+    assert _pointer_after("changed", "api voice-runtime workers workers-bulk") == "new"
+    assert _pointer_after("all", "api voice-runtime workers workers-bulk web nginx") == "new"
+
+
+def test_the_script_and_this_prelude_name_the_same_components() -> None:
+    declared = re.search(r"^readonly ALL_COMPONENTS=\((.*)\)$", SCRIPT.read_text("utf-8"), re.M)
+    assert declared
+    assert f"readonly ALL_COMPONENTS=({declared.group(1)})" in _PRELUDE
+
+
+def _plan_for(mode: str, selected: str) -> list[str]:
+    result = _run(
+        _functions(
+            "in_plan",
+            "components_for_paths",
+            "last_deployed_sha",
+            "components_since_last_deploy",
+            "resolve_plan",
+        )
+        + _GIT_STUB
+        + f"""
+MODE={mode}
+SELECTED=({selected})
+PLAN=()
+resolve_plan >/dev/null
+echo "${{PLAN[*]}}"
+rm -rf "$STATE_DIR"
+"""
+    )
+    assert result.returncode == 0, result.stderr
+    return result.stdout.strip().splitlines()[-1].split()
+
+
+def test_naming_workers_deploys_the_bulk_worker_too() -> None:
+    """D-929: the founder's `api voice-runtime workers web` must keep deploying both
+    worker services, or a release moving a job onto the bulk queue leaves it unread."""
+    plan = _plan_for("explicit", "api voice-runtime workers web")
+    assert "workers" in plan
+    assert "workers-bulk" in plan
+
+
+def test_the_bulk_worker_can_be_deployed_alone() -> None:
+    assert _plan_for("explicit", "workers-bulk") == ["workers-bulk"]
+
+
+def test_a_change_the_main_worker_runs_also_deploys_the_bulk_worker() -> None:
+    # `_GIT_STUB`'s range touches apps/api/crm, which both workers import.
+    assert "workers-bulk" in _plan_for("changed", "")
+
+
+def test_the_bulk_worker_is_watched_like_the_main_one() -> None:
+    result = _run(
+        _HEALTH
+        + """
+compose() { [[ "$1" == ps ]] && echo 0123456789abcdef; }
+docker() { echo 'restarting 1'; }
+wait_healthy workers-bulk
+echo PASSED
+"""
+    )
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "not staying up" in result.stderr
+
+
+def test_both_workers_are_swapped_before_the_api() -> None:
+    swap = re.search(r"^for component in (.*); do$", SCRIPT.read_text("utf-8"), re.M)
+    assert swap
+    order = swap.group(1).split()
+    assert order.index("workers") < order.index("api")
+    assert order.index("workers-bulk") < order.index("api")
 
 
 @pytest.mark.parametrize(

@@ -173,13 +173,14 @@ def lifecycle_hook_names() -> set[str]:
     other direction: a hook renamed and left on the class would go on being subtracted
     from a set it is no longer in.
     """
-    from apps.workers.settings import WorkerSettings
+    from apps.workers.settings import BulkWorkerSettings, WorkerSettings
 
     hooks = ("on_startup", "on_shutdown", "on_job_start", "on_job_end")
     return {
         name
+        for settings in (WorkerSettings, BulkWorkerSettings)
         for hook in hooks
-        if (name := getattr(getattr(WorkerSettings, hook, None), "__name__", "")) != ""
+        if (name := getattr(getattr(settings, hook, None), "__name__", "")) != ""
     }
 
 
@@ -237,13 +238,24 @@ def registry_is_the_one_the_worker_boots() -> list[str]:
     executes — the same failure mode as a guard whose scan matches nothing, arrived at
     from the registry side instead of the tree side.
     """
-    from apps.workers.settings import CRON_JOBS, FUNCTIONS, WorkerSettings
+    from apps.api.core.queue import BULK_JOBS
+    from apps.workers.settings import CRON_JOBS, FUNCTIONS, BulkWorkerSettings, WorkerSettings
 
     failures: list[str] = []
     if WorkerSettings.functions is not FUNCTIONS:
         failures.append("WorkerSettings.functions is not the FUNCTIONS list this guard reads")
     if WorkerSettings.cron_jobs is not CRON_JOBS:
         failures.append("WorkerSettings.cron_jobs is not the CRON_JOBS list this guard reads")
+    # The bulk worker (D-929) answers to a FILTER of the same objects, so every check above
+    # covers it; what is left to hold is that it answers to exactly what is routed to it.
+    if any(all(fn is not reg for reg in FUNCTIONS) for fn in BulkWorkerSettings.functions):
+        failures.append("BulkWorkerSettings registers a job object that is not in FUNCTIONS")
+    bulk_names = {getattr(fn, "__name__", "") for fn in BulkWorkerSettings.functions}
+    if bulk_names != set(BULK_JOBS):
+        failures.append(
+            "BulkWorkerSettings does not register exactly core.queue.BULK_JOBS: "
+            f"missing {sorted(set(BULK_JOBS) - bulk_names)}, extra {sorted(bulk_names - BULK_JOBS)}"
+        )
     return failures
 
 

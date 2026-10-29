@@ -54,7 +54,8 @@
 #   --dry-run             resolve and print the plan; touch nothing
 #   -h, --help            this text
 #
-# Components: api  voice-runtime  workers  web  nginx
+# Components: api  voice-runtime  workers  workers-bulk  web  nginx
+#   `workers` also deploys `workers-bulk` (D-929): one release, both queues served.
 
 set -Eeuo pipefail
 
@@ -142,7 +143,7 @@ IMAGE_KEEP=${IMAGE_KEEP:-5}
 NGINX_STAGING_ROOT=${NGINX_STAGING_ROOT:-/var/lib/calevate/nginx-staging}
 NGINX_APPLY=${NGINX_APPLY:-/usr/local/sbin/calevate-nginx-apply}
 
-readonly ALL_COMPONENTS=(api voice-runtime workers web nginx)
+readonly ALL_COMPONENTS=(api voice-runtime workers workers-bulk web nginx)
 
 # Set by `run_migrations` when it recognised a rollback and left the schema alone. Declared
 # here because `set -u` is on and the summary reads it whether or not migrations ran.
@@ -688,23 +689,23 @@ components_for_paths() {
         hit[nginx]=1 ;;
       # Shared foundations: every python service is built from them.
       uv.lock|pyproject.toml|Dockerfile|compose.prod.yml|packages/shared/*|apps/__init__.py)
-        hit[api]=1; hit[voice-runtime]=1; hit[workers]=1 ;;
+        hit[api]=1; hit[voice-runtime]=1; hit[workers]=1; hit[workers-bulk]=1 ;;
       # `apps/api/core` is a LIBRARY, imported by voice-runtime (see its module
       # docstring). Sharing library code is not deploy coupling; pretending it is not
       # shared would be a lie that ships a stale receiver.
       apps/api/core/*)
-        hit[api]=1; hit[voice-runtime]=1; hit[workers]=1 ;;
+        hit[api]=1; hit[voice-runtime]=1; hit[workers]=1; hit[workers-bulk]=1 ;;
       apps/voice-runtime/*)
         hit[voice-runtime]=1 ;;
       apps/workers/*)
-        hit[workers]=1 ;;
+        hit[workers]=1; hit[workers-bulk]=1 ;;
       # Everything else under apps/api is the monolith proper. Workers import it
       # (the post-call pipeline is built on those modules); voice-runtime does not.
       apps/api/*)
-        hit[api]=1; hit[workers]=1 ;;
+        hit[api]=1; hit[workers]=1; hit[workers-bulk]=1 ;;
       # A new revision changes the schema every service reads.
       alembic/*|alembic.ini)
-        hit[api]=1; hit[voice-runtime]=1; hit[workers]=1 ;;
+        hit[api]=1; hit[voice-runtime]=1; hit[workers]=1; hit[workers-bulk]=1 ;;
     esac
   done
   local component
@@ -754,6 +755,14 @@ resolve_plan() {
       ;;
   esac
 
+  # `workers` NAMES BOTH WORKER SERVICES (D-929). They run one image and split one job
+  # list between two queues, so a release that moves a job onto the bulk queue must reach
+  # both, and the deploy command the founder already types (`api voice-runtime workers
+  # web`) keeps deploying everything. `workers-bulk` alone still deploys only that.
+  if in_plan workers && ! in_plan workers-bulk; then
+    PLAN+=(workers-bulk)
+  fi
+
   if (( ${#PLAN[@]} == 0 )); then
     log "nothing to deploy — HEAD is already live. (Use --all to force.)"
     exit 0
@@ -769,7 +778,7 @@ in_plan() {
 
 python_services_in_plan() {
   local service
-  for service in api voice-runtime workers; do
+  for service in api voice-runtime workers workers-bulk; do
     if in_plan "$service"; then printf '%s\n' "$service"; fi
   done
 }
@@ -933,7 +942,7 @@ rolling_back_onto_a_newer_database() {
 }
 
 run_migrations() {
-  in_plan api || in_plan workers || in_plan voice-runtime || return 0
+  in_plan api || in_plan workers || in_plan workers-bulk || in_plan voice-runtime || return 0
   step "migrations"
 
   # ================================ ORDERING ======================================
@@ -1413,10 +1422,12 @@ if [[ -n "$(python_services_in_plan)" ]]; then
   run_migrations
 fi
 
-# Order within the swap: workers, then api, then voice-runtime.
+# Order within the swap: workers, workers-bulk, then api, then voice-runtime.
 #
 # Workers first because they are the only component with no reader waiting on them — a
-# job that lands during their gap is queued in Redis, not lost. voice-runtime LAST
+# job that lands during their gap is queued in Redis, not lost. Both workers before api,
+# so the bulk queue has a reader before a new api starts routing jobs onto it (D-929).
+# voice-runtime LAST
 # because its gap is the only one that costs a call: a delivery arriving in that window
 # gets no ack, and whether it is ever redelivered is the sender's policy, not ours. Making that window the shortest-lived and the last thing to happen is
 # the cheapest mitigation available without a blue/green mechanism.
@@ -1434,12 +1445,12 @@ fi
 # Bringing it up explicitly, once, before the loop is the whole fix. It is idempotent
 # (`up -d` on a healthy container is a no-op) and it deliberately does NOT use `--no-deps`,
 # because redis is the thing at the bottom of the graph rather than a thing with a graph.
-if in_plan api || in_plan workers || in_plan voice-runtime; then
+if in_plan api || in_plan workers || in_plan workers-bulk || in_plan voice-runtime; then
   step "redis"
   compose up -d redis
 fi
 
-for component in workers api voice-runtime; do
+for component in workers workers-bulk api voice-runtime; do
   if in_plan "$component"; then swap_service "$component"; fi
 done
 

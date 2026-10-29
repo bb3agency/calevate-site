@@ -68,8 +68,8 @@ async def blackholed_database(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[
     yield
 
 
-async def _no_queue() -> tuple[int, float | None]:
-    return 0, None
+async def _no_queue() -> dict[str, tuple[int, float | None]]:
+    return {"default": (0, None), "bulk": (0, None)}
 
 
 @pytest.mark.parametrize("path", ["/healthz", "/healthz/ready"])
@@ -102,9 +102,9 @@ async def test_a_slow_queue_read_is_reported_as_redis_down(
     probe that never resolves."""
     monkeypatch.setattr(health_module, "readiness_missing_keys", lambda _service, _settings: [])
 
-    async def hanging_queue() -> tuple[int, float | None]:
+    async def hanging_queue() -> dict[str, tuple[int, float | None]]:
         await _hang()
-        return 0, None
+        return {}
 
     monkeypatch.setattr(health_module, "_queue_stats", hanging_queue)
 

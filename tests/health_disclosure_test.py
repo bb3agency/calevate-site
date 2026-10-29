@@ -119,8 +119,8 @@ def missing_a_credential(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     yield
 
 
-async def _no_queue() -> tuple[int, float | None]:
-    return 0, None
+async def _no_queue() -> dict[str, tuple[int, float | None]]:
+    return {"default": (0, None), "bulk": (0, None)}
 
 
 # --------------------------------------------------------- 1. the anonymous caller
@@ -190,7 +190,14 @@ async def test_an_ops_manage_caller_is_told_exactly_what_is_missing(
     # (it is the container healthcheck, and a schema behind the code is not a reason to
     # kill a container — see `_check_schema_current`).
     assert body["checks"] == {"db": True, "schema": True, "redis": True}
-    assert body["queue"] == {"depth": 0, "oldest_waiting_s": None}
+    assert body["queue"] == {
+        "depth": 0,
+        "oldest_waiting_s": None,
+        "by_queue": {
+            "default": {"depth": 0, "oldest_waiting_s": None},
+            "bulk": {"depth": 0, "oldest_waiting_s": None},
+        },
+    }
     assert [field["field"] for field in body["fields"]] == [SENTINEL_KEY]
 
 

@@ -83,7 +83,15 @@ from apps.api.core.observability import (
 )
 from apps.api.core.platform_config import refresh as refresh_platform_config
 from apps.api.core.platform_config import start_config_refresher, stop_config_refresher
-from apps.api.core.queue import WORKER_MAX_TRIES, close_queue, redis_settings
+from apps.api.core.queue import (
+    BULK_JOBS,
+    BULK_QUEUE,
+    DEFAULT_QUEUE,
+    WORKER_JOB_TIMEOUT_S,
+    WORKER_MAX_TRIES,
+    close_queue,
+    redis_settings,
+)
 from apps.api.core.redis import close_redis
 from apps.api.core.settings import (
     get_settings,
@@ -664,6 +672,21 @@ FUNCTIONS = [
     else fn
     for fn in FUNCTIONS
 ]
+
+_unregistered_bulk = BULK_JOBS - {getattr(fn, "__name__", "") for fn in FUNCTIONS}
+if _unregistered_bulk:
+    # A name routed to the bulk queue that no worker answers to would be dropped there
+    # with arq's "function not found" warning; refuse to boot instead.
+    raise RuntimeError(
+        f"BULK_JOBS names jobs that are not registered: {sorted(_unregistered_bulk)}"
+    )
+#: What `BulkWorkerSettings` registers: the same objects as `FUNCTIONS`, filtered.
+#:
+#: `FUNCTIONS` keeps every bulk job as well, and that is permanent rather than a rollout
+#: step: a producer still on a pre-D-929 image (the old api during a deploy's swap, or a
+#: rollback) enqueues bulk jobs on the default queue, and a main worker that did not
+#: answer to them would drop each one with arq's "function not found".
+BULK_FUNCTIONS = [fn for fn in FUNCTIONS if getattr(fn, "__name__", "") in BULK_JOBS]
 
 #: What each registered cron costs per tick, keyed by the arq job name.
 #:
@@ -1807,6 +1830,36 @@ def install_arq_terminal_alerter(logger_name: str = "arq.worker") -> bool:
 
 
 async def startup(ctx: dict[str, Any]) -> None:
+    observability = await _boot("workers")
+    # Main worker only: one process queues the platform walk per deploy, and the bulk
+    # worker starting alongside it would only ask for the same walk again.
+    await apply_platform_prompt_on_start()
+    _log_start(observability, jobs=len(FUNCTIONS), crons=len(CRON_JOBS))
+
+
+async def bulk_startup(ctx: dict[str, Any]) -> None:
+    observability = await _boot("workers-bulk")
+    _log_start(observability, jobs=len(BULK_FUNCTIONS), crons=0)
+
+
+def _log_start(observability: str, *, jobs: int, crons: int) -> None:
+    missing = runtime_config_missing_keys()
+    if missing:
+        # Log, do not die. `/healthz/ready` is the go-live gate.
+        log.warning("worker_started_degraded", extra={"missing_config": missing})
+    log.info(
+        "worker_start",
+        extra={
+            "jobs": jobs,
+            "crons": crons,
+            "observability": observability,
+            "tracing": tracing_enabled(),
+        },
+    )
+
+
+async def _boot(service: str) -> str:
+    """Everything a worker process needs before its first job, for either queue."""
     validate_bootstrap_env()
     configure_logging()
     # AFTER `configure_logging`, so the handler is added to the logger tree that is
@@ -1816,7 +1869,7 @@ async def startup(ctx: dict[str, Any]) -> None:
     # must, because the worker is the CONSUMER side of the trace. If only the API
     # initialised tracing, every enqueued traceparent would arrive at a process with no
     # provider and the call's trace would end at Redis.
-    observability = init_observability("workers")
+    observability = init_observability(service)
     # Most feed changes are committed HERE — a call settled, a lead extracted, a contact
     # dialled, a gap found — so the worker announces its commits to open browsers (D-774).
     install_change_capture(get_engine())
@@ -1848,25 +1901,11 @@ async def startup(ctx: dict[str, Any]) -> None:
     # starts on defaults and then flips mid-run is the disagreement this closes.
     await refresh_platform_config(force=True)
     start_config_refresher(with_secrets=True)
-    # A deploy that changed the platform's own prompt text brings every live agent onto it
-    # (D-739). After the config is adopted, because the walk publishes with it, and after
-    # the published spoken style is installed (D-744), so the revision this start computes
-    # does not depend on whether the background poll has run yet.
+    # The published spoken style (D-744), installed before any job publishes an agent and
+    # before `startup` queues the platform prompt walk (D-739), so the revision that start
+    # computes does not depend on whether the background poll has run yet.
     await refresh_spoken_style()
-    await apply_platform_prompt_on_start()
-    missing = runtime_config_missing_keys()
-    if missing:
-        # Log, do not die. `/healthz/ready` is the go-live gate.
-        log.warning("worker_started_degraded", extra={"missing_config": missing})
-    log.info(
-        "worker_start",
-        extra={
-            "jobs": len(FUNCTIONS),
-            "crons": len(CRON_JOBS),
-            "observability": observability,
-            "tracing": tracing_enabled(),
-        },
-    )
+    return observability
 
 
 #: Where a job's settings pin lives between the two hooks below. Keyed with a leading
@@ -1971,6 +2010,9 @@ async def shutdown(ctx: dict[str, Any]) -> None:
 class WorkerSettings:
     functions = FUNCTIONS
     cron_jobs = CRON_JOBS
+    # Named rather than left to arq's default so the pair with `BulkWorkerSettings` reads
+    # in one place (D-929, `core/queue.queue_for`).
+    queue_name = DEFAULT_QUEUE
     # Every cron field above is IST; see `CRON_TIMEZONE`.
     timezone = CRON_TIMEZONE
     redis_settings = redis_settings()
@@ -1995,7 +2037,7 @@ class WorkerSettings:
     # `campaign_dispatch.TICK_LEASE_TTL_S` is sized to outlive this number so a lease
     # cannot expire under a tick that is still dialling. `tests/dispatch_tick_lease_test`
     # pins the relationship — a comment cannot fail a build.
-    job_timeout = 300
+    job_timeout = WORKER_JOB_TIMEOUT_S
     # Keep results long enough for the ARQ-level job-id dedupe window to be useful
     # against duplicate webhooks (BACKEND-PATTERNS §4's cheapest layer).
     keep_result = 3600
@@ -2041,4 +2083,33 @@ class WorkerSettings:
     # populations are enumerated where they are declared. Which crons legitimately run
     # with one attempt, and why the next tick is a sufficient retry for each, is asserted
     # rather than counted: `tests/job_registration_test.NO_LADDER_NEEDED` (D-366).
+    job_completion_wait = 45
+
+
+class BulkWorkerSettings:
+    """The slow-job worker (D-929): `arq apps.workers.settings.BulkWorkerSettings`.
+
+    Reads only `BULK_QUEUE`, registers only `BULK_FUNCTIONS`, and runs no crons, so the
+    jobs in `core/queue.BULK_JOBS` take its slots and never the main worker's. Its
+    concurrency is the same `WORKER_MAX_JOBS` setting, which `compose.prod.yml` sets per
+    container (`WORKERS_BULK_MAX_JOBS` for this one).
+
+    A separate class, not a subclass of `WorkerSettings`: arq reads a settings class's
+    own `__dict__` (`arq.worker.get_kwargs`), so an inherited attribute would silently
+    fall back to arq's default. `tests/bulk_queue_test.py` holds every shared attribute
+    equal to the main worker's.
+    """
+
+    functions = BULK_FUNCTIONS
+    queue_name = BULK_QUEUE
+    redis_settings = redis_settings()
+    on_startup = bulk_startup
+    on_shutdown = shutdown
+    on_job_start = on_job_start
+    on_job_end = on_job_end
+    max_tries = WORKER_MAX_TRIES
+    max_jobs = get_settings().worker_max_jobs
+    retry_jobs = True
+    job_timeout = WORKER_JOB_TIMEOUT_S
+    keep_result = 3600
     job_completion_wait = 45

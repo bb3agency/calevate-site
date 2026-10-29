@@ -67,7 +67,7 @@ on:
         type: string
         default: ""
       components:
-        description: "Components to deploy (space separated: api voice-runtime workers web nginx). Empty = whatever changed."
+        description: "Components to deploy (space separated: api voice-runtime workers workers-bulk web nginx; workers includes workers-bulk). Empty = whatever changed."
         required: false
         default: ""
       dry_run:

@@ -17,10 +17,11 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
-from typing import Any
+from typing import Any, Final
 
 from arq import create_pool
 from arq.connections import ArqRedis, RedisSettings
+from arq.constants import default_queue_name
 
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
@@ -41,6 +42,60 @@ _pool_lock = asyncio.Lock()
 # 'delivery exhausted' alert could never fire. A client's broken integration went
 # silently stale, which is exactly the failure the alert exists to catch.
 WORKER_MAX_TRIES = 3
+
+#: How long arq lets one job run before cancelling it. Both worker classes use it, and
+#: `/healthz/ready` derives the bulk queue's staleness threshold from it.
+WORKER_JOB_TIMEOUT_S: Final = 300
+
+#: The two arq queues (D-929). arq routes a job by the sorted set it is added to
+#: (`ArqRedis.enqueue_job(_queue_name=...)`) and a worker reads exactly one
+#: (`Worker(queue_name=...)`), so a separate queue IS a separate worker process:
+#: `apps.workers.settings.WorkerSettings` reads the default one, `BulkWorkerSettings` the
+#: bulk one (`workers-bulk` in `compose.prod.yml`).
+DEFAULT_QUEUE: Final = default_queue_name
+BULK_QUEUE: Final = "arq:bulk"
+QUEUES: Final = (DEFAULT_QUEUE, BULK_QUEUE)
+
+#: Jobs that run on the bulk worker, so they never hold a slot the post-call pipeline,
+#: a notification, an in-call follow-up, the outbox or a cron is waiting for.
+#:
+#: The rule for membership: the job does slow work (reads a document, OCRs pages, uploads
+#: to the voice platform, makes several model calls, or walks every agent of an account)
+#: AND nobody is watching a screen for its answer within seconds. Single-call drafts a
+#: person has just asked for (lead fields, outcomes, a script proposal, a teach answer),
+#: "meet your agent", translations, payments, DNC and erasure pushes stay on the default
+#: queue: two bulk slots behind a long OCR would make a person wait minutes for them.
+#:
+#: Names, not functions: producers in api and voice-runtime may not import `apps.workers`.
+#: `apps.workers.settings` refuses to import if a name here is not a registered job.
+BULK_JOBS: Final[frozenset[str]] = frozenset(
+    {
+        # Document reads: text extraction, OCR, then the vendor upload.
+        "ingest_kb_source",
+        "read_kb_upload",
+        # Re-sends every live PDF and link of every client.
+        "redeliver_extracted_knowledge",
+        # A model call per agent of the client after a document goes live.
+        "suggest_scripts_from_document",
+        # Simulated test conversations and the improvement pass: many model turns each.
+        "run_agent_test_conversations",
+        "improve_agent_test_run",
+        "run_agent_test_cases",
+        # An account's AI-written examples, from a trigger or the daily sweep.
+        "generate_business_copy",
+        # Walks over every agent of an account, republishing each one it changes.
+        "refresh_field_reason",
+        "refresh_example_lines",
+        "recompute_hot_facts",
+        # A Pip background job: up to `copilot.service.job_limits` (240 s) of tool loop.
+        "run_copilot_job",
+    }
+)
+
+
+def queue_for(job: str) -> str:
+    """The arq queue `job` is enqueued on. The one place routing is decided."""
+    return BULK_QUEUE if job in BULK_JOBS else DEFAULT_QUEUE
 
 
 def redis_settings() -> RedisSettings:
@@ -84,9 +139,15 @@ def job_id_for(job: str, *key_parts: str) -> str:
 
 
 async def enqueue(job: str, *args: Any, job_id: str | None = None, **kwargs: Any) -> str | None:
-    """Returns the job id, or None when ARQ deduped it against an in-flight job."""
+    """Returns the job id, or None when ARQ deduped it against an in-flight job.
+
+    The dedupe holds across both queues: arq checks the job and result keys, which are
+    shared, not the queue's sorted set.
+    """
     queue = await get_queue()
-    result = await queue.enqueue_job(job, *args, _job_id=job_id, **kwargs)
+    result = await queue.enqueue_job(
+        job, *args, _job_id=job_id, _queue_name=queue_for(job), **kwargs
+    )
     if result is None:
         log.info("job_deduped", extra={"job": job, "job_id": job_id})
         return None
@@ -94,10 +155,16 @@ async def enqueue(job: str, *args: Any, job_id: str | None = None, **kwargs: Any
 
 
 __all__ = [
+    "BULK_JOBS",
+    "BULK_QUEUE",
+    "DEFAULT_QUEUE",
+    "QUEUES",
+    "WORKER_JOB_TIMEOUT_S",
     "close_queue",
     "enqueue",
     "enqueue_pool_settings",
     "get_queue",
     "job_id_for",
+    "queue_for",
     "redis_settings",
 ]
