@@ -493,8 +493,24 @@ async def dispatch_blockers(
         *([LaunchBlocker(*unaccepted)] if unaccepted is not None else []),
         *_consent_blockers(facts),
         *_channel_blockers(facts),
+        # The agent's script is edited and put live independently of its campaigns, and the
+        # put-live dialog only warns (the script also answers inbound calls), so an offer
+        # added after launch is refused here or it is spoken on every remaining call.
+        *await _promotional_script_blockers(session, facts),
         *([LaunchBlocker(*unscrubbed)] if unscrubbed is not None else []),
     ]
+
+
+async def _promotional_script_blockers(
+    session: AsyncSession, facts: _CampaignFacts
+) -> list[LaunchBlocker]:
+    """A non-promotional campaign whose agent's LIVE script is promotional (D-943)."""
+    if facts.agent_deleted:
+        return []
+    promotional = await script_promotional_blocker(
+        session, agent_id=facts.agent_id, classification=facts.classification
+    )
+    return [] if promotional is None else [LaunchBlocker(*promotional)]
 
 
 def tenant_line_ceiling(configured: int | None, pool: int) -> int:
@@ -1277,15 +1293,9 @@ async def launch_blockers(
 
     # WHAT it may say and from WHERE (SEC-COMP §3, bullet two).
     blockers.extend(_channel_blockers(facts))
-    # And whether what it says is promotional (D-943): a service campaign with an offer in
-    # its agent's live script would place promotional calls. Launch only — the agent's own
-    # publish screen warns as the script is written.
-    if not facts.agent_deleted:
-        promotional = await script_promotional_blocker(
-            session, agent_id=facts.agent_id, classification=facts.classification
-        )
-        if promotional is not None:
-            blockers.append(LaunchBlocker(*promotional))
+    # And whether what it says is promotional (D-943); `dispatch_blockers` asks it again
+    # every tick, because the agent's live script can change while the campaign runs.
+    blockers.extend(await _promotional_script_blockers(session, facts))
 
     # THE DECLARED CALLING NUMBERS (D-941), with the dial gate's own function and arguments,
     # so a campaign that every dial would refuse is not launched. Not in `dispatch_blockers`:

@@ -431,3 +431,26 @@ async def test_a_service_campaign_with_an_offer_in_its_live_script_cannot_launch
         check = await agent_check(session, agent_id)
     assert SCRIPT_PROMOTIONAL_RULE in {b.rule for b in after}
     assert check.report.verdict == "promotional"
+
+
+async def test_an_offer_put_live_after_launch_stops_the_running_campaign() -> None:
+    """The launch gate is a photograph: a script edited mid-campaign is read every tick."""
+    from tests.campaigns_test import _ready_campaign
+
+    tenant_id, agent_id, campaign_id = await _ready_campaign(classification="service", series="160")
+    async with tenant_session(tenant_id) as session:
+        before = await campaigns_service.dispatch_blockers(
+            session, tenant_id=tenant_id, campaign_id=campaign_id
+        )
+    assert SCRIPT_PROMOTIONAL_RULE not in {b.rule for b in before}
+
+    await _put_live(
+        tenant_id,
+        agent_id,
+        {"opening_line": "Hello! We have a special Diwali offer, 20% off, today only."},
+    )
+    async with tenant_session(tenant_id) as session:
+        after = await campaigns_service.dispatch_blockers(
+            session, tenant_id=tenant_id, campaign_id=campaign_id
+        )
+    assert SCRIPT_PROMOTIONAL_RULE in {b.rule for b in after}
