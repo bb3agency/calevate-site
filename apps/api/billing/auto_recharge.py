@@ -68,7 +68,7 @@ from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session, user_session
-from apps.api.reliability.service import enqueue_outbox
+from apps.api.reliability.service import enqueue_outbox, enqueue_outbox_once
 
 log = get_logger(__name__)
 
@@ -643,6 +643,29 @@ async def _notice(
     )
 
 
+async def owe_dispute_outcome_notice(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    status: str,
+    amount_inr: Decimal,
+    dedupe_key: str,
+) -> None:
+    """The client email a decided dispute owes (`disputes.apply_dispute_event`), on the same
+    job as every other payment notice. Once per `dedupe_key`: the outcome, not the event."""
+    await enqueue_outbox_once(
+        session,
+        job=PAYMENT_NOTICE_JOB,
+        payload={
+            "tenant_id": str(tenant_id),
+            "kind": f"dispute_{status}",
+            "amount_inr": str(to_paise(amount_inr)),
+            "reason": None,
+        },
+        dedupe_key=dedupe_key,
+    )
+
+
 # --- the charge -------------------------------------------------------------------------
 
 
@@ -839,14 +862,21 @@ async def settle_charge(
     failure_code: str | None = None,
 ) -> None:
     """Close the charge behind an `auto_recharge` order: captured or failed. Called by the
-    webhook in the transaction that credits (or marks) the payment."""
+    webhook in the transaction that credits (or marks) the payment.
+
+    A capture also closes a charge already marked `failed`: `expire_unanswered` fails one
+    Razorpay has not answered in `CHARGE_ANSWER_WINDOW`, and the money can still land
+    after that. The caller has credited the wallet on the payment's own ledger ref, so the
+    row only has to say what happened; it credits nothing itself."""
     row = (
         await session.execute(
             text(
                 "SELECT id, amount_inr FROM auto_recharge_charges "
-                "WHERE tenant_id = :tid AND order_id = :oid AND status = 'pending'"
+                "WHERE tenant_id = :tid AND order_id = :oid "
+                "AND (status = 'pending' OR (status = 'failed' AND CAST(:captured AS boolean))) "
+                "ORDER BY status = 'pending' DESC LIMIT 1 FOR UPDATE"
             ),
-            {"tid": tenant_id, "oid": order_id},
+            {"tid": tenant_id, "oid": order_id, "captured": captured},
         )
     ).first()
     if row is None:
@@ -857,8 +887,9 @@ async def settle_charge(
         return
     await session.execute(
         text(
-            "UPDATE auto_recharge_charges SET status = 'captured', payment_id = "
-            "COALESCE(:pid, payment_id), settled_at = now(), updated_at = now() WHERE id = :id"
+            "UPDATE auto_recharge_charges SET status = 'captured', failure_code = NULL, "
+            "payment_id = COALESCE(:pid, payment_id), settled_at = now(), updated_at = now() "
+            "WHERE id = :id"
         ),
         {"pid": payment_id, "id": charge_id},
     )
@@ -943,6 +974,7 @@ __all__ = [
     "expire_unanswered",
     "maybe_start_recharge",
     "note_mandate_payment",
+    "owe_dispute_outcome_notice",
     "pending_mandates",
     "read_auto_recharge",
     "refresh_pending_mandate",

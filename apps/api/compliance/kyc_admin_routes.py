@@ -52,7 +52,11 @@ from apps.api.compliance.kyc_documents import (
     delete_requested_documents,
     open_document,
 )
-from apps.api.compliance.kyc_review import decide_kyc_review, review_audit_summary
+from apps.api.compliance.kyc_review import (
+    decide_kyc_review,
+    review_audit_summary,
+    waiting_reviews,
+)
 from apps.api.compliance.kyc_routes import DOCUMENT_SUFFIX, KycDocumentOut, documents_out
 from apps.api.compliance.outbound_pledge import PLEDGE_VERSION, read_pledge
 from apps.api.core.auth import client_request_ip, record_admin_tenant_read, requires
@@ -93,13 +97,6 @@ class KycReviewItem(BaseModel):
 
 
 #: The directory, through the admin GUC (organizations only, migration b57e2f9c4a13).
-_DIRECTORY = "SELECT id, name, slug FROM organizations WHERE deleted_at IS NULL ORDER BY created_at"
-_WAITING = (
-    "SELECT status, kyc_path, owner_id_type, digilocker_required, submitted_at "
-    "FROM kyc_records WHERE tenant_id = :tid AND status IN ('submitted', 'in_review')"
-)
-
-
 @router.get(
     "/kyc/reviews",
     response_model=list[KycReviewItem],
@@ -111,37 +108,21 @@ async def kyc_review_queue(
     principal: KycOperator,
     limit: Annotated[int, Query(ge=1, le=200)] = 100,
 ) -> list[KycReviewItem]:
-    """Built the way `admin/holds.held_tenants` is: the admin GUC lists organizations, and
-    each tenant's record is read under its OWN RLS session, so no policy is widened to
-    let an admin session read `kyc_records`. Oldest submission first."""
+    """`kyc_review.waiting_reviews`, oldest submission first."""
     del principal
-    directory = (await session.execute(text(_DIRECTORY))).all()
-    items: list[KycReviewItem] = []
-    for org in directory:
-        tenant_id = UUID(str(org[0]))
-        async with tenant_session(tenant_id) as scoped:
-            row = (await scoped.execute(text(_WAITING), {"tid": tenant_id})).first()
-        if row is None:
-            continue
-        items.append(
-            KycReviewItem(
-                tenant_id=tenant_id,
-                name=str(org[1]),
-                slug=str(org[2]),
-                status=str(row[0]),
-                kyc_path=row[1],
-                owner_id_type=row[2],
-                digilocker_required=bool(row[3]),
-                submitted_at=row[4],
-            )
+    return [
+        KycReviewItem(
+            tenant_id=w.tenant_id,
+            name=w.name,
+            slug=w.slug,
+            status=w.status,
+            kyc_path=w.kyc_path,
+            owner_id_type=w.owner_id_type,
+            digilocker_required=w.digilocker_required,
+            submitted_at=w.submitted_at,
         )
-    items.sort(
-        key=lambda item: (
-            item.submitted_at is None,
-            item.submitted_at.isoformat() if item.submitted_at else "",
-        )
-    )
-    return items[:limit]
+        for w in await waiting_reviews(session)
+    ][:limit]
 
 
 class AdminKycOut(BaseModel):

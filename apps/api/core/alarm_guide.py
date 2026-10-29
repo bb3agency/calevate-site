@@ -340,6 +340,10 @@ ALARM_SUMMARIES: Final[dict[str, AlarmSummary]] = {
         "A refund failed at the payment provider",
         "One client has not received a refund we issued.",
     ),
+    "kyc_review_overdue": _s(
+        "A client's business verification has waited more than a day for review",
+        "Those clients cannot place outbound calls until a reviewer decides; inbound works.",
+    ),
     "payment_dispute_opened": _s(
         "A client's bank disputed a payment",
         "That client's outbound calling is paused and the amount is held; inbound still works.",

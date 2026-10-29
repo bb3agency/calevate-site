@@ -774,6 +774,9 @@ ThinnestAI or by us; both screens say so before the button.
 **DLT (D-692, partly superseded by D-696 and D-762).** No client DLT and no Calevate
 telemarketer registration: outbound needs a verified KYC record (document review or
 DigiLocker) and an accepted no-cold-calls pledge, on every tier, and inbound is never gated.
+A document review is decided by an operator (`/admin/kyc-reviews`); the client's owners and
+billing address are emailed the decision (rejected: the reason and a button back to Verify
+your business), and a review waiting more than 24 hours raises `kyc_review_overdue` (D-932).
 The DLT tables, columns and functions stay (hard rule 8). Who is the DLT telemarketer and the
 principal entity of record for a number on ThinnestAI is still asked of the vendor
 (OPERATIONS §2 gate T-9). `docs/evidence/dlt-roles-and-operating-model-2026-09-18.md` carries
@@ -944,6 +947,17 @@ client is never quietly given ₹2,000 of cheap minutes to pay off a ₹300 hole
   at the price frozen at purchase, as its own "Phone number rental" line. A renewal the
   wallet cannot cover still lands as overdraft; an invoiced account gets an invoice line
   instead (§8); a closed account and a period that begins inside a trial are not charged.
+- **An automatic recharge captured after it was given up** (D-932): the sweep fails a charge
+  Razorpay has not answered in 3 days (`no_answer`). If the money lands later, the capture
+  credits the wallet once (the ledger ref is the payment) and moves that same charge row to
+  `captured`, so the client's history shows the top-up and the "topped up" email goes once.
+- **A disputed payment** (D-699, D-932): the amount is held and outbound pauses while it is
+  open. An operator's accept or contest updates the dispute row at once (accept: `lost`;
+  contest: `under_review`, the evidence request cleared), with the operator in the audit
+  row; Razorpay's later `won`/`lost`/`closed` webhook lands on the same row. When a dispute
+  is decided, the account's owners and billing address get one email: won or closed, the
+  held amount is back in their credit; lost, it stays removed; with their balance and
+  whether outbound is back on.
 
 Owner surfaces: client — `/c/<slug>/billing` (top-up, wallet, lots, transactions);
 admin — `/admin/tenants/<id>/credits` (grants, restatements, the audited "sell this lot at

@@ -2,6 +2,7 @@
 the KYC review screen (`POST /v1/admin/tenants/{tenant_id}/kyc/review`) and the admin
 assistant's `admin_kyc_review` action (D-698).
 
+The decision promises the client's email (`workers/kyc_notices`) in its own transaction.
 The caller opens the tenant's session, writes the `kyc.reviewed` audit row with the
 outcome below, and schedules the owner-ID file deletion after commit.
 """
@@ -9,9 +10,11 @@ outcome below, and schedules the owner-ID file deletion after commit.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Final, Literal
 from uuid import UUID
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin.service import tenant_exists
@@ -28,11 +31,68 @@ from apps.api.compliance.kyc_documents import (
     request_owner_id_deletion,
 )
 from apps.api.core.errors import ProblemError
+from apps.api.db.session import tenant_session
+from apps.api.reliability.service import enqueue_outbox_once
+
+#: The ARQ name of `workers/kyc_notices.notify_kyc_decision`: the client's email after a
+#: reviewer approves or rejects.
+KYC_DECISION_NOTICE_JOB: Final = "notify_kyc_decision"
 
 #: The public registry a business certificate is checked against, by certificate kind.
 REGISTRY_KIND: Final[dict[str, str]] = {"gst": "gstin", "incorporation": "cin", "udyam": "udyam"}
 
 KycDecision = Literal["approve", "reject"]
+
+
+@dataclass(frozen=True, slots=True)
+class WaitingReview:
+    tenant_id: UUID
+    name: str
+    slug: str
+    status: str
+    kyc_path: str | None
+    owner_id_type: str | None
+    digilocker_required: bool
+    submitted_at: datetime | None
+
+
+_DIRECTORY: Final = (
+    "SELECT id, name, slug FROM organizations WHERE deleted_at IS NULL ORDER BY created_at"
+)
+_WAITING: Final = (
+    "SELECT status, kyc_path, owner_id_type, digilocker_required, submitted_at "
+    "FROM kyc_records WHERE tenant_id = :tid AND status IN ('submitted', 'in_review')"
+)
+
+
+async def waiting_reviews(directory: AsyncSession) -> list[WaitingReview]:
+    """Every record waiting for a reviewer, oldest submission first.
+
+    Built the way `admin/holds.held_tenants` is: `directory` is an admin session, whose GUC
+    lists organizations, and each tenant's record is read under its OWN RLS session, so no
+    policy is widened to let an admin session read `kyc_records`. One session per client:
+    the review queue and the overdue-review alarm (`workers/kyc_notices`) share it."""
+    found: list[WaitingReview] = []
+    for org in (await directory.execute(text(_DIRECTORY))).all():
+        tenant_id = UUID(str(org[0]))
+        async with tenant_session(tenant_id) as scoped:
+            row = (await scoped.execute(text(_WAITING), {"tid": tenant_id})).first()
+        if row is None:
+            continue
+        found.append(
+            WaitingReview(
+                tenant_id=tenant_id,
+                name=str(org[1]),
+                slug=str(org[2]),
+                status=str(row[0]),
+                kyc_path=row[1],
+                owner_id_type=row[2],
+                digilocker_required=bool(row[3]),
+                submitted_at=row[4],
+            )
+        )
+    found.sort(key=lambda w: (w.submitted_at is None, w.submitted_at or datetime.min))
+    return found
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,6 +185,15 @@ async def decide_kyc_review(
             )
         await record_kyc(scoped, tenant_id=tenant_id, status="rejected", rejection_reason=reason)
     held_owner_id = await request_owner_id_deletion(scoped, tenant_id=tenant_id)
+    # The client's email, promised in the decision's transaction: a rolled-back decision
+    # tells nobody. Keyed on the submission, so a resubmission decided again is told again.
+    submitted = record.submitted_at.isoformat() if record.submitted_at else "unsubmitted"
+    await enqueue_outbox_once(
+        scoped,
+        job=KYC_DECISION_NOTICE_JOB,
+        payload={"tenant_id": str(tenant_id), "decision": decision},
+        dedupe_key=f"kyc-decision:{tenant_id}:{submitted}",
+    )
     return KycReviewOutcome(record=record, held_owner_id=held_owner_id)
 
 
@@ -139,10 +208,13 @@ def review_audit_summary(outcome: KycReviewOutcome, *, decision: KycDecision) ->
 
 
 __all__ = [
+    "KYC_DECISION_NOTICE_JOB",
     "REGISTRY_KIND",
     "KycDecision",
     "KycReviewOutcome",
+    "WaitingReview",
     "assert_awaiting_review",
     "decide_kyc_review",
     "review_audit_summary",
+    "waiting_reviews",
 ]

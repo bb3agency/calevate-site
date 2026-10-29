@@ -41,6 +41,13 @@ The refusal names the rule. In order of the dial gate:
    naming the detail (for example "The name on the PAN card does not match the owner
    name you gave"), never the date of birth.
 6. Either decision deletes the owner-ID file. Open it before deciding.
+7. Either decision emails the client's owners and billing address (D-932): approved says
+   so; rejected quotes your reason and links Verify your business. Write the reason for
+   the client to read.
+
+A review waiting more than 24 hours raises `kyc_review_overdue` (a page, mailed once while
+anything waits; checked every 30 minutes). No review time is set in `docs/OPERATIONS.md`,
+so one day is the line.
 
 **An Aadhaar copy is never accepted on a document review** (D-696, Aadhaar regs 2021
 reg. 16C(1): an Aadhaar may not be accepted as proof of identity without verifying UIDAI's

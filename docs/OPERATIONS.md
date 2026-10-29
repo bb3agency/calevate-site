@@ -722,6 +722,9 @@ one differs from a summary below, the runbook is the authority.
   reason `no_api_secret` — and what to tell a client who wants to pay today; the Razorpay
   signing scheme and payload paths are UNVERIFIED against a live account, so the first
   real payment is an attended test, not a routine.
+- **KYC review** — `runbooks/kyc-review.md`. Deciding a document review (the client is
+  emailed either way, D-932); `kyc_review_overdue` pages when a submission has waited more
+  than 24 hours. No review time is promised to clients; 24 hours is our own line.
 - **Knowledge base out of sync with the engine** — `runbooks/kb-out-of-sync.md`.
   `kb_engine_out_of_sync` (and the retired `kb_engine_ref_unknown`, D-689): what each means, and
   the wrong cure leaves a client's agent quoting old prices. Includes the manual
