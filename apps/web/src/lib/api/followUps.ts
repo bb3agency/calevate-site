@@ -60,8 +60,8 @@ export type FollowUpStepKind = FollowUpStep["kind"];
 export type FollowUpStarterNeed = FollowUpStarterOut["needs"][number];
 export type FollowUpRunStatus = FollowUpRunOut["status"];
 
-/** More than this many leads at once is refused (`follow_up_start_too_many`); Pip starts
- *  a larger set as a plan. */
+/** One request starts at most this many leads; for more, the server approves a
+ *  `follow_up_start` plan (`plan_id`) and a worker starts them in batches. */
 export const FOLLOW_UP_START_MAX = 200;
 
 

@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import FollowUpPage from "@/app/c/[slug]/follow-ups/[followUpId]/page";
 import FollowUpsPage from "@/app/c/[slug]/follow-ups/page";
 import { NEW_FOLLOW_UP_PROMPT } from "@/app/c/[slug]/follow-ups/Starters";
-import { stepLines, triggerWords } from "@/app/c/[slug]/follow-ups/followUpCopy";
+import { resultWords, stepLines, triggerWords } from "@/app/c/[slug]/follow-ups/followUpCopy";
 import type { BulkSelection } from "@/app/c/[slug]/leads/BulkActionBar";
 import { StartFollowUp } from "@/app/c/[slug]/leads/StartFollowUp";
 import { ToastProvider } from "@/components/arc/toast";
@@ -251,6 +251,20 @@ describe("the step tree", () => {
     expect(triggerWords({ kind: "call_ended", agent_ids: null, calls: "inbound", outcomes: ["missed"] })).toBe(
       "An incoming call ends, missed",
     );
+  });
+
+  it("names what each step came to in the runner's own codes", () => {
+    // `blocked:closed` is the account's calling hours having no opening, not a closed lead.
+    expect(resultWords("blocked:closed")).toBe("No calling hours open");
+    expect(resultWords("held_for_release")).toBe("Waiting for you to release it");
+    expect(resultWords("rebooked")).toBe("Call booked again");
+    expect(resultWords("do_not_call")).toBe("On do-not-call");
+    expect(resultWords("replied")).toBe("They replied on WhatsApp");
+    expect(resultWords("lead_won")).toBe("Lead marked won");
+    expect(resultWords("max_days")).toBe("Ran out of days");
+    expect(resultWords("stopped_by_client")).toBe("Stopped by you");
+    expect(resultWords("delivery")).toBe("Started: a new lead");
+    expect(resultWords("manual")).toBe("Started by hand");
   });
 });
 
@@ -674,20 +688,37 @@ describe("starting a Follow-up for picked leads", () => {
     });
   });
 
-  it("answers the server's too-many refusal in plain words, with Pip's offer prefilled", async () => {
-    const asked: AssistantRequest[] = [];
-    function Listener() {
-      useAssistantRequests((request) => asked.push(request));
-      return null;
-    }
-    render(<Listener />);
+  it("starts more than 200 leads too: the server answers with a plan the screen follows", async () => {
+    // Over 200 is not refused (docs/FOLLOW-UPS.md, "The contract as built"): the route
+    // approves a `follow_up_start` plan and a worker starts them in batches.
+    const { calls } = await view(
+      { ids: [], wholeQuery: true },
+      { [`POST /v1/follow-ups/${MANUAL_ID}/start`]: { started: 0, skipped: 4, plan_id: "plan-250" } },
+      250,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Start for 250 leads" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/start in batches/)).toBeTruthy();
+    fireEvent.change(within(dialog).getByRole("textbox"), { target: { value: "250" } });
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: "Start for 250" }));
+    });
+    expect(await screen.findByText("Plan plan-250")).toBeTruthy();
+    expect(JSON.parse(calls.find((call) => call.method === "POST")?.body ?? "{}")).toEqual({
+      lens: { status: "hot" },
+      expected_count: 250,
+    });
+    expect(screen.queryByText(/Up to 200 leads/)).toBeNull();
+  });
+
+  it("shows the server's refusal inside the dialog in its own words", async () => {
     await view(
       { ids: [], wholeQuery: true },
       {
-        [`POST /v1/follow-ups/${MANUAL_ID}/start`]: problem(422, {
-          type: "https://calevate.tech/problems/follow_up_start_too_many",
-          title: "Too many leads at once",
-          detail: "Start at most 200 leads at a time, or ask Pip.",
+        [`POST /v1/follow-ups/${MANUAL_ID}/start`]: problem(409, {
+          type: "https://calevate.tech/problems/follow_up_start_set_moved",
+          title: "The leads changed",
+          detail: "This now matches 4 leads rather than the 3 you confirmed, so nobody was started.",
         }),
       },
     );
@@ -695,19 +726,6 @@ describe("starting a Follow-up for picked leads", () => {
     await act(async () => {
       fireEvent.click(await screen.findByRole("button", { name: "Start for 3" }));
     });
-    expect(await screen.findByText("Up to 200 leads start here at once.")).toBeTruthy();
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(screen.queryByRole("button", { name: "Start for 3 leads" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /Ask Pip to start them/ }));
-    expect(asked).toHaveLength(1);
-    expect(asked[0].prompt).toContain("Payment reminder");
-  });
-
-  it("does not offer a start it knows will be refused for more than 200 leads", async () => {
-    const { calls } = await view({ ids: [], wholeQuery: true }, {}, 250);
-    expect(await screen.findByText("Up to 200 leads start here at once.")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Start for 250/ })).toBeNull();
-    expect(screen.getByRole("button", { name: /Ask Pip to start them/ })).toBeTruthy();
-    expect(calls.some((call) => call.method === "POST")).toBe(false);
+    expect(await screen.findByText(/rather than the 3 you confirmed/)).toBeTruthy();
   });
 });

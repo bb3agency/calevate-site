@@ -202,7 +202,7 @@ export function CallingPlan({
         {newLeads && newLeads.status !== "live" && (
           <NoticeBox
             tone="warn"
-            title={`${newLeads.name} is off`}
+            title={`${newLeads.name} is ${newLeads.status === "paused" ? "paused" : "off"}`}
             action={
               <Link href={href(`/c/${session.orgSlug}/follow-ups/${newLeads.id}`)} className={SECONDARY_BUTTON_SM}>
                 Turn it back on

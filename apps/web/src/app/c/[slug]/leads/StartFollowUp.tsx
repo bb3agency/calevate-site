@@ -8,9 +8,8 @@ import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { TEXT_ACTION } from "@/components/console/section";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { TypedConfirmation } from "@/components/typedConfirmation";
-import { AskAssistant } from "@/components/copilot/AskAssistant";
 import { FIELD_INLINE, FIELD_LABEL, NoticeBox, ProblemNotice, formatCount } from "@/components/ui";
-import { ApiProblem, type Session } from "@/lib/api/client";
+import type { Session } from "@/lib/api/client";
 import {
   FOLLOW_UP_START_MAX,
   useFollowUps,
@@ -19,7 +18,6 @@ import {
   type FollowUpSummaryOut,
 } from "@/lib/api/followUps";
 import type { LeadLens } from "@/lib/api/leads";
-import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 
 import { TYPED_CONFIRMATION_FROM, type BulkSelection } from "./BulkActionBar";
 
@@ -116,9 +114,9 @@ function Chooser({
   const armed = count !== undefined && (!needsTyping || typed.trim() === String(count));
   const noun = count === 1 ? "lead" : "leads";
 
-  // More than the server starts at once (422 `follow_up_start_too_many`): said before
-  // anyone confirms when the count is known, and again if the server says it anyway.
-  const tooMany = (count !== undefined && count > FOLLOW_UP_START_MAX) || isTooMany(start.error);
+  // More than one request starts is not refused: the server approves a plan and a worker
+  // starts them in batches, which the plan card below follows.
+  const batched = count !== undefined && count > FOLLOW_UP_START_MAX;
 
   const run = () => {
     if (!chosen || count === undefined) return;
@@ -131,10 +129,6 @@ function Chooser({
           onResult({ followUp: chosen, result });
           setConfirming(false);
           onStarted();
-        },
-        // Too many is answered beside the button, with Pip's offer, not inside the dialog.
-        onError: (error) => {
-          if (isTooMany(error)) setConfirming(false);
         },
       },
     );
@@ -173,7 +167,7 @@ function Chooser({
             </select>
           )}
         </div>
-        {startable.length > 0 && !tooMany && (
+        {startable.length > 0 && (
           <ActionButton
             variant="secondary-sm"
             disabled={!canStart || count === undefined || !chosen}
@@ -185,24 +179,6 @@ function Chooser({
         )}
       </div>
       {followUps.error != null && <ProblemNotice error={followUps.error} onRetry={() => followUps.refetch()} />}
-      {tooMany && chosen && (
-        <NoticeBox
-          tone="neutral"
-          role="status"
-          action={
-            canStart ? (
-              <AskAssistant
-                label={`Ask ${ASSISTANT_NAME} to start them`}
-                prompt={`Start my Follow-up “${chosen.name}” for ${
-                  selection.wholeQuery ? "every lead my Leads filter matches" : "the leads I ticked"
-                }${count !== undefined ? ` (${count} leads)` : ""}.`}
-              />
-            ) : undefined
-          }
-        >
-          {`Up to ${FOLLOW_UP_START_MAX} leads start here at once.`}
-        </NoticeBox>
-      )}
 
       {confirming && chosen && count !== undefined ? (
         <ConfirmDialog
@@ -220,6 +196,7 @@ function Chooser({
           </p>
           <p>Calls keep to your calling hours.</p>
           <p>Leads already in it are skipped.</p>
+          {batched && <p>{`They start in batches of ${FOLLOW_UP_START_MAX}; you can follow them here.`}</p>}
           {needsTyping && (
             <TypedConfirmation phrase={String(count)} value={typed} onChange={setTyped} inputMode="numeric" />
           )}
@@ -227,10 +204,6 @@ function Chooser({
       ) : null}
     </div>
   );
-}
-
-function isTooMany(error: unknown): boolean {
-  return error instanceof ApiProblem && error.code === "follow_up_start_too_many";
 }
 
 function StartedNotice({
