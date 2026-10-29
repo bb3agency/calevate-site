@@ -190,6 +190,7 @@ TABLE_TOPICS: Final[dict[str, Topic]] = {
     "copilot_jobs": "assistant",
     "copilot_routines": "assistant",
     "copilot_routine_runs": "assistant",
+    "copilot_notes": "assistant",
     "copilot_plans": "assistant",
     "copilot_plan_targets": "assistant",
     "admin_copilot_actions": "assistant",

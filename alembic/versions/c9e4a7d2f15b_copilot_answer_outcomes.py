@@ -1,7 +1,7 @@
 """copilot_answer_outcomes (+ admin twin): how each Pip answer went, and the person's thumbs
 
 Revision ID: c9e4a7d2f15b
-Revises: f3a8c2d61b07
+Revises: e5b9d3f7a248
 Create Date: 2026-10-29 12:00:00.000000
 
 D-937. One row per Pip answer (or per question refused at the gate), keyed by the ANSWER
@@ -43,7 +43,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "c9e4a7d2f15b"
-down_revision: str | None = "f3a8c2d61b07"
+down_revision: str | None = "e5b9d3f7a248"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

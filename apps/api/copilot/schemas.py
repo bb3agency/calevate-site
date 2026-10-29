@@ -392,6 +392,46 @@ class CopilotProposalEvent(BaseModel):
     plan_id: str | None = None
 
 
+class CopilotCheckFix(BaseModel):
+    """A troubleshoot check's one button (D-935): a console screen from the inventory
+    (`route` is a template the browser checks against its own nav), or `ask`, a sentence
+    the button sends to Pip, which proposes the existing action under its own tier."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    label: str
+    screen: str | None = None
+    route: str | None = None
+    where: str | None = None
+    ask: str | None = None
+
+
+class CopilotCheck(BaseModel):
+    """One troubleshoot check: `unknown` is an answer, never a guess (D-935)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    key: str
+    label: str
+    status: Literal["ok", "problem", "unknown"]
+    detail: str
+    #: Ids and table names the check read; never a phone number or a person's words.
+    evidence: list[str] = Field(default_factory=list)
+    fix: CopilotCheckFix | None = None
+
+
+class CopilotDiagnosis(BaseModel):
+    """A troubleshoot read's checklist, in the order it was asked; the first `problem` is
+    the cause (`copilot/diagnostics.py`)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    family: Literal["agent", "call", "campaign", "delivery", "knowledge"]
+    subject: str
+    verdict: str
+    checks: list[CopilotCheck]
+
+
 class CopilotStepEvent(BaseModel):
     """`event: step` — one tool call, as it happens. THE ANSWER IS NOT THE ONLY OUTPUT.
 
@@ -429,6 +469,8 @@ class CopilotStepEvent(BaseModel):
     #: What the person reads instead of `tool`: "Searching your calls…" while it runs,
     #: "Searched your calls" once it has (`step_labels.STEP_LABELS`).
     label: str | None = None
+    #: A troubleshoot read's checklist, drawn as a card under the steps (D-935).
+    diagnosis: CopilotDiagnosis | None = None
 
 
 class CopilotActionEvent(BaseModel):
@@ -861,10 +903,13 @@ __all__ = [
     "CopilotActionOut",
     "CopilotActionPageOut",
     "CopilotAskIn",
+    "CopilotCheck",
+    "CopilotCheckFix",
     "CopilotConfirmIn",
     "CopilotConfirmOut",
     "CopilotConversationClearedOut",
     "CopilotConversationOut",
+    "CopilotDiagnosis",
     "CopilotDoneEvent",
     "CopilotFact",
     "CopilotField",

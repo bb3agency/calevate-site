@@ -480,6 +480,14 @@ ENTRYPOINT_EXEMPT: dict[str, dict[str, str]] = {
             "request empties their lead, which the plan card then shows without a name. "
             "The tenant erasure deletes every row."
         ),
+        "copilot_notes": (
+            "A note Pip left on its own (D-936): a kind, a subject (`account`, a knowledge-gap "
+            "id or an ISO week) and a payload of ids and counts — a lead's ID, never its name, "
+            "number or words (`copilot/notes.py` composes the line at read time from the rows "
+            "the ids point at). A caller's deletion request empties their lead, so a note can "
+            "no longer say anything about them; nothing of a data principal is held here to "
+            "match. The tenant erasure deletes every row."
+        ),
         "copilot_routine_runs": (
             "When one of the in-app assistant's routines ran (D-694): a routine id, the "
             "slot, a status, a task id, and for a skipped run OUR OWN sentence for why "

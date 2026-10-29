@@ -492,6 +492,13 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "copilot_azure_fallback": AppliesRule(LIVE),
     "copilot_daily_message_cap": AppliesRule(LIVE),
     "copilot_daily_ktok_cap": AppliesRule(LIVE),
+    # Pip's notes (D-936): read by the hourly detector run, so a change lands on its next pass.
+    "pip_notes_enabled": AppliesRule(LIVE),
+    "pip_notes_daily_cap": AppliesRule(LIVE),
+    "pip_notes_hot_lead_hours": AppliesRule(LIVE),
+    "pip_notes_runway_days": AppliesRule(LIVE),
+    "pip_notes_gap_repeat_calls": AppliesRule(LIVE),
+    "pip_notes_good_week_percent": AppliesRule(LIVE),
     # The EMBEDDING deployment (D-502). LIVE, and genuinely so: unlike the three chat
     # deployment fields above, this value is never published into an agent's engine record —
     # it is read per request by `retrieval/embedding.embedding_leg` and per tick by the
@@ -538,10 +545,6 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # result object and the shadow answer reaches a log line and nothing else.
     "retrieval_shadow_arm": AppliesRule(LIVE),
     "retrieval_shadow_tenant_ids": AppliesRule(LIVE),
-    # The platform-wide ceiling on live Cartesia-tier agents (D-547 Q10). Read per request
-    # by `agents/voice_offer.offered_catalogue` and per write by `set_agent_voice`, so a
-    # raise is in force on the next picker load; it touches nothing already published.
-    "cartesia_agent_cap": AppliesRule(LIVE),
     # Whether the ThinnestAI workspace runs on its own keys (D-678). It decides which rate key
     # a publish stamps and whether a per-agent catalogue choice is allowed, both at publish.
     "thinnest_byok_enabled": AppliesRule(
@@ -685,15 +688,6 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "sarvam_stt_model": AppliesRule(
         LIVE_AGENTS,
         f"it is the transcriber each agent runs, so saving it moves every live agent{_NOW}",
-    ),
-    # Whether the transcriber is TOLD the language or DETECTS it (D-584). Same category and
-    # the same reason as the model above — it is resolved at publish time — and the same
-    # warning applies twice over: turning this on changes what a live agent is heard to have
-    # said, and only on agents re-published afterwards, so a half-migrated fleet is two
-    # different products until every one is re-published.
-    "stt_autodetect_language": AppliesRule(
-        LIVE_AGENTS,
-        f"it is part of each agent's speech settings, so saving it changes every live agent{_NOW}",
     ),
     # ---- CREDENTIALS. Same question, higher stakes -------------------------------
     #

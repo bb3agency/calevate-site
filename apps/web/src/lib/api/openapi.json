@@ -15964,6 +15964,165 @@
         "title": "CopilotJobProgressOut",
         "type": "object"
       },
+      "CopilotNoteAckOut": {
+        "additionalProperties": false,
+        "properties": {
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "title": "CopilotNoteAckOut",
+        "type": "object"
+      },
+      "CopilotNoteButtonOut": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "open",
+              "ask"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "prompt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt"
+          },
+          "route": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Route"
+          },
+          "screen": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Screen"
+          }
+        },
+        "required": [
+          "kind",
+          "label",
+          "screen",
+          "route",
+          "prompt"
+        ],
+        "title": "CopilotNoteButtonOut",
+        "type": "object"
+      },
+      "CopilotNoteOut": {
+        "additionalProperties": false,
+        "properties": {
+          "button": {
+            "$ref": "#/components/schemas/CopilotNoteButtonOut"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "dismissible": {
+            "title": "Dismissible",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "line": {
+            "title": "Line",
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "pip",
+              "linked"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "tone": {
+            "enum": [
+              "info",
+              "success",
+              "warning",
+              "critical"
+            ],
+            "title": "Tone",
+            "type": "string"
+          },
+          "unread": {
+            "title": "Unread",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "source",
+          "tone",
+          "line",
+          "button",
+          "created_at",
+          "unread",
+          "dismissible"
+        ],
+        "title": "CopilotNoteOut",
+        "type": "object"
+      },
+      "CopilotNotesOut": {
+        "additionalProperties": false,
+        "properties": {
+          "notes": {
+            "items": {
+              "$ref": "#/components/schemas/CopilotNoteOut"
+            },
+            "title": "Notes",
+            "type": "array"
+          },
+          "unread": {
+            "title": "Unread",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "notes",
+          "unread"
+        ],
+        "title": "CopilotNotesOut",
+        "type": "object"
+      },
       "CopilotOption": {
         "additionalProperties": false,
         "description": "One choice on a `select`. `value` is what may be written; `label` is what the\nperson sees, and is what the model needs in order to map \"Telugu\" onto `te-IN`.",
@@ -58890,6 +59049,34 @@
         "x-calevate-permission": "copilot:admin"
       }
     },
+    "/v1/admin/copilot/notes": {
+      "get": {
+        "operationId": "list_admin_copilot_notes_v1_admin_copilot_notes_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CopilotNotesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Fleet notes for the operator's Pip: clients at risk and failing deliveries",
+        "tags": [
+          "copilot"
+        ],
+        "x-calevate-permission": "org:read"
+      }
+    },
     "/v1/admin/copilot/turns/{turn_id}/vote": {
       "put": {
         "description": "`copilot/routes.vote_copilot_answer` for the operator's own answers (D-937).\n\nIt writes an audit row, for the invariant `clear_admin_copilot_conversation` states:\nevery admin-realm mutation does. The vote and the reason word only, never the note.",
@@ -78451,6 +78638,142 @@
           }
         },
         "summary": "Follow a background job as it runs \u2014 streamed",
+        "tags": [
+          "copilot"
+        ],
+        "x-calevate-permission": "copilot:use"
+      }
+    },
+    "/v1/copilot/notes": {
+      "get": {
+        "operationId": "list_copilot_notes_v1_copilot_notes_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CopilotNotesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "What Pip noticed in this account, and the items it repeats from other screens",
+        "tags": [
+          "copilot"
+        ],
+        "x-calevate-permission": "copilot:use"
+      }
+    },
+    "/v1/copilot/notes/seen": {
+      "post": {
+        "operationId": "mark_copilot_notes_seen_v1_copilot_notes_seen_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CopilotNoteAckOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Mark Pip's open notes as seen (the panel was opened)",
+        "tags": [
+          "copilot"
+        ],
+        "x-calevate-permission": "copilot:use"
+      }
+    },
+    "/v1/copilot/notes/{note_id}/acted": {
+      "post": {
+        "operationId": "mark_copilot_note_acted_v1_copilot_notes__note_id__acted_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "note_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Note Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CopilotNoteAckOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Record that a note's button was pressed",
+        "tags": [
+          "copilot"
+        ],
+        "x-calevate-permission": "copilot:use"
+      }
+    },
+    "/v1/copilot/notes/{note_id}/dismiss": {
+      "post": {
+        "operationId": "dismiss_copilot_note_v1_copilot_notes__note_id__dismiss_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "note_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Note Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CopilotNoteAckOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Put one of Pip's notes away for the account",
         "tags": [
           "copilot"
         ],

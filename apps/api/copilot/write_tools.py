@@ -129,6 +129,7 @@ from apps.api.copilot.assist_actions import ASSIST_ACTIONS
 from apps.api.copilot.call_actions import CALL_ACTIONS
 from apps.api.copilot.campaign_actions import CAMPAIGN_ACTIONS, CAMPAIGN_CONSENT_SET
 from apps.api.copilot.console_actions import CONSOLE_ACTIONS
+from apps.api.copilot.coverage_actions import COVERAGE_ACTIONS
 from apps.api.copilot.fact_actions import FACT_ACTIONS
 from apps.api.copilot.knowledge_actions import KNOWLEDGE_ACTIONS
 from apps.api.copilot.lead_actions import LEAD_ACTIONS
@@ -965,6 +966,8 @@ WRITE_TOOLS: Final[tuple[ActionTool, ...]] = (
     *LEAD_ACTIONS,
     # Where a campaign's list got its permission, so a campaign Pip made can launch.
     CAMPAIGN_CONSENT_SET,
+    # D-938: screen buttons the coverage audit found with no action (`coverage_actions.py`).
+    *COVERAGE_ACTIONS,
 )
 
 _BY_NAME: Final[dict[str, WriteTool]] = {tool.name: tool for tool in WRITE_TOOLS}

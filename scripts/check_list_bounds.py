@@ -409,6 +409,17 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "POST /v1/copilot/jobs/{job_id}/cancel": BoundedByConstruction(
         by="the same one job and its 200-entry progress cap."
     ),
+    # --- D-936 Pip's notes ---------------------------------------------------------------
+    "GET /v1/copilot/notes": BoundedByConstruction(
+        by=(
+            "at most `copilot/notes.MAX_SHOWN` (20) stored notes, read with that LIMIT, plus at "
+            "most one linked line per entry of `copilot/notes._LINKED_ATTENTION` (five) and one "
+            "for the healer's open incident."
+        )
+    ),
+    "GET /v1/admin/copilot/notes": BoundedByConstruction(
+        by="at most two lines, both composed from the Client health board's counts."
+    ),
     # --- D-694 the assistant's routines ----------------------------------------------------
     "POST /v1/copilot/routines": BoundedByConstruction(
         by=(
