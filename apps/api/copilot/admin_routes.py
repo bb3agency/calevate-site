@@ -675,6 +675,9 @@ async def ask_admin_copilot(
                 # from `admin_screens.ADMIN_SCREENS`; the browser checks it against its own
                 # sidebar list before it moves.
                 yield ServerSentEvent(event="navigate", data=event.navigate)
+            if event.chart is not None:
+                # A chart or table drawn in the panel (D-934): data, never markup.
+                yield ServerSentEvent(event="chart", data=event.chart)
             if event.spend is not None:
                 spends.append(event.spend)
         completed = True

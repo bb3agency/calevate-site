@@ -1478,9 +1478,9 @@ READ_TOOLS: Final[tuple[ReadTool, ...]] = (
     ReadTool(
         name="leads_semantic_search",
         description=(
-            "Find leads by WHAT THEY ASKED FOR, in their own words ('wanted home delivery'). "
-            "Searches the answers agents captured, not names or numbers: use `leads_search` "
-            "for a name, a phone, a status or a count. Best match first."
+            "Leads by WHAT THEY ASKED FOR ('asked about home delivery'), from the answers "
+            "the agents captured, best match first. A name, phone, status or count: "
+            "`leads_search`."
         ),
         parameters={
             "type": "object",
@@ -1616,15 +1616,10 @@ READ_TOOLS: Final[tuple[ReadTool, ...]] = (
     ReadTool(
         name="search_calls",
         description=(
-            "Search what CALLERS ACTUALLY SAID on past calls, by meaning rather than by "
-            "keyword — 'who asked about weekend timings', 'callers who mentioned a "
-            "refund', 'anyone unhappy about waiting'. Returns the matching passage with "
-            "the speaker marked, the date and the caller's lead name where there is one. "
-            "Use it for questions about DEMAND and about what people ask for; use "
-            "`search_knowledge` for what the agent has been taught to say, and "
-            "`calls_recent` to list calls by time rather than by topic. Transcripts are "
-            "redacted, so names and numbers are not searchable here and must not be put "
-            "in the question."
+            "What CALLERS SAID on past calls, by meaning ('who asked about weekend "
+            "timings'): passage, speaker, date, lead name. What the agent was taught: "
+            "`search_knowledge`; calls by time: `calls_recent`. Names and numbers are "
+            "redacted, so leave them out of the question."
         ),
         parameters={
             "type": "object",

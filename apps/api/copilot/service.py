@@ -66,8 +66,10 @@ from apps.api.copilot import (
     write_tools,
 )
 from apps.api.copilot import admin_prompt as admin_prompt_module
+from apps.api.copilot import charts as charts_module
 from apps.api.copilot import prompt as prompt_module
 from apps.api.copilot import tools as tools_module
+from apps.api.copilot.chart_spec import ChartSpec
 from apps.api.copilot.identity import (
     ASSISTANT_NAME,
     IdentityEgress,
@@ -427,14 +429,10 @@ def background_tool() -> dict[str, Any]:
     return prompt_module.function_tool(
         name=BACKGROUND_TOOL_NAME,
         description=(
-            "Hand a request that is too big for one answer to a background job — for "
-            "example one that needs many lookups, or a change to many records ('mark every "
-            "lead from yesterday's campaign as contacted'). The job keeps working after this "
-            "answer ends, its progress shows in the assistant panel, and anything that needs "
-            "the person's confirmation (calling, launching, publishing, spending) waits for "
-            "their approval instead of happening. Use it only when the work really is bigger "
-            "than a few steps; otherwise just do it. Afterwards, tell the person you have "
-            "started it and that they can watch it in the panel."
+            "Hand work too big for one answer (many lookups or records) to a background job. "
+            "It keeps going after this answer, shows progress in the panel, and anything "
+            "needing approval (calling, launching, publishing, spending) waits for them. Only "
+            "for more than a few steps. Then say it started and they can watch it in the panel."
         ),
         parameters={
             "type": "object",
@@ -645,6 +643,9 @@ class CopilotEvent:
     #: A confirm-tier action a JOB reached, now waiting in the Approvals inbox. Job runs
     #: only — an interactive run proposes instead.
     approval: write_tools.StagedApproval | None = None
+    #: A chart or table a read tool built from the account's data (D-934). The browser
+    #: draws it; the model was told its figures in words. Interactive runs only.
+    chart: ChartSpec | None = None
     spend: CopilotSpend | None = None
 
 
@@ -1072,6 +1073,7 @@ def realm_read_tools(realm: CopilotRealm) -> tuple[tools_module.ReadTool, ...]:
         *routine_actions.ROUTINE_READS,
         *diagnostics.DIAGNOSE_READS,
         *coverage_actions.COVERAGE_READS,
+        *charts_module.CHART_READS,
     )
 
 
@@ -1274,6 +1276,7 @@ async def _run_read_tools(
     registry: Mapping[str, tools_module.ReadTool],
     steps: list[CopilotStepEvent],
     already_run: set[tuple[str, str]],
+    charts_out: list[ChartSpec] | None = None,
 ) -> list[dict[str, object]]:
     """Every read call of ONE turn, executed, as the `role: "tool"` messages that answer them.
 
@@ -1313,9 +1316,17 @@ async def _run_read_tools(
         (repeats if key in already_run else fresh).append(index)
         already_run.add(key)
 
-    results = await asyncio.gather(
-        *(_run_one_read_tool(calls[index], context=context, registry=registry) for index in fresh)
-    )
+    # The charts these tools build reach the browser as `chart` frames (D-934); the
+    # collector is shared by reference with the tasks `gather` copies the context into.
+    with charts_module.collecting() as built:
+        results = await asyncio.gather(
+            *(
+                _run_one_read_tool(calls[index], context=context, registry=registry)
+                for index in fresh
+            )
+        )
+    if charts_out is not None:
+        charts_out.extend(built)
     # INDEXED, NOT KEYED ON `tool_call_id`. An id is the model's own string and
     # `chat._tool_calls_of` defaults a missing one to "" — two of those in one turn would
     # collide in a dict and pair a call with another call's timing and result.
@@ -2489,15 +2500,19 @@ async def _run_tool_loop(
         for call in read_calls[: tools_module.MAX_CALLS_PER_TURN]:
             yield CopilotEvent(step=_step_start(call))
         read_steps: list[CopilotStepEvent] = []
+        read_charts: list[ChartSpec] = []
         read_messages = await _run_read_tools(
             read_calls,
             context=tool_context,
             registry=_read_tool_registry(realm),
             steps=read_steps,
             already_run=lookups_run,
+            charts_out=read_charts,
         )
         for step in read_steps:
             yield CopilotEvent(step=step)
+        for spec in read_charts:
+            yield CopilotEvent(chart=spec)
         messages = [
             *messages,
             _assistant_tool_message(outcome, read_calls),

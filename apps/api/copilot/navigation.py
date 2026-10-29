@@ -131,16 +131,9 @@ def open_screen_tool() -> dict[str, Any]:
     return function_tool(
         name=OPEN_SCREEN_TOOL_NAME,
         description=(
-            "Open one of this console's screens in the person's browser — use this when "
-            "they ask to be taken somewhere ('take me to billing', 'open my leads', 'show "
-            "me the campaigns page').\n"
-            "Pass the screen's NAME exactly as it appears in THE SCREENS OF THIS CONSOLE "
-            "above — 'Credits & billing', not 'Billing', and never an address. If they used "
-            "their own word for it, translate it to our name first.\n"
-            "This DOES it: the console opens the screen straight away, and asks them first "
-            "only if they have unsaved work on the screen they are leaving. Say you are "
-            "opening it — never that they have arrived, and never that you cannot. If they "
-            "only asked WHERE something is, do not call this: say the name and where it sits."
+            "Open a screen when they ask to be taken somewhere ('open my leads'). Pass its "
+            "NAME from THE SCREENS OF THIS CONSOLE ('Credits & billing', not 'Billing'), never "
+            "an address. It opens at once; say you are opening it, not that they arrived."
         ),
         parameters={
             "type": "object",

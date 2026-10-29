@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 
 import { ProblemNotice, SECONDARY_BUTTON_SM, Skeleton, formatCount, formatINR } from "@/components/ui";
 import { Section } from "@/components/console/section";
+import { PinnedCards } from "@/components/copilot/PinnedCards";
 import { Metric } from "@/components/console/metric";
 import { useAgentStats, useAgents } from "@/lib/api/agents";
 import { useAnalyticsStats } from "@/lib/api/analytics";
@@ -113,6 +114,7 @@ export function DashboardScreen({ slug }: { slug: string }) {
     if (firstRunUnstarted) router.replace(href(`/c/${slug}/agents/first`));
   }, [firstRunUnstarted, router, href, slug]);
   const campaignAccess = useWriteAccess(session, "leads:dispatch", "start or run campaigns");
+  const pinAccess = useWriteAccess(session, "copilot:use", "change the pinned charts");
   /*
    * THE NOTICES' READS START WITH THE DASHBOARD'S, not after it. The line notice, the setup
    * checklist, the existing-number prompt and the unanswered-questions row each read their
@@ -302,6 +304,10 @@ export function DashboardScreen({ slug }: { slug: string }) {
         gaps={gaps}
         href={(path) => href(`/c/${slug}${path}`)}
       />
+
+      {/* The charts people kept from the assistant (D-934). Renders nothing until one is
+          pinned. */}
+      <PinnedCards session={session} realm="client" canEdit={pinAccess.allowed} />
 
       {/* The page's one block of figures, and what to do next. */}
       <WeekRecap

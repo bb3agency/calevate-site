@@ -33,6 +33,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from apps.api.copilot.chart_spec import ChartSpec
 from apps.workers.redaction import redact
 
 #: How a form control behaves, in the browser's own vocabulary. `select` is the one that
@@ -889,6 +890,7 @@ STREAM_FRAMES: Final[Mapping[str, type[BaseModel]]] = {
     "navigate": CopilotNavigateEvent,
     "job": CopilotJobEvent,
     "step": CopilotStepEvent,
+    "chart": ChartSpec,
     "done": CopilotDoneEvent,
 }
 

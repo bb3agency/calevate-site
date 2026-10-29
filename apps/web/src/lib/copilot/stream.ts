@@ -12,6 +12,7 @@ import type {
   CopilotSaves,
   CopilotStep,
 } from "./types";
+import type { ChartSpec } from "./charts";
 import type { WireFact, WireField } from "./redaction";
 
 /**
@@ -106,6 +107,12 @@ export interface CopilotStreamHandlers {
    * not follow jobs loses nothing but the card: the answer still says it started one.
    */
   onJob?: (job: CopilotJobFrame) => void;
+  /**
+   * A chart or table of the account's own data (D-934). DATA, never markup: the panel
+   * draws it with the console's chart components. Optional, so a consumer that does not
+   * draw charts loses the picture but not the answer, which says the figures in words.
+   */
+  onChart?: (spec: ChartSpec) => void;
   /** The stream finished properly. `disclosure` is rendered VERBATIM when present. */
   onDone: (done: { disclosure: string | null; metered: boolean }) => void;
 }
@@ -252,6 +259,12 @@ export async function askCopilot(
         const payload = safeJson(event.data) as CopilotJobFrame | null;
         if (typeof payload?.job_id === "string" && payload.job_id !== "") {
           handlers.onJob?.(payload);
+        }
+      } else if (event.event === "chart") {
+        // Guarded on `chart` and `kind`, without which there is nothing to draw.
+        const payload = safeJson(event.data) as ChartSpec | null;
+        if (typeof payload?.chart === "string" && typeof payload.kind === "string") {
+          handlers.onChart?.(payload);
         }
       } else if (event.event === "step") {
         // Guarded on `id`, which pairs the terminal frame with its own `running` one.

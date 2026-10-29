@@ -25,6 +25,7 @@ import { useCopilotConversation, type CopilotTurn } from "@/lib/copilot/useCopil
 import { AnswerText } from "./answerText";
 import { ActionReceipt } from "./ActionReceipt";
 import { AnswerRating } from "./AnswerRating";
+import { ChartCard } from "./ChartCard";
 import { JobCard } from "./JobCard";
 import { NavigationReceipt } from "./NavigationReceipt";
 import { PipConsentGate } from "./PipConsent";
@@ -665,6 +666,17 @@ export function CopilotPanel({
             <JobCard key={job.job_id} session={session} job={job} />
           ))}
         </div>
+
+        {/* CHARTS AND TABLES this answer drew (D-934): data drawn with the console's own
+            components, each with Pin, Open and Copy. Not in the announced region: the answer
+            says the figures in words, and a whole chart read aloud is noise. */}
+        {conversation.charts.length > 0 && (
+          <div className="space-y-3">
+            {conversation.charts.map((spec, index) => (
+              <ChartCard key={`${spec.chart}-${index}`} spec={spec} session={session} realm={realm} />
+            ))}
+          </div>
+        )}
 
         {batch !== null && (
           <div className="border-l-2 border-brand pl-3">

@@ -49,6 +49,7 @@ from apps.api.admin import service as admin_service
 from apps.api.admin.health import client_health
 from apps.api.billing.ai_quota import PLATFORM_AI_BRAKE_INR, read_platform_ai_spend
 from apps.api.copilot import runbooks as runbook_index
+from apps.api.copilot.charts import FLEET_CHART
 from apps.api.copilot.tools import MAX_ROWS, ReadTool, ToolContext, _cap, _clean, _listing
 from apps.api.ops.service import read_halt_state, read_tm_registration
 
@@ -1031,6 +1032,8 @@ ADMIN_READ_TOOLS: Final[tuple[ReadTool, ...]] = (
         scope="platform",
         run=_admin_rate_card,
     ),
+    # D-934: a chart across clients, drawn in the panel (`copilot/charts.py`).
+    FLEET_CHART,
 )
 
 ADMIN_READ_TOOL_NAMES: Final[frozenset[str]] = frozenset(tool.name for tool in ADMIN_READ_TOOLS)

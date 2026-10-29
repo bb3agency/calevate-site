@@ -79,6 +79,20 @@ class BoundedByConstruction:
 
 
 #: The lead-detail suggestion routes (D-889) share one bound.
+#: A home's pinned cards (D-934): `copilot/pins.MAX_PINS` per home, enforced under a lock
+#: by `pins.add_pin` and the LIMIT in `pins.list_pins`.
+_PINS = BoundedByConstruction(
+    by="at most `copilot/pins.MAX_PINS` (12) cards; `pins.list_pins` LIMITs it."
+)
+#: One card's chart: its categories and rows are cut to `copilot/chart_spec.MAX_CHART_ROWS`;
+#: a time series has one point per IST bucket of a window `MAX_CHART_DAYS` bounds.
+_PIN_CARD = BoundedByConstruction(
+    by=(
+        "one chart: categories and rows cut to `chart_spec.MAX_CHART_ROWS`, time series one "
+        "point per IST bucket of at most `chart_spec.MAX_CHART_DAYS` days."
+    )
+)
+
 _ONE_PLAN = BoundedByConstruction(
     by=(
         "one plan; its only list is `exclusions`, the reasons targets were left out, at most "
@@ -435,6 +449,12 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "POST /v1/copilot/plans/{plan_id}/approve": _ONE_PLAN,
     "POST /v1/copilot/plans/{plan_id}/cancel": _ONE_PLAN,
     "POST /v1/copilot/plans": _ONE_PLAN,
+    "GET /v1/copilot/pins": _PINS,
+    "PUT /v1/copilot/pins/order": _PINS,
+    "GET /v1/copilot/pins/{pin_id}/card": _PIN_CARD,
+    "GET /v1/admin/copilot/pins": _PINS,
+    "PUT /v1/admin/copilot/pins/order": _PINS,
+    "GET /v1/admin/copilot/pins/{pin_id}/card": _PIN_CARD,
     "POST /v1/callbacks/bulk": BoundedByConstruction(
         by="one result per submitted id, and `callbacks/routes.MAX_PAGE` (200) bounds the request."
     ),

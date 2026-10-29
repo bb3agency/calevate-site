@@ -33,8 +33,12 @@ type Outcome = NonNullable<SavedViewFilters["last_outcome"]>;
  * A saved view holds the whole lens except the search box and the question
  * (`crm.schemas.SavedViewFilters`), so `viewFilters` and `applyView` are exact inverses.
  */
-export function useLeadsLens(needKey: string = "need", initial: { campaignId?: string } = {}) {
-  const [status, setStatus] = useState<string | undefined>();
+export function useLeadsLens(
+  needKey: string = "need",
+  initial: { campaignId?: string; status?: string } = {},
+) {
+  // `?status=` comes from a link that opens this table on one stage (a Pip chart, D-934).
+  const [status, setStatus] = useState<string | undefined>(initial.status);
   const [search, setSearch] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   /**

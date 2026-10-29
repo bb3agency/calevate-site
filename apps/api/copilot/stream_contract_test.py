@@ -140,6 +140,34 @@ EXPECTED: dict[str, dict[str, Any]] = {
         },
         "required": ["args", "id", "status", "tool"],
     },
+    # D-934: a chart or table, as data. Every value is a decimal string.
+    "chart": {
+        "fields": {
+            "chart": '{"type": "string"}',
+            "args": '{"$ref": "#/$defs/ChartArgs"}',
+            "kind": (
+                '{"enum": ["line", "bar", "stacked_bar", "pie", "number", "table"], '
+                '"type": "string"}'
+            ),
+            "title": '{"type": "string"}',
+            "unit": (
+                '{"enum": ["calls", "leads", "inr", "minutes", "percent", "count"], '
+                '"type": "string"}'
+            ),
+            "x": '{"anyOf": [{"$ref": "#/$defs/ChartAxis"}, {"type": "null"}]}',
+            "series": '{"items": {"$ref": "#/$defs/ChartSeries"}, "type": "array"}',
+            "columns": '{"items": {"$ref": "#/$defs/ChartColumn"}, "type": "array"}',
+            "rows": '{"items": {"items": {"type": "string"}, "type": "array"}, "type": "array"}',
+            "total": '{"anyOf": [{"type": "string"}, {"type": "null"}]}',
+            "counted": '{"type": "string"}',
+            "window_from": '{"anyOf": [{"format": "date", "type": "string"}, {"type": "null"}]}',
+            "window_to": '{"anyOf": [{"format": "date", "type": "string"}, {"type": "null"}]}',
+            "shown": '{"anyOf": [{"type": "integer"}, {"type": "null"}]}',
+            "of": '{"anyOf": [{"type": "integer"}, {"type": "null"}]}',
+            "open": '{"anyOf": [{"$ref": "#/$defs/ChartOpen"}, {"type": "null"}]}',
+        },
+        "required": ["args", "chart", "counted", "kind", "title", "unit"],
+    },
     "done": {
         "fields": {
             "disclosure": '{"anyOf": [{"type": "string"}, {"type": "null"}]}',

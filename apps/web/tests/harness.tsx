@@ -233,6 +233,7 @@ export interface ApiCall {
  * The expiry is far enough out that no test races the console's refresh margin.
  */
 const GRANT_ROUTE = "POST /v1/admin/impersonation-grants";
+const PIN_LISTS = new Set(["GET /v1/copilot/pins", "GET /v1/admin/copilot/pins"]);
 
 function defaultGrant(): Record<string, unknown> {
   return {
@@ -283,6 +284,9 @@ export function stubApi(routes: Routes): ApiCall[] {
       const key = Object.hasOwn(routes, scoped) ? scoped : path;
       if (!Object.hasOwn(routes, key)) {
         if (scoped === GRANT_ROUTE) return jsonResponse(defaultGrant());
+        // Both homes read their pinned charts (D-934); a test that is not about them gets
+        // a home with none, which renders nothing.
+        if (PIN_LISTS.has(scoped)) return jsonResponse({ pins: [], max_pins: 12 });
         // BOTH REALMS' SESSION RESTORE, answered by default (D-177) — the same shape as
         // the grant above and for the same reason. Every `/admin` and `/c/<slug>` screen
         // now sits under a session gate, so a harness that did not answer this would

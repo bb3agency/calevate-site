@@ -525,6 +525,93 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/copilot/pins": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The charts pinned to the admin home, in order */
+        get: operations["list_admin_pins_v1_admin_copilot_pins_get"];
+        put?: never;
+        /** Pin a chart to the admin home */
+        post: operations["add_admin_pin_v1_admin_copilot_pins_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/copilot/pins/order": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Put the admin home's cards in a new order */
+        put: operations["reorder_admin_pins_v1_admin_copilot_pins_order_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/copilot/pins/{pin_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Take a card off the admin home (Undo: POST .../restore) */
+        delete: operations["remove_admin_pin_v1_admin_copilot_pins__pin_id__delete"];
+        options?: never;
+        head?: never;
+        /** Rename a card on the admin home */
+        patch: operations["rename_admin_pin_v1_admin_copilot_pins__pin_id__patch"];
+        trace?: never;
+    };
+    "/v1/admin/copilot/pins/{pin_id}/card": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One admin card's chart, re-run for the operator looking */
+        get: operations["admin_pin_card_v1_admin_copilot_pins__pin_id__card_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/copilot/pins/{pin_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Put a removed card back on the admin home */
+        post: operations["restore_admin_pin_v1_admin_copilot_pins__pin_id__restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/copilot/turns/{turn_id}/vote": {
         parameters: {
             query?: never;
@@ -7579,6 +7666,14 @@ export interface paths {
          *         asking when you cannot tell.
          *       * `screen` and `where` are the console's own words for the destination and are what a
          *         person is told and a screen reader announces. `route` is never rendered or spoken.
+         *     * `event: chart` · `data: {"chart": "...", "args": {"days": 30}, "kind": "line"|"bar"|
+         *       "stacked_bar"|"pie"|"number"|"table", "title": "...", "unit": "...", "x": {...}|null,
+         *       "series": [...], "columns": [...], "rows": [...], "total": null|"...", "counted": "...",
+         *       "window_from": null|"YYYY-MM-DD", "window_to": ..., "shown": null|N, "of": null|N,
+         *       "open": null|{"screen", "path", "query"}}` — a chart or table of the account's own data
+         *       (D-934). DATA, NEVER MARKUP: draw it with the console's chart components and offer its
+         *       table. Every value is a decimal string. `chart` and `args` are the query: pin them with
+         *       `POST /v1/copilot/pins` and the card re-runs under each viewer's permissions.
          *     * `event: step` · `data: {"id": "...", "tool": "...", "status":
          *       "running"|"done"|"refused"|"failed", "args": "...", "detail": null|"...",
          *       "elapsed_ms": null|123}` — one tool call as it happens, two frames per call sharing an
@@ -7879,6 +7974,96 @@ export interface paths {
         put?: never;
         /** Put one of Pip's notes away for the account */
         post: operations["dismiss_copilot_note_v1_copilot_notes__note_id__dismiss_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/copilot/pins": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The charts pinned to this account's home, in order */
+        get: operations["list_client_pins_v1_copilot_pins_get"];
+        put?: never;
+        /**
+         * Pin a chart to this account's home
+         * @description Stores the chart's name and arguments, never its figures.
+         */
+        post: operations["add_client_pin_v1_copilot_pins_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/copilot/pins/order": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Put the pinned cards in a new order */
+        put: operations["reorder_client_pins_v1_copilot_pins_order_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/copilot/pins/{pin_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Take a card off the home (Undo: POST .../restore) */
+        delete: operations["remove_client_pin_v1_copilot_pins__pin_id__delete"];
+        options?: never;
+        head?: never;
+        /** Rename a pinned card */
+        patch: operations["rename_client_pin_v1_copilot_pins__pin_id__patch"];
+        trace?: never;
+    };
+    "/v1/copilot/pins/{pin_id}/card": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One pinned card's chart, re-run for the person looking */
+        get: operations["client_pin_card_v1_copilot_pins__pin_id__card_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/copilot/pins/{pin_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Put a removed card back where it was */
+        post: operations["restore_client_pin_v1_copilot_pins__pin_id__restore_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -16998,6 +17183,130 @@ export interface components {
             variance_inr: string;
             /** Vendor Inr */
             vendor_inr: string;
+        };
+        /**
+         * ChartArgs
+         * @description What a chart was asked for. The same shape in a pin, so a pin replays exactly.
+         */
+        ChartArgs: {
+            /**
+             * Days
+             * @default 30
+             */
+            days: number;
+        };
+        /**
+         * ChartAxis
+         * @description The x axis: IST dates (`YYYY-MM-DD`, each the first day of its bucket) or names.
+         */
+        ChartAxis: {
+            /**
+             * Bucket
+             * @enum {string}
+             */
+            bucket: "day" | "week" | "month" | "category";
+            /** Label */
+            label: string;
+            /** Labels */
+            labels: string[];
+        };
+        /**
+         * ChartColumn
+         * @description One column of a table spec. `numeric` right-aligns it.
+         */
+        ChartColumn: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /**
+             * Numeric
+             * @default false
+             */
+            numeric: boolean;
+        };
+        /**
+         * ChartOpen
+         * @description The console screen that shows the same set, with the same filters.
+         *
+         *     `path` is a constant from the server's own screen inventory, relative to the realm's
+         *     root (`/calls` under `/c/{slug}`, `/health` under `/admin`); `query` is the screen's
+         *     own filter parameters. Neither is ever written by a model.
+         */
+        ChartOpen: {
+            /** Path */
+            path: string;
+            /**
+             * Query
+             * @default {}
+             */
+            query: {
+                [key: string]: string;
+            };
+            /** Screen */
+            screen: string;
+        };
+        /**
+         * ChartSeries
+         * @description One line, one bar colour or the slices of a pie. One value per x label.
+         */
+        ChartSeries: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Values */
+            values: string[];
+        };
+        /**
+         * ChartSpec
+         * @description One chart or table, with the sentence saying how it was counted.
+         */
+        ChartSpec: {
+            args: components["schemas"]["ChartArgs"];
+            /** Chart */
+            chart: string;
+            /**
+             * Columns
+             * @default []
+             */
+            columns: components["schemas"]["ChartColumn"][];
+            /** Counted */
+            counted: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "line" | "bar" | "stacked_bar" | "pie" | "number" | "table";
+            /** Of */
+            of?: number | null;
+            open?: components["schemas"]["ChartOpen"] | null;
+            /**
+             * Rows
+             * @default []
+             */
+            rows: string[][];
+            /**
+             * Series
+             * @default []
+             */
+            series: components["schemas"]["ChartSeries"][];
+            /** Shown */
+            shown?: number | null;
+            /** Title */
+            title: string;
+            /** Total */
+            total?: string | null;
+            /**
+             * Unit
+             * @enum {string}
+             */
+            unit: "calls" | "leads" | "inr" | "minutes" | "percent" | "count";
+            /** Window From */
+            window_from?: string | null;
+            /** Window To */
+            window_to?: string | null;
+            x?: components["schemas"]["ChartAxis"] | null;
         };
         /** CheckIn */
         CheckIn: {
@@ -26327,6 +26636,61 @@ export interface components {
             /** Qualify Rate Pct */
             qualify_rate_pct: number | null;
         };
+        /**
+         * PinCardOut
+         * @description One card, re-run for the viewer: `spec`, or `refused` with the reason.
+         */
+        PinCardOut: {
+            pin: components["schemas"]["PinOut"];
+            /** Refused */
+            refused: string | null;
+            spec: components["schemas"]["ChartSpec"] | null;
+        };
+        /** PinIn */
+        PinIn: {
+            /**
+             * @default {
+             *       "days": 30
+             *     }
+             */
+            args: components["schemas"]["ChartArgs"];
+            /** Chart */
+            chart: string;
+            /** Title */
+            title: string;
+        };
+        /** PinOrderIn */
+        PinOrderIn: {
+            /** Ids */
+            ids: string[];
+        };
+        /** PinOut */
+        PinOut: {
+            args: components["schemas"]["ChartArgs"];
+            /** Chart */
+            chart: string;
+            /** Id */
+            id: string;
+            /** Position */
+            position: number;
+            /** Title */
+            title: string;
+        };
+        /**
+         * PinPageOut
+         * @description The home's cards, in order, and how many it may hold.
+         */
+        PinPageOut: {
+            /** Max Pins */
+            max_pins: number;
+            /** Pins */
+            pins: components["schemas"]["PinOut"][];
+        };
+        /** PinRenameIn */
+        PinRenameIn: {
+            /** Title */
+            title: string;
+        };
         /** PinnedNotYetOut */
         PinnedNotYetOut: {
             /**
@@ -34965,6 +35329,229 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CopilotNotesOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_admin_pins_v1_admin_copilot_pins_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PinPageOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    add_admin_pin_v1_admin_copilot_pins_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PinIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PinOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    reorder_admin_pins_v1_admin_copilot_pins_order_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PinOrderIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PinPageOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    remove_admin_pin_v1_admin_copilot_pins__pin_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pin_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PinOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    rename_admin_pin_v1_admin_copilot_pins__pin_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pin_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PinRenameIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PinOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    admin_pin_card_v1_admin_copilot_pins__pin_id__card_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pin_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PinCardOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    restore_admin_pin_v1_admin_copilot_pins__pin_id__restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pin_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PinOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -48103,6 +48690,229 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CopilotNoteAckOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_client_pins_v1_copilot_pins_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PinPageOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    add_client_pin_v1_copilot_pins_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PinIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PinOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    reorder_client_pins_v1_copilot_pins_order_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PinOrderIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PinPageOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    remove_client_pin_v1_copilot_pins__pin_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pin_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PinOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    rename_client_pin_v1_copilot_pins__pin_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pin_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PinRenameIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PinOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    client_pin_card_v1_copilot_pins__pin_id__card_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pin_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PinCardOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    restore_client_pin_v1_copilot_pins__pin_id__restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pin_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PinOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

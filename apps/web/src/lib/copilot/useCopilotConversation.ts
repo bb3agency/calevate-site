@@ -30,6 +30,7 @@ import type {
   CopilotProposal,
   CopilotStep,
 } from "./types";
+import type { ChartSpec } from "./charts";
 import type { SurfaceHolder } from "./registry";
 
 /**
@@ -162,6 +163,8 @@ export interface CopilotConversation {
   actions: CopilotAction[];
   /** Background jobs started from this panel, oldest first (D-694). */
   jobs: CopilotJobFrame[];
+  /** Charts and tables this answer drew, in order (D-934). Cleared by the next question. */
+  charts: ChartSpec[];
   /**
    * THE SCREEN THIS ANSWER ASKED TO OPEN, or `null`. D-524.
    *
@@ -352,6 +355,7 @@ export function useCopilotConversation(
   // BACKGROUND JOBS this panel started (D-694). NOT cleared by the next question — a job
   // outlives the answer that started it, and its card is how the person follows it.
   const [jobs, setJobs] = useState<CopilotJobFrame[]>([]);
+  const [charts, setCharts] = useState<ChartSpec[]>([]);
   const [navigation, setNavigation] = useState<CopilotNavigation | null>(null);
   const [steps, setSteps] = useState<CopilotStep[]>([]);
 
@@ -547,6 +551,7 @@ export function useCopilotConversation(
     setBatch(null);
     setProposal(null);
     setActions([]);
+    setCharts([]);
     setJobs([]);
     setNavigation(null);
     setSteps([]);
@@ -614,6 +619,7 @@ export function useCopilotConversation(
       // being greyed out: the record of it is in the audit log and on the object's own
       // screen, not in a chat panel.
       setActions([]);
+      setCharts([]);
       // …and any destination the previous answer named. A move nobody made by the time the
       // next question was typed is a move the person did not want; carrying it forward would
       // navigate them out of the conversation they just started.
@@ -736,6 +742,9 @@ export function useCopilotConversation(
             // through the same map a confirmed change uses (D-854: the first-agent card).
             if (performed.applied) refreshAfterConfirm(queries, session.orgSlug, performed.tool);
           },
+          onChart: (spec) => {
+            setCharts((previous) => [...previous, spec]);
+          },
           onJob: (started) => {
             setJobs((previous) =>
               previous.some((job) => job.job_id === started.job_id)
@@ -851,6 +860,7 @@ export function useCopilotConversation(
     proposal,
     actions,
     jobs,
+    charts,
     navigation,
     clearNavigation,
     steps,

@@ -75,6 +75,9 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "admin/fleet-spend",
     "admin/margin",
     "admin/tenants",
+    // Pinned charts (D-934) re-run their chart; they move with the data they draw.
+    "pin-card",
+    "admin/pin-card",
   ],
   leads: [
     ...SUMMARY,
@@ -97,6 +100,7 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     // `lead_field_drafts` announces `leads`; a draft that fails writes nothing else.
     "lead-fields",
     "admin/lead-fields",
+    "pin-card",
   ],
   campaigns: [
     ...SUMMARY,
@@ -112,6 +116,7 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "legal-readiness",
     "admin/campaigns",
     "admin/campaign-check",
+    "pin-card",
   ],
   callbacks: [
     ...SUMMARY,
@@ -124,8 +129,9 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "calls-log",
     "lead",
     "leads",
+    "pin-card",
   ],
-  knowledge_gaps: [...SUMMARY, "knowledge-gaps", "readiness", "teach-questions"],
+  knowledge_gaps: [...SUMMARY, "knowledge-gaps", "readiness", "teach-questions", "pin-card"],
   knowledge: [
     "kb-preview",
     "kb-staff-curation",
@@ -174,6 +180,8 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "admin/trial",
     "admin/tts-speaking-rate",
     "admin-payments",
+    "pin-card",
+    "admin/pin-card",
   ],
   agents: [
     ...SUMMARY,
@@ -220,6 +228,7 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "admin/lead-suggestions",
     "admin/llm-defaults",
     "admin/ops/live-apply",
+    "pin-card",
   ],
   numbers: [
     "attention",
@@ -293,6 +302,8 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "admin/tenant-erasure",
     "admin/whatsapp-alerts",
     "admin/client-health",
+    // The account's pinned charts (D-934).
+    "pins",
   ],
   integrations: [
     // A failed delivery is an item in the attention queue and the bell (`crm/attention.
@@ -323,8 +334,8 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "copilot-routine-runs",
     "copilot-routines",
   ],
-  quality: ["quality", "admin/qa-samples"],
-  healer: ["healer", "admin/healer", "admin/client-health"],
+  quality: ["quality", "admin/qa-samples", "pin-card"],
+  healer: ["healer", "admin/healer", "admin/client-health", "admin/pin-card"],
   alerts: ["admin/ops/alerts"],
   // Operator-stream only: a client's stream never carries `platform`, so the client
   // screens below that read platform settings keep their own polls.
@@ -354,6 +365,8 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "admin/tts-speaking-rate",
     "client/maintenance",
     "engine-catalogue",
+    // The operators' pinned charts (D-934).
+    "admin/pins",
   ],
 };
 

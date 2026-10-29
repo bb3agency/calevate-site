@@ -160,6 +160,14 @@ form fields, and can open another screen of the console. Streams `text/event-str
     asking when you cannot tell.
   * `screen` and `where` are the console's own words for the destination and are what a
     person is told and a screen reader announces. `route` is never rendered or spoken.
+* `event: chart` · `data: {"chart": "...", "args": {"days": 30}, "kind": "line"|"bar"|
+  "stacked_bar"|"pie"|"number"|"table", "title": "...", "unit": "...", "x": {...}|null,
+  "series": [...], "columns": [...], "rows": [...], "total": null|"...", "counted": "...",
+  "window_from": null|"YYYY-MM-DD", "window_to": ..., "shown": null|N, "of": null|N,
+  "open": null|{"screen", "path", "query"}}` — a chart or table of the account's own data
+  (D-934). DATA, NEVER MARKUP: draw it with the console's chart components and offer its
+  table. Every value is a decimal string. `chart` and `args` are the query: pin them with
+  `POST /v1/copilot/pins` and the card re-runs under each viewer's permissions.
 * `event: step` · `data: {"id": "...", "tool": "...", "status":
   "running"|"done"|"refused"|"failed", "args": "...", "detail": null|"...",
   "elapsed_ms": null|123}` — one tool call as it happens, two frames per call sharing an
@@ -805,6 +813,9 @@ async def ask_copilot(
                 # screen name is this product's own vocabulary rather than a value.
                 navigated = event.navigate.screen
                 yield ServerSentEvent(event="navigate", data=event.navigate)
+            if event.chart is not None:
+                # A chart or table drawn in the panel (D-934): data, never markup.
+                yield ServerSentEvent(event="chart", data=event.chart)
             if event.job is not None:
                 # A BACKGROUND JOB STARTED (D-694). Its row and its outbox message committed
                 # before this frame; the panel follows it on the jobs routes below.

@@ -19,6 +19,8 @@ import {
 } from "@/components/admin/kit";
 import { EmptyState } from "@/components/console/emptyState";
 import { PageHeader } from "@/components/console/pageHeader";
+import { PinnedCards } from "@/components/copilot/PinnedCards";
+import { adminSession } from "@/lib/api/admin";
 import { RowMenu } from "@/components/arc/menu";
 import { SearchField } from "@/components/arc/search-field";
 import {
@@ -318,6 +320,9 @@ export default function AdminClientsPage() {
       <RestrictionNote reason={create.reason} />
 
       <NoOwnerAccounts />
+
+      {/* The charts operators kept from the assistant (D-934); nothing until one is pinned. */}
+      <PinnedCards session={adminSession()} realm="admin" canEdit />
 
       {/* THE SEARCH AND THE FILTERS ARE THE SERVER'S: the roster is paged, so a filter over
           the loaded page would narrow 25 accounts and claim to have searched the platform. */}
