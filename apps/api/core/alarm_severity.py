@@ -241,6 +241,7 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "engine_rejected": "attention",
     "engine_rate_limited": "attention",
     "engine_bad_response": "attention",
+    "engine_live_call_slow": "attention",
     # A ThinnestAI agent config that did not state `byok` was refused before it was sent:
     # left unstated it would follow a switched-on workspace onto our voice key.
     "engine_agent_byok_unstated": "attention",
