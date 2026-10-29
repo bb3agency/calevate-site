@@ -128,19 +128,20 @@ Four detectors, arranged so each covers the one above's blind spot
    signal or exits above 125 (`command not found` is 127), the archiver aborts and is
    restarted by the postmaster and *the failure is not reported in `pg_stat_archiver`*.
    Delete the wal-g binary and this check stays green.
-2. **Freshness of `last_archived_time`** — catches (1)'s blind spot locally: whatever the
-   reason, the "when did a segment last leave" clock stops. Threshold three `archive_timeout`
-   intervals, read from the live server (90 min at the shipped 1800 s, D-928), so a quiet
-   stretch is not a stall. Blind spot: it
+2. **WAL waiting behind the last archived segment** — catches (1)'s blind spot locally:
+   whatever the reason, WAL written after `last_archived_wal` stays unshipped. Threshold
+   three `archive_timeout` intervals, read from the live server (90 min at the shipped
+   1800 s, D-928). It is NOT the age of `last_archived_time`: an idle cluster switches and
+   archives nothing, so that age grows all night on a healthy host. Blind spot: it
    believes PostgreSQL that the segment left.
 3. **`wal-g wal-verify integrity timeline`** against the bucket — the only check that looks
    at where the data actually has to be, and the only one that catches "`archive_command`
    returned 0 and the object is not there". Also the only one that finds a *hole* in the
    chain, which is what makes a point-in-time target unreachable. Hourly; it costs network.
-4. **`pg_ls_waldir()` segment count** — the consequence check. A stalled archiver piles
-   unarchived segments into `pg_wal` until the volume fills and the cluster stops accepting
-   writes. This is how a backup incident becomes an outage, so it alerts earlier and
-   separately.
+4. **`.ready` segments and `pg_wal` size** — the consequence check. A stalled archiver
+   piles unarchived segments into `pg_wal` until the volume fills and the cluster stops
+   accepting writes. The backlog is the `.ready` count, never pg_wal's file count:
+   `wal_keep_size` keeps 64 archived segments there on purpose.
 
 Plus the failure a script cannot report about itself: **`OnFailure=` on every unit**
 (`calevate-backup-alert@.service`) fires when the run was OOM-killed, died on a signal, or
@@ -166,6 +167,34 @@ stops is what kills you:
    the only one that survives the host, systemd or the mail path being gone. A run in
    which 1-6 all passed pings a hosted check; silence pages. See "The detector that
    reports by NOT running" below — it has its own configuration and its own runbook.
+
+### Every alarm is tested against a healthy steady state
+
+Two false pages (`wal_chain_broken` 29 Oct 2026, `pg_wal_backlog` 30 Oct 2026) came from
+test fixtures that did not look like a healthy host. Each check is now pinned on both sides
+in `tests/backup_health_steady_state_test.py`, with the healthy fixture derived from the
+shipped files (`postgresql-archiving.conf`, the timers, `basebackup.sh`) at the worst
+instant a healthy host reaches. Shipped values: `archive_timeout` 1800 s, `wal_keep_size`
+1GB, nightly backup 02:30 IST + up to 300 s jitter (IST has no DST), 35 fulls kept, health
+every 15 min.
+
+| Alarm | Measures | Healthy day-2 / day-30 value | Threshold | Real failure |
+| --- | --- | --- | --- | --- |
+| `archiver_failing` | latest archive attempt failed, still on the next run | 0; a retried blip clears within seconds | failing ≥ 600 s (two runs) | archive command keeps failing |
+| `archive_stale` | how long WAL has waited behind the last archived segment | 0 idle; ≤ ~45 min busy (one interval + one run) | > 3 × `archive_timeout` (5400 s) | archiver dead (incl. exit > 125, invisible to the counters) |
+| `archiver_never_succeeded` | as above, with no successful archive in the counters | NULL for minutes after a crash reset the counters | > 5400 s | archiving never worked |
+| `pg_wal_backlog` | `.ready` files | 0-2 | > 16 | archive stalled under writes |
+| `pg_wal_oversize` | pg_wal bytes | ≤ 1GB + 1 segment + checkpoint WAL | `wal_keep_size` + 2 × `max_wal_size` (3GB) | slot or stalled archive holding WAL |
+| `wal_chain_broken` / `_warning` | wal-verify's two verdicts | OK (one FOUND range over 35 days) | any FAILURE / WARNING | a lost segment, a diverged timeline |
+| `base_backup_stale` | newest `backup-list` `time` | ≤ 24 h + 300 s + push duration | > 36 h | a missed night |
+| `wal_verify_failed`, `backup_list_failed` | wal-g ran, inside 300 s | a few seconds; 35 sentinel GETs + a few LISTs an hour | exit ≠ 0 or 300 s | credentials, network, a hung wal-g |
+| `backup_timer_not_firing` | timer's last trigger, or how long armed and never fired | basebackup ≤ 24 h + 300 s; health ≤ 15 min; `n/a` after install or (health) a reboot | > 36 h / > 1 h | timer stopped, or armed past its allowance and never fired |
+| `backup_timer_missing` / `_inactive` | unit state | loaded, active | anything else | unit lost, masked, stopped |
+| `backup_health_gap` | time since this check last ran | ≤ 15 min (≤ ~25 min across a reboot) | > 45 min | schedule stopped, host down |
+
+Not derivable from shipped files, so not pinned: `disk_pressure` and
+`disk_below_build_floor` (`scripts/deploy/host-hygiene.sh`), whose healthy value depends on
+the host's disk size.
 
 ### The alert path — where a host failure actually goes
 

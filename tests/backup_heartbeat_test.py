@@ -125,7 +125,7 @@ WAL_LIMIT_BYTES = _shipped_wal_keep_bytes() + 2 * 1024**3
 def _psql(*, ready: str = "0", wal: str = f"{DAY_TWO_WAL_BYTES}|{WAL_LIMIT_BYTES}") -> str:
     return f"""#!/bin/sh
 case "$*" in
-  *pg_stat_archiver*)        echo "4200|0|30|f" ;;
+  *pg_stat_archiver*)        echo "4200|0|30|f|f|0000000100000000000000A4" ;;
   *pg_ls_archive_statusdir*) echo "{ready}" ;;
   *pg_ls_waldir*)            echo "{wal}" ;;
   *)                         echo "" ;;
@@ -166,7 +166,7 @@ def _walg_healthy(wal_verify: str = WAL_VERIFY_DOCS_EXAMPLE) -> str:
     return f"""#!/bin/sh
 case "$1" in
   wal-verify)  echo '{wal_verify}' ;;
-  backup-list) echo '[{{"finish_time":"{now}"}}]' ;;
+  backup-list) echo '[{{"backup_name":"base_1","time":"{now}"}}]' ;;
   *)           exit 1 ;;
 esac
 """
@@ -185,6 +185,7 @@ def _run_health(
     heartbeat_url: str | None,
     wal_verify: str = WAL_VERIFY_DOCS_EXAMPLE,
     psql: str = PSQL_HEALTHY,
+    walg: str | None = None,
     **extra: str,
 ) -> subprocess.CompletedProcess[str]:
     """`backup-health.sh` on a host where everything is stubbed healthy unless a test
@@ -192,7 +193,7 @@ def _run_health(
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(exist_ok=True)
     _stub(bin_dir, "psql", psql)
-    _stub(bin_dir, "wal-g", _walg_healthy(wal_verify))
+    _stub(bin_dir, "wal-g", walg if walg is not None else _walg_healthy(wal_verify))
     _stub(bin_dir, "systemctl", systemctl)
     # The alert path is not the subject here, and the real default relay would start an
     # interpreter per alert. Recording them keeps the failure test honest about WHY it
@@ -296,29 +297,6 @@ def test_a_check_verdict_other_than_ok_alarms_by_its_severity(
     assert (proc.returncode != 0) is fails
     other = "wal_chain_broken" if code == "wal_chain_warning" else "wal_chain_warning"
     assert other not in proc.stderr
-
-
-@requires_posix_shell
-@pytest.mark.parametrize(
-    ("timeout_s", "age_s", "stale"),
-    [("1800", "5000", False), ("1800", "5500", True), ("300", "1000", True), ("", "5000", False)],
-)
-def test_the_stall_alarm_follows_the_live_archive_interval(
-    tmp_path: Path, timeout_s: str, age_s: str, stale: bool
-) -> None:
-    """D-928: three missed `archive_timeout` intervals, read from the server, so changing
-    the interval needs no edit here. Unreadable falls back to 5400 s."""
-    psql = f"""#!/bin/sh
-case "$*" in
-  *pg_settings*)      echo "{timeout_s}" ;;
-  *pg_stat_archiver*) echo "4200|0|{age_s}|f" ;;
-  *pg_ls_archive_statusdir*) echo "0" ;;
-  *pg_ls_waldir*)     echo "{DAY_TWO_WAL_BYTES}|{WAL_LIMIT_BYTES}" ;;
-  *)                  echo "" ;;
-esac
-"""
-    proc = _run_health(tmp_path, heartbeat_url=None, psql=psql)
-    assert ("archive_stale" in proc.stderr) is stale, proc.stderr
 
 
 @requires_posix_shell

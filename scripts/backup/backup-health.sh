@@ -12,9 +12,11 @@
 #      archiver process aborts and is restarted by the postmaster, and THE FAILURE IS NOT
 #      REPORTED IN pg_stat_archiver. Deleting the wal-g binary is therefore a failure this
 #      check cannot see. (postgresql.org/docs/16/monitoring-stats.html, pg_stat_archiver.)
-#   2. Freshness of the last successful archive — catches (1)'s blind spot from the local
-#      side: whatever the reason, the counter of "when did a segment last leave" stops
-#      moving. BLIND SPOT: it trusts PostgreSQL's word that the segment left.
+#   2. WAL left unarchived too long — catches (1)'s blind spot from the local side: whatever
+#      the reason, WAL written after the last archived segment stays there. Measured as how
+#      long that has been true, not as the age of the last archive, because an idle cluster
+#      archives nothing at all (see §1+2). BLIND SPOT: it trusts PostgreSQL's word that the
+#      segment left.
 #   3. wal-g's own view of the DESTINATION — `wal-verify` walks the archive in the bucket
 #      and reports holes in the WAL chain. This is the only check that looks at where the
 #      data actually has to be, and the only one that can catch "archive_command returns 0
@@ -58,10 +60,10 @@ notify="$here/notify.sh"
 WALG_CONFIG_PATH=${WALG_CONFIG_PATH:-/etc/wal-g/walg.json}
 export WALG_CONFIG_PATH
 
-# Thresholds. The archive-age one (MAX_ARCHIVE_AGE_S) is derived below from the live
-# `archive_timeout`, once psql is set up: three missed intervals is a real stall rather
-# than a quiet stretch, and the threshold follows the interval when it is changed (D-928).
-# Set MAX_ARCHIVE_AGE_S to override.
+# Thresholds. The unarchived-WAL one (MAX_ARCHIVE_AGE_S) is derived below from the live
+# `archive_timeout`, once psql is set up: WAL waiting three intervals is a stall, since a
+# working server switches and ships it within one, and the threshold follows the interval
+# when it is changed (D-928). Set MAX_ARCHIVE_AGE_S to override.
 # One nightly base backup, so 36h allows a single missed night to be noticed as a warning
 # rather than a surprise, and does not fire because the timer ran at 03:05 instead of 02:55.
 MAX_BASEBACKUP_AGE_S=${MAX_BASEBACKUP_AGE_S:-129600}
@@ -69,8 +71,19 @@ MAX_BASEBACKUP_AGE_S=${MAX_BASEBACKUP_AGE_S:-129600}
 # holds 0-2; 16 (256MB) is a real backlog while the disk still has room. The pg_wal SIZE
 # limit is not a constant: it is read from the live settings below.
 MAX_READY_SEGMENTS=${MAX_READY_SEGMENTS:-16}
-# wal-verify walks the bucket; hourly is enough and keeps Class B operations negligible.
+# wal-verify lists the WAL folder (R2 Class A) and reads every retained base backup's
+# sentinel (Class B, one per backup: 35 at keep_full=35). Hourly that is ~4k Class A and
+# ~26k Class B requests a month against R2's 1M / 10M free tier
+# (developers.cloudflare.com/r2/pricing, 30 Oct 2026; wal-g v3.0.9
+# integrity_check_runner.go getEarliestBackupStartSegmentNo).
 WAL_VERIFY_INTERVAL_S=${WAL_VERIFY_INTERVAL_S:-3600}
+# Each wal-g call is a few seconds on a healthy archive. A hung one (the wal-g #1639 class)
+# is reported as that call failing, and every other check still runs, instead of the whole
+# run being killed at the unit's TimeoutStartSec with nothing said.
+WALG_TIMEOUT_S=${WALG_TIMEOUT_S:-300}
+# A single failed archive attempt that the archiver's own retry then fixes is not an
+# incident; one still failing on the next run is.
+ARCHIVER_FAILING_GRACE_S=${ARCHIVER_FAILING_GRACE_S:-600}
 # One directory for every stamp this host keeps, so there is one thing to `chown postgres`
 # and one thing to look at when a check believes the wrong thing about time.
 HEALTH_STATE_DIR=${HEALTH_STATE_DIR:-/var/lib/postgresql}
@@ -80,6 +93,10 @@ HEALTH_HEARTBEAT_STAMP=${HEALTH_HEARTBEAT_STAMP:-$HEALTH_STATE_DIR/.calevate-hea
 # CHANGE is what reaches the journal. Without it, an unarmed dead man would either be
 # announced 96 times a day — which is how a line stops being read — or not at all.
 HEARTBEAT_STATE_STAMP=${HEARTBEAT_STATE_STAMP:-$HEALTH_STATE_DIR/.calevate-heartbeat-state}
+# `<last_archived_wal> <epoch>`: when this check first saw WAL waiting behind that segment.
+WAL_PENDING_STAMP=${WAL_PENDING_STAMP:-$HEALTH_STATE_DIR/.calevate-wal-pending-since}
+# `<epoch>`: when this check first saw the latest archive attempt failing.
+ARCHIVER_FAILING_STAMP=${ARCHIVER_FAILING_STAMP:-$HEALTH_STATE_DIR/.calevate-archiver-failing-since}
 # Three missed runs of a 15-minute timer. Two would fire on a slow boot or a long
 # `wal-verify`; three is a schedule that stopped rather than one that slipped.
 MAX_HEALTH_GAP_S=${MAX_HEALTH_GAP_S:-2700}
@@ -133,37 +150,88 @@ if [[ "$last_heartbeat" =~ ^[0-9]+$ ]] && (( last_heartbeat > 0 )); then
 fi
 
 # --- 1 + 2. The archiver's own view -----------------------------------------------
-# One query, so the two facts are consistent with each other. A NULL last_archived_time on
-# a cluster that has been up for a while is itself the finding: archiving was configured
-# and has never once succeeded.
-read -r archived_count failed_count archive_age failed_after_archived < <(
+# One query, so the facts are consistent with each other.
+#
+# WHY NOT "last_archived_time is older than N". An idle cluster writes no WAL, so
+# archive_timeout switches nothing and nothing is archived: PostgreSQL switches "whenever
+# this amount of time has elapsed since the last segment file switch, and there has been
+# any database activity" (postgresql.org/docs/16/runtime-config-wal.html, 30 Oct 2026). A
+# quiet night therefore ages last_archived_time without limit on a healthy host. The
+# question that is actually a failure is "has WAL been waiting behind the last archived
+# segment for too long", so `pending` asks whether the segment holding the current write
+# position is past last_archived_wal. pg_walfile_name names the PRECEDING file when the
+# position sits exactly on a boundary, which is where a switch leaves an idle cluster, so
+# idle reads as not pending (same docs, functions-admin.html §9.27.3). The first 24
+# characters drop a `.backup`/`.partial` suffix; a `.history` name (just after a promotion)
+# counts as pending until the next segment is archived.
+#
+# The time it has been pending is kept in a stamp, keyed by last_archived_wal: any
+# successful archive changes the key and restarts the clock, so a busy cluster that keeps
+# archiving never accumulates, and one whose archiver has stopped does.
+#
+# A NULL last_archived_time is not proof of a fault either: an unclean shutdown resets
+# every statistics counter (monitoring-stats.html §28.2.1), so the first runs after a crash
+# see NULL on a working archiver. It counts as pending under the key `none` and alarms only
+# if nothing has been archived for the same threshold.
+read -r archived_count failed_count archive_age failed_after_archived pending last_wal < <(
   "${PSQL[@]}" -c "
     SELECT archived_count,
            failed_count,
            coalesce(extract(epoch FROM now() - last_archived_time)::bigint, -1),
            (last_failed_time IS NOT NULL
-            AND (last_archived_time IS NULL OR last_failed_time > last_archived_time))
+            AND (last_archived_time IS NULL OR last_failed_time > last_archived_time)),
+           CASE WHEN pg_is_in_recovery() THEN false
+                WHEN last_archived_wal ~ '^[0-9A-F]{24}'
+                THEN pg_walfile_name(pg_current_wal_lsn()) > left(last_archived_wal, 24)
+                ELSE true END,
+           coalesce(last_archived_wal, 'none')
     FROM pg_stat_archiver;" 2>/dev/null | tr '|' ' '
 ) || true
 
-if [[ -z "${archived_count:-}" ]]; then
+if [[ -z "${archived_count:-}" || -z "${last_wal:-}" ]]; then
   alert health_db_unreachable "could not read pg_stat_archiver; the archiver's state is unknown"
 else
   if [[ "$failed_after_archived" == "t" ]]; then
-    # Deliberately not logging last_failed_wal's value here — it is harmless, but the rule
-    # is ids and counts only, and the segment name is in the PostgreSQL log for whoever
-    # opens the runbook.
-    alert archiver_failing \
-      "pg_stat_archiver reports the most recent archive attempt FAILED; WAL is not reaching the bucket" \
-      "failed_count=$failed_count" "archived_count=$archived_count"
+    failing_since=""
+    [[ -r "$ARCHIVER_FAILING_STAMP" ]] && failing_since=$(cat "$ARCHIVER_FAILING_STAMP" 2>/dev/null || echo "")
+    if [[ ! "$failing_since" =~ ^[0-9]+$ ]]; then
+      failing_since=$now
+      printf '%s' "$now" > "$ARCHIVER_FAILING_STAMP" || true
+    fi
+    if (( now - failing_since >= ARCHIVER_FAILING_GRACE_S )); then
+      # Deliberately not logging last_failed_wal's value here — it is harmless, but the
+      # rule is ids and counts only, and the segment name is in the PostgreSQL log.
+      alert archiver_failing \
+        "pg_stat_archiver reports archive attempts FAILING since the previous check; WAL is not reaching the bucket" \
+        "failed_count=$failed_count" "archived_count=$archived_count" "failing_s=$(( now - failing_since ))"
+    fi
+  else
+    rm -f -- "$ARCHIVER_FAILING_STAMP"
   fi
-  if [[ "$archive_age" -lt 0 ]]; then
-    alert archiver_never_succeeded \
-      "pg_stat_archiver has no last_archived_time: archiving has never succeeded on this cluster"
-  elif [[ "$archive_age" -gt "$MAX_ARCHIVE_AGE_S" ]]; then
-    alert archive_stale \
-      "no WAL segment archived in over $(( MAX_ARCHIVE_AGE_S / 60 )) min (three archive intervals); recent writes are not backed up" \
-      "archive_age_s=$archive_age" "threshold_s=$MAX_ARCHIVE_AGE_S"
+
+  pending_s=0
+  if [[ "$pending" == "t" ]]; then
+    stamp_key="" stamp_since=""
+    [[ -r "$WAL_PENDING_STAMP" ]] && read -r stamp_key stamp_since < "$WAL_PENDING_STAMP"
+    if [[ "$stamp_key" == "$last_wal" && "$stamp_since" =~ ^[0-9]+$ ]]; then
+      pending_s=$(( now - stamp_since ))
+    else
+      printf '%s %s\n' "$last_wal" "$now" > "$WAL_PENDING_STAMP" || true
+    fi
+  else
+    rm -f -- "$WAL_PENDING_STAMP"
+  fi
+
+  if (( pending_s > MAX_ARCHIVE_AGE_S )); then
+    if [[ "$archive_age" -lt 0 ]]; then
+      alert archiver_never_succeeded \
+        "WAL is waiting and pg_stat_archiver has no successful archive at all: archiving is not working on this cluster" \
+        "pending_s=$pending_s" "threshold_s=$MAX_ARCHIVE_AGE_S"
+    else
+      alert archive_stale \
+        "WAL written after the last archived segment has waited over $(( MAX_ARCHIVE_AGE_S / 60 )) min (three archive intervals); recent writes are not backed up" \
+        "pending_s=$pending_s" "archive_age_s=$archive_age" "threshold_s=$MAX_ARCHIVE_AGE_S"
+    fi
   fi
 fi
 
@@ -201,7 +269,7 @@ if command -v wal-g >/dev/null && [[ -r "$WALG_CONFIG_PATH" ]]; then
   [[ -r "$WAL_VERIFY_STAMP" ]] && last_verify=$(cat "$WAL_VERIFY_STAMP" 2>/dev/null || echo 0)
 
   if (( now - last_verify >= WAL_VERIFY_INTERVAL_S )); then
-    if verify_json=$(wal-g wal-verify integrity timeline --json 2>/dev/null); then
+    if verify_json=$(timeout "$WALG_TIMEOUT_S" wal-g wal-verify integrity timeline --json 2>/dev/null); then
       # Only each CHECK's verdict: the `status` of every top-level object (`integrity`,
       # `timeline`). Nested `details` entries carry a per-segment-range status too (FOUND,
       # MISSING_DELAYED, ...), and reading those as verdicts paged `wal_chain_broken` on
@@ -233,7 +301,7 @@ if command -v wal-g >/dev/null && [[ -r "$WALG_CONFIG_PATH" ]]; then
 
     # Freshness of the newest base backup, read from the bucket rather than from a local
     # timestamp — a local success marker survives the bucket being emptied.
-    if backups_json=$(wal-g backup-list --json 2>/dev/null); then
+    if backups_json=$(timeout "$WALG_TIMEOUT_S" wal-g backup-list --json 2>/dev/null); then
       newest=$(printf '%s' "$backups_json" \
         | jq -r '[.[] | (.finish_time // .time // .start_time // empty)] | sort | last // empty' 2>/dev/null)
       if [[ -z "$newest" || "$newest" == "null" ]]; then
@@ -280,13 +348,15 @@ if command -v systemctl >/dev/null 2>&1; then
     unit=${spec%%:*}
     max_age=${spec##*:}
     if ! properties=$(systemctl show "$unit" \
-        --property=ActiveState --property=LoadState --property=LastTriggerUSec 2>/dev/null); then
+        --property=ActiveState --property=LoadState --property=LastTriggerUSec \
+        --property=ActiveEnterTimestamp 2>/dev/null); then
       echo "backup-health: systemd is not answering; the schedule was not checked" >&2
       break
     fi
     active=$(printf '%s\n' "$properties" | sed -n 's/^ActiveState=//p')
     loaded=$(printf '%s\n' "$properties" | sed -n 's/^LoadState=//p')
     last_trigger=$(printf '%s\n' "$properties" | sed -n 's/^LastTriggerUSec=//p')
+    armed_at=$(printf '%s\n' "$properties" | sed -n 's/^ActiveEnterTimestamp=//p')
 
     if [[ "$loaded" == "not-found" || "$loaded" == "masked" ]]; then
       # A deploy that rewrites /etc/systemd/system, or a masked unit somebody forgot to
@@ -303,16 +373,31 @@ if command -v systemctl >/dev/null 2>&1; then
         "unit=$unit" "active_state=$active"
       continue
     fi
-    last_epoch=""
-    [[ -n "$last_trigger" && "$last_trigger" != "n/a" && "$last_trigger" != "0" ]] \
-      && last_epoch=$(date -d "$last_trigger" +%s 2>/dev/null || echo "")
+    if [[ -z "$last_trigger" || "$last_trigger" == "n/a" || "$last_trigger" == "0" ]]; then
+      # Not fired since it was armed. That is normal for as long as the unit's own
+      # allowance: the nightly timer installed at 15:00 first fires at 02:30, and a timer
+      # without Persistent= forgets its last trigger across a reboot (systemd.timer(5):
+      # only Persistent= stores it on disk), so the health timer reads `n/a` until its
+      # OnBootSec run — which is exactly when basebackup.sh's catch-up run, fired at boot
+      # by Persistent=, calls this script. Armed longer than the allowance and still never
+      # fired is the finding: "enabled" is not "has run".
+      armed_epoch=""
+      [[ -n "$armed_at" && "$armed_at" != "n/a" ]] \
+        && armed_epoch=$(date -d "$armed_at" +%s 2>/dev/null || echo "")
+      if [[ -z "$armed_epoch" ]] || (( now - armed_epoch > max_age )); then
+        alert backup_timer_not_firing \
+          "a backup timer has been armed longer than its schedule allows and has never fired" \
+          "unit=$unit" "last_trigger=never" "armed_s=$(( armed_epoch ? now - armed_epoch : -1 ))" \
+          "threshold_s=$max_age"
+      fi
+      continue
+    fi
+    last_epoch=$(date -d "$last_trigger" +%s 2>/dev/null || echo "")
     if [[ -z "$last_epoch" ]]; then
-      # Armed and never fired. On a freshly installed host this is true for a few hours
-      # and it is still worth saying: "enabled" is not "has run", and the difference is
-      # exactly what people assume away.
+      # Said as what it is: a parsing question, not a timer that never ran.
       alert backup_timer_not_firing \
-        "a backup timer is armed but has never fired; being enabled is not the same as having run" \
-        "unit=$unit" "last_trigger=never"
+        "could not read when a backup timer last fired; its schedule is UNVERIFIED" \
+        "unit=$unit" "last_trigger=unparseable"
     elif (( now - last_epoch > max_age )); then
       alert backup_timer_not_firing \
         "a backup timer is armed but has not fired for longer than its schedule allows" \
