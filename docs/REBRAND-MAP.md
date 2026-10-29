@@ -51,7 +51,7 @@ the whole exercise twice.
 |---|---|---|
 | Screens: client dashboard, admin console, signup, status page, marketing home | "Calevate" 560× in 155 files under `apps/web/src` | page titles in `apps/web/src/app/layout.tsx`, nav, empty states, Pip's name stays "Pip" |
 | Logos and favicon | 4 files in `apps/web/public/brand/` | new artwork from Umesh |
-| Emails: invitations, password reset, admin sign-in code, alerts, receipts | `apps/api/core/email_layout.py`, `alert_email.py`, `apps/workers/email_render.py` | sender is `notifications_from` (`config.py:1335`, today `support@calevate.tech`) |
+| Emails: every message the platform sends | inventory and proposed wording in `docs/EMAILS.md` (D-933) | the name is `apps/api/core/brand.PRODUCT` and the domain `apps/api/core/console_links.DOMAIN`; `tests/email_brand_guard_test.py` refuses either written into an email module. Senders are per purpose (`notifications_from` plus `sender_security`, `sender_billing`, `sender_alerts`, `sender_operator`), all falling back to `notifications_from` until set |
 | Invoices | `apps/api/billing/gst.py`, `invoice.py` | supplier name, registration, the "sole proprietorship below the threshold" sentence (`gst.py:85`) |
 | Legal pages: Terms, Privacy, DPA, Acceptable use, Sub-processors, Refunds, Grievance, Cookies | `apps/web/src/lib/legal/*.ts` + `placeholders.ts` values | a **material** revision of every blocking document (§4) |
 | WhatsApp templates submitted into each client's own WhatsApp account | `apps/api/whatsapp/templates.py`: names `calevate_booking_confirmed`, `calevate_details_you_asked_for`, `calevate_payment_link`, `calevate_call_back_time` | new names mean Meta re-approves them in every connected account; the old ones keep working meanwhile |
@@ -160,6 +160,14 @@ Two internal names reach people and must change regardless:
    (§2A) and the docs (§2D), with the old domain still serving.
 5. Umesh sets up §3: new domain, Cloudflare, Resend, mailboxes, OAuth and Meta, Razorpay.
 6. Deploy serving both domains; switch the console settings to the new domain.
+   **Emails (D-933), in this order:** (a) Resend shows the new domain verified;
+   (b) set `notifications_from`, `sender_security`, `sender_billing`, `sender_alerts`,
+   `sender_operator` and `notifications_reply_to` in the ops console to the addresses in
+   `docs/EMAILS.md` §2; (c) change `brand.PRODUCT`, `brand.TAGLINE`, `brand.LOGO_URL`,
+   `brand.LEGAL_ENTITY_NAME`/`REGISTERED_ADDRESS` (with `placeholders.ts`) and
+   `console_links.DOMAIN`; (d) move each email onto `email_render.product_email` with the
+   wording in `docs/EMAILS.md` §3 and add the sender display names; (e) send one of each
+   purpose to a Gmail and an Outlook inbox and check From, Reply-To, logo and footer.
 7. The internal names (§2C, `docs/rebrand/INFRA-DEPLOY-ENV.md` and
    `DATA-AND-INTEGRATIONS.md`) in one maintenance window, backups first.
 8. Old domain redirects to the new one. Keep `calevate.tech` registered for at least 12 months

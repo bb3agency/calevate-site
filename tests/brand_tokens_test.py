@@ -75,3 +75,27 @@ def test_every_email_colour_matches_the_screen_it_came_from(attr: str, css_name:
         f"brand.{attr} is {py_value} but {css_name} is {css_value} in globals.css. The "
         "email and the console are now two different greens; fix brand.py, never this test."
     )
+
+
+# --- The company an email footer names, mirrored from the legal pages (D-933) ---
+
+PLACEHOLDERS = Path(__file__).resolve().parents[1] / "apps/web/src/lib/legal/placeholders.ts"
+
+LEGAL_MIRRORED: tuple[str, ...] = ("LEGAL_ENTITY_NAME", "REGISTERED_ADDRESS")
+
+
+def _placeholder_value(key: str) -> str:
+    """The single-line `value: "..."` of one entry in `PLACEHOLDERS`."""
+    text = PLACEHOLDERS.read_text(encoding="utf-8")
+    start = text.index(f"\n  {key}: {{")
+    found = re.compile(r'\n    value:\s*"([^"]*)",').search(text, start)
+    assert found is not None, f"{key} has no single-line value in placeholders.ts"
+    return found.group(1)
+
+
+@pytest.mark.parametrize("key", LEGAL_MIRRORED)
+def test_the_email_footer_names_the_company_the_legal_pages_name(key: str) -> None:
+    assert getattr(brand, key) == _placeholder_value(key), (
+        f"brand.{key} and {key} in placeholders.ts differ, so an email and the Terms would "
+        "name two suppliers; fix brand.py, never this test."
+    )

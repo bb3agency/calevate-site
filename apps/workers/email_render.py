@@ -27,6 +27,7 @@ Client-facing text names no provider (D-679).
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from html import escape
 from typing import Final
@@ -34,6 +35,7 @@ from typing import Final
 from apps.api.authn.otp import OTP_LIFETIME
 from apps.api.core import brand, console_links
 from apps.api.core import email_layout as layout
+from apps.api.core.brand import PRODUCT, TAGLINE
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,11 +53,11 @@ class Email:
 
 #: Under the card of every auth mail.
 _AUTH_FOOTER: Final = (
-    "Calevate · AI voice agents for Indian businesses.",
+    f"{PRODUCT} · {TAGLINE}",
     "You are receiving this because it was requested for this email address.",
 )
 #: Under the card of a wrapped client notice (`from_text`), which is not about an account.
-_NOTICE_FOOTER: Final = ("Calevate · AI voice agents for Indian businesses.",)
+_NOTICE_FOOTER: Final = (f"{PRODUCT} · {TAGLINE}",)
 
 _OTP_MINUTES: Final = int(OTP_LIFETIME.total_seconds() // 60)
 _OTP_EXPIRY: Final = f"It expires in {_OTP_MINUTES} minutes and works once."
@@ -70,7 +72,7 @@ def _link_email(
         f"{lead}\n\n"
         f"{cta}:\n{url}\n\n"
         f"{expiry}\n\n"
-        "— Calevate\n"
+        f"— {PRODUCT}\n"
         "If you were not expecting this, you can ignore this email; nothing happens "
         "until the link is opened.\n"
     )
@@ -100,7 +102,7 @@ class _CodeCopy:
 _CODE_COPY: Final[dict[str, _CodeCopy]] = {
     "otp_login_challenge": _CodeCopy(
         heading="Your sign-in code",
-        lead="Enter this code in Calevate to finish signing in.",
+        lead=f"Enter this code in {PRODUCT} to finish signing in.",
         # This code is only sent after a correct password (`authn/models.OTP_PURPOSES`).
         unexpected=(
             "This code is sent only after your password was entered correctly. If that "
@@ -110,7 +112,7 @@ _CODE_COPY: Final[dict[str, _CodeCopy]] = {
     ),
     "otp_step_up": _CodeCopy(
         heading="Confirm it's you",
-        lead="Enter this code in Calevate to confirm the change you asked to make.",
+        lead=f"Enter this code in {PRODUCT} to confirm the change you asked to make.",
         unexpected=(
             "It is sent only from a signed-in session. If you did not ask for it, someone "
             "may be using your account: do not share this code, and change your password."
@@ -118,17 +120,17 @@ _CODE_COPY: Final[dict[str, _CodeCopy]] = {
     ),
     "otp_email_verify": _CodeCopy(
         heading="Confirm your email address",
-        lead="Enter this code in Calevate to confirm this is your email address.",
+        lead=f"Enter this code in {PRODUCT} to confirm this is your email address.",
         unexpected=(
-            "If you did not add this address to a Calevate account, you can ignore this "
+            f"If you did not add this address to a {PRODUCT} account, you can ignore this "
             "email. Nothing changes without the code."
         ),
     ),
     "otp_signup": _CodeCopy(
         heading="Your sign-up code",
-        lead="Enter this code to finish creating your Calevate account.",
+        lead=f"Enter this code to finish creating your {PRODUCT} account.",
         unexpected=(
-            "If you did not try to create a Calevate account, you can ignore this email. "
+            f"If you did not try to create a {PRODUCT} account, you can ignore this email. "
             "No account is created without the code."
         ),
     ),
@@ -143,7 +145,7 @@ def _code_email(*, subject: str, copy: _CodeCopy, code: str) -> Email:
         f"{_OTP_EXPIRY}\n\n"
         f"{_UNEXPECTED_LABEL}\n"
         f"{copy.unexpected}\n\n"
-        "— Calevate\n"
+        f"— {PRODUCT}\n"
     )
     html = layout.shell(
         preheader=f"{code} is your code. {_OTP_EXPIRY}",
@@ -169,14 +171,14 @@ def _code_email(*, subject: str, copy: _CodeCopy, code: str) -> Email:
 #: mapping rather than a formatted string, so an unknown kind is a loud failure rather
 #: than an email with a blank subject.
 SUBJECTS: dict[str, str] = {
-    "password_reset": "Reset your Calevate password",
-    "otp_email_verify": "Your Calevate verification code",
-    "otp_login_challenge": "Your Calevate sign-in code",
-    "otp_step_up": "Your Calevate authorization code",
-    "invite_password": "You have been invited to Calevate",
-    "admin_bootstrap": "Set up your Calevate administrator account",
-    "otp_signup": "Your Calevate sign-up code",
-    "signup_existing_account": "You already have a Calevate account",
+    "password_reset": f"Reset your {PRODUCT} password",
+    "otp_email_verify": f"Your {PRODUCT} verification code",
+    "otp_login_challenge": f"Your {PRODUCT} sign-in code",
+    "otp_step_up": f"Your {PRODUCT} authorization code",
+    "invite_password": f"You have been invited to {PRODUCT}",
+    "admin_bootstrap": f"Set up your {PRODUCT} administrator account",
+    "otp_signup": f"Your {PRODUCT} sign-up code",
+    "signup_existing_account": f"You already have a {PRODUCT} account",
 }
 
 
@@ -192,7 +194,7 @@ def render(kind: str, realm: str, secret: str) -> Email:
             preheader="Choose a new password — the link expires in one hour.",
             heading="Reset your password",
             lead=(
-                "Someone asked to reset the password for this Calevate account. "
+                f"Someone asked to reset the password for this {PRODUCT} account. "
                 "Choose a new one here."
             ),
             cta="Choose a new password",
@@ -207,8 +209,10 @@ def render(kind: str, realm: str, secret: str) -> Email:
         return _link_email(
             subject=subject,
             preheader="Set your password to join the workspace — expires in 72 hours.",
-            heading="You have been invited to Calevate",
-            lead=("Someone has invited you to their Calevate workspace. Set a password to get in."),
+            heading=f"You have been invited to {PRODUCT}",
+            lead=(
+                f"Someone has invited you to their {PRODUCT} workspace. Set a password to get in."
+            ),
             cta="Accept the invitation",
             url=console_links.accept_invitation_link(secret),
             expiry="This link works once and expires in 72 hours.",
@@ -218,9 +222,9 @@ def render(kind: str, realm: str, secret: str) -> Email:
         return _link_email(
             subject=subject,
             preheader="Someone tried to create an account with this address.",
-            heading="You already have a Calevate account",
+            heading=f"You already have a {PRODUCT} account",
             lead=(
-                "Someone tried to create a new Calevate account with this email address. "
+                f"Someone tried to create a new {PRODUCT} account with this email address. "
                 "You already have one, so nothing new was created. Sign in as usual, or "
                 "choose a new password here if you have forgotten it."
             ),
@@ -238,7 +242,7 @@ def render(kind: str, realm: str, secret: str) -> Email:
             preheader="Set your password to finish setting up your administrator account.",
             heading="Set up your administrator account",
             lead=(
-                "You have been given an administrator account on a Calevate deployment. "
+                f"You have been given an administrator account on a {PRODUCT} deployment. "
                 "Set a password to finish."
             ),
             cta="Set your password",
@@ -306,4 +310,67 @@ def from_text(
     )
 
 
-__all__ = ["SUBJECTS", "Email", "from_text", "render"]
+#: The most lines a product email's body carries (D-933): what happened and what to do,
+#: with anything longer behind the button.
+PRODUCT_EMAIL_MAX_LINES: Final = 3
+
+
+def product_email(
+    *,
+    subject: str,
+    preheader: str,
+    heading: str,
+    lines: Sequence[str],
+    reason: str,
+    cta: str | None = None,
+    url: str | None = None,
+    facts: Sequence[tuple[str, str]] = (),
+    note: str | None = None,
+    settings_url: str | None = None,
+) -> Email:
+    """The D-933 product email: logo, one heading, up to three short lines, one button, an
+    optional facts block and note, and a footer saying who sent it and why.
+
+    STAGED FOR THE RENAME (`docs/EMAILS.md`): no email is sent through this yet, so live
+    mail keeps the frame it has. On rename day each sender moves here with the wording
+    `docs/EMAILS.md` proposes for it. New emails (disputes, KYC, D-932) can start here.
+
+    `reason` is the footer's "why you got this" sentence. `settings_url` is for mail a
+    person can switch off; leave it out for security and billing mail. Both parts are built
+    from the same arguments, so the text part says everything the HTML does.
+    """
+    if not 1 <= len(lines) <= PRODUCT_EMAIL_MAX_LINES:
+        raise ValueError(f"a product email carries 1 to {PRODUCT_EMAIL_MAX_LINES} lines")
+    if (cta is None) != (url is None):
+        raise ValueError("a button needs both its label and its link")
+
+    text_parts = [heading, *lines]
+    if facts:
+        text_parts.append("\n".join(f"{label}: {value}" for label, value in facts))
+    if cta and url:
+        text_parts.append(f"{cta}:\n{url}")
+    if note:
+        text_parts.append(note)
+    footer = [reason, f"{brand.LEGAL_ENTITY_NAME} · {brand.REGISTERED_ADDRESS}"]
+    if settings_url:
+        footer.append(f"Notification settings: {settings_url}")
+    text = "\n\n".join(text_parts) + "\n\n— " + PRODUCT + "\n" + "\n".join(footer) + "\n"
+
+    body = layout.heading(heading) + "".join(layout.paragraph(line) for line in lines)
+    if facts:
+        body += layout.facts(facts)
+    if cta and url:
+        body += layout.button(cta, url) + layout.fallback_link(url)
+    if note:
+        body += layout.callout(note)
+    html = layout.shell(
+        preheader=preheader,
+        body=body,
+        footer=(),
+        logo_url=brand.LOGO_URL,
+        footer_html=layout.product_footer(reason=reason, settings_url=settings_url),
+    )
+    return Email(subject=subject, text=text, html=html)
+
+
+__all__ = ["PRODUCT_EMAIL_MAX_LINES", "SUBJECTS", "Email", "from_text", "product_email", "render"]

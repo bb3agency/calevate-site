@@ -1280,7 +1280,7 @@ async def _owner_emails(session: Any, tenant_id: UUID) -> list[str]:
 
 
 async def _notify_tenant(tenant_id: UUID) -> int:
-    from apps.api.core.transport import get_transport
+    from apps.api.core.transport import EmailPurpose, get_transport
     from apps.workers.email_render import from_text
     from apps.workers.whatsapp import WhatsAppMessage, get_whatsapp_transport, resolve_destination
 
@@ -1307,7 +1307,7 @@ async def _notify_tenant(tenant_id: UUID) -> int:
         recipients = await _owner_emails(session, tenant_id)
         destination = await resolve_destination(session, tenant_id)
         has_proposal = bool(await proposals.pending_for_tenant(session, limit=1))
-        transport = get_transport()
+        transport = get_transport(EmailPurpose.NOTIFICATIONS)
         outage_told: set[str] = set()
         for row in rows:
             (

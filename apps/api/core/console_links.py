@@ -24,11 +24,17 @@ API endpoint would undo that quietly.
 
 from __future__ import annotations
 
+#: The registrable domain every host below sits under, and the ONE place it is written for
+#: the api and workers (D-933, docs/REBRAND-MAP.md §2B). Here rather than in `core/brand`
+#: because voice-runtime loads this module at boot and must not gain an import for it;
+#: `brand.DOMAIN` re-exports it for the email modules.
+DOMAIN = "calevate.tech"
+
 #: The two browser realms. Separate hostnames, separate session modules (D-177) — and
 #: separate reset pages, which is why `password_reset_link` takes a realm rather than
 #: assuming one.
-CONSOLE_BASE = "https://app.calevate.tech"
-ADMIN_CONSOLE_BASE = "https://admin.calevate.tech"
+CONSOLE_BASE = f"https://app.{DOMAIN}"
+ADMIN_CONSOLE_BASE = f"https://admin.{DOMAIN}"
 
 #: Paths, exactly as `apps/web/src/app` serves them. `(auth)` is a Next.js ROUTE GROUP and
 #: contributes no URL segment — which is precisely why these are easy to get wrong from

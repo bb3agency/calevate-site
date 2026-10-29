@@ -53,11 +53,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.tenant_erasure import request_tenant_erasure
 from apps.api.core.alerting import alert
+from apps.api.core.brand import PRODUCT
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.core.settings import get_settings
-from apps.api.core.transport import _domain, get_transport
+from apps.api.core.transport import EmailPurpose, _domain, get_transport
 from apps.api.db.session import admin_session, tenant_session
 from apps.api.reliability.service import enqueue_outbox
 from apps.api.tenancy.closure import (
@@ -92,9 +93,9 @@ NOTICE_RESTORED: Final = "restored"
 NOTICE_ADDRESS_CHANGED: Final = "notice_address_changed"
 NOTICE_EVENTS: Final = (NOTICE_CLOSED, NOTICE_RESTORED, NOTICE_ADDRESS_CHANGED)
 
-SUBJECT_CLOSED: Final = "Your Calevate account has been closed"
-SUBJECT_RESTORED: Final = "Your Calevate account has been reopened"
-SUBJECT_ADDRESS_CHANGED: Final = "The email address for your Calevate account was changed"
+SUBJECT_CLOSED: Final = f"Your {PRODUCT} account has been closed"
+SUBJECT_RESTORED: Final = f"Your {PRODUCT} account has been reopened"
+SUBJECT_ADDRESS_CHANGED: Final = f"The email address for your {PRODUCT} account was changed"
 
 #: Seconds before each retry, indexed by the attempt that just failed — one shorter than
 #: the budget, because the last attempt has nothing after it. Paced like the hot-lead
@@ -147,7 +148,7 @@ def _compose(*, event: str, business: str, erase_on: str | None, reason: str | N
         # notices now go. "Ring us" is the action, and it is the one that works whoever is
         # reading.
         return (
-            f"The email address that Calevate sends notices to for {business} has been "
+            f"The email address that {PRODUCT} sends notices to for {business} has been "
             "changed, so this address will stop receiving them.\n\n"
             "If you asked for this, there is nothing to do.\n\n"
             "IF YOU DID NOT, reply to this email or telephone us straight away — do not "
@@ -156,7 +157,7 @@ def _compose(*, event: str, business: str, erase_on: str | None, reason: str | N
 
     if event == NOTICE_RESTORED:
         return (
-            f"The Calevate account for {business} has been reopened.\n\n"
+            f"The {PRODUCT} account for {business} has been reopened.\n\n"
             "Everything is back on: your team can sign in again, your agents can be "
             "published again and answer your numbers again, and the erasure that was "
             "scheduled has been cancelled. "
@@ -165,7 +166,7 @@ def _compose(*, event: str, business: str, erase_on: str | None, reason: str | N
         )
 
     lines = [
-        f"The Calevate account for {business} has been closed.",
+        f"The {PRODUCT} account for {business} has been closed.",
         "",
         "What this means right now: nobody at your business can sign in, no outbound "
         "calls or campaigns will run, and your agents can no longer be published.",
@@ -323,7 +324,9 @@ async def notify_account_closed(ctx: dict[str, Any], payload: dict[str, Any]) ->
             heading=subject,
             text=body,
         )
-        transport = get_transport()
+        transport = get_transport(
+            EmailPurpose.SECURITY if event == NOTICE_ADDRESS_CHANGED else EmailPurpose.NOTIFICATIONS
+        )
         # `to_thread` for the reason `notifications._send_email` documents at length: the
         # SMTP transport is synchronous socket I/O, and returning it directly from an
         # `async def` parks every other job on this worker for the whole timeout —

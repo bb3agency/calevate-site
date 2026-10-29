@@ -293,7 +293,7 @@ async def test_the_job_raises_one_fee_per_month_and_claims_its_notice(
             sent.append(subject)
             return True
 
-    monkeypatch.setattr("apps.workers.billing.get_transport", lambda: _Transport())
+    monkeypatch.setattr("apps.workers.billing.get_transport", lambda _purpose=None: _Transport())
     tenant_id = await _tenant()
     await issue_platform_fees({})
     await issue_platform_fees({})

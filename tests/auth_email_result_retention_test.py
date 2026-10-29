@@ -64,7 +64,7 @@ async def test_a_delivered_reset_email_leaves_no_result_key_holding_the_token(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     sent = _Sent()
-    monkeypatch.setattr(auth_email, "get_transport", lambda: sent)
+    monkeypatch.setattr(auth_email, "get_transport", lambda _purpose=None: sent)
     queue_name = f"arq:test-auth-email-{uuid.uuid4().hex[:8]}"
     job_id = job_id_for("deliver_auth_email", uuid.uuid4().hex)
     payload: dict[str, Any] = {

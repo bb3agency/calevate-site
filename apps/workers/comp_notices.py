@@ -34,9 +34,10 @@ from apps.api.billing.comp_notices import COMP_NOTICE_JOB
 from apps.api.billing.display import display_inr
 from apps.api.billing.service import get_balance, to_paise
 from apps.api.core.alerting import alert
+from apps.api.core.brand import PRODUCT
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import SUPERADMIN_ROLE
-from apps.api.core.transport import get_transport
+from apps.api.core.transport import EmailPurpose, get_transport
 from apps.api.db.session import admin_session, tenant_session, untenanted_session
 from apps.workers.email_render import from_text
 
@@ -78,8 +79,8 @@ def client_email(
     if kind == "grant":
         assert amount is not None
         return (
-            f"{_inr(amount)} of credit added to your Calevate account",
-            f"We added {_inr(amount)} of calling credit to {business}'s Calevate account. "
+            f"{_inr(amount)} of credit added to your {PRODUCT} account",
+            f"We added {_inr(amount)} of calling credit to {business}'s {PRODUCT} account. "
             "It is a gift: no payment was taken and nothing is owed.\n\n"
             f"Your balance is now {_inr(balance)}. It pays for calls like any other "
             "credit.",
@@ -91,8 +92,8 @@ def client_email(
         else ""
     )
     return (
-        "Your Calevate account is now a paid account",
-        f"{business}'s Calevate account is now a paid account. No payment was taken.\n\n"
+        f"Your {PRODUCT} account is now a paid account",
+        f"{business}'s {PRODUCT} account is now a paid account. No payment was taken.\n\n"
         "Your trial limits are lifted: you can verify your business, get your own phone "
         "number, answer calls and run campaigns." + gift,
     )
@@ -112,7 +113,7 @@ def superadmin_email(
     else:
         what = "made a paid account" + (f" with {_inr_exact(amount)} of credit" if amount else "")
     return (
-        f"Calevate: {business} {what}",
+        f"{PRODUCT}: {business} {what}",
         f"{business} (/{slug}): {what}, with no payment, by {actor}.\n\n"
         f"Reason given: {reason}\n\n"
         "Every grant and complimentary conversion is sent to every super admin. If you did "
@@ -120,9 +121,11 @@ def superadmin_email(
     )
 
 
-async def _send(address: str, subject: str, body: str, *, cta: str | None) -> bool:
+async def _send(
+    address: str, subject: str, body: str, *, cta: str | None, purpose: EmailPurpose
+) -> bool:
     message = from_text(subject=subject, preheader=subject, heading=subject, text=body, cta=cta)
-    transport = get_transport()
+    transport = get_transport(purpose)
     # Off the event loop: the SMTP transport is synchronous (`wallet_alerts`' reason).
     return await asyncio.to_thread(
         lambda: transport.send(to=address, subject=subject, body=message.text, html=message.html)
@@ -234,14 +237,20 @@ async def notify_comp(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
         kind=kind, amount=amount, business=business, slug=slug, actor=actor, reason=reason
     )
     for address in supers:
-        if not await _send(address, subject, body, cta=None):
+        if not await _send(address, subject, body, cta=None, purpose=EmailPurpose.OPERATOR):
             _retry(attempt, tenant_id=tenant_id, leg="superadmin")
     if not supers:
         alert("WORKER_DELIVERY", "comp_notice_no_superadmin_email", tenant_id=str(tenant_id))
 
     if billing_email:
         subject, body = client_email(kind=kind, amount=amount, balance=balance, business=business)
-        if not await _send(str(billing_email), subject, body, cta="Open your dashboard"):
+        if not await _send(
+            str(billing_email),
+            subject,
+            body,
+            cta="Open your dashboard",
+            purpose=EmailPurpose.BILLING,
+        ):
             _retry(attempt, tenant_id=tenant_id, leg="client")
     else:
         alert("WORKER_DELIVERY", "comp_notice_no_billing_email", tenant_id=str(tenant_id))

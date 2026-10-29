@@ -6,6 +6,7 @@ Secrets are never defaulted — a missing secret must raise at startup.
 
 from collections.abc import Iterable, Mapping, Sequence
 from decimal import Decimal
+from enum import StrEnum
 from types import MappingProxyType
 from typing import Any, Literal, get_args
 
@@ -1352,6 +1353,17 @@ class Settings(BaseSettings):
     # 320 is the RFC 5321 maximum for an addr-spec (64 local + @ + 255 domain).
     notifications_reply_to: str | None = Field(default="calevate.voice@gmail.com", max_length=320)
 
+    # THE SENDER PER PURPOSE (D-933). `email_sender()` below resolves each one, and an
+    # unset purpose sends from `notifications_from`, so until somebody sets one every mail
+    # still comes from that one address. Per purpose rather than one sender because a
+    # reader filters and trusts by sender: a sign-in code from the address that also sends
+    # weekly summaries is easier to spoof and easier to lose. Each domain must be verified
+    # with the provider, exactly as `notifications_from`'s is, or that purpose's mail stops.
+    sender_security: str | None = Field(default=None, max_length=320)
+    sender_billing: str | None = Field(default=None, max_length=320)
+    sender_alerts: str | None = Field(default=None, max_length=320)
+    sender_operator: str | None = Field(default=None, max_length=320)
+
     # WHERE OPERATOR ALERTS GO (OPERATIONS §4; §8's pre-launch gate "alerts firing to
     # Sri's phone"). `apps/api/core/alerting.py` delivers through the SAME transport as
     # hot-lead notifications — one thing to configure, one thing to be broken.
@@ -1989,10 +2001,47 @@ def email_transport_reason(settings: Settings) -> str | None:
     return None if settings.smtp_host else NO_SMTP_HOST_REASON
 
 
+class EmailPurpose(StrEnum):
+    """Why a message is sent, which decides the address it is sent FROM (D-933).
+
+    `docs/EMAILS.md` names the purpose of every email the platform sends.
+    """
+
+    SECURITY = "security"
+    NOTIFICATIONS = "notifications"
+    BILLING = "billing"
+    ALERTS = "alerts"
+    OPERATOR = "operator"
+
+
+#: The setting each purpose reads. `NOTIFICATIONS` is `notifications_from` itself, which is
+#: also what every unset purpose falls back to.
+EMAIL_SENDER_FIELDS: Mapping[EmailPurpose, str] = MappingProxyType(
+    {
+        EmailPurpose.SECURITY: "sender_security",
+        EmailPurpose.NOTIFICATIONS: "notifications_from",
+        EmailPurpose.BILLING: "sender_billing",
+        EmailPurpose.ALERTS: "sender_alerts",
+        EmailPurpose.OPERATOR: "sender_operator",
+    }
+)
+
+
+def email_sender(settings: Settings, purpose: EmailPurpose) -> str:
+    """The From address for `purpose`: its own setting, else `notifications_from`.
+
+    Empty only when `notifications_from` is blank too, which `email_transport_reason`
+    refuses as `no_sender_address` before any transport is built.
+    """
+    own = (getattr(settings, EMAIL_SENDER_FIELDS[purpose]) or "").strip()
+    return own or (settings.notifications_from or "").strip()
+
+
 __all__ = [
     "EMAIL_PROVIDER_NOT_IMPLEMENTED_REASON",
     "EMAIL_PROVIDER_RESEND",
     "EMAIL_PROVIDER_SMTP",
+    "EMAIL_SENDER_FIELDS",
     "NO_EMAIL_PROVIDER_REASON",
     "NO_RESEND_API_KEY_REASON",
     "NO_SENDER_ADDRESS_REASON",
@@ -2001,9 +2050,11 @@ __all__ = [
     "RETIRED_ENV_KEY_ERROR",
     "SELECTABLE_EMAIL_PROVIDERS",
     "SELECTABLE_ENGINES",
+    "EmailPurpose",
     "EngineName",
     "Environment",
     "Settings",
+    "email_sender",
     "email_transport_reason",
     "retired_env_key_message",
     "retired_env_keys_in",

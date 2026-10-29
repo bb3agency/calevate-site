@@ -77,10 +77,11 @@ from apps.api.campaigns.service import (
 )
 from apps.api.compliance.audit import write_audit
 from apps.api.core.alerting import alert
+from apps.api.core.brand import PRODUCT
 from apps.api.core.loadshed import LoadShedMode, get_platform_status, set_platform_status
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
-from apps.api.core.transport import get_transport
+from apps.api.core.transport import EmailPurpose, get_transport
 from apps.api.db.session import admin_session, tenant_session, untenanted_session
 from apps.api.engine import get_engine
 from apps.api.ops.maintenance import (
@@ -117,10 +118,10 @@ NOTIFY_JOB = "notify_maintenance"
 #: `ADVANCE_NOTICE` before the window; `active` when the portal actually closes; `ended`
 #: when it opens again; `amended` whenever an announced window's client-visible facts move.
 NOTICE_SUBJECTS: dict[str, str] = {
-    "advance": "Planned Calevate maintenance",
-    "amended": "Change to the planned Calevate maintenance",
-    "active": "Calevate is in maintenance now",
-    "ended": "Calevate maintenance is finished",
+    "advance": f"Planned {PRODUCT} maintenance",
+    "amended": f"Change to the planned {PRODUCT} maintenance",
+    "active": f"{PRODUCT} is in maintenance now",
+    "ended": f"{PRODUCT} maintenance is finished",
 }
 
 #: Non-terminal call statuses — the complement of `calevate_shared.events.
@@ -253,7 +254,7 @@ def _maintenance_prompt(window: MaintenanceWindow, *, call_is_recorded: bool) ->
     """
     return "\n\n".join(
         (
-            "You are answering a call while the Calevate platform is closed for planned "
+            f"You are answering a call while the {PRODUCT} platform is closed for planned "
             "maintenance. This is the ONLY thing you do on this call.",
             "Say the maintenance message in the caller's language: that the service is "
             "briefly unavailable for planned maintenance, when it is expected back "
@@ -807,11 +808,11 @@ def _compose(*, kind: str, business: str, reason: str, starts_at: str, ends_at: 
     raises.
     """
     header = {
-        "advance": f"Calevate will be unavailable from {starts_at} to {ends_at}.",
-        "amended": f"The planned Calevate maintenance has changed: it now runs from "
+        "advance": f"{PRODUCT} will be unavailable from {starts_at} to {ends_at}.",
+        "amended": f"The planned {PRODUCT} maintenance has changed: it now runs from "
         f"{starts_at} to {ends_at}.",
-        "active": f"Calevate is in planned maintenance now, until about {ends_at}.",
-        "ended": "The planned Calevate maintenance is finished and everything is back.",
+        "active": f"{PRODUCT} is in planned maintenance now, until about {ends_at}.",
+        "ended": f"The planned {PRODUCT} maintenance is finished and everything is back.",
     }[kind]
     if kind == "ended":
         return (
@@ -894,7 +895,7 @@ async def notify_maintenance(ctx: dict[str, Any], payload: dict[str, Any]) -> st
             ends_at=_ist(datetime.fromisoformat(str(payload["ends_at"]))),
         ),
     )
-    transport = get_transport()
+    transport = get_transport(EmailPurpose.NOTIFICATIONS)
     # `to_thread` for the reason `notifications._send_email` documents: the SMTP transport
     # is synchronous socket I/O, and awaiting it directly parks every other job on this
     # worker for the whole timeout — including `dispatch_outbox` on its ten-second beat.

@@ -85,7 +85,7 @@ def transport(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Any:
 
     alerting.reset_alerts()
     recorder = RecordingTransport()
-    monkeypatch.setattr(transport_module, "get_transport", lambda: recorder)
+    monkeypatch.setattr(transport_module, "get_transport", lambda _purpose=None: recorder)
     monkeypatch.setattr(get_settings(), "alerts_email", OPERATOR)
     monkeypatch.setattr(alerting, "DELIVERY_RETRY_DELAY_S", 0.0)
     monkeypatch.setenv("CALEVATE_ALERT_STATE_DIR", str(tmp_path / "alert-state"))
@@ -309,7 +309,7 @@ def test_a_delivery_that_failed_does_not_start_a_window(
 
     alerting.reset_alerts()
     failing = RecordingTransport(succeed=False)
-    monkeypatch.setattr(transport_module, "get_transport", lambda: failing)
+    monkeypatch.setattr(transport_module, "get_transport", lambda _purpose=None: failing)
     monkeypatch.setattr(get_settings(), "alerts_email", OPERATOR)
     monkeypatch.setattr(alerting, "DELIVERY_RETRY_DELAY_S", 0.0)
     monkeypatch.setenv("CALEVATE_ALERT_STATE_DIR", str(tmp_path / "state"))

@@ -19,6 +19,8 @@ from __future__ import annotations
 
 from typing import Final
 
+from apps.api.core.console_links import DOMAIN as _DOMAIN
+
 #: Mirrors `--brand` — the resting green.
 BRAND: Final = "#16a05d"
 #: Mirrors `--brand-strong` — the primary button.
@@ -58,7 +60,28 @@ FONT_STACK: Final = (
 #: JetBrains Mono: the glyphs that collide (0/O, 1/l/I) must not.
 FONT_MONO: Final = "ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace"
 
+# --- The name, the domain and the company, ONE place each (D-933, docs/REBRAND-MAP.md) ---
+#
+# Every email names the product and links to its hosts through these, never through a
+# literal: `tests/email_brand_guard_test.py` refuses "Calevate" or "calevate.tech" written
+# into an email module, so a rename is these lines and `console_links.DOMAIN`.
+
+#: The product name, as every email prints it.
 PRODUCT: Final = "Calevate"
+#: The one-line description under the name in an email footer.
+TAGLINE: Final = "AI voice agents for Indian businesses."
+#: The registrable domain, defined in `core/console_links` with the hosts under it.
+DOMAIN: Final = _DOMAIN
+#: The logo an email header shows (served by the web app from `apps/web/public/brand/`).
+#: Absolute, because a mail client has no base URL to resolve a relative one against.
+LOGO_URL: Final = f"https://app.{DOMAIN}/brand/calevate-full-logo-without-tagline.png"
+
+#: MIRROR `LEGAL_ENTITY_NAME` and `REGISTERED_ADDRESS` in
+#: `apps/web/src/lib/legal/placeholders.ts`, the values the legal pages publish, so an email
+#: footer and the Terms name the same supplier in the same words. `tests/brand_tokens_test.py`
+#: reads both files and fails when they differ. City level only, never a street (4 Sep 2026).
+LEGAL_ENTITY_NAME: Final = "Calevate"
+REGISTERED_ADDRESS: Final = "Guntur, Andhra Pradesh, India"
 
 __all__ = [
     "APP",
@@ -68,11 +91,16 @@ __all__ = [
     "DANGER",
     "DANGER_LINE",
     "DANGER_SOFT",
+    "DOMAIN",
     "FONT_MONO",
     "FONT_STACK",
+    "LEGAL_ENTITY_NAME",
     "LINE",
+    "LOGO_URL",
     "PRODUCT",
+    "REGISTERED_ADDRESS",
     "SURFACE",
+    "TAGLINE",
     "TEXT",
     "TEXT_FAINT",
     "TEXT_MUTED",

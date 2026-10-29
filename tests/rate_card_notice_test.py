@@ -270,7 +270,7 @@ async def test_one_client_is_sent_the_scheduled_cards_own_rates(
     await _record_a_card(rise="0.50")
     tenant_id = await _tenant("self_serve")
     recorder = _Recorder()
-    monkeypatch.setattr(rate_card_notice, "get_transport", lambda: recorder)
+    monkeypatch.setattr(rate_card_notice, "get_transport", lambda _purpose=None: recorder)
     assert await notify_rate_card_change({}, _payload(tenant_id)) == "sent"
     body = recorder.sent[0]["body"]
     for pack in PACK_CATALOGUE:
@@ -287,7 +287,7 @@ async def test_a_managed_client_is_not_told_even_if_a_promise_reaches_this_job(
     invoiced plan in between must not be told about a card that does not price it."""
     tenant_id = await _tenant("managed")
     recorder = _Recorder()
-    monkeypatch.setattr(rate_card_notice, "get_transport", lambda: recorder)
+    monkeypatch.setattr(rate_card_notice, "get_transport", lambda _purpose=None: recorder)
     assert await notify_rate_card_change({}, _payload(tenant_id)) == "not_prepaid"
     assert recorder.sent == []
 
@@ -295,7 +295,7 @@ async def test_a_managed_client_is_not_told_even_if_a_promise_reaches_this_job(
 async def test_a_tenant_that_went_away_is_not_an_error(monkeypatch: pytest.MonkeyPatch) -> None:
     """An erasure does exactly this between the fan-out and the send."""
     recorder = _Recorder()
-    monkeypatch.setattr(rate_card_notice, "get_transport", lambda: recorder)
+    monkeypatch.setattr(rate_card_notice, "get_transport", lambda _purpose=None: recorder)
     assert await notify_rate_card_change({}, _payload(uuid.uuid4())) == "tenant_missing"
     assert recorder.sent == []
 
@@ -309,7 +309,7 @@ async def test_a_client_with_no_address_is_alerted_and_not_retried(
     tenant_id = await _tenant("self_serve", billing_email=None)
     alerted: list[str] = []
     monkeypatch.setattr(rate_card_notice, "alert", lambda channel, key: alerted.append(key))
-    monkeypatch.setattr(rate_card_notice, "get_transport", lambda: _Recorder())
+    monkeypatch.setattr(rate_card_notice, "get_transport", lambda _purpose=None: _Recorder())
     assert await notify_rate_card_change({}, _payload(tenant_id)) == "no_billing_email"
     assert alerted == ["rate_card_notice_no_billing_email"]
 
@@ -318,7 +318,9 @@ async def test_a_transport_that_refuses_asks_arq_to_retry(monkeypatch: pytest.Mo
     """`arq.Retry` and not a plain raise: anything else is terminal on the first attempt and
     `max_tries` decorative."""
     tenant_id = await _tenant("self_serve")
-    monkeypatch.setattr(rate_card_notice, "get_transport", lambda: _Recorder(delivered=False))
+    monkeypatch.setattr(
+        rate_card_notice, "get_transport", lambda _purpose=None: _Recorder(delivered=False)
+    )
     with pytest.raises(Retry):
         await notify_rate_card_change({}, _payload(tenant_id))
 

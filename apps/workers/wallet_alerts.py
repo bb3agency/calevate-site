@@ -69,7 +69,7 @@ from apps.api.billing.trials import trial_billing_active
 from apps.api.billing.wallet import TierMinutes, tier_minutes
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
-from apps.api.core.transport import get_transport
+from apps.api.core.transport import EmailPurpose, get_transport
 from apps.api.db.session import tenant_session
 from apps.workers.auth_email import CONSOLE_BASE
 from apps.workers.email_render import from_text
@@ -263,7 +263,7 @@ async def notify_low_balance(ctx: dict[str, Any], payload: dict[str, Any]) -> st
         text=body,
         cta="Add credit",
     )
-    transport = get_transport()
+    transport = get_transport(EmailPurpose.BILLING)
     # OFF THE EVENT LOOP (`notifications._send_email`'s finding, D-159's class): the SMTP
     # transport is synchronous socket I/O on a timeout budget, and returning it directly
     # from an `async def` reads as deferred while stalling every other job on this worker

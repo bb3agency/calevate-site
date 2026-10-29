@@ -79,7 +79,7 @@ async def test_a_republished_message_is_not_delivered_twice(
     monkeypatch: pytest.MonkeyPatch, message_id: uuid.UUID
 ) -> None:
     sent = _Sent()
-    monkeypatch.setattr(auth_email, "get_transport", lambda: sent)
+    monkeypatch.setattr(auth_email, "get_transport", lambda _purpose=None: sent)
     queue_name = f"arq:test-outbox-once-{uuid.uuid4().hex[:8]}"
     job_id = job_id_for(JOB, str(message_id))  # what `dispatch_outbox` enqueues it as
     async with untenanted_session() as session:

@@ -40,7 +40,7 @@ from apps.api.billing.credit_expiry import (
 from apps.api.billing.display import display_inr
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
-from apps.api.core.transport import get_transport
+from apps.api.core.transport import EmailPurpose, get_transport
 from apps.api.db.session import admin_session, tenant_session
 from apps.api.reliability.service import enqueue_outbox_once
 from apps.workers.auth_email import CONSOLE_BASE
@@ -189,7 +189,7 @@ async def notify_credit_lapsing(ctx: dict[str, Any], payload: dict[str, Any]) ->
     message = from_text(
         subject=subject, preheader=preheader, heading=heading, text=body, cta="See your credit"
     )
-    transport = get_transport()
+    transport = get_transport(EmailPurpose.BILLING)
     address = str(billing_email)
     # Off the event loop: the SMTP transport is synchronous (`wallet_alerts`' reason).
     delivered = await asyncio.to_thread(

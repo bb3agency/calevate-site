@@ -339,6 +339,11 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "smtp_use_tls": AppliesRule(LIVE),
     "notifications_from": AppliesRule(LIVE),
     "notifications_reply_to": AppliesRule(LIVE),
+    # The per-purpose senders (D-933): `email_sender()` reads them inside get_transport().
+    "sender_security": AppliesRule(LIVE),
+    "sender_billing": AppliesRule(LIVE),
+    "sender_alerts": AppliesRule(LIVE),
+    "sender_operator": AppliesRule(LIVE),
     "alerts_email": AppliesRule(LIVE),  # core/alerting, per alert
     # HOW FAR AHEAD CLIENTS ARE TOLD ABOUT A MAINTENANCE WINDOW (D-544). `live`, and
     # checked rather than assumed: `workers/maintenance._advance_lead()` calls

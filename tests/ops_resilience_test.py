@@ -310,7 +310,7 @@ async def test_a_failed_send_asks_for_the_retry_ladder(monkeypatch: pytest.Monke
     """
     payload = await _hot_lead("retryable", billing_email="owner@example.test")
     transport = _Transport(delivered=False)
-    monkeypatch.setattr(notifications, "get_transport", lambda: transport)
+    monkeypatch.setattr(notifications, "get_transport", lambda _purpose=None: transport)
 
     with pytest.raises(Retry):
         await notifications.notify_hot_lead({"job_try": 1}, payload)
@@ -332,12 +332,12 @@ async def test_a_retry_actually_re_sends_instead_of_being_deduped_away(
     """
     payload = await _hot_lead("second-try", billing_email="owner@example.test")
     failing = _Transport(delivered=False)
-    monkeypatch.setattr(notifications, "get_transport", lambda: failing)
+    monkeypatch.setattr(notifications, "get_transport", lambda _purpose=None: failing)
     with pytest.raises(Retry):
         await notifications.notify_hot_lead({"job_try": 1}, payload)
 
     succeeding = _Transport(delivered=True)
-    monkeypatch.setattr(notifications, "get_transport", lambda: succeeding)
+    monkeypatch.setattr(notifications, "get_transport", lambda _purpose=None: succeeding)
     result = await notifications.notify_hot_lead({"job_try": 2}, payload)
 
     assert result == "sent"
@@ -352,7 +352,7 @@ async def test_a_delivered_notification_is_never_sent_twice(
 ) -> None:
     payload = await _hot_lead("once", billing_email="owner@example.test")
     transport = _Transport(delivered=True)
-    monkeypatch.setattr(notifications, "get_transport", lambda: transport)
+    monkeypatch.setattr(notifications, "get_transport", lambda _purpose=None: transport)
 
     first = await notifications.notify_hot_lead({"job_try": 1}, payload)
     second = await notifications.notify_hot_lead({"job_try": 1}, payload)
@@ -367,7 +367,9 @@ async def test_the_last_attempt_tells_a_human(monkeypatch: pytest.MonkeyPatch) -
     client was never told about is the exact failure this notification exists to
     prevent, so the budget running out has to reach an operator."""
     payload = await _hot_lead("exhausted", billing_email="owner@example.test")
-    monkeypatch.setattr(notifications, "get_transport", lambda: _Transport(delivered=False))
+    monkeypatch.setattr(
+        notifications, "get_transport", lambda _purpose=None: _Transport(delivered=False)
+    )
     fired = _capture_alerts(monkeypatch, notifications)
 
     result = await notifications.notify_hot_lead({"job_try": WORKER_MAX_TRIES}, payload)
@@ -386,7 +388,7 @@ async def test_a_tenant_with_no_email_is_alerted_not_retried_forever(
     to be told, because the lead is just as un-notified either way."""
     payload = await _hot_lead("nochannel", billing_email=None)
     transport = _Transport(delivered=True)
-    monkeypatch.setattr(notifications, "get_transport", lambda: transport)
+    monkeypatch.setattr(notifications, "get_transport", lambda _purpose=None: transport)
     fired = _capture_alerts(monkeypatch, notifications)
 
     result = await notifications.notify_hot_lead({"job_try": 1}, payload)

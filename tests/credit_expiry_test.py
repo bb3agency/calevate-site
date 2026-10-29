@@ -575,7 +575,7 @@ async def test_a_lot_lapsing_within_thirty_days_is_warned_once_by_email(
     assert await _promised_notices(tenant_id, lot_id) == 1
 
     mailbox = _Mailbox()
-    monkeypatch.setattr(worker, "get_transport", lambda: mailbox)
+    monkeypatch.setattr(worker, "get_transport", lambda _purpose=None: mailbox)
     payload = {"tenant_id": str(tenant_id), "lot_id": str(lot_id)}
     assert await worker.notify_credit_lapsing({"job_try": 1}, payload) == "sent"
     [mail] = mailbox.sent

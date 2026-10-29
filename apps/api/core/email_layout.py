@@ -51,7 +51,15 @@ _TONES: dict[Tone, tuple[str, str, str]] = {
 }
 
 
-def shell(*, preheader: str, body: str, footer: Sequence[str], width: int = 560) -> str:
+def shell(
+    *,
+    preheader: str,
+    body: str,
+    footer: Sequence[str],
+    width: int = 560,
+    logo_url: str | None = None,
+    footer_html: str | None = None,
+) -> str:
     """The frame every HTML mail sits in: wordmark, one card, a footer.
 
     The PREHEADER is the hidden line an inbox shows beside the subject. Left out, clients
@@ -59,12 +67,26 @@ def shell(*, preheader: str, body: str, footer: Sequence[str], width: int = 560)
     preview as "Calevate Calevate". It is hidden with the four properties that work
     together across clients; any one of them alone is defeated somewhere.
 
-    `footer` is plain text, one paragraph per entry.
+    `footer` is plain text, one paragraph per entry. `logo_url` and `footer_html` are the
+    D-933 product frame (`product_footer`, `email_render.product_email`): an image logo in
+    place of the text wordmark, and a footer with the company and the reason for the mail.
+    Both default to the frame every email uses today.
     """
-    footer_html = "".join(
+    footer_html = footer_html or "".join(
         f'<p style="margin:0 0 8px 0;font-family:{brand.FONT_STACK};font-size:12px;line-height:18px;color:{brand.TEXT_FAINT};">{escape(line)}</p>'
         for line in footer
     )
+    if logo_url:
+        # Width and height attributes as well as style: Outlook's Word engine ignores CSS
+        # sizing on images, and an unsized image renders at its file's full pixel width.
+        # The alt text is the product name, so a client that blocks images still says who
+        # wrote to them.
+        masthead = f'<img src="{escape(logo_url, quote=True)}" width="140" height="32" alt="{escape(brand.PRODUCT, quote=True)}" style="display:block;border:0;outline:none;text-decoration:none;width:140px;height:32px;font-family:{brand.FONT_STACK};font-size:19px;font-weight:600;color:{brand.TEXT};">'
+    else:
+        masthead = (
+            f'<span style="font-family:{brand.FONT_STACK};font-size:19px;font-weight:600;letter-spacing:-0.3px;color:{brand.TEXT};">{escape(brand.PRODUCT)}</span>\n'
+            f'<span style="display:inline-block;width:6px;height:6px;border-radius:3px;background-color:{brand.BRAND};margin-left:5px;vertical-align:middle;"></span>'
+        )
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -81,8 +103,7 @@ def shell(*, preheader: str, body: str, footer: Sequence[str], width: int = 560)
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:{width}px;width:100%;">
 
 <tr><td style="padding:0 4px 18px 4px;">
-<span style="font-family:{brand.FONT_STACK};font-size:19px;font-weight:600;letter-spacing:-0.3px;color:{brand.TEXT};">{escape(brand.PRODUCT)}</span>
-<span style="display:inline-block;width:6px;height:6px;border-radius:3px;background-color:{brand.BRAND};margin-left:5px;vertical-align:middle;"></span>
+{masthead}
 </td></tr>
 
 <tr><td bgcolor="{brand.SURFACE}" style="background-color:{brand.SURFACE};border:1px solid {brand.LINE};border-radius:14px;padding:28px 24px;">
@@ -98,6 +119,26 @@ def shell(*, preheader: str, body: str, footer: Sequence[str], width: int = 560)
 </table>
 </body>
 </html>"""
+
+
+def product_footer(*, reason: str, settings_url: str | None = None) -> str:
+    """The quiet footer of the D-933 product frame: who sent it, why, and where to change it.
+
+    The company is named exactly as the legal pages name it (`brand.LEGAL_ENTITY_NAME`,
+    `brand.REGISTERED_ADDRESS`). `settings_url` is passed only for an email whose sending
+    a person can switch off; a security or billing mail has no such setting and must not
+    pretend to.
+    """
+    line = f"margin:0 0 8px 0;font-family:{brand.FONT_STACK};font-size:12px;line-height:18px;color:{brand.TEXT_FAINT};"
+    parts = [
+        f'<p style="{line}">{escape(reason)}</p>',
+        f'<p style="{line}">{escape(brand.LEGAL_ENTITY_NAME)} · {escape(brand.REGISTERED_ADDRESS)}</p>',
+    ]
+    if settings_url:
+        parts.append(
+            f'<p style="{line}"><a href="{escape(settings_url, quote=True)}" style="color:{brand.TEXT_MUTED};text-decoration:underline;">Notification settings</a></p>'
+        )
+    return "".join(parts)
 
 
 def heading(text: str, *, size: int = 22) -> str:
@@ -270,6 +311,7 @@ __all__ = [
     "mono_block",
     "paragraph",
     "paragraph_html",
+    "product_footer",
     "section_label",
     "shell",
     "steps",

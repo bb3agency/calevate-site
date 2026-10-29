@@ -64,7 +64,7 @@ def transport(monkeypatch: pytest.MonkeyPatch) -> RecordingTransport:
 
     alerting.reset_alerts()
     recorder = RecordingTransport()
-    monkeypatch.setattr(transport_module, "get_transport", lambda: recorder)
+    monkeypatch.setattr(transport_module, "get_transport", lambda _purpose=None: recorder)
     monkeypatch.setattr(get_settings(), "alerts_email", OPERATOR)
     # The delivery retry is a real sleep in a background thread; tests must not pay it.
     monkeypatch.setattr(alerting, "DELIVERY_RETRY_DELAY_S", 0.0)
@@ -463,7 +463,7 @@ def test_a_transport_that_alerts_does_not_recurse(
     from apps.api.core import transport as transport_module
 
     reentrant = ReentrantTransport()
-    monkeypatch.setattr(transport_module, "get_transport", lambda: reentrant)
+    monkeypatch.setattr(transport_module, "get_transport", lambda _purpose=None: reentrant)
 
     _fire()
 
@@ -485,13 +485,13 @@ def test_a_raising_transport_does_not_reach_the_caller(
 
     from apps.api.core import transport as transport_module
 
-    monkeypatch.setattr(transport_module, "get_transport", lambda: Exploding())
+    monkeypatch.setattr(transport_module, "get_transport", lambda _purpose=None: Exploding())
 
     _fire()  # must not raise
     assert alerting.flush_alerts(timeout=5.0)
 
     # And the thread survives to deliver the next one.
-    monkeypatch.setattr(transport_module, "get_transport", lambda: transport)
+    monkeypatch.setattr(transport_module, "get_transport", lambda _purpose=None: transport)
     _fire(code="after_the_explosion")
     assert alerting.flush_alerts(timeout=5.0)
     assert len(transport.sent) == 1

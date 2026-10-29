@@ -65,7 +65,7 @@ from apps.api.core.alerting import alert
 from apps.api.core.console_links import CONSOLE_BASE
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
-from apps.api.core.transport import _domain, get_transport
+from apps.api.core.transport import EmailPurpose, _domain, get_transport
 from apps.workers.email_render import SUBJECTS as _SUBJECTS
 from apps.workers.email_render import render
 
@@ -75,6 +75,10 @@ log = get_logger(__name__)
 #: here as its own literal while the bodies lived here too; splitting the subject from
 #: the body it belongs to is how a kind ends up with one and not the other.
 _SUBJECTS = _SUBJECTS
+
+#: An invitation is an account notice, not a security one; every other kind carries a code
+#: or a password link and comes from the security sender (`docs/EMAILS.md`).
+_NOT_SECURITY: dict[str, EmailPurpose] = {"invite_password": EmailPurpose.NOTIFICATIONS}
 
 
 #: `CONSOLE_BASE` is RE-EXPORTED, not defined here. `workers/notifications.py` imports it
@@ -124,7 +128,7 @@ async def deliver_auth_email(ctx: dict[str, Any], payload: dict[str, Any]) -> st
         raise ValueError(f"auth email payload is not deliverable (kind={kind!r})")
 
     message = render(kind, realm, secret)
-    transport = get_transport()
+    transport = get_transport(_NOT_SECURITY.get(kind, EmailPurpose.SECURITY))
     delivered = await asyncio.to_thread(
         lambda: transport.send(to=to, subject=message.subject, body=message.text, html=message.html)
     )
