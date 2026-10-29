@@ -429,14 +429,10 @@ def background_tool() -> dict[str, Any]:
     return prompt_module.function_tool(
         name=BACKGROUND_TOOL_NAME,
         description=(
-            "Hand a request that is too big for one answer to a background job — for "
-            "example one that needs many lookups, or a change to many records ('mark every "
-            "lead from yesterday's campaign as contacted'). The job keeps working after this "
-            "answer ends, its progress shows in the assistant panel, and anything that needs "
-            "the person's confirmation (calling, launching, publishing, spending) waits for "
-            "their approval instead of happening. Use it only when the work really is bigger "
-            "than a few steps; otherwise just do it. Afterwards, tell the person you have "
-            "started it and that they can watch it in the panel."
+            "Hand work too big for one answer (many lookups or records) to a background job. "
+            "It keeps going after this answer, shows progress in the panel, and anything "
+            "needing approval (calling, launching, publishing, spending) waits for them. Only "
+            "for more than a few steps. Then say it started and they can watch it in the panel."
         ),
         parameters={
             "type": "object",

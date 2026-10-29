@@ -450,9 +450,9 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
         "staff may edit knowledge, call only opted-in, save-our-number WhatsApp",
     ),
     # D-934: charts and tables drawn in the panel, and cards kept on the home screen.
-    AreaEntry("report_chart", "reports", "draw a chart or table for the person; pin: chart_pin"),
-    AreaEntry("chart_pin", "reports", "keep a report_chart chart on the home screen"),
-    AreaEntry("chart_unpin", "reports", "take a home card off, by its name"),
+    AreaEntry("report_chart", "reports", "chart or table for the person; to keep it: chart_pin"),
+    AreaEntry("chart_pin", "reports", "keep a report_chart on the home screen"),
+    AreaEntry("chart_unpin", "reports", "remove a home card by name"),
 )
 
 AREA_OF: Final[dict[str, Area]] = {entry.tool: entry.area for entry in ENTRIES}
