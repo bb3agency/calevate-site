@@ -366,6 +366,12 @@ assert_units_are_disjoint(CLIENT_BILLED_UNIT_TYPES, PLATFORM_ABSORBED_UNIT_TYPES
 
 MONEY = Numeric(12, 4)
 
+#: `ux_credit_ledger_tenant_reason_ref`'s partial bound (migration f9c2b41a8e57,
+#: `scripts.reconcile_credit_ledger.LEDGER_UNIQUE_INDEX_CUTOFF`), as SQL. A lookup by
+#: `(tenant_id, reason, ref)` must repeat it or the planner cannot use the key and reads
+#: every ledger row of the tenant instead.
+LEDGER_KEY_SINCE_SQL = "TIMESTAMPTZ '2026-08-11 08:07:00+00'"
+
 
 class UsageEvent(PKMixin, Base):
     """Append-only ledger. Records OUR cost (unit_cost_paid) next to billable qty —

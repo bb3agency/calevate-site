@@ -104,6 +104,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.billing.models import LEDGER_KEY_SINCE_SQL
 from apps.api.billing.rates import PREPAID_TIERS
 
 # IMPORTED, PRIVATE NAMES AND ALL, exactly as `billing/cost_unit.py` imports `_ROW_COST_SQL`
@@ -253,7 +254,11 @@ SELECT f.per_call, f.call_id, f.unit_type, f.tier, f.llm_model, f.secs, f.qty, f
        f.currency_assumed, f.currency_lo, f.currency_hi, f.trial_cost, f.on_trial,
        c.agent_id, c.started_at, c.direction, a.name
   FROM folded f
-  LEFT JOIN calls c ON c.id = f.call_id
+  -- A primary-key probe per folded row (LIMIT 1 keeps the planner from flattening it into
+  -- a hash join over every call the account ever had, to match one month of rows).
+  LEFT JOIN LATERAL (
+    SELECT c.agent_id, c.started_at, c.direction FROM calls c WHERE c.id = f.call_id LIMIT 1
+  ) c ON true
   LEFT JOIN agents a ON a.id = c.agent_id
  ORDER BY f.per_call DESC, f.call_id, f.unit_type
 """
@@ -267,9 +272,16 @@ SELECT f.per_call, f.call_id, f.unit_type, f.tier, f.llm_model, f.secs, f.qty, f
 # Keyed by the month's own call ids rather than by the ledger entry's `occurred_at`: a
 # call that settles late is debited in the month AFTER the one its minutes belong to, and
 # the charge belongs with the call.
+#
+# Split on the ledger key's cutoff so the newer arm reads the key (`LEDGER_KEY_SINCE_SQL`).
 _WALLET_DEBITS_SQL: Final = (
-    "SELECT ref, SUM(-delta) FROM credit_ledger "
-    " WHERE tenant_id = :tid AND reason = 'usage' AND ref = ANY(:refs) GROUP BY ref"
+    "SELECT ref, SUM(-delta) FROM ("
+    "SELECT ref, delta FROM credit_ledger WHERE tenant_id = :tid AND reason = 'usage' "
+    f"AND ref = ANY(:refs) AND occurred_at >= {LEDGER_KEY_SINCE_SQL} "
+    "UNION ALL "
+    "SELECT ref, delta FROM credit_ledger WHERE tenant_id = :tid AND reason = 'usage' "
+    f"AND ref = ANY(:refs) AND occurred_at < {LEDGER_KEY_SINCE_SQL}"
+    ") e GROUP BY ref"
 )
 
 

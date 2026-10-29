@@ -332,6 +332,10 @@ READS_SHAPED_AS_POSTS: dict[str, str] = {
         "'Is this number suppressed?' — it writes nothing, and the number travels in "
         "the body because a query string lands in access logs, referrers and history"
     ),
+    "/v1/ops/dnc/global/find": (
+        "'Is this number suppressed for everyone?' — the ops twin of `/v1/dnc/check`, "
+        "writes nothing, number in the body for the same reason"
+    ),
     "/v1/compliance/messaging-consent/lookup": (
         "'May we message this number?' — the same shape and the same reason as `/v1/dnc/check`"
     ),

@@ -9,6 +9,7 @@ trust the filter instead of the policy.
 
 from __future__ import annotations
 
+import asyncio
 import csv
 import io
 import re
@@ -34,6 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents.business_hours import count_after_hours_calls
 from apps.api.agents.call_outcomes import outcome_lead_move
 from apps.api.billing.caps import read_spend_counters
+from apps.api.billing.models import LEDGER_KEY_SINCE_SQL
 from apps.api.core.errors import ProblemError
 from apps.api.core.spreadsheet_safety import disarm_for_csv
 from apps.api.crm import columns as lead_column_registry
@@ -47,7 +49,7 @@ from apps.api.crm.lens import (
     call_where,
     lead_row_clauses,
 )
-from apps.api.crm.live_calls import LIVE_STATE_SQL, live_state_params
+from apps.api.crm.live_calls import LIVE_STATE_SQL, RUNNING_SQL, live_state_params
 from apps.api.crm.outcomes import normalise as normalise_outcome
 from apps.api.crm.performance import IST_DAY_SQL, IST_HOUR_SQL, IST_TODAY_SQL
 from apps.api.crm.schemas import (
@@ -206,6 +208,7 @@ def redacted_summary(value: str | None) -> str | None:
 #: Which calls (`crm/lens.py`, D-893): one definition for the log, its export and Pip.
 _CALL_AT: Final = CALL_AT
 _LIVE_STATE: Final = f"({LIVE_STATE_SQL})"
+_RUNNING: Final = RUNNING_SQL
 
 
 async def list_calls(
@@ -220,22 +223,39 @@ async def list_calls(
     with_previews: bool = False,
 ) -> list[CallSummaryOut]:
     where, params = call_where(filters or CallFilters(status=status, agent_id=agent_id))
-    params |= {"limit": min(limit, MAX_PAGE), "offset": offset} | live_state_params()
+    page_size = min(limit, MAX_PAGE)
+    params |= {"limit": page_size, "offset": offset, "window": page_size + offset}
+    params |= live_state_params()
+    narrowed = f"{where} AND" if where else "WHERE"
 
     credits_column = _CREDITS_USED_COLUMN if include_credits else "NULL"
     rows = (
         await session.execute(
             text(
+                # The page is chosen from `calls` alone, then joined. Ordering the joined
+                # rows instead ran the callback LATERAL and the lead-name subquery for every
+                # call the account ever had before the sort kept 50 (132 ms at 60k calls).
+                # Calls still running head the log (D-886), then newest first: the two
+                # halves are separate branches so each is a plain `CALL_AT DESC` read the
+                # running half answers from `ix_calls_tenant_created` (it is the last
+                # `LIVE_LINE_HORIZON` of rows) and the rest can be read in index order.
+                "WITH page AS (SELECT p.id, p.live FROM ("
+                f"(SELECT c.id, true AS live, {_CALL_AT} AS call_at FROM calls c "
+                f"{narrowed} {_RUNNING} ORDER BY call_at DESC, c.id DESC LIMIT :window) "
+                "UNION ALL "
+                f"(SELECT c.id, false AS live, {_CALL_AT} AS call_at FROM calls c "
+                f"{narrowed} NOT ({_RUNNING}) ORDER BY call_at DESC, c.id DESC LIMIT :window)"
+                ") p ORDER BY p.live DESC, p.call_at DESC, p.id DESC "
+                "LIMIT :limit OFFSET :offset) "
                 "SELECT c.id, c.agent_id, a.name, c.direction, c.status, c.from_e164, "
                 "c.to_e164, c.started_at, c.duration_s, c.outcome_tag, c.sentiment, "
                 "c.summary, c.lead_id, c.summary_state, c.headline, c.trial_call, "
                 f"{_CALLBACK_COLUMNS}, {_LEAD_NAME_COLUMN}, {credits_column}, "
                 "c.business_outcome, c.business_outcome_label, c.follow_up_state, c.created_at, "
                 f"a.business_outcomes, {_LIVE_STATE} AS live_state "
-                f"FROM calls c JOIN agents a ON a.id = c.agent_id {_CALLBACK_JOIN} {where} "
-                # Calls still running head the log (D-886), then newest first.
-                f"ORDER BY ({_LIVE_STATE} = 'live') IS TRUE DESC, {_CALL_AT} DESC, c.id DESC "
-                "LIMIT :limit OFFSET :offset"
+                "FROM page JOIN calls c ON c.id = page.id JOIN agents a ON a.id = c.agent_id "
+                f"{_CALLBACK_JOIN} "
+                f"ORDER BY page.live DESC, {_CALL_AT} DESC, c.id DESC"
             ),
             params,
         )
@@ -283,9 +303,19 @@ async def list_calls(
 
 #: What the call took from the balance: its `usage` debit, keyed by the call id
 #: (`billing/service.charge_for_call`), read through `ux_credit_ledger_tenant_reason_ref`.
+#: That index is partial on its cutoff (`LEDGER_KEY_SINCE_SQL`), so the lookup must repeat
+#: the bound or the planner reads every ledger row of the tenant once per call on the page
+#: (4.5 ms a row at 24k debits). A call created on or after the cutoff has its debit after it
+#: too (`record_entry` stamps `clock_timestamp()` after the call row exists); an older call
+#: keeps the unbounded read.
+_LEDGER_KEY_SINCE: Final = LEDGER_KEY_SINCE_SQL
 _CREDITS_USED_COLUMN = (
+    f"(CASE WHEN c.created_at >= {_LEDGER_KEY_SINCE} THEN "
     "(SELECT -sum(l.delta) FROM credit_ledger l WHERE l.tenant_id = c.tenant_id "
-    "AND l.reason = 'usage' AND l.ref = c.id::text AND l.delta < 0) AS credits_used"
+    "AND l.reason = 'usage' AND l.ref = c.id::text AND l.delta < 0 "
+    f"AND l.occurred_at >= {_LEDGER_KEY_SINCE}) "
+    "ELSE (SELECT -sum(l.delta) FROM credit_ledger l WHERE l.tenant_id = c.tenant_id "
+    "AND l.reason = 'usage' AND l.ref = c.id::text AND l.delta < 0) END) AS credits_used"
 )
 
 #: How many details a call row shows, and how long each value may run before it is cut.
@@ -2005,6 +2035,12 @@ async def export_calls_csv(session: AsyncSession, filters: CallFilters) -> CallE
             remediation="Pick a shorter date range or an outcome on the Calls screen and "
             "export again.",
         )
+    # On a worker thread: redacting 20k summaries is ~0.45 s of CPU, which on the event
+    # loop stalls every other request this process is serving.
+    return CallExport(csv=await asyncio.to_thread(_calls_csv, rows), row_count=len(rows))
+
+
+def _calls_csv(rows: Sequence[Any]) -> str:
     buffer = io.StringIO()
     writer = csv.writer(buffer, quoting=csv.QUOTE_ALL)
     writer.writerow([_csv_value(h) for h in CALL_EXPORT_HEADER])
@@ -2027,7 +2063,7 @@ async def export_calls_csv(session: AsyncSession, filters: CallFilters) -> CallE
                 )
             ]
         )
-    return CallExport(csv=buffer.getvalue(), row_count=len(rows))
+    return buffer.getvalue()
 
 
 _EXPORT_IST = timezone(timedelta(hours=5, minutes=30))
@@ -2137,7 +2173,17 @@ async def export_leads_csv(
                 "full extract."
             ),
         )
+    # The ROW COUNT is reported alongside the bytes rather than recovered from them.
+    # `crm.routes.export_leads` recorded `csv_body.count("\n") - 1` in the audit row,
+    # and QUOTE_ALL preserves a newline INSIDE a cell — a lead named over two lines, or
+    # a transcribed note with a line break — so "how many contacts left the building"
+    # was over-counted by exactly the rows a person is most likely to have pasted into.
+    # An audit trail is only worth the accuracy of its numbers.
+    # Rendered on a worker thread for the reason `export_calls_csv` gives.
+    return LeadExport(csv=await asyncio.to_thread(_leads_csv, chosen, rows), row_count=len(rows))
 
+
+def _leads_csv(chosen: Sequence[lead_column_registry.LeadColumn], rows: Sequence[Any]) -> str:
     buffer = io.StringIO()
     # QUOTE_ALL, because the formula guard below depends on it. OWASP's Excel
     # mitigation is a TAB prefix *inside the quoted field* — unquoted, the leading
@@ -2191,13 +2237,7 @@ async def export_leads_csv(
                 for c in chosen
             ]
         )
-    # The ROW COUNT is reported alongside the bytes rather than recovered from them.
-    # `crm.routes.export_leads` recorded `csv_body.count("\n") - 1` in the audit row,
-    # and QUOTE_ALL preserves a newline INSIDE a cell — a lead named over two lines, or
-    # a transcribed note with a line break — so "how many contacts left the building"
-    # was over-counted by exactly the rows a person is most likely to have pasted into.
-    # An audit trail is only worth the accuracy of its numbers.
-    return LeadExport(csv=buffer.getvalue(), row_count=len(rows))
+    return buffer.getvalue()
 
 
 def _json_cell(data: object, key: str) -> Any:

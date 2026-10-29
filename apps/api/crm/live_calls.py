@@ -67,6 +67,13 @@ LIVE_STATE_SQL: Final = (
     "THEN 'live' ELSE 'unreported' END"
 )
 
+#: `LIVE_STATE_SQL = 'live'` as a plain predicate, which a planner can answer from the
+#: `(tenant_id, created_at)` index; the CASE form it equals cannot be.
+RUNNING_SQL: Final = (
+    "(c.status::text = ANY(CAST(:live_statuses AS text[])) "
+    "AND c.created_at > now() - make_interval(secs => CAST(:live_horizon_s AS double precision)))"
+)
+
 
 def live_state_params() -> dict[str, object]:
     return {

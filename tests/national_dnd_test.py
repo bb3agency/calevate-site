@@ -1289,3 +1289,38 @@ async def test_ops_can_still_lift_a_global_suppression() -> None:
             )
         ).scalar_one()
     assert gone == 0
+
+
+async def test_ops_finds_a_global_suppression_the_list_page_no_longer_shows() -> None:
+    """The ops list is the newest rows only; the console filtered that page in the browser,
+    so an older suppression read as "no match". `POST /find` asks the key."""
+    token = await _admin_token()
+    headers = {"Authorization": f"Bearer {token}"}
+    older, newer = _number(), _number()
+    async with _client() as http:
+        for phone in (older, newer):
+            added = await http.post(
+                "/v1/ops/dnc/global",
+                headers={**headers, "X-Confirm-Action": SUPPRESS_GLOBALLY_CONFIRMATION},
+                json={"numbers": [phone], "source": "regulator", "reason": "TRAI escalation"},
+            )
+            assert added.status_code == 201, added.text
+        page = await http.get("/v1/ops/dnc/global", params={"limit": 1}, headers=headers)
+        # Typed the way a person reads it back: ten digits, no country code.
+        found = await http.post(
+            "/v1/ops/dnc/global/find", headers=headers, json={"phone": older[3:]}
+        )
+        clean = await http.post(
+            "/v1/ops/dnc/global/find", headers=headers, json={"phone": _number()}
+        )
+        garbage = await http.post(
+            "/v1/ops/dnc/global/find", headers=headers, json={"phone": "not a number"}
+        )
+
+    assert [e["phone_e164"] for e in page.json()] == [newer]
+    assert found.status_code == 200, found.text
+    assert found.json()["valid"] is True
+    assert found.json()["entry"]["phone_e164"] == older
+    assert found.json()["entry"]["scope"] == "global"
+    assert clean.json() == {"valid": True, "entry": None}
+    assert garbage.json() == {"valid": False, "entry": None}
