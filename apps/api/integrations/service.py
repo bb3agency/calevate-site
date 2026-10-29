@@ -1088,7 +1088,8 @@ async def claim_due_retries(
     rows = (
         await session.execute(
             text(
-                "UPDATE webhook_deliveries d SET next_attempt_at = now() + CAST(:lease AS interval) "
+                "UPDATE webhook_deliveries d "
+                "SET next_attempt_at = now() + CAST(:lease AS interval) "
                 "FROM (SELECT id FROM webhook_deliveries WHERE status = :retrying "
                 "  AND next_attempt_at <= now() ORDER BY next_attempt_at "
                 "  LIMIT :limit FOR UPDATE SKIP LOCKED) due "
