@@ -32,7 +32,6 @@ _AFTER = "('timer', 'ear', 'smart', 'timer_v2')"
 
 
 def _replace(values: str) -> None:
-    op.execute("SET LOCAL lock_timeout = '3s'")
     op.execute(
         f"ALTER TABLE agents ADD CONSTRAINT {_STAGED} "
         f"CHECK (turn_detection IS NULL OR turn_detection IN {values}) NOT VALID"
@@ -43,9 +42,16 @@ def _replace(values: str) -> None:
 
 
 def upgrade() -> None:
+    op.execute("SET LOCAL lock_timeout = '3s'")
     _replace(_AFTER)
 
 
 def downgrade() -> None:
+    op.execute("SET LOCAL lock_timeout = '3s'")
+    # Bracketed: `agents` is FORCE RLS and fail-closed on an unset `app.tenant_id`, so an
+    # unbracketed UPDATE matches no row and the VALIDATE below (which reads every row,
+    # policy or not) then refuses the downgrade on the first `timer_v2` agent.
+    op.execute("ALTER TABLE agents NO FORCE ROW LEVEL SECURITY")
     op.execute("UPDATE agents SET turn_detection = NULL WHERE turn_detection = 'timer_v2'")
+    op.execute("ALTER TABLE agents FORCE ROW LEVEL SECURITY")
     _replace(_BEFORE)

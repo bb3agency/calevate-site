@@ -88,8 +88,17 @@ def upgrade() -> None:
     )
 
 
+_GUARDED = ("inbound_webhooks", "outbound_webhooks", "integration_credentials", "consent_ledger")
+
+
 def downgrade() -> None:
     new_sources = ", ".join(repr(v) for v in _NEW_SOURCES)
+    # Bracketed: the four tables are FORCE RLS and fail-closed on an unset `app.tenant_id`,
+    # so an unbracketed check reads zero rows and the named refusal never fires (the
+    # VALIDATE below would still refuse, naming only a constraint). DDL is transactional,
+    # so FORCE is back before commit.
+    for table in _GUARDED:
+        op.execute(f"ALTER TABLE {table} NO FORCE ROW LEVEL SECURITY")
     op.execute(
         "DO $$ BEGIN IF "
         f"EXISTS (SELECT 1 FROM inbound_webhooks WHERE source IN ({new_sources})) "
@@ -100,6 +109,8 @@ def downgrade() -> None:
         "consent rows exist; remove the configuration deliberately (the ledger rows are "
         "append-only) before downgrading'; END IF; END $$"
     )
+    for table in _GUARDED:
+        op.execute(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY")
     _replace(
         "consent_ledger",
         "ck_consent_ledger_source_enum",

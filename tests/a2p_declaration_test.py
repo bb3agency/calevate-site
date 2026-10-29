@@ -165,6 +165,13 @@ def test_the_setting_defaults_to_17_nov_and_refuses_a_day_that_does_not_exist() 
         platform_config.validate_value("a2p_declaration_enforced_from", "2026-02-30")
 
 
+def test_the_config_bounds_gate_accepts_a_calendar_day_as_bounded() -> None:
+    """`scripts/check_config_applies` is a CI gate; a date field is bounded by its format."""
+    from scripts import check_config_applies
+
+    assert check_config_applies._unbounded_reason("a2p_declaration_enforced_from") is None
+
+
 # --- declared and undeclared numbers -------------------------------------------------------
 
 

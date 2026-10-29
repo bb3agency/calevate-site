@@ -20,7 +20,7 @@ from apps.api.follow_ups import runner, service
 from apps.api.whatsapp.webhooks import extract_events
 from apps.workers import follow_ups as worker
 from apps.workers.callbacks import dispatch_due_callbacks
-from apps.workers.retention import _erase_follow_up_runs
+from apps.workers.retention import ANONYMIZED_PHONE, _erase_follow_up_runs, sweep_tenant
 from sqlalchemy import text
 from tests.callback_dispatch_test import _dialable_tenant
 from tests.follow_ups_support import publish
@@ -1046,6 +1046,45 @@ async def test_the_tick_queues_due_runs_and_the_call_ended_job_moves_them(
     assert result.startswith("moved=1")
     assert any(q[1].get("run_id") == str(run_b) for q in queued)
     del phone_b
+
+
+async def test_the_lead_clock_forgets_a_settled_runs_number_and_leaves_an_open_one() -> None:
+    """A run copies the number it calls; once its lead period has passed the copy goes,
+    as the lead's own and the uploaded contact's do. The run's outcome stays."""
+    tenant_id, agent_id = await _dialable_tenant()
+    follow_up_id = await publish(tenant_id, steps=[{"id": "s1", "kind": "end"}])
+    settled = await _start(tenant_id, follow_up_id, (await _lead(tenant_id, agent_id))[0])
+    still_open = await _start(tenant_id, follow_up_id, (await _lead(tenant_id, agent_id))[0])
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE follow_up_runs SET started_at = now() - interval '1200 days', "
+                "status = CASE WHEN id = :s THEN 'done' ELSE status END, "
+                "ended_at = CASE WHEN id = :s THEN now() ELSE ended_at END, "
+                "end_reason = CASE WHEN id = :s THEN 'finished' ELSE end_reason END "
+                "WHERE id IN (:s, :o)"
+            ),
+            {"s": settled, "o": still_open},
+        )
+
+    counts = await sweep_tenant(tenant_id)
+
+    async with tenant_session(tenant_id) as session:
+        rows = {
+            r[0]: (r[1], r[2], r[3])
+            for r in (
+                await session.execute(
+                    text(
+                        "SELECT id, left(phone_e164, 9) = :anon, status, end_reason "
+                        "FROM follow_up_runs WHERE id IN (:s, :o)"
+                    ),
+                    {"s": settled, "o": still_open, "anon": ANONYMIZED_PHONE[:9]},
+                )
+            ).all()
+        }
+    assert rows[settled] == (True, "done", "finished")
+    assert rows[still_open][0] is False
+    assert counts["follow_up_runs"] == 1
 
 
 async def test_a_step_that_keeps_failing_ends_the_run_and_alarms(

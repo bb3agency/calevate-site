@@ -1274,9 +1274,6 @@ CRON_JOBS = [
         minute={46},
         max_tries=WORKER_MAX_TRIES,
     ),
-    # PACK CREDIT PAST ITS EXPIRY (D-840): daily, keyed per lot, so a missed tick lapses the
-    # credit a day late and a doubled one lapses nothing twice. :11 shares its minute with
-    # no other fleet walk.
     # THE OWNER'S DAILY SUMMARY (D-944): once a day in the evening, IST. Each account's day
     # is claimed before sending, so the retry this job raises re-walks the list and reaches
     # only the accounts left undelivered.
@@ -1287,6 +1284,9 @@ CRON_JOBS = [
         minute={OWNER_DIGEST_MINUTE},
         max_tries=WORKER_MAX_TRIES,
     ),
+    # PACK CREDIT PAST ITS EXPIRY (D-840): daily, keyed per lot, so a missed tick lapses the
+    # credit a day late and a doubled one lapses nothing twice. :11 shares its minute with
+    # no other fleet walk.
     _cron(
         traced_job(expire_credit_lots),
         walk=fleet_wide("one tenant_session per organization, then one per due lot"),
