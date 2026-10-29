@@ -73,7 +73,7 @@ _COLUMNS: Final = (
     "id, jobs, language_primary, languages_extra, brief, document_ids, agent_id, "
     "questions_status, "
     "questions, answers, questions_disclosure, question_runs, build_status, build_steps, "
-    "build_disclosure, build_runs, build_requested_at, finished_at, dismissed_at"
+    "build_disclosure, build_runs, build_requested_at, finished_at, dismissed_at, updated_at"
 )
 
 
@@ -126,6 +126,21 @@ def _build_status(row: Any, *, now: datetime | None = None) -> str:
     return "failed" if status == "building" and stale else status
 
 
+#: Questions still `writing` this long after the row last changed are reported as failed, for
+#: `BUILD_STALE_AFTER`'s reason: the worker answers well inside it (one model budget), and a
+#: job killed by a database error or `job_timeout` — which arq does not retry — would
+#: otherwise leave the owner's screen reading the brief for ever. Reported `failed`, saving
+#: the same brief again queues a fresh run instead of returning early.
+QUESTIONS_STALE_AFTER: Final = timedelta(minutes=10)
+
+
+def _questions_status(row: Any, *, now: datetime | None = None) -> str:
+    status = str(row.questions_status)
+    changed = row.updated_at
+    stale = changed is not None and (now or datetime.now(UTC)) - changed > QUESTIONS_STALE_AFTER
+    return "failed" if status == "writing" and stale else status
+
+
 def _state(
     row: Any,
     *,
@@ -141,7 +156,7 @@ def _state(
         languages_extra=list(row.languages_extra or []),
         brief=row.brief,
         agent_id=row.agent_id,
-        questions_status=str(row.questions_status),
+        questions_status=_questions_status(row),
         questions=stored_questions(row.questions or [], vertical),
         questions_disclosure=row.questions_disclosure,
         question_runs=int(row.question_runs),
@@ -324,7 +339,7 @@ async def save_brief(session: AsyncSession, *, tenant_id: UUID, brief: str) -> R
             text("SELECT questions_brief_hash FROM first_runs WHERE id = :id"), {"id": row.id}
         )
     ).scalar()
-    if digest is not None and digest == current and row.questions_status in ("writing", "ready"):
+    if digest is not None and digest == current and _questions_status(row) in ("writing", "ready"):
         return await read_state(session, tenant_id=tenant_id)
     # A document is something to read even with the box left empty (D-918).
     readable = len(cleaned) >= MIN_BRIEF_CHARS or bool(documents)
