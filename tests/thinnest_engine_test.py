@@ -396,6 +396,25 @@ async def test_a_contacts_list_columns_and_reason_ride_the_dial() -> None:
     assert body["purpose"] == "Namaskaram రాము garu, Kondapur."
 
 
+async def test_a_long_name_and_lookup_value_are_cut_on_a_word_by_us() -> None:
+    """Place Call cuts every value to 150 characters, mid-word if it must; we cut first."""
+    handler, seen = _recorder(
+        {
+            ("GET", "/agents/ag_1"): _agent_with_greeting("Hello."),
+            ("POST", "/calls"): httpx.Response(202, json={"id": "out_1", "status": "ringing"}),
+        }
+    )
+    long_name = " ".join(["Venkata Satya Sai Lakshmi Narasimha"] * 6)
+    long_note = " ".join(["interested in the east facing two bedroom flat"] * 6)
+    ctx = CallContext(lead_name=long_name, fields={"last_enquiry": long_note})
+    await _engine(handler).start_outbound_call("ag_1", "+919876543210", ctx)
+    variables = _body(seen[-1])["variables"]
+    for key, whole in (("lead_name", long_name), ("last_enquiry", long_note)):
+        value = variables[key]
+        assert len(value) <= 150
+        assert whole.startswith(value) and whole[len(value)] == " ", "cut mid-word"
+
+
 async def test_list_columns_give_way_when_the_dial_has_no_room() -> None:
     """At most 20 variables (place-call `variables`): the platform's and the lookup's come
     first, and the list's columns fill what is left; they all stay on the Details line."""

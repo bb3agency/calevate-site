@@ -15,7 +15,8 @@ Five checks:
   shared with the put-live warning and the campaign launch block. A second list here
   would drift from the one that blocks a launch.
 * A PROMISE NOTHING ON THE ACCOUNT CAN KEEP: a WhatsApp send, a call back, a booking or a hand
-  to a person that the capability manifest says this agent cannot do. A sentence that makes
+  to a person that the capability manifest says this agent cannot do, and an SMS on every
+  account, since the platform sends none (messaging is WhatsApp only, D-700). A sentence that makes
   the action conditional ("only if you can") is left alone: the platform's WHAT YOU CAN DO
   block decides at call time.
 * A FIGURE THE OWNER NEVER GAVE: digits, a rupee sign or a percentage in a spoken line that no
@@ -73,6 +74,8 @@ class CapabilityManifest:
                 ("send a WhatsApp or any message", self.whatsapp),
                 ("offer a call back", self.call_backs),
                 ("put the caller through to a person", self.hand_over),
+                # Never on: the platform sends no SMS (D-700).
+                ("send an SMS", False),
             )
             if not on
         ]
@@ -111,16 +114,30 @@ _CONDITIONAL: Final = re.compile(
     r"\bonly if\b|\bif you (?:can|have)\b|\bunless\b|\bif (?:the|a) (?:tool|person|call back)",
     re.IGNORECASE,
 )
-#: A sentence that says the action will NOT happen ("I can't connect you now") promises nothing.
+#: A clause that says the action will NOT happen ("I can't connect you now") promises nothing.
+#: The romanised Telugu forms are the negative verb endings ("pampinchalemu", "cheyalenu").
 _NEGATED: Final = re.compile(
     r"\b(?:can'?t|cannot|won'?t|not|no one|nobody|never|unable)\b|కుదరదు|లేరు|లేదు|"
-    r"చేయలేను|नहीं|कोई नहीं",
+    r"చేయలేను|नहीं|कोई नहीं|\b\w+(?:lemu|lenu|ledu)\b|\bkudaradu\b|\bnahi?n?\b",
+    re.IGNORECASE,
+)
+#: Where one clause ends and the next begins. A negation is read only in the promise's own
+#: clause, so "ఇబ్బంది లేదు, WhatsApp lo pampistanu" ("no problem, I'll send it") still
+#: promises the send.
+_CLAUSE_BREAK: Final = re.compile(
+    r"\s*[,;:\N{EN DASH}\N{EM DASH}]\s*|\s+(?:and|but|so|kani|ani|lekapothe|par|lekin|aur|toh)\s+",
     re.IGNORECASE,
 )
 _WHATSAPP: Final = re.compile(r"whats\s?app|వాట్సాప్|వాట్సప్|व्हाट्सएप|व्हाट्सऐप", re.IGNORECASE)
-_SENDS: Final = re.compile(r"\bsend|\bsent\b|\bshare|పంపి|పంపు|పంపా|షేర్|भेज|शेयर", re.IGNORECASE)
+#: Each verb also in the Latin-letter Telugu and Hindi that scripts are written in as often as
+#: the native scripts ("WhatsApp lo pampistanu", "bhej dunga").
+_SENDS: Final = re.compile(
+    r"\bsend|\bsent\b|\bshare|\bpamp(?:i|u)|\bbhej|పంపి|పంపు|పంపా|షేర్|भेज|शेयर", re.IGNORECASE
+)
+_SMS: Final = re.compile(r"\bsms\b|\btext message|ఎస్ఎంఎస్|एसएमएस", re.IGNORECASE)
 _CALL_BACK: Final = re.compile(
-    r"call (?:you )?back|call-back|callback|తిరిగి కాల్|కాల్ బ్యాక్|वापस कॉल|कॉल बैक",
+    r"call (?:you )?back|call-back|callback|తిరిగి కాల్|కాల్ బ్యాక్|మళ్ళీ కాల్|वापस कॉल|कॉल बैक|"
+    r"\b(?:malli|tirigi|tarvata|taruvata) call chest|\b(?:wapas|vapas|baad mein) call kar",
     re.IGNORECASE,
 )
 _BOOKS: Final = re.compile(
@@ -138,15 +155,29 @@ _HANDS_OVER: Final = re.compile(
 def unbacked_promise(text: str, manifest: CapabilityManifest) -> str | None:
     """What `text` promises that `manifest` says this agent cannot do, or None."""
     for sentence in re.split(r"(?<=[.?!।])\s+", text):
-        if _CONDITIONAL.search(sentence) or _NEGATED.search(sentence):
+        # A condition qualifies the whole sentence ("only if you can, offer a call back").
+        if _CONDITIONAL.search(sentence):
             continue
-        if not manifest.whatsapp and _WHATSAPP.search(sentence) and _SENDS.search(sentence):
+        clauses = [c for c in _CLAUSE_BREAK.split(sentence) if c]
+
+        def promised(verb: re.Pattern[str], clauses: list[str] = clauses) -> bool:
+            """The verb in a clause that does not itself say it will not happen."""
+            return any(verb.search(c) and not _NEGATED.search(c) for c in clauses)
+
+        # No manifest backs an SMS: the platform sends none, its messaging is WhatsApp only
+        # (D-700, docs/FOLLOW-UPS.md). Read in the verb's own clause, so "can't send it on
+        # WhatsApp, but I'll share it by SMS" is the SMS promise it is.
+        if any(_SMS.search(c) and _SENDS.search(c) and not _NEGATED.search(c) for c in clauses):
+            return "an SMS, and this platform sends no SMS"
+        # The channel may sit in another clause than the verb ("I'll send the brochure and
+        # the location on WhatsApp"), so it is looked for in the whole sentence.
+        if not manifest.whatsapp and _WHATSAPP.search(sentence) and promised(_SENDS):
             return "a WhatsApp message, and this agent has no WhatsApp action"
-        if not manifest.call_backs and _CALL_BACK.search(sentence):
+        if not manifest.call_backs and promised(_CALL_BACK):
             return "a call back, and this account cannot keep one yet"
-        if not manifest.booking_tool and _BOOKS.search(sentence):
+        if not manifest.booking_tool and promised(_BOOKS):
             return "to book or confirm a time, and this agent has no calendar"
-        if not manifest.hand_over and _HANDS_OVER.search(sentence):
+        if not manifest.hand_over and promised(_HANDS_OVER):
             return "to put the caller through to a person, and hand-over is off"
     return None
 

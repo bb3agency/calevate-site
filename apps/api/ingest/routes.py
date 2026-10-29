@@ -49,6 +49,9 @@ from apps.api.ingest.service import (
     submission_is_stale,
     verify_ingest_secret,
 )
+from apps.api.integrations import leadsquared as lsq
+from apps.api.integrations.service import OUTBOUND_WEBHOOK_JOB
+from apps.api.reliability.models import OUTBOX_STATUSES
 from apps.api.reliability.service import (
     body_hash,
     claim_inbox_event,
@@ -341,7 +344,7 @@ async def _absorb_push_record(
             claim = await claim_inbox_event(session, **claim_args)
             if claim.state == "duplicate":
                 return "duplicate"
-            if config.source == LEADSQUARED_SOURCE and await _recent_lead(session, mapped):
+            if config.source == LEADSQUARED_SOURCE and await _sent_to_leadsquared(session, mapped):
                 # Our own write coming back: a lead we sent to LeadSquared moments ago fires
                 # LeadSquared's lead-create webhook at us, and ringing them a second time
                 # for it would be our echo, not their enquiry.
@@ -365,9 +368,21 @@ async def _absorb_push_record(
     return "accepted"
 
 
-async def _recent_lead(session: AsyncSession, mapped: dict[str, Any]) -> bool:
-    """Whether this account already has a lead with this number from the last
-    `ECHO_WINDOW_MINUTES`. RLS scopes it to the tenant (hard rule 1)."""
+async def _sent_to_leadsquared(session: AsyncSession, mapped: dict[str, Any]) -> bool:
+    """Whether we told this account's LeadSquared destination about a lead with this number
+    in the last `ECHO_WINDOW_MINUTES`: the outbox row of that write, which commits with the
+    lead and so exists before LeadSquared can fire back (the delivery row is written only
+    after LeadSquared answers, and its webhook can beat that). A recent lead we never sent
+    there is not an echo: the client entered the person in their CRM themselves.
+    `outbound_webhooks` and `leads` are RLS'd, so the join stays in the tenant (hard rule 1).
+
+    Whatever the row's status: a delivered message stays `published` (success is
+    `consumed_at`, not a status) and is pruned only after 90 days, and a dead letter can
+    be replayed into a write. Every status is still NAMED, because `(status, created_at)`
+    is the outbox's one index and only a leading `status` makes the `created_at` range an
+    index range scan: on 200,000 seeded rows (PostgreSQL 16) the bare range ran as a full
+    index walk or a sequential scan (21-88 ms), the named statuses as a range scan (<2 ms).
+    """
     raw = str(mapped.get("phone") or mapped.get("phone_number") or "")
     phone = normalize_phone(raw) if raw else None
     if phone is None:
@@ -375,10 +390,22 @@ async def _recent_lead(session: AsyncSession, mapped: dict[str, Any]) -> bool:
     found = (
         await session.execute(
             text(
-                "SELECT 1 FROM leads WHERE phone_e164 = :phone AND deleted_at IS NULL "
-                "AND created_at > now() - make_interval(mins => :window) LIMIT 1"
+                "SELECT 1 FROM outbox_messages o "
+                "JOIN outbound_webhooks w ON w.id::text = o.payload->>'endpoint_id' "
+                "AND w.kind = :kind "
+                "JOIN leads l ON l.id::text = o.payload->'data'->>'lead_id' "
+                "AND l.phone_e164 = :phone AND l.deleted_at IS NULL "
+                "WHERE o.job = :job AND o.status = ANY(:statuses) "
+                "AND o.created_at > now() - make_interval(mins => :window) "
+                "AND o.payload->>'event' IN ('lead.created', 'lead.updated') LIMIT 1"
             ),
-            {"phone": phone, "window": ECHO_WINDOW_MINUTES},
+            {
+                "phone": phone,
+                "kind": lsq.KIND,
+                "job": OUTBOUND_WEBHOOK_JOB,
+                "statuses": list(OUTBOX_STATUSES),
+                "window": ECHO_WINDOW_MINUTES,
+            },
         )
     ).first()
     return found is not None

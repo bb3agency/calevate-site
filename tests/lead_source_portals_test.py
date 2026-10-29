@@ -35,6 +35,7 @@ from apps.api.engine import reset_engine_cache
 from apps.api.ingest import portals
 from apps.api.ingest.routes import PUSH_UNREADABLE_REASON, SECRET_HEADER
 from apps.api.integrations import leadsquared as lsq
+from apps.api.integrations import service as integrations_service
 from apps.api.main import app
 from apps.workers import leadsquared_sync
 from sqlalchemy import text
@@ -418,13 +419,85 @@ async def test_leadsquared_do_not_call_is_honoured() -> None:
     assert await _grants(tenant_id) == [], "a CRM lead is the client's assertion, not an enquiry"
 
 
+async def _lead_from_another_source(
+    tenant_id: uuid.UUID, agent_id: uuid.UUID, phone: str, *, sent_to_leadsquared: bool
+) -> None:
+    """A lead that came from elsewhere, told to the account's LeadSquared destination
+    through the real fan-out when `sent_to_leadsquared`."""
+    lead_id = uuid.uuid4()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO leads (id, tenant_id, agent_id, phone_e164, name, source, status, "
+                "data, created_at, updated_at) VALUES (:id, :t, :a, :p, 'Kiran', 'webhook', "
+                "'new', '{}'::jsonb, now(), now())"
+            ),
+            {"id": lead_id, "t": tenant_id, "a": agent_id, "p": phone},
+        )
+        if sent_to_leadsquared:
+            await session.execute(
+                text(
+                    "INSERT INTO outbound_webhooks (id, tenant_id, kind, url, secret_ref, events, "
+                    "mapping, active, created_at, updated_at) VALUES (:id, :t, 'leadsquared', "
+                    "'https://api-in21.leadsquared.com', 'x', ARRAY['lead.created'], "
+                    "'{}'::jsonb, true, now(), now())"
+                ),
+                {"id": uuid.uuid4(), "t": tenant_id},
+            )
+            await integrations_service.enqueue_event(
+                session,
+                tenant_id=tenant_id,
+                event="lead.created",
+                data={"lead_id": str(lead_id), "phone": phone, "name": "Kiran"},
+            )
+
+
 async def test_leadsquared_echoing_our_own_write_is_not_a_second_call() -> None:
-    tenant_id, _, webhook_id = await _tenant_with_source("leadsquared")
-    first = await _push(webhook_id, _leadsquared(phone="+91-9876507777"))
+    tenant_id, agent_id, webhook_id = await _tenant_with_source("leadsquared")
+    await _lead_from_another_source(tenant_id, agent_id, "+919876507777", sent_to_leadsquared=True)
     echo = await _push(webhook_id, _leadsquared(phone="9876507777"))
-    assert first.json()["accepted"] == 1
-    assert echo.json()["duplicate"] == 1
+    assert echo.json()["duplicate"] == 1, echo.text
     assert len(await _leads(tenant_id)) == 1
+
+
+@pytest.mark.parametrize(
+    ("status", "consumed"),
+    [("published", True), ("failed", False)],
+    ids=["delivered", "dead_lettered"],
+)
+async def test_the_echo_is_recognised_after_our_write_has_left_the_queue(
+    status: str, consumed: bool
+) -> None:
+    """LeadSquared's webhook can arrive after our delivery finished: the outbox row is then
+    `published` with `consumed_at` set, or `failed` and replayable, never `pending`."""
+    tenant_id, agent_id, webhook_id = await _tenant_with_source("leadsquared")
+    await _lead_from_another_source(tenant_id, agent_id, "+919876507799", sent_to_leadsquared=True)
+    async with tenant_session(tenant_id) as session:
+        moved = await session.execute(
+            text(
+                "UPDATE outbox_messages SET status = :s, "
+                "consumed_at = CASE WHEN :c THEN now() END, updated_at = now() "
+                "WHERE payload->>'tenant_id' = :t AND job = :job"
+            ),
+            {
+                "s": status,
+                "c": consumed,
+                "t": str(tenant_id),
+                "job": integrations_service.OUTBOUND_WEBHOOK_JOB,
+            },
+        )
+        assert moved.rowcount == 1
+    echo = await _push(webhook_id, _leadsquared(phone="9876507799"))
+    assert echo.json()["duplicate"] == 1, echo.text
+
+
+async def test_a_new_leadsquared_lead_for_a_number_we_never_sent_it_is_ingested() -> None:
+    """A recent lead from another source that we never wrote to LeadSquared is not an echo:
+    the client entered this person in their CRM themselves."""
+    tenant_id, agent_id, webhook_id = await _tenant_with_source("leadsquared")
+    await _lead_from_another_source(tenant_id, agent_id, "+919876507788", sent_to_leadsquared=False)
+    pushed = await _push(webhook_id, _leadsquared(phone="9876507788"))
+    assert pushed.json()["accepted"] == 1, pushed.text
 
 
 async def test_created_push_source_gets_its_preset_and_a_token_address() -> None:

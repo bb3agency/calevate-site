@@ -80,6 +80,7 @@ def is_self_name(
     agent_names: Iterable[str],
     business_names: Iterable[str],
     turns: Sequence[TranscriptTurn],
+    caller_names: Iterable[str] = (),
 ) -> bool:
     """Whether a captured "caller name" is really the agent's or the business's.
 
@@ -88,6 +89,11 @@ def is_self_name(
     their name to "Sri Sai Properties". A name the agent said before the caller ever did is
     the agent's introduction being echoed; a name the caller said first and the agent
     repeated back to confirm stays theirs.
+
+    `caller_names` are the names we already hold for the person: the lead's, the
+    campaign row's. The agent says that name first because it opens with it ("Umesh garu,
+    ..."), so the said-first test would otherwise take every confirmed name from an
+    outbound call, and a campaign lead would be created with none.
     """
     name = fold(captured)
     if not name:
@@ -96,6 +102,8 @@ def is_self_name(
         return True
     if name in set(business_names):
         return True
+    if name in {fold(known) for known in caller_names}:
+        return False
     return _agent_said_it_first(name, turns)
 
 
@@ -105,16 +113,22 @@ def without_self_names(
     agent_names: Iterable[str],
     business_names: Iterable[str],
     turns: Sequence[TranscriptTurn],
+    caller_names: Iterable[str] = (),
 ) -> tuple[dict[str, Any], bool]:
     """`data` with any caller-name key that holds a self name removed, and whether one was.
     Removed rather than blanked so the call reads "Not said", which is what happened."""
     agents, businesses = frozenset(agent_names), frozenset(business_names)
+    callers = tuple(caller_names)
     cleaned = dict(data)
     dropped = False
     for key in NAME_KEYS:
         value = cleaned.get(key)
         if isinstance(value, str) and is_self_name(
-            value, agent_names=agents, business_names=businesses, turns=turns
+            value,
+            agent_names=agents,
+            business_names=businesses,
+            turns=turns,
+            caller_names=callers,
         ):
             del cleaned[key]
             dropped = True

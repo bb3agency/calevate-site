@@ -1829,6 +1829,7 @@ async def _extract_stage(
             agent_names=agent_names,
             business_names=business_names,
             turns=snapshot.transcript or [],
+            caller_names=await _known_caller_names(tenant_id, call_id),
         )
         if dropped:
             extraction = extraction.model_copy(update={"data": cleaned})
@@ -1915,6 +1916,30 @@ async def _agent_self_names(
     if row is None:
         return frozenset(), frozenset()
     return self_names(agent_name=row[0], business_name=row[1], script_body=row[2])
+
+
+async def _known_caller_names(tenant_id: UUID, call_id: UUID) -> tuple[str, ...]:
+    """The names we already hold for the person on this call: the lead it was placed for, the
+    agent's lead on the other party's number (what the caller lookup greets a repeat caller
+    with) and the campaign row it dialled (`campaign_contacts.last_call_id` is that row's one
+    link to the call). The agent is handed each as `lead_name`, so it says it first."""
+    async with tenant_session(tenant_id) as session:
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT l.name FROM calls c JOIN leads l ON l.id = c.lead_id "
+                    "WHERE c.id = :cid AND l.name IS NOT NULL "
+                    "UNION ALL SELECT l.name FROM calls c JOIN leads l "
+                    "ON l.agent_id = c.agent_id AND l.deleted_at IS NULL AND l.phone_e164 = "
+                    "CASE WHEN c.direction = 'outbound' THEN c.to_e164 ELSE c.from_e164 END "
+                    "WHERE c.id = :cid AND l.name IS NOT NULL "
+                    "UNION ALL SELECT cc.name FROM campaign_contacts cc "
+                    "WHERE cc.last_call_id = :cid AND cc.name IS NOT NULL"
+                ),
+                {"cid": call_id},
+            )
+        ).all()
+    return tuple(str(row[0]) for row in rows)
 
 
 def call_event_data(

@@ -141,7 +141,10 @@ _ISO_DATE_RE = re.compile(r"\b\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])(?!
 # extra. Runs before the phone pass, whose digit runs could otherwise split a hex secret.
 #: `hub.verify_token` is the second: Meta's subscription check sends the endpoint's verify
 #: token as a query parameter (`ingest/routes.py`), so it lands in the same access line.
-_URL_SECRET_PARAMS: tuple[str, ...] = (CALLBACK_SECRET_PARAM, "hub.verify_token")
+#: `token` is the push-source secret (`ingest/portals.TOKEN_PARAM`, D-942), carried in the
+#: URL because IndiaMART and the property portals cannot add a header; spelled here rather
+#: than imported because voice-runtime holds this module and must not import the api.
+_URL_SECRET_PARAMS: tuple[str, ...] = (CALLBACK_SECRET_PARAM, "hub.verify_token", "token")
 _URL_SECRET_RE = re.compile(
     r"(\b(?:" + "|".join(re.escape(p) for p in _URL_SECRET_PARAMS) + r")=)[^&\s\"'#]*"
 )

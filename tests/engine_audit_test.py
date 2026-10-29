@@ -1589,6 +1589,11 @@ _VENDOR_ONLY_KEYS = frozenset(
         "endedAt",
         "analysedAt",
         "nextCursor",
+        # ThinnestAI's call insights (`parse_insights`); ours are `CallInsights.no_reason`,
+        # `next_step` and `CallNextStep.followed_up_at`.
+        "noReason",
+        "nextStep",
+        "followedUpAt",
         # Their per-call charge in integer micro-units (usage call log). Ours is
         # `unit_cost_paid` in NUMERIC rupees; the vendor field never crosses the adapter.
         "costMicro",
@@ -1688,6 +1693,12 @@ _VENDOR_ONLY_KEYS = frozenset(
 #: vocabulary is a guard somebody switches off.
 _SHARED_PAYLOAD_KEYS = frozenset(
     {
+        # A call's `insights` (CallInsights, `engine/thinnest.parse_insights`): every noun is
+        # ours too (`CallInsights.objections`/`issues`, `CallNextStep.note`, `calls.insights`).
+        "insights",
+        "issues",
+        "note",
+        "objections",
         # `contact.opted_out` `data.reason` (D-767), the caller's words; `reason` is also our
         # own field across this tree (a live apply's reason, an offer's refusal reason).
         "reason",

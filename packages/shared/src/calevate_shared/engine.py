@@ -3304,10 +3304,12 @@ DAYS_AHEAD: Final = 6
 def today_value(now: datetime) -> str:
     """`Sunday, 25 October 2026; then Mon 26 Oct, Tue 27 Oct, …`: the IST calendar day of
     `now` and the `DAYS_AHEAD` days after it, as `TODAY_LINE` reads them. About 100
-    characters, inside `CALL_VARIABLE_VALUE_MAX`."""
+    characters, inside `CALL_VARIABLE_VALUE_MAX`. A day in the next year carries its year
+    ("Fri 1 Jan 2027"), so a booking made on 30 December is not read as this January."""
     day = ist_wall_clock(now).date()
     ahead = ", ".join(
         f"{d.strftime('%a')} {d.day} {d.strftime('%b')}"
+        + (f" {d.year}" if d.year != day.year else "")
         for d in (day + timedelta(days=n) for n in range(1, DAYS_AHEAD + 1))
     )
     return f"{day.strftime('%A')}, {day.day} {day.strftime('%B %Y')}; then {ahead}"
@@ -3429,6 +3431,12 @@ def call_details_value(custom: dict[str, object] | None) -> str:
         items.append(item)
         used += cost
     return "; ".join(items)
+
+
+def call_variable_value(value: str) -> str:
+    """Any per-call value as one line within `CALL_VARIABLE_VALUE_MAX`, cut on a word: the
+    lead's name and the caller lookup's fields reach Place Call through this."""
+    return _clip(_one_line(value), CALL_VARIABLE_VALUE_MAX)
 
 
 def call_reason_value(note: str | None) -> str:
@@ -6696,6 +6704,7 @@ __all__ = [
     "call_instructions",
     "call_reason_value",
     "call_variable_key",
+    "call_variable_value",
     "contact_call_variables",
     "engine_prompt_layers",
     "fill_caller_memory_slot",
