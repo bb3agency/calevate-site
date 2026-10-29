@@ -56,7 +56,12 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance.audit import write_audit
-from apps.api.compliance.kyc import read_kyc, record_digilocker_completion, record_kyc
+from apps.api.compliance.kyc import (
+    lock_kyc,
+    read_kyc,
+    record_digilocker_completion,
+    record_kyc,
+)
 from apps.api.compliance.kyc_providers import VerificationOutcome, entity_branch
 from apps.api.compliance.models import KYC_VERIFIED
 from apps.api.db.base import uuid7
@@ -297,6 +302,7 @@ async def apply_outcome(
         owner_id_masked=outcome.masked_id,
     )
 
+    await lock_kyc(session, tenant_id=request.tenant_id)
     if (await read_kyc(session, tenant_id=request.tenant_id)).is_verified:
         # ALREADY VERIFIED, BY WHATEVER ROUTE — so this outcome may not touch the record.
         # `record_kyc` takes `status` from EXCLUDED outright and re-stamps `verified_at`,

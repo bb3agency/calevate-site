@@ -5,6 +5,7 @@ in the dial gate, the DLT entity list, and the engine DNC push with nothing to p
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from typing import Any
@@ -279,6 +280,44 @@ async def test_approving_with_no_certificate_on_file_is_refused() -> None:
                 admin_id=await _admin_id(),
             )
     assert refused.value.code == "kyc_business_document_missing"
+
+
+async def test_two_reviewers_deciding_at_once_leave_one_decision() -> None:
+    """Each decision reads "awaiting review", then upserts `status = EXCLUDED.status`. Without
+    a lock taken before that read, two reviewers (or a review and a DigiLocker outcome) both
+    passed the check and the later write silently replaced the earlier decision."""
+    org = await _tenant()
+    tenant_id = UUID(str(org["id"]))
+    await _submitted_without_documents(tenant_id)
+    admin_id = await _admin_id()
+
+    async def reject(reason: str) -> str:
+        async with tenant_session(tenant_id) as session:
+            await decide_kyc_review(
+                session,
+                tenant_id=tenant_id,
+                decision="reject",
+                document_ref=None,
+                reason=reason,
+                pan_checked=False,
+                admin_id=admin_id,
+            )
+            # Hold the transaction open past the other reviewer's read.
+            await asyncio.sleep(0.2)
+        return reason
+
+    outcomes = await asyncio.gather(
+        reject("The certificate is unreadable."),
+        reject("The name does not match."),
+        return_exceptions=True,
+    )
+    decided = [o for o in outcomes if isinstance(o, str)]
+    refused = [o for o in outcomes if isinstance(o, ProblemError)]
+    assert len(decided) == 1, outcomes
+    assert [r.code for r in refused] == ["kyc_not_awaiting_review"]
+    async with tenant_session(tenant_id) as session:
+        record = await read_kyc(session, tenant_id=tenant_id)
+    assert record.rejection_reason == decided[0]
 
 
 async def test_an_llp_is_approved_against_its_llpin_and_needs_the_number(s3: FakeS3) -> None:

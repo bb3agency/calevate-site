@@ -70,6 +70,7 @@ from apps.api.campaigns.provisioning import number_purchase_available
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.kyc import (
     KycRecord,
+    lock_kyc,
     mark_digilocker_path,
     read_kyc,
     save_business_details,
@@ -814,6 +815,9 @@ async def submit_for_review(
     principal: KycWriter,
 ) -> KycRecordOut:
     assert principal.tenant_id is not None
+    # Before the read that decides: a second tab submitting at once, or a review landing
+    # mid-submit, would otherwise be overwritten (`kyc.lock_kyc`).
+    await lock_kyc(session, tenant_id=principal.tenant_id)
     record = await read_kyc(session, tenant_id=principal.tenant_id)
     if record.is_verified:
         raise ProblemError.business_rule(
