@@ -37,7 +37,6 @@ import {
   SECONDARY_BUTTON_SM,
   Skeleton,
   formatIST,
-  formatINR,
   formatPhone,
 } from "@/components/ui";
 import { formatPayableINR } from "@/lib/numberDisplay";

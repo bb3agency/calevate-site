@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 
 import { publicPageMetadata } from "@/lib/seo/metadata";
 import { GST_STATUS_SENTENCE } from "@/lib/gstStatus";
-import { formatINR } from "@/lib/numberDisplay";
+import { formatINR, formatPayableINR } from "@/lib/numberDisplay";
 
 import {
   cardFromRate,
@@ -193,11 +193,11 @@ export default async function PricingPage() {
   const numberLine =
     numberPrice === null
       ? "Each phone number has a monthly fee, shown before you buy"
-      : `Each phone number is ${formatINR(numberPrice)} a month`;
+      : `Each phone number is ${formatPayableINR(numberPrice)} a month`;
   const feeLine =
     fee === null
       ? `${numberLine}. No platform fee, no setup fee, no per-seat charge`
-      : `Plus a monthly platform fee of ${formatINR(fee)}, paid separately from your credit. ${numberLine}. No setup fee, no per-seat charge`;
+      : `Plus a monthly platform fee of ${formatPayableINR(fee)}, paid separately from your credit. ${numberLine}. No setup fee, no per-seat charge`;
   return (
     <MarketingPage>
       {/* THE PRICE IS THE HEADLINE: a buyer's whole reason for arriving is the number, so
@@ -432,7 +432,7 @@ export default async function PricingPage() {
             <h2 className={H2}>
               {fee === null
                 ? "There is no monthly platform fee today"
-                : `${formatINR(fee)} a month, the same for every client`}
+                : `${formatPayableINR(fee)} a month, the same for every client`}
             </h2>
             <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
               {/* From `platform_fee_inr_per_month` on the live card, never typed; null means
