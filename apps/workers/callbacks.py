@@ -37,9 +37,9 @@ from apps.api.core.loadshed import get_platform_status
 from apps.api.core.logging import get_logger
 from apps.api.db.session import tenant_session
 from apps.api.engine.dial_lines import LINES_BUSY_RULE
+from apps.api.follow_ups import runner as follow_up_runner
 from apps.api.ingest.lead_policy import (
     book_retry,
-    load_plan,
     new_lead_attempt,
     retry_still_wanted,
 )
@@ -125,11 +125,28 @@ async def dispatch_due_callbacks(tenant_id: UUID, slots: int) -> dict[str, int]:
 
     for callback in due:
         attempt = new_lead_attempt(callback.source_execution_id)
+        # A Follow-up's call (D-940): dialled like any call-back, and its run is told what
+        # became of it.
+        step_call = follow_up_runner.parse_callback_key(callback.source_execution_id)
         async with tenant_session(tenant_id) as session:
+            if (
+                step_call is not None
+                and await follow_up_runner.callback_still_wanted(session, step_call) == "stale"
+            ):
+                await callbacks.settle(
+                    session,
+                    callback.id,
+                    status="cancelled",
+                    reason=follow_up_runner.STALE_CALLBACK_REASON,
+                )
+                continue
             # A RETRY OF A NEW LEAD'S CALL (D-716) was booked before the last try's outcome
             # was known; it stands down once they answered and waits while they are on a
             # call. Before the gate, so a retry nobody needs costs no DNC read.
-            if attempt is not None and attempt[0] > 0:
+            retry = (attempt is not None and attempt[0] > 0) or (
+                step_call is not None and step_call.attempt > 0
+            )
+            if retry:
                 verdict = await retry_still_wanted(
                     session,
                     lead_id=callback.lead_id,
@@ -140,6 +157,8 @@ async def dispatch_due_callbacks(tenant_id: UUID, slots: int) -> dict[str, int]:
                     await callbacks.settle(
                         session, callback.id, status="cancelled", reason=RETRY_NOT_NEEDED_REASON
                     )
+                    if step_call is not None:
+                        await follow_up_runner.call_answered_elsewhere(session, step_call)
                     continue
                 if verdict == "on_a_call":
                     await callbacks.defer(
@@ -190,6 +209,8 @@ async def dispatch_due_callbacks(tenant_id: UUID, slots: int) -> dict[str, int]:
                         rule=rule,
                         reason=decision.reason,
                     )
+                    if step_call is not None:
+                        await follow_up_runner.call_refused(session, step_call, rule=rule)
                 elif rule in TRIAL_DIAL_REFUSALS:
                     # A fact about the ACCOUNT that no wait inside the grace window lifts:
                     # a trial account places no call backs. Ended now, in words that say
@@ -201,6 +222,8 @@ async def dispatch_due_callbacks(tenant_id: UUID, slots: int) -> dict[str, int]:
                         rule=rule,
                         reason=TRIAL_CALLBACK_REASON,
                     )
+                    if step_call is not None:
+                        await follow_up_runner.call_refused(session, step_call, rule=rule)
                 else:
                     await callbacks.defer(session, callback.id, rule=rule, reason=decision.reason)
                 blocked += 1
@@ -227,6 +250,7 @@ async def dispatch_due_callbacks(tenant_id: UUID, slots: int) -> dict[str, int]:
                 lead_id=callback.lead_id,
                 phone_e164=callback.phone_e164,
             )
+            link = callbacks.link_callback_to_call(callback.id, campaign_id=origin.campaign_id)
             try:
                 # THE ONE OUTBOUND ENTRY POINT. Not a parallel dial path: everything a dial
                 # is supposed to inherit — the A/B arm, the resolved DLT header, the intent
@@ -244,8 +268,12 @@ async def dispatch_due_callbacks(tenant_id: UUID, slots: int) -> dict[str, int]:
                     context_note=callbacks.context_note(
                         callback.requested_at, callback.note, source=callback.source_execution_id
                     ),
-                    on_reserved=callbacks.link_callback_to_call(
-                        callback.id, campaign_id=origin.campaign_id
+                    on_reserved=(
+                        follow_up_runner.link_run_to_call(
+                            step_call.run_id, step_call.attempt, then=link
+                        )
+                        if step_call is not None
+                        else link
                     ),
                     contact_details=origin.details,
                 )
@@ -281,6 +309,8 @@ async def dispatch_due_callbacks(tenant_id: UUID, slots: int) -> dict[str, int]:
                         rule=code,
                         reason=OPTED_OUT_REASON,
                     )
+                    if step_call is not None:
+                        await follow_up_runner.call_refused(session, step_call, rule=code)
                     blocked += 1
                     continue
                 if code in _WAIT_REFUSALS:
@@ -294,12 +324,21 @@ async def dispatch_due_callbacks(tenant_id: UUID, slots: int) -> dict[str, int]:
                 blocked += 1
                 log.warning("callback_dial_failed", extra={"code": code})
                 continue
-            if attempt is not None:
-                # The next try for a new lead, booked in the same transaction as this one.
+            if step_call is not None:
+                # The step's next try, booked in the same transaction as this one.
+                await follow_up_runner.book_next_try(
+                    session,
+                    step_call,
+                    agent_id=callback.agent_id,
+                    lead_id=callback.lead_id,
+                    phone_e164=callback.phone_e164,
+                )
+            elif attempt is not None:
+                # The next try for a new lead booked before D-940.
                 await book_retry(
                     session,
                     tenant_id=tenant_id,
-                    plan=await load_plan(session),
+                    plan=await follow_up_runner.new_lead_call_plan(session),
                     lead_id=callback.lead_id,
                     agent_id=callback.agent_id,
                     phone_e164=callback.phone_e164,

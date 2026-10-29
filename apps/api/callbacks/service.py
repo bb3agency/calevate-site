@@ -726,7 +726,12 @@ async def cancel_for_phones(session: AsyncSession, *, phones: Sequence[str], rea
     lead's phone was ringing as we wrote it. The compliance gate is what covers that row —
     it runs on the dial itself, so a suppression added while a call-back was being placed
     is enforced there rather than here.
+
+    Every door here is a person who may not be called any more, so their Follow-up runs
+    end too (`do_not_call`, D-940), in the same transaction and before the next tick.
     """
+    from apps.api.follow_ups.runner import stop_for_phones
+
     if not phones:
         return 0
     result = await session.execute(
@@ -737,6 +742,7 @@ async def cancel_for_phones(session: AsyncSession, *, phones: Sequence[str], rea
         ),
         {"phones": list(phones), "reason": reason},
     )
+    await stop_for_phones(session, phones=phones, reason="do_not_call")
     return rowcount_of(result)
 
 

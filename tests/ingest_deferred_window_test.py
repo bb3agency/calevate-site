@@ -27,9 +27,10 @@ from apps.api.compliance.service import (
 )
 from apps.api.core import loadshed
 from apps.api.db.session import tenant_session
+from apps.api.follow_ups.runner import CALLBACK_PREFIX
 from apps.api.ingest import service as ingest_service
 from apps.api.ingest.routes import SECRET_HEADER
-from apps.api.ingest.service import INGEST_CALLBACK_PREFIX, next_allowed_dial
+from apps.api.ingest.service import next_allowed_dial
 from sqlalchemy import text
 from tests.lead_ingest_test import SECRET, _client, _tenant_with_ingest
 
@@ -176,7 +177,7 @@ async def test_a_night_lead_is_kept_and_booked_for_nine_am(
     requested_at, status, execution_id, lead_id = rows[0]
     assert requested_at == _utc_at_ist(2026, 10, 4, 9)
     assert status == "scheduled"
-    assert str(execution_id).startswith(INGEST_CALLBACK_PREFIX)
+    assert str(execution_id).startswith(CALLBACK_PREFIX)
     assert lead_id is not None
 
 

@@ -41,7 +41,7 @@ from apps.api.db.base import Base, PKMixin, TimestampMixin
 CONTACT_CHANNELS = ("email", "whatsapp")
 #: What a WhatsApp alert template's body variables carry, in the order the owner chose.
 WHATSAPP_SLOTS = ("name", "phone", "why", "link")
-ALERT_TRIGGERS = ("after_call", "in_call")
+ALERT_TRIGGERS = ("after_call", "in_call", "follow_up")
 ALERT_STATUSES = ("queued", "sent", "failed", "cancelled")
 
 MAX_ADDRESS_CHARS = 254

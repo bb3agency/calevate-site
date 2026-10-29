@@ -105,6 +105,37 @@
         "title": "AccountReadinessOut",
         "type": "object"
       },
+      "ActionExits": {
+        "additionalProperties": false,
+        "properties": {
+          "done": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]{0,15}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Done"
+          },
+          "failed": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]{0,15}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failed"
+          }
+        },
+        "title": "ActionExits",
+        "type": "object"
+      },
       "ActionOut": {
         "additionalProperties": false,
         "properties": {
@@ -223,6 +254,71 @@
           "actor_type"
         ],
         "title": "ActionOut",
+        "type": "object"
+      },
+      "ActionStep": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "format": "uuid",
+            "title": "Action Id",
+            "type": "string"
+          },
+          "id": {
+            "pattern": "^[a-z][a-z0-9_]{0,15}$",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "action",
+            "title": "Kind",
+            "type": "string"
+          },
+          "next": {
+            "$ref": "#/components/schemas/ActionExits"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "action_id"
+        ],
+        "title": "ActionStep",
+        "type": "object"
+      },
+      "ActionStepOut": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "format": "uuid",
+            "title": "Action Id",
+            "type": "string"
+          },
+          "id": {
+            "pattern": "^[a-z][a-z0-9_]{0,15}$",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "action",
+            "title": "Kind",
+            "type": "string"
+          },
+          "next": {
+            "$ref": "#/components/schemas/ActionExits"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "action_id",
+          "summary"
+        ],
+        "title": "ActionStepOut",
         "type": "object"
       },
       "ActionsOut": {
@@ -5984,6 +6080,89 @@
         "title": "AssignOut",
         "type": "object"
       },
+      "AssignStep": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "pattern": "^[a-z][a-z0-9_]{0,15}$",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "assign",
+            "title": "Kind",
+            "type": "string"
+          },
+          "next": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]{0,15}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next"
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "user_id"
+        ],
+        "title": "AssignStep",
+        "type": "object"
+      },
+      "AssignStepOut": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "pattern": "^[a-z][a-z0-9_]{0,15}$",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "assign",
+            "title": "Kind",
+            "type": "string"
+          },
+          "next": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]{0,15}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "user_id",
+          "summary"
+        ],
+        "title": "AssignStepOut",
+        "type": "object"
+      },
       "AttentionItemOut": {
         "additionalProperties": false,
         "description": "One thing the platform refused to do quietly (crm/attention.py).\n\n`title` and `detail` are already client-safe prose composed by us \u2014 never a vendor\nstring and never transcript text. A blocked lead is named by its captured lead NAME,\nfalling back to its number in full, because \"ring this person\" is the action the row\nexists to prompt (D-436).",
@@ -8624,6 +8803,106 @@
         "title": "CallDetailOut",
         "type": "object"
       },
+      "CallEndedTrigger": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "maxItems": 50,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Ids"
+          },
+          "calls": {
+            "default": "both",
+            "enum": [
+              "inbound",
+              "outbound",
+              "both"
+            ],
+            "title": "Calls",
+            "type": "string"
+          },
+          "kind": {
+            "const": "call_ended",
+            "title": "Kind",
+            "type": "string"
+          },
+          "only_if": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OnlyIf"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "outcomes": {
+            "anyOf": [
+              {
+                "items": {
+                  "pattern": "^[a-z][a-z0-9_]{0,39}$",
+                  "type": "string"
+                },
+                "maxItems": 30,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcomes"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "CallEndedTrigger",
+        "type": "object"
+      },
+      "CallExits": {
+        "additionalProperties": false,
+        "properties": {
+          "answered": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]{0,15}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answered"
+          },
+          "not_reached": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]{0,15}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Not Reached"
+          }
+        },
+        "title": "CallExits",
+        "type": "object"
+      },
       "CallFollowUpIn": {
         "additionalProperties": false,
         "properties": {
@@ -10349,6 +10628,151 @@
           "trial_covered"
         ],
         "title": "CallSpendOut",
+        "type": "object"
+      },
+      "CallStep": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "id": {
+            "pattern": "^[a-z][a-z0-9_]{0,15}$",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "call",
+            "title": "Kind",
+            "type": "string"
+          },
+          "next": {
+            "$ref": "#/components/schemas/CallExits"
+          },
+          "retries": {
+            "default": 0,
+            "maximum": 3.0,
+            "minimum": 0.0,
+            "title": "Retries",
+            "type": "integer"
+          },
+          "retry_minutes": {
+            "default": 60,
+            "maximum": 1440.0,
+            "minimum": 10.0,
+            "title": "Retry Minutes",
+            "type": "integer"
+          },
+          "wait_minutes": {
+            "default": 0,
+            "maximum": 1440.0,
+            "minimum": 0.0,
+            "title": "Wait Minutes",
+            "type": "integer"
+          },
+          "wait_seconds": {
+            "anyOf": [
+              {
+                "maximum": 3600.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wait Seconds"
+          }
+        },
+        "required": [
+          "id",
+          "kind"
+        ],
+        "title": "CallStep",
+        "type": "object"
+      },
+      "CallStepOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "id": {
+            "pattern": "^[a-z][a-z0-9_]{0,15}$",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "call",
+            "title": "Kind",
+            "type": "string"
+          },
+          "next": {
+            "$ref": "#/components/schemas/CallExits"
+          },
+          "retries": {
+            "default": 0,
+            "maximum": 3.0,
+            "minimum": 0.0,
+            "title": "Retries",
+            "type": "integer"
+          },
+          "retry_minutes": {
+            "default": 60,
+            "maximum": 1440.0,
+            "minimum": 10.0,
+            "title": "Retry Minutes",
+            "type": "integer"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "wait_minutes": {
+            "default": 0,
+            "maximum": 1440.0,
+            "minimum": 0.0,
+            "title": "Wait Minutes",
+            "type": "integer"
+          },
+          "wait_seconds": {
+            "anyOf": [
+              {
+                "maximum": 3600.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wait Seconds"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "summary"
+        ],
+        "title": "CallStepOut",
         "type": "object"
       },
       "CallSummaryOut": {
@@ -17951,6 +18375,35 @@
         "title": "CostBreakdownOut",
         "type": "object"
       },
+      "CountsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "done_30d": {
+            "title": "Done 30D",
+            "type": "integer"
+          },
+          "goal_30d": {
+            "title": "Goal 30D",
+            "type": "integer"
+          },
+          "running": {
+            "title": "Running",
+            "type": "integer"
+          },
+          "waiting": {
+            "title": "Waiting",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "running",
+          "waiting",
+          "done_30d",
+          "goal_30d"
+        ],
+        "title": "CountsOut",
+        "type": "object"
+      },
       "CreateCampaignIn": {
         "additionalProperties": false,
         "properties": {
@@ -19562,6 +20015,113 @@
         "title": "DeadLetterQueueOut",
         "type": "object"
       },
+      "DecideStep": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "pattern": "^[a-z][a-z0-9_]{0,15}$",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "decide",
+            "title": "Kind",
+            "type": "string"
+          },
+          "on": {
+            "maxProperties": 30,
+            "patternProperties": {
+              "^[a-z][a-z0-9_]{0,39}$": {
+                "anyOf": [
+                  {
+                    "pattern": "^[a-z][a-z0-9_]{0,15}$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "title": "On",
+            "type": "object"
+          },
+          "other": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]{0,15}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Other"
+          }
+        },
+        "required": [
+          "id",
+          "kind"
+        ],
+        "title": "DecideStep",
+        "type": "object"
+      },
+      "DecideStepOut": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "pattern": "^[a-z][a-z0-9_]{0,15}$",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "decide",
+            "title": "Kind",
+            "type": "string"
+          },
+          "on": {
+            "maxProperties": 30,
+            "patternProperties": {
+              "^[a-z][a-z0-9_]{0,39}$": {
+                "anyOf": [
+                  {
+                    "pattern": "^[a-z][a-z0-9_]{0,15}$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "title": "On",
+            "type": "object"
+          },
+          "other": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]{0,15}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Other"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "summary"
+        ],
+        "title": "DecideStepOut",
+        "type": "object"
+      },
       "DeleteCampaignOut": {
         "additionalProperties": false,
         "description": "`deleted` when the draft is gone; `stopped` when it was kept as a stopped campaign\nbecause calls or compliance records already name it.",
@@ -21000,6 +21560,63 @@
           "enabled"
         ],
         "title": "EnableIn",
+        "type": "object"
+      },
+      "EndStep": {
+        "additionalProperties": false,
+        "properties": {
+          "goal": {
+            "default": false,
+            "title": "Goal",
+            "type": "boolean"
+          },
+          "id": {
+            "pattern": "^[a-z][a-z0-9_]{0,15}$",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "end",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind"
+        ],
+        "title": "EndStep",
+        "type": "object"
+      },
+      "EndStepOut": {
+        "additionalProperties": false,
+        "properties": {
+          "goal": {
+            "default": false,
+            "title": "Goal",
+            "type": "boolean"
+          },
+          "id": {
+            "pattern": "^[a-z][a-z0-9_]{0,15}$",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "end",
+            "title": "Kind",
+            "type": "string"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "summary"
+        ],
+        "title": "EndStepOut",
         "type": "object"
       },
       "EndpointOptionsOut": {
@@ -23777,6 +24394,28 @@
         "title": "FieldBreakdownOut",
         "type": "object"
       },
+      "FieldEquals": {
+        "additionalProperties": false,
+        "properties": {
+          "equals": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Equals",
+            "type": "string"
+          },
+          "key": {
+            "pattern": "^[a-z][a-z0-9_]{0,39}$",
+            "title": "Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "equals"
+        ],
+        "title": "FieldEquals",
+        "type": "object"
+      },
       "FieldLimit": {
         "additionalProperties": false,
         "description": "One column of the client's leads list that the configured model does not fill.\n\nNamed by the client's own LABEL, never our key: `budget_lakhs` is our column and\n\"Budget (lakhs)\" is theirs.",
@@ -24393,6 +25032,1002 @@
           "unattested"
         ],
         "title": "FloorInputsOut",
+        "type": "object"
+      },
+      "FollowUpCreateIn": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "settings": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Settings"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "starter": {
+            "anyOf": [
+              {
+                "enum": [
+                  "call_new_leads",
+                  "qualify_new_leads",
+                  "missed_call_callback",
+                  "appointment_reminder",
+                  "payment_reminder",
+                  "win_back"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Starter"
+          },
+          "steps": {
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "action": "#/components/schemas/ActionStep",
+                  "assign": "#/components/schemas/AssignStep",
+                  "call": "#/components/schemas/CallStep",
+                  "decide": "#/components/schemas/DecideStep",
+                  "end": "#/components/schemas/EndStep",
+                  "set_status": "#/components/schemas/SetStatusStep",
+                  "tell_team": "#/components/schemas/TellTeamStep",
+                  "wait": "#/components/schemas/WaitStep",
+                  "whatsapp": "#/components/schemas/WhatsAppStep"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/CallStep"
+                },
+                {
+                  "$ref": "#/components/schemas/DecideStep"
+                },
+                {
+                  "$ref": "#/components/schemas/WaitStep"
+                },
+                {
+                  "$ref": "#/components/schemas/WhatsAppStep"
+                },
+                {
+                  "$ref": "#/components/schemas/AssignStep"
+                },
+                {
+                  "$ref": "#/components/schemas/SetStatusStep"
+                },
+                {
+                  "$ref": "#/components/schemas/TellTeamStep"
+                },
+                {
+                  "$ref": "#/components/schemas/ActionStep"
+                },
+                {
+                  "$ref": "#/components/schemas/EndStep"
+                }
+              ]
+            },
+            "maxItems": 30,
+            "minItems": 1,
+            "title": "Steps",
+            "type": "array"
+          },
+          "trigger": {
+            "discriminator": {
+              "mapping": {
+                "call_ended": "#/components/schemas/CallEndedTrigger",
+                "lead_date": "#/components/schemas/LeadDateTrigger",
+                "manual": "#/components/schemas/ManualTrigger",
+                "new_lead": "#/components/schemas/NewLeadTrigger"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/NewLeadTrigger"
+              },
+              {
+                "$ref": "#/components/schemas/CallEndedTrigger"
+              },
+              {
+                "$ref": "#/components/schemas/ManualTrigger"
+              },
+              {
+                "$ref": "#/components/schemas/LeadDateTrigger"
+              }
+            ],
+            "title": "Trigger"
+          }
+        },
+        "required": [
+          "name",
+          "trigger",
+          "steps"
+        ],
+        "title": "FollowUpCreateIn",
+        "type": "object"
+      },
+      "FollowUpDraftIn": {
+        "additionalProperties": false,
+        "properties": {
+          "settings": {
+            "$ref": "#/components/schemas/Settings"
+          },
+          "steps": {
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "action": "#/components/schemas/ActionStep",
+                  "assign": "#/components/schemas/AssignStep",
+                  "call": "#/components/schemas/CallStep",
+                  "decide": "#/components/schemas/DecideStep",
+                  "end": "#/components/schemas/EndStep",
+                  "set_status": "#/components/schemas/SetStatusStep",
+                  "tell_team": "#/components/schemas/TellTeamStep",
+                  "wait": "#/components/schemas/WaitStep",
+                  "whatsapp": "#/components/schemas/WhatsAppStep"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/CallStep"
+                },
+                {
+                  "$ref": "#/components/schemas/DecideStep"
+                },
+                {
+                  "$ref": "#/components/schemas/WaitStep"
+                },
+                {
+                  "$ref": "#/components/schemas/WhatsAppStep"
+                },
+                {
+                  "$ref": "#/components/schemas/AssignStep"
+                },
+                {
+                  "$ref": "#/components/schemas/SetStatusStep"
+                },
+                {
+                  "$ref": "#/components/schemas/TellTeamStep"
+                },
+                {
+                  "$ref": "#/components/schemas/ActionStep"
+                },
+                {
+                  "$ref": "#/components/schemas/EndStep"
+                }
+              ]
+            },
+            "maxItems": 30,
+            "minItems": 1,
+            "title": "Steps",
+            "type": "array"
+          },
+          "trigger": {
+            "discriminator": {
+              "mapping": {
+                "call_ended": "#/components/schemas/CallEndedTrigger",
+                "lead_date": "#/components/schemas/LeadDateTrigger",
+                "manual": "#/components/schemas/ManualTrigger",
+                "new_lead": "#/components/schemas/NewLeadTrigger"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/NewLeadTrigger"
+              },
+              {
+                "$ref": "#/components/schemas/CallEndedTrigger"
+              },
+              {
+                "$ref": "#/components/schemas/ManualTrigger"
+              },
+              {
+                "$ref": "#/components/schemas/LeadDateTrigger"
+              }
+            ],
+            "title": "Trigger"
+          }
+        },
+        "required": [
+          "trigger",
+          "steps",
+          "settings"
+        ],
+        "title": "FollowUpDraftIn",
+        "type": "object"
+      },
+      "FollowUpEditIn": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "settings": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Settings"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "step_edits": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/StepEditIn"
+                },
+                "maxItems": 30,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step Edits"
+          }
+        },
+        "title": "FollowUpEditIn",
+        "type": "object"
+      },
+      "FollowUpListOut": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/FollowUpSummaryOut"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "FollowUpListOut",
+        "type": "object"
+      },
+      "FollowUpOut": {
+        "additionalProperties": false,
+        "properties": {
+          "counts": {
+            "$ref": "#/components/schemas/CountsOut"
+          },
+          "has_unpublished_changes": {
+            "title": "Has Unpublished Changes",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "live_version": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LiveVersionOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "problems": {
+            "items": {
+              "$ref": "#/components/schemas/ProblemOut"
+            },
+            "title": "Problems",
+            "type": "array"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/Settings"
+          },
+          "starter": {
+            "anyOf": [
+              {
+                "enum": [
+                  "call_new_leads",
+                  "qualify_new_leads",
+                  "missed_call_callback",
+                  "appointment_reminder",
+                  "payment_reminder",
+                  "win_back"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Starter"
+          },
+          "status": {
+            "enum": [
+              "draft",
+              "live",
+              "paused",
+              "off"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "steps": {
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "action": "#/components/schemas/ActionStepOut",
+                  "assign": "#/components/schemas/AssignStepOut",
+                  "call": "#/components/schemas/CallStepOut",
+                  "decide": "#/components/schemas/DecideStepOut",
+                  "end": "#/components/schemas/EndStepOut",
+                  "set_status": "#/components/schemas/SetStatusStepOut",
+                  "tell_team": "#/components/schemas/TellTeamStepOut",
+                  "wait": "#/components/schemas/WaitStepOut",
+                  "whatsapp": "#/components/schemas/WhatsAppStepOut"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/CallStepOut"
+                },
+                {
+                  "$ref": "#/components/schemas/DecideStepOut"
+                },
+                {
+                  "$ref": "#/components/schemas/WaitStepOut"
+                },
+                {
+                  "$ref": "#/components/schemas/WhatsAppStepOut"
+                },
+                {
+                  "$ref": "#/components/schemas/AssignStepOut"
+                },
+                {
+                  "$ref": "#/components/schemas/SetStatusStepOut"
+                },
+                {
+                  "$ref": "#/components/schemas/TellTeamStepOut"
+                },
+                {
+                  "$ref": "#/components/schemas/ActionStepOut"
+                },
+                {
+                  "$ref": "#/components/schemas/EndStepOut"
+                }
+              ]
+            },
+            "title": "Steps",
+            "type": "array"
+          },
+          "trigger": {
+            "discriminator": {
+              "mapping": {
+                "call_ended": "#/components/schemas/CallEndedTrigger",
+                "lead_date": "#/components/schemas/LeadDateTrigger",
+                "manual": "#/components/schemas/ManualTrigger",
+                "new_lead": "#/components/schemas/NewLeadTrigger"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/NewLeadTrigger"
+              },
+              {
+                "$ref": "#/components/schemas/CallEndedTrigger"
+              },
+              {
+                "$ref": "#/components/schemas/ManualTrigger"
+              },
+              {
+                "$ref": "#/components/schemas/LeadDateTrigger"
+              }
+            ],
+            "title": "Trigger"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "status",
+          "starter",
+          "trigger",
+          "settings",
+          "steps",
+          "has_unpublished_changes",
+          "live_version",
+          "counts",
+          "problems",
+          "updated_at"
+        ],
+        "title": "FollowUpOut",
+        "type": "object"
+      },
+      "FollowUpPublishIn": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_updated_at": {
+            "format": "date-time",
+            "title": "Expected Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_updated_at"
+        ],
+        "title": "FollowUpPublishIn",
+        "type": "object"
+      },
+      "FollowUpResultsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "days": {
+            "title": "Days",
+            "type": "integer"
+          },
+          "finished": {
+            "title": "Finished",
+            "type": "integer"
+          },
+          "goal_reached": {
+            "title": "Goal Reached",
+            "type": "integer"
+          },
+          "started": {
+            "title": "Started",
+            "type": "integer"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/StepResultOut"
+            },
+            "title": "Steps",
+            "type": "array"
+          }
+        },
+        "required": [
+          "days",
+          "started",
+          "finished",
+          "goal_reached",
+          "steps"
+        ],
+        "title": "FollowUpResultsOut",
+        "type": "object"
+      },
+      "FollowUpRunOut": {
+        "additionalProperties": false,
+        "properties": {
+          "attempt": {
+            "title": "Attempt",
+            "type": "integer"
+          },
+          "end_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Reason"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "events": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/RunEventOut"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Events"
+          },
+          "goal_reached": {
+            "title": "Goal Reached",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "last_result": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Result"
+          },
+          "lead_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lead Id"
+          },
+          "lead_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lead Name"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "running",
+              "waiting",
+              "done",
+              "stopped"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "step_id": {
+            "title": "Step Id",
+            "type": "string"
+          },
+          "step_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step Summary"
+          },
+          "wake_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wake At"
+          }
+        },
+        "required": [
+          "id",
+          "lead_id",
+          "lead_name",
+          "status",
+          "step_id",
+          "step_summary",
+          "attempt",
+          "wake_at",
+          "started_at",
+          "ended_at",
+          "end_reason",
+          "goal_reached",
+          "last_result"
+        ],
+        "title": "FollowUpRunOut",
+        "type": "object"
+      },
+      "FollowUpRunsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/FollowUpRunOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "FollowUpRunsOut",
+        "type": "object"
+      },
+      "FollowUpStartIn": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_count": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Count"
+          },
+          "lead_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "maxItems": 200,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lead Ids"
+          },
+          "lens": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LeadLensIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "FollowUpStartIn",
+        "type": "object"
+      },
+      "FollowUpStartOut": {
+        "additionalProperties": false,
+        "properties": {
+          "plan_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Id"
+          },
+          "skipped": {
+            "title": "Skipped",
+            "type": "integer"
+          },
+          "started": {
+            "title": "Started",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "started",
+          "skipped"
+        ],
+        "title": "FollowUpStartOut",
+        "type": "object"
+      },
+      "FollowUpStarterOut": {
+        "additionalProperties": false,
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "key": {
+            "enum": [
+              "call_new_leads",
+              "qualify_new_leads",
+              "missed_call_callback",
+              "appointment_reminder",
+              "payment_reminder",
+              "win_back"
+            ],
+            "title": "Key",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "needs": {
+            "items": {
+              "enum": [
+                "outbound_agent",
+                "whatsapp_template",
+                "team_address"
+              ],
+              "type": "string"
+            },
+            "title": "Needs",
+            "type": "array"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/Settings"
+          },
+          "steps": {
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "action": "#/components/schemas/ActionStepOut",
+                  "assign": "#/components/schemas/AssignStepOut",
+                  "call": "#/components/schemas/CallStepOut",
+                  "decide": "#/components/schemas/DecideStepOut",
+                  "end": "#/components/schemas/EndStepOut",
+                  "set_status": "#/components/schemas/SetStatusStepOut",
+                  "tell_team": "#/components/schemas/TellTeamStepOut",
+                  "wait": "#/components/schemas/WaitStepOut",
+                  "whatsapp": "#/components/schemas/WhatsAppStepOut"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/CallStepOut"
+                },
+                {
+                  "$ref": "#/components/schemas/DecideStepOut"
+                },
+                {
+                  "$ref": "#/components/schemas/WaitStepOut"
+                },
+                {
+                  "$ref": "#/components/schemas/WhatsAppStepOut"
+                },
+                {
+                  "$ref": "#/components/schemas/AssignStepOut"
+                },
+                {
+                  "$ref": "#/components/schemas/SetStatusStepOut"
+                },
+                {
+                  "$ref": "#/components/schemas/TellTeamStepOut"
+                },
+                {
+                  "$ref": "#/components/schemas/ActionStepOut"
+                },
+                {
+                  "$ref": "#/components/schemas/EndStepOut"
+                }
+              ]
+            },
+            "title": "Steps",
+            "type": "array"
+          },
+          "trigger": {
+            "discriminator": {
+              "mapping": {
+                "call_ended": "#/components/schemas/CallEndedTrigger",
+                "lead_date": "#/components/schemas/LeadDateTrigger",
+                "manual": "#/components/schemas/ManualTrigger",
+                "new_lead": "#/components/schemas/NewLeadTrigger"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/NewLeadTrigger"
+              },
+              {
+                "$ref": "#/components/schemas/CallEndedTrigger"
+              },
+              {
+                "$ref": "#/components/schemas/ManualTrigger"
+              },
+              {
+                "$ref": "#/components/schemas/LeadDateTrigger"
+              }
+            ],
+            "title": "Trigger"
+          }
+        },
+        "required": [
+          "key",
+          "name",
+          "description",
+          "trigger",
+          "steps",
+          "settings",
+          "available",
+          "needs"
+        ],
+        "title": "FollowUpStarterOut",
+        "type": "object"
+      },
+      "FollowUpStartersOut": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/FollowUpStarterOut"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "FollowUpStartersOut",
+        "type": "object"
+      },
+      "FollowUpSummaryOut": {
+        "additionalProperties": false,
+        "properties": {
+          "counts": {
+            "$ref": "#/components/schemas/CountsOut"
+          },
+          "has_unpublished_changes": {
+            "title": "Has Unpublished Changes",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "starter": {
+            "anyOf": [
+              {
+                "enum": [
+                  "call_new_leads",
+                  "qualify_new_leads",
+                  "missed_call_callback",
+                  "appointment_reminder",
+                  "payment_reminder",
+                  "win_back"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Starter"
+          },
+          "starts_when": {
+            "title": "Starts When",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "draft",
+              "live",
+              "paused",
+              "off"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "trigger": {
+            "discriminator": {
+              "mapping": {
+                "call_ended": "#/components/schemas/CallEndedTrigger",
+                "lead_date": "#/components/schemas/LeadDateTrigger",
+                "manual": "#/components/schemas/ManualTrigger",
+                "new_lead": "#/components/schemas/NewLeadTrigger"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/NewLeadTrigger"
+              },
+              {
+                "$ref": "#/components/schemas/CallEndedTrigger"
+              },
+              {
+                "$ref": "#/components/schemas/ManualTrigger"
+              },
+              {
+                "$ref": "#/components/schemas/LeadDateTrigger"
+              }
+            ],
+            "title": "Trigger"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "status",
+          "starter",
+          "trigger",
+          "starts_when",
+          "has_unpublished_changes",
+          "counts",
+          "updated_at"
+        ],
+        "title": "FollowUpSummaryOut",
         "type": "object"
       },
       "ForwardingOut": {
@@ -29548,6 +31183,7 @@
       },
       "LeadCallingIn": {
         "additionalProperties": false,
+        "description": "The account's calling hours. Which agent calls a new lead, the wait and the retries\nare the \"Call new leads\" Follow-up's call step (D-940).",
         "properties": {
           "after_hours": {
             "default": "next_open",
@@ -29559,18 +31195,6 @@
             ],
             "title": "After Hours",
             "type": "string"
-          },
-          "calling_agent_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Calling Agent Id"
           },
           "days": {
             "items": {
@@ -29615,27 +31239,6 @@
             "format": "time",
             "title": "Hours Start",
             "type": "string"
-          },
-          "retry_attempts": {
-            "default": 0,
-            "maximum": 3.0,
-            "minimum": 0.0,
-            "title": "Retry Attempts",
-            "type": "integer"
-          },
-          "retry_interval_minutes": {
-            "default": 60,
-            "maximum": 1440.0,
-            "minimum": 10.0,
-            "title": "Retry Interval Minutes",
-            "type": "integer"
-          },
-          "wait_seconds": {
-            "default": 0,
-            "maximum": 3600.0,
-            "minimum": 0.0,
-            "title": "Wait Seconds",
-            "type": "integer"
           }
         },
         "title": "LeadCallingIn",
@@ -29664,18 +31267,6 @@
             },
             "title": "Always Applied",
             "type": "array"
-          },
-          "calling_agent_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Calling Agent Id"
           },
           "days": {
             "items": {
@@ -29719,13 +31310,15 @@
             "title": "Hours Start",
             "type": "string"
           },
-          "retry_attempts": {
-            "title": "Retry Attempts",
-            "type": "integer"
-          },
-          "retry_interval_minutes": {
-            "title": "Retry Interval Minutes",
-            "type": "integer"
+          "new_leads_follow_up": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NewLeadsFollowUpOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "trial_notice": {
             "anyOf": [
@@ -29750,10 +31343,6 @@
             ],
             "title": "Updated At"
           },
-          "wait_seconds": {
-            "title": "Wait Seconds",
-            "type": "integer"
-          },
           "window_end": {
             "format": "time",
             "title": "Window End",
@@ -29766,16 +31355,13 @@
           }
         },
         "required": [
-          "calling_agent_id",
-          "wait_seconds",
           "hours_start",
           "hours_end",
           "days",
           "holidays",
           "after_hours",
-          "retry_attempts",
-          "retry_interval_minutes",
           "detect_machines",
+          "new_leads_follow_up",
           "updated_at",
           "window_start",
           "window_end",
@@ -29825,6 +31411,50 @@
           "type"
         ],
         "title": "LeadColumnOut",
+        "type": "object"
+      },
+      "LeadDateTrigger": {
+        "additionalProperties": false,
+        "properties": {
+          "at": {
+            "default": "10:00",
+            "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+            "title": "At",
+            "type": "string"
+          },
+          "field": {
+            "pattern": "^[a-z][a-z0-9_]{0,39}$",
+            "title": "Field",
+            "type": "string"
+          },
+          "kind": {
+            "const": "lead_date",
+            "title": "Kind",
+            "type": "string"
+          },
+          "offset_days": {
+            "default": 0,
+            "maximum": 30.0,
+            "minimum": -30.0,
+            "title": "Offset Days",
+            "type": "integer"
+          },
+          "only_if": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OnlyIf"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "kind",
+          "field"
+        ],
+        "title": "LeadDateTrigger",
         "type": "object"
       },
       "LeadFacetOut": {
@@ -32418,6 +34048,26 @@
         "title": "LiveApplyRunsOut",
         "type": "object"
       },
+      "LiveVersionOut": {
+        "additionalProperties": false,
+        "properties": {
+          "number": {
+            "title": "Number",
+            "type": "integer"
+          },
+          "published_at": {
+            "format": "date-time",
+            "title": "Published At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "number",
+          "published_at"
+        ],
+        "title": "LiveVersionOut",
+        "type": "object"
+      },
       "LlmDefaultIn": {
         "additionalProperties": false,
         "description": "The account's choice, or `null` to go back to following the platform.\n\nREQUIRED RATHER THAN OPTIONAL, and that is what makes this a PUT rather than a PATCH:\nthe body states the whole of the resource, so `null` is unambiguously \"clear it\".",
@@ -33242,6 +34892,31 @@
           "owner_id_number"
         ],
         "title": "ManualSubmitIn",
+        "type": "object"
+      },
+      "ManualTrigger": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "manual",
+            "title": "Kind",
+            "type": "string"
+          },
+          "only_if": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OnlyIf"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "ManualTrigger",
         "type": "object"
       },
       "MarginOut": {
@@ -34176,6 +35851,79 @@
         "title": "NationalDndScrubOut",
         "type": "object"
       },
+      "NewLeadTrigger": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "new_lead",
+            "title": "Kind",
+            "type": "string"
+          },
+          "only_if": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OnlyIf"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "maxItems": 50,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Ids"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "NewLeadTrigger",
+        "type": "object"
+      },
+      "NewLeadsFollowUpOut": {
+        "description": "The Follow-up new leads start (normally \"Call new leads\"), so the screen can say when\nit is off and offer to turn it back on.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "draft",
+              "live",
+              "paused",
+              "off"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "status"
+        ],
+        "title": "NewLeadsFollowUpOut",
+        "type": "object"
+      },
       "NewStatusPostIn": {
         "additionalProperties": false,
         "properties": {
@@ -34845,6 +36593,65 @@
           "inr_per_month"
         ],
         "title": "OfferedNumberOut",
+        "type": "object"
+      },
+      "OnlyIf": {
+        "additionalProperties": false,
+        "description": "Narrows any trigger. Every condition given must hold.",
+        "properties": {
+          "field": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FieldEquals"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lead_status": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "new",
+                    "contacted",
+                    "interested",
+                    "hot",
+                    "won",
+                    "lost"
+                  ],
+                  "type": "string"
+                },
+                "maxItems": 6,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lead Status"
+          },
+          "source_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "maxItems": 50,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Ids"
+          }
+        },
+        "title": "OnlyIf",
         "type": "object"
       },
       "OpenTeachingOut": {
@@ -38612,6 +40419,37 @@
           "compiled"
         ],
         "title": "PreviewOut",
+        "type": "object"
+      },
+      "ProblemOut": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "step_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step Id"
+          }
+        },
+        "required": [
+          "step_id",
+          "code",
+          "message"
+        ],
+        "title": "ProblemOut",
         "type": "object"
       },
       "ProcedureStep": {
@@ -43390,6 +45228,49 @@
         "title": "RuleOut",
         "type": "object"
       },
+      "RunEventOut": {
+        "additionalProperties": false,
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "call_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Call Id"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "result": {
+            "title": "Result",
+            "type": "string"
+          },
+          "step_id": {
+            "title": "Step Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "step_id",
+          "kind",
+          "result",
+          "at",
+          "call_id"
+        ],
+        "title": "RunEventOut",
+        "type": "object"
+      },
       "RunTestsIn": {
         "additionalProperties": false,
         "properties": {
@@ -44991,6 +46872,37 @@
         "title": "SeenOut",
         "type": "object"
       },
+      "SendExits": {
+        "additionalProperties": false,
+        "properties": {
+          "not_sent": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]{0,15}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Not Sent"
+          },
+          "sent": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]{0,15}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sent"
+          }
+        },
+        "title": "SendExits",
+        "type": "object"
+      },
       "ServiceItem": {
         "additionalProperties": false,
         "description": "`price_inr` is a digit STRING (hard rule 7): the price read aloud must be exactly\nwhat the client typed, which a float cannot promise. Optional, because \"ask at\nreception\" is a real answer.",
@@ -45170,6 +47082,101 @@
         "title": "SetPersonCloneIn",
         "type": "object"
       },
+      "SetStatusStep": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "pattern": "^[a-z][a-z0-9_]{0,15}$",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "set_status",
+            "title": "Kind",
+            "type": "string"
+          },
+          "next": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]{0,15}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next"
+          },
+          "status": {
+            "enum": [
+              "contacted",
+              "interested",
+              "hot",
+              "won",
+              "lost"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "status"
+        ],
+        "title": "SetStatusStep",
+        "type": "object"
+      },
+      "SetStatusStepOut": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "pattern": "^[a-z][a-z0-9_]{0,15}$",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "set_status",
+            "title": "Kind",
+            "type": "string"
+          },
+          "next": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]{0,15}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next"
+          },
+          "status": {
+            "enum": [
+              "contacted",
+              "interested",
+              "hot",
+              "won",
+              "lost"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "status",
+          "summary"
+        ],
+        "title": "SetStatusStepOut",
+        "type": "object"
+      },
       "SettingReplyTimes": {
         "properties": {
           "answer_slow_ms": {
@@ -45337,6 +47344,65 @@
           "value"
         ],
         "title": "SettingReplyTimes",
+        "type": "object"
+      },
+      "Settings": {
+        "additionalProperties": false,
+        "properties": {
+          "again": {
+            "default": "after_last",
+            "enum": [
+              "never",
+              "after_last",
+              "after_30_days"
+            ],
+            "title": "Again",
+            "type": "string"
+          },
+          "goal": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]{0,39}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Goal"
+          },
+          "max_days": {
+            "default": 14,
+            "maximum": 30.0,
+            "minimum": 1.0,
+            "title": "Max Days",
+            "type": "integer"
+          },
+          "starts_per_hour": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Starts Per Hour"
+          },
+          "stop_on_reply": {
+            "default": true,
+            "title": "Stop On Reply",
+            "type": "boolean"
+          },
+          "stop_on_won_lost": {
+            "default": true,
+            "title": "Stop On Won Lost",
+            "type": "boolean"
+          }
+        },
+        "title": "Settings",
         "type": "object"
       },
       "SheetEndpointOut": {
@@ -47031,6 +49097,103 @@
           "stay_signed_in"
         ],
         "title": "StaySignedInIn",
+        "type": "object"
+      },
+      "StepEditIn": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "remove": {
+            "default": false,
+            "title": "Remove",
+            "type": "boolean"
+          },
+          "step_id": {
+            "maxLength": 16,
+            "minLength": 1,
+            "title": "Step Id",
+            "type": "string"
+          },
+          "template_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Template Id"
+          },
+          "values": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/TemplateValue"
+                },
+                "maxItems": 10,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Values"
+          },
+          "wait": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WaitEditIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "step_id"
+        ],
+        "title": "StepEditIn",
+        "type": "object"
+      },
+      "StepResultOut": {
+        "additionalProperties": false,
+        "properties": {
+          "exits": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Exits",
+            "type": "object"
+          },
+          "reached": {
+            "title": "Reached",
+            "type": "integer"
+          },
+          "step_id": {
+            "title": "Step Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "step_id",
+          "reached",
+          "exits"
+        ],
+        "title": "StepResultOut",
         "type": "object"
       },
       "StepSuggestion": {
@@ -49052,6 +51215,115 @@
         "title": "TeamWhatsAppIn",
         "type": "object"
       },
+      "TellTeamStep": {
+        "additionalProperties": false,
+        "properties": {
+          "contact_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Id"
+          },
+          "id": {
+            "pattern": "^[a-z][a-z0-9_]{0,15}$",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "tell_team",
+            "title": "Kind",
+            "type": "string"
+          },
+          "next": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]{0,15}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next"
+          },
+          "why": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Why",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "why"
+        ],
+        "title": "TellTeamStep",
+        "type": "object"
+      },
+      "TellTeamStepOut": {
+        "additionalProperties": false,
+        "properties": {
+          "contact_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Id"
+          },
+          "id": {
+            "pattern": "^[a-z][a-z0-9_]{0,15}$",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "tell_team",
+            "title": "Kind",
+            "type": "string"
+          },
+          "next": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]{0,15}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "why": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Why",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "why",
+          "summary"
+        ],
+        "title": "TellTeamStepOut",
+        "type": "object"
+      },
       "TemplateOut": {
         "additionalProperties": false,
         "properties": {
@@ -49155,6 +51427,52 @@
           "status"
         ],
         "title": "TemplateStatusOut",
+        "type": "object"
+      },
+      "TemplateValue": {
+        "additionalProperties": false,
+        "description": "What fills one blank of a WhatsApp template.",
+        "properties": {
+          "key": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]{0,39}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key"
+          },
+          "source": {
+            "enum": [
+              "lead_field",
+              "lead_name",
+              "agent_name",
+              "business_name",
+              "text"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text"
+          }
+        },
+        "required": [
+          "source"
+        ],
+        "title": "TemplateValue",
         "type": "object"
       },
       "TenantActivityOut": {
@@ -56556,6 +58874,264 @@
         "title": "VoiceUsageOut",
         "type": "object"
       },
+      "WaitEditIn": {
+        "additionalProperties": false,
+        "description": "A new wait: one of minutes, hours or days.",
+        "properties": {
+          "days": {
+            "anyOf": [
+              {
+                "maximum": 30.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Days"
+          },
+          "hours": {
+            "anyOf": [
+              {
+                "maximum": 720.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hours"
+          },
+          "minutes": {
+            "anyOf": [
+              {
+                "maximum": 43200.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Minutes"
+          }
+        },
+        "title": "WaitEditIn",
+        "type": "object"
+      },
+      "WaitStep": {
+        "additionalProperties": false,
+        "properties": {
+          "at": {
+            "anyOf": [
+              {
+                "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At"
+          },
+          "days": {
+            "anyOf": [
+              {
+                "maximum": 30.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Days"
+          },
+          "hours": {
+            "anyOf": [
+              {
+                "maximum": 720.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hours"
+          },
+          "id": {
+            "pattern": "^[a-z][a-z0-9_]{0,15}$",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "wait",
+            "title": "Kind",
+            "type": "string"
+          },
+          "minutes": {
+            "anyOf": [
+              {
+                "maximum": 43200.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Minutes"
+          },
+          "next": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]{0,15}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next"
+          },
+          "offset_days": {
+            "default": 0,
+            "maximum": 30.0,
+            "minimum": -30.0,
+            "title": "Offset Days",
+            "type": "integer"
+          },
+          "until_field": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]{0,39}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Until Field"
+          }
+        },
+        "required": [
+          "id",
+          "kind"
+        ],
+        "title": "WaitStep",
+        "type": "object"
+      },
+      "WaitStepOut": {
+        "additionalProperties": false,
+        "properties": {
+          "at": {
+            "anyOf": [
+              {
+                "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At"
+          },
+          "days": {
+            "anyOf": [
+              {
+                "maximum": 30.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Days"
+          },
+          "hours": {
+            "anyOf": [
+              {
+                "maximum": 720.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hours"
+          },
+          "id": {
+            "pattern": "^[a-z][a-z0-9_]{0,15}$",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "wait",
+            "title": "Kind",
+            "type": "string"
+          },
+          "minutes": {
+            "anyOf": [
+              {
+                "maximum": 43200.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Minutes"
+          },
+          "next": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]{0,15}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next"
+          },
+          "offset_days": {
+            "default": 0,
+            "maximum": 30.0,
+            "minimum": -30.0,
+            "title": "Offset Days",
+            "type": "integer"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "until_field": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]{0,39}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Until Field"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "summary"
+        ],
+        "title": "WaitStepOut",
+        "type": "object"
+      },
       "WaiverIn": {
         "additionalProperties": false,
         "properties": {
@@ -57623,6 +60199,87 @@
           "extras"
         ],
         "title": "WhatsAppSignupOut",
+        "type": "object"
+      },
+      "WhatsAppStep": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "pattern": "^[a-z][a-z0-9_]{0,15}$",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "whatsapp",
+            "title": "Kind",
+            "type": "string"
+          },
+          "next": {
+            "$ref": "#/components/schemas/SendExits"
+          },
+          "template_id": {
+            "format": "uuid",
+            "title": "Template Id",
+            "type": "string"
+          },
+          "values": {
+            "items": {
+              "$ref": "#/components/schemas/TemplateValue"
+            },
+            "maxItems": 10,
+            "title": "Values",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "template_id"
+        ],
+        "title": "WhatsAppStep",
+        "type": "object"
+      },
+      "WhatsAppStepOut": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "pattern": "^[a-z][a-z0-9_]{0,15}$",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "whatsapp",
+            "title": "Kind",
+            "type": "string"
+          },
+          "next": {
+            "$ref": "#/components/schemas/SendExits"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "template_id": {
+            "format": "uuid",
+            "title": "Template Id",
+            "type": "string"
+          },
+          "values": {
+            "items": {
+              "$ref": "#/components/schemas/TemplateValue"
+            },
+            "maxItems": 10,
+            "title": "Values",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "template_id",
+          "summary"
+        ],
+        "title": "WhatsAppStepOut",
         "type": "object"
       },
       "WhatsAppTemplateChoiceOut": {
@@ -81452,6 +84109,701 @@
         "x-calevate-permission": "org:manage"
       }
     },
+    "/v1/follow-ups": {
+      "get": {
+        "operationId": "list_follow_ups_v1_follow_ups_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FollowUpListOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The account's Follow-ups",
+        "tags": [
+          "follow-ups"
+        ],
+        "x-calevate-permission": "leads:read"
+      },
+      "post": {
+        "operationId": "create_follow_up_v1_follow_ups_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FollowUpCreateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FollowUpOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Make a Follow-up (a draft until it is published)",
+        "tags": [
+          "follow-ups"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/follow-ups/starters": {
+      "get": {
+        "operationId": "list_starters_v1_follow_ups_starters_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FollowUpStartersOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The ready-made Follow-ups, filled in for this account",
+        "tags": [
+          "follow-ups"
+        ],
+        "x-calevate-permission": "leads:read"
+      }
+    },
+    "/v1/follow-ups/{follow_up_id}": {
+      "get": {
+        "operationId": "get_follow_up_v1_follow_ups__follow_up_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "follow_up_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Follow Up Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FollowUpOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "One Follow-up, its steps and what stops it from publishing",
+        "tags": [
+          "follow-ups"
+        ],
+        "x-calevate-permission": "leads:read"
+      },
+      "patch": {
+        "operationId": "edit_follow_up_v1_follow_ups__follow_up_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "follow_up_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Follow Up Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FollowUpEditIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FollowUpOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Small edits: the name, a wait, a message, the calling agent, remove a step",
+        "tags": [
+          "follow-ups"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/follow-ups/{follow_up_id}/draft": {
+      "put": {
+        "operationId": "save_follow_up_draft_v1_follow_ups__follow_up_id__draft_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "follow_up_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Follow Up Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FollowUpDraftIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FollowUpOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Replace the draft: trigger, steps and settings",
+        "tags": [
+          "follow-ups"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/follow-ups/{follow_up_id}/pause": {
+      "post": {
+        "operationId": "pause_follow_up_v1_follow_ups__follow_up_id__pause_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "follow_up_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Follow Up Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FollowUpOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Pause: leads wait where they are",
+        "tags": [
+          "follow-ups"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/follow-ups/{follow_up_id}/publish": {
+      "post": {
+        "operationId": "publish_follow_up_v1_follow_ups__follow_up_id__publish_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "follow_up_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Follow Up Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FollowUpPublishIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FollowUpOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Publish the draft as the next version; runs already going keep theirs",
+        "tags": [
+          "follow-ups"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/follow-ups/{follow_up_id}/results": {
+      "get": {
+        "operationId": "follow_up_results_v1_follow_ups__follow_up_id__results_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "follow_up_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Follow Up Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FollowUpResultsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "How many leads reached each step and each exit, last 30 days",
+        "tags": [
+          "follow-ups"
+        ],
+        "x-calevate-permission": "leads:read"
+      }
+    },
+    "/v1/follow-ups/{follow_up_id}/resume": {
+      "post": {
+        "operationId": "resume_follow_up_v1_follow_ups__follow_up_id__resume_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "follow_up_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Follow Up Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FollowUpOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Turn a paused or turned-off Follow-up back on",
+        "tags": [
+          "follow-ups"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/follow-ups/{follow_up_id}/runs": {
+      "get": {
+        "operationId": "list_follow_up_runs_v1_follow_ups__follow_up_id__runs_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "follow_up_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Follow Up Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "running",
+                    "waiting",
+                    "done",
+                    "stopped"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 120,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FollowUpRunsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The leads going (or gone) through a Follow-up, newest first",
+        "tags": [
+          "follow-ups"
+        ],
+        "x-calevate-permission": "leads:read"
+      }
+    },
+    "/v1/follow-ups/{follow_up_id}/runs/{run_id}": {
+      "get": {
+        "operationId": "get_follow_up_run_v1_follow_ups__follow_up_id__runs__run_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "follow_up_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Follow Up Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FollowUpRunOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "One lead's way through a Follow-up, step by step",
+        "tags": [
+          "follow-ups"
+        ],
+        "x-calevate-permission": "leads:read"
+      }
+    },
+    "/v1/follow-ups/{follow_up_id}/runs/{run_id}/stop": {
+      "post": {
+        "operationId": "stop_follow_up_run_v1_follow_ups__follow_up_id__runs__run_id__stop_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "follow_up_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Follow Up Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FollowUpRunOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Stop one lead's way through a Follow-up",
+        "tags": [
+          "follow-ups"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/follow-ups/{follow_up_id}/start": {
+      "post": {
+        "operationId": "start_follow_up_v1_follow_ups__follow_up_id__start_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "follow_up_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Follow Up Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FollowUpStartIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FollowUpStartOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Start picked leads, or the leads a filter matches, on this Follow-up",
+        "tags": [
+          "follow-ups"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/follow-ups/{follow_up_id}/turn-off": {
+      "post": {
+        "operationId": "turn_off_follow_up_v1_follow_ups__follow_up_id__turn_off_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "follow_up_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Follow Up Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FollowUpOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Turn off: no new leads start, and leads going through it stop",
+        "tags": [
+          "follow-ups"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
     "/v1/forwarding": {
       "get": {
         "operationId": "get_forwarding_v1_forwarding_get",
@@ -84582,7 +87934,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "How new leads are called: agent, wait, hours, after hours, retries",
+        "summary": "The account's calling hours, days, holidays and after-hours handling",
         "tags": [
           "lead-ingest"
         ],

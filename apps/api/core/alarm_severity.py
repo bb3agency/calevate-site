@@ -568,6 +568,8 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # told, and a team address that never got its code.
     "team_alert_exhausted": "attention",
     "team_contact_code_exhausted": "attention",
+    # Follow-ups (D-940): a run's step failed every retry and the run was ended.
+    "follow_up_step_failed": "attention",
     "account_notice_exhausted": "attention",
     "account_notice_no_channel": "attention",
     "account_notice_tenant_missing": "attention",

@@ -139,6 +139,12 @@ async def _apply(account_id: UUID, tenant_id: UUID, event: WabaEvent) -> str:
             if (event.code or "").upper() in QUALITY_DROPS:
                 alert("WORKER_DELIVERY", "whatsapp_number_quality_dropped", **ids)
             return "quality_recorded"
+        if event.kind == "reply":
+            from apps.api.follow_ups.runner import stop_for_reply
+
+            sender = event.detail.get("from_e164")
+            stopped = await stop_for_reply(session, phone_e164=sender) if sender else 0
+            return f"reply_stopped_{stopped}"
         if event.kind == "phone_name":
             await session.execute(
                 text("UPDATE whatsapp_accounts SET name_status = :ns WHERE id = :id"),

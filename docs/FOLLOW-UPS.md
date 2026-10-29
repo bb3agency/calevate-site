@@ -253,6 +253,55 @@ try 3 times, an hour apart").
 Errors are RFC-9457 with these codes: `follow_up_invalid`, `follow_up_trigger_overlap`,
 `follow_up_not_live`, `follow_up_changed` (409, `expected_updated_at`), `follow_up_run_not_running`.
 
+### The contract as built (backend, 30 Oct 2026)
+
+What the sections above left open, as the server now answers it. `apps/api/follow_ups/
+schemas.py` and the OpenAPI snapshot are the exact shapes.
+
+* **Exits.** A step with one exit has `next: step_id | null`. `call`, `whatsapp` and `action`
+  have `next: {answered, not_reached}`, `{sent, not_sent}`, `{done, failed}` (each a step id
+  or null). `decide` has `on: {<outcome key>: step_id | null}` and `other`. An exit may only
+  point to a LATER step (`step_goes_back`); `decide`, `tell_team` and `action` need a `call`
+  before them unless the trigger is `call_ended` (`needs_a_call`).
+* **`call`.** `agent_id` null is the lead's own agent (what a plan with no calling agent did).
+  `wait_seconds` (0..3600, optional) is an exact wait carried over from the old plan and wins
+  over `wait_minutes`; any wait edit clears it. `retry_minutes` is 10..1440, the old plan's
+  floor, so every migrated plan stays valid. The next try is booked when a try is dialled
+  (as `book_retry` always did) and stands down if they answered meanwhile.
+* **`decide`** tries, in order, the agent's business outcome (`calls.business_outcome`), our
+  call outcome (`calls.outcome_tag`: `answered`, `missed`, ...) and the voice platform's own
+  reading (`calls.insights->>'outcome'`: `converted`, `interested`, `callback`, ...); the
+  first one named in `on` wins, else `other`.
+* **`whatsapp.values`**: `[{source: lead_field | lead_name | agent_name | business_name |
+  text, key?, text?}]`, one per blank of the template.
+* **PATCH `step_edits[].wait`** is `{minutes?, hours?, days?}`; it sets a call's
+  `wait_minutes` or a wait step's length. A small edit that does not fit the step is 422
+  `follow_up_edit_invalid`.
+* **Answers.** `POST /v1/follow-ups` is 201. `FollowUpSummaryOut` adds `starts_when` (one
+  plain line). `GET /v1/follow-ups?limit=` (<= 200) and `GET .../runs?limit=` (<= 100,
+  default 50). `FollowUpRunOut`: `{id, lead_id, lead_name, status, step_id, step_summary,
+  attempt, wake_at, started_at, ended_at, end_reason, goal_reached, last_result, events}`
+  (`events` only on the one-run read). `GET /starters` is `{items: [{key, name, description,
+  trigger, steps, settings, available, needs}]}`: what the account lacks is listed in `needs`
+  (`outbound_agent`, `whatsapp_template`, `team_address`) and left as the nil id, which the
+  `problems` list then names.
+* **Errors beyond the five.** 409 `follow_up_changed` carries the current
+  `expected_updated_at`. `POST /start`: neither or both of `lead_ids` and `lens` is 422
+  `follow_up_start_unclear`; a lens whose count moved from `expected_count` is 409
+  `follow_up_start_set_moved`; more than 200 leads is 422 `follow_up_start_too_many` and
+  `plan_id` is always null until Pip's `follow_up_start` plan exists. A second "Call new
+  leads" is 409 `follow_up_starter_exists`.
+* **Overlap.** A new-lead Follow-up for "any source" overlaps every other new-lead one.
+* **New leads.** With no live new-lead Follow-up for the source, the lead is stored and the
+  ingest answer is `blocked: follow_up_off`; a lead already in it (an enquiry sent twice) is
+  not called again, `blocked: follow_up_already_in`. An account that never had "Call new
+  leads" (created before this, or by hand) is given it on its first lead.
+* **Pause** calls off the run's booked call-backs; **resume** books them again at once.
+* **Leads & hours** (`/v1/lead-calling`) no longer takes or returns `calling_agent_id`,
+  `wait_seconds`, `retry_attempts`, `retry_interval_minutes`; it returns
+  `new_leads_follow_up: {id, name, status} | null` so the screen can say "Call new leads is
+  off" and offer to turn it back on.
+
 ## Pip
 
 Pip builds and changes Follow-ups through the area dispatch (`copilot/areas.py`), so the client

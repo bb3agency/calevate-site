@@ -73,14 +73,10 @@ from apps.api.db.ownership import assert_visible
 from apps.api.db.result import rowcount_of
 from apps.api.engine.dial_lines import LINES_BUSY_RULE
 from apps.api.engine.vendor_http import NUMBER_DAILY_LIMIT_CODE
-from apps.api.ingest.lead_policy import (
-    LEAD_INGEST_PREFIX,
-    align,
-    book_retry,
-    hold_lead,
-    load_plan,
-    when_to_call,
-)
+from apps.api.follow_ups import runner as follow_up_runner
+from apps.api.follow_ups.definition import CallStep, first_step
+from apps.api.follow_ups.runner import CallbackRef
+from apps.api.ingest.lead_policy import align, hold_lead, load_plan, when_to_call
 from apps.api.ingest.sealed_secret import open_source_secret, seal_source_secret
 from apps.api.integrations import service as integrations
 
@@ -99,9 +95,9 @@ WINDOW_REFUSALS: frozenset[str] = frozenset(
     {CALLING_HOURS_RULE, MAINTENANCE_DRAIN_RULE, BIG_RED_SWITCH_RULE}
 )
 
-#: `scheduled_callbacks.source_execution_id` of a call-back booked because ingest could not
-#: dial yet. Not an engine execution; namespaced so it can never collide with one.
-INGEST_CALLBACK_PREFIX = LEAD_INGEST_PREFIX
+#: No live new-lead Follow-up takes this lead's source ("Call new leads" was turned off):
+#: the lead is kept and not called (D-940).
+NO_FOLLOW_UP_RULE = "follow_up_off"
 
 #: The lead arrived after hours on a "hold for me" plan and waits for the client (D-716).
 HELD_FOR_RELEASE_RULE = "held_for_release"
@@ -418,16 +414,28 @@ async def ingest_lead(
         )
     name = str(mapped.get("name") or "").strip() or None
 
-    # WHICH AGENT CALLS: the client's choice for every new lead (D-716), else the agent the
-    # source was created with. A chosen agent that is no longer published falls back to the
-    # source's, so a plan edited around an archived agent does not lose leads.
-    plan = await load_plan(session)
-    candidates = [a for a in (plan.calling_agent_id, config.agent_id) if a is not None]
+    # WHICH AGENT CALLS: the live new-lead Follow-up's first call step (D-940; the old
+    # plan's agent, wait and retries became the "Call new leads" Follow-up), else the agent
+    # the source was created with. A chosen agent that is no longer published falls back to
+    # the source's, so a Follow-up edited around an archived agent does not lose leads. The
+    # calling hours, days, holidays and after-hours choice stay the account's.
+    follow_up = await follow_up_runner.new_lead_follow_up(session, source_id=config.id)
+    first = first_step(follow_up.steps) if follow_up is not None else None
+    call_step = first if isinstance(first, CallStep) else None
+    hours = await load_plan(session)
+    plan = (
+        follow_up_runner.call_plan(hours, call_step, call_step.agent_id)
+        if call_step is not None
+        else hours
+    )
+    candidates = [
+        a for a in ((call_step.agent_id if call_step else None), config.agent_id) if a is not None
+    ]
     if not candidates:
         raise ProblemError.business_rule(
             "ingest_no_agent",
             "This lead source has no agent attached yet.",
-            remediation="Choose which agent calls new leads under Leads & hours.",
+            remediation="Choose an agent for this lead source, or one in Call new leads.",
         )
 
     # THE SAME REFUSAL `dispatch_call` ALREADY MAKES, MOVED IN FRONT OF THE INSERT.
@@ -583,6 +591,37 @@ async def ingest_lead(
             "blocked": STALE_SUBMISSION_RULE,
         }
 
+    # 2c. The lead's Follow-up (D-940). None live for this source: the lead is kept and not
+    # called, which is what turning "Call new leads" off means. A lead already in it (an
+    # enquiry sent twice) is not started, or called, a second time.
+    if follow_up is None:
+        await _timeline(
+            session, config.tenant_id, resolved_lead, "blocked", {"rule": NO_FOLLOW_UP_RULE}
+        )
+        record_speed_to_lead(time.time() - received_at, outcome="not_called")
+        return {"lead_id": resolved_lead, "dispatched": False, "blocked": NO_FOLLOW_UP_RULE}
+    started = await follow_up_runner.start_run(
+        session,
+        tenant_id=config.tenant_id,
+        follow_up=follow_up,
+        lead_id=resolved_lead,
+        phone_e164=phone,
+        trigger_ref=f"delivery:{config.id}:{int(received_at * 1000)}",
+        source_id=config.id,
+        queue=call_step is None,
+    )
+    if started.run is None:
+        rule = f"follow_up_{started.outcome}"
+        await _timeline(session, config.tenant_id, resolved_lead, "blocked", {"rule": rule})
+        record_speed_to_lead(time.time() - received_at, outcome="not_called")
+        return {"lead_id": resolved_lead, "dispatched": False, "blocked": rule}
+    run = started.run
+    if call_step is None:
+        # The Follow-up starts with something other than a call; a worker takes it.
+        return {"lead_id": resolved_lead, "dispatched": False, "blocked": None}
+    call_ref = CallbackRef(run.id, call_step.id, 0)
+    run_key = follow_up_runner.callback_key(run.id, call_step.id, 0)
+
     # 3. The compliance gate — the same one every dispatch path calls (hard rule 5).
     decision = await check_dispatch(
         session, tenant_id=config.tenant_id, agent_id=agent_id, phone_e164=phone
@@ -601,6 +640,9 @@ async def ingest_lead(
             agent_id=agent_id,
             source=config.source,
         )
+        await follow_up_runner.record(
+            session, run, step_id=call_step.id, kind="held", result="held_for_release"
+        )
         await _timeline(
             session, config.tenant_id, resolved_lead, "held", {"rule": HELD_FOR_RELEASE_RULE}
         )
@@ -615,7 +657,7 @@ async def ingest_lead(
             phone=phone,
             rule=f"plan_{timing.reason}",
             due=timing.at,
-            execution_key=f"{resolved_lead}:{timing.at.isoformat()}",
+            source_execution_id=run_key,
             received_at=received_at,
         )
     if not decision.allowed:
@@ -635,12 +677,10 @@ async def ingest_lead(
                 phone=phone,
                 rule=window_rule,
                 due=due,
-                # Keyed on the lead and the slot, so a person who submits twice overnight
-                # is rung once at 09:00, while a lead arriving on another night gets its
-                # own promise.
-                execution_key=f"{resolved_lead}:{due.isoformat()}",
+                source_execution_id=run_key,
                 received_at=received_at,
             )
+        await follow_up_runner.call_refused(session, call_ref, rule=decision.rule or "unknown")
         await _timeline(
             session, config.tenant_id, resolved_lead, "blocked", {"rule": decision.rule}
         )
@@ -660,6 +700,10 @@ async def ingest_lead(
             context_note=f"Enquiry via {config.source}",
         )
     except DialUnconfirmedError as unconfirmed:
+        # The run waits on the call row either way. Linked here, in this transaction, and
+        # not through `on_reserved`: that hook runs on the intent's own connection, which
+        # cannot see a run this uncommitted transaction just inserted.
+        await follow_up_runner.wait_on_call(session, run.id, call_id=unconfirmed.call_id)
         # The phone may already be ringing, so this delivery must COMMIT: raising would
         # roll back the lead and the caller's inbox claim with it, and the sender's retry
         # (form vendors and Zapier retry a 5xx; Meta re-claims once the lease lapses)
@@ -687,6 +731,7 @@ async def ingest_lead(
             # The voice platform will not call this person, and nothing rang. Recorded like
             # a gate refusal and committed: raising would roll the lead back, and the
             # sender's retry would ask to dial the same person again.
+            await follow_up_runner.call_refused(session, call_ref, rule=refused.code)
             await _timeline(
                 session, config.tenant_id, resolved_lead, "blocked", {"rule": refused.code}
             )
@@ -705,7 +750,7 @@ async def ingest_lead(
                 phone=phone,
                 rule=CALLING_HOURS_RULE,
                 due=due,
-                execution_key=f"{resolved_lead}:{due.isoformat()}",
+                source_execution_id=run_key,
                 received_at=received_at,
             )
         if refused.code not in LINE_REFUSALS:
@@ -722,22 +767,26 @@ async def ingest_lead(
             phone=phone,
             rule=refused.code,
             due=datetime.now(UTC),
-            # Unique per delivery: a lead that arrives again later is a new promise, not
-            # a move of this one.
-            execution_key=str(uuid7()),
+            source_execution_id=run_key,
             received_at=received_at,
         )
     await _timeline(session, config.tenant_id, resolved_lead, "call", {"engine_call_id": handle})
+    placed = (
+        await session.execute(text("SELECT id FROM calls WHERE engine_call_id = :h"), {"h": handle})
+    ).scalar()
+    await follow_up_runner.wait_on_call(
+        session, run.id, call_id=UUID(str(placed)) if placed is not None else None
+    )
     # The next try, in case nobody answers (D-716); checked again when it falls due.
-    await book_retry(
+    await follow_up_runner.book_retry(
         session,
         tenant_id=config.tenant_id,
-        plan=plan,
+        run_id=run.id,
+        step=call_step,
         lead_id=resolved_lead,
         agent_id=agent_id,
         phone_e164=phone,
         attempt=0,
-        root=str(uuid7()),
     )
     elapsed = time.time() - received_at
     record_speed_to_lead(elapsed, outcome="dispatched")
@@ -802,7 +851,7 @@ async def _defer_to_callback(
     phone: str,
     rule: str,
     due: datetime,
-    execution_key: str,
+    source_execution_id: str,
     received_at: float,
 ) -> dict[str, Any]:
     """Book the lead's call as a call-back due at `due`, and say so on its timeline.
@@ -817,7 +866,7 @@ async def _defer_to_callback(
         tenant_id=config.tenant_id,
         agent_id=agent_id,
         source_call_id=None,
-        source_execution_id=f"{INGEST_CALLBACK_PREFIX}{execution_key}",
+        source_execution_id=source_execution_id,
         lead_id=lead_id,
         phone_e164=phone,
         requested_at=due,

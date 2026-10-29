@@ -14,6 +14,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance.audit import write_audit
@@ -50,30 +51,36 @@ class Strict(BaseModel):
 
 
 class LeadCallingIn(Strict):
-    #: Null: each lead source's own agent calls.
-    calling_agent_id: UUID | None = None
-    wait_seconds: int = Field(0, ge=0, le=3600)
+    """The account's calling hours. Which agent calls a new lead, the wait and the retries
+    are the "Call new leads" Follow-up's call step (D-940)."""
+
     hours_start: time = time(9, 0)
     hours_end: time = time(21, 0)
     days: list[Weekday] = Field(default_factory=lambda: list(ALL_DAYS), min_length=1, max_length=7)
     holidays: list[date] = Field(default_factory=list, max_length=60)
     after_hours: AfterHours = "next_open"
-    retry_attempts: int = Field(0, ge=0, le=3)
-    retry_interval_minutes: int = Field(60, ge=10, le=1440)
     detect_machines: bool = False
 
 
+class NewLeadsFollowUpOut(BaseModel):
+    """The Follow-up new leads start (normally "Call new leads"), so the screen can say when
+    it is off and offer to turn it back on."""
+
+    id: UUID
+    name: str
+    status: Literal["draft", "live", "paused", "off"]
+
+
 class LeadCallingOut(BaseModel):
-    calling_agent_id: UUID | None
-    wait_seconds: int
     hours_start: time
     hours_end: time
     days: list[Weekday]
     holidays: list[date]
     after_hours: AfterHours
-    retry_attempts: int
-    retry_interval_minutes: int
     detect_machines: bool
+    #: "Call new leads", or null when the account has none. When it is not `live`, new
+    #: leads are stored and not called.
+    new_leads_follow_up: NewLeadsFollowUpOut | None
     #: Null until the plan is first saved; the values above are then the defaults.
     updated_at: datetime | None
     #: The platform window the hours must sit inside (IST), for the screen's bounds.
@@ -111,17 +118,23 @@ async def _out(
     session: AsyncSession, tenant_id: UUID, plan: LeadCallPlan, agents_updated: int = 0
 ) -> LeadCallingOut:
     trial = await restricting_trial(session, tenant_id=tenant_id)
+    follow_up = (
+        await session.execute(
+            text("SELECT id, name, status FROM follow_ups WHERE starter = 'call_new_leads' LIMIT 1")
+        )
+    ).first()
     return LeadCallingOut(
-        calling_agent_id=plan.calling_agent_id,
-        wait_seconds=plan.wait_seconds,
         hours_start=plan.hours_start,
         hours_end=plan.hours_end,
         days=list(plan.days),  # type: ignore[arg-type]
         holidays=list(plan.holidays),
         after_hours=plan.after_hours,  # type: ignore[arg-type]
-        retry_attempts=plan.retry_attempts,
-        retry_interval_minutes=plan.retry_interval_minutes,
         detect_machines=plan.detect_machines,
+        new_leads_follow_up=(
+            NewLeadsFollowUpOut(id=follow_up[0], name=follow_up[1], status=follow_up[2])
+            if follow_up is not None
+            else None
+        ),
         updated_at=plan.updated_at,
         window_start=lead_policy.DEFAULT_PLAN.hours_start,
         window_end=lead_policy.DEFAULT_PLAN.hours_end,
@@ -136,7 +149,7 @@ async def _out(
     "",
     response_model=LeadCallingOut,
     openapi_extra=permission_meta("org:read"),
-    summary="How new leads are called: agent, wait, hours, after hours, retries",
+    summary="The account's calling hours, days, holidays and after-hours handling",
 )
 async def get_lead_calling(session: SessionDep, principal: Reader) -> LeadCallingOut:
     assert principal.tenant_id is not None
@@ -163,15 +176,11 @@ async def put_lead_calling(
             session,
             tenant_id=tenant_id,
             plan=LeadCallPlan(
-                calling_agent_id=payload.calling_agent_id,
-                wait_seconds=payload.wait_seconds,
                 hours_start=payload.hours_start,
                 hours_end=payload.hours_end,
                 days=tuple(payload.days),
                 holidays=tuple(payload.holidays),
                 after_hours=payload.after_hours,
-                retry_attempts=payload.retry_attempts,
-                retry_interval_minutes=payload.retry_interval_minutes,
                 detect_machines=payload.detect_machines,
             ),
             user_id=principal.user_id,
@@ -186,7 +195,6 @@ async def put_lead_calling(
             ip=client_request_ip(request),
             summary={
                 "after_hours": plan.after_hours,
-                "retry_attempts": plan.retry_attempts,
                 "detect_machines": plan.detect_machines,
             },
         )

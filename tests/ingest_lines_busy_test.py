@@ -14,9 +14,9 @@ import pytest
 from apps.api.db.session import tenant_session
 from apps.api.engine.dial_lines import lines_busy
 from apps.api.engine.vendor_http import number_daily_limit_error
+from apps.api.follow_ups.runner import CALLBACK_PREFIX
 from apps.api.ingest import service as ingest_service
 from apps.api.ingest.routes import SECRET_HEADER
-from apps.api.ingest.service import INGEST_CALLBACK_PREFIX
 from sqlalchemy import text
 from tests.lead_ingest_test import SECRET, _client, _tenant_with_ingest
 
@@ -72,7 +72,7 @@ async def test_a_busy_account_books_the_call_back_and_keeps_the_lead(
     assert row[0] == agent_id
     assert row[1] == leads[0][0]
     assert row[2] == "scheduled"
-    assert str(row[3]).startswith(INGEST_CALLBACK_PREFIX)
+    assert str(row[3]).startswith(CALLBACK_PREFIX)
     assert row[4] is True
 
 

@@ -1,15 +1,12 @@
 /** A client's lead-calling plan as `GET /v1/lead-calling` answers it with no plan saved. */
 export const LEAD_CALLING_DEFAULT = {
-  calling_agent_id: null,
-  wait_seconds: 0,
   hours_start: "09:00:00",
   hours_end: "21:00:00",
   days: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
   holidays: [],
   after_hours: "next_open",
-  retry_attempts: 0,
-  retry_interval_minutes: 60,
   detect_machines: false,
+  new_leads_follow_up: { id: "00000000-0000-7000-8000-000000000001", name: "Call new leads", status: "live" },
   updated_at: null,
   window_start: "09:00:00",
   window_end: "21:00:00",

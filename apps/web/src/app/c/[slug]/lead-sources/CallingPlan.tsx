@@ -1,7 +1,7 @@
 "use client";
 
 import { Lock, X } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import { DatePicker } from "@/components/arc/calendar";
 import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
@@ -10,7 +10,6 @@ import { RadioGroup } from "@/components/arc/radio-group";
 import {
   Card,
   Disclosure,
-  FIELD,
   FIELD_HINT,
   FIELD_INLINE,
   FIELD_LABEL,
@@ -51,17 +50,6 @@ function holidayLabel(day: string): string {
   });
 }
 
-const WAITS: { seconds: number; label: string }[] = [
-  { seconds: 0, label: "Straight away" },
-  { seconds: 30, label: "After 30 seconds" },
-  { seconds: 60, label: "After 1 minute" },
-  { seconds: 120, label: "After 2 minutes" },
-  { seconds: 300, label: "After 5 minutes" },
-  { seconds: 900, label: "After 15 minutes" },
-  { seconds: 1800, label: "After 30 minutes" },
-  { seconds: 3600, label: "After 1 hour" },
-];
-
 const AFTER_HOURS: { value: AfterHours; label: string; hint: string }[] = [
   { value: "next_open", label: "Call when you open", hint: "The first minute of your next calling hours." },
   { value: "open_plus_3h", label: "Call 3 hours after you open", hint: "Mornings stay free for new leads." },
@@ -69,35 +57,16 @@ const AFTER_HOURS: { value: AfterHours; label: string; hint: string }[] = [
   { value: "hold", label: "Hold them for me", hint: "They wait for you to choose." },
 ];
 
-const RETRIES = [0, 1, 2, 3].map((count) => ({
-  value: String(count),
-  label: count === 0 ? "Don't try again" : count === 1 ? "Try once more" : `Try ${count} more times`,
-}));
-
-const INTERVALS: { minutes: number; label: string }[] = [
-  { minutes: 10, label: "10 minutes" },
-  { minutes: 30, label: "30 minutes" },
-  { minutes: 60, label: "1 hour" },
-  { minutes: 120, label: "2 hours" },
-  { minutes: 180, label: "3 hours" },
-  { minutes: 360, label: "6 hours" },
-  { minutes: 1440, label: "1 day" },
-];
-
 /** `09:00:00` (the API) as `09:00` (the time input), and back. */
 const hhmm = (value: string | undefined) => (value ?? "").slice(0, 5);
 
 function toInput(plan: LeadCalling): Plan {
   return {
-    calling_agent_id: plan.calling_agent_id,
-    wait_seconds: plan.wait_seconds,
     hours_start: hhmm(plan.hours_start),
     hours_end: hhmm(plan.hours_end),
     days: plan.days,
     holidays: plan.holidays,
     after_hours: plan.after_hours,
-    retry_attempts: plan.retry_attempts,
-    retry_interval_minutes: plan.retry_interval_minutes,
     detect_machines: plan.detect_machines,
   };
 }
@@ -148,15 +117,14 @@ function Group({
 }
 
 /**
- * How new leads are called, for the whole business (founder decision 10, D-716).
+ * The account's calling hours, for the whole business (founder decision 10, D-716).
  *
- * One form in five groups read top to bottom in the order a lead lives through them: who
- * calls, when, what happens after hours, what happens if nobody answers, and machines.
- * The rules nobody can switch off close the card in the server's own words.
+ * When to call, what happens after hours, and machines. Which agent calls a new lead, the
+ * wait and the retries are the "Call new leads" Follow-up's (D-940). The rules nobody can
+ * switch off close the card in the server's own words.
  */
 export function CallingPlan({
   plan,
-  agents,
   canWrite,
   refusal,
   saveStatus,
@@ -181,14 +149,6 @@ export function CallingPlan({
     if (plan.data) setDraft(toInput(plan.data));
   }, [plan.data]);
 
-  const callers = useMemo(
-    () =>
-      (agents ?? []).filter(
-        (agent) => agent.status !== "archived" && agent.direction !== "inbound",
-      ),
-    [agents],
-  );
-
   if (plan.isLoading || (!draft && !plan.error)) {
     return (
       <Card title="How new leads are called">
@@ -211,13 +171,8 @@ export function CallingPlan({
   const set = (patch: Partial<Plan>) => setDraft({ ...draft, ...patch });
   const days = draft.days ?? [];
   const holidays = draft.holidays ?? [];
-  const retries = draft.retry_attempts ?? 0;
-
-  const callerName =
-    callers.find((agent) => agent.id === draft.calling_agent_id)?.name ?? "Each source's agent";
-  const waitLabel = WAITS.find((w) => w.seconds === (draft.wait_seconds ?? 0))?.label ?? "Straight away";
   const afterHoursLabel = AFTER_HOURS.find((o) => o.value === draft.after_hours)?.label ?? "";
-  const retryLabel = RETRIES.find((r) => r.value === String(retries))?.label ?? "";
+  const newLeads = plan.data.new_leads_follow_up;
 
   const addHoliday = () => {
     if (!holiday || holidays.includes(holiday) || holidays.length >= 60) return;
@@ -241,50 +196,19 @@ export function CallingPlan({
           </NoticeBox>
         )}
 
-        <div className="-mx-1 divide-y divide-line rounded-card border border-line">
-        <Group title="Who calls" status={callerName} hint="One agent calls every new lead.">
-          <label className="block max-w-md">
-            <span className={FIELD_LABEL}>Agent</span>
-            <select
-              className={FIELD}
-              value={draft.calling_agent_id ?? ""}
-              disabled={!canWrite}
-              onChange={(event) => set({ calling_agent_id: event.target.value || null })}
-            >
-              <option value="">The agent each lead source was set up with</option>
-              {callers.map((agent) => (
-                <option key={agent.id} value={agent.id}>
-                  {agent.name}
-                  {agent.status === "live" ? "" : " (not switched on)"}
-                </option>
-              ))}
-            </select>
-            <span className={FIELD_HINT}>Only agents that place calls are listed.</span>
-          </label>
-        </Group>
+        {newLeads && newLeads.status !== "live" && (
+          <NoticeBox tone="warn" title={`${newLeads.name} is off`}>
+            New leads are saved but not called. Turn it back on in Follow-ups.
+          </NoticeBox>
+        )}
 
+        <div className="-mx-1 divide-y divide-line rounded-card border border-line">
         <Group
           title="When to call"
-          status={`${waitLabel} · ${draft.hours_start ?? ""}–${draft.hours_end ?? ""}`}
+          status={`${draft.hours_start ?? ""}–${draft.hours_end ?? ""}`}
+          hint="Which agent calls, the wait and the tries are in Follow-ups."
           open={problem !== null}
         >
-          <label className="block max-w-md">
-            <span className={FIELD_LABEL}>Wait before calling</span>
-            <select
-              className={FIELD}
-              value={draft.wait_seconds ?? 0}
-              disabled={!canWrite}
-              onChange={(event) => set({ wait_seconds: Number(event.target.value) })}
-            >
-              {WAITS.map((wait) => (
-                <option key={wait.seconds} value={wait.seconds}>
-                  {wait.label}
-                </option>
-              ))}
-            </select>
-            <span className={FIELD_HINT}>Lets them finish the form first.</span>
-          </label>
-
           <div>
             <span className={FIELD_LABEL} id="calling-hours-label">
               Calling hours (Indian time)
@@ -415,36 +339,6 @@ export function CallingPlan({
               if (choice) set({ after_hours: choice.value });
             }}
           />
-        </Group>
-
-        <Group title="If nobody answers" status={retryLabel}>
-          <RadioGroup
-            label={<span className="sr-only">Try again</span>}
-            name="retries"
-            inline
-            options={RETRIES}
-            value={String(retries)}
-            disabled={!canWrite}
-            onChange={(next) => set({ retry_attempts: Number(next) })}
-          />
-          {retries > 0 && (
-            <label className="block max-w-md">
-              <span className={FIELD_LABEL}>Between tries, wait</span>
-              <select
-                className={FIELD}
-                value={draft.retry_interval_minutes ?? 60}
-                disabled={!canWrite}
-                onChange={(event) => set({ retry_interval_minutes: Number(event.target.value) })}
-              >
-                {INTERVALS.map((interval) => (
-                  <option key={interval.minutes} value={interval.minutes}>
-                    {interval.label}
-                  </option>
-                ))}
-              </select>
-              <span className={FIELD_HINT}>Stops once they answer or call back.</span>
-            </label>
-          )}
         </Group>
 
         <Group title="Answering machines" status={draft.detect_machines ? "Hang up" : "Keep talking"}>

@@ -238,7 +238,7 @@ async def deliver_team_alert(ctx: dict[str, Any], payload: dict[str, Any]) -> st
                 at=at,
                 reasons=list(reasons or []),
                 problem=problem,
-                summary=redacted_summary(summary) if trigger == "after_call" else None,
+                summary=redacted_summary(summary) if trigger != "in_call" else None,
                 link=link,
             )
             delivered = await _send(destination.address, body, business=str(business or ""))
@@ -310,6 +310,8 @@ def _reason_line(reason: dict[str, Any]) -> str | None:
     if kind == "field":
         values = ", ".join(_one_line(str(v)) for v in reason.get("values") or [])
         return f"{_one_line(str(reason.get('label') or reason.get('key') or ''))}: {values}"
+    if kind == "follow_up":
+        return f"Follow-up: {_one_line(str(reason.get('why') or ''))}"
     return None
 
 

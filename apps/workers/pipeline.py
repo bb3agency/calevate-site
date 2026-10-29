@@ -292,6 +292,8 @@ OUTBOUND_WEBHOOK_JOB = "deliver_outbound_webhook"
 AFTER_CALL_ACTIONS_JOB = "run_after_call_actions"
 #: A call's language pass, queued last by STEP 10 (D-931); `call_translation.JOB_NAME`.
 LANGUAGE_PASS_JOB = "translate_call_job"
+#: Follow-ups after a finished call (D-940); `workers/follow_ups.follow_up_call_ended`.
+FOLLOW_UP_CALL_ENDED_JOB = "follow_up_call_ended"
 
 # --- stage spans --------------------------------------------------------------
 #
@@ -1625,6 +1627,15 @@ async def _run_post_call_stages(
         await lock_call_writes(session, call_id)
         await resolve_campaign_contact(
             session, tenant_id=tenant_id, call_id=call_id, call_status=snapshot.status
+        )
+        # STEP 7b — Follow-ups (D-940): a run waiting on this call moves on, and a
+        # "call ended" Follow-up may start. A job, once per call, after the outcome above is
+        # stored; never inline here.
+        await enqueue_outbox_once(
+            session,
+            job=FOLLOW_UP_CALL_ENDED_JOB,
+            payload={"tenant_id": str(tenant_id), "call_id": str(call_id)},
+            dedupe_key=f"follow-up-call-ended:{call_id}",
         )
 
         # STEP 8 — outbound CRM sync (D-23). Last, and only for a call that actually

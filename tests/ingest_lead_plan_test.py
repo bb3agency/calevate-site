@@ -19,6 +19,7 @@ from apps.api.ingest import lead_policy
 from apps.api.ingest.lead_policy import LeadCallPlan
 from apps.api.ingest.service import HELD_FOR_RELEASE_RULE
 from sqlalchemy import text
+from tests.follow_ups_support import set_new_lead_call
 from tests.ingest_deferred_window_test import (
     _callbacks,
     _no_dial,
@@ -29,10 +30,13 @@ from tests.ingest_deferred_window_test import (
 from tests.lead_ingest_test import _tenant_with_ingest
 
 
-async def _with_plan(plan: LeadCallPlan) -> tuple[uuid.UUID, Any]:
+async def _with_plan(plan: LeadCallPlan, **call: Any) -> tuple[uuid.UUID, Any]:
+    """The account's hours from `plan`; the wait and retries on "Call new leads" (D-940)."""
     tenant_id, _agent_id, webhook_id = await _tenant_with_ingest()
     async with tenant_session(tenant_id) as session:
         await lead_policy.save_plan(session, tenant_id=tenant_id, plan=plan, user_id=None)
+    if call:
+        await set_new_lead_call(uuid.UUID(str(tenant_id)), **call)
     return uuid.UUID(str(tenant_id)), webhook_id
 
 
@@ -71,7 +75,7 @@ async def test_a_plan_that_waits_books_the_call_for_after_the_wait(
     now = _utc_at_ist(2026, 10, 13, 11)
     _pin_gate_clock(monkeypatch, now)
     dialled = _no_dial(monkeypatch)
-    tenant_id, webhook_id = await _with_plan(LeadCallPlan(wait_seconds=120))
+    tenant_id, webhook_id = await _with_plan(LeadCallPlan(), wait_minutes=2, wait_seconds=120)
 
     body = await _post(webhook_id, "9876507722")
 

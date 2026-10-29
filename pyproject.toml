@@ -127,6 +127,7 @@ source_modules = [
     "apps.api.db",
     "apps.api.first_run",
     "apps.api.flags",
+    "apps.api.follow_ups",
     "apps.api.forwarding",
     "apps.api.go_live",
     "apps.api.healer",

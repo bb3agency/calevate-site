@@ -77,6 +77,10 @@ TABLE_TOPICS: Final[dict[str, Topic]] = {
     "lead_events": "leads",
     "lead_call_holds": "leads",
     "lead_call_policies": "leads",
+    # Follow-ups (D-940) live under Leads; a run moving or a step recorded changes the Runs tab.
+    "follow_ups": "leads",
+    "follow_up_runs": "leads",
+    "follow_up_run_events": "leads",
     "lead_field_drafts": "leads",
     "lead_saved_views": "leads",
     "caller_memories": "leads",
@@ -255,6 +259,9 @@ QUIET_TABLES: Final[dict[str, str]] = {
     "first_run_recordings": "a brief clip kept only until it is text; its one screen polls it",
     "first_runs": "one owner's first-run state; the first-run screen polls it while a job runs",
     "team_alerts": "the log of alerts sent to a business's own team; no screen lists it",
+    "follow_up_versions": (
+        "a Follow-up's frozen steps, written only with the `follow_ups` row that announces it"
+    ),
     "agent_test_copies": (
         "the developer-workspace copy a paid account's test call rides (D-859), republished "
         "before each call; no screen reads it"

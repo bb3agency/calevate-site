@@ -17,8 +17,8 @@ import { FIELD } from "./styles";
  * nothing changed changes nothing. "Not yet" is a real choice and says what it costs: the
  * source keeps saving leads and calls nobody. The secret and the address do not change.
  *
- * The lead-calling plan's own agent, when one is chosen there, still calls every source's
- * leads; this is the agent used when it is not.
+ * The "Call new leads" Follow-up's own agent, when one is chosen there, still calls every
+ * source's leads; this is the agent used when it is not.
  */
 export function AgentDrawer({
   source,

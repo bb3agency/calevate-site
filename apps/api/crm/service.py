@@ -1552,7 +1552,7 @@ async def _write_lead_event(
     )
 
 
-async def _assert_assignable(session: AsyncSession, user_id: UUID) -> None:
+async def assert_assignable(session: AsyncSession, user_id: UUID) -> None:
     """Refuse an owner who is not on this tenant's team.
 
     THE TENANCY CONTROL IS THE RLS ON `memberships`, not this function's SQL:
@@ -1629,8 +1629,12 @@ async def set_lead_status(
     status: str,
     actor: str,
     expected_status: str | None = None,
+    follow_up_run_id: UUID | None = None,
 ) -> bool:
     """Move one lead into `status`. True when THIS call moved it, False when it was there.
+
+    A move to won or lost ends the lead's Follow-up runs that stop on it (D-940), except
+    `follow_up_run_id`, the run whose own step set it, which goes on to its next step.
 
     404s an absent or soft-deleted lead (and, under RLS, a neighbour's — deliberately the
     same answer). The timeline row is written ONLY on a real move, which is the point of
@@ -1664,6 +1668,12 @@ async def set_lead_status(
             payload_sql="jsonb_build_object('status', CAST(:status AS text))",
             params={"status": status, "actor": actor},
         )
+        if status in ("won", "lost"):
+            from apps.api.follow_ups.runner import stop_for_won_lost
+
+            await stop_for_won_lost(
+                session, lead_id=lead_id, status=status, except_run=follow_up_run_id
+            )
     return moved
 
 
@@ -1681,7 +1691,7 @@ async def set_lead_assignee(
     nullable and `NULL <> NULL` is NULL, so an unassign of an already-unassigned lead
     would match the row and write an event for nothing.
 
-    The caller validates the assignee first (`_assert_assignable`); this function assumes
+    The caller validates the assignee first (`assert_assignable`); this function assumes
     that has happened, because the refusal is about the PERSON and belongs to the request,
     not to each lead in it.
     """
@@ -1854,7 +1864,7 @@ async def update_lead(
     if assignee is not None and assignee.user_id is not None:
         # Validated BEFORE any write, so a refused assignment leaves no partial edit —
         # a body carrying both a status and a bad assignee must move neither.
-        await _assert_assignable(session, assignee.user_id)
+        await assert_assignable(session, assignee.user_id)
 
     moved = False
     if status is not None:
@@ -2039,7 +2049,7 @@ async def apply_bulk_leads(
         # team" is a fact about the REQUEST — repeating it as four hundred per-lead
         # failures would bury the rows that failed for reasons of their own, and would
         # report a 422 as a partial success.
-        await _assert_assignable(session, assignee.user_id)
+        await assert_assignable(session, assignee.user_id)
 
     changed = unchanged = 0
     # The leads a `lead.updated` is owed, collected rather than emitted per lead: one

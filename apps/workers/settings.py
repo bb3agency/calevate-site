@@ -198,6 +198,14 @@ from apps.workers.first_run import (
     write_first_run_questions,
 )
 from apps.workers.fleet_walk import WalkShape, bounded, every_tick, fleet_wide
+from apps.workers.follow_ups import (
+    TICK_SECOND as FOLLOW_UP_TICK_SECOND,
+)
+from apps.workers.follow_ups import (
+    drive_follow_up_run,
+    follow_up_call_ended,
+    follow_up_tick,
+)
 from apps.workers.forwarding import (
     FORWARDING_SWEEP_MINUTE,
     hang_up_forwarding_test,
@@ -497,6 +505,9 @@ FUNCTIONS: list[Any] = [
         # verifies that address.
         deliver_team_alert,
         send_team_contact_code,
+        # D-940. Follow-ups: one run moved on, and what a finished call means for them.
+        drive_follow_up_run,
+        follow_up_call_ended,
         # D-23: the client's CRM hears about leads and calls through the same outbox as
         # every other side effect, so a delivery cannot outlive a rolled-back write.
         deliver_outbound_webhook,
@@ -1092,6 +1103,18 @@ CRON_JOBS = [
         traced_job(dispatch_campaign_tick),
         walk=every_tick("one tenant_session per tenant holding an outbound line"),
         second=set(TICK_SECONDS),
+    ),
+    # D-940: Follow-up runs that fell due, dates that came, and (every tenth minute) runs
+    # past their `max_days`. Every minute, because a wait or a step is promised to the
+    # minute. A failed tick is retried; every move inside is a compare-and-swap.
+    _cron(
+        traced_job(follow_up_tick),
+        walk=bounded(
+            "one admin read (`follow_up_scan`, an in-database loop), then one tenant_session "
+            "per account with work, at most `follow_ups.TENANTS_PER_TICK`"
+        ),
+        second={FOLLOW_UP_TICK_SECOND},
+        max_tries=WORKER_MAX_TRIES,
     ),
     # `max_tries` for `apply_retention`'s reason, and it is the same class of job: the
     # other half of the retention obligation, on the same nightly cadence, with the same

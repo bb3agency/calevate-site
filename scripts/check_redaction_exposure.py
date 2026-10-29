@@ -232,6 +232,30 @@ ALLOWED_ROUTES: dict[str, RawDisclosure] = {
 # NAMING exemption only — a static schema walk cannot see whether a value was redacted,
 # so each entry names the runtime test that can.
 KNOWN_SAFE_FIELDS: dict[str, str] = {
+    **{
+        f"{kind}StepOut.summary": (
+            "one plain line describing a Follow-up STEP (D-940), composed by "
+            "`follow_ups/definition.summary` from the step's own fields and the account's "
+            "agent, template, teammate and action names; no call, transcript or caller data "
+            "is read (tests/follow_ups_definition_test.py)"
+        )
+        for kind in (
+            "Call",
+            "Decide",
+            "Wait",
+            "WhatsApp",
+            "Assign",
+            "SetStatus",
+            "TellTeam",
+            "Action",
+            "End",
+        )
+    },
+    "TemplateValue.text": (
+        "fixed text the BUSINESS typed (or Pip drafted from the owner's sentence) to fill "
+        "one blank of a Follow-up's WhatsApp step (D-940), never a caller's words; "
+        "tenant-scoped by RLS (tests/follow_ups_runs_test.py)"
+    ),
     "FactOut.text": (
         "a fact the BUSINESS wrote about itself (the teach box or the Knowledge screen, "
         "`kb_facts`), never transcript text; tenant-scoped by RLS (tests/teach_loop_test.py)"
@@ -360,6 +384,11 @@ KNOWN_SAFE_FIELDS: dict[str, str] = {
 # `dict[str, Any]` response fields: the serializer cannot vouch for their contents, so
 # each one is acknowledged here with the reason it is not a redaction bypass.
 ACKNOWLEDGED_PASSTHROUGH: dict[str, str] = {
+    "DecideStepOut.on": (
+        "a Follow-up decide step's branches (D-940): outcome keys mapped to step ids, "
+        "validated by `follow_ups/definition.DecideStep` (both sides pattern-checked short "
+        "identifiers) before they are stored; no query result or person's data reaches it"
+    ),
     "WhatsAppSignupOut.extras": (
         "the `extras` object for Meta's FB.login (D-784), built by `whatsapp/routes."
         "extras_for` from constants only (`setup`, `featureType`, `sessionInfoVersion`); no "

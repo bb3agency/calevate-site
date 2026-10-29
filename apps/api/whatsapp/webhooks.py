@@ -148,6 +148,22 @@ def _from_change(waba_id: str, name: str, value: dict[str, Any]) -> list[WabaEve
         return [WabaEvent(waba_id, "phone_name", name, _s(value.get("decision"), 32))]
     if name == MESSAGES:
         events: list[WabaEvent] = []
+        # A message a person sent to the client's number (D-940): only that it arrived and
+        # from which number, so their Follow-up runs can stop. Its text is never read.
+        messages = value.get("messages")
+        for message in messages if isinstance(messages, list) else []:
+            sender = _id(message.get("from")) if isinstance(message, dict) else None
+            if sender is None:
+                continue
+            events.append(
+                WabaEvent(
+                    waba_id,
+                    "reply",
+                    name,
+                    None,
+                    _detail(from_e164=f"+{sender}", message_id=_s(message.get("id"), 256)),
+                )
+            )
         statuses = value.get("statuses")
         for status in statuses if isinstance(statuses, list) else []:
             if not isinstance(status, dict) or _s(status.get("status"), 16) != "failed":

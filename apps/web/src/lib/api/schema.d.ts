@@ -8710,6 +8710,229 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/follow-ups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The account's Follow-ups */
+        get: operations["list_follow_ups_v1_follow_ups_get"];
+        put?: never;
+        /** Make a Follow-up (a draft until it is published) */
+        post: operations["create_follow_up_v1_follow_ups_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/follow-ups/starters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The ready-made Follow-ups, filled in for this account */
+        get: operations["list_starters_v1_follow_ups_starters_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/follow-ups/{follow_up_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One Follow-up, its steps and what stops it from publishing */
+        get: operations["get_follow_up_v1_follow_ups__follow_up_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Small edits: the name, a wait, a message, the calling agent, remove a step */
+        patch: operations["edit_follow_up_v1_follow_ups__follow_up_id__patch"];
+        trace?: never;
+    };
+    "/v1/follow-ups/{follow_up_id}/draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Replace the draft: trigger, steps and settings */
+        put: operations["save_follow_up_draft_v1_follow_ups__follow_up_id__draft_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/follow-ups/{follow_up_id}/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Pause: leads wait where they are */
+        post: operations["pause_follow_up_v1_follow_ups__follow_up_id__pause_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/follow-ups/{follow_up_id}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Publish the draft as the next version; runs already going keep theirs */
+        post: operations["publish_follow_up_v1_follow_ups__follow_up_id__publish_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/follow-ups/{follow_up_id}/results": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** How many leads reached each step and each exit, last 30 days */
+        get: operations["follow_up_results_v1_follow_ups__follow_up_id__results_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/follow-ups/{follow_up_id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Turn a paused or turned-off Follow-up back on */
+        post: operations["resume_follow_up_v1_follow_ups__follow_up_id__resume_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/follow-ups/{follow_up_id}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The leads going (or gone) through a Follow-up, newest first */
+        get: operations["list_follow_up_runs_v1_follow_ups__follow_up_id__runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/follow-ups/{follow_up_id}/runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One lead's way through a Follow-up, step by step */
+        get: operations["get_follow_up_run_v1_follow_ups__follow_up_id__runs__run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/follow-ups/{follow_up_id}/runs/{run_id}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stop one lead's way through a Follow-up */
+        post: operations["stop_follow_up_run_v1_follow_ups__follow_up_id__runs__run_id__stop_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/follow-ups/{follow_up_id}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start picked leads, or the leads a filter matches, on this Follow-up */
+        post: operations["start_follow_up_v1_follow_ups__follow_up_id__start_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/follow-ups/{follow_up_id}/turn-off": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Turn off: no new leads start, and leads going through it stop */
+        post: operations["turn_off_follow_up_v1_follow_ups__follow_up_id__turn_off_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/forwarding": {
         parameters: {
             query?: never;
@@ -9814,7 +10037,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** How new leads are called: agent, wait, hours, after hours, retries */
+        /** The account's calling hours, days, holidays and after-hours handling */
         get: operations["get_lead_calling_v1_lead_calling_get"];
         /**
          * Save how new leads are called
@@ -13070,6 +13293,13 @@ export interface components {
             /** Top Fixes */
             top_fixes: components["schemas"]["ReadinessFixOut"][];
         };
+        /** ActionExits */
+        ActionExits: {
+            /** Done */
+            done?: string | null;
+            /** Failed */
+            failed?: string | null;
+        };
         /** ActionOut */
         ActionOut: {
             /**
@@ -13108,6 +13338,40 @@ export interface components {
             step: string;
             /** Tenant Id */
             tenant_id: string | null;
+        };
+        /** ActionStep */
+        ActionStep: {
+            /**
+             * Action Id
+             * Format: uuid
+             */
+            action_id: string;
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "action";
+            next?: components["schemas"]["ActionExits"];
+        };
+        /** ActionStepOut */
+        ActionStepOut: {
+            /**
+             * Action Id
+             * Format: uuid
+             */
+            action_id: string;
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "action";
+            next?: components["schemas"]["ActionExits"];
+            /** Summary */
+            summary: string;
         };
         /** ActionsOut */
         ActionsOut: {
@@ -14966,6 +15230,42 @@ export interface components {
             /** Unsupported */
             unsupported: number;
         };
+        /** AssignStep */
+        AssignStep: {
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "assign";
+            /** Next */
+            next?: string | null;
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+        };
+        /** AssignStepOut */
+        AssignStepOut: {
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "assign";
+            /** Next */
+            next?: string | null;
+            /** Summary */
+            summary: string;
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+        };
         /**
          * AttentionItemOut
          * @description One thing the platform refused to do quietly (crm/attention.py).
@@ -15795,6 +16095,32 @@ export interface components {
              */
             translation_state: "pending" | "ready" | "failed" | "not_needed" | "unavailable";
         };
+        /** CallEndedTrigger */
+        CallEndedTrigger: {
+            /** Agent Ids */
+            agent_ids?: string[] | null;
+            /**
+             * Calls
+             * @default both
+             * @enum {string}
+             */
+            calls: "inbound" | "outbound" | "both";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "call_ended";
+            only_if?: components["schemas"]["OnlyIf"] | null;
+            /** Outcomes */
+            outcomes?: string[] | null;
+        };
+        /** CallExits */
+        CallExits: {
+            /** Answered */
+            answered?: string | null;
+            /** Not Reached */
+            not_reached?: string | null;
+        };
         /** CallFollowUpIn */
         CallFollowUpIn: {
             /** Expected State */
@@ -16415,6 +16741,68 @@ export interface components {
             started_at: string | null;
             /** Trial Covered */
             trial_covered: boolean;
+        };
+        /** CallStep */
+        CallStep: {
+            /** Agent Id */
+            agent_id?: string | null;
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "call";
+            next?: components["schemas"]["CallExits"];
+            /**
+             * Retries
+             * @default 0
+             */
+            retries: number;
+            /**
+             * Retry Minutes
+             * @default 60
+             */
+            retry_minutes: number;
+            /**
+             * Wait Minutes
+             * @default 0
+             */
+            wait_minutes: number;
+            /** Wait Seconds */
+            wait_seconds?: number | null;
+        };
+        /** CallStepOut */
+        CallStepOut: {
+            /** Agent Id */
+            agent_id?: string | null;
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "call";
+            next?: components["schemas"]["CallExits"];
+            /**
+             * Retries
+             * @default 0
+             */
+            retries: number;
+            /**
+             * Retry Minutes
+             * @default 60
+             */
+            retry_minutes: number;
+            /** Summary */
+            summary: string;
+            /**
+             * Wait Minutes
+             * @default 0
+             */
+            wait_minutes: number;
+            /** Wait Seconds */
+            wait_seconds?: number | null;
         };
         /** CallSummaryOut */
         CallSummaryOut: {
@@ -19313,6 +19701,17 @@ export interface components {
             /** Total Inr */
             total_inr: string;
         };
+        /** CountsOut */
+        CountsOut: {
+            /** Done 30D */
+            done_30d: number;
+            /** Goal 30D */
+            goal_30d: number;
+            /** Running */
+            running: number;
+            /** Waiting */
+            waiting: number;
+        };
         /** CreateCampaignIn */
         CreateCampaignIn: {
             /**
@@ -19949,6 +20348,40 @@ export interface components {
             depth: number;
             /** Oldest At */
             oldest_at: string | null;
+        };
+        /** DecideStep */
+        DecideStep: {
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "decide";
+            /** On */
+            on?: {
+                [key: string]: string | null;
+            };
+            /** Other */
+            other?: string | null;
+        };
+        /** DecideStepOut */
+        DecideStepOut: {
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "decide";
+            /** On */
+            on?: {
+                [key: string]: string | null;
+            };
+            /** Other */
+            other?: string | null;
+            /** Summary */
+            summary: string;
         };
         /**
          * DeleteCampaignOut
@@ -20592,6 +21025,38 @@ export interface components {
         EnableIn: {
             /** Enabled */
             enabled: boolean;
+        };
+        /** EndStep */
+        EndStep: {
+            /**
+             * Goal
+             * @default false
+             */
+            goal: boolean;
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "end";
+        };
+        /** EndStepOut */
+        EndStepOut: {
+            /**
+             * Goal
+             * @default false
+             */
+            goal: boolean;
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "end";
+            /** Summary */
+            summary: string;
         };
         /**
          * EndpointOptionsOut
@@ -21606,6 +22071,13 @@ export interface components {
             /** Values */
             values: components["schemas"]["FieldValueCountOut"][];
         };
+        /** FieldEquals */
+        FieldEquals: {
+            /** Equals */
+            equals: string;
+            /** Key */
+            key: string;
+        };
         /**
          * FieldLimit
          * @description One column of the client's leads list that the configured model does not fill.
@@ -21850,6 +22322,212 @@ export interface components {
             usd_inr_source: string;
             /** Wallet Fee Percent */
             wallet_fee_percent: string | null;
+        };
+        /** FollowUpCreateIn */
+        FollowUpCreateIn: {
+            /** Name */
+            name: string;
+            settings?: components["schemas"]["Settings"] | null;
+            /** Starter */
+            starter?: ("call_new_leads" | "qualify_new_leads" | "missed_call_callback" | "appointment_reminder" | "payment_reminder" | "win_back") | null;
+            /** Steps */
+            steps: (components["schemas"]["CallStep"] | components["schemas"]["DecideStep"] | components["schemas"]["WaitStep"] | components["schemas"]["WhatsAppStep"] | components["schemas"]["AssignStep"] | components["schemas"]["SetStatusStep"] | components["schemas"]["TellTeamStep"] | components["schemas"]["ActionStep"] | components["schemas"]["EndStep"])[];
+            /** Trigger */
+            trigger: components["schemas"]["NewLeadTrigger"] | components["schemas"]["CallEndedTrigger"] | components["schemas"]["ManualTrigger"] | components["schemas"]["LeadDateTrigger"];
+        };
+        /** FollowUpDraftIn */
+        FollowUpDraftIn: {
+            settings: components["schemas"]["Settings"];
+            /** Steps */
+            steps: (components["schemas"]["CallStep"] | components["schemas"]["DecideStep"] | components["schemas"]["WaitStep"] | components["schemas"]["WhatsAppStep"] | components["schemas"]["AssignStep"] | components["schemas"]["SetStatusStep"] | components["schemas"]["TellTeamStep"] | components["schemas"]["ActionStep"] | components["schemas"]["EndStep"])[];
+            /** Trigger */
+            trigger: components["schemas"]["NewLeadTrigger"] | components["schemas"]["CallEndedTrigger"] | components["schemas"]["ManualTrigger"] | components["schemas"]["LeadDateTrigger"];
+        };
+        /** FollowUpEditIn */
+        FollowUpEditIn: {
+            /** Name */
+            name?: string | null;
+            settings?: components["schemas"]["Settings"] | null;
+            /** Step Edits */
+            step_edits?: components["schemas"]["StepEditIn"][] | null;
+        };
+        /** FollowUpListOut */
+        FollowUpListOut: {
+            /** Items */
+            items: components["schemas"]["FollowUpSummaryOut"][];
+        };
+        /** FollowUpOut */
+        FollowUpOut: {
+            counts: components["schemas"]["CountsOut"];
+            /** Has Unpublished Changes */
+            has_unpublished_changes: boolean;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            live_version: components["schemas"]["LiveVersionOut"] | null;
+            /** Name */
+            name: string;
+            /** Problems */
+            problems: components["schemas"]["ProblemOut"][];
+            settings: components["schemas"]["Settings"];
+            /** Starter */
+            starter: ("call_new_leads" | "qualify_new_leads" | "missed_call_callback" | "appointment_reminder" | "payment_reminder" | "win_back") | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "draft" | "live" | "paused" | "off";
+            /** Steps */
+            steps: (components["schemas"]["CallStepOut"] | components["schemas"]["DecideStepOut"] | components["schemas"]["WaitStepOut"] | components["schemas"]["WhatsAppStepOut"] | components["schemas"]["AssignStepOut"] | components["schemas"]["SetStatusStepOut"] | components["schemas"]["TellTeamStepOut"] | components["schemas"]["ActionStepOut"] | components["schemas"]["EndStepOut"])[];
+            /** Trigger */
+            trigger: components["schemas"]["NewLeadTrigger"] | components["schemas"]["CallEndedTrigger"] | components["schemas"]["ManualTrigger"] | components["schemas"]["LeadDateTrigger"];
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** FollowUpPublishIn */
+        FollowUpPublishIn: {
+            /**
+             * Expected Updated At
+             * Format: date-time
+             */
+            expected_updated_at: string;
+        };
+        /** FollowUpResultsOut */
+        FollowUpResultsOut: {
+            /** Days */
+            days: number;
+            /** Finished */
+            finished: number;
+            /** Goal Reached */
+            goal_reached: number;
+            /** Started */
+            started: number;
+            /** Steps */
+            steps: components["schemas"]["StepResultOut"][];
+        };
+        /** FollowUpRunOut */
+        FollowUpRunOut: {
+            /** Attempt */
+            attempt: number;
+            /** End Reason */
+            end_reason: string | null;
+            /** Ended At */
+            ended_at: string | null;
+            /** Events */
+            events?: components["schemas"]["RunEventOut"][] | null;
+            /** Goal Reached */
+            goal_reached: boolean;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Last Result */
+            last_result: string | null;
+            /** Lead Id */
+            lead_id: string | null;
+            /** Lead Name */
+            lead_name: string | null;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "running" | "waiting" | "done" | "stopped";
+            /** Step Id */
+            step_id: string;
+            /** Step Summary */
+            step_summary: string | null;
+            /** Wake At */
+            wake_at: string | null;
+        };
+        /** FollowUpRunsOut */
+        FollowUpRunsOut: {
+            /** Items */
+            items: components["schemas"]["FollowUpRunOut"][];
+            /** Next Cursor */
+            next_cursor: string | null;
+        };
+        /** FollowUpStartIn */
+        FollowUpStartIn: {
+            /** Expected Count */
+            expected_count?: number | null;
+            /** Lead Ids */
+            lead_ids?: string[] | null;
+            lens?: components["schemas"]["LeadLensIn"] | null;
+        };
+        /** FollowUpStartOut */
+        FollowUpStartOut: {
+            /** Plan Id */
+            plan_id?: string | null;
+            /** Skipped */
+            skipped: number;
+            /** Started */
+            started: number;
+        };
+        /** FollowUpStarterOut */
+        FollowUpStarterOut: {
+            /** Available */
+            available: boolean;
+            /** Description */
+            description: string;
+            /**
+             * Key
+             * @enum {string}
+             */
+            key: "call_new_leads" | "qualify_new_leads" | "missed_call_callback" | "appointment_reminder" | "payment_reminder" | "win_back";
+            /** Name */
+            name: string;
+            /** Needs */
+            needs: ("outbound_agent" | "whatsapp_template" | "team_address")[];
+            settings: components["schemas"]["Settings"];
+            /** Steps */
+            steps: (components["schemas"]["CallStepOut"] | components["schemas"]["DecideStepOut"] | components["schemas"]["WaitStepOut"] | components["schemas"]["WhatsAppStepOut"] | components["schemas"]["AssignStepOut"] | components["schemas"]["SetStatusStepOut"] | components["schemas"]["TellTeamStepOut"] | components["schemas"]["ActionStepOut"] | components["schemas"]["EndStepOut"])[];
+            /** Trigger */
+            trigger: components["schemas"]["NewLeadTrigger"] | components["schemas"]["CallEndedTrigger"] | components["schemas"]["ManualTrigger"] | components["schemas"]["LeadDateTrigger"];
+        };
+        /** FollowUpStartersOut */
+        FollowUpStartersOut: {
+            /** Items */
+            items: components["schemas"]["FollowUpStarterOut"][];
+        };
+        /** FollowUpSummaryOut */
+        FollowUpSummaryOut: {
+            counts: components["schemas"]["CountsOut"];
+            /** Has Unpublished Changes */
+            has_unpublished_changes: boolean;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Starter */
+            starter: ("call_new_leads" | "qualify_new_leads" | "missed_call_callback" | "appointment_reminder" | "payment_reminder" | "win_back") | null;
+            /** Starts When */
+            starts_when: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "draft" | "live" | "paused" | "off";
+            /** Trigger */
+            trigger: components["schemas"]["NewLeadTrigger"] | components["schemas"]["CallEndedTrigger"] | components["schemas"]["ManualTrigger"] | components["schemas"]["LeadDateTrigger"];
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
         };
         /** ForwardingOut */
         ForwardingOut: {
@@ -23807,7 +24485,11 @@ export interface components {
             /** Unchanged */
             unchanged: number;
         };
-        /** LeadCallingIn */
+        /**
+         * LeadCallingIn
+         * @description The account's calling hours. Which agent calls a new lead, the wait and the retries
+         *     are the "Call new leads" Follow-up's call step (D-940).
+         */
         LeadCallingIn: {
             /**
              * After Hours
@@ -23815,8 +24497,6 @@ export interface components {
              * @enum {string}
              */
             after_hours: "next_open" | "open_plus_3h" | "next_day" | "hold";
-            /** Calling Agent Id */
-            calling_agent_id?: string | null;
             /** Days */
             days?: ("mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun")[];
             /**
@@ -23838,21 +24518,6 @@ export interface components {
              * @default 09:00:00
              */
             hours_start: string;
-            /**
-             * Retry Attempts
-             * @default 0
-             */
-            retry_attempts: number;
-            /**
-             * Retry Interval Minutes
-             * @default 60
-             */
-            retry_interval_minutes: number;
-            /**
-             * Wait Seconds
-             * @default 0
-             */
-            wait_seconds: number;
         };
         /** LeadCallingOut */
         LeadCallingOut: {
@@ -23868,8 +24533,6 @@ export interface components {
             agents_updated: number;
             /** Always Applied */
             always_applied: string[];
-            /** Calling Agent Id */
-            calling_agent_id: string | null;
             /** Days */
             days: ("mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun")[];
             /** Detect Machines */
@@ -23888,16 +24551,11 @@ export interface components {
              * Format: time
              */
             hours_start: string;
-            /** Retry Attempts */
-            retry_attempts: number;
-            /** Retry Interval Minutes */
-            retry_interval_minutes: number;
+            new_leads_follow_up: components["schemas"]["NewLeadsFollowUpOut"] | null;
             /** Trial Notice */
             trial_notice: string | null;
             /** Updated At */
             updated_at: string | null;
-            /** Wait Seconds */
-            wait_seconds: number;
             /**
              * Window End
              * Format: time
@@ -23933,6 +24591,27 @@ export interface components {
              * @enum {string}
              */
             type: "text" | "number" | "bool" | "enum" | "date";
+        };
+        /** LeadDateTrigger */
+        LeadDateTrigger: {
+            /**
+             * At
+             * @default 10:00
+             */
+            at: string;
+            /** Field */
+            field: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "lead_date";
+            /**
+             * Offset Days
+             * @default 0
+             */
+            offset_days: number;
+            only_if?: components["schemas"]["OnlyIf"] | null;
         };
         /** LeadFacetOut */
         LeadFacetOut: {
@@ -24826,6 +25505,16 @@ export interface components {
             /** Runs */
             runs: components["schemas"]["LiveApplyRunOut"][];
         };
+        /** LiveVersionOut */
+        LiveVersionOut: {
+            /** Number */
+            number: number;
+            /**
+             * Published At
+             * Format: date-time
+             */
+            published_at: string;
+        };
         /**
          * LlmDefaultIn
          * @description The account's choice, or `null` to go back to following the platform.
@@ -25146,6 +25835,15 @@ export interface components {
              * @enum {string}
              */
             owner_id_type: "aadhaar" | "pan";
+        };
+        /** ManualTrigger */
+        ManualTrigger: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "manual";
+            only_if?: components["schemas"]["OnlyIf"] | null;
         };
         /**
          * MarginOut
@@ -25540,6 +26238,36 @@ export interface components {
             /** Suppressed Count */
             suppressed_count: number | null;
         };
+        /** NewLeadTrigger */
+        NewLeadTrigger: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "new_lead";
+            only_if?: components["schemas"]["OnlyIf"] | null;
+            /** Source Ids */
+            source_ids?: string[] | null;
+        };
+        /**
+         * NewLeadsFollowUpOut
+         * @description The Follow-up new leads start (normally "Call new leads"), so the screen can say when
+         *     it is off and offer to turn it back on.
+         */
+        NewLeadsFollowUpOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "draft" | "live" | "paused" | "off";
+        };
         /** NewStatusPostIn */
         NewStatusPostIn: {
             /**
@@ -25839,6 +26567,17 @@ export interface components {
             region: string | null;
             /** Series */
             series: string;
+        };
+        /**
+         * OnlyIf
+         * @description Narrows any trigger. Every condition given must hold.
+         */
+        OnlyIf: {
+            field?: components["schemas"]["FieldEquals"] | null;
+            /** Lead Status */
+            lead_status?: ("new" | "contacted" | "interested" | "hot" | "won" | "lost")[] | null;
+            /** Source Ids */
+            source_ids?: string[] | null;
         };
         /** OpenTeachingOut */
         OpenTeachingOut: {
@@ -27081,6 +27820,15 @@ export interface components {
             script_parts?: components["schemas"]["SizePartOut"][];
             /** Too Long */
             too_long?: string | null;
+        };
+        /** ProblemOut */
+        ProblemOut: {
+            /** Code */
+            code: string;
+            /** Message */
+            message: string;
+            /** Step Id */
+            step_id: string | null;
         };
         /**
          * ProcedureStep
@@ -28885,6 +29633,22 @@ export interface components {
             /** Text */
             text: string;
         };
+        /** RunEventOut */
+        RunEventOut: {
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Call Id */
+            call_id: string | null;
+            /** Kind */
+            kind: string;
+            /** Result */
+            result: string;
+            /** Step Id */
+            step_id: string;
+        };
         /** RunTestsIn */
         RunTestsIn: {
             /**
@@ -29541,6 +30305,13 @@ export interface components {
             /** Seen Through */
             seen_through: string | null;
         };
+        /** SendExits */
+        SendExits: {
+            /** Not Sent */
+            not_sent?: string | null;
+            /** Sent */
+            sent?: string | null;
+        };
         /**
          * ServiceItem
          * @description `price_inr` is a digit STRING (hard rule 7): the price read aloud must be exactly
@@ -29621,6 +30392,42 @@ export interface components {
             /** Voice Id */
             voice_id: string;
         };
+        /** SetStatusStep */
+        SetStatusStep: {
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "set_status";
+            /** Next */
+            next?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "contacted" | "interested" | "hot" | "won" | "lost";
+        };
+        /** SetStatusStepOut */
+        SetStatusStepOut: {
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "set_status";
+            /** Next */
+            next?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "contacted" | "interested" | "hot" | "won" | "lost";
+            /** Summary */
+            summary: string;
+        };
         /** SettingReplyTimes */
         SettingReplyTimes: {
             /** Answer Slow Ms */
@@ -29668,6 +30475,34 @@ export interface components {
             turns: number;
             /** Value */
             value: string;
+        };
+        /** Settings */
+        Settings: {
+            /**
+             * Again
+             * @default after_last
+             * @enum {string}
+             */
+            again: "never" | "after_last" | "after_30_days";
+            /** Goal */
+            goal?: string | null;
+            /**
+             * Max Days
+             * @default 14
+             */
+            max_days: number;
+            /** Starts Per Hour */
+            starts_per_hour?: number | null;
+            /**
+             * Stop On Reply
+             * @default true
+             */
+            stop_on_reply: boolean;
+            /**
+             * Stop On Won Lost
+             * @default true
+             */
+            stop_on_won_lost: boolean;
         };
         /** SheetEndpointOut */
         SheetEndpointOut: {
@@ -30347,6 +31182,34 @@ export interface components {
         StaySignedInIn: {
             /** Stay Signed In */
             stay_signed_in: boolean;
+        };
+        /** StepEditIn */
+        StepEditIn: {
+            /** Agent Id */
+            agent_id?: string | null;
+            /**
+             * Remove
+             * @default false
+             */
+            remove: boolean;
+            /** Step Id */
+            step_id: string;
+            /** Template Id */
+            template_id?: string | null;
+            /** Values */
+            values?: components["schemas"]["TemplateValue"][] | null;
+            wait?: components["schemas"]["WaitEditIn"] | null;
+        };
+        /** StepResultOut */
+        StepResultOut: {
+            /** Exits */
+            exits: {
+                [key: string]: number;
+            };
+            /** Reached */
+            reached: number;
+            /** Step Id */
+            step_id: string;
         };
         /**
          * StepSuggestion
@@ -31090,6 +31953,40 @@ export interface components {
             /** Template */
             template: string;
         };
+        /** TellTeamStep */
+        TellTeamStep: {
+            /** Contact Id */
+            contact_id?: string | null;
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "tell_team";
+            /** Next */
+            next?: string | null;
+            /** Why */
+            why: string;
+        };
+        /** TellTeamStepOut */
+        TellTeamStepOut: {
+            /** Contact Id */
+            contact_id?: string | null;
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "tell_team";
+            /** Next */
+            next?: string | null;
+            /** Summary */
+            summary: string;
+            /** Why */
+            why: string;
+        };
         /** TemplateOut */
         TemplateOut: {
             /** Body */
@@ -31140,6 +32037,21 @@ export interface components {
              * @enum {string}
              */
             status: "draft" | "submitted" | "approved" | "rejected";
+        };
+        /**
+         * TemplateValue
+         * @description What fills one blank of a WhatsApp template.
+         */
+        TemplateValue: {
+            /** Key */
+            key?: string | null;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "lead_field" | "lead_name" | "agent_name" | "business_name" | "text";
+            /** Text */
+            text?: string | null;
         };
         /** TenantActivityOut */
         TenantActivityOut: {
@@ -33900,6 +34812,74 @@ export interface components {
             /** Total */
             total: number;
         };
+        /**
+         * WaitEditIn
+         * @description A new wait: one of minutes, hours or days.
+         */
+        WaitEditIn: {
+            /** Days */
+            days?: number | null;
+            /** Hours */
+            hours?: number | null;
+            /** Minutes */
+            minutes?: number | null;
+        };
+        /** WaitStep */
+        WaitStep: {
+            /** At */
+            at?: string | null;
+            /** Days */
+            days?: number | null;
+            /** Hours */
+            hours?: number | null;
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "wait";
+            /** Minutes */
+            minutes?: number | null;
+            /** Next */
+            next?: string | null;
+            /**
+             * Offset Days
+             * @default 0
+             */
+            offset_days: number;
+            /** Until Field */
+            until_field?: string | null;
+        };
+        /** WaitStepOut */
+        WaitStepOut: {
+            /** At */
+            at?: string | null;
+            /** Days */
+            days?: number | null;
+            /** Hours */
+            hours?: number | null;
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "wait";
+            /** Minutes */
+            minutes?: number | null;
+            /** Next */
+            next?: string | null;
+            /**
+             * Offset Days
+             * @default 0
+             */
+            offset_days: number;
+            /** Summary */
+            summary: string;
+            /** Until Field */
+            until_field?: string | null;
+        };
         /** WaiverIn */
         WaiverIn: {
             /** Reason */
@@ -34271,6 +35251,44 @@ export interface components {
             graph_version: string;
             /** State */
             state: string;
+        };
+        /** WhatsAppStep */
+        WhatsAppStep: {
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "whatsapp";
+            next?: components["schemas"]["SendExits"];
+            /**
+             * Template Id
+             * Format: uuid
+             */
+            template_id: string;
+            /** Values */
+            values?: components["schemas"]["TemplateValue"][];
+        };
+        /** WhatsAppStepOut */
+        WhatsAppStepOut: {
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "whatsapp";
+            next?: components["schemas"]["SendExits"];
+            /** Summary */
+            summary: string;
+            /**
+             * Template Id
+             * Format: uuid
+             */
+            template_id: string;
+            /** Values */
+            values?: components["schemas"]["TemplateValue"][];
         };
         /** WhatsAppTemplateChoiceOut */
         WhatsAppTemplateChoiceOut: {
@@ -50109,6 +51127,493 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RecordingOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_follow_ups_v1_follow_ups_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FollowUpListOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    create_follow_up_v1_follow_ups_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FollowUpCreateIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FollowUpOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_starters_v1_follow_ups_starters_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FollowUpStartersOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_follow_up_v1_follow_ups__follow_up_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                follow_up_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FollowUpOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    edit_follow_up_v1_follow_ups__follow_up_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                follow_up_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FollowUpEditIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FollowUpOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    save_follow_up_draft_v1_follow_ups__follow_up_id__draft_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                follow_up_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FollowUpDraftIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FollowUpOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    pause_follow_up_v1_follow_ups__follow_up_id__pause_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                follow_up_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FollowUpOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    publish_follow_up_v1_follow_ups__follow_up_id__publish_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                follow_up_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FollowUpPublishIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FollowUpOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    follow_up_results_v1_follow_ups__follow_up_id__results_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                follow_up_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FollowUpResultsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    resume_follow_up_v1_follow_ups__follow_up_id__resume_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                follow_up_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FollowUpOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_follow_up_runs_v1_follow_ups__follow_up_id__runs_get: {
+        parameters: {
+            query?: {
+                status?: ("running" | "waiting" | "done" | "stopped") | null;
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                follow_up_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FollowUpRunsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_follow_up_run_v1_follow_ups__follow_up_id__runs__run_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                follow_up_id: string;
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FollowUpRunOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    stop_follow_up_run_v1_follow_ups__follow_up_id__runs__run_id__stop_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                follow_up_id: string;
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FollowUpRunOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    start_follow_up_v1_follow_ups__follow_up_id__start_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                follow_up_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FollowUpStartIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FollowUpStartOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    turn_off_follow_up_v1_follow_ups__follow_up_id__turn_off_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                follow_up_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FollowUpOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
