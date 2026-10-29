@@ -1,7 +1,7 @@
 """follow-ups: journeys, frozen versions, runs and run events; Call new leads for every client
 
 Revision ID: f4b8d2a6c913
-Revises: c9d4e7a2b815
+Revises: f2a8d5c3b917
 Create Date: 2026-10-30 12:00:00.000000
 
 D-940 (founder, 30 Oct 2026), docs/FOLLOW-UPS.md.
@@ -36,7 +36,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "f4b8d2a6c913"
-down_revision: str | None = "c9d4e7a2b815"
+down_revision: str | None = "f2a8d5c3b917"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
