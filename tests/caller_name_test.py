@@ -82,6 +82,15 @@ def test_a_name_the_agent_said_first_is_its_own_and_one_the_caller_said_first_is
     assert not is_self_name("Ravi", agent_names=(), business_names=(), turns=confirmed)
 
 
+def test_the_name_an_outbound_agent_opens_with_stays_the_callers() -> None:
+    greeted = _turns(("agent", "Hello Umesh garu, Anjali here."), ("caller", "Haan, Umesh."))
+    agents, businesses = self_names(agent_name="Anjali", business_name="", script_body=None)
+    names = {"agent_names": agents, "business_names": businesses, "turns": greeted}
+    assert not is_self_name("umesh", caller_names=["Umesh"], **names)
+    # The agent's own name still loses, whatever name is on file.
+    assert is_self_name("Anjali", caller_names=["Anjali"], **names)
+
+
 def test_without_self_names_drops_only_the_name_keys_it_rejects() -> None:
     agents, businesses = self_names(agent_name="Anjali", business_name="", script_body=None)
     data = {"name": "Anjali", "caller_name": "Anjali", "need": "2BHK flat"}
@@ -216,6 +225,33 @@ async def test_the_founders_call_leaves_umesh_named_umesh(monkeypatch: pytest.Mo
             )
         ).scalar()
     assert not any(m.get("field") == "name" for m in moments or []), "a Name captured marker"
+
+
+@pytest.mark.rls
+async def test_a_repeat_call_greeting_the_lead_by_name_keeps_the_name_captured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id, agent_id = await _seed_anjali()
+    phone = f"+9198{uuid.uuid4().int % 100000000:08d}"
+    now = datetime.now(UTC)
+    monkeypatch.setattr(extraction_module, "get_extractor", lambda: _Runner({"name": "Umesh"}))
+    first_id, first = await _outbound_call(
+        tenant_id,
+        agent_id,
+        lead_phone=phone,
+        started_at=now - timedelta(days=1),
+        turns=_turns(("agent", "Mee peru?"), ("caller", "Umesh.")),
+    )
+    await _read_and_file(tenant_id, first_id, first)
+    second_id, second = await _outbound_call(
+        tenant_id,
+        agent_id,
+        lead_phone=phone,
+        started_at=now,
+        turns=_turns(("agent", "Umesh garu, Anjali here."), ("caller", "Haan, Umesh.")),
+    )
+    _lead, data = await _read_and_file(tenant_id, second_id, second)
+    assert data.get("name") == "Umesh", "the name the agent greeted with was dropped"
 
 
 @pytest.mark.rls
