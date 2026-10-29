@@ -24,6 +24,7 @@ from typing import Final
 
 import httpx
 from calevate_shared.engine import SARVAM_DEFAULT_LLM
+from calevate_shared.extraction import clip_headline
 from calevate_shared.languages import find_language
 
 from apps.api.core.logging import get_logger
@@ -369,6 +370,35 @@ def english_lines(pending: Sequence[tuple[int, str]], done: LanguagePass) -> dic
     }
 
 
+def romanised_local(summary_local: str, *, language: str) -> bool:
+    """Is the stored call-language summary the call's language in Latin letters?
+
+    The pipeline files a romanised summary there while the language pass has not yet
+    written the real two (D-931), so the screen shows the call's own words at once; the
+    pass then takes it as the source of both and replaces it with the language's script.
+    """
+    return (
+        bool(summary_local.strip())
+        and not is_english(language)
+        and _script_tag_of_language(language) is not None
+        and not has_indic_script(summary_local)
+    )
+
+
+def headline_from_summary(summary: str) -> str | None:
+    """The headline drawn from an English summary when the model wrote none: its first
+    sentence, redacted, clipped to one line."""
+    head = summary
+    for mark in (". ", "? ", "! "):
+        before, sep, _ = summary.partition(mark)
+        if sep:
+            head = before + mark.strip()
+            break
+    if not head.strip():
+        return None
+    return clip_headline(redact(head).text) or None
+
+
 __all__ = [
     "MAX_TOKENS",
     "REASONING_EFFORT",
@@ -378,9 +408,11 @@ __all__ = [
     "differs",
     "english_lines",
     "has_indic_script",
+    "headline_from_summary",
     "is_english",
     "language_name",
     "reads_as_romanised",
+    "romanised_local",
     "run_language_pass",
     "untranslated_turns",
 ]

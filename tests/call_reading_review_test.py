@@ -16,7 +16,7 @@ import pytest
 from apps.api.crm.outcomes import CallFacts, derive_outcome
 from apps.api.crm.service import CALLBACK_OUTCOMES
 from apps.api.db.session import tenant_session
-from apps.workers import call_language, chat, pipeline
+from apps.workers import call_language, call_translation, chat, pipeline
 from apps.workers.call_language import LanguagePass, reads_as_romanised
 from apps.workers.pipeline import _settle_summaries
 from sqlalchemy import text
@@ -24,6 +24,7 @@ from tests.pipeline_audit_test import _completed_call, _run_pipeline, _scalar
 
 # The recording copy is an environment concern; the stub is `pipeline_audit_test`'s.
 from tests.pipeline_audit_test import _stub_storage as _stub_storage
+from tests.post_call_truth_test import _run_language_job
 
 #: The first sentence is the production summary of 25 Oct 2026 as quoted in the review; the
 #: second is written in the same form.
@@ -168,9 +169,13 @@ async def test_the_pipeline_writes_both_summaries_from_a_romanised_one(
 
     monkeypatch.setattr(pipeline, "post_call_truth", _truth)
     monkeypatch.setattr(call_language, "run_language_pass", _pass)
-    monkeypatch.setattr(pipeline, "get_settings", lambda: SimpleNamespace(sarvam_api_key="k"))
+    monkeypatch.setattr(
+        call_translation, "get_settings", lambda: SimpleNamespace(sarvam_api_key="k")
+    )
     tenant_id, execution_id, call_id = await _completed_call("romanised")
     await _run_pipeline(tenant_id, call_id, execution_id)
+    # The pass runs as its own job after the lead (D-931).
+    await _run_language_job(call_id)
 
     assert seen["summary_romanised"] == ROMANISED
     assert seen["summary_en"] == "" and seen["summary_local"] == ""

@@ -25,7 +25,7 @@ from apps.api.crm import service as crm
 from apps.api.crm.outcomes import CallFacts, derive_outcome, hint_of, normalise
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
-from apps.workers import call_language, pipeline
+from apps.workers import call_language, call_translation, pipeline
 from apps.workers.call_language import LanguagePass
 from apps.workers.extraction import OfflineExtractor, extract_call
 from apps.workers.pipeline import _settle_summaries, after_call_status
@@ -34,7 +34,7 @@ from calevate_shared.extraction import (
     clip_headline,
 )
 from sqlalchemy import text
-from tests.pipeline_audit_test import _completed_call, _run_pipeline, _scalar
+from tests.pipeline_audit_test import _completed_call, _outbox_rows, _run_pipeline, _scalar
 
 # The recording copy is an environment concern; the stub is `pipeline_audit_test`'s.
 from tests.pipeline_audit_test import _stub_storage as _stub_storage
@@ -222,6 +222,12 @@ def test_lead_status_moves_by_rules() -> None:
 # --- 5. the pipeline, end to end --------------------------------------------------------
 
 
+async def _run_language_job(call_id: UUID) -> str:
+    """The language pass STEP 10 queued for this call (D-931), run as the worker would."""
+    (payload,) = await _outbox_rows(call_translation.JOB_NAME, {"call_id": str(call_id)})
+    return await call_translation.translate_call_job({"job_try": 1}, payload)
+
+
 def _with_engine_summary(monkeypatch: pytest.MonkeyPatch, summary: str | None) -> None:
     original = pipeline.post_call_truth
 
@@ -369,9 +375,12 @@ async def test_the_english_turns_and_the_call_language_summary_are_written_after
         )
 
     monkeypatch.setattr(call_language, "run_language_pass", _pass)
-    monkeypatch.setattr(pipeline, "get_settings", lambda: SimpleNamespace(sarvam_api_key="k"))
+    monkeypatch.setattr(
+        call_translation, "get_settings", lambda: SimpleNamespace(sarvam_api_key="k")
+    )
     tenant_id, execution_id, call_id = await _completed_call("lang")
     await _run_pipeline(tenant_id, call_id, execution_id)
+    await _run_language_job(call_id)
 
     async with tenant_session(tenant_id) as session:
         detail = await crm.get_call(session, call_id)
@@ -405,9 +414,12 @@ async def test_a_call_whose_english_is_ready_pays_for_no_second_language_pass(
         )
 
     monkeypatch.setattr(call_language, "run_language_pass", _pass)
-    monkeypatch.setattr(pipeline, "get_settings", lambda: SimpleNamespace(sarvam_api_key="k"))
+    monkeypatch.setattr(
+        call_translation, "get_settings", lambda: SimpleNamespace(sarvam_api_key="k")
+    )
     tenant_id, execution_id, call_id = await _completed_call("lang_once")
     await _run_pipeline(tenant_id, call_id, execution_id)
+    await _run_language_job(call_id)
     assert len(passes) == 1
     assert (
         await _scalar(tenant_id, "SELECT translation_state FROM calls WHERE id = :c", c=call_id)
@@ -425,8 +437,10 @@ async def test_a_call_whose_english_is_ready_pays_for_no_second_language_pass(
     snapshot = SimpleNamespace(engine_summary=engine_summary, transcript=[])
     reading = await pipeline._record_reading(tenant_id, call_id, snapshot, None)  # type: ignore[arg-type]
 
-    assert len(passes) == 1, "a call already translated is not sent again"
+    assert reading.language_pass_key is None, "a call already translated owes no pass"
     assert reading.translation_state == "ready"
+    await _run_pipeline(tenant_id, call_id, execution_id)
+    assert len(passes) == 1, "a call already translated is not sent again"
 
 
 # --- 6. trial accounts promise no call backs ------------------------------------------

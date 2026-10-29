@@ -55,6 +55,7 @@ from apps.workers.pipeline import (
     call_event_data,
     callable_tenants,
     extractor_transcript,
+    queue_language_pass,
 )
 
 log = get_logger(__name__)
@@ -344,8 +345,11 @@ async def reread_extraction(tenant_id: UUID, call_id: UUID, *, reuse: bool = Tru
         )
 
     after = (call_outcome, business_outcome.key if business_outcome else None)
-    if after != before:
-        async with tenant_session(tenant_id) as session:
+    async with tenant_session(tenant_id) as session:
+        # The new reading's summary may need its other language: queued last, as the
+        # pipeline does (D-931).
+        await queue_language_pass(session, tenant_id=tenant_id, call_id=call_id, reading=reading)
+        if after != before:
             await integrations.enqueue_event(
                 session,
                 tenant_id=tenant_id,

@@ -1376,6 +1376,10 @@ authenticated Get Execution is the TRUTH → persist CallEvent + turns → enque
 6. campaign-contact resolution (close or re-queue on the FLOWS §5 retry ladder)
 7. outbound CRM sync (`call.completed` through the outbox, D-23) — summary, never transcript;
    then the client's after-call actions (D-700)
+8. the language pass, LAST and as its own job (`workers/call_translation.translate_call_job`,
+   queued by `pipeline.queue_language_pass` in step 7's transaction, D-931): English for
+   the turns and whichever summary the call lacks. Nothing in steps 3-7 reads what it
+   writes; a summary it fills in after `call.completed` went out is sent as `call.updated`
 *Planned, NOT in the shipped pipeline:* embeddings for resolved calls (KB corpus) — M3
 per ROADMAP.
 Retry budget is **3 attempts** — `WORKER_MAX_TRIES` in `apps/api/core/queue.py`,

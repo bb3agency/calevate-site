@@ -117,8 +117,29 @@ function Summary({ detail }: { detail: CallDetail }) {
       >
         {showLocal ? detail.summary_local : detail.summary}
       </p>
+      {showLocal && <EnglishOnItsWay state={detail.translation_state} />}
     </div>
   );
+}
+
+/**
+ * Under a summary shown in the call's own language: its English is written after the lead
+ * and the call are saved (D-931), so a short line says it is coming, and a quiet one says
+ * it did not come. The page refreshes on the call's live note, and the English replaces
+ * the summary above when it lands.
+ */
+function EnglishOnItsWay({ state }: { state: CallDetail["translation_state"] }) {
+  if (state === "pending") {
+    return (
+      <p role="status" aria-live="polite" className="mt-2 text-meta text-ink-muted">
+        <span className="text-shimmer">Translating…</span>
+      </p>
+    );
+  }
+  if (state === "failed") {
+    return <p className="mt-2 text-meta text-ink-muted">No English yet.</p>;
+  }
+  return null;
 }
 
 /**

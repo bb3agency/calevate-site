@@ -86,7 +86,6 @@ from apps.api.billing.engine_minutes import (
 from apps.api.billing.lots import CallDemand
 from apps.api.billing.models import (
     ASSIST_FEATURE_CALL_EXTRACTION,
-    ASSIST_FEATURE_CALL_LANGUAGE,
     LLM_CACHED_UNIT_TYPE,
     UsageEvent,
 )
@@ -150,7 +149,6 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.observability import set_span_attributes, span, tracing_enabled
 from apps.api.core.queue import WORKER_MAX_TRIES, enqueue, job_id_for
-from apps.api.core.settings import get_settings
 from apps.api.crm.outcomes import CallFacts, derive_outcome, hint_of
 from apps.api.crm.service import emit_lead_created, emit_lead_updated
 from apps.api.db.base import uuid7
@@ -178,9 +176,8 @@ from apps.api.reliability.service import (
 )
 from apps.api.team_alerts import service as team_alerts
 from apps.api.tenancy.engine_workspace import engine_has_workspaces
-from apps.workers import call_language, call_timeline, call_translation, storage
+from apps.workers import call_language, call_timeline, storage
 from apps.workers import extraction as extraction_module
-from apps.workers.chat import TokenUsage
 from apps.workers.engine_charges import reconcile_call_charge
 from apps.workers.engine_delivery import (
     UNSTATED_STATUS,
@@ -287,6 +284,8 @@ OUTBOUND_WEBHOOK_JOB = "deliver_outbound_webhook"
 #: The client's after-call actions for one finished call (D-700), registered in
 #: `workers/settings.py` from `workers/client_actions.run_after_call_actions`.
 AFTER_CALL_ACTIONS_JOB = "run_after_call_actions"
+#: A call's language pass, queued last by STEP 10 (D-931); `call_translation.JOB_NAME`.
+LANGUAGE_PASS_JOB = "translate_call_job"
 
 # --- stage spans --------------------------------------------------------------
 #
@@ -1514,10 +1513,10 @@ async def _run_post_call_stages(
             )
             set_span_attributes(stage, gap_count=gap_count)
 
-    # STEP 3d — what the call came to, in words: the English summary and the one in the
-    # call's language, the headline, the next step, and English for every turn (founder
-    # decisions 4, 5, 12). After extraction because the model's summary is one input; the
-    # engine's own summary is the other.
+    # STEP 3d — what the call came to, in words: the summaries as the engine and the model
+    # wrote them, the headline and the next step (founder decisions 4, 5, 12). After
+    # extraction because the model's summary is one input; the engine's own summary is the
+    # other. What is missing in the other language is STEP 10's job (D-931).
     with span("pipeline.call_reading", call_id=str(call_id)) as stage:
         reading = await _record_reading(tenant_id, call_id, snapshot, extraction)
         set_span_attributes(
@@ -1698,6 +1697,14 @@ async def _run_post_call_stages(
             call_id=call_id,
             phones=(snapshot.from_e164, snapshot.to_e164),
         )
+
+        # STEP 10 — the language pass, LAST (D-931, founder 29 Oct 2026): English for the
+        # turns and whichever summary the call lacks, by its own job. Everything a client
+        # waits on (the lead, the outcome, the minutes, the alerts, `call.completed`) is
+        # committed above without it. In this transaction, so the job cannot start before
+        # `crm_notified_at` says whether `call.completed` went out, which is how it decides
+        # to send `call.updated` when it fills in a summary that went out blank.
+        await queue_language_pass(session, tenant_id=tenant_id, call_id=call_id, reading=reading)
 
     lag = time.perf_counter() - started
     record_pipeline_lag(lag, stage="post_call")
@@ -2575,14 +2582,11 @@ class _Reading:
     state: str
     translation_state: str
     headline: str | None
-
-
-def _first_sentence(text_value: str) -> str:
-    for mark in (". ", "? ", "! "):
-        head, sep, _ = text_value.partition(mark)
-        if sep:
-            return head + mark.strip()
-    return text_value
+    #: What the language pass still owes this call (D-931), as the key its one queued job
+    #: is deduplicated on; None when it owes nothing. `queue_language_pass` acts on it.
+    language_pass_key: str | None = None
+    #: The call's turns are already in English (`ready`): the pass writes only summaries.
+    summaries_only: bool = False
 
 
 def _settle_summaries(
@@ -2630,21 +2634,23 @@ async def _record_reading(
     snapshot: ExecutionSnapshot,
     extraction: ExtractionOutput | None,
 ) -> _Reading:
-    """STEP 3d: the two summaries, the headline, the next step and the English turns.
+    """STEP 3d: the summaries as the call already has them, the headline and the next step.
+
+    No model round trip (D-931): what the engine and the extraction wrote is stored as it
+    is, and what is missing in the other language is owed to the language pass, which
+    `queue_language_pass` queues after the lead. `next_step` and the headline come from the
+    extraction, so the outcome (STEP 3e) never waits on a translation.
 
     `summary_state` is what lets the screen say "writing" (pending, before this runs),
     "none" (empty: nothing was said, or only the offline runner read it), "could not be
     written" (failed: the model failed and the engine wrote none) or show the summary.
-
-    The language pass reads REDACTED text only (`call_language`'s docstring). A re-drive
-    does not pay twice: turns that already carry `text_en` and a stored call-language
-    summary are not sent again.
     """
     async with tenant_session(tenant_id) as session:
         row = (
             await session.execute(
                 text(
-                    "SELECT a.language_primary, c.summary_local, c.translation_state "
+                    "SELECT a.language_primary, c.summary_local, c.translation_state, "
+                    "c.summary, c.summary_source "
                     "FROM calls c JOIN agents a ON a.id = c.agent_id "
                     "WHERE c.id = :cid AND c.tenant_id = :tid"
                 ),
@@ -2673,6 +2679,22 @@ async def _record_reading(
         language=language,
     )
 
+    stored_english = str(row[3] or "")
+    if (
+        not english
+        and stored_english
+        and row[4] is None
+        and not call_language.reads_as_romanised(stored_english)
+    ):
+        # The language pass's English from an earlier run (it records no `summary_source`):
+        # kept, or a re-drive would blank it and owe the same pass again.
+        english = stored_english
+    if romanised and not local and not english:
+        # The call's language in Latin letters stands as its call-language summary until the
+        # language pass writes the two real ones from it (D-931): the screen shows the
+        # caller's words now, never "nothing was said".
+        local = romanised
+
     translation_state = str(row[2] or "pending")
     # A call already `ready` sends no turns again: a line the pass handed back unchanged
     # keeps `text_en` NULL and would otherwise be paid for on every re-drive and re-read.
@@ -2684,39 +2706,22 @@ async def _record_reading(
             language=language,
         )
     )
-    want_local = bool(english or romanised) and not local and not call_language.is_english(language)
-    want_english = not english and bool(local or romanised)
-    if translation_state in ("pending", "unavailable", "failed"):
-        translation_state = "not_needed" if not pending_turns else translation_state
-    turns_en: dict[int, str] = {}
-    usage: TokenUsage | None = None
-    api_key = get_settings().sarvam_api_key
-    if pending_turns or want_local or want_english:
-        if api_key:
-            done = await call_language.run_language_pass(
-                api_key=api_key,
-                language=language,
-                turns=pending_turns,
-                summary_en=redact(english).text if english else "",
-                summary_local=redact(local).text if local else "",
-                summary_romanised=redact(romanised).text if romanised else "",
-            )
-            usage = done.usage
-            turns_en = call_language.english_lines(pending_turns, done)
-            if want_local and done.summary_local:
-                local = done.summary_local
-            if want_english and done.summary_en:
-                english = done.summary_en
-            if pending_turns:
-                translation_state = "failed" if done.failed else "ready"
-        elif pending_turns:
-            # No provider on this deployment (the offline baseline): nothing translated.
-            translation_state = "failed"
+    summaries_due = (
+        not call_language.is_english(language)
+        and bool(english or local)
+        and (not english or not local or call_language.romanised_local(local, language=language))
+    )
+    pass_key: str | None = None
+    if pending_turns or summaries_due:
+        # What the pass owes, as a key: a re-drive owing the same work queues nothing new,
+        # and one owing more (turns that arrived later) queues its own job.
+        owed = ",".join(str(idx) for idx, _ in pending_turns)
+        pass_key = sha256(
+            f"{owed}|{bool(english)}|{bool(local)}|{local[:64]}".encode()
+        ).hexdigest()[:16]
+    elif translation_state != "ready":
+        translation_state = "not_needed"
 
-    if not english and not local and romanised:
-        # The pass could not write either form (no provider, or it failed): the summary in
-        # Latin letters is still the call's summary, and "nothing was said" would be false.
-        english = romanised
     # `ready` when either summary exists: a call summarised only in its own language still
     # has a summary to read behind the toggle.
     if english or local:
@@ -2730,8 +2735,11 @@ async def _record_reading(
     model_headline = extraction.headline if extraction is not None and answered else ""
     if call_language.reads_as_romanised(model_headline):
         model_headline = ""
-    headline_source = model_headline or (_first_sentence(english) if english else "")
-    headline = clip_headline(redact(headline_source).text) if headline_source else None
+    headline = (
+        clip_headline(redact(model_headline).text)
+        if model_headline
+        else call_language.headline_from_summary(english)
+    )
     next_step_text = extraction.next_step if extraction is not None and answered else ""
     next_step = redact(next_step_text).text[:300] if next_step_text else None
 
@@ -2757,29 +2765,51 @@ async def _record_reading(
                 "tid": tenant_id,
             },
         )
-        for idx, english_text in turns_en.items():
-            await session.execute(
-                text(
-                    "UPDATE transcript_turns SET text_en = :en, updated_at = now() "
-                    "WHERE call_id = :cid AND tenant_id = :tid AND idx = :idx"
-                ),
-                {"en": english_text, "cid": call_id, "tid": tenant_id, "idx": idx},
-            )
-        if usage is not None:
-            await call_translation.meter_language_pass(
-                session,
-                tenant_id,
-                call_id,
-                usage,
-                feature=ASSIST_FEATURE_CALL_LANGUAGE,
-                source="call_reading",
-            )
     return _Reading(
         summary=english or None,
         state=state,
         translation_state=translation_state,
         headline=headline or None,
+        language_pass_key=pass_key,
+        summaries_only=translation_state == "ready",
     )
+
+
+async def queue_language_pass(
+    session: AsyncSession, *, tenant_id: UUID, call_id: UUID, reading: _Reading
+) -> bool:
+    """Queue the call's language pass (D-931): English for its turns and whichever summary
+    it lacks. True when this run queued it.
+
+    After the lead, the meter and the alerts, in the caller's transaction, so nothing a
+    client is waiting on sits behind a model round trip of up to two minutes
+    (`call_language.LANGUAGE_PASS_BUDGET_S`). Once per owed piece of work
+    (`_Reading.language_pass_key`); `translation_state` turns `pending` only when a job was
+    actually queued, so the screen's "Translating…" always has a job behind it.
+    """
+    if reading.language_pass_key is None:
+        return False
+    queued = await enqueue_outbox_once(
+        session,
+        job=LANGUAGE_PASS_JOB,
+        payload={
+            "tenant_id": str(tenant_id),
+            "call_id": str(call_id),
+            "payer": "pipeline",
+            "summaries_only": reading.summaries_only,
+        },
+        dedupe_key=f"call-language:{call_id}:{reading.language_pass_key}",
+    )
+    if queued is None:
+        return False
+    await session.execute(
+        text(
+            "UPDATE calls SET translation_state = 'pending', updated_at = now() "
+            "WHERE id = :cid AND tenant_id = :tid"
+        ),
+        {"cid": call_id, "tid": tenant_id},
+    )
+    return True
 
 
 #: The facts STEP 3e reads, per call, in one statement. A call back counts when it was
@@ -5716,6 +5746,7 @@ __all__ = [
     "callable_tenants",
     "ingest_engine_event",
     "load_moments_brief",
+    "queue_language_pass",
     "reconcile_executions",
     "reconcile_outstanding_calls",
     "run_post_call_pipeline",

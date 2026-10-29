@@ -156,6 +156,42 @@ describe("the verdict", () => {
     expect(screen.getByText(/green chilli is in stock/).getAttribute("lang")).toBe("en");
   });
 
+  it("shows the call's own summary at once and says its English is on the way (D-931)", async () => {
+    const telugu = "కాలర్ పచ్చి మిర్చి అడిగారు.";
+    const translating = await renderClientPage(
+      page,
+      routes(
+        detail({
+          summary: null,
+          summary_local: telugu,
+          summary_language: "te-IN",
+          translation_state: "pending",
+          transcript: TELUGU_ONLY,
+        }),
+      ),
+    );
+    expect((await screen.findByText(telugu)).getAttribute("lang")).toBe("te");
+    expect(screen.getByText("Translating…").closest("[role=status]")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Call back booked" })).toBeTruthy();
+    translating.unmount();
+
+    await renderClientPage(
+      page,
+      routes(
+        detail({
+          summary: null,
+          summary_local: telugu,
+          summary_language: "te-IN",
+          translation_state: "failed",
+          transcript: TELUGU_ONLY,
+        }),
+      ),
+    );
+    expect(await screen.findByText(telugu)).toBeTruthy();
+    expect(screen.getByText("No English yet.")).toBeTruthy();
+    expect(screen.queryByText("Translating…")).toBeNull();
+  });
+
   it("gives the next step as the reason a call needs a person, not a task left unfinished", async () => {
     await renderClientPage(
       page,

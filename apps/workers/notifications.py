@@ -100,10 +100,13 @@ async def notify_hot_lead(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
         if await _already_delivered(session, lead_id=lead_id, call_id=call_id):
             return "duplicate"
 
+        # The call's own-language summary when its English is still being written (D-931):
+        # a hot lead is not held for a translation, and the owner reads their language.
         row = (
             await session.execute(
                 text(
-                    "SELECT l.name, l.phone_e164, l.status, c.summary, o.billing_email, o.slug "
+                    "SELECT l.name, l.phone_e164, l.status, COALESCE(c.summary, c.summary_local), "
+                    "o.billing_email, o.slug "
                     "FROM leads l JOIN calls c ON c.id = :cid "
                     "JOIN organizations o ON o.id = l.tenant_id WHERE l.id = :lid"
                 ),
