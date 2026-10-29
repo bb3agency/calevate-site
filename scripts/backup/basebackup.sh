@@ -48,7 +48,10 @@ started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 # the whole heap we perform, so it is also our only corruption detector. It requires
 # `data_checksums = on` on the cluster (infra/backup/README.md §3); on a cluster without
 # checksums the flag has nothing to verify, which is a reason to fix the cluster, not to
-# drop the flag.
+# drop the flag. What it does NOT do, per wal-g v3.0.9's source (backup_push_handler.go
+# checkDataChecksums, tar_ball_file_packer.go, read 30 Oct 2026): with checksums off it logs
+# a warning and skips verification; with them on, corrupt blocks are recorded in the
+# backup's sentinel and the push still exits 0. Neither case reaches an alarm.
 if ! wal-g backup-push "$PGDATA" --verify; then
   fail basebackup_failed "wal-g backup-push exited non-zero — no new base backup exists tonight" \
     "started_at=$started"
