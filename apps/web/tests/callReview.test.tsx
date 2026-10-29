@@ -170,7 +170,7 @@ describe("the verdict", () => {
         }),
       ),
     );
-    expect((await screen.findByText(telugu)).getAttribute("lang")).toBe("te");
+    expect((await screen.findByText(telugu)).getAttribute("lang")).toBe("te-IN");
     expect(screen.getByText("Translating…").closest("[role=status]")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Call back booked" })).toBeTruthy();
     translating.unmount();
