@@ -412,6 +412,20 @@ def shape_problems(trigger: AnyTrigger, steps: list[AnyStep], settings: Settings
         problems.append(
             Problem(None, "goal_unused", "The goal must be an outcome one of the steps checks.")
         )
+    # A lead row does not keep the source it came from, so only a new lead's own arrival
+    # can be matched against a source; on any other trigger the condition would match nobody.
+    if (
+        trigger.only_if is not None
+        and trigger.only_if.source_ids is not None
+        and not isinstance(trigger, NewLeadTrigger)
+    ):
+        problems.append(
+            Problem(
+                None,
+                "source_needs_new_lead",
+                "Only a follow-up that starts when a new lead arrives can check the lead source.",
+            )
+        )
     return problems
 
 

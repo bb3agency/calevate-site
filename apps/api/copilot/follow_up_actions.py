@@ -77,7 +77,8 @@ FORMAT: Final = (
     'trigger: {"kind":"new_lead","source_ids":null} | {"kind":"call_ended","agent_ids":null,'
     '"calls":"inbound|outbound|both","outcomes":["missed"]} | {"kind":"manual"} | '
     '{"kind":"lead_date","field":"visit_date","offset_days":-1,"at":"10:00"}; any may add '
-    '"only_if":{"lead_status":[...],"source_ids":[...],"field":{"key":"...","equals":"..."}}.\n'
+    '"only_if":{"lead_status":[...],"source_ids":[...] (new_lead only),'
+    '"field":{"key":"...","equals":"..."}}.\n'
     'steps: run in order, each {"id":"s1","kind":...}; an exit names a LATER step id, or null '
     "to end.\n"
     "- call: agent_id (null: the lead's own agent), wait_minutes 0-1440, retries 0-3, "

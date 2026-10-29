@@ -346,6 +346,9 @@ StartOutcome = Literal["started", "already_in", "not_again", "not_matched"]
 class Started:
     outcome: StartOutcome
     run: Run | None = None
+    #: The run was handed to a worker: always unless `queue=False` asked to take the first
+    #: step inline AND the run's turn is now.
+    queued: bool = True
 
 
 async def _matches_only_if(
@@ -400,7 +403,11 @@ async def _again_refused(
 async def _turn(
     session: AsyncSession, follow_up_id: UUID, cap: int | None, now: datetime
 ) -> datetime:
-    """When a new run may take its first step under `starts_per_hour`."""
+    """When a new run may take its first step under `starts_per_hour`.
+
+    A run's `started_at` is its turn, so runs still waiting for theirs count against the
+    hour they will start in: the cap-th latest turn plus an hour is the next free slot.
+    Counting only `now` would give every lead past the cap the same slot an hour out."""
     if cap is None:
         return now
     starts = (
@@ -419,7 +426,7 @@ async def _turn(
     if len(starts) < cap:
         return now
     earliest: datetime = min(starts)
-    return earliest + timedelta(hours=1)
+    return max(now, earliest + timedelta(hours=1))
 
 
 async def start_run(
@@ -439,6 +446,8 @@ async def start_run(
 
     `queue=False` is the inline new-lead path, which takes the first call itself; every
     other start is due now (or at its turn under `starts_per_hour`) and queued for a worker.
+    A capped run whose turn is later is queued even under `queue=False` (`Started.queued`),
+    so the inline call never jumps the cap.
     """
     moment = now or datetime.now(UTC)
     first = d.first_step(follow_up.steps)
@@ -449,6 +458,7 @@ async def start_run(
     if await _again_refused(session, follow_up.id, lead_id, follow_up.settings.again):
         return Started("not_again")
     wake_at = await _turn(session, follow_up.id, follow_up.settings.starts_per_hour, moment)
+    queue = queue or wake_at > moment
     row = (
         await session.execute(
             text(
@@ -469,7 +479,7 @@ async def start_run(
                 "wake": None if not queue else wake_at,
                 "call": started_call_id,
                 "ref": trigger_ref[:200],
-                "now": moment,
+                "now": wake_at,
             },
         )
     ).first()
@@ -479,7 +489,7 @@ async def start_run(
     await record(session, run, step_id=first.id, kind="start", result=trigger_ref.split(":")[0])
     if queue:
         await _queue_drive(session, run, reason="start")
-    return Started("started", run)
+    return Started("started", run, queued=queue)
 
 
 # --- moving --------------------------------------------------------------------------
@@ -908,9 +918,32 @@ async def on_call_ended(session: AsyncSession, *, call_id: UUID) -> list[UUID]:
                 {"rid": run.id, "attempt": attempt + 1, "cid": call_id},
             )
             continue
+        if attempt < step.retries and await _paused(session, run.follow_up_id):
+            # The pause called the booked next try off; the run keeps its tries rather than
+            # leaving the step as if every try was spent. Due now, so it books that try the
+            # moment the Follow-up is live again: the claim and the tick skip a paused one,
+            # and `resume`'s own wake would miss it while this try's call-back still reads
+            # `dialing`.
+            await session.execute(
+                text(
+                    "UPDATE follow_up_runs SET attempt = :attempt, waiting_call_id = NULL, "
+                    "wake_at = now(), last_call_id = :cid, updated_at = now() WHERE id = :rid"
+                ),
+                {"rid": run.id, "attempt": attempt + 1, "cid": call_id},
+            )
+            continue
         await advance(session, run, follow.steps, exit_name="not_reached", call_id=call_id)
         moved.append(run.id)
     return moved
+
+
+async def _paused(session: AsyncSession, follow_up_id: UUID) -> bool:
+    status = (
+        await session.execute(
+            text("SELECT status FROM follow_ups WHERE id = :fid"), {"fid": follow_up_id}
+        )
+    ).scalar()
+    return status == "paused"
 
 
 async def _book_call_step(
@@ -926,6 +959,28 @@ async def _book_call_step(
     # a settled call-back is never re-opened (`callbacks.service._UPSERT`).
     rebook = await _ever_booked(session, key)
     due = lead_policy.align(hours, now if rebook else now + timedelta(seconds=step.wait_s))
+    if not rebook and await _is_new_lead_first_call(session, run, step):
+        # The new lead's first call, reached through a worker (a step before it, or its turn
+        # under the hourly cap): the account's after-hours choice decides it exactly as it
+        # does the inline call in `ingest_lead`, including "hold for me".
+        timing = lead_policy.when_to_call(call_plan(hours, step, agent_id), now)
+        if timing.kind == "hold":
+            assert run.lead_id is not None
+            source = (
+                await session.execute(
+                    text("SELECT source FROM leads WHERE id = :lid"), {"lid": run.lead_id}
+                )
+            ).scalar()
+            await lead_policy.hold_lead(
+                session,
+                tenant_id=run.tenant_id,
+                lead_id=run.lead_id,
+                agent_id=agent_id,
+                source=str(source or "webhook"),
+            )
+            await record(session, run, step_id=step.id, kind="held", result="held_for_release")
+            return StepResult.wait_for_call()
+        due = now if timing.kind == "now" else timing.at
     if due is None:
         return StepResult.finish("refused:closed", result="blocked:closed")
     if rebook:
@@ -953,6 +1008,17 @@ async def _book_call_step(
         attempt=run.attempt,
     )
     return StepResult.wait_for_call()
+
+
+async def _is_new_lead_first_call(session: AsyncSession, run: Run, step: d.CallStep) -> bool:
+    """Is this the first try of the first call step of a new-lead Follow-up's run?"""
+    if run.attempt != 0 or run.lead_id is None:
+        return False
+    follow = await version(session, run.version_id)
+    if not isinstance(follow.trigger, d.NewLeadTrigger):
+        return False
+    first_call = next((s for s in follow.steps if isinstance(s, d.CallStep)), None)
+    return first_call is not None and first_call.id == step.id
 
 
 async def _ever_booked(session: AsyncSession, key: str) -> bool:
@@ -1420,6 +1486,39 @@ async def start_for_call(session: AsyncSession, *, tenant_id: UUID, call_id: UUI
 DATE_STARTS_PER_TICK: Final = 200
 
 
+def _date_start_filter(follow_up: LiveFollowUp, now: datetime) -> tuple[list[str], dict[str, Any]]:
+    """`only_if` and `again` as SQL over `l`, so a date's page holds only leads that start.
+    Checked in Python after the read instead, a page of refused leads would be read again
+    every tick and the leads after it would never start. `start_run` still checks both;
+    this only chooses the page. A lead keeps no source id, so a source condition (refused
+    at publish for this trigger) matches nobody, as `_matches_only_if` would answer."""
+    clauses: list[str] = []
+    params: dict[str, Any] = {}
+    only_if = follow_up.trigger.only_if
+    if only_if is not None:
+        if only_if.source_ids is not None:
+            clauses.append("AND FALSE ")
+        if only_if.lead_status is not None:
+            clauses.append("AND l.status = ANY(:only_status) ")
+            params["only_status"] = list(only_if.lead_status)
+        if only_if.field is not None:
+            clauses.append("AND lower(btrim(l.data->>:only_key)) = lower(btrim(:only_value)) ")
+            params["only_key"] = only_if.field.key
+            params["only_value"] = only_if.field.equals
+    again = follow_up.settings.again
+    if again != "after_last":
+        window = (
+            "" if again == "never" else "AND (a.ended_at IS NULL OR a.ended_at > :again_since) "
+        )
+        clauses.append(
+            "AND NOT EXISTS (SELECT 1 FROM follow_up_runs a WHERE a.follow_up_id = :fid "
+            f"AND a.lead_id = l.id {window}) "
+        )
+        if again != "never":
+            params["again_since"] = now - AGAIN_WINDOW
+    return clauses, params
+
+
 async def start_for_dates(session: AsyncSession, *, tenant_id: UUID, now: datetime) -> int:
     """`lead_date` Follow-ups whose date falls due today (IST) at or after their time:
     each lead starts once per date (`trigger_ref` = `<field>:<date>`)."""
@@ -1432,6 +1531,7 @@ async def start_for_dates(session: AsyncSession, *, tenant_id: UUID, now: dateti
             continue
         target = today - timedelta(days=trigger.offset_days)
         ref = f"{trigger.field}:{target.isoformat()}"
+        clauses, params = _date_start_filter(follow_up, now)
         rows = (
             await session.execute(
                 text(
@@ -1439,9 +1539,11 @@ async def start_for_dates(session: AsyncSession, *, tenant_id: UUID, now: dateti
                     "AND left(l.data->>:field, 10) = :day AND NOT EXISTS (SELECT 1 FROM "
                     "follow_up_runs r WHERE r.follow_up_id = :fid AND r.lead_id = l.id AND "
                     "(r.trigger_ref = :ref OR r.status IN ('running', 'waiting'))) "
-                    "ORDER BY l.id LIMIT :n"
+                    + "".join(clauses)
+                    + "ORDER BY l.id LIMIT :n"
                 ),
                 {
+                    **params,
                     "field": trigger.field,
                     "day": target.isoformat(),
                     "fid": follow_up.id,

@@ -297,7 +297,22 @@ schemas.py` and the OpenAPI snapshot are the exact shapes.
 * **New leads.** With no live new-lead Follow-up for the source, the lead is stored and the
   ingest answer is `blocked: follow_up_off`; a lead already in it (an enquiry sent twice) is
   not called again, `blocked: follow_up_already_in`. An account that never had "Call new
-  leads" (created before this, or by hand) is given it on its first lead.
+  leads" (created before this, or by hand) is given it on its first lead. A lead past the
+  Follow-up's `starts_per_hour` is not called inline: `blocked: follow_up_turn`, and a
+  worker books its call at its turn.
+* **`starts_per_hour`.** A run's `started_at` is its turn; the cap is a sliding hour over
+  turns, so the leads past it spread over the following hours, `cap` per hour.
+* **`only_if.source_ids`** is refused on any trigger but `new_lead`
+  (`source_needs_new_lead`): a lead row does not keep its source, so it would match nobody.
+* **Won and lost** stop runs only when the status moves (`crm.set_lead_status`); a call
+  ending never reads them, so a win-back of lost leads keeps going.
+* **A lead date** reads only leads that start: `only_if` and `again` are part of the query,
+  so leads refused by them never fill a tick's page ahead of the rest.
+* **A new lead's first call reached through a worker** (a step before it, or its turn under
+  the cap) takes the account's after-hours choice exactly as the inline call does: waits,
+  next opening, or held for the client to release (the release books the run's call).
+* **A try unanswered while paused** keeps the step's remaining tries: the run is due again
+  at that try and books it once the Follow-up is live.
 * **Pause** calls off the run's booked call-backs; **resume** books them again at once.
 * **Leads & hours** (`/v1/lead-calling`) no longer takes or returns `calling_agent_id`,
   `wait_seconds`, `retry_attempts`, `retry_interval_minutes`; it returns

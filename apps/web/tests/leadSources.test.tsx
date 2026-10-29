@@ -1243,3 +1243,26 @@ describe("a portal or CRM that pushes to an address", () => {
     },
   );
 });
+
+describe("Call new leads, as Leads & hours shows it", () => {
+  const calling = (status: "paused" | "off") => ({
+    "/v1/lead-calling": {
+      ...LEAD_CALLING_ROUTES["/v1/lead-calling"],
+      new_leads_follow_up: { id: "00000000-0000-7000-8000-000000000001", name: "Call new leads", status },
+    },
+  });
+
+  it("says a paused Call new leads is paused, not off, and links to turning it back on", async () => {
+    await renderPage(calling("paused"));
+    expect(await screen.findByText("Call new leads is paused")).toBeTruthy();
+    expect(screen.queryByText("Call new leads is off")).toBeNull();
+    expect(screen.getByRole("link", { name: "Turn it back on" }).getAttribute("href")).toContain(
+      "/follow-ups/00000000-0000-7000-8000-000000000001",
+    );
+  });
+
+  it("says a turned-off one is off", async () => {
+    await renderPage(calling("off"));
+    expect(await screen.findByText("Call new leads is off")).toBeTruthy();
+  });
+});

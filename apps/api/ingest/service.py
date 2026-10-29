@@ -99,6 +99,8 @@ WINDOW_REFUSALS: frozenset[str] = frozenset(
 #: No live new-lead Follow-up takes this lead's source ("Call new leads" was turned off):
 #: the lead is kept and not called (D-940).
 NO_FOLLOW_UP_RULE = "follow_up_off"
+#: The new-lead Follow-up's `starts_per_hour` is used up: the lead's run starts at its turn.
+FOLLOW_UP_TURN_RULE = "follow_up_turn"
 
 #: The lead arrived after hours on a "hold for me" plan and waits for the client (D-716).
 HELD_FOR_RELEASE_RULE = "held_for_release"
@@ -635,6 +637,14 @@ async def ingest_lead(
     if call_step is None:
         # The Follow-up starts with something other than a call; a worker takes it.
         return {"lead_id": resolved_lead, "dispatched": False, "blocked": None}
+    if started.queued:
+        # Past the Follow-up's `starts_per_hour`: the run waits its turn and a worker books
+        # the call then, as for every other start.
+        await _timeline(
+            session, config.tenant_id, resolved_lead, "call_deferred", {"rule": FOLLOW_UP_TURN_RULE}
+        )
+        record_speed_to_lead(time.time() - received_at, outcome=f"deferred_{FOLLOW_UP_TURN_RULE}")
+        return {"lead_id": resolved_lead, "dispatched": False, "blocked": FOLLOW_UP_TURN_RULE}
     call_ref = CallbackRef(run.id, call_step.id, 0)
     run_key = follow_up_runner.callback_key(run.id, call_step.id, 0)
 

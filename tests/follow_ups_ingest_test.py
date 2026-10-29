@@ -207,3 +207,40 @@ async def test_a_released_held_lead_is_called_on_its_run_and_a_dropped_one_ends_
         ("waiting", None),
         ("stopped", "stopped_by_client"),
     ]
+
+
+async def test_the_hourly_cap_holds_for_the_inline_first_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from apps.api.follow_ups import definition as d
+    from apps.api.follow_ups import service
+
+    tenant_id, _agent, webhook_id = await _tenant_with_ingest()
+    tid = UUID(str(tenant_id))
+    follow_up_id = await set_new_lead_call(tid)
+    async with tenant_session(tid) as session:
+        row = await service.get(session, follow_up_id)
+        row = await service.save_draft(
+            session,
+            follow_up_id,
+            trigger=row.trigger,
+            steps=row.steps,
+            settings=d.load_settings({"starts_per_hour": 1}),
+        )
+        await service.publish(
+            session, follow_up_id, tenant_id=tid, expected_updated_at=row.updated_at, user_id=None
+        )
+    first = await _post(webhook_id, "9876508811")
+    assert first["dispatched"] is True
+    dialled: list[Any] = []
+
+    async def _dial(*args: Any, **kwargs: Any) -> str:
+        dialled.append(kwargs)
+        return "x"
+
+    monkeypatch.setattr(ingest_service, "dispatch_call", _dial)
+    second = await _post(webhook_id, "9876508812")
+    assert (second["dispatched"], second["blocked"]) == (False, ingest_service.FOLLOW_UP_TURN_RULE)
+    assert dialled == [], "the second lead waits its turn"
+    runs = await _runs(tid)
+    assert runs[-1]["wake_at"] is not None and runs[-1]["waiting_call_id"] is None
