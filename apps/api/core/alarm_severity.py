@@ -214,6 +214,7 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # which is a retry and a client who sees an honest failure, not money in limbo.
     "payment_provider_unreachable": "attention",
     "payment_provider_rejected": "attention",
+    "payment_provider_server_error": "attention",
     "payment_order_unreadable": "attention",
     "payment_provider_unreadable": "attention",
     "refund_rejected": "attention",
@@ -561,6 +562,7 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "account_notice_unknown_event": "attention",
     "closure_sweep_incomplete": "attention",
     "closure_erasure_stuck": "attention",
+    "tenant_erasure_redriven": "attention",
     "hot_lead_whatsapp_exhausted": "attention",
     # The once-per-caller "save our number" WhatsApp (D-746) failed every attempt: one caller,
     # one client, never retried.

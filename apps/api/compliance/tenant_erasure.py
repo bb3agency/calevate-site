@@ -115,7 +115,7 @@ one.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Final
 from uuid import UUID
 
@@ -124,10 +124,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance.deletion import ErasureLimitation
 from apps.api.compliance.deletion_proof import notice_version
+from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
-from apps.api.reliability.service import enqueue_outbox
+from apps.api.reliability.service import enqueue_outbox, enqueue_outbox_once
 
 log = get_logger(__name__)
 
@@ -135,6 +136,9 @@ log = get_logger(__name__)
 # dispatcher publishes `job` verbatim, so this string IS the contract with the worker
 # (`tests/job_registration_test.py` is what stops it becoming a DLQ generator).
 TENANT_ERASURE_JOB: Final = "execute_tenant_erasure"
+#: How long an open request may stay open before a filing queues its job again
+#: (`_redrive_if_stalled`). The hourly closure sweep is the filing that normally does it.
+TENANT_ERASURE_REDRIVE_AFTER: Final = timedelta(hours=1)
 
 STATUS_PENDING: Final = "pending"
 STATUS_COMPLETED: Final = "completed"
@@ -568,6 +572,46 @@ async def assert_erasable(session: AsyncSession, *, tenant_id: UUID) -> None:
         )
 
 
+async def _redrive_if_stalled(session: AsyncSession, record: TenantErasureRecord) -> None:
+    """Queue the erasure job again for an open request that has outlived any run of it.
+
+    The job is queued once, with the request. A run that raises anything but `arq.Retry`
+    (a database error, a vendor purge failing, `job_timeout` on a large account) is
+    finished by arq after one attempt and leaves the request open, and every later filing
+    — the hourly closure sweep, the admin "erase now" — dedupes onto that open request.
+    Without this the account's data was kept indefinitely past the date it was promised.
+
+    At most one re-drive per `TENANT_ERASURE_REDRIVE_AFTER` (the dedupe key names the
+    window), which is far longer than a run can last (`job_timeout`, 300 s), so a re-drive
+    never overlaps a live run; the job itself returns at once if the request completed.
+    """
+    age = datetime.now(UTC) - record.requested_at
+    if age < TENANT_ERASURE_REDRIVE_AFTER:
+        return
+    window = int(age / TENANT_ERASURE_REDRIVE_AFTER)
+    queued = await enqueue_outbox_once(
+        session,
+        job=TENANT_ERASURE_JOB,
+        payload={"tenant_id": str(record.tenant_id), "request_id": str(record.id)},
+        dedupe_key=f"tenant_erasure_redrive:{record.id}:{window}",
+    )
+    if queued is None:
+        return
+    log.warning(
+        "tenant_erasure_redriven",
+        extra={"tenant_id": str(record.tenant_id), "request_id": str(record.id)},
+    )
+    alert(
+        "WORKER_TERMINAL",
+        "tenant_erasure_redriven",
+        detail=(
+            f"an account erasure requested {age.days} day(s) ago has not completed; "
+            "its job was queued again"
+        ),
+        tenant_id=str(record.tenant_id),
+    )
+
+
 async def request_tenant_erasure(
     session: AsyncSession, *, tenant_id: UUID, reason: str
 ) -> TenantErasureRecord:
@@ -601,7 +645,9 @@ async def request_tenant_erasure(
             "tenant_erasure_deduped",
             extra={"tenant_id": str(tenant_id), "request_id": str(existing[0])},
         )
-        return _record(existing, already_open=True)
+        record = _record(existing, already_open=True)
+        await _redrive_if_stalled(session, record)
+        return record
 
     request_id = uuid7()
     inserted = (
