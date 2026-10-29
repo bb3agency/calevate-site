@@ -449,6 +449,61 @@ async def test_filing_twice_before_execution_returns_the_request_in_flight() -> 
 
 
 @pytest.mark.anyio
+async def test_a_request_whose_run_died_is_queued_again_by_the_next_filing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """arq finishes a job that raised anything but `Retry` after one attempt. The request
+    stayed open, every later filing deduped onto it, and the account's data was kept
+    indefinitely with nobody told. A filing past `TENANT_ERASURE_REDRIVE_AFTER` queues the
+    job again, once per window, and says so."""
+    tenant_id, _, _ = await _tenant()
+    await _churn(tenant_id)
+    fired: list[str] = []
+    monkeypatch.setattr(tenant_erasure, "alert", lambda stage, code, **k: fired.append(code))
+
+    async def file() -> tenant_erasure.TenantErasureRecord:
+        async with tenant_session(tenant_id) as session:
+            return await tenant_erasure.request_tenant_erasure(
+                session, tenant_id=tenant_id, reason="offboarding"
+            )
+
+    async def queued() -> int:
+        async with untenanted_session() as session:
+            return int(
+                (
+                    await session.execute(
+                        text(
+                            "SELECT count(*) FROM outbox_messages WHERE job = :job "
+                            "AND payload->>'request_id' = :rid"
+                        ),
+                        {"job": tenant_erasure.TENANT_ERASURE_JOB, "rid": str(first.id)},
+                    )
+                ).scalar_one()
+            )
+
+    first = await file()
+    assert await queued() == 1
+    await file()
+    assert await queued() == 1, "a request still inside its window is left to its own run"
+    assert fired == []
+
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE tenant_erasure_requests SET requested_at = now() - interval '90 minutes' "
+                "WHERE id = :id"
+            ),
+            {"id": first.id},
+        )
+    again = await file()
+    assert again.id == first.id and again.already_open
+    assert await queued() == 2
+    assert fired == ["tenant_erasure_redriven"]
+    await file()
+    assert await queued() == 2, "one re-drive per window"
+
+
+@pytest.mark.anyio
 async def test_the_list_answers_after_the_erasure_and_is_ordered_newest_first() -> None:
     """The GET the lifecycle screen reads, which had no test at any layer.
 

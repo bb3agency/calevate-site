@@ -275,6 +275,10 @@ ALARM_SUMMARIES: Final[dict[str, AlarmSummary]] = {
         "The auto-healer needs a person",
         "An incident it could not fix is waiting for an operator.",
     ),
+    "healer_step_failing": _s(
+        "Part of the auto-healer has stopped working",
+        "Until it is fixed, incidents, repairs, pages or client notices may not happen.",
+    ),
     "healer_line_relapsed": _s(
         "A repaired line broke again",
         "One client's agent is held again and will not be restored automatically.",

@@ -338,6 +338,64 @@ async def test_metas_verdict_reaches_the_template(
     assert status == "rejected"
 
 
+async def test_a_template_meta_never_received_is_submitted_again_by_the_next_seeding(
+    meta_app: None, fake_graph: dict[str, list[Any]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A Graph 5xx while seeding left the template `submit_failed` with the account stamped
+    seeded, and the next seeding counted it as already there: nobody could send it again."""
+    tenant_id, _ = await _client()
+    outcome = await _connect(tenant_id, uuid.uuid4(), _waba())
+    real_create = graph.create_template
+    down = {"name": "calevate_payment_link"}
+
+    async def flaky(**kw: Any) -> tuple[str, str]:
+        if kw["name"] == down["name"]:
+            raise graph.GraphError("create_template", status=503, meta_code=None)
+        return await real_create(**kw)
+
+    monkeypatch.setattr(graph, "create_template", flaky)
+
+    async def seed() -> dict[str, int]:
+        async with tenant_session(tenant_id) as session:
+            return await templates.seed_standard(
+                session, tenant_id=tenant_id, account_id=outcome.account_id, waba_id="1", token="t"
+            )
+
+    async def seeded_at() -> Any:
+        async with tenant_session(tenant_id) as session:
+            return (
+                await session.execute(
+                    text("SELECT templates_seeded_at FROM whatsapp_accounts WHERE id = :id"),
+                    {"id": outcome.account_id},
+                )
+            ).scalar_one()
+
+    first = await seed()
+    languages = len(templates.STANDARD_LANGUAGES)
+    assert first["failed"] == languages
+    assert await seeded_at() is None, "an account with failed templates is not called seeded"
+
+    down["name"] = ""
+    second = await seed()
+    assert second == {
+        "submitted": languages,
+        "failed": 0,
+        "already": languages * (len(templates.STANDARD) - 1),
+    }
+    assert await seeded_at() is not None
+    async with tenant_session(tenant_id) as session:
+        statuses = {
+            str(r[0])
+            for r in (
+                await session.execute(
+                    text("SELECT status FROM whatsapp_templates WHERE account_id = :a"),
+                    {"a": outcome.account_id},
+                )
+            ).all()
+        }
+    assert "submit_failed" not in statuses
+
+
 # --- the webhook -----------------------------------------------------------------------
 
 

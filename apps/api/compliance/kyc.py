@@ -413,6 +413,20 @@ def names_match(declared: str | None, attested: str | None) -> bool | None:
     return len(shorter) >= 2 and all(token in longer for token in shorter)
 
 
+async def lock_kyc(session: AsyncSession, *, tenant_id: UUID) -> None:
+    """Serialize every read-then-write of one tenant's KYC record for the caller's
+    transaction. Each such path reads the status, decides, then upserts with
+    `status = EXCLUDED.status`, so two of them interleaving let the later one write over a
+    decision it never saw: an operator's approval flipped back to `submitted` by a
+    DigiLocker outcome landing at the same moment, or two reviewers both deciding. An
+    advisory lock rather than `FOR UPDATE` because the record may not exist yet and the
+    upsert creates it. Take it BEFORE the read that decides."""
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+        {"key": f"kyc_record:{tenant_id}"},
+    )
+
+
 async def save_business_details(
     session: AsyncSession,
     *,
@@ -424,6 +438,7 @@ async def save_business_details(
     owner_name: str,
 ) -> None:
     """The client's declaration, upserted. Refused once a reviewer has it or it is verified."""
+    await lock_kyc(session, tenant_id=tenant_id)
     current = await read_kyc(session, tenant_id=tenant_id)
     if current.status not in _EDITABLE_STATUSES:
         raise ProblemError.business_rule(
@@ -629,6 +644,7 @@ __all__ = [
     "KycRecord",
     "NumberingSubmission",
     "kyc_not_verified_reason",
+    "lock_kyc",
     "mark_digilocker_path",
     "names_match",
     "numbering_submission_bundle",

@@ -35,10 +35,12 @@ from apps.api.billing.payments import (
     SUPPORTED_CURRENCY,
     CapturedPayment,
     RefundEvent,
+    claim_of_failed_refund,
     credit_refund,
     paise_to_inr,
+    release_refund_claim,
 )
-from apps.api.billing.razorpay_api import ProviderPayment, razorpay_api
+from apps.api.billing.razorpay_api import ProviderPayment, ProviderRefundRow, razorpay_api
 from apps.api.billing.service import find_entry_by_ref, find_topup
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
@@ -61,6 +63,8 @@ class ReconciliationReport:
     refunds_seen: int = 0
     credited_late: list[str] = field(default_factory=list)
     refunds_recorded_late: list[str] = field(default_factory=list)
+    #: Failed refunds whose claim this pass released (their webhook never arrived).
+    refunds_failed_late: list[str] = field(default_factory=list)
     unexplained: list[str] = field(default_factory=list)
     settlements: int = 0
     settled_inr: Decimal = Decimal("0.00")
@@ -77,6 +81,40 @@ def _tenant_of_notes(notes: dict[str, str]) -> UUID | None:
 async def _tenant_of(payment: ProviderPayment) -> UUID | None:
     route = await route_for(payment.order_id)
     return route.tenant_id if route is not None else _tenant_of_notes(payment.notes)
+
+
+async def _release_failed_refund(
+    refund: ProviderRefundRow, *, tenant_id: UUID, report: ReconciliationReport
+) -> None:
+    """A refund Razorpay lists as failed whose `refund.failed` delivery never reached us.
+
+    Its claim on the payment's refund ceiling was still live, so every later refund of a
+    different amount was refused as exceeding what is left, and nobody was told the refund
+    did not happen. The same release `payment_events.apply_refund_failed` makes, found
+    from the listing instead of the webhook; a claim already released is not found again
+    (`claim_of_failed_refund` reads live claims only), so the next pass is silent."""
+    event = RefundEvent(
+        refund_id=refund.refund_id,
+        payment_id=refund.payment_id,
+        tenant_id=tenant_id,
+        amount_inr=paise_to_inr(refund.amount_paise),
+        currency=SUPPORTED_CURRENCY,
+    )
+    async with tenant_session(tenant_id) as session:
+        key = await claim_of_failed_refund(session, tenant_id=tenant_id, refund=event)
+        if key is None:
+            return
+        await release_refund_claim(session, tenant_id=tenant_id, refund_key=key)
+    report.refunds_failed_late.append(refund.refund_id)
+    alert(
+        "ROUTE_HANDLER",
+        "razorpay_refund_failed",
+        detail="A refund could not be processed by Razorpay (found by the daily "
+        "reconciliation). Nothing left the client's wallet; issue it again or pay it by "
+        "bank transfer.",
+        tenant_id=str(tenant_id),
+        refund_id=refund.refund_id,
+    )
 
 
 async def reconcile(*, now: datetime | None = None) -> ReconciliationReport:
@@ -97,14 +135,18 @@ async def reconcile(*, now: datetime | None = None) -> ReconciliationReport:
     refunds = await api.list_refunds(since=since, until=until)
     report.refunds_seen = len(refunds)
     for refund in refunds:
-        if refund.status != "processed" or refund.currency != SUPPORTED_CURRENCY:
+        if refund.status not in ("processed", "failed") or refund.currency != SUPPORTED_CURRENCY:
             continue
         tenant_id = _tenant_of_notes(refund.notes)
         if tenant_id is None:
             original = by_id.get(refund.payment_id)
             tenant_id = None if original is None else await _tenant_of(original)
         if tenant_id is None:
-            report.unexplained.append(f"refund:{refund.refund_id}")
+            if refund.status == "processed":
+                report.unexplained.append(f"refund:{refund.refund_id}")
+            continue
+        if refund.status == "failed":
+            await _release_failed_refund(refund, tenant_id=tenant_id, report=report)
             continue
         async with tenant_session(tenant_id) as session:
             if await find_entry_by_ref(

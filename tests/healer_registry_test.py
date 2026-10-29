@@ -237,3 +237,60 @@ def test_signal_words_and_proposal_copy_name_nothing_internal() -> None:
     for copy in proposals.COPY.values():
         for field in ("title", "body", "action"):
             assert not _BANNED.search(copy[field]), copy[field]
+
+
+class _CountingRedis:
+    """The three calls the step-failure counter makes, held in a dict."""
+
+    def __init__(self) -> None:
+        self.values: dict[str, int] = {}
+
+    async def incr(self, key: str) -> int:
+        self.values[key] = self.values.get(key, 0) + 1
+        return self.values[key]
+
+    async def expire(self, key: str, seconds: int) -> bool:
+        return True
+
+    async def delete(self, key: str) -> int:
+        return 1 if self.values.pop(key, None) is not None else 0
+
+
+async def test_a_healer_step_failing_tick_after_tick_alarms(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`run_healer` swallows a step's exception so the other steps still run, which also
+    hides it from arq's terminal alerter. A step failing every minute was a warning line
+    only; `_page_founder` failing meant nobody was paged about anything."""
+    redis = _CountingRedis()
+    monkeypatch.setattr(healer_jobs, "get_redis", lambda: redis)
+    fired: list[tuple[str, str | None]] = []
+    monkeypatch.setattr(
+        healer_jobs, "alert", lambda stage, code, **k: fired.append((code, k.get("episode")))
+    )
+    broken = {"now": True}
+
+    async def fine(tally: Any) -> None:
+        return None
+
+    async def page_founder(tally: Any) -> None:
+        if broken["now"]:
+            raise RuntimeError("smtp down")
+
+    for name in ("_open_from_alarms", "_advance_due", "_deliver_client_notices"):
+        monkeypatch.setattr(healer_jobs, name, fine)
+    monkeypatch.setattr(healer_jobs, "_page_founder", page_founder)
+
+    for _ in range(healer_jobs.STEP_FAILURES_BEFORE_ALARM - 1):
+        await healer_jobs.run_healer({})
+    assert fired == [], "a blip the next tick absorbs is not an alarm"
+    await healer_jobs.run_healer({})
+    assert fired == [("healer_step_failing", "page_founder")]
+
+    broken["now"] = False
+    await healer_jobs.run_healer({})
+    broken["now"] = True
+    fired.clear()
+    await healer_jobs.run_healer({})
+    assert fired == [], "a success resets the run of failures"
+    assert "healer_step_failing" in ALARM_SEVERITY

@@ -34,6 +34,7 @@ from apps.api.agents.engine_settings import check_agent_settings
 from apps.api.agents.publishing import engine_drift_for
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
+from apps.api.core.redis import get_redis
 from apps.api.core.settings import get_settings
 from apps.api.db.session import admin_session, tenant_session, untenanted_session
 from apps.api.engine import get_engine
@@ -376,6 +377,37 @@ async def _detect_outage(broken_tenants: set[UUID], tally: Counter[str]) -> None
 # --- the per-minute tick ----------------------------------------------------------------
 
 
+#: Consecutive failed ticks of one step before it alarms. One failed minute is a blip the
+#: next tick absorbs; three in a row is a step that is not running.
+STEP_FAILURES_BEFORE_ALARM: Final = 3
+#: Redis counter of a step's consecutive failures; expires so a count from a long-past
+#: run of failures cannot carry into a new one.
+_STEP_FAILURES_KEY: Final = "calevate:healer:step-failures:{step}"
+_STEP_FAILURES_TTL_S: Final = 3600
+
+
+async def _count_step_failure(step: str) -> int:
+    """This step's consecutive failures, including this one. When Redis cannot count, the
+    answer is the threshold: a healer that cannot reach Redis either is not one to trust
+    with staying quiet."""
+    key = _STEP_FAILURES_KEY.format(step=step)
+    try:
+        redis = get_redis()
+        count = int(await redis.incr(key))
+        await redis.expire(key, _STEP_FAILURES_TTL_S)
+    except Exception:
+        log.warning("healer_step_failure_uncounted", extra={"step": step})
+        return STEP_FAILURES_BEFORE_ALARM
+    return count
+
+
+async def _clear_step_failures(step: str) -> None:
+    try:
+        await get_redis().delete(_STEP_FAILURES_KEY.format(step=step))
+    except Exception:
+        log.warning("healer_step_failure_unreset", extra={"step": step})
+
+
 async def run_healer(ctx: dict[str, Any]) -> str:
     tally: Counter[str] = Counter()
     for step in (_open_from_alarms, _advance_due, _page_founder, _deliver_client_notices):
@@ -386,6 +418,22 @@ async def run_healer(ctx: dict[str, Any]) -> str:
             log.warning(
                 "healer_step_failed", extra={"step": step.__name__, "reason": type(exc).__name__}
             )
+            # The step's exception is swallowed so the other three still run, which also
+            # keeps it from arq's terminal alerter: without this a step failing every
+            # minute — `_page_founder` included — was a warning line and nothing else.
+            if await _count_step_failure(step.__name__) >= STEP_FAILURES_BEFORE_ALARM:
+                alert(
+                    "CORE_LOGIC",
+                    "healer_step_failing",
+                    detail=(
+                        f"the healer's {step.__name__.lstrip('_')} step has failed "
+                        f"{STEP_FAILURES_BEFORE_ALARM} or more ticks in a row "
+                        f"({type(exc).__name__})"
+                    ),
+                    episode=step.__name__.lstrip("_"),
+                )
+        else:
+            await _clear_step_failures(step.__name__)
     return json.dumps(dict(tally), sort_keys=True)
 
 

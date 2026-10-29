@@ -107,6 +107,9 @@ import atexit
 import queue
 import threading
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Literal
 
@@ -157,6 +160,25 @@ FailureStage = Literal[
 ]
 
 
+#: The codes `alert()` raised inside the current alert scope, or None outside one. A LIST
+#: rather than a counter in the variable itself so that a task the job spawns — which runs
+#: on a COPY of the context — still appends to the one object the scope's owner reads.
+_alert_scope: ContextVar[list[str] | None] = ContextVar("calevate_alert_scope", default=None)
+
+
+@contextmanager
+def alert_scope() -> Iterator[list[str]]:
+    """Collect the codes `alert()` raises inside this block. The worker's job wrapper
+    (`apps/workers/job_failure.alert_unreported_failure`) uses it to tell a job that
+    reported its own failure from one that died silently."""
+    raised: list[str] = []
+    token = _alert_scope.set(raised)
+    try:
+        yield raised
+    finally:
+        _alert_scope.reset(token)
+
+
 def alert(
     stage: FailureStage,
     code: str,
@@ -185,6 +207,9 @@ def alert(
     a value of OURS from a small closed set; it is never redacted because it is never data.
     """
     severity = severity_of(code)
+    scope = _alert_scope.get()
+    if scope is not None:
+        scope.append(code)
     log.error(
         "alert",
         extra={
@@ -1040,6 +1065,7 @@ __all__ = [
     "AlertNotice",
     "FailureStage",
     "alert",
+    "alert_scope",
     "configure_alerts",
     "flush_alerts",
     "record_campaign_dials",

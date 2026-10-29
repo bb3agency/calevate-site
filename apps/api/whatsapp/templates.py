@@ -269,7 +269,13 @@ async def insert_template(
     origin: str,
     purpose: str | None,
 ) -> UUID | None:
-    """One draft row. None when this account already has the name in this language."""
+    """One draft row. None when this account already has the name in this language.
+
+    Except a row whose submission to Meta failed: that one becomes the draft again, with
+    this content, and its id is returned so the caller submits it. Meta never received it,
+    so there is nothing on Meta's side to collide with; refusing the name instead left a
+    `submit_failed` template that nobody could send again (the client's create was
+    refused as a duplicate, the standard seeding counted it as already there)."""
     row = (
         await session.execute(
             text(
@@ -277,7 +283,11 @@ async def insert_template(
                 "category, body, variables, origin, purpose, status, created_at, updated_at) "
                 "VALUES (:id, :tid, :aid, :name, :lang, :cat, :body, CAST(:vars AS jsonb), "
                 ":origin, :purpose, 'draft', now(), now()) "
-                "ON CONFLICT (account_id, name, language) DO NOTHING RETURNING id"
+                "ON CONFLICT (account_id, name, language) DO UPDATE SET "
+                "category = EXCLUDED.category, body = EXCLUDED.body, "
+                "variables = EXCLUDED.variables, status = 'draft', rejection_code = NULL, "
+                "updated_at = now() WHERE whatsapp_templates.status = 'submit_failed' "
+                "RETURNING id"
             ),
             {
                 "id": uuid7(),
@@ -367,6 +377,10 @@ async def seed_standard(
                 continue
             outcome = await submit(session, template_id=new_id, waba_id=waba_id, token=token)
             counts["failed" if outcome == "submit_failed" else "submitted"] += 1
+    if counts["failed"]:
+        # Left unstamped, so the account's next setup step (`accounts.finish_setup`) seeds
+        # again, and `insert_template` hands the failed rows back for another submission.
+        return counts
     await session.execute(
         text("UPDATE whatsapp_accounts SET templates_seeded_at = now() WHERE id = :id"),
         {"id": account_id},

@@ -15,7 +15,13 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin.service import tenant_exists
-from apps.api.compliance.kyc import KycRecord, read_kyc, record_kyc, record_owner_pan_check
+from apps.api.compliance.kyc import (
+    KycRecord,
+    lock_kyc,
+    read_kyc,
+    record_kyc,
+    record_owner_pan_check,
+)
 from apps.api.compliance.kyc_documents import (
     PendingDeletion,
     current_documents,
@@ -63,6 +69,7 @@ async def decide_kyc_review(
     """Approve or reject, under the tenant's own session. D-696: approving a manual-path
     record needs `pan_checked` — the reviewer's statement that the PAN, name and date of
     birth matched at Income Tax — and stores who checked and when."""
+    await lock_kyc(scoped, tenant_id=tenant_id)
     record = await assert_awaiting_review(scoped, tenant_id=tenant_id)
     documents = await current_documents(scoped, tenant_id=tenant_id)
     business = documents.get("business")

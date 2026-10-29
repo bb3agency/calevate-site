@@ -450,6 +450,28 @@ async def test_a_stale_questions_job_writes_nothing_over_a_newer_brief(
     assert outcome == "not_pending"
 
 
+async def test_questions_whose_job_died_read_as_failed_and_the_brief_can_ask_again() -> None:
+    """A questions job killed by a database error or `job_timeout` is not retried by arq.
+    The row stayed `writing`, the screen read the brief for ever, and saving the same brief
+    returned early instead of asking again."""
+    tenant_id = await _tenant()
+    async with tenant_session(tenant_id) as session:
+        state = await first_run.save_brief(session, tenant_id=tenant_id, brief=LONG_BRIEF)
+    assert state.questions_status == "writing"
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE first_runs SET updated_at = now() - interval '11 minutes'")
+        )
+    async with tenant_session(tenant_id) as session:
+        state = await first_run.read_state(session, tenant_id=tenant_id)
+    assert state.questions_status == "failed"
+
+    async with tenant_session(tenant_id) as session:
+        state = await first_run.save_brief(session, tenant_id=tenant_id, brief=LONG_BRIEF)
+    assert state.questions_status == "writing"
+    assert (await _run(tenant_id)).question_runs == 2, "the same brief was asked again"
+
+
 async def _asked(tenant_id: uuid.UUID, items: list[questions.Question]) -> None:
     async with tenant_session(tenant_id) as session:
         await session.execute(

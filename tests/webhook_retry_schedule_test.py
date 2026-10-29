@@ -174,6 +174,38 @@ async def test_a_transient_failure_waits_as_a_row_and_the_sweep_sends_it_again(
     assert len(seen) == 2
 
 
+async def test_a_claimed_retry_whose_attempt_never_reports_is_claimed_again(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A retry attempt that dies without recording an outcome (a non-`Retry` exception, a
+    `job_timeout`) must not leave the delivery `retrying` with no next attempt: no sweep
+    would read it and "Send again" refuses anything but `failed`."""
+    tenant_id, _slug, _token = await _tenant()
+    endpoint_id = await _endpoint(tenant_id)
+    message_id, payload = await _queued(tenant_id, endpoint_id)
+    _answering(monkeypatch, 503)
+    enqueued = _capture_enqueue(monkeypatch)
+    await deliver_outbound_webhook(
+        {"job_try": 1, "job_id": f"deliver_outbound_webhook:{message_id}"}, payload
+    )
+    await _make_due(payload["delivery_id"])
+
+    before = datetime.now(UTC)
+    await retry_outbound_deliveries({})
+    assert len(_mine(enqueued, payload)) == 1
+    status, attempts, next_at, _message, _reason = await _row(payload["delivery_id"])
+    assert (status, attempts) == ("retrying", 1)
+    assert next_at is not None, "the claim is a lease, not a cleared slot"
+    assert next_at >= before + service.RETRY_CLAIM_LEASE
+
+    # The enqueued attempt is lost before it records anything; once the lease lapses the
+    # sweep sends the same attempt again.
+    await _make_due(payload["delivery_id"])
+    await retry_outbound_deliveries({})
+    first, second = _mine(enqueued, payload)
+    assert first == second, "same body, same delivery id, same attempt, same job id"
+
+
 async def test_the_schedule_spans_about_a_day_and_the_last_attempt_fails_loudly(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -217,6 +217,7 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # which is a retry and a client who sees an honest failure, not money in limbo.
     "payment_provider_unreachable": "attention",
     "payment_provider_rejected": "attention",
+    "payment_provider_server_error": "attention",
     "payment_order_unreadable": "attention",
     "payment_provider_unreadable": "attention",
     "refund_rejected": "attention",
@@ -564,6 +565,7 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "account_notice_unknown_event": "attention",
     "closure_sweep_incomplete": "attention",
     "closure_erasure_stuck": "attention",
+    "tenant_erasure_redriven": "attention",
     "hot_lead_whatsapp_exhausted": "attention",
     # The once-per-caller "save our number" WhatsApp (D-746) failed every attempt: one caller,
     # one client, never retried.
@@ -602,6 +604,9 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # The generic terminal every `Retry` ends at. The jobs whose failure matters have
     # their own code above; mailing the catch-all too would mail each of them twice.
     "job_retries_exhausted": "attention",
+    # A job that raised something arq does not retry, without calling `alert()` first
+    # (`workers/job_failure`). The job's own work is lost until its next trigger.
+    "job_failed_unreported": "attention",
     # Two of the three alarms `core/alerting.py` says this whole path exists for.
     "outbox_dead_letter": "page",
     "outbox_queue_unreachable": "page",
@@ -973,6 +978,9 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "agent_line_broken": "page",
     "engine_platform_outage": "page",
     "healer_needs_person": "page",
+    # The healer is what turns other alarms into incidents, client notices and pages; a
+    # step of it not running is every one of those silently not happening.
+    "healer_step_failing": "page",
     "healer_line_relapsed": "page",
     "healer_line_hold_failed": "page",
 }
