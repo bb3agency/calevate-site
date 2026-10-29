@@ -187,9 +187,7 @@ async def _after_call_done(call_id: UUID, tool_id: UUID) -> bool:
 
 async def _mark_after_call_done(call_id: UUID, tool_id: UUID) -> bool:
     try:
-        await get_redis().set(
-            _after_call_done_key(call_id, tool_id), "1", ex=AFTER_CALL_DONE_TTL_S
-        )
+        await get_redis().set(_after_call_done_key(call_id, tool_id), "1", ex=AFTER_CALL_DONE_TTL_S)
     except Exception as exc:
         log.warning("after_call_done_unsaved", extra={"error": type(exc).__name__})
         return False

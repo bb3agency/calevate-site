@@ -81,8 +81,6 @@ async def test_a_transient_failure_retries_and_the_rerun_skips_what_went_out(
 
 async def test_the_last_attempt_alarms_instead_of_retrying(wired: dict[str, Any]) -> None:
     wired["crm_fails"] = WORKER_MAX_TRIES
-    result = await client_actions.run_after_call_actions(
-        {"job_try": WORKER_MAX_TRIES}, _payload()
-    )
+    result = await client_actions.run_after_call_actions({"job_try": WORKER_MAX_TRIES}, _payload())
     assert result == "delivered,crm_error"
     assert wired["alarms"] == ["client_action_not_completed"]
