@@ -394,6 +394,10 @@ ALARM_SUMMARIES: Final[dict[str, AlarmSummary]] = {
         "Unarchived database changes are piling up",
         "Every client, if it keeps growing: the database stops accepting writes.",
     ),
+    "pg_wal_oversize": _s(
+        "The database's change log is larger than it should be",
+        "Every client, if it keeps growing: the database stops accepting writes.",
+    ),
     "wal_chain_broken": _s("The database backup chain has a gap", _BACKUP_AFFECTS),
     "walg_unavailable": _s("The backup tool is missing on the host", _BACKUP_AFFECTS),
     "backup_timer_missing": _s("A backup is not scheduled", _BACKUP_AFFECTS),

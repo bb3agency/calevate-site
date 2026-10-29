@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import http.server
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -99,13 +100,40 @@ def monitor() -> Iterator[type[PingRecorder]]:
 
 # `psql`, `wal-g` and `systemctl` stubbed on PATH, exactly as the alert-relay suite does
 # for `systemctl`: what is under test is the SCRIPT's decision, never the tools.
-PSQL_HEALTHY = """#!/bin/sh
+#
+# "Healthy" is a host on its second day, not a fresh one: pg_wal full to the shipped
+# `wal_keep_size` with segments that are ALL archived. A stub of 3 segments is what let a
+# file-count alarm page a healthy production cluster on 30 Oct 2026.
+SEGMENT_BYTES = 16 * 1024 * 1024
+ARCHIVING_CONF = REPO_ROOT / "infra" / "backup" / "postgresql-archiving.conf"
+
+
+def _shipped_wal_keep_bytes() -> int:
+    match = re.search(
+        r"^\s*wal_keep_size\s*=\s*'?(\d+)\s*(MB|GB)'?", ARCHIVING_CONF.read_text(), re.M
+    )
+    assert match, "wal_keep_size is no longer set in the shipped archiving config"
+    return int(match[1]) * (1024**3 if match[2] == "GB" else 1024**2)
+
+
+#: pg_wal on day two: everything `wal_keep_size` keeps, plus the segment being written.
+DAY_TWO_WAL_BYTES = _shipped_wal_keep_bytes() + SEGMENT_BYTES
+#: wal_keep_size + 2 x max_wal_size (Postgres's own default max_wal_size, 1GB).
+WAL_LIMIT_BYTES = _shipped_wal_keep_bytes() + 2 * 1024**3
+
+
+def _psql(*, ready: str = "0", wal: str = f"{DAY_TWO_WAL_BYTES}|{WAL_LIMIT_BYTES}") -> str:
+    return f"""#!/bin/sh
 case "$*" in
-  *pg_stat_archiver*) echo "4200|0|30|f" ;;
-  *pg_ls_waldir*)     echo "3" ;;
-  *)                  echo "" ;;
+  *pg_stat_archiver*)        echo "4200|0|30|f" ;;
+  *pg_ls_archive_statusdir*) echo "{ready}" ;;
+  *pg_ls_waldir*)            echo "{wal}" ;;
+  *)                         echo "" ;;
 esac
 """
+
+
+PSQL_HEALTHY = _psql()
 
 SYSTEMCTL_ARMED = """#!/bin/sh
 echo "LoadState=loaded"
@@ -284,12 +312,46 @@ def test_the_stall_alarm_follows_the_live_archive_interval(
 case "$*" in
   *pg_settings*)      echo "{timeout_s}" ;;
   *pg_stat_archiver*) echo "4200|0|{age_s}|f" ;;
-  *pg_ls_waldir*)     echo "3" ;;
+  *pg_ls_archive_statusdir*) echo "0" ;;
+  *pg_ls_waldir*)     echo "{DAY_TWO_WAL_BYTES}|{WAL_LIMIT_BYTES}" ;;
   *)                  echo "" ;;
 esac
 """
     proc = _run_health(tmp_path, heartbeat_url=None, psql=psql)
     assert ("archive_stale" in proc.stderr) is stale, proc.stderr
+
+
+@requires_posix_shell
+def test_a_day_two_pg_wal_full_of_archived_segments_raises_no_alarm(tmp_path: Path) -> None:
+    """30 Oct 2026: pg_wal held 65 archived segments, which `wal_keep_size` keeps on
+    purpose, and a file-count alarm paged production every 15 minutes."""
+    proc = _run_health(tmp_path, heartbeat_url=None)
+    assert "pg_wal_backlog" not in proc.stderr, proc.stderr
+    assert "pg_wal_oversize" not in proc.stderr, proc.stderr
+    assert proc.returncode == 0, proc.stderr
+
+
+@requires_posix_shell
+@pytest.mark.parametrize(("ready", "alarms"), [("16", False), ("17", True)])
+def test_the_backlog_is_the_segments_not_yet_archived(
+    tmp_path: Path, ready: str, alarms: bool
+) -> None:
+    proc = _run_health(tmp_path, heartbeat_url=None, psql=_psql(ready=ready))
+    assert ("pg_wal_backlog" in proc.stderr) is alarms, proc.stderr
+
+
+@requires_posix_shell
+def test_pg_wal_past_what_postgres_keeps_by_design_alarms(tmp_path: Path) -> None:
+    oversized = _psql(wal=f"{WAL_LIMIT_BYTES + SEGMENT_BYTES}|{WAL_LIMIT_BYTES}")
+    proc = _run_health(tmp_path, heartbeat_url=None, psql=oversized)
+    assert "pg_wal_oversize" in proc.stderr, proc.stderr
+    assert proc.returncode != 0
+
+
+@requires_posix_shell
+def test_unreadable_pg_wal_is_said_not_silent(tmp_path: Path) -> None:
+    proc = _run_health(tmp_path, heartbeat_url=None, psql=_psql(ready="", wal=""))
+    assert "health_pg_wal_unreadable" in proc.stderr, proc.stderr
 
 
 def test_the_dead_man_is_fed_by_the_backup_path_itself_not_by_a_second_schedule() -> None:

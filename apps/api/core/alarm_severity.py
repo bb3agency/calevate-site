@@ -870,6 +870,7 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "archive_stale": "page",
     # Keeps growing and the cluster stops accepting writes.
     "pg_wal_backlog": "page",
+    "pg_wal_oversize": "page",
     "wal_chain_broken": "page",
     # Segments not yet uploaded (none lost) right after a WAL switch, or an undetermined
     # timeline: normal for one run, a problem only if it persists.

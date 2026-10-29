@@ -65,9 +65,10 @@ export WALG_CONFIG_PATH
 # One nightly base backup, so 36h allows a single missed night to be noticed as a warning
 # rather than a surprise, and does not fire because the timer ran at 03:05 instead of 02:55.
 MAX_BASEBACKUP_AGE_S=${MAX_BASEBACKUP_AGE_S:-129600}
-# pg_wal on a healthy cluster holds a handful of segments. 64 × 16MB = 1GB is far above
-# normal and far below a full volume — the point is to alert while there is still room.
-MAX_PG_WAL_SEGMENTS=${MAX_PG_WAL_SEGMENTS:-64}
+# Segments written but not yet archived (`.ready` in archive_status). A working archiver
+# holds 0-2; 16 (256MB) is a real backlog while the disk still has room. The pg_wal SIZE
+# limit is not a constant: it is read from the live settings below.
+MAX_READY_SEGMENTS=${MAX_READY_SEGMENTS:-16}
 # wal-verify walks the bucket; hourly is enough and keeps Class B operations negligible.
 WAL_VERIFY_INTERVAL_S=${WAL_VERIFY_INTERVAL_S:-3600}
 # One directory for every stamp this host keeps, so there is one thing to `chown postgres`
@@ -166,18 +167,32 @@ else
   fi
 fi
 
-# --- 4. The consequence check ------------------------------------------------------
-# pg_ls_waldir() needs pg_monitor (or superuser). Running this as `postgres` on the host
-# satisfies that; running it as an application role will not, and the failure is silent
-# unless we say so.
-wal_segments=$("${PSQL[@]}" -c "SELECT count(*) FROM pg_ls_waldir();" 2>/dev/null) || wal_segments=""
-if [[ -z "$wal_segments" ]]; then
+# --- 4. The consequence checks -----------------------------------------------------
+# Two questions, and they must not share an answer: pg_wal deliberately KEEPS
+# `wal_keep_size` of segments that are already archived (1GB shipped = 64 segments), so
+# its file count says nothing about a backlog. Counting it paged a healthy production
+# cluster every 15 min on 30 Oct 2026. The backlog is the `.ready` files; the disk risk is
+# pg_wal outgrowing what Postgres keeps by design (wal_keep_size + 2 × max_wal_size).
+# Both functions need pg_monitor (or superuser): `postgres` on the host has it, an
+# application role does not, and that failure is said rather than left silent.
+ready_segments=$("${PSQL[@]}" -c "SELECT count(*) FROM pg_ls_archive_statusdir() WHERE name LIKE '%.ready';" 2>/dev/null) || ready_segments=""
+wal_bytes=$("${PSQL[@]}" -c "SELECT (SELECT coalesce(sum(size), 0) FROM pg_ls_waldir()) || '|' || (pg_size_bytes(current_setting('wal_keep_size')) + 2 * pg_size_bytes(current_setting('max_wal_size')));" 2>/dev/null) || wal_bytes=""
+if [[ ! "$ready_segments" =~ ^[0-9]+$ || ! "$wal_bytes" =~ ^[0-9]+\|[0-9]+$ ]]; then
   alert health_pg_wal_unreadable \
-    "could not count pg_wal segments (pg_ls_waldir needs pg_monitor); the disk-fill precursor is unmonitored"
-elif [[ "$wal_segments" -gt "$MAX_PG_WAL_SEGMENTS" ]]; then
-  alert pg_wal_backlog \
-    "unarchived WAL is accumulating in pg_wal; if this keeps growing the cluster stops accepting writes" \
-    "segments=$wal_segments" "threshold=$MAX_PG_WAL_SEGMENTS"
+    "could not read pg_wal or archive_status (needs pg_monitor); the disk-fill precursor is unmonitored"
+else
+  if [[ "$ready_segments" -gt "$MAX_READY_SEGMENTS" ]]; then
+    alert pg_wal_backlog \
+      "WAL segments are waiting to be archived; if this keeps growing the cluster stops accepting writes" \
+      "ready_segments=$ready_segments" "threshold=$MAX_READY_SEGMENTS"
+  fi
+  wal_total=${wal_bytes%%|*}
+  wal_limit=${wal_bytes##*|}
+  if [[ "$wal_total" -gt "$wal_limit" ]]; then
+    alert pg_wal_oversize \
+      "pg_wal is larger than Postgres keeps by design; if it keeps growing the volume fills and the cluster stops accepting writes" \
+      "bytes=$wal_total" "limit_bytes=$wal_limit"
+  fi
 fi
 
 # --- 3. The destination ------------------------------------------------------------
