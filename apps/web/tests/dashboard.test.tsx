@@ -1337,6 +1337,23 @@ describe("proof on the home screen (D-944)", () => {
     );
   });
 
+  it("leaves no endless skeleton when the answer has no 7-day window", async () => {
+    const { calls } = await renderClientPage(
+      page,
+      routes({
+        "/v1/me": OWNER_WITH_BILLING,
+        [COST_PER_RESULT_ROUTE]: {
+          ...COST_PER_RESULT,
+          windows: COST_PER_RESULT.windows.filter((w) => w.days !== 7),
+        },
+      }),
+    );
+    await screen.findByText("Captured after hours");
+    await waitFor(() => expect(calls.some((c) => c.path === "/v1/analytics/cost-per-result")).toBe(true));
+    await waitFor(() => expect(screen.queryByText("Working out your cost per lead")).toBeNull());
+    expect(screen.queryByText("Cost per new lead, 7 days")).toBeNull();
+  });
+
   it("never asks for spend figures without billing:read", async () => {
     const { calls } = await renderClientPage(page, routes());
     await screen.findByText("Captured after hours");

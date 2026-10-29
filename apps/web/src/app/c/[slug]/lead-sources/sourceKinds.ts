@@ -41,10 +41,11 @@ export const ACCOUNT_MANAGER_PORTALS: readonly string[] = ["99acres", "magicbric
 export const sourceLabel = (source: string) => lookup(SOURCE_LABELS, source) ?? source;
 
 /** The one kind with its own receiver, its own secret and its own setup. */
-export const META_SOURCE = "meta_lead_ads";
+export const META_SOURCE = "meta_lead_ads" as const;
 
 /** Every other header-authenticated kind posts to the shared-secret webhook receiver. */
-export const WEBHOOK_KINDS = CREATABLE_SOURCES.filter((kind) => kind !== META_SOURCE);
+export type WebhookKind = Exclude<(typeof CREATABLE_SOURCES)[number], typeof META_SOURCE>;
+export const WEBHOOK_KINDS = CREATABLE_SOURCES.filter((kind): kind is WebhookKind => kind !== META_SOURCE);
 
 /** The service whose logo stands beside a lead source's name, or null for a generic icon. */
 export function sourceLogo(source: string): string | null {

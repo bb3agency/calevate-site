@@ -408,15 +408,17 @@ export function withDraft(out: ScriptOut, draft: { script: CallScript; saved_at:
  * name for the agent. Warnings only; nothing is refused. Keyed by the script itself, so an
  * edit asks again and the same script is read once.
  */
+export type ScriptCheck = components["schemas"]["ScriptCheckOut"];
+
 export function useScriptCheck(
   session: Session,
   agentId: string,
   script: CallScript,
-): UseQueryResult<{ warnings: string[] }, Error> {
+): UseQueryResult<ScriptCheck, Error> {
   return useQuery({
     queryKey: ["script-check", session.orgSlug, agentId, JSON.stringify(script)] as const,
     queryFn: () =>
-      apiRequest<{ warnings: string[] }>(session, `${base(agentId)}/check`, {
+      apiRequest<ScriptCheck>(session, `${base(agentId)}/check`, {
         method: "POST",
         body: { script },
       }),

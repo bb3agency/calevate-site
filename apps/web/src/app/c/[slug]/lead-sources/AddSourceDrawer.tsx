@@ -30,6 +30,7 @@ import {
   sourceLabel,
   sourceLogo,
   type PushSource,
+  type WebhookKind,
 } from "./sourceKinds";
 import { FIELD } from "./styles";
 
@@ -69,7 +70,7 @@ export function AddSourceDrawer({
 }) {
   const formId = useId();
   const [kind, setKind] = useState<Kind>("webhook");
-  const [webhookKind, setWebhookKind] = useState<string>("website_form");
+  const [webhookKind, setWebhookKind] = useState<WebhookKind>("website_form");
   const [pushKind, setPushKind] = useState<PushSource>("indiamart");
   const [agentId, setAgentId] = useState("");
   const [phoneField, setPhoneField] = useState("phone");
@@ -201,7 +202,7 @@ export function AddSourceDrawer({
                   <select
                     aria-label="Lead source kind"
                     value={webhookKind}
-                    onChange={(e) => setWebhookKind(e.target.value)}
+                    onChange={(e) => setWebhookKind(e.target.value as WebhookKind)}
                     className={`${FIELD} mt-0 block w-full`}
                   >
                     {WEBHOOK_KINDS.map((option) => (

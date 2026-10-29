@@ -135,12 +135,7 @@ export type LeadSourceList = Schemas["LeadSourceListOut"];
 export type NewLeadSource = Schemas["LeadSourceCreatedOut"];
 export type RotatedSecret = Schemas["RotateSecretOut"];
 
-export interface CreateLeadSourceInput {
-  source: string;
-  agent_id?: string | null;
-  mapping?: Record<string, string>;
-  app_secret?: string;
-}
+export type CreateLeadSourceInput = Schemas["CreateLeadSourceIn"];
 
 export function useLeadSources(session: Session): UseQueryResult<LeadSourceList> {
   return useQuery({

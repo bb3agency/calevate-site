@@ -50,7 +50,7 @@ import { LiveBadge, liveState } from "../../AgentBadge";
 import { LifecycleError, MOVE_COPY } from "../../AgentLifecycle";
 import { stagedScript, voiceTierLine } from "../../panels/publishing";
 import { PromoWarning } from "../script/PromoWarning";
-import { PutLiveDialog, usePutLive } from "../script/PutLive";
+import { PutLiveDialog, usePutLive, type ScriptLink } from "../script/PutLive";
 import { TRY_IT_ANCHOR } from "../tour/tourModel";
 import { hasUnpublished, workingCopy } from "../script/scriptDraft";
 
@@ -100,6 +100,7 @@ export function AgentHeader({
   // Guarded by the layout when the header is drawn inside it; a plain link otherwise.
   const training = useSectionLink("training");
   const settings = useSectionLink("settings");
+  const scriptTab = useSectionLink("script");
 
   const items: RowMenuItem[] = deleted
     ? []
@@ -212,7 +213,13 @@ export function AgentHeader({
                   Try it
                 </Link>
                 {!onScriptTab && (
-                  <PutLiveButton agent={agent} canWrite={write.allowed} reason={write.reason} voiceLine={tierLine} />
+                  <PutLiveButton
+                    agent={agent}
+                    canWrite={write.allowed}
+                    reason={write.reason}
+                    voiceLine={tierLine}
+                    scriptLink={{ href: scriptTab?.href ?? href(`${base}?section=script`), onClick: scriptTab?.onClick }}
+                  />
                 )}
               </>
             )}
@@ -295,11 +302,13 @@ function PutLiveButton({
   canWrite,
   reason,
   voiceLine,
+  scriptLink,
 }: {
   agent: Agent;
   canWrite: boolean;
   reason: string | null;
   voiceLine: string | null;
+  scriptLink: ScriptLink;
 }) {
   const session = useClientSession();
   const script = useScript(session, agent.id);
@@ -331,6 +340,7 @@ function PutLiveButton({
       {asking && (
         <PutLiveDialog
           agentId={agent.id}
+          scriptLink={scriptLink}
           live={out.script}
           draft={local}
           agentOn={agent.published && agent.status === "live"}
