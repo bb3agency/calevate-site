@@ -392,6 +392,26 @@ describe("the platform-wide do-not-call list", () => {
     );
   });
 
+  it("does not answer a search over a clamped list as 'not suppressed'", async () => {
+    const full = Array.from({ length: 500 }, (_, index) =>
+      entry({
+        id: `0192f0aa-7777-7000-8000-${String(index).padStart(12, "0")}`,
+        phone_e164: `+9198000${String(index).padStart(5, "0")}`,
+      }),
+    );
+    const { container } = renderAdminPage(<GlobalDncPage />, routes({ [LIST_PATH]: full }));
+
+    fireEvent.change(await screen.findByRole("searchbox", { name: "Find a number" }), {
+      target: { value: "9812349999" },
+    });
+
+    await waitFor(() => {
+      expect(container.textContent).toContain("Not among the 500 most recently added.");
+    });
+    expect(container.textContent).toContain("this does not mean the number may be called");
+    expect(container.textContent).not.toContain("No suppressed number matches that.");
+  });
+
   it("disables both directions for an admin without ops:manage, with the reason", async () => {
     const { calls, container } = renderAdminPage(
       <GlobalDncPage />,
