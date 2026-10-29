@@ -912,6 +912,36 @@ async def list_global_entries(session: AsyncSession, *, limit: int = 100) -> lis
     ]
 
 
+async def find_global_entry(session: AsyncSession, *, raw: str) -> tuple[bool, DncEntryView | None]:
+    """One platform-wide suppression by number, read from `uq_dnc_list_global_phone`, so a
+    number older than the newest `MAX_LIST` rows is still found. `(valid, entry)`: `valid`
+    is False when `raw` does not read as a number; `entry` is None when nobody suppressed it.
+    """
+    e164 = normalize_phone(raw)
+    if e164 is None:
+        return False, None
+    row = (
+        await session.execute(
+            text(
+                "SELECT id, phone_e164, scope, source, added_at FROM dnc_list "
+                "WHERE tenant_id IS NULL AND phone_e164 = :p"
+            ),
+            {"p": e164},
+        )
+    ).first()
+    if row is None:
+        return True, None
+    return True, DncEntryView(
+        id=row[0],
+        phone_e164=row[1],
+        scope=row[2],
+        source=row[3],
+        added_at=row[4],
+        removable=is_removable(scope=row[2], source=row[3]),
+        restorable=is_restorable(scope=row[2], source=row[3]),
+    )
+
+
 async def remove_global_entry(session: AsyncSession, *, entry_id: UUID) -> Removal:
     """Lift one platform-wide suppression. Ops only. Returns the audit row's payload.
 
@@ -969,6 +999,7 @@ __all__ = [
     "add_global_numbers",
     "add_numbers",
     "check_number",
+    "find_global_entry",
     "is_removable",
     "is_restorable",
     "list_entries",

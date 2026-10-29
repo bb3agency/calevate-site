@@ -279,6 +279,43 @@ async def list_global(
     ]
 
 
+class GlobalFindIn(Strict):
+    phone: str = Field(min_length=8, max_length=20)
+
+
+class GlobalFindOut(Strict):
+    #: False when the text does not read as a phone number.
+    valid: bool
+    #: The suppression, or None when the number is not on the platform-wide list.
+    entry: GlobalEntryOut | None
+
+
+@global_router.post(
+    "/find",
+    response_model=GlobalFindOut,
+    openapi_extra=permission_meta("ops:manage"),
+    summary="Is this number suppressed for everyone? (POST: the number IS personal data)",
+)
+async def find_global(payload: GlobalFindIn, session: GlobalSession, _: Operator) -> GlobalFindOut:
+    """The list stops at its newest `MAX_LIST` rows, so filtering it in the browser reads an
+    older suppression as "no match". This asks the key instead. A POST for the reason
+    `dnc_routes.check` gives: a GET would write the number into access logs."""
+    valid, entry = await dnc.find_global_entry(session, raw=payload.phone)
+    return GlobalFindOut(
+        valid=valid,
+        entry=None
+        if entry is None
+        else GlobalEntryOut(
+            id=entry.id,
+            phone_e164=entry.phone_e164,
+            scope=entry.scope,
+            source=entry.source,
+            added_at=entry.added_at,
+            removable=entry.removable,
+        ),
+    )
+
+
 @global_router.delete(
     "/{entry_id}",
     status_code=204,
