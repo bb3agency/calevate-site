@@ -41,3 +41,8 @@ TimeoutStartSec=30m
 # voice path's latency matters more than how fast dangling layers disappear.
 Nice=10
 IOSchedulingClass=idle
+# Sandboxing. Docker is reached through its socket, which ProtectSystem=full leaves
+# alone; the pnpm store and runner diagnostics live under HOME, so ProtectHome is not set.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
