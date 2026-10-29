@@ -165,6 +165,9 @@ class LegalReadinessOut(Strict):
     can_accept_reason: str | None
     documents: list[LegalDocumentOut]
     blockers: list[ReadinessRowOut]
+    #: Conditions that will block from a known date and do not yet (D-941's calling-number
+    #: declaration before its enforcement date). Not counted in `may_operate`.
+    upcoming: list[ReadinessRowOut]
 
 
 class AcceptIn(Strict):
@@ -265,6 +268,8 @@ async def read_readiness(session: Session, principal: Reader) -> LegalReadinessO
         session, tenant_id=principal.tenant_id, platform=await get_platform_status()
     )
     outstanding = legal_service.outstanding_slugs(accepted)
+    due = await readiness.a2p_readiness_row(session, tenant_id=principal.tenant_id)
+    upcoming = [due[0]] if due is not None and not due[1] else []
 
     # WHY THE PERMISSION IS READ OFF THE PRINCIPAL RATHER THAN GUESSED FROM THE ROLE:
     # `role_has` is the same predicate `requires("org:manage")` will apply to the POST, so
@@ -305,16 +310,14 @@ async def read_readiness(session: Session, principal: Reader) -> LegalReadinessO
         can_accept=can_accept,
         can_accept_reason=reason,
         documents=[_document_out(spec, accepted.get(spec.slug)) for spec in catalogue.DOCUMENTS],
-        blockers=[
-            ReadinessRowOut(
-                rule=row.rule,
-                title=row.title,
-                reason=row.reason,
-                actor=row.actor,
-                next_step=row.next_step,
-            )
-            for row in rows
-        ],
+        blockers=[_row_out(row) for row in rows],
+        upcoming=[_row_out(row) for row in upcoming],
+    )
+
+
+def _row_out(row: readiness.ReadinessRow) -> ReadinessRowOut:
+    return ReadinessRowOut(
+        rule=row.rule, title=row.title, reason=row.reason, actor=row.actor, next_step=row.next_step
     )
 
 

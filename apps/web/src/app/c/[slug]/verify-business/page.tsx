@@ -3,12 +3,14 @@
 import { PageHeader } from "@/components/console/pageHeader";
 import { NoticeBox, PRIMARY_BUTTON_SM, ProblemNotice, Skeleton } from "@/components/ui";
 import { usePeRegistration } from "@/lib/api/dltRegistration";
+import { useCallingNumbers } from "@/lib/api/autodialerNotice";
 import { useActAccess, useWriteAccess } from "@/lib/api/hooks";
 import { useKycRecord, type KycRecord } from "@/lib/api/kyc";
 import { useClientSession } from "@/lib/api/session";
 import { outboundSteps, useOutboundPledge, type OutboundPledge } from "@/lib/api/verifyBusiness";
 
 import { AboutVerification } from "./About";
+import { CallingNumbers } from "./CallingNumbers";
 import { UNNAMED_STATUS, describeVerification, verdictCopy } from "./copy";
 import { useVerifyBusinessCopilot } from "./copilot";
 import { DltDetails } from "./DltRegistration";
@@ -71,7 +73,8 @@ export default function VerifyBusinessPage() {
   const record = kyc.data;
   const outgoingOpen = record ? outgoingState(record, pledge.data) : null;
 
-  useVerifyBusinessCopilot(kyc, pledge, dlt, outgoingOpen);
+  const declaration = useCallingNumbers(session);
+  const pageFacts = useVerifyBusinessCopilot(kyc, pledge, dlt, outgoingOpen, declaration);
 
   if (kyc.isLoading || pledge.isLoading) return <Skeleton rows={8} />;
 
@@ -102,6 +105,7 @@ export default function VerifyBusinessPage() {
           access={access}
         />
       )}
+      <CallingNumbers pageFacts={pageFacts} />
       <PhoneNumbersNext />
       {dlt.error ? (
         <ProblemNotice error={dlt.error} onRetry={() => void dlt.refetch()} />

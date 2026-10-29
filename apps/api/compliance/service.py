@@ -43,11 +43,12 @@ Checks, in the order that fails cheapest-first:
    DLT-registered header (`agents.service.agent_outbound_number_blocker`) are no longer
    asked by this gate. The functions and the data stay (hard rule 8); KYC and the pledge
    (2c) carry the outbound precondition instead.
-7b. **No autodialer-notice check (D-762).** TCCCPR Regulation 4's advance notice to the
-   Originating Access Provider is not asked here: the founder removed it from the product
-   on 13 Oct 2026, and the disclosure in pledge v2 (2c) is the product's answer. The
-   regulation still binds the Sender in law; `docs/ROADMAP.md` D-762 records the accepted
-   risk.
+7b. **The declared calling numbers (D-941, amends D-762).** From
+   `a2p_declaration_enforced_from` (IST) an automated call from a number the client has not
+   declared is unsolicited commercial communication under the TCCCPR amendment of 18 Sep
+   2026, so every voice dial is refused unless the client's declaration covers every number
+   the agent can present (`autodialer.a2p_dial_blocker`). Before that day nothing is
+   refused. A WhatsApp message is not a call and does not ask it (`places_call=False`).
 
 Inbound calls never reach this function: the caller initiated them, which is the
 consent-clean property D-38 leads with.
@@ -81,6 +82,7 @@ from apps.api.billing.rates import PREPAID_TIERS
 from apps.api.billing.service import current_billing_month, get_balance, plan_tier_of
 from apps.api.billing.trials import trial_billing_active
 from apps.api.callbacks.service import cancel_for_phones
+from apps.api.compliance.autodialer import a2p_dial_blocker
 from apps.api.compliance.caller_ref import ANONYMIZED_PREFIX
 from apps.api.compliance.dnc_recall import enqueue_dnc_recall
 from apps.api.compliance.engine_dnc import queue_engine_dnc_push
@@ -962,16 +964,17 @@ async def check_dispatch(
     trial_call: bool = False,
     own_number_attested: bool = False,
     halt_read_by_caller: bool = False,
+    places_call: bool = True,
 ) -> DispatchDecision:
     """Returns a decision rather than raising, so callers can render *why* a button is
     disabled — SURFACES §2b asks for blocked features to be visibly explained instead
     of silently missing.
 
-    Voice and WhatsApp callers ask the same checks. A `dlt_governed` flag used to select
-    the TCCCPR-only ones for voice; D-692 retired the DLT checks and D-762 the Regulation 4
-    autodialer notice, which left it selecting nothing, so it was removed. The messaging
-    leg's own consent gate (`resolve_escalation_destination`'s opt-in) runs at its call
-    site, beside this one.
+    Voice and WhatsApp callers ask the same checks but one: the calling-number declaration
+    (7b) governs calls, so a WhatsApp send passes `places_call=False`. The default is the
+    stricter one, so a caller that forgets the flag gets more checks, not fewer. The
+    messaging leg's own consent gate (`resolve_escalation_destination`'s opt-in) runs at its
+    call site, beside this one.
 
     `trial_call` marks a TEST CALL to the owner's phone (D-697, `agents/trial_calls.py`). A
     trial account is refused every other outbound call; a test call is placed by a trial
@@ -1134,8 +1137,21 @@ async def check_dispatch(
     # The founder decided on 8 Oct 2026 that clients do not register on DLT and Calevate
     # does not register as a telemarketer; KYC and the no-cold-calls pledge, asked above,
     # replace both. `docs/ROADMAP.md` D-692 names the counsel questions that stay open.
-    # The Regulation 4 autodialer notice that used to be asked here was removed by D-762;
-    # the disclosure in pledge v2 replaces it.
+
+    # THE DECLARED CALLING NUMBERS (D-941), last because it is the most specific refusal and
+    # an account-level one: a client should read "do not call this person" first, and a
+    # campaign contact refused here stays pending rather than settled (it is transient).
+    if places_call:
+        undeclared = await a2p_dial_blocker(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            trial_call=trial_call,
+            own_number_attested=own_number_attested,
+        )
+        if undeclared is not None:
+            rule, reason = undeclared
+            return DispatchDecision(allowed=False, rule=rule, reason=reason)
 
     return DispatchDecision(allowed=True)
 

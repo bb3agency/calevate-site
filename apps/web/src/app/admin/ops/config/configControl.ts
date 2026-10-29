@@ -36,7 +36,8 @@ export type ControlKind =
   | "phone"
   | "url"
   | "email"
-  | "text";
+  | "text"
+  | "date";
 
 const KINDS: ReadonlySet<string> = new Set<ControlKind>([
   "switch",
@@ -53,6 +54,7 @@ const KINDS: ReadonlySet<string> = new Set<ControlKind>([
   "url",
   "email",
   "text",
+  "date",
 ]);
 
 /**
@@ -91,6 +93,14 @@ export function listOf(draft: string): string[] {
     if (value && !seen.includes(value)) seen.push(value);
   }
   return seen;
+}
+
+/** A real YYYY-MM-DD day: the shape, and a day the month has (no 31 November). */
+export function isCalendarDay(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
 }
 
 /**
@@ -178,6 +188,13 @@ export function displayValue(field: ConfigField, value: ConfigValue): string {
   if ((kind === "phone_in" || kind === "phone" || kind === "entity_picker") && typeof value === "string") {
     return value.startsWith("+") ? formatPhone(value) : value;
   }
+  if (kind === "date" && typeof value === "string" && isCalendarDay(value)) {
+    // A calendar day with no zone: formatted in UTC so no browser's offset moves it.
+    const [year, month, day] = value.split("-").map(Number);
+    return new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }).format(
+      new Date(Date.UTC(year, month - 1, day)),
+    );
+  }
   if (value === "") return "Empty";
   return String(value);
 }
@@ -263,6 +280,7 @@ export function validateDraft(field: ConfigField, draft: string): string | null 
       ? null
       : "Use the full number with its country code, like +91 98765 43210.";
   }
+  if (kind === "date") return isCalendarDay(trimmed) ? null : "Use a date, like 2026-11-17.";
   if (control.max_length !== null && trimmed.length > control.max_length) {
     return `Keep it to ${control.max_length} characters or fewer.`;
   }

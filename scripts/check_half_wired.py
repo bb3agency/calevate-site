@@ -129,12 +129,6 @@ _D763_REASON = (
 WRITE_ONLY_BASELINE: dict[str, str] = {
     "AgentConfigAttestation.agent_config_version_id": _D763_REASON,
     "PipecatAgent.agent_config_version_id": _D763_REASON,
-    "AutodialerNotice.notified_on": (
-        "its only writer left is `scripts/restore_drill.py`'s fixture row, which gives the "
-        "append-only trigger a row to probe; the product stopped reading and writing "
-        "`autodialer_notices` with D-762. Closes with the migration that drops the table "
-        "(hard rule 8's two-step), which removes the drill row with it"
-    ),
     "WebhookDelivery.signature_valid": (
         "forensic, and the reader is a person with psql. It records whether an inbound "
         "engine webhook was HMAC-verified or merely IP-allowlisted (SEC-COMP §4), which "

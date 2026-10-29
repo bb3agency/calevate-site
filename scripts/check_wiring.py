@@ -161,31 +161,16 @@ UNWIRED_BASELINE: dict[str, str] = {
     "PhoneNumber.carrier_binding_id": _D763_REASON,
     "PipecatAgent.agent_config_version_id": _D763_REASON,
     "PipecatAgent.resolved_config": _D763_REASON,
-    # ONE reason, five entries: the registry is keyed per column (see above).
+    # ONE reason, two entries: the registry is keyed per column (see above).
     "AutodialerNotice.access_provider": (
-        "D-762 removed the TCCCPR Regulation 4 autodialer notice from the product, which "
-        "deleted every writer and reader of `autodialer_notices`. Kept with its rows under "
-        "hard rule 8's two-step; closes with the migration that drops the table"
-    ),
-    "AutodialerNotice.declared_clis": (
-        "D-762 removed the TCCCPR Regulation 4 autodialer notice from the product, which "
-        "deleted every writer and reader of `autodialer_notices`. Kept with its rows under "
-        "hard rule 8's two-step; closes with the migration that drops the table"
-    ),
-    "AutodialerNotice.notice_reference": (
-        "D-762 removed the TCCCPR Regulation 4 autodialer notice from the product, which "
-        "deleted every writer and reader of `autodialer_notices`. Kept with its rows under "
-        "hard rule 8's two-step; closes with the migration that drops the table"
-    ),
-    "AutodialerNotice.notified_on": (
-        "D-762 removed the TCCCPR Regulation 4 autodialer notice from the product, which "
-        "deleted every writer and reader of `autodialer_notices`. Kept with its rows under "
-        "hard rule 8's two-step; closes with the migration that drops the table"
+        "D-941 asks numbers, a date and an attestation, not the provider and objective the "
+        "D-637 notice recorded; nothing reads or writes them. Kept with the D-637 rows under "
+        "hard rule 8; closes with the migration that drops the two columns"
     ),
     "AutodialerNotice.objective": (
-        "D-762 removed the TCCCPR Regulation 4 autodialer notice from the product, which "
-        "deleted every writer and reader of `autodialer_notices`. Kept with its rows under "
-        "hard rule 8's two-step; closes with the migration that drops the table"
+        "D-941 asks numbers, a date and an attestation, not the provider and objective the "
+        "D-637 notice recorded; nothing reads or writes them. Kept with the D-637 rows under "
+        "hard rule 8; closes with the migration that drops the two columns"
     ),
     "Agent.escalation_config": (
         "D-533 stopped writing it (the handover roster moved to `agent_handoff_members`) and "

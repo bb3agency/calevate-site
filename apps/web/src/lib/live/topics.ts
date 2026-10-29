@@ -111,6 +111,8 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "dlt-templates",
     "pe-registration",
     "outbound-pledge",
+    // The calling-number declaration (D-941); `autodialer_notices` announces `campaigns`.
+    "calling-numbers",
     "outbound-consent-policy",
     // The agreements screen lists the pledge among what stops outgoing calls.
     "legal-readiness",
@@ -237,6 +239,8 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "numbers-available",
     "campaign-numbers",
     "forwarding",
+    // The declaration lists the rented numbers and which agent numbers are undeclared.
+    "calling-numbers",
     "call-lines",
     "my-call-lines",
     // An agent's `inbound_number_count` is counted from `phone_numbers`.

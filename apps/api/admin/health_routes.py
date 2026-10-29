@@ -87,7 +87,8 @@ class HealthSignalOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     # `calls_stopped` | `outbound_blocked` | `outbound_waiting_on_client` |
-    # `spend_cap_near` | `deliveries_failing` | `knowledge_waiting` | `calls_unmetered`.
+    # `spend_cap_near` | `deliveries_failing` | `knowledge_waiting` | `calls_unmetered` |
+    # `calling_numbers_undeclared`.
     # A bare `str` rather than a Literal, for the reason `HeldTenantOut.holds` is: the set
     # grows whenever a signal does, and a generated client that had to be regenerated
     # before it could DISPLAY a new signal would drop the row instead. The console fails

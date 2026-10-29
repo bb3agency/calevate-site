@@ -132,6 +132,13 @@ TRANSIENT_REFUSALS: dict[str, str] = {
         "the agent is published again and the read-back PROVES the truthful-answer "
         "directive is back, or the drift sweep restates the verdict"
     ),
+    # D-941: facts about the account's declaration, never about the person called. The
+    # campaign cannot sit in them for ever unnoticed: `launch_blockers` refuses to launch
+    # into them, and the readiness screen and the health board name them.
+    "a2p_declaration_missing": "the client declares its calling numbers",
+    "a2p_declaration_not_yet_effective": "the declared date arrives",
+    "a2p_number_undeclared": "the client adds the agent's number to its declaration",
+    "a2p_test_call_own_number_only": "the owner places the test call to their own number",
     CAMPAIGN_STOPPED_RULE: "the client resumes the campaign",
     CAMPAIGN_WINDOW_CLOSED_RULE: "the clock reaches the campaign's own narrowed window",
 }

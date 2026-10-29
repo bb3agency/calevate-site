@@ -634,6 +634,20 @@ async def _verification_status(
         if pledge is None
         else f"No-cold-calls pledge: not accepted ({pledge[0]}). Only the owner accepts it."
     )
+    # D-941: the same row the readiness screen shows, so Pip and the screen agree.
+    from apps.api.legal.readiness import a2p_readiness_row
+
+    declaration = await a2p_readiness_row(session, tenant_id=context.tenant_id)
+    if declaration is None:
+        lines.append("Calling numbers: declared, or nothing to declare (no agent places calls).")
+    else:
+        row, blocking = declaration
+        lines.append(
+            f"Calling numbers: {row.title} ({row.rule}). {row.reason} "
+            + ("Outgoing calls are refused until it is done. " if blocking else "")
+            + "The owner declares them in the Calling numbers step of Verify your business "
+            "(/c/{slug}/verify-business#calling-numbers); the assistant cannot declare them."
+        )
     profile = await load_profile(session, tenant_id=context.tenant_id)
     blockers = go_live_blockers(profile)
     lines.append(
@@ -1144,8 +1158,10 @@ CONSOLE_READ_TOOLS: Final[tuple[ReadTool, ...]] = (
         name="verification_status",
         description=(
             "Where the account stands on business verification (KYC), what is still "
-            "needed, whether the no-cold-calls pledge is accepted, and what the business "
-            "profile still needs before an agent can go live — with the screen to do each."
+            "needed, whether the no-cold-calls pledge is accepted, whether the calling "
+            "numbers are declared (and from when undeclared ones are refused), and what the "
+            "business profile still needs before an agent can go live — with the screen to "
+            "do each."
         ),
         parameters=_object({}),
         permission="org:read",

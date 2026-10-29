@@ -1,11 +1,13 @@
 "use client";
 
 import { CheckCircle2 } from "lucide-react";
+import Link from "next/link";
 
 import type { ActionFeedback } from "@/components/arc/feedback";
 import { Checklist, type ChecklistItem } from "@/components/console/checklist";
 import { Section } from "@/components/console/section";
-import { PRIMARY_BUTTON, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton } from "@/components/ui";
+import { NoticeBox, PRIMARY_BUTTON, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton } from "@/components/ui";
+import { shortDay, useCallingNumbers, type CallingNumberDeclaration } from "@/lib/api/autodialerNotice";
 import { type useCampaignProgress, type useLaunchCheck } from "@/lib/api/campaigns";
 import { useClientRealm } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
@@ -57,7 +59,8 @@ export function LaunchGate({
   /** Opens the add-people panel on this page. */
   onAddPeople: () => void;
 }) {
-  const { href } = useClientRealm();
+  const { href, session } = useClientRealm();
+  const declaration = useCallingNumbers(session);
 
   // A scheduled campaign has not launched either; the same gate runs when it fires.
   if (status !== "draft" && status !== "scheduled") return null;
@@ -108,6 +111,7 @@ export function LaunchGate({
 
   return (
     <Section title={status === "scheduled" ? "Before it starts" : "Before you launch"}>
+      <DeclarationDue declaration={declaration.data} href={`${at("/verify-business")}#calling-numbers`} />
       {check.isLoading ? (
         <Skeleton rows={3} />
       ) : check.error || !check.data ? (
@@ -164,5 +168,35 @@ export function LaunchGate({
         </div>
       )}
     </Section>
+  );
+}
+
+/**
+ * Before the calling-number rule is in force (D-941) the gate refuses nothing for it, so a
+ * launch goes through; this says calls will stop on that date unless the numbers are
+ * declared. From the date the gate's own blocker, with its link, takes over and this hides.
+ */
+function DeclarationDue({
+  declaration,
+  href,
+}: {
+  declaration: CallingNumberDeclaration | undefined;
+  href: string;
+}) {
+  if (!declaration?.applies || !declaration.blocker || declaration.enforced) return null;
+  if (declaration.blocker.rule === "a2p_declaration_not_yet_effective") return null;
+  return (
+    <NoticeBox
+      tone="warn"
+      title={`Declare your calling numbers before ${shortDay(declaration.enforced_from)}`}
+      className="mb-4"
+      action={
+        <Link href={href} className={SECONDARY_BUTTON_SM}>
+          Declare your calling numbers
+        </Link>
+      }
+    >
+      From that day, calls from undeclared numbers are refused.
+    </NoticeBox>
   );
 }

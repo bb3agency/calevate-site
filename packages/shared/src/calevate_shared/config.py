@@ -5,6 +5,7 @@ Secrets are never defaulted — a missing secret must raise at startup.
 """
 
 from collections.abc import Iterable, Mapping, Sequence
+from datetime import date
 from decimal import Decimal
 from enum import StrEnum
 from types import MappingProxyType
@@ -1716,6 +1717,12 @@ class Settings(BaseSettings):
     # regulatory facts. `0` disables the staleness blocker for an operator who wants the
     # status alone to govern.
     pe_verification_max_age_days: int = Field(default=365, ge=0, le=36_500)
+
+    #: The first IST day the dial gate refuses an outbound call from a number the client has
+    #: not declared (D-941, `compliance/autodialer.py`). The TCCCPR amendment of 18 Sep 2026
+    #: makes the declaration a 60-day item, about 17 Nov 2026; the Gazette date is not
+    #: verified, so the date is an operator's to move, not a constant.
+    a2p_declaration_enforced_from: date = date(2026, 11, 17)
 
     # R-11's kill switch. Self-serve signup is the sharp edge of D-34 (anyone can sign
     # up and dial), so the public intake is OFF unless someone turned it on, and

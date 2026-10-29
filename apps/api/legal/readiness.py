@@ -49,6 +49,13 @@ from apps.api.billing.platform_fee import (
     PLATFORM_FEE_RULE,
     platform_fee_paused,
 )
+from apps.api.compliance.autodialer import (
+    a2p_declaration_blocker,
+    enforced_from,
+    enforcement_active,
+    outbound_agent_numbers,
+    outbound_in_use,
+)
 from apps.api.compliance.preference_scrub import campaigns_awaiting_scrub
 from apps.api.compliance.service import (
     NO_CREDITS_REASON,
@@ -157,6 +164,22 @@ ROW_COPY: dict[str, _Copy] = {
             "Open Verify your business and complete DigiLocker. Outbound calls resume as "
             "soon as it is done; inbound calls are not affected."
         ),
+    ),
+    # D-941. The reason already says incoming calls still work; these say what to do.
+    "a2p_declaration_missing": _Copy(
+        title="Calling numbers not declared",
+        actor="client",
+        next_step="Declare your calling numbers on Verify your business.",
+    ),
+    "a2p_declaration_not_yet_effective": _Copy(
+        title="Calling numbers declared from a later date",
+        actor="client",
+        next_step="Nothing to fix. Calls can start on the date you gave.",
+    ),
+    "a2p_number_undeclared": _Copy(
+        title="A calling number is not declared",
+        actor="client",
+        next_step="Add the number to your calling numbers on Verify your business.",
     ),
     "outbound_pledge_missing": _Copy(
         title="No-cold-calls pledge not accepted",
@@ -323,6 +346,10 @@ async def readiness_rows(
     if unpledged is not None:
         rows.append(_row(*unpledged))
 
+    declaration = await a2p_readiness_row(session, tenant_id=tenant_id)
+    if declaration is not None and declaration[1]:
+        rows.append(declaration[0])
+
     agreements = await legal_service.agreements_blocker(session, tenant_id=tenant_id)
     if agreements is not None:
         rows.append(_row(*agreements))
@@ -351,4 +378,38 @@ async def readiness_rows(
     return rows
 
 
-__all__ = ["ROW_COPY", "Actor", "ReadinessRow", "readiness_rows"]
+async def a2p_readiness_row(
+    session: AsyncSession, *, tenant_id: UUID
+) -> tuple[ReadinessRow, bool] | None:
+    """The calling-number declaration as a readiness row, and whether it blocks yet (D-941).
+
+    Asked about every number bound to an agent that places calls, so the sentence matches
+    the refusal the dial gate would give for any of them. Before the enforcement date the
+    row is returned as NOT blocking: the screen lists it as due, with the date, and the
+    account may still operate. None when the account places no calls or is covered.
+    """
+    if not await outbound_in_use(session):
+        return None
+    numbers = await outbound_agent_numbers(session)
+    blocker = await a2p_declaration_blocker(session, tenant_id=tenant_id, caller_ids=numbers)
+    if blocker is None:
+        return None
+    if enforcement_active():
+        return _row(*blocker), True
+    due = enforced_from()
+    return (
+        ReadinessRow(
+            rule=blocker[0],
+            title=f"Declare your calling numbers before {due.day} {due:%b}",
+            reason=(
+                f"From {due.day} {due:%b %Y}, automated calls may only come from numbers you "
+                "have declared. Incoming calls are not affected."
+            ),
+            actor="client",
+            next_step="Declare your calling numbers on Verify your business.",
+        ),
+        False,
+    )
+
+
+__all__ = ["ROW_COPY", "Actor", "ReadinessRow", "a2p_readiness_row", "readiness_rows"]

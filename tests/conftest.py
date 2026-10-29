@@ -14,7 +14,7 @@ import sys
 import tempfile
 import uuid
 from collections.abc import Iterator
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -1086,6 +1086,22 @@ def _ist_month_boundary_is_pinned(monkeypatch: pytest.MonkeyPatch) -> None:
         return False
 
     monkeypatch.setattr(ai_quota, "month_is_ending", _pinned)
+
+
+#: The IST day every implicit read of the calling-number declaration's clock sees: before
+#: the default enforcement date (17 Nov 2026), as production is while this lands.
+A2P_PINNED_TODAY = date(2026, 11, 1)
+
+
+# The declaration gate (D-941) refuses from a DATE, so without a pin every outbound test that
+# records no declaration would start failing on 17 Nov 2026 with no code change. Pinned the
+# way the month boundary above is: tests about the gate move the day themselves
+# (`tests/a2p_declaration_test.py`), every other test cannot notice what day it is.
+@pytest.fixture(autouse=True)
+def _a2p_declaration_clock_is_pinned(monkeypatch: pytest.MonkeyPatch) -> None:
+    from apps.api.compliance import autodialer
+
+    monkeypatch.setattr(autodialer, "ist_today", lambda: A2P_PINNED_TODAY)
 
 
 # --- engine-hosted voices (D-687) ---------------------------------------------------------

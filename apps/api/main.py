@@ -187,6 +187,7 @@ def _mount_routers(application: FastAPI) -> None:
     )
     from apps.api.campaigns.provisioning_routes import router as numbers_router
     from apps.api.campaigns.routes import router as campaigns_router
+    from apps.api.compliance.autodialer_routes import router as autodialer_notice_router
     from apps.api.compliance.caller_notice_routes import router as caller_notice_router
     from apps.api.compliance.consent_routes import call_router as call_consent_router
     from apps.api.compliance.consent_routes import router as messaging_consent_router
@@ -481,6 +482,8 @@ def _mount_routers(application: FastAPI) -> None:
     # literal `/v1/compliance/caller-notice`, declared with the other compliance routers
     # and ordered by the same rule they are.
     application.include_router(caller_notice_router)
+    # The calling-number declaration the dial gate reads (D-941).
+    application.include_router(autodialer_notice_router)
     # The admin-realm twin: the END of an engagement rather than one data principal's
     # §12 request, and the only writer `organizations.deleted_at` has (FLOWS §9, D-120).
     application.include_router(tenant_erasure_router)

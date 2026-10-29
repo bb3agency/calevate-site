@@ -9,9 +9,10 @@ still run on every dial.
 
 VERSION 2 ADDS A DISCLOSURE (D-762): how the calls are placed, what Calevate records for
 each one, and that the records may be shared with a telecom provider or regulator that asks.
-It replaced the per-client TCCCPR Regulation 4 autodialer notice, which the product no
-longer asks for. It names no vendor (D-679) and claims no compliance for the client or for
-us. The paragraphs are separated by a blank line, which the client screen preserves.
+It sits beside the client's declaration of its calling numbers (D-941, `autodialer.py`),
+which the dial gate asks separately. It names no vendor (D-679) and claims no compliance
+for the client or for us. The paragraphs are separated by a blank line, which the client
+screen preserves.
 
 VERSIONED, AND A NEW VERSION RE-OPENS THE GATE. `PLEDGE_VERSION` is the integer the gate
 compares the latest acceptance against; changing a word of `PLEDGE_TEXT` without bumping it

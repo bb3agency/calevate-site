@@ -169,6 +169,13 @@ const KYC_BLOCKERS = [
 ];
 
 /**
+ * D-941's calling-number refusals, fixed in the Calling numbers card. A declaration dated in
+ * the future (`a2p_declaration_not_yet_effective`) is absent: nothing is wrong with it, and
+ * a link would invite declaring again.
+ */
+export const A2P_DECLARATION_BLOCKERS = ["a2p_declaration_missing", "a2p_number_undeclared"];
+
+/**
  * Where a client goes to clear a rule whose fix lives on another screen. `at` turns a path
  * under `/c/{slug}` into a link that keeps a view-as session. Labels are button words:
  * a verb and the thing, nothing more.
@@ -184,6 +191,9 @@ export function blockerDestination(
   if (rule === "platform_fee_overdue") return { href: at("/billing"), label: "Pay in Billing" };
   if (rule === "agreements_not_accepted") return { href: at("/agreements"), label: "Read and accept" };
   if (KYC_BLOCKERS.includes(rule)) return { href: at("/verify-business"), label: "Verify your business" };
+  if (A2P_DECLARATION_BLOCKERS.includes(rule))
+    // The fragment after the realm query, so a view-as session keeps both.
+    return { href: `${at("/verify-business")}#calling-numbers`, label: "Declare your calling numbers" };
   if (rule.startsWith("number_")) return { href: at("/phone-number"), label: "Open Phone number" };
   if (rule === "agent_not_live" || rule === "agent_inbound_only" || rule === "disclosure_missing")
     return { href: at("/agents"), label: "Open Agents" };

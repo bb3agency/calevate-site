@@ -171,7 +171,8 @@ feature. Nothing here is optional; items marked [GATE] block launch of the relev
 > **UNCHANGED:** the DNC scrub on every dial, calling hours, the list-consent provenance
 > (purchased lists refused), the AI disclosure and the truthful answers (hard rule 5), the
 > agreements, money and the account state. (The Regulation 4 autodialer notice, which D-692
-> left standing, was removed from the product by D-762 on 13 Oct 2026; see §3.) **No per-contact consent record is required**
+> left standing, was removed by D-762 on 13 Oct 2026 and restored as the calling-number
+> declaration by D-941 on 30 Oct 2026, refusing from its enforcement date; see §3.) **No per-contact consent record is required**
 > beyond what D-624 already lets an account opt into. **Inbound never depends on any of
 > this.**
 >
@@ -238,32 +239,41 @@ cite the same string:
   D-692, so its routes and panel were removed. `outbound_sender_attestations` is kept
   unwritten until a later release drops it (DATA-MODEL §9). The direction still binds the
   sender in law; the client's KYC and no-cold-calls pledge are what the product asks.
-- **No autodialer notice is asked for (D-762, founder decision 13 Oct 2026).** TCCCPR
-  Regulation 4, relayed as *"Every Sender shall notify the Originating Access Provider, in
-  advance, about the use of Auto Dialer or Robo-Calls as well as the intended objective of
-  such calls in writing"* (REPORTED, `docs/evidence/number-series-inbound-vs-outbound-2026-09-13.md`
-  §3.3; nobody in this repository has opened the regulation), was a launch and per-dial
-  gate from D-637 until D-762. It is no longer asked by `check_dispatch`,
-  `launch_blockers` or the readiness screen, and its record-and-withdraw routes are gone.
-  - **WHY.** Clients could not complete it: ThinnestAI, relaying Plivo on 13 Oct 2026,
-    could not yet name the access provider for a number or a notice process
-    (`docs/vendor/thinnest-replies-2026-10-12.md` §10), so every outbound client was
-    refused by a step nobody could take. The founder judged that clients who buy a product
-    cannot be expected to correspond with telecom providers.
-  - **WHAT REPLACES IT** is a disclosure inside the no-cold-calls pledge (version 2,
-    `compliance/outbound_pledge.py`, accepted by checkbox): calls are automated calls by
-    Calevate's AI voice agent through Calevate's licensed telephony partners, from numbers
-    rented in the business's name; Calevate keeps the verified business details, the
-    calling number, the purpose, the consent and do-not-call records and the call record
-    for every call and may share them with a telecom provider or regulator that asks; and
-    the client confirms its calls are made only for the purposes set in its campaigns.
-    Together with KYC (2c) this is the product's answer. It is not a claim that the client
-    or Calevate is compliant with Regulation 4.
-  - **THE RISK IS ACCEPTED, NOT RESOLVED.** The regulation still binds the Sender in law.
-    OPERATIONS §2 gate 59 stays open for what it requires and for ThinnestAI's answer
-    (relayed from its telephony provider, Plivo).
-  - **THE TABLE STAYS, UNWRITTEN.** `autodialer_notices` keeps its FORCEd RLS and its
-    append-only triggers until a later release drops it (hard rule 8).
+- **The client's calling numbers are declared (D-941, founder 30 Oct 2026; amends D-762).**
+  The TCCCPR amendment of 18 Sep 2026 replaces Regulation 4 with "Intimation regarding use
+  of A2P calls": a Sender declares its A2P calls (calls placed by software, including
+  artificial voice) to its originating access provider in advance, with the CLIs it will
+  use, and *"Any such call made by a Sender without prior declaration to the OAP, shall be
+  treated as Unsolicited commercial communication"*. It is a 60-day item, about 17 Nov
+  2026 (`docs/research/research_notes/Calevate market and technology edge/
+  india_regulation.md`, read 30 Oct 2026, rememory 8a05aded; the Gazette date is NOT
+  verified). **Who the Sender is on a number rented through us, and the filing route, are
+  UNKNOWN** (asked of ThinnestAI the same week; OPERATIONS §2 gate 59).
+  - **THE RECORD.** `compliance/autodialer.py` and `GET`/`POST /v1/compliance/autodialer-notice`
+    (client realm; `org:manage` to declare, never an operator): the numbers (prefilled from
+    the account's rented numbers), the day they were declared, an optional reference, and
+    an attestation of a versioned text (version and SHA-256 stored, a stale screen refused)
+    in the append-only `autodialer_notices` plus an `audit_log` row. A withdrawal is a new
+    row. A D-637 notice row carries no attestation and covers no dial.
+  - **THE DATE.** The ops setting `a2p_declaration_enforced_from` (IST date, default
+    2026-11-17). Before it nothing is refused: the readiness screen lists "Declare your
+    calling numbers before 17 Nov" under `upcoming`, the launch screen shows the same with
+    one button, and every account with an agent that places calls gets one announcement
+    (audience `outbound`). From it, `check_dispatch` refuses every outbound VOICE dial
+    whose agent can present a number the live declaration does not cover:
+    **`a2p_declaration_missing`** (none, withdrawn, or not attested),
+    **`a2p_declaration_not_yet_effective`** (dated in the future),
+    **`a2p_number_undeclared`** (a number the agent can present is missing, or it has
+    none), and `launch_blockers` refuses the same. A test call is refused
+    **`a2p_test_call_own_number_only`** unless the owner attested the destination as their
+    own phone: a call the business places to itself is not a commercial communication to a
+    subscriber, and the shared trial number cannot be declared by a client. Transient
+    refusals: a campaign contact refused here stays pending.
+  - **NOT GATED:** inbound (never reaches the gate), WhatsApp sends (`places_call=False`),
+    and the forwarding test, which rings the business's own attested line.
+  - **OPS.** The client-health board reports `calling_numbers_undeclared` for every
+    account that places calls and is not covered: `warn` before the date, `stop` from it.
+  - Nothing here tells a client it is compliant; the pledge v2 disclosure (D-762) stays.
 - Contact list DNC-scrubbed (national DND + tenant `dnc_list`) with scrub timestamp; a
   list with nothing left after the scrub is `all_contacts_dnc`, an empty one
   `no_contacts`. **The two scrubs are separate facts and this bullet used to claim a

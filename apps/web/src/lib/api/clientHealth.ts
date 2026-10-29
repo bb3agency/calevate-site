@@ -128,6 +128,15 @@ export const SIGNAL_COPY: Record<string, SignalCopy> = {
     screen: (tenantId) => `/admin/tenants/${tenantId}`,
     cta: "Approve knowledge",
   },
+  calling_numbers_undeclared: {
+    label: "Calling numbers not declared",
+    meaning:
+      "This account places calls from numbers it has not declared. From the enforcement " +
+      "date, calls from undeclared numbers are refused; only the client can declare, on " +
+      "Verify your business. Amber before that date, red after it.",
+    screen: (tenantId) => `/admin/tenants/${tenantId}`,
+    cta: "Open the account",
+  },
   calls_unmetered: {
     label: "Calls billed to us and to nobody",
     meaning:
@@ -176,6 +185,10 @@ const CAUSE_LABELS: Record<string, string> = {
   payment_dispute: "Payment dispute open",
   platform_fee_overdue: "Platform fee unpaid",
   no_credits: "Prepaid wallet empty",
+  // D-941. Only the client can declare; an operator chases them.
+  a2p_declaration_missing: "Calling numbers not declared",
+  a2p_declaration_not_yet_effective: "Calling numbers declared from a later date",
+  a2p_number_undeclared: "An agent's calling number not declared",
 };
 
 /**

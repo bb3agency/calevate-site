@@ -1061,6 +1061,40 @@ const LEGAL_READINESS = {
         "The account owner reads each agreement and accepts it on this screen.",
     },
   ],
+  // D-941 before its date: the "coming up" row and its link are on screen too.
+  upcoming: [
+    {
+      rule: "a2p_declaration_missing",
+      title: "Declare your calling numbers before 17 Nov",
+      reason: "From 17 Nov 2026, automated calls may only come from numbers you have declared.",
+      actor: "client",
+      next_step: "Declare your calling numbers on Verify your business.",
+    },
+  ],
+};
+
+/** The calling-number card in its fullest state: the form, open, before the date (D-941). */
+const CALLING_NUMBERS_DUE = {
+  recorded: false,
+  state: null,
+  notified_on: null,
+  notice_reference: null,
+  declared_clis: [],
+  attested: false,
+  attested_version: null,
+  effective: false,
+  rented_numbers: ["+919848022338", "+914049001234"],
+  undeclared_clis: ["+919848022338"],
+  applies: true,
+  enforced_from: "2026-11-17",
+  enforced: false,
+  blocker: {
+    rule: "a2p_declaration_missing",
+    reason: "Declare your calling numbers to place calls. Incoming calls still work.",
+  },
+  attestation_version: 1,
+  attestation_text: "On behalf of this business I confirm the numbers listed.",
+  attestation_sha256: "a".repeat(64),
 };
 
 const MEMBERS = [
@@ -3732,6 +3766,7 @@ const CLIENT_SCREENS: Screen[] = [
       "/v1/me": ME,
       "/v1/compliance/kyc": KYC_RECORD_D692,
       "/v1/compliance/outbound-pledge": PLEDGE,
+      "/v1/compliance/autodialer-notice": CALLING_NUMBERS_DUE,
       // The DLT section. Populated and NOT active, so both status rows and the "what is on
       // file" list render — the state with the most markup in it.
       "/v1/compliance/dlt-registration": {

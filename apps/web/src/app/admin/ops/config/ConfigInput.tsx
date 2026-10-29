@@ -305,6 +305,7 @@ const INPUT_TYPES: Partial<Record<ControlKind | "unknown", { type: string; input
   phone: { type: "tel", inputMode: "tel" },
   email: { type: "email", inputMode: "email" },
   url: { type: "url", inputMode: "url" },
+  date: { type: "date" },
 };
 
 function TypedInput({
