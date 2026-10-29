@@ -1091,9 +1091,17 @@ async def record_ai_assist_usage(
     extra_meta: dict[str, str] | None = None,
     cached_tokens_in: int | None = None,
     usage_incomplete: bool = False,
+    service_tier: str = "standard",
 ) -> AssistMetered:
     """Meter one dashboard assist: two `usage_events` rows (three with a priced cache hit,
     `assist_ledger_rows`) and the platform counter.
+
+    `service_tier` is the Gemini tier that answered (`chat.ServiceTier`, D-930). A `flex`
+    answer is billed by Google at half the standard price, but no attested Flex figure can
+    be stored yet (`platform_model_prices` holds one price per model), so it is recorded at
+    the model's attested STANDARD rate with `meta.service_tier = flex` and
+    `meta.priced_at = standard`: an overstatement on the ledger, never an understatement,
+    until an operator attests the Flex rate (OPERATIONS §2 gate 63).
 
     `usage_incomplete` says the counts are the reported part of a job some piece of which
     answered without a usage block (`chat.sum_usage`): they are recorded as they are, the
@@ -1161,6 +1169,11 @@ async def record_ai_assist_usage(
             **(extra_meta or {}),
             **({} if cached_tokens_in is None else {"cached_prompt_tokens": str(cached_tokens_in)}),
             **({"usage_incomplete": "true"} if usage_incomplete else {}),
+            **(
+                {}
+                if service_tier == "standard"
+                else {"service_tier": service_tier, "priced_at": "standard"}
+            ),
             "kind": ASSIST_META_KIND,
             "model": model,
             "feature": feature,

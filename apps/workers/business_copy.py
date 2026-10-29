@@ -85,6 +85,7 @@ from apps.api.tenancy.business_copy import (
 from apps.api.tenancy.models import BUSINESS_COPY_TRIGGERS
 from apps.workers.fleet_walk import WalkBudget, resumed_walk
 from apps.workers.lead_fields_draft import business_context
+from apps.workers.model_tiers import FlexAllowance
 from apps.workers.redaction import redact
 from apps.workers.script_assist import (
     ANSWER_UNUSABLE_CODE,
@@ -114,6 +115,12 @@ RECENT_QUESTION_DAYS: Final = 30
 #: Gemini leg two budgets for the request and its one repair, inside the worker's 300 s.
 REQUEST_TIMEOUT_S: Final = 60.0
 MAX_ANSWER_TOKENS: Final = 6000
+
+
+def _flex_for(trigger: Trigger) -> FlexAllowance | None:
+    """The daily check's refresh asks on Flex; a run somebody asked for does not
+    (`model_tiers.MODEL_CALLS`, D-930)."""
+    return FlexAllowance("business_copy_scheduled") if trigger == "scheduled" else None
 
 
 #: What each placeholder key is, for the instruction. Mirrors `verticalExamples.ts`.
@@ -526,6 +533,7 @@ async def _store(
             result=answer,
             feature=feature,
             model=answer.model,
+            service_tier=answer.service_tier,
         )
         stored = (
             await session.execute(
@@ -575,6 +583,7 @@ async def _run(tenant_id: UUID, trigger: Trigger, held: Claim) -> str:
             timeout_s=REQUEST_TIMEOUT_S,
             health_leg="business_copy",
             gemini_only=True,
+            flex=_flex_for(trigger),
         )
     except ProblemError as refused:
         async with tenant_session(tenant_id) as session:

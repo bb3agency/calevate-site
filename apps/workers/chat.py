@@ -265,6 +265,24 @@ ChatDialect = Literal["openai", "sarvam", "google"]
 #: for `sarvam-105b` (docs.sarvam.ai chat-completion overview, read 14 Oct 2026).
 ReasoningEffort = Literal["low", "medium", "high", "off"]
 
+#: Which Gemini service tier answered a call (D-930). `flex` is the same request at 50% of
+#: the standard price, "variable latency and best-effort availability", a target of 1-15
+#: minutes, and it may answer 429/503 or be preempted; Google never upgrades a Flex request
+#: to Standard itself (ai.google.dev/gemini-api/docs/flex-inference, updated 2026-10-13, read
+#: 29 Oct 2026). The OpenAI-compatible surface takes it as OpenAI's own `service_tier` field
+#: (ai.google.dev/gemini-api/docs/openai, updated 2026-10-28, read 29 Oct 2026). Which call
+#: may ask for it is `workers/model_tiers.py`, never the call site.
+ServiceTier = Literal["standard", "flex"]
+
+
+@dataclass(frozen=True, slots=True)
+class FlexRequest:
+    """Ask on the Flex tier first, for at most `wait_s`, then on the standard tier.
+
+    Built only by `model_tiers.FlexAllowance`, which refuses a call a person waits on."""
+
+    wait_s: float
+
 
 @dataclass(frozen=True, slots=True)
 class ChatLeg:
@@ -347,6 +365,9 @@ class ChatOutcome:
     #: thought signatures included, so a tool-calling loop can replay it unchanged. Empty on
     #: every other leg.
     native_parts: tuple[Mapping[str, Any], ...] = ()
+    #: The tier that ANSWERED, which is what the call is billed at: `standard` when Flex was
+    #: not asked for, and also when it was asked for and fell back.
+    service_tier: ServiceTier = "standard"
 
 
 @dataclass(frozen=True, slots=True)
@@ -421,6 +442,7 @@ def _request_body(
     stream: bool,
     max_tokens: int | None = None,
     reasoning_effort: ReasoningEffort | None = None,
+    service_tier: ServiceTier = "standard",
 ) -> dict[str, Any]:
     """The request, with every optional key OMITTED rather than sent as null.
 
@@ -444,6 +466,10 @@ def _request_body(
         body["response_format"] = dict(response_format)
     if reasoning_effort is not None:
         body["reasoning_effort"] = None if reasoning_effort == "off" else reasoning_effort
+    if service_tier == "flex":
+        # Omitted for standard: Google defaults an unset tier to standard, and the key is
+        # Gemini's alone here (`complete` sends flex only on the `google` dialect).
+        body["service_tier"] = "flex"
     if tools:
         body["tools"] = [dict(tool) for tool in tools]
         if tool_choice is not None:
@@ -615,8 +641,15 @@ async def complete(
     max_tokens: int | None = None,
     client: httpx.AsyncClient | None = None,
     reasoning_effort: ReasoningEffort | None = None,
+    flex: FlexRequest | None = None,
 ) -> ChatOutcome:
     """One blocking chat completion. RAISES `httpx.HTTPStatusError` on a non-2xx.
+
+    `flex` asks Gemini's Flex tier first, for at most `flex.wait_s`, and on ANY failure of
+    that attempt (429/503 at capacity, preemption, the wait running out, a 400 from a key
+    or model without Flex) asks again on the standard tier with `timeout_s`, so a job never
+    fails only because it asked for the cheaper tier. Only the standard attempt's failure is
+    raised. Ignored on a non-Google leg, which has no such tier.
 
     RAISING RATHER THAN RETURNING A STATUS is what keeps the three existing callers
     unchanged in behaviour: `extraction.extract_call`'s ladder already catches
@@ -633,10 +666,9 @@ async def complete(
     process's `pooled_client()` carries the request, with `timeout_s` set per request.
     """
     http = client or pooled_client()
-    response = await http.post(
-        leg.url,
-        headers=_headers(leg),
-        json=_request_body(
+
+    async def ask(tier: ServiceTier, wait_s: float | None) -> ChatOutcome:
+        body = _request_body(
             leg,
             messages,
             temperature=temperature,
@@ -646,13 +678,57 @@ async def complete(
             stream=False,
             max_tokens=max_tokens,
             reasoning_effort=reasoning_effort,
-        ),
-        timeout=timeout_s,
-    )
-    response.raise_for_status()
-    body = _json_body(response)
+            service_tier=tier,
+        )
+        # The Flex attempt has its own, shorter budget; the standard one gets `timeout_s`.
+        response = await http.post(
+            leg.url,
+            headers=_headers(leg),
+            json=body,
+            timeout=timeout_s if wait_s is None else wait_s,
+        )
+        response.raise_for_status()
+        return _outcome_of(_json_body(response), tier)
+
+    if flex is not None and leg.dialect == "google":
+        try:
+            return await ask("flex", flex.wait_s)
+        except httpx.HTTPError as failure:
+            log.info(
+                "chat_flex_fell_back",
+                extra={"model": leg.wire_model, **_failure_fields(failure)},
+            )
+    return await ask("standard", None)
+
+
+def _failure_fields(failure: httpx.HTTPError) -> dict[str, object]:
+    """A status or an exception class name for a log line; never a body (hard rule 6)."""
+    if isinstance(failure, httpx.HTTPStatusError):
+        return {"status": failure.response.status_code}
+    return {"error": type(failure).__name__}
+
+
+#: The tier a response says served it, in OpenAI's vocabulary (`default` is standard).
+_REPORTED_TIER: Final[dict[str, ServiceTier]] = {
+    "flex": "flex",
+    "standard": "standard",
+    "default": "standard",
+}
+
+
+def _served_tier(body: Mapping[str, Any], asked: ServiceTier) -> ServiceTier:
+    """The tier the response reports, else the one asked for.
+
+    A Flex ask is only believed when nothing contradicts it: on 21 Oct 2026 our key's
+    `service_tier: "priority"` requests came back reporting `standard` in native
+    `usageMetadata.serviceTier`, so Google can serve a tier other than the one asked."""
+    reported = body.get("service_tier")
+    return _REPORTED_TIER.get(reported, asked) if isinstance(reported, str) else asked
+
+
+def _outcome_of(body: object, tier: ServiceTier) -> ChatOutcome:
     if not isinstance(body, dict):  # pragma: no cover - a provider that is not this API
-        return ChatOutcome(content="")
+        return ChatOutcome(content="", service_tier=tier)
     message, finish_reason = _message_of(body)
     content = message.get("content")
     return ChatOutcome(
@@ -660,6 +736,7 @@ async def complete(
         tool_calls=_tool_calls_of(message),
         finish_reason=finish_reason if isinstance(finish_reason, str) else None,
         usage=usage_from_body(body),
+        service_tier=_served_tier(body, tier),
     )
 
 

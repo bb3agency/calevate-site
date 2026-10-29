@@ -89,6 +89,7 @@ from apps.api.tenancy.business_copy import provider_problem
 from apps.workers import chat
 from apps.workers.chat import TokenUsage
 from apps.workers.extraction import (
+    ASSIST_LADDER_LEGS,
     ASSIST_TIMEOUT_S,
     AZURE_PROVIDER,
     GOOGLE_PROVIDER,
@@ -107,6 +108,7 @@ from apps.workers.extraction import (
     request_timeout,
     time_left,
 )
+from apps.workers.model_tiers import FlexAllowance
 
 log = get_logger(__name__)
 
@@ -685,6 +687,7 @@ class _RawJson:
 
     data: dict[str, Any] | None
     usage: TokenUsage | None = None
+    service_tier: chat.ServiceTier = "standard"
 
 
 def _strict(schema_name: str, schema: dict[str, object]) -> dict[str, object]:
@@ -747,6 +750,7 @@ async def _json_via_google(
     timeout_s: float = ASSIST_TIMEOUT_S,
     deadline: float | None = None,
     health_leg: provider_health.AiLeg = "script",
+    flex: chat.FlexRequest | None = None,
 ) -> _RawJson | None:
     """The account's own Gemini model on D-478's leg, or None without the key or an answer.
 
@@ -776,6 +780,7 @@ async def _json_via_google(
         timeout_s=timeout_s,
         deadline=deadline,
         health_leg=health_leg,
+        flex=flex,
     )
 
 
@@ -791,15 +796,18 @@ async def _json_via_leg(
     timeout_s: float,
     deadline: float | None = None,
     health_leg: provider_health.AiLeg = "script",
+    flex: chat.FlexRequest | None = None,
 ) -> _RawJson | None:
     """One JSON answer from a paid leg (Azure or the account's Gemini), or None when it
-    refused, could not be reached, or the assist's time budget left no room to ask."""
+    refused, could not be reached, or the assist's time budget left no room to ask.
+
+    `flex` applies to the first ask only; a degraded re-ask goes on the standard tier."""
     messages = [
         {"role": "system", "content": instruction},
         {"role": "user", "content": description},
     ]
 
-    async def ask(fmt: Mapping[str, Any]) -> chat.ChatOutcome:
+    async def ask(fmt: Mapping[str, Any], tier: chat.FlexRequest | None = None) -> chat.ChatOutcome:
         return await chat.complete(
             leg,
             messages,
@@ -807,11 +815,12 @@ async def _json_via_leg(
             temperature=temperature,
             response_format=fmt,
             max_tokens=max_tokens,
+            flex=tier,
         )
 
     try:
         try:
-            outcome = await ask(response_format)
+            outcome = await ask(response_format, flex)
         except httpx.HTTPStatusError as refusal:
             if refusal.response.status_code != 400 or response_format.get("type") != "json_schema":
                 log.warning(
@@ -834,6 +843,7 @@ async def _json_via_leg(
                 extra={"provider": provider, "model": leg.wire_model},
             )
             outcome = await ask({"type": "json_object"})
+            flex = None
     except AssistDeadlineError:
         log.warning("script_assist_out_of_time", extra={"provider": provider})
         return None
@@ -851,13 +861,16 @@ async def _json_via_leg(
         await provider_health.note_failure(health_leg, provider, failure, model=leg.wire_model)
         return None
     await provider_health.note_success(health_leg, provider)
+    tier: chat.ServiceTier = "standard" if flex is None else outcome.service_tier
     if outcome.finish_reason == "length":
         # The `max_tokens` valve fired. The JSON was cut off mid-generation, so parsing it
         # could yield a balanced PREFIX that reads as a short answer. "No answer" is the
         # honest result, carrying the billed tokens to the meter.
         log.warning("script_assist_draft_truncated", extra={"provider": provider})
-        return _RawJson(data=None, usage=outcome.usage)
-    return _RawJson(data=_first_json_object(outcome.content) or None, usage=outcome.usage)
+        return _RawJson(data=None, usage=outcome.usage, service_tier=tier)
+    return _RawJson(
+        data=_first_json_object(outcome.content) or None, usage=outcome.usage, service_tier=tier
+    )
 
 
 async def _json_via_sarvam(
@@ -961,6 +974,8 @@ class JsonAnswer[T]:
     usage: TokenUsage | None = None
     model: str | None = None
     earlier: tuple[PaidTurn, ...] = ()
+    #: `flex` only when every attempt that wrote the answer was served on Flex (D-930).
+    service_tier: chat.ServiceTier = "standard"
 
 
 #: What the paid leg is told when its answer broke the caller's rules, before it is asked once
@@ -1053,6 +1068,7 @@ async def ask_json[T](
     timeout_s: float = ASSIST_TIMEOUT_S,
     health_leg: provider_health.AiLeg = "script",
     gemini_only: bool = False,
+    flex: FlexAllowance | None = None,
 ) -> JsonAnswer[T]:
     """THE dashboard AI ladder for a JSON answer: the paid leg `assist_capability` picks (the
     account's own Gemini model when it serves the dashboard, else Azure), the disclosed
@@ -1077,6 +1093,11 @@ async def ask_json[T](
 
     A refusal raised after the paid leg answered is a `SpentRefusalError` carrying that spend, so
     the caller meters it (`crm/assist.meter_refusal`) before the refusal reaches anyone.
+
+    `flex` (a job nobody waits on, `model_tiers`) asks the Gemini leg's FIRST attempt on the
+    Flex tier. Its wait is added in front of the ladder's budgets rather than taken out of
+    them, so a Flex fallback leaves the repair and the rest of the ladder exactly the time
+    they had without it.
     """
     capability = assist_capability(
         tenant_leg=tenant_leg, quota_exhausted=quota_exhausted, allow_azure=not gemini_only
@@ -1088,7 +1109,15 @@ async def ask_json[T](
             AssistCapability(available=False, reason=PROVIDER_UNAVAILABLE_REASON)
         )
 
+    asked = (
+        flex.request(standard_timeout_s=ASSIST_LADDER_LEGS * timeout_s)
+        if flex is not None and capability.provider == GOOGLE_PROVIDER and tenant_leg is not None
+        else None
+    )
     paid_until, standby_until = ladder_deadlines(timeout_s)
+    if asked is not None:
+        paid_until += asked.wait_s
+        standby_until += asked.wait_s
     earlier: list[PaidTurn] = []
     answered_unusably = False
     if capability.provider in (AZURE_PROVIDER, GOOGLE_PROVIDER):
@@ -1099,7 +1128,7 @@ async def ask_json[T](
             else None
         )
 
-        async def paid_answer(text: str) -> _RawJson | None:
+        async def paid_answer(text: str, tier: chat.FlexRequest | None = None) -> _RawJson | None:
             if model is not None:
                 return await _json_via_google(
                     model,
@@ -1111,6 +1140,7 @@ async def ask_json[T](
                     timeout_s=timeout_s,
                     deadline=paid_until,
                     health_leg=health_leg,
+                    flex=tier,
                 )
             return await _json_via_azure(
                 text,
@@ -1123,10 +1153,12 @@ async def ask_json[T](
                 health_leg=health_leg,
             )
 
-        paid = await paid_answer(description)
+        paid = await paid_answer(description, asked)
         value, problems = _parsed_with_problems(parse, paid.data if paid is not None else None)
         spent = paid.usage if paid is not None else None
+        tier: chat.ServiceTier = paid.service_tier if paid is not None else "standard"
         if value is None and problems is not None:
+            tier = "standard"
             # ONE REPAIR on the same leg, told what was wrong, before the fallback. A long
             # structured answer that breaks one validation rule is usually right everywhere
             # else, and the fallback leg is slower and weaker at exactly this kind of answer.
@@ -1145,6 +1177,7 @@ async def ask_json[T](
                 capability=capability,
                 usage=spent,
                 model=model or get_settings().azure_openai_model,
+                service_tier=tier,
             )
         if paid is not None:
             # Billed as a request, refused as an answer: metered at its own model.

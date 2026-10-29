@@ -176,6 +176,7 @@ class _Usage:
 class _Outcome:
     finish_reason = "stop"
     usage = _Usage()
+    service_tier = "standard"
 
     def __init__(self, content: str) -> None:
         self.content = content
