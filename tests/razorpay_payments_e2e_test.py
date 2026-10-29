@@ -958,6 +958,59 @@ async def test_reconciliation_credits_a_lost_webhook_and_flags_the_unexplained(
     assert again.credited_late == [], "a second pass finds it on the ledger"
 
 
+async def test_reconciliation_releases_a_failed_refund_whose_webhook_was_lost(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reconciliation skipped every refund that was not `processed`, so a failed refund
+    whose `refund.failed` never arrived held its claim on the refund ceiling for good: later
+    refunds were refused as exceeding what is left, and nobody heard it had failed."""
+    tenant_id = await _tenant()
+    payment_id = _id("pay")
+    await _fund(tenant_id, payment_id, "1000.00")
+    async with tenant_session(tenant_id) as session:
+        topup = await payments.find_topup(session, tenant_id=tenant_id, ref=payment_id)
+        assert topup is not None
+        claim = await payments.claim_refund(
+            session,
+            tenant_id=tenant_id,
+            payment_id=payment_id,
+            amount_inr=Decimal("400.00"),
+            payment_total_inr=Decimal("1000.00"),
+            topup_entry_id=topup.entry_id,
+        )
+    assert claim.claimed
+    refund_id = _id("rfnd")
+    fake = FakeApi(
+        refunds=[
+            ProviderRefundRow(
+                refund_id=refund_id,
+                payment_id=payment_id,
+                amount_paise=40000,
+                currency="INR",
+                status="failed",
+                notes={payments.NOTES_TENANT_KEY: str(tenant_id)},
+            )
+        ]
+    )
+    monkeypatch.setattr(reconciliation, "razorpay_api", lambda: fake)
+    fired: list[str] = []
+    monkeypatch.setattr(reconciliation, "alert", lambda stage, code, **k: fired.append(code))
+
+    report = await reconciliation.reconcile()
+    assert report.refunds_failed_late == [refund_id]
+    assert "razorpay_refund_failed" in fired
+    async with tenant_session(tenant_id) as session:
+        held = await payments.claimed_refund_total_inr(
+            session, tenant_id=tenant_id, payment_id=payment_id
+        )
+    assert held == Decimal("0")
+    assert [r[0] for r in await _ledger(tenant_id)] == ["topup"], "no money moved"
+
+    fired.clear()
+    again = await reconciliation.reconcile()
+    assert again.refunds_failed_late == [] and "razorpay_refund_failed" not in fired
+
+
 # --- closure -------------------------------------------------------------------------
 
 
