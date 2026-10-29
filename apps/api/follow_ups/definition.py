@@ -486,6 +486,22 @@ def summary(step: AnyStep, names: Names) -> str:
     return "Finish (goal reached)" if step.goal else "Finish"
 
 
+def starts_when(trigger: AnyTrigger) -> str:
+    """What starts a Follow-up, as one plain line for the list and for Pip."""
+    if isinstance(trigger, NewLeadTrigger):
+        return "A new lead arrives" + ("" if trigger.source_ids is None else " from chosen sources")
+    if isinstance(trigger, CallEndedTrigger):
+        which = {"inbound": "An incoming call", "outbound": "A call we made", "both": "A call"}
+        return f"{which[trigger.calls]} ends"
+    if isinstance(trigger, LeadDateTrigger):
+        field = trigger.field.replace("_", " ")
+        if trigger.offset_days == 0:
+            return f"On the lead's {field}"
+        side = "before" if trigger.offset_days < 0 else "after"
+        return f"{abs(trigger.offset_days)} day(s) {side} the lead's {field}"
+    return "You start it for chosen leads"
+
+
 def clock(value: str) -> time:
     hours, minutes = value.split(":")
     return time(int(hours), int(minutes))
@@ -526,6 +542,7 @@ __all__ = [
     "load_trigger",
     "parse_steps",
     "shape_problems",
+    "starts_when",
     "step_by_id",
     "summary",
 ]

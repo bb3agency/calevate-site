@@ -38,6 +38,7 @@ from apps.api.copilot.campaign_actions import CAMPAIGN_ACTIONS, CAMPAIGN_CONSENT
 from apps.api.copilot.console_actions import CONSOLE_ACTIONS
 from apps.api.copilot.coverage_actions import COVERAGE_ACTIONS
 from apps.api.copilot.fact_actions import FACT_ACTIONS
+from apps.api.copilot.follow_up_actions import FOLLOW_UP_ACTIONS
 from apps.api.copilot.knowledge_actions import KNOWLEDGE_ACTIONS
 from apps.api.copilot.lead_actions import LEAD_ACTIONS
 from apps.api.copilot.pin_actions import PIN_ACTIONS
@@ -169,6 +170,8 @@ def test_the_console_actions_are_appended_after_the_earlier_ones() -> None:
         # D-938's coverage actions, then D-934's pin actions, APPEND.
         + len(COVERAGE_ACTIONS)
         + len(PIN_ACTIONS)
+        # D-940: the Follow-up actions APPEND.
+        + len(FOLLOW_UP_ACTIONS)
     )
     assert names[-len(console) - later : -later] == console
     assert len(set(names)) == len(names)

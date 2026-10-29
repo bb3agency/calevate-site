@@ -29,6 +29,7 @@ from apps.api.copilot.call_actions import CALL_ACTIONS
 from apps.api.copilot.campaign_actions import CAMPAIGN_ACTIONS, CAMPAIGN_CONSENT_SET
 from apps.api.copilot.coverage_actions import COVERAGE_ACTIONS
 from apps.api.copilot.fact_actions import FACT_ACTIONS
+from apps.api.copilot.follow_up_actions import FOLLOW_UP_ACTIONS
 from apps.api.copilot.knowledge_actions import KNOWLEDGE_ACTIONS
 from apps.api.copilot.lead_actions import LEAD_ACTIONS
 from apps.api.copilot.pin_actions import PIN_ACTIONS
@@ -91,6 +92,8 @@ def test_each_is_on_its_buttons_permission_and_only_the_form_filler_skips_the_cl
         # D-938's coverage actions, then D-934's pin actions, APPEND.
         + len(COVERAGE_ACTIONS)
         + len(PIN_ACTIONS)
+        # D-940: the Follow-up actions APPEND.
+        + len(FOLLOW_UP_ACTIONS)
     )
     assert write_tools.WRITE_TOOLS[-count - after : -after] == assist_actions.ASSIST_ACTIONS
 

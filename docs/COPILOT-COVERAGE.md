@@ -174,6 +174,24 @@ D-935 troubleshooting and line-protection healer, D-936 proactive notes, D-937 P
 | lead | WhatsApp them | calls_do:lead_whatsapp_send | confirm | COVERED |
 | lead | Stop calling this number | leads_do:dnc_add | confirm | COVERED |
 | lead | Edit a captured detail value | (none) | confirm | MISSING |
+| leads | Start picked or filtered leads on a Follow-up | leads_do:follow_up_start | confirm | BUILT (D-940) |
+
+### Follow-ups `/follow-ups`, detail `/follow-ups/[followUpId]` (D-940)
+
+| Screen | Action or question | Pip tool:action | Tier | Status |
+|---|---|---|---|---|
+| follow-ups | "Which Follow-ups are on?" / the ready-made ones | leads_find:follow_ups_list | read | BUILT (D-940) |
+| follow-up | "What does this one do / who is in it?" | leads_find:follow_up_read | read | BUILT (D-940) |
+| follow-ups | New Follow-up from a sentence | leads_do:follow_up_draft | confirm | BUILT (D-940) |
+| follow-ups | New from a ready-made one (explains what is missing) | leads_do:follow_up_draft (starter) | confirm | BUILT (D-940) |
+| follow-up | "Ask Pip to change it" (rewrite the draft) | leads_do:follow_up_draft (follow_up_id) | confirm | BUILT (D-940) |
+| follow-up | Small edits: a wait, a message, the agent, remove a step | leads_do:follow_up_draft (follow_up_id) | confirm | BUILT (D-940) |
+| follow-up | Publish | leads_do:follow_up_publish | confirm | BUILT (D-940) |
+| follow-up | Pause (Undo resumes) | leads_do:follow_up_pause | confirm | BUILT (D-940) |
+| follow-up | Resume / turn back on (Undo puts it back) | leads_do:follow_up_resume | confirm | BUILT (D-940) |
+| follow-up | Turn off | leads_do:follow_up_turn_off | confirm | BUILT (D-940) |
+| follow-up | Stop one lead's run | (none) | confirm | MISSING |
+| follow-up | "How is it doing?" (results by step) | leads_find:follow_up_read (counts) | read | BUILT (D-940) |
 
 ### Call-backs `/callbacks`
 

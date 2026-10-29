@@ -367,6 +367,9 @@ def test_every_immediate_action_has_an_undo_and_only_reviewed_confirm_ones_do() 
         "campaign_schedule",
         # D-893 L2: the previous field list is the exact inverse, restored under a CAS.
         "lead_source_mapping",
+        # D-940: pause and resume put the status back through the screen's own function.
+        "follow_up_pause",
+        "follow_up_resume",
     }
     for tool in write_tools.WRITE_TOOLS:
         if tool.tier == "immediate":

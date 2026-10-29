@@ -73,22 +73,6 @@ def _counts(counts: service.Counts) -> CountsOut:
     )
 
 
-def starts_when(trigger: d.AnyTrigger) -> str:
-    """What starts a Follow-up, as one plain line for the list."""
-    if isinstance(trigger, d.NewLeadTrigger):
-        return "A new lead arrives" + ("" if trigger.source_ids is None else " from chosen sources")
-    if isinstance(trigger, d.CallEndedTrigger):
-        which = {"inbound": "An incoming call", "outbound": "A call we made", "both": "A call"}
-        return f"{which[trigger.calls]} ends"
-    if isinstance(trigger, d.LeadDateTrigger):
-        field = trigger.field.replace("_", " ")
-        if trigger.offset_days == 0:
-            return f"On the lead's {field}"
-        side = "before" if trigger.offset_days < 0 else "after"
-        return f"{abs(trigger.offset_days)} day(s) {side} the lead's {field}"
-    return "You start it for chosen leads"
-
-
 async def _out(session: AsyncSession, row: service.Row) -> FollowUpOut:
     names = await service.names(session)
     problems = await service.problems_of(session, row.trigger, row.steps, row.settings)
@@ -154,7 +138,7 @@ async def list_follow_ups(
                 status=r.status,  # type: ignore[arg-type]
                 starter=r.starter,  # type: ignore[arg-type]
                 trigger=r.trigger,
-                starts_when=starts_when(r.trigger),
+                starts_when=d.starts_when(r.trigger),
                 has_unpublished_changes=r.has_unpublished_changes,
                 counts=_counts(counts[r.id]),
                 updated_at=r.updated_at,
@@ -381,6 +365,63 @@ async def turn_off_follow_up(
     return await _out(session, row)
 
 
+async def _start_as_plan(
+    session: AsyncSession,
+    request: Request,
+    principal: Principal,
+    follow_up_id: UUID,
+    payload: FollowUpStartIn,
+) -> FollowUpStartOut:
+    """More leads than one request starts, as an approved plan: the same `follow_up_start`
+    plan Pip makes, built and approved here (as `crm/routes._bulk_as_plan` does for a large
+    leads change), so a worker starts them in batches and the screen follows its progress."""
+    from apps.api.copilot import plans
+    from apps.api.copilot.actions import WriteRefusedError, actor_for
+    from apps.api.copilot.follow_up_actions import START_LEADS
+
+    actor = actor_for(principal)
+    if actor is None:
+        raise ProblemError.forbidden("Starting leads belongs to a signed-in user of this account.")
+    args: dict[str, object] = {"follow_up_id": str(follow_up_id)}
+    if payload.lens is not None:
+        args["lens"] = payload.lens.model_dump(mode="json", exclude_defaults=True)
+    else:
+        args["lead_ids"] = [str(lead_id) for lead_id in payload.lead_ids or []]
+    if (await service.get(session, follow_up_id)).status != "live":
+        # `start_leads`' own refusal, before a plan is built for leads it would refuse.
+        raise ProblemError.conflict(
+            "follow_up_not_live", "Turn this follow-up on before starting leads."
+        )
+    try:
+        built = await plans.build_plan(
+            session, actor, tool="follow_up_start", action=START_LEADS, args=args, origin="console"
+        )
+    except WriteRefusedError as refused:
+        raise ProblemError(
+            kind="validation",
+            code="follow_up_start_unclear",
+            title="Choose the leads",
+            detail="Those leads could not be read. Check the filter and start again.",
+        ) from refused
+    approved = await plans.approve(session, actor, plan_id=built.id, expected_hash=built.plan_hash)
+    await write_audit(
+        session,
+        action="copilot.plan_approved",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="copilot_plan",
+        object_id=str(approved.id),
+        ip=client_request_ip(request),
+        summary={
+            "tool": approved.tool,
+            "origin": approved.origin,
+            "targets": approved.target_count,
+            "excluded": approved.excluded_count,
+        },
+    )
+    return FollowUpStartOut(started=0, skipped=approved.excluded_count, plan_id=approved.id)
+
+
 @router.post(
     "/{follow_up_id}/start",
     response_model=FollowUpStartOut,
@@ -419,12 +460,7 @@ async def start_follow_up(
             remediation="Check the leads and start again.",
         )
     if len(lead_ids) > service.MAX_START_LEADS:
-        raise ProblemError(
-            kind="validation",
-            code="follow_up_start_too_many",
-            title="Too many leads at once",
-            detail=f"Start at most {service.MAX_START_LEADS} leads at a time, or ask Pip.",
-        )
+        return await _start_as_plan(session, request, principal, follow_up_id, payload)
     outcome = await service.start_leads(
         session, follow_up_id, tenant_id=principal.tenant_id, lead_ids=lead_ids
     )
@@ -549,4 +585,4 @@ async def follow_up_results(follow_up_id: UUID, session: Session, _: Reader) -> 
     )
 
 
-__all__ = ["router", "starts_when"]
+__all__ = ["router"]

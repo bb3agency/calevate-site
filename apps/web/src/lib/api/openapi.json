@@ -25729,7 +25729,7 @@
                   "format": "uuid",
                   "type": "string"
                 },
-                "maxItems": 200,
+                "maxItems": 500,
                 "minItems": 1,
                 "type": "array"
               },

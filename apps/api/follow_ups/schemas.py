@@ -179,7 +179,9 @@ class FollowUpPublishIn(_Strict):
 
 
 class FollowUpStartIn(_Strict):
-    lead_ids: list[UUID] | None = Field(default=None, min_length=1, max_length=200)
+    #: Over 200 they start as an approved plan, which names at most 500 ticked leads
+    #: (`copilot/set_actions.MAX_NAMED_LEADS`); more than that is a filter.
+    lead_ids: list[UUID] | None = Field(default=None, min_length=1, max_length=500)
     lens: LeadLensIn | None = None
     expected_count: int | None = Field(default=None, ge=0)
 
