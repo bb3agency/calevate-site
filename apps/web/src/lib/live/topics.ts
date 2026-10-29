@@ -326,6 +326,8 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "copilot-approvals",
     "copilot-job",
     "copilot-jobs",
+    // Pip's notes (D-936): a detector run opens or resolves one.
+    "copilot-notes",
     "copilot-plan",
     "copilot-plan-targets",
     "copilot-plans",

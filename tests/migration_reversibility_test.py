@@ -122,6 +122,11 @@ DATA_ONLY_REPAIRS: dict[str, str] = {
         "Settings no longer declares since D-830; no DDL, the DELETE is a no-op once done, "
         "and restoring the row would make earlier code send a list the founder withdrew"
     ),
+    "d9e2b4f7a160": (
+        "deletes the platform_settings rows stored under cartesia_agent_cap and "
+        "stt_autodetect_language, which Settings no longer declares since D-939; no DDL, the "
+        "DELETE is a no-op once done, and no revision reads either key"
+    ),
 }
 
 #: What a schema change looks like in a migration's source. A revision claiming to be a

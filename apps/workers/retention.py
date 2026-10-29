@@ -3750,6 +3750,8 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         # (D-869): the account's own state, gone with it.
         await session.execute(text("DELETE FROM announcement_dismissals"))
         await session.execute(text("DELETE FROM notification_reads"))
+        # Pip's notes (D-936): ids and counts about this account, gone with it.
+        await session.execute(text("DELETE FROM copilot_notes"))
         # The teach box and the improvement loop: saved tests hold callers' redacted lines,
         # and the facts, teachings and waiting rules are the business's own words. Test runs
         # carry copies of those saved lines; the owner's "this test is wrong" labels point at

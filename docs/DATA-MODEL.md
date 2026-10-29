@@ -1984,6 +1984,20 @@ agent_test_copies(id, tenant_id, agent_id, engine_agent_ref, last_used_at, ...)
   -- `organizations.first_paid_via = operator_conversion` (§2).
 ```
 
+## 9f. Pip's notes (D-936, migration `e5b9d3f7a248`)
+
+```
+copilot_notes(id, tenant_id FK organizations RESTRICT, kind IN (hot_lead_waiting,
+  balance_runway, knowledge_gap_repeat, good_week), subject 1..64, episode_key 1..96,
+  payload jsonb object (ids and counts only), seen_at, dismissed_at, dismissed_by NULL FK
+  users SET NULL, acted_at, resolved_at, created_at, updated_at,
+  UNIQUE(tenant_id, kind, episode_key),
+  UNIQUE(tenant_id, kind, subject) WHERE resolved_at IS NULL)
+  -- FORCE-RLS. One open note per kind and subject; the line is composed at read time.
+  -- Resolved or dismissed notes older than 30 days are pruned by the detector run;
+  -- tenant erasure deletes every row.
+```
+
 ## 10. Migration & Integrity Rules
 
 - Alembic; every migration reversible; RLS policies live in migrations (not ad-hoc).

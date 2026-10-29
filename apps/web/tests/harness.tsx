@@ -302,6 +302,12 @@ export function stubApi(routes: Routes): ApiCall[] {
         // per-trade table every existing assertion was written against. A test about the
         // generated examples names the route itself.
         if (scoped === "GET /v1/business-copy") return jsonResponse(NO_BUSINESS_COPY);
+        // PIP'S NOTES (D-936), answered "nothing noticed" by default: the dock reads them on
+        // every client screen for the launcher's count, and the panel on open. A test about
+        // the notes names the route itself.
+        if (scoped === "GET /v1/copilot/notes" || scoped === "GET /v1/admin/copilot/notes") {
+          return jsonResponse({ notes: [], unread: 0 });
+        }
         // THE LANGUAGES AN ACCOUNT MAY GIVE AN AGENT (D-855), answered with the three every
         // account is offered: every language picker reads them. A test about a staged
         // language being switched on names the route itself.

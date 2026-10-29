@@ -412,6 +412,38 @@ export interface CopilotStep {
    * (`apps/api/copilot/step_labels.py`). Optional: an older server sends none.
    */
   label?: string | null;
+  /**
+   * A troubleshoot read's checklist (D-935, `CopilotDiagnosis`): drawn as a card under the
+   * steps. Absent on every other step.
+   */
+  diagnosis?: CopilotDiagnosis | null;
+}
+
+/** One troubleshoot check's button: a console screen, or a sentence sent to Pip. */
+export interface CopilotCheckFix {
+  label: string;
+  screen?: string | null;
+  route?: string | null;
+  where?: string | null;
+  ask?: string | null;
+}
+
+/** One troubleshoot check. `unknown` is an answer: it was not checked, not "fine". */
+export interface CopilotCheck {
+  key: string;
+  label: string;
+  status: "ok" | "problem" | "unknown";
+  detail: string;
+  evidence?: string[];
+  fix?: CopilotCheckFix | null;
+}
+
+/** The checks of one troubleshoot question, in order; the first `problem` is the cause. */
+export interface CopilotDiagnosis {
+  family: "agent" | "call" | "campaign" | "delivery" | "knowledge";
+  subject: string;
+  verdict: string;
+  checks: CopilotCheck[];
 }
 
 /**

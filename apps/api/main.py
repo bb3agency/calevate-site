@@ -213,6 +213,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.copilot.attachment_routes import admin_router as admin_copilot_uploads_router
     from apps.api.copilot.attachment_routes import router as copilot_uploads_router
     from apps.api.copilot.pin_routes import router as copilot_pins_router
+    from apps.api.copilot.note_routes import router as copilot_notes_router
     from apps.api.copilot.plan_routes import router as copilot_plans_router
     from apps.api.copilot.routes import router as copilot_router
     from apps.api.copilot.routine_routes import router as copilot_routines_router
@@ -437,6 +438,8 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(copilot_routines_router)
     application.include_router(copilot_plans_router)
     application.include_router(copilot_pins_router)
+    # Pip's notes (D-936): the client panel's and the operator's.
+    application.include_router(copilot_notes_router)
     # Files attached to Pip (D-781): declare, finalize, download, remove, both realms.
     application.include_router(copilot_uploads_router)
     application.include_router(admin_copilot_uploads_router)

@@ -135,6 +135,8 @@ EXPECTED: dict[str, dict[str, Any]] = {
             # refusal that ran nothing reports no duration rather than "0 ms".
             "elapsed_ms": '{"anyOf": [{"type": "integer"}, {"type": "null"}]}',
             "label": '{"anyOf": [{"type": "string"}, {"type": "null"}]}',
+            # D-935: a troubleshoot read's checklist card.
+            "diagnosis": '{"anyOf": [{"$ref": "#/$defs/CopilotDiagnosis"}, {"type": "null"}]}',
         },
         "required": ["args", "id", "status", "tool"],
     },

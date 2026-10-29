@@ -508,6 +508,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/copilot/notes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Fleet notes for the operator's Pip: clients at risk and failing deliveries */
+        get: operations["list_admin_copilot_notes_v1_admin_copilot_notes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/copilot/pins": {
         parameters: {
             query?: never;
@@ -7866,6 +7883,74 @@ export interface paths {
         get: operations["stream_copilot_job_v1_copilot_jobs__job_id__events_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/copilot/notes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What Pip noticed in this account, and the items it repeats from other screens */
+        get: operations["list_copilot_notes_v1_copilot_notes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/copilot/notes/seen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark Pip's open notes as seen (the panel was opened) */
+        post: operations["mark_copilot_notes_seen_v1_copilot_notes_seen_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/copilot/notes/{note_id}/acted": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record that a note's button was pressed */
+        post: operations["mark_copilot_note_acted_v1_copilot_notes__note_id__acted_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/copilot/notes/{note_id}/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Put one of Pip's notes away for the account */
+        post: operations["dismiss_copilot_note_v1_copilot_notes__note_id__dismiss_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -18525,6 +18610,63 @@ export interface components {
             kind: "step" | "action" | "approval" | "text" | "note";
             /** Text */
             text: string;
+        };
+        /** CopilotNoteAckOut */
+        CopilotNoteAckOut: {
+            /** Ok */
+            ok: boolean;
+        };
+        /** CopilotNoteButtonOut */
+        CopilotNoteButtonOut: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "open" | "ask";
+            /** Label */
+            label: string;
+            /** Prompt */
+            prompt: string | null;
+            /** Route */
+            route: string | null;
+            /** Screen */
+            screen: string | null;
+        };
+        /** CopilotNoteOut */
+        CopilotNoteOut: {
+            button: components["schemas"]["CopilotNoteButtonOut"];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Dismissible */
+            dismissible: boolean;
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Line */
+            line: string;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "pip" | "linked";
+            /**
+             * Tone
+             * @enum {string}
+             */
+            tone: "info" | "success" | "warning" | "critical";
+            /** Unread */
+            unread: boolean;
+        };
+        /** CopilotNotesOut */
+        CopilotNotesOut: {
+            /** Notes */
+            notes: components["schemas"]["CopilotNoteOut"][];
+            /** Unread */
+            unread: number;
         };
         /**
          * CopilotOption
@@ -34932,6 +35074,35 @@ export interface operations {
             };
         };
     };
+    list_admin_copilot_notes_v1_admin_copilot_notes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotNotesOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     list_admin_pins_v1_admin_copilot_pins_get: {
         parameters: {
             query?: never;
@@ -48125,6 +48296,126 @@ export interface operations {
                 };
                 content: {
                     "text/event-stream": unknown;
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_copilot_notes_v1_copilot_notes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotNotesOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    mark_copilot_notes_seen_v1_copilot_notes_seen_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotNoteAckOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    mark_copilot_note_acted_v1_copilot_notes__note_id__acted_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                note_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotNoteAckOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    dismiss_copilot_note_v1_copilot_notes__note_id__dismiss_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                note_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotNoteAckOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

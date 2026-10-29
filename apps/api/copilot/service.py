@@ -58,6 +58,8 @@ from apps.api.copilot import (
     areas,
     attachments,
     console_reads,
+    coverage_actions,
+    diagnostics,
     jobs,
     navigation,
     routine_actions,
@@ -79,6 +81,7 @@ from apps.api.copilot.sanitize import clean_value, strip_invisible
 from apps.api.copilot.schemas import (
     CopilotActionEvent,
     CopilotAskIn,
+    CopilotDiagnosis,
     CopilotField,
     CopilotFillItem,
     CopilotJobEvent,
@@ -1066,8 +1069,16 @@ def realm_read_tools(realm: CopilotRealm) -> tuple[tools_module.ReadTool, ...]:
     if realm == "admin":
         return (*admin_tools.ADMIN_READ_TOOLS, *_shared_reads())
     # A routine is one client person's; an operator has none in the account, so the admin
-    # surfaces do not carry a read that could only refuse (D-816).
-    return (*_shared_reads(), *routine_actions.ROUTINE_READS, *charts_module.CHART_READS)
+    # surfaces do not carry a read that could only refuse (D-816). The troubleshoot reads
+    # (D-935) are client-only too: the admin twin is `admin_diagnose`, one tool for any client.
+    # D-938: help and the connection check are client-only for the same reason.
+    return (
+        *_shared_reads(),
+        *routine_actions.ROUTINE_READS,
+        *diagnostics.DIAGNOSE_READS,
+        *coverage_actions.COVERAGE_READS,
+        *charts_module.CHART_READS,
+    )
 
 
 def _read_tool_registry(realm: CopilotRealm) -> Mapping[str, tools_module.ReadTool]:
@@ -1249,6 +1260,11 @@ async def _run_one_read_tool(
             f"`{call.name}` came back with nothing at all. Tell the user you could not "
             "look that up, and do not invent the answer."
         )
+    if isinstance(result, diagnostics.DiagnosisText):
+        # D-935: the checklist rides on the step frame; the model got the text.
+        verdict = result.diagnosis.verdict
+        frame = _step_end(call, status="done", detail=verdict, started_at=started_at)
+        return frame.model_copy(update={"diagnosis": diagnosis_event(result.diagnosis)}), result
     # A REFUSAL FROM A READ TOOL IS STILL A `done` STEP, and that is honest rather than
     # lazy: `run_read_tool` answers a permission refusal, an unknown tool and an empty
     # result with the same kind of sentence, and this function cannot tell them apart
@@ -1602,6 +1618,36 @@ def _step_end(
         # A step that did not finish is named by what it was doing, not by a past tense
         # that would claim it happened.
         label=step_label(call.name, running=status != "done"),
+    )
+
+
+def diagnosis_event(diagnosis: diagnostics.Diagnosis) -> CopilotDiagnosis:
+    """The panel's checklist card for one troubleshoot read (D-935)."""
+    return CopilotDiagnosis.model_validate(
+        {
+            "family": diagnosis.family,
+            "subject": diagnosis.subject,
+            "verdict": diagnosis.verdict,
+            "checks": [
+                {
+                    "key": check.key,
+                    "label": check.label,
+                    "status": check.status,
+                    "detail": check.detail,
+                    "evidence": list(check.evidence),
+                    "fix": None
+                    if check.fix is None
+                    else {
+                        "label": check.fix.label,
+                        "screen": check.fix.screen,
+                        "route": check.fix.route,
+                        "where": check.fix.where,
+                        "ask": check.fix.ask,
+                    },
+                }
+                for check in diagnosis.checks
+            ],
+        }
     )
 
 

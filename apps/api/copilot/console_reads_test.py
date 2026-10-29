@@ -15,6 +15,7 @@ from tests.api_security_test import _make_tenant
 
 from apps.api.copilot import service, tools
 from apps.api.copilot.console_reads import CONSOLE_READ_TOOL_NAMES, CONSOLE_READ_TOOLS
+from apps.api.copilot.diagnostics import DIAGNOSE_READS
 from apps.api.db.session import tenant_session
 
 
@@ -38,8 +39,10 @@ def test_the_console_reads_follow_the_first_reads_in_both_realms() -> None:
     client = [tool.name for tool in service.realm_read_tools("client")]
     admin = [tool.name for tool in service.realm_read_tools("admin")]
     console = [tool.name for tool in CONSOLE_READ_TOOLS]
-    assert client == [*[t.name for t in tools.READ_TOOLS], *console, "routines_list"]
-    client = client[:-1]
+    diagnose = [tool.name for tool in DIAGNOSE_READS]
+    client_only = ["routines_list", *diagnose, "help_lookup", "connection_check"]
+    assert client == [*[t.name for t in tools.READ_TOOLS], *console, *client_only]
+    client = client[: -len(client_only)]
     assert admin[-len(client) :] == client
     assert not CONSOLE_READ_TOOL_NAMES & tools.READ_TOOL_NAMES
 

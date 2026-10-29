@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Info, Undo2, X } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 
@@ -28,7 +28,9 @@ import { ChartCard } from "./ChartCard";
 import { JobCard } from "./JobCard";
 import { NavigationReceipt } from "./NavigationReceipt";
 import { PipConsentGate } from "./PipConsent";
+import { PipNotes } from "./PipNotes";
 import { ProposalCard } from "./ProposalCard";
+import { DiagnosisCard } from "./DiagnosisCard";
 import { StepList } from "./StepList";
 import { panelFrame, type PanelPlacement } from "./panelFrame";
 import {
@@ -185,18 +187,22 @@ export function CopilotPanel({
     panel.current?.querySelector("textarea")?.focus();
   }, [placement]);
 
-  // A prefilled request: into the box, caret at the end, ready to edit or send.
-  const requestNonce = request?.nonce;
-  const requestPrompt = request?.prompt;
-  useEffect(() => {
-    if (requestNonce === undefined || requestPrompt === undefined) return;
-    setQuestion(requestPrompt);
+  // A prefilled request: into the box, caret at the end, ready to edit or send. A screen's
+  // button and a note's `ask` button (D-936) both arrive here.
+  const prefill = useCallback((prompt: string) => {
+    setQuestion(prompt);
     const box = panel.current?.querySelector("textarea");
     if (box) {
       box.focus();
       requestAnimationFrame(() => box.setSelectionRange(box.value.length, box.value.length));
     }
-  }, [requestNonce, requestPrompt]);
+  }, []);
+  const requestNonce = request?.nonce;
+  const requestPrompt = request?.prompt;
+  useEffect(() => {
+    if (requestNonce === undefined || requestPrompt === undefined) return;
+    prefill(requestPrompt);
+  }, [requestNonce, requestPrompt, prefill]);
   const reduced = useReducedMotion();
 
   /*
@@ -384,6 +390,8 @@ export function CopilotPanel({
         </div>
       ) : (
       <>
+      {/* WHAT PIP NOTICED ON ITS OWN (D-936), above the conversation. */}
+      <PipNotes session={session} realm={realm} onOpen={onNavigate} onAsk={prefill} />
       <div className="relative flex min-h-0 flex-1 flex-col">
       <div
         ref={transcript}
@@ -575,6 +583,21 @@ export function CopilotPanel({
             ""
           }
         />
+
+        {/* WHY SOMETHING DID NOT WORK (D-935): a troubleshoot read's checklist, the cause
+            open with its one button. The admin realm gets no button that would ask its Pip
+            for a client change it cannot make; the card says the next step in words. */}
+        {conversation.steps.map((step) =>
+          step.status === "done" && step.diagnosis ? (
+            <DiagnosisCard
+              key={step.id}
+              diagnosis={step.diagnosis}
+              asking={conversation.asking}
+              onAsk={realm === "client" ? (text) => conversation.ask(text) : undefined}
+              onNavigate={onNavigate}
+            />
+          ) : null,
+        )}
 
         {/* A CHANGE THE ASSISTANT IS OFFERING TO MAKE — not one it has made.
             `aria-live="polite"` on the wrapper rather than focus management on the card:

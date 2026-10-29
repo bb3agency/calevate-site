@@ -1454,7 +1454,6 @@ READ_TOOLS: Final[tuple[ReadTool, ...]] = (
                         {"type": "string", "enum": list(get_args(LeadStatus))},
                         {"type": "null"},
                     ],
-                    "description": "Only leads in this state. Null means every state.",
                 },
                 "search": {
                     "anyOf": [{"type": "string"}, {"type": "null"}],
@@ -1488,18 +1487,13 @@ READ_TOOLS: Final[tuple[ReadTool, ...]] = (
             "properties": {
                 "question": {
                     "type": "string",
-                    "description": (
-                        "What the caller wanted, in ordinary words, e.g. '3BHK in "
-                        "Gachibowli'. Do not include names, phone numbers or email "
-                        "addresses — they are not searchable here."
-                    ),
+                    "description": "What the caller wanted. No names, numbers or emails.",
                 },
                 "status": {
                     "anyOf": [
                         {"type": "string", "enum": list(get_args(LeadStatus))},
                         {"type": "null"},
                     ],
-                    "description": "Only leads in this state. Null means every state.",
                 },
                 "limit": {
                     "anyOf": [{"type": "integer"}, {"type": "null"}],
@@ -1531,7 +1525,6 @@ READ_TOOLS: Final[tuple[ReadTool, ...]] = (
                         {"type": "string", "enum": list(CALL_STATUSES)},
                         {"type": "null"},
                     ],
-                    "description": "Only calls in this state. Null means every state.",
                 },
                 "limit": {
                     "anyOf": [{"type": "integer"}, {"type": "null"}],
@@ -1565,12 +1558,9 @@ READ_TOOLS: Final[tuple[ReadTool, ...]] = (
     ReadTool(
         name="agents_list",
         description=(
-            "This account's voice agents: name, whether it answers inbound calls or makes "
-            "outbound ones, whether it is live/paused/draft, whether it has been published "
-            "to the phone system yet, how many phone numbers it answers on, and its main "
-            "language, with the id the agent actions take. Deleted agents follow, for "
-            "`agent_restore`. Use it to answer which agents exist and whether one is "
-            "actually switched on."
+            "This account's voice agents with their ids: inbound or outbound, live/paused/"
+            "draft, published or not, numbers it answers on, main language. Deleted agents "
+            "follow, for `agent_restore`."
         ),
         parameters={
             "type": "object",

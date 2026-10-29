@@ -1,7 +1,7 @@
 """dashboard pins — Pip's charts kept on the client home and the admin home (D-934)
 
 Revision ID: c9d4e7a2b815
-Revises: f3a8c2d61b07
+Revises: e5b9d3f7a248
 Create Date: 2026-10-29 16:00:00.000000
 
 A pin stores the QUERY that drew a chart — the chart's name and its arguments — and never
@@ -27,7 +27,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "c9d4e7a2b815"
-down_revision: str | None = "f3a8c2d61b07"
+down_revision: str | None = "e5b9d3f7a248"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

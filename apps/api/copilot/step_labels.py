@@ -56,6 +56,12 @@ STEP_LABELS: Final[dict[str, StepLabel]] = {
     "voices_offered": _l("Checking the voices", "Checked the voices"),
     "agent_settings": _l("Reading the agent's set-up", "Read the agent's set-up"),
     "agent_known_facts": _l("Checking what it knows by heart", "Checked what it knows by heart"),
+    # D-935: troubleshoot mode.
+    "agent_diagnose": _l("Checking why the agent did not answer", "Checked the agent"),
+    "call_diagnose": _l("Checking why the call failed", "Checked the call"),
+    "campaign_diagnose": _l("Checking why the campaign is not calling", "Checked the campaign"),
+    "delivery_diagnose": _l("Checking where the lead went", "Checked where the lead went"),
+    "knowledge_diagnose": _l("Checking how your knowledge is used", "Checked your knowledge"),
     # Client changes.
     "lead_set_status": _l("Updating the lead", "Updated the lead"),
     "dnc_add": _l("Adding to do-not-call", "Added to do-not-call"),
@@ -185,6 +191,15 @@ STEP_LABELS: Final[dict[str, StepLabel]] = {
         "Preparing the people to take off", "Prepared the people to take off"
     ),
     "campaign_consent_set": _l("Preparing the list's permission", "Prepared the list's permission"),
+    # D-938: coverage.
+    "help_lookup": _l("Looking up how", "Looked up how"),
+    "connection_check": _l("Checking the connection", "Checked the connection"),
+    "account_model_tier_set": _l("Preparing the AI model change", "Prepared the AI model change"),
+    "agent_team_alert_set": _l("Preparing the team alert", "Prepared the team alert"),
+    "team_alert_contact": _l("Preparing the team address", "Prepared the team address"),
+    "knowledge_refresh": _l("Preparing the knowledge update", "Prepared the knowledge update"),
+    "connection_disconnect": _l("Preparing to disconnect", "Prepared to disconnect"),
+    "account_switch_set": _l("Preparing the switch", "Prepared the switch"),
     "open_screen": _l("Opening the screen", "Opened the screen"),
     "run_in_background": _l("Starting a background task", "Started a background task"),
     # Operator reads and actions (admin realm).
@@ -197,6 +212,7 @@ STEP_LABELS: Final[dict[str, StepLabel]] = {
     "admin_alerts": _l("Checking alerts", "Checked alerts"),
     "admin_voices": _l("Checking the voices", "Checked the voices"),
     "admin_client_standing": _l("Checking the client's standing", "Checked the client's standing"),
+    "admin_diagnose": _l("Running the checks", "Ran the checks"),
     "platform_halt_outbound": _l("Halting outgoing calls", "Halted outgoing calls"),
     "admin_kyc_review": _l("Recording the verification decision", "Recorded the decision"),
     "admin_workspace_provision": _l("Setting up the workspace", "Set up the workspace"),
@@ -205,6 +221,7 @@ STEP_LABELS: Final[dict[str, StepLabel]] = {
     "healer_incidents": _l("Checking the healer's problems", "Checked the healer's problems"),
     "healer_incident": _l("Reading the problem's history", "Read the problem's history"),
     "healer_money_review": _l("Comparing charges with our records", "Compared the charges"),
+    "admin_rate_card": _l("Reading the rate card", "Read the rate card"),
     "healer_retry": _l("Running the repair again", "Ran the repair again"),
     "healer_resolve": _l("Marking the problem handled", "Marked the problem handled"),
     "healer_attest_rate": _l("Recording the rate you read", "Recorded the rate"),

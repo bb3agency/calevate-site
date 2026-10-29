@@ -16,6 +16,7 @@ from apps.api.campaigns import models as campaigns_models
 from apps.api.campaigns import number_models as campaigns_number_models
 from apps.api.compliance import models as compliance_models
 from apps.api.copilot import models as copilot_models
+from apps.api.copilot import note_models as copilot_note_models
 from apps.api.copilot import pin_models as copilot_pin_models
 from apps.api.copilot import plan_models as copilot_plan_models
 from apps.api.copilot import routine_models as copilot_routine_models
@@ -56,6 +57,7 @@ __all__ = [
     "campaigns_number_models",
     "compliance_models",
     "copilot_models",
+    "copilot_note_models",
     "copilot_pin_models",
     "copilot_plan_models",
     "copilot_routine_models",
@@ -508,6 +510,11 @@ TENANT_TABLES = [
     # account's own state and FORCE-RLS'd like every other one.
     "announcement_dismissals",
     "notification_reads",
+    # Pip's notes (D-936, migration e5b9d3f7a248): what the hourly detectors noticed in an
+    # account, one row per episode, ids and counts only. NOT append-only: a note is seen,
+    # dismissed, acted on and resolved. DELETEd by tenant erasure; notes older than
+    # `copilot/notes.KEEP_DAYS` are pruned by the detector run.
+    "copilot_notes",
 ]
 
 # Tables deliberately OUTSIDE tenant isolation, with reasons — the RLS coverage

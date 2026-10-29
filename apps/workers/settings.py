@@ -277,6 +277,13 @@ from apps.workers.own_model_key import (
     sweep_own_model_workspaces,
 )
 from apps.workers.pinned_facts import recompile_pinned_facts
+from apps.workers.pip_notes import (
+    SWEEP_HOURS as PIP_NOTES_SWEEP_HOURS,
+)
+from apps.workers.pip_notes import (
+    SWEEP_MINUTE as PIP_NOTES_SWEEP_MINUTE,
+)
+from apps.workers.pip_notes import detect_pip_notes, sweep_pip_notes
 from apps.workers.pipeline import (
     ingest_engine_event,
     reconcile_executions,
@@ -438,6 +445,8 @@ FUNCTIONS: list[Any] = [
         # Each agent's facts known by heart chosen again (D-896), from the outbox
         # (`agents/hot_facts.request_recompute`) and the daily `sweep_hot_facts`.
         recompute_hot_facts,
+        # Pip's detectors for one account (D-936), queued hourly by `sweep_pip_notes`.
+        detect_pip_notes,
         # D-720. A saved setting brought onto every live agent it changes: the walk in
         # bounded batches and one agent's retry ladder, both from the outbox
         # (`agents/live_apply.queue_live_apply`).
@@ -1368,6 +1377,15 @@ CRON_JOBS = [
         walk=fleet_wide("one tenant_session per open organization, under a time budget"),
         hour={HOT_FACTS_SWEEP_HOUR},
         minute={HOT_FACTS_SWEEP_MINUTE},
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # D-936. Hourly in the IST working day: one bulk `detect_pip_notes` per open account,
+    # keyed by account and hour so a retried tick queues nothing twice. In-app notes only.
+    _cron(
+        traced_job(sweep_pip_notes),
+        walk=fleet_wide("one directory read, then one bulk enqueue per open organization"),
+        hour=set(PIP_NOTES_SWEEP_HOURS),
+        minute={PIP_NOTES_SWEEP_MINUTE},
         max_tries=WORKER_MAX_TRIES,
     ),
     _cron(
