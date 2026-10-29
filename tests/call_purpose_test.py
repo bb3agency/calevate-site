@@ -46,6 +46,12 @@ def _verdict(wording: str, kind: str = "instruction") -> str:
         ("हमारा नया ऑफर सिर्फ आज के लिए है।", "discount"),
         ("जल्दी करें, आखिरी मौका।", "urgency"),
         ("abhi kharidein aur bachat karein", "buy_now"),
+        # A negation in another clause, or an idiom that only looks like one, does not
+        # cancel the offer beside it.
+        ("No cost EMI with 10% off on all packages this week.", "discount"),
+        ("Don't wait, flat 20% off for you.", "discount"),
+        ("Get Rs 500 off, not available anywhere else!", "discount"),
+        ("Don't miss your chance, book today.", "urgency"),
     ],
 )
 def test_promotional_wording_is_found(wording: str, category: str) -> None:
@@ -79,10 +85,27 @@ def test_promotional_wording_is_found(wording: str, category: str) -> None:
         "फीस पर कोई छूट नहीं है।",
         "क्या आप कल फ्री हैं?",
         "मुफ्त पार्किंग उपलब्ध है।",
+        # Reminders, missed calls, tax exemptions, offer letters and the verb "offer":
+        # sentences a clinic, a coaching centre, a tax consultant or a builder says daily.
+        "Please don't miss your appointment with Dr Rao tomorrow at 10 AM.",
+        "नमस्ते, आपकी छूटी हुई कॉल के बारे में हम वापस कॉल कर रहे हैं।",
+        "कोई दस्तावेज़ छूटा तो हम बता देंगे।",
+        "हम 80C के तहत टैक्स छूट के दस्तावेज़ तैयार करते हैं।",
+        "మా విద్యార్థులకు గత సంవత్సరం 40 ఆఫర్ లెటర్లు వచ్చాయి.",
+        "पिछले साल हमारे 40 छात्रों को ऑफर लेटर मिले।",
+        "ఏ ఏరియా కావాలో అడగండి. సైట్ విజిట్ ఆఫర్ చేయండి.",
+        "उन्हें साइट विज़िट ऑफर करें।",
     ],
 )
 def test_everyday_wording_is_not_promotional(wording: str) -> None:
     assert _verdict(wording) == "clear", lint([ScriptPart("Test", wording)]).findings
+
+
+def test_dont_delay_in_telugu_asks_for_a_check_and_never_blocks() -> None:
+    """One Telugu phrase says both "do not be late" and "do not delay buying"."""
+    report = lint([ScriptPart("Step 1", "దయచేసి అపాయింట్‌మెంట్‌కు ఆలస్యం చేయకండి.")])
+    assert report.verdict == "check"
+    assert not report.blocks_launch
 
 
 @pytest.mark.parametrize(

@@ -121,6 +121,11 @@ _OFFER_QUALIFIERS = (
     "early[- ]bird|amazing|great|best|current|latest|seasonal"
 )
 
+_BOOKED_THINGS = (
+    "appointment|appointments|visit|site\\s+visit|slot|session|class|classes|call|payment|emi|"
+    "dose|follow-?up|check-?up|test|exam|booking|interview|demo|consultation|scan|delivery"
+)
+
 _RULES: Final[tuple[_Rule, ...]] = (
     # --- English ---------------------------------------------------------------------
     _latin(r"discounts?|discounted", "discount", "en", "strong"),
@@ -154,7 +159,9 @@ _RULES: Final[tuple[_Rule, ...]] = (
     ),
     _latin(
         r"limited\s+(?:period|time|stock|stocks|units)|hurry(?:\s+up)?|last\s+chance|"
-        r"today\s+only|only\s+today|offer\s+ends|while\s+stocks?\s+last|don'?t\s+miss|"
+        r"today\s+only|only\s+today|offer\s+ends|while\s+stocks?\s+last|"
+        # Not "don't miss your appointment": a reminder of something already booked.
+        rf"don'?t\s+miss(?!\s+(?:your|the)\s+(?:{_BOOKED_THINGS})\b)|"
         r"book\s+now\s+and\s+(?:get|save)|before\s+it'?s\s+gone|"
         r"last\s+few\s+(?:units|flats|plots|homes|villas)",
         "urgency",
@@ -196,11 +203,13 @@ _RULES: Final[tuple[_Rule, ...]] = (
         "strong",
     ),
     _indic(
-        ("పరిమిత కాలం", "పరిమిత సమయం", "ఈ రోజు మాత్రమే", "ఈరోజు మాత్రమే", "త్వరపడండి", "చివరి అవకాశం", "ఆలస్యం చేయకండి"),
+        ("పరిమిత కాలం", "పరిమిత సమయం", "ఈ రోజు మాత్రమే", "ఈరోజు మాత్రమే", "త్వరపడండి", "చివరి అవకాశం"),
         "urgency",
         "te",
         "strong",
     ),
+    # "Do not delay" is also "do not be late", which every appointment reminder says.
+    _indic(("ఆలస్యం చేయకండి",), "urgency", "te", "soft"),
     _indic(("ఇప్పుడే కొనండి", "ఇప్పుడే ఆర్డర్ చేయండి"), "buy_now", "te", "strong"),
     _indic(("ఉచిత బహుమతి",), "free_offer", "te", "strong"),
     _indic(("బెస్ట్ ప్రైస్",), "discount", "te", "soft"),
@@ -212,7 +221,7 @@ _RULES: Final[tuple[_Rule, ...]] = (
         "hi",
         "strong",
     ),
-    # छूट alone: see `_chhoot_is_missed` for the "was missed" sense it must not catch.
+    # छूट alone: `_INDIC_EVERYDAY_AFTER` keeps out its "was missed" and "exemption" senses.
     _indic(("छूट",), "discount", "hi", "strong"),
     _indic(
         ("सीमित समय", "सीमित अवधि", "सिर्फ आज", "केवल आज", "जल्दी करें", "आखिरी मौका", "मौका न चूकें"),
@@ -257,16 +266,60 @@ _NEGATION_AFTER_RE: Final = re.compile(
     re.IGNORECASE,
 )
 _NEGATION_HI_BEFORE: Final = re.compile("नहीं|कोई भी")
-_CHHOOT_MISSED: Final = re.compile("^\\s*(?:ग|जा|गय|गई|गए)")
+#: A negation reaches only as far as its own clause: "Don't wait, flat 20% off" and "Rs 500
+#: off, not available anywhere else" negate nothing about the offer.
+#: Em dash, en dash and the Devanagari danda (by code point: RUF001 refuses the dashes) end
+#: a clause too.
+_CLAUSE_BREAK: Final = re.compile("[,.;:!?\n" + "".join(map(chr, (0x2014, 0x2013, 0x0964))) + "]")
+#: Sales idioms built on a negative word that negate no offer: "No cost EMI with 10% off".
+_NEGATIVE_IDIOMS: Final = re.compile(
+    r"\b(?:no[\s-]+cost|no\s+hidden|no\s+extra|no\s+waiting|don'?t\s+wait|do\s+not\s+wait|"
+    r"not\s+just|not\s+only)\b",
+    re.IGNORECASE,
+)
+
+#: Indic words of the strong lists that also have an everyday sense, told apart by the
+#: letters around them: छूट is "was missed" before a vowel sign or गया/जाना (छूटी हुई कॉल,
+#: छूट गई) and an exemption after "tax" (टैक्स छूट); ఆఫర్/ऑफर is the verb "to offer" before
+#: "do" (సైట్ విజిట్ ఆఫర్ చేయండి, ऑफर करें) and a job offer before "letter".
+_INDIC_EVERYDAY_AFTER: Final[dict[str, re.Pattern[str]]] = {
+    word_nfc: pattern
+    for words, pattern in (
+        (("छूट",), re.compile("^(?:[ा-ौ]|\\s*(?:ग|जा|गय|गई|गए))")),
+        (("ఆఫర్",), re.compile("^[\\s‌]*(?:లెటర్|చేయ|చేస్|చేసి|చెయ్య)")),
+        (("ऑफर", "ऑफ़र"), re.compile("^[\\s‌]*(?:लेटर|कर)")),
+    )
+    for word_nfc in (unicodedata.normalize("NFC", word) for word in words)
+}
+_INDIC_EVERYDAY_BEFORE: Final[dict[str, re.Pattern[str]]] = {
+    "छूट": re.compile("(?:टैक्स|आयकर|कर|जीएसटी)\\s*$"),
+}
 
 
 def _norm(value: str) -> str:
     return unicodedata.normalize("NFC", value)
 
 
+def _everyday_sense(text: str, start: int, end: int) -> bool:
+    word = text[start:end]
+    after = _INDIC_EVERYDAY_AFTER.get(word)
+    before = _INDIC_EVERYDAY_BEFORE.get(word)
+    return bool(
+        (after is not None and after.search(text[end:]))
+        or (before is not None and before.search(text[:start]))
+    )
+
+
 def _negated(text: str, start: int, end: int) -> bool:
     before = text[max(0, start - _NEGATION_BEFORE) : start]
+    breaks = list(_CLAUSE_BREAK.finditer(before))
+    if breaks:
+        before = before[breaks[-1].end() :]
+    before = _NEGATIVE_IDIOMS.sub(" ", before)
     after = text[end : end + _NEGATION_AFTER]
+    cut = _CLAUSE_BREAK.search(after)
+    if cut is not None:
+        after = after[: cut.start()]
     return bool(
         _NEGATION_EN_BEFORE.search(before)
         or _NEGATION_HI_BEFORE.search(before)
@@ -324,7 +377,7 @@ def _part_findings(part: ScriptPart) -> list[Finding]:
 
     for rule in _RULES:
         for match in rule.pattern.finditer(text):
-            if match.group(0) == "छूट" and _CHHOOT_MISSED.search(text[match.end() :]):
+            if _everyday_sense(text, match.start(), match.end()):
                 continue
             add(match.start(), match.end(), rule.category, rule.language, rule.severity)
     for start, end, language in _free_findings(text):
