@@ -42408,6 +42408,22 @@
             "title": "Direction",
             "type": "string"
           },
+          "inr_per_month": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,13}0*$)\\d{0,10}\\.\\d{0,2}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inr Per Month"
+          },
           "number": {
             "maxLength": 20,
             "minLength": 8,

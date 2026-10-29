@@ -59,6 +59,7 @@ import {
   formatINR,
   formatPhone,
 } from "@/components/ui";
+import { formatPayableINR } from "@/lib/numberDisplay";
 import { EmptySketch } from "@/components/console/emptySketch";
 import { InfoTip } from "@/components/console/infoTip";
 import { EmptyState } from "@/components/console/emptyState";
@@ -275,7 +276,7 @@ function OfferRow({
             {where !== "" && <span className="mt-1 block text-meta text-ink-muted">{where}</span>}
           </span>
         </span>
-        <span className="text-body font-medium text-ink">{formatINR(offer.inr_per_month)} a month</span>
+        <span className="text-body font-medium text-ink">{formatPayableINR(offer.inr_per_month)} a month</span>
       </label>
     </li>
   );
@@ -377,8 +378,8 @@ export function BuyNumber() {
               action={bought.activated ? undefined : <VerifyLink href={verifyHref} />}
             >
               {bought.activated
-                ? `${formatINR(bought.inr_per_month)} a month. Pick its agent below.`
-                : `${formatINR(bought.inr_per_month)} a month. Works once you are verified.`}
+                ? `${formatPayableINR(bought.inr_per_month)} a month. Pick its agent below.`
+                : `${formatPayableINR(bought.inr_per_month)} a month. Works once you are verified.`}
             </NoticeBox>
           )}
 
@@ -453,7 +454,7 @@ export function BuyNumber() {
                     Buy {formatPhone(chosen.e164)}
                   </h3>
                   <p className="text-body text-ink">
-                    {formatINR(chosen.inr_per_month)} a month while you keep it.
+                    {formatPayableINR(chosen.inr_per_month)} a month while you keep it.
                   </p>
                   <p className="text-body text-ink-muted">
                     {trial !== null

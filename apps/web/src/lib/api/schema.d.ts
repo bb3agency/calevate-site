@@ -28801,6 +28801,8 @@ export interface components {
              * @enum {string}
              */
             direction: "inbound" | "outbound" | "both";
+            /** Inr Per Month */
+            inr_per_month?: number | string | null;
             /** Number */
             number: string;
             /** Request Key */

@@ -387,6 +387,7 @@ describe("buying a number", () => {
       agent_id: "agent-1",
       direction: "both",
       request_key: sent[0].request_key,
+      inr_per_month: "499.00",
     });
     expect(sent[0].request_key).toMatch(/^[A-Za-z0-9_-]{8,100}$/);
     expect(sent[1].request_key).toBe(sent[0].request_key);
