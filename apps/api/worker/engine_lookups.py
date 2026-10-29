@@ -20,7 +20,8 @@ must be the agent the url names. Every failure is one 401.
 
 THE ANSWER is built from our CRM for the route's tenant only (`crm/caller_lookup.py`) under
 `ANSWER_BUDGET_S`; any miss, error or overrun answers no caller values with 200 so the call
-goes ahead at once. Every answer, those included, carries today's IST date
+goes ahead at once. A secret read that overruns `SECRET_BUDGET_S` answers 503, which the
+vendor treats the same way. Every answer, those included, carries today's IST date
 (`calevate_shared.engine.TODAY_VARIABLE`, D-888): the lookup is the one way an inbound
 call's instructions get a value from us. HARD RULE 6: logs carry ids and an outcome word,
 never the number.
@@ -75,10 +76,18 @@ _BODY_MAX: Final = 16 * 1024
 #: The vendor waits two seconds; we answer well inside it so a slow read never makes the
 #: caller hear extra ringing for nothing.
 ANSWER_BUDGET_S: Final = 0.8
+#: The route's other awaits, each bounded so the whole request stays inside the vendor's
+#: two seconds: the secret read (`SECRET_BUDGET_S`) and up to two Redis round trips
+#: (`REDIS_BUDGET_S` each) around the answer, 0.4 + 0.2 + 0.8 + 0.2 = 1.6 s at worst.
+#: Without them the only bounds are the pool's 5 s checkout and redis-py's 2 s socket
+#: timeout, so one slow store makes the caller ring for the vendor's full wait.
+SECRET_BUDGET_S: Final = 0.4
+REDIS_BUDGET_S: Final = 0.2
 FRESHNESS: Final = timedelta(minutes=5)
 #: Signed against when no route or secret exists, so an unknown agent costs the same.
 _DECOY: Final = secrets.token_urlsafe(32)
 _UNAUTHORISED: Final = {"error": "unauthorised"}
+_UNAVAILABLE: Final = {"error": "unavailable"}
 
 
 def _answer_with(variables: dict[str, str]) -> JSONResponse:
@@ -121,10 +130,16 @@ async def caller_lookup(
     secret = None
     tenant_id = agent_id = None
     if engine in LOOKUP_ENGINES and agent and len(raw) <= _BODY_MAX:
-        async with untenanted_session() as session:
-            exists, secret, tenant_id, agent_id = await read_call_start_secret(
-                session, engine=engine, engine_agent_ref=agent
-            )
+        try:
+            async with asyncio.timeout(SECRET_BUDGET_S), untenanted_session() as session:
+                exists, secret, tenant_id, agent_id = await read_call_start_secret(
+                    session, engine=engine, engine_agent_ref=agent
+                )
+        except TimeoutError:
+            # Not a forgery and not an answer: the platform goes ahead without variables on
+            # any non-200, which is all a late answer would have got.
+            log.warning("engine_lookup_not_answered", extra={"outcome": "secret_slow"})
+            return JSONResponse(_UNAVAILABLE, status_code=503)
         if not exists:
             secret = None
     authentic = verify_lookup_signature(
@@ -217,7 +232,8 @@ async def _claim(key: str | None) -> bool | None:
     if key is None:
         return None
     try:
-        return bool(await get_redis().set(key, _PENDING, nx=True, ex=REPEAT_TTL_S))
+        async with asyncio.timeout(REDIS_BUDGET_S):
+            return bool(await get_redis().set(key, _PENDING, nx=True, ex=REPEAT_TTL_S))
     except Exception as exc:
         log.warning("engine_lookup_repeat_unreadable", extra={"error": type(exc).__name__})
         return None
@@ -233,7 +249,8 @@ async def _first_answer(key: str | None) -> dict[str, str] | None:
     deadline = loop.time() + ANSWER_BUDGET_S
     while True:
         try:
-            held = await get_redis().get(key)
+            async with asyncio.timeout(REDIS_BUDGET_S):
+                held = await get_redis().get(key)
         except Exception as exc:
             log.warning("engine_lookup_repeat_unreadable", extra={"error": type(exc).__name__})
             return None
@@ -252,14 +269,17 @@ async def _keep(key: str | None, variables: dict[str, str]) -> None:
     if key is None:
         return
     try:
-        await get_redis().set(key, json.dumps(variables), ex=REPEAT_TTL_S)
+        async with asyncio.timeout(REDIS_BUDGET_S):
+            await get_redis().set(key, json.dumps(variables), ex=REPEAT_TTL_S)
     except Exception as exc:
         log.warning("engine_lookup_repeat_unsaved", extra={"error": type(exc).__name__})
 
 
 __all__ = [
     "ANSWER_BUDGET_S",
+    "REDIS_BUDGET_S",
     "REPEAT_TTL_S",
+    "SECRET_BUDGET_S",
     "caller_lookup",
     "repeat_key",
     "router",
