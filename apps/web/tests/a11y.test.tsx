@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { OPS_INR_LLM_PRICES } from "./fixtures/opsInrLlmPrices";
 import { STYLE_LIST, TELUGU_STYLE } from "./fixtures/spokenStyle";
 import { replyTimeReport } from "./fixtures/replyTimes";
+import { pipQualityReport } from "./fixtures/pipQuality";
 import { contactsFixture, dltRegistrationRoute, progressFixture, resultsFixture } from "./campaignFixtures";
 import { ADMIN_FORWARDING, CODES, READY_TO_FORWARD, SETTLED_TEST, WITH_LINE } from "./fixtures/forwarding";
 
@@ -44,6 +45,7 @@ import OpsAlertsPage from "@/app/admin/ops/alerts/page";
 import OpsHealerPage from "@/app/admin/ops/healer/page";
 import PaymentsPage from "@/app/admin/payments/page";
 import ReplyTimesPage from "@/app/admin/ops/reply-times/page";
+import PipQualityPage from "@/app/admin/ops/pip-quality/page";
 import KitPage from "@/app/admin/ops/kit/page";
 import WhatsAppAdminPage from "@/app/admin/ops/whatsapp/page";
 import SpokenStylePage from "@/app/admin/ops/spoken-style/page";
@@ -4591,6 +4593,19 @@ const ADMIN_SCREENS: Screen[] = [
         permissions: [...ADMIN_ME.permissions, "ops:manage"],
       },
       "/v1/ops/reply-times?days=7": replyTimeReport(),
+    },
+  },
+  {
+    // D-937: a low area with an example answer, a healthy one, refusals and reasons.
+    file: "admin/ops/pip-quality/page.tsx",
+    realm: "admin",
+    element: () => <PipQualityPage />,
+    routes: {
+      "/v1/admin/me": {
+        ...ADMIN_ME,
+        permissions: [...ADMIN_ME.permissions, "ops:manage"],
+      },
+      "/v1/ops/copilot-quality?days=7&realm=client": pipQualityReport(),
     },
   },
   {

@@ -133,6 +133,10 @@ from apps.api.ops.alerts_service import (
     AlertReport,
     alert_report,
 )
+from apps.api.ops.copilot_quality import DEFAULT_WINDOW_DAYS as PIP_DEFAULT_WINDOW_DAYS
+from apps.api.ops.copilot_quality import MAX_WINDOW_DAYS as PIP_MAX_WINDOW_DAYS
+from apps.api.ops.copilot_quality import CopilotQualityReport, copilot_quality_report
+from apps.api.ops.copilot_quality import QualityRealm as PipQualityRealm
 from apps.api.ops.reply_times import DEFAULT_WINDOW_DAYS as REPLY_DEFAULT_WINDOW_DAYS
 from apps.api.ops.reply_times import MAX_WINDOW_DAYS as REPLY_MAX_WINDOW_DAYS
 from apps.api.ops.reply_times import ReplyTimeReport, reply_time_report
@@ -1385,6 +1389,32 @@ async def read_reply_times(
     Opening one of the listed calls goes through view-as, which audits the entry.
     """
     return await reply_time_report(session, days=days)
+
+
+@router.get(
+    "/copilot-quality",
+    response_model=CopilotQualityReport,
+    openapi_extra=permission_meta("ops:manage"),
+    summary="Pip's live success scores, by area and by tool (D-937)",
+)
+async def read_copilot_quality(
+    session: AdminSession,
+    days: int = Query(
+        PIP_DEFAULT_WINDOW_DAYS,
+        ge=1,
+        le=PIP_MAX_WINDOW_DAYS,
+        description="How many days of answers to include.",
+    ),
+    realm: PipQualityRealm = Query("client", description="The client Pip or the admin Pip."),
+    _: Principal = Depends(requires("ops:manage", realm="admin")),
+) -> CopilotQualityReport:
+    """How Pip's answers went: done share, thumbs, action outcomes, refusals, latency and
+    fallback, per area and per tool, with example answer ids for each low score.
+
+    No step-up and no audit row, for `read_reply_times`' reasons: a read of counts, names
+    and ids, refreshed while watching. Never a word anybody said.
+    """
+    return await copilot_quality_report(session, realm=realm, days=days)
 
 
 RecopyOutcome = Literal["queued", "already_queued"] | RecopyRefusal

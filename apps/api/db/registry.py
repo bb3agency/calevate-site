@@ -463,6 +463,12 @@ TENANT_TABLES = [
     # whole by tenant erasure.
     "copilot_actions",
     "copilot_jobs",
+    # How each Pip answer went and its asker's thumbs (migration c9e4a7d2f15b, D-937):
+    # tool names, action ids, timings, a gate refusal, a vote and a reason word, and for
+    # `other` one short line redacted on write. Never the conversation text. NOT
+    # append-only: the vote is changeable. Expired on the tenant's `copilot_memory` clock
+    # and DELETEd whole by tenant erasure.
+    "copilot_answer_outcomes",
     # The assistant's routines and their run history (migration d3a7f5c19e42). Tenant data:
     # a standing instruction one person wrote, redacted on write, and when it ran. The
     # routines table carries `kb_uploads`' asymmetric pair — the strict own-tenant
@@ -890,6 +896,16 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "whose row this could be. `viewing_tenant_id` records which account was on screen "
         "as context; it is nullable and SET NULL on tenant delete. Arguments are redacted "
         "on the way in, and every act it records also has its own audit_log row."
+    ),
+    "admin_copilot_answer_outcomes": (
+        "platform-scoped, admin realm only (D-937). How each ADMIN assistant answer went for "
+        "one OPERATOR and that operator's thumbs — the admin-realm twin of "
+        "`copilot_answer_outcomes`, which is tenant-scoped and whose asker is a `users.id`. An "
+        "operator is a row in `admin_users`, so there is no tenant whose row this could be. "
+        "`viewing_tenant_id` is context, nullable and SET NULL on tenant delete. Holds tool "
+        "names, action ids, timings, a vote and a reason word; the optional note is redacted "
+        "on write. Never the conversation text. Pruned after 90 days by "
+        "`workers/copilot_quality.alarm_copilot_quality`."
     ),
     "platform_list_rates": (
         "platform-scoped, admin realm only (PLATFORM-CONFIG §5). The self-serve list price "

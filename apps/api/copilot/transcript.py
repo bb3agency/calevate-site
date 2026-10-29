@@ -53,9 +53,10 @@ that can return a turn from a run that has ended.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Final, Literal
+from typing import TYPE_CHECKING, Final, Literal
 from uuid import UUID
 
 from sqlalchemy import text
@@ -70,6 +71,9 @@ from apps.api.copilot.schemas import (
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.db.transition import _identifier
+
+if TYPE_CHECKING:
+    from apps.api.copilot.quality import StoredVote
 
 #: The hard ceiling on one conversation, in turns, enforced on every append by deleting
 #: the oldest surplus. A conversation is a LIST and an unbounded one is an unbounded read,
@@ -471,7 +475,9 @@ def conversation_out(
     uploads_available: bool,
     consent: CopilotConsentOut,
     answering: bool = False,
+    votes: Mapping[UUID, StoredVote] | None = None,
 ) -> CopilotConversationOut:
+    rated = votes or {}
     return CopilotConversationOut(
         answering=answering,
         uploads_available=uploads_available,
@@ -485,6 +491,8 @@ def conversation_out(
                 content=turn.content,
                 screen_route=turn.screen_route,
                 said_at=turn.said_at,
+                vote=rated[turn.id].vote if turn.id in rated else None,
+                vote_reason=rated[turn.id].reason if turn.id in rated else None,
             )
             for turn in page.turns
         ],

@@ -100,6 +100,9 @@ export type CopilotTurn = {
    * turn from elsewhere carries only the server's "[N files attached]" marker.
    */
   attachments?: TurnAttachment[];
+  /** The asker's thumbs on a stored answer (D-937), from the server. */
+  vote?: "up" | "down" | null;
+  voteReason?: "wrong" | "not_done" | "too_slow" | "misunderstood" | "other" | null;
 };
 
 /** One file shown in a question's bubble. */

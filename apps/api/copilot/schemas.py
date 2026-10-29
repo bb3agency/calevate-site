@@ -625,6 +625,11 @@ class CopilotDoneEvent(BaseModel):
     metered: bool = False
 
 
+#: How a person can rate one Pip answer (D-937; `models.VOTES`, `models.VOTE_REASONS`).
+CopilotVote = Literal["up", "down"]
+CopilotVoteReason = Literal["wrong", "not_done", "too_slow", "misunderstood", "other"]
+
+
 class CopilotStoredTurnOut(BaseModel):
     """One turn of the stored conversation, as the panel renders it (D-540).
 
@@ -648,6 +653,43 @@ class CopilotStoredTurnOut(BaseModel):
     #: thread, because the assistant can move a person between screens mid-answer — D-524).
     screen_route: str
     said_at: str
+    #: The asker's thumbs on an ANSWER (D-937), so a reload shows what they chose. Always
+    #: `None` on a question.
+    vote: CopilotVote | None = None
+    vote_reason: CopilotVoteReason | None = None
+
+
+class CopilotVoteIn(BaseModel):
+    """`PUT .../turns/{turn_id}/vote`: thumbs up, thumbs down, or `null` to take it back.
+
+    A reason explains a thumbs down only, and `note` explains `other` only; the server
+    refuses any other combination rather than silently dropping half of it.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    vote: CopilotVote | None
+    reason: CopilotVoteReason | None = None
+    #: One short line, for `other`. Redacted before it is stored, never logged.
+    note: str | None = Field(default=None, max_length=120)
+
+    @model_validator(mode="after")
+    def _consistent(self) -> CopilotVoteIn:
+        if self.reason is not None and self.vote != "down":
+            raise ValueError("a reason goes with a thumbs down")
+        if self.note is not None and self.note.strip() and self.reason != "other":
+            raise ValueError("a note goes with the reason 'other'")
+        return self
+
+
+class CopilotVoteOut(BaseModel):
+    """The vote as stored."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    turn_id: str
+    vote: CopilotVote | None
+    vote_reason: CopilotVoteReason | None
 
 
 class CopilotConsentOut(BaseModel):
@@ -888,4 +930,8 @@ __all__ = [
     "CopilotTurn",
     "CopilotUndoOut",
     "CopilotValue",
+    "CopilotVote",
+    "CopilotVoteIn",
+    "CopilotVoteOut",
+    "CopilotVoteReason",
 ]

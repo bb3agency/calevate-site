@@ -57,6 +57,7 @@ from apps.api.copilot import (
     memory,
     model_tiers,
     plans,
+    quality,
     service,
     session_run,
     transcript,
@@ -88,6 +89,8 @@ from apps.api.copilot.schemas import (
     CopilotTextEvent,
     CopilotTurnIds,
     CopilotUndoOut,
+    CopilotVoteIn,
+    CopilotVoteOut,
 )
 from apps.api.copilot.tools import Unmasked
 from apps.api.core.auth import client_request_ip, requires
@@ -214,6 +217,29 @@ async def _store_question(
             )
     except Exception:
         log.exception("copilot_question_store_failed", extra={"tenant_id": str(tenant_id)})
+
+
+async def _score_refusal(
+    refusal: ProblemError, *, tenant_id: UUID, owner_id: UUID | None, turn_id: UUID
+) -> None:
+    """Count a fair-use, consent or brake refusal in Pip's scores (D-937), in its own short
+    transaction. Any other refusal is about the request, and a failure here is logged: the
+    person is waiting on the refusal, not on the score."""
+    kind = quality.gate_refusal_of(refusal)
+    if kind is None or owner_id is None:
+        return
+    try:
+        async with tenant_session(tenant_id) as session:
+            await quality.record_refusal(
+                session,
+                realm="client",
+                turn_id=turn_id,
+                owner_id=owner_id,
+                tenant_id=tenant_id,
+                refusal=kind,
+            )
+    except Exception:
+        log.exception("copilot_quality_refusal_failed", extra={"tenant_id": str(tenant_id)})
 
 
 @router.post(
@@ -365,6 +391,12 @@ async def ask_copilot(
         # The bytes, read into memory for this one call and never written anywhere.
         attached = await attachments.load(uploads)
     except ProblemError as refusal:
+        await _score_refusal(
+            refusal,
+            tenant_id=tenant_id,
+            owner_id=principal.user_id if principal.realm == "client" else None,
+            turn_id=payload.turn_ids.answer if payload.turn_ids else uuid7(),
+        )
         yield _error_event(refusal)
         return
 
@@ -633,6 +665,17 @@ async def ask_copilot(
                         role="assistant",
                         spoken=answered,
                     )
+                # HOW THIS ANSWER WENT (D-937): tool names, ids and timings, never text,
+                # under the answer turn's id so the asker can rate it.
+                await quality.record_answer(
+                    record_session,
+                    realm="client",
+                    turn_id=turn_ids.answer,
+                    owner_id=principal.user_id,
+                    tenant_id=tenant_id,
+                    capture=capture,
+                    completed=completed,
+                )
                 # THE MEMORY DOES KEEP THE SPEND CONDITION, and the asymmetry is deliberate:
                 # its `meta` names the leg that answered, which only a spend knows, and the
                 # one spend-free answer this route can produce is a constant sentence about
@@ -681,6 +724,8 @@ async def ask_copilot(
             if syncs and owner is not None:
                 await live_sync.answer_settled("client", owner, turn_ids.answer)
 
+    # The scores' clock starts here, once the question is admitted (D-937).
+    capture = quality.AnswerCapture()
     try:
         async for event in service.run_copilot(
             payload,
@@ -729,6 +774,7 @@ async def ask_copilot(
             ),
             ip=client_request_ip(request),
         ):
+            capture.observe(event)
             if event.text is not None:
                 answer_parts.append(event.text)
                 yield ServerSentEvent(event="text", data=CopilotTextEvent(delta=event.text))
@@ -1009,11 +1055,18 @@ async def load_copilot_conversation(
         limit=limit,
         before=transcript.turn_cursor(before),
     )
+    votes = await quality.votes_for(
+        session,
+        realm="client",
+        owner_id=principal.user_id,
+        turn_ids=[turn.id for turn in page.turns if turn.role == "assistant"],
+    )
     return transcript.conversation_out(
         page,
         uploads_available=attachments.uploads_available(),
         consent=consent_state,
         answering=await live_sync.is_answering("client", principal.user_id),
+        votes=votes,
     )
 
 
@@ -1192,6 +1245,41 @@ async def clear_copilot_conversation(
         await attachments.clear_owner(session, attachments.CLIENT, owner=principal.user_id)
     await live_sync.conversation_changed("client", principal.user_id)
     return CopilotConversationClearedOut(cleared=cleared)
+
+
+@router.put(
+    "/copilot/turns/{turn_id}/vote",
+    response_model=CopilotVoteOut,
+    openapi_extra=permission_meta("copilot:use"),
+    summary=f"Rate one of {ASSISTANT_NAME}'s answers — thumbs up, thumbs down, or take it back",
+)
+async def vote_copilot_answer(
+    turn_id: UUID,
+    payload: Annotated[CopilotVoteIn, Body()],
+    principal: Principal = Depends(requires("copilot:use")),
+) -> CopilotVoteOut:
+    """The asker's thumbs on one answer (D-937), changeable, one per answer.
+
+    `404 copilot_answer_not_found` for an id that is not one of YOUR answers in this
+    account: a question, someone else's answer and a refused question all read the same.
+    The reason is a closed list; `note` (for `other`) is redacted before it is stored and
+    never logged. NO audit row, for `clear_copilot_conversation`'s reason: it is feedback
+    about the assistant, not an act on the account. Own session, so the person's other
+    windows are told after the commit.
+    """
+    tenant_id, user_id = _client_ids(principal)
+    async with tenant_session(tenant_id) as session:
+        stored = await quality.record_vote(
+            session,
+            realm="client",
+            turn_id=turn_id,
+            owner_id=user_id,
+            vote=payload.vote,
+            reason=payload.reason,
+            note=payload.note,
+        )
+    await live_sync.conversation_changed("client", user_id)
+    return CopilotVoteOut(turn_id=str(turn_id), vote=stored.vote, vote_reason=stored.reason)
 
 
 # --- the activity log, Undo, the Approvals inbox and background jobs (D-694) -------------

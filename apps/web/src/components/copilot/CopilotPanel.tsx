@@ -24,6 +24,7 @@ import { useCopilotConversation, type CopilotTurn } from "@/lib/copilot/useCopil
 
 import { AnswerText } from "./answerText";
 import { ActionReceipt } from "./ActionReceipt";
+import { AnswerRating } from "./AnswerRating";
 import { JobCard } from "./JobCard";
 import { NavigationReceipt } from "./NavigationReceipt";
 import { PipConsentGate } from "./PipConsent";
@@ -519,6 +520,15 @@ export function CopilotPanel({
                   // loaded with is simply there.
                   reveal={turn.fresh !== undefined}
                 />
+                {turn.id !== undefined && (
+                  <AnswerRating
+                    turnId={turn.id}
+                    session={session}
+                    realm={realm}
+                    vote={turn.vote ?? null}
+                    reason={turn.voteReason ?? null}
+                  />
+                )}
               </PipTurn>
             ),
           )}

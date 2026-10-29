@@ -21,6 +21,7 @@ import {
   ShieldUser,
   SlidersHorizontal,
   Stethoscope,
+  ThumbsUp,
   UserPlus,
 } from "lucide-react";
 
@@ -300,6 +301,14 @@ export const ADMIN_NAV: NavGroup[] = [
         icon: Gauge,
         permission: "ops:manage",
         action: "read the voice response-time report",
+      },
+      {
+        // D-937: how Pip's answers went, by area and tool, with answers to review.
+        href: "/admin/ops/pip-quality",
+        label: "Pip quality",
+        icon: ThumbsUp,
+        permission: "ops:manage",
+        action: "read Pip's quality scores",
       },
       {
         // Clients' own WhatsApp through Meta (D-784): Meta's weekly onboarding limit against our

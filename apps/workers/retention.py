@@ -456,6 +456,8 @@ _EMPTY_TOTALS: Mapping[str, int] = {
     # d4a9c17e6b02). Counted in ROWS rather than conversations: one row is one exchange or
     # one distilled fact, and there is no durable notion of a conversation to count.
     "copilot_memories": 0,
+    # Pip's answer outcomes and thumbs (D-937), on the same `copilot_memory` clock.
+    "copilot_outcomes": 0,
     # Copilot CONVERSATION turns (migration c7e0b2a94f13, D-540) deleted on the tenant's
     # own `transcript` clock — the founder's decision, "the same clock as call
     # transcripts", so it shares a category rather than getting one. Counted apart from
@@ -811,6 +813,10 @@ SELECT r.data_category, r.ttl_days, r.action,
     WHEN 'copilot_memory' THEN EXISTS (
       SELECT 1 FROM copilot_memories m
       WHERE m.created_at < now() - make_interval(days => r.ttl_days))
+      -- Pip's answer outcomes and thumbs (D-937), on the same clock.
+      OR EXISTS (
+      SELECT 1 FROM copilot_answer_outcomes qo
+      WHERE qo.created_at < now() - make_interval(days => r.ttl_days))
     -- What an AGENT remembers about a CALLER between calls (D-507). `occurred_at` is the
     -- clock, not `created_at` and not `updated_at`: it is when the caller said the thing,
     -- which is what the notice they were given is about. Dating from `updated_at` would
@@ -1359,6 +1365,15 @@ WHERE id IN (
 """
 
 
+# Pip's answer outcomes (D-937) on the same `copilot_memory` clock, by `created_at`: a
+# vote moves `updated_at`, and a vote must not restart a retention period.
+_COPILOT_OUTCOME_SQL = """
+DELETE FROM copilot_answer_outcomes
+WHERE id IN (
+  SELECT id FROM copilot_answer_outcomes WHERE created_at < :cutoff
+  ORDER BY created_at LIMIT :batch)
+"""
+
 # COPILOT CONVERSATION TURNS (migration c7e0b2a94f13) on the tenant's own `transcript`
 # clock — the founder's decision that a console conversation is kept no longer than a call
 # transcript, so it reuses that category rather than adding a seventh.
@@ -1759,6 +1774,12 @@ async def _apply_one(
         # a fact still being observed is a fact still true.
         counts["copilot_memories"], deferred = await _sweep_in_batches(
             session, _COPILOT_MEMORY_SQL, {"cutoff": cutoff}
+        )
+        counts["deferred"] += int(deferred)
+        # Pip's answer scores and thumbs (D-937) share the assistant's clock: they say
+        # how its answers went, and outlive nothing else Pip keeps about this account.
+        counts["copilot_outcomes"], deferred = await _sweep_in_batches(
+            session, _COPILOT_OUTCOME_SQL, {"cutoff": cutoff}
         )
         counts["deferred"] += int(deferred)
         return counts
@@ -3716,6 +3737,9 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         # rows point at jobs (`job_id`, SET NULL), so this order deletes each row once.
         actions = await session.execute(text("DELETE FROM copilot_actions"))
         counts["copilot_actions_erased"] = int(rowcount_of(actions) or 0)
+        # How each answer went and its thumbs (D-937): tool names, ids and a vote.
+        outcomes = await session.execute(text("DELETE FROM copilot_answer_outcomes"))
+        counts["copilot_answer_outcomes_erased"] = int(rowcount_of(outcomes) or 0)
         # The routines and their runs (migration d3a7f5c19e42) BEFORE the jobs their runs
         # point at: a routine's instruction is prose a person typed, the same shape as the
         # conversation above, and runs cascade with their routine.
@@ -3985,6 +4009,10 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
                     f"{counts['copilot_actions_erased']} in-app assistant activity record(s), "
                     f"{counts['copilot_jobs_erased']} background task(s) and "
                     f"{counts['copilot_routines_erased']} routine(s) deleted"
+                ),
+                "copilot_answer_outcomes": (
+                    f"{counts['copilot_answer_outcomes_erased']} in-app assistant answer "
+                    "rating(s) and score record(s) deleted"
                 ),
                 "usage_events": "retained — append-only ledger, carries no personal data",
                 "consent_ledger": "retained — append-only proof that consent existed",
