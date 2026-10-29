@@ -296,11 +296,24 @@ class GlobalFindOut(Strict):
     openapi_extra=permission_meta("ops:manage"),
     summary="Is this number suppressed for everyone? (POST: the number IS personal data)",
 )
-async def find_global(payload: GlobalFindIn, session: GlobalSession, _: Operator) -> GlobalFindOut:
+async def find_global(
+    payload: GlobalFindIn, session: GlobalSession, request: Request, principal: Operator
+) -> GlobalFindOut:
     """The list stops at its newest `MAX_LIST` rows, so filtering it in the browser reads an
     older suppression as "no match". This asks the key instead. A POST for the reason
     `dnc_routes.check` gives: a GET would write the number into access logs."""
     valid, entry = await dnc.find_global_entry(session, raw=payload.phone)
+    # An operator looking a person's number up is an admin read of personal data
+    # (SEC-COMP §5). The row names the outcome and the entry, never the number.
+    await write_audit(
+        session,
+        action="ops.dnc_global_looked_up",
+        actor=principal,
+        object_type="dnc_list",
+        object_id=None if entry is None else str(entry.id),
+        ip=client_request_ip(request),
+        summary={"valid": valid, "found": entry is not None},
+    )
     return GlobalFindOut(
         valid=valid,
         entry=None

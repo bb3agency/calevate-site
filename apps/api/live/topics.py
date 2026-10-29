@@ -279,6 +279,8 @@ QUIET_TABLES: Final[dict[str, str]] = {
     "retention_worklist": _MACHINERY,
     "copilot_memories": "the assistant's private recall; no screen lists it",
     "admin_copilot_memories": "the assistant's private recall; no screen lists it",
+    "copilot_answer_outcomes": "one row per answer; the scores page reads it on demand",
+    "admin_copilot_answer_outcomes": "one row per answer; the scores page reads it on demand",
     "copilot_conversation_turns": _PERSONAL,
     "admin_copilot_conversation_turns": _PERSONAL,
     "copilot_uploads": _PERSONAL,
