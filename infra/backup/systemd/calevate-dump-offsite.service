@@ -32,3 +32,8 @@ IOSchedulingClass=idle
 # anything else on the box reading it in that window.
 ProtectSystem=strict
 ReadWritePaths=/var/lib/postgresql
+# PrivateTmp is REQUIRED next to ProtectSystem=strict, not optional hardening: strict
+# mounts /tmp read-only, and the script's read-back check writes to `mktemp -d`. With
+# PrivateTmp, systemd gives the unit a writable /tmp of its own (systemd.exec(5)).
+PrivateTmp=yes
+NoNewPrivileges=yes

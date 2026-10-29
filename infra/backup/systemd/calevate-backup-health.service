@@ -25,3 +25,7 @@ ExecStart=/var/www/calevate/scripts/backup/backup-health.sh
 # limit would have killed the run REPORTING a total backup failure, mid-report. 15m is
 # still short enough that a wedged unit is found within one timer interval of its slot.
 TimeoutStartSec=15m
+# Sandboxing: see calevate-backup-alert@.service for why ProtectHome is not set.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full

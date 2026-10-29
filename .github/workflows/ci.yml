@@ -72,7 +72,13 @@ jobs:
           --health-interval 5s --health-timeout 5s --health-retries 10
 
     steps:
+      # `persist-credentials: false` on every checkout: by default the job's GITHUB_TOKEN
+      # is written into .git/config and stays readable by every later step, including
+      # dependency install scripts and the test suite. No step here talks to the remote,
+      # so nothing needs it (OpenSSF Scorecard / zizmor "artipacked").
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: nginx mainline, for the rendered-config gate
         # `tests/nginx_config_parses_test.py` hands the RENDERED config to the real parser,
@@ -494,6 +500,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       # NO `version:` HERE ON PURPOSE. With it, this job installed whatever `10.x` the
       # registry served that morning — an unpinned dependency on the tool that resolves
       # every other dependency, which is the one place hard rule 9 can least afford one.
@@ -547,6 +555,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           enable-cache: true
@@ -577,20 +587,28 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           enable-cache: true
-      # The FULL dependency set CI ships, INCLUDING the `errors` group (sentry-sdk runs on
-      # api and workers in production, DEPLOYMENT §8), so the audit sees every dependency
-      # that actually ships — not just the root's. `--group errors` on every `uv sync` is
-      # also what `guardrail_audit_test` requires of every job.
+      # `--group errors` on every `uv sync` is what `guardrail_audit_test` requires of
+      # every job; the audit below reads the lockfile, not this venv.
       - run: uv sync --all-packages --group errors
-      # pip-audit installed INTO the project venv so `--local` audits the resolved tree.
-      # NOT `--strict`: our own `calevate-shared` workspace package is "not found on PyPI"
-      # and is skipped, which `--strict` would (wrongly) treat as a failure. A real CVE
-      # still exits non-zero without it.
+      # THE AUDIT READS uv.lock, EXPORTED WITH HASHES, rather than a live environment.
+      # The previous `uv run --with pip-audit pip-audit --local` audited only pip-audit's
+      # own ephemeral environment: it reported "No known vulnerabilities" on 28 Oct 2026
+      # while the locked Pillow 12.3.0 carried advisories published 22 Oct
+      # (GHSA-78g4-xqwv-q3g8). Every group is exported, so the `errors` group that ships
+      # and the dev tools CI runs are both covered; workspace members are not on PyPI and
+      # are left out. pip-audit is pinned like every other build input (hard rule 9).
       - name: "pip-audit (Python deps)"
-        run: uv run --with pip-audit pip-audit --local
+        run: |
+          set -euo pipefail
+          uv export --frozen --all-packages --all-groups --no-emit-workspace \
+            --format requirements-txt -o "$RUNNER_TEMP/requirements.txt"
+          uvx pip-audit==2.10.1 -r "$RUNNER_TEMP/requirements.txt" \
+            --disable-pip --require-hashes --progress-spinner off
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -622,6 +640,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Every shell script parses
         # `bash -n` is a parse, not a run — nothing here executes a deploy.

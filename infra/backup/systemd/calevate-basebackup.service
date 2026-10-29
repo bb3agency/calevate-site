@@ -28,3 +28,7 @@ TimeoutStartSec=2h
 # the voice path matters more than backup speed.
 Nice=10
 IOSchedulingClass=idle
+# Sandboxing: see calevate-backup-alert@.service for why ProtectHome is not set.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full

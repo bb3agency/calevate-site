@@ -20,3 +20,10 @@ ExecStart=/var/www/calevate/scripts/backup/notify.sh unit_failed "a backup syste
 # bounds its own wait (host_alert.FLUSH_TIMEOUT_S, and `timeout 90s` in alert-to-app.sh);
 # this is the outer bound in case the interpreter itself never starts.
 TimeoutStartSec=2m
+# Sandboxing, as on every Calevate unit (tests/systemd_unit_hardening_test.py). Nothing
+# here gains privileges, writes outside /var/lib/postgresql or needs the host's /tmp.
+# ProtectHome is NOT set: the relay's interpreter is the repo's uv venv, whose python can
+# resolve into the deploy account's home.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
