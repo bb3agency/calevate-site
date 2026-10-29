@@ -1045,6 +1045,84 @@ async def list_leads_page(
     return LeadPage(items=[_lead_out(r) for r in rows], total=total, status_counts=counts)
 
 
+#: How many groups `lead_groups` returns; its `total` still counts every lead in scope.
+MAX_LEAD_GROUPS: Final = 12
+
+LeadGroupBy = Literal["source", "agent"]
+_LEAD_GROUP_KEY: Final[dict[LeadGroupBy, str]] = {
+    "source": "l.source",
+    "agent": "l.agent_id::text",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class LeadGroups:
+    """Leads counted per source or per agent over one lens scope, largest first.
+
+    `groups` holds at most `MAX_LEAD_GROUPS` (key, label, count); `total` and
+    `groups_total` count every lead and every group in scope, so a chart can say "top N of
+    M" rather than presenting the cut as the whole."""
+
+    groups: list[tuple[str, str | None, int]]
+    total: int
+    groups_total: int
+
+
+async def lead_groups(
+    session: AsyncSession,
+    *,
+    by: LeadGroupBy,
+    status: str | None = None,
+    search: str | None = None,
+    agent_id: UUID | None = None,
+    assigned_to: UUID | None = None,
+    field_filters: FieldFilters | None = None,
+    more: LeadRowFilters | None = None,
+) -> LeadGroups:
+    """Leads per source or per agent, over the same `_lead_scope` the table and its
+    status counts use, so a chart and the Leads screen under the same lens agree."""
+    params: dict[str, Any] = {"limit": MAX_LEAD_GROUPS}
+    clauses = _lead_scope(
+        params,
+        search=search,
+        agent_id=agent_id,
+        assigned_to=assigned_to,
+        field_filters=field_filters,
+        more=more,
+    )
+    if status:
+        clauses.append("l.status = :status")
+        params["status"] = status
+    key = _LEAD_GROUP_KEY[by]
+    rows = (
+        await session.execute(
+            text(
+                "WITH counted AS MATERIALIZED ("
+                f"  SELECT {key} AS k, count(*) AS n FROM leads l "
+                f"  WHERE {' AND '.join(clauses)} GROUP BY 1"
+                ") "
+                "SELECT k, n, sum(n) OVER () AS total, count(*) OVER () AS groups "
+                "FROM counted ORDER BY n DESC, k ASC LIMIT :limit"
+            ),
+            params,
+        )
+    ).all()
+    labels: dict[str, str] = {}
+    if by == "agent" and rows:
+        named = await session.execute(
+            text("SELECT id::text, name FROM agents WHERE id = ANY(CAST(:ids AS uuid[]))"),
+            {"ids": [str(r.k) for r in rows]},
+        )
+        labels = {str(r[0]): str(r[1]) for r in named.all()}
+    return LeadGroups(
+        groups=[
+            (str(r.k), labels.get(str(r.k)) if by == "agent" else str(r.k), int(r.n)) for r in rows
+        ],
+        total=int(rows[0].total) if rows else 0,
+        groups_total=int(rows[0].groups) if rows else 0,
+    )
+
+
 async def lead_ids_matching(
     session: AsyncSession,
     *,
@@ -3024,6 +3102,7 @@ __all__ = [
     "MAX_EXPORT_ROWS",
     "MAX_FACET_FIELDS",
     "MAX_FACET_VALUES",
+    "MAX_LEAD_GROUPS",
     "MAX_PAGE",
     "MAX_TIMELINE_PAGE",
     "AssigneeChange",
@@ -3033,6 +3112,8 @@ __all__ = [
     "FacetValue",
     "FieldFilters",
     "LeadExport",
+    "LeadGroupBy",
+    "LeadGroups",
     "LeadPage",
     "RecordingRef",
     "dashboard",
@@ -3043,6 +3124,7 @@ __all__ = [
     "get_lead",
     "lead_columns",
     "lead_facets",
+    "lead_groups",
     "lead_phone",
     "lead_timeline",
     "leads_ranked_by_id",

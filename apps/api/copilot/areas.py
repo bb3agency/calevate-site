@@ -110,7 +110,10 @@ INTROS: Final[dict[Area, tuple[str, str]]] = {
     "settings": ("Look up account settings.", "Change business details and settings."),
     "integrations": ("Look up lead sources and connections.", "Change lead sources, connections."),
     "billing": ("Look up credit and statements.", "Change billing settings (never pay)."),
-    "reports": ("Numbers, quality and what needs attention.", "Make reports."),
+    "reports": (
+        "Numbers, charts, quality, what needs attention.",
+        "Pin charts to the home screen.",
+    ),
     "routines": ("Look up repeating jobs.", "Create and change repeating jobs."),
 }
 
@@ -421,6 +424,10 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
     AreaEntry("lead_view_save", "leads", "save `lens` as a named view"),
     AreaEntry("leads_export", "leads", "spreadsheet of the `lens` leads"),
     AreaEntry("calls_export", "calls", "spreadsheet of the `call_lens` calls"),
+    # D-934: charts and tables drawn in the panel, and cards kept on the home screen.
+    AreaEntry("report_chart", "reports", "draw a chart or table for the person; pin: chart_pin"),
+    AreaEntry("chart_pin", "reports", "keep a report_chart chart on the home screen"),
+    AreaEntry("chart_unpin", "reports", "take a home card off, by its name"),
 )
 
 AREA_OF: Final[dict[str, Area]] = {entry.tool: entry.area for entry in ENTRIES}

@@ -193,6 +193,9 @@ TABLE_TOPICS: Final[dict[str, Topic]] = {
     "copilot_plans": "assistant",
     "copilot_plan_targets": "assistant",
     "admin_copilot_actions": "assistant",
+    # The home screens' pinned charts (D-934): the account's, or the operators'.
+    "dashboard_pins": "account",
+    "admin_dashboard_pins": "platform",
     # quality
     "qa_reports": "quality",
     "qa_call_samples": "quality",

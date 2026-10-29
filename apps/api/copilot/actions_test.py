@@ -101,6 +101,10 @@ _REVIEWED_IMMEDIATE: dict[str, str] = {
     "low_balance_alert_set": "when a warning is sent; charges nothing, prior line restored",
     # D-893 L8: a heading, not an answer; the prior name is the exact inverse.
     "knowledge_rename": "renames a file, link or note; Undo restores the old name under a CAS",
+    # D-934: a card is a shortcut to figures the person can already see; it reaches no
+    # caller and spends nothing, and remove/restore of the same row are exact inverses.
+    "chart_pin": "adds a card to the home screen; Undo takes the same card off",
+    "chart_unpin": "takes a card off the home screen; Undo puts the same row back",
     "agent_test_add": (
         "a saved test reaches no caller and spends nothing until a run is asked for; Undo "
         "deletes it"

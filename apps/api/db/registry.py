@@ -16,6 +16,7 @@ from apps.api.campaigns import models as campaigns_models
 from apps.api.campaigns import number_models as campaigns_number_models
 from apps.api.compliance import models as compliance_models
 from apps.api.copilot import models as copilot_models
+from apps.api.copilot import pin_models as copilot_pin_models
 from apps.api.copilot import plan_models as copilot_plan_models
 from apps.api.copilot import routine_models as copilot_routine_models
 from apps.api.crm import models as crm_models
@@ -55,6 +56,7 @@ __all__ = [
     "campaigns_number_models",
     "compliance_models",
     "copilot_models",
+    "copilot_pin_models",
     "copilot_plan_models",
     "copilot_routine_models",
     "crm_models",
@@ -475,6 +477,10 @@ TENANT_TABLES = [
     # each target records its outcome. DELETEd by tenant erasure.
     "copilot_plans",
     "copilot_plan_targets",
+    # Charts kept on the account's home (D-934, migration c9d4e7a2b815): the chart's name
+    # and arguments, never its figures. NOT append-only: renamed, reordered, removed.
+    # DELETEd by tenant erasure.
+    "dashboard_pins",
     # The auto-healer's tenant tables (D-701, migration b7d4e2a91c3f). A client's side of
     # an incident (`heal_client_incidents`, which also carries a `FOR SELECT` read for the
     # untenanted notice sweep), the owner-set fallback phone, the per-agent health windows
@@ -874,6 +880,14 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "`user_id` is a foreign key to `users`. `viewing_tenant_id` is context, SET NULL on "
         "tenant delete. Deleted when that operator's last session ends, CASCADEs away with "
         "the operator's account, and the bucket's 30-day lifecycle rule is the backstop."
+    ),
+    "admin_dashboard_pins": (
+        "platform-scoped, admin realm only (D-934). The charts operators keep on the admin "
+        "home, shared by every operator: a chart name from `copilot/charts.ABILITIES`, its "
+        "arguments (a window in days), a title and a position. Each card re-runs on the "
+        "directory session under the viewing operator's own permissions, so the row holds "
+        "no figure, no tenant data and no PII. `created_by` is an `admin_users.id`, SET "
+        "NULL when the operator leaves. NOT append-only: renamed, reordered and removed."
     ),
     "admin_copilot_actions": (
         "platform-scoped, admin realm only (D-694). The ADMIN assistant's activity log for "

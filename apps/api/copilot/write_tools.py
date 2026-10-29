@@ -132,6 +132,7 @@ from apps.api.copilot.console_actions import CONSOLE_ACTIONS
 from apps.api.copilot.fact_actions import FACT_ACTIONS
 from apps.api.copilot.knowledge_actions import KNOWLEDGE_ACTIONS
 from apps.api.copilot.lead_actions import LEAD_ACTIONS
+from apps.api.copilot.pin_actions import PIN_ACTIONS
 from apps.api.copilot.question_actions import TRAINING_ACTIONS
 from apps.api.copilot.routine_actions import ROUTINE_ACTIONS
 from apps.api.copilot.sanitize import strip_invisible
@@ -965,6 +966,8 @@ WRITE_TOOLS: Final[tuple[ActionTool, ...]] = (
     *LEAD_ACTIONS,
     # Where a campaign's list got its permission, so a campaign Pip made can launch.
     CAMPAIGN_CONSENT_SET,
+    # D-934: keep a chart on the home screen, or take one off.
+    *PIN_ACTIONS,
 )
 
 _BY_NAME: Final[dict[str, WriteTool]] = {tool.name: tool for tool in WRITE_TOOLS}

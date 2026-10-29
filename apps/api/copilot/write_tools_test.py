@@ -312,6 +312,9 @@ def test_the_tool_schemas_are_the_same_bytes_for_every_caller() -> None:
         "leads_export",
         "calls_export",
         "campaign_consent_set",
+        # D-934: home-screen cards APPEND.
+        "chart_pin",
+        "chart_unpin",
     ]
     for schema in write_tools.write_tool_schemas():
         function = schema["function"]
