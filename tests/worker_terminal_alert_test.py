@@ -275,3 +275,62 @@ async def test_a_real_worker_drops_an_unregistered_job_and_the_alerter_reports_i
             for handler in list(arq_logger.handlers):
                 if isinstance(handler, worker_settings._ArqTerminalFailureAlerter):
                     arq_logger.removeHandler(handler)
+
+
+async def test_a_job_that_raises_without_reporting_alarms_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """arq finishes a job that raises anything but `Retry` after one attempt, and the log
+    handler above alarms only on `TimeoutError`. A job that raised without calling
+    `alert()` (`kb_read.RedeliveryIncompleteError`, a database error mid-run) was finished,
+    unreported, and looked like success everywhere."""
+    from apps.api.core import alerting
+    from apps.workers import job_failure
+    from arq import Retry
+
+    fired: list[str] = []
+    real_alert = alerting.alert
+
+    def recording_alert(stage: str, code: str, **kwargs: object) -> None:
+        fired.append(code)
+
+    # The job's own alerts go through the real `alert()`, so the scope sees them; only the
+    # delivery is stubbed.
+    monkeypatch.setattr(alerting, "_dispatch", lambda *a, **k: None)
+    monkeypatch.setattr(job_failure, "alert", recording_alert)
+
+    async def silent(ctx: dict[str, object]) -> str:
+        raise RuntimeError("database went away")
+
+    async def reported(ctx: dict[str, object]) -> str:
+        real_alert("WORKER_DELIVERY", "outbound_webhook_exhausted", detail="already said")
+        raise RuntimeError("and gave up")
+
+    async def retried(ctx: dict[str, object]) -> str:
+        raise Retry(defer=1)
+
+    async def timed_out(ctx: dict[str, object]) -> str:
+        raise TimeoutError
+
+    with pytest.raises(RuntimeError):
+        await job_failure.alert_unreported_failure(silent)({})
+    assert fired == [job_failure.ALARM_CODE]
+
+    fired.clear()
+    with pytest.raises(RuntimeError):
+        await job_failure.alert_unreported_failure(reported)({})
+    with pytest.raises(Retry):
+        await job_failure.alert_unreported_failure(retried)({})
+    with pytest.raises(TimeoutError):
+        await job_failure.alert_unreported_failure(timed_out)({})
+    assert fired == [], "a job that alerted, a retry, and a timeout are reported elsewhere"
+
+
+def test_every_registered_job_and_cron_carries_the_unreported_failure_alarm() -> None:
+    from apps.workers import job_failure
+
+    for fn in worker_settings.WorkerSettings.functions:
+        coroutine = getattr(fn, "coroutine", fn)
+        assert getattr(coroutine, job_failure.MARK, False), getattr(fn, "name", fn)
+    for job in worker_settings.CRON_JOBS:
+        assert getattr(job.coroutine, job_failure.MARK, False), job.name

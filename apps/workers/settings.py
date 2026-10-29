@@ -203,6 +203,7 @@ from apps.workers.hot_facts import recompute_hot_facts, sweep_hot_facts
 from apps.workers.inbound_cutover import apply_inbound_credit_state
 from apps.workers.interrupted_work import SWEEP_MINUTES as INTERRUPTED_SWEEP_MINUTES
 from apps.workers.interrupted_work import end_interrupted_work
+from apps.workers.job_failure import alert_unreported_failure
 from apps.workers.kb_aggregation import (
     DIGEST_HOUR,
     DIGEST_MINUTE,
@@ -328,9 +329,10 @@ log = get_logger(__name__)
 #
 # `consume_outbox_once` sits inside it and is a no-op for a job the outbox did not
 # publish; for one it did, a re-publish of a message whose run already succeeded is
-# skipped.
+# skipped. `alert_unreported_failure` alarms on a run that raises past arq's retry rules
+# without having called `alert()` (crons get it in `_cron`).
 FUNCTIONS: list[Any] = [
-    traced_job(consume_outbox_once(fn))
+    traced_job(alert_unreported_failure(consume_outbox_once(fn)))
     for fn in (
         ingest_engine_event,
         # A caller's opt-out heard by the voice platform's own agent (D-691), enqueued by
@@ -701,7 +703,7 @@ def _cron(coroutine: Any, *, walk: WalkShape, **kwargs: Any) -> CronJob:
     that hole in the months after it was written. Registering without declaring a shape is
     now a `TypeError` at import.
     """
-    job = cron(coroutine, **kwargs)
+    job = cron(alert_unreported_failure(coroutine), **kwargs)
     WALK_SHAPES[job.name] = walk
     return job
 
