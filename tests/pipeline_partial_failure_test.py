@@ -255,6 +255,9 @@ STAGE_BOUNDARIES: list[tuple[str, Any, str]] = [
     # through names this module does not own, so they are patched at their source.
     ("campaign_resolve", campaign_dispatch, "resolve_campaign_contact"),
     ("crm_fanout", integrations, "enqueue_event"),
+    # STEP 10, the language pass queued last (D-931): killed there, the re-drive queues it
+    # once, under the same per-call key.
+    ("language_pass_queue", pipeline, "queue_language_pass"),
 ]
 
 

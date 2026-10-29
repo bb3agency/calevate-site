@@ -459,9 +459,28 @@ lives at real addresses: `/c/{slug}/campaigns` (paged list, status filter, searc
 fetch_recording → redact_transcript → extract(schema) → upsert_lead(+repeat-caller flag on
 phone match) → meter_usage(write unit rows + update spend_state) → notify(hot-lead rules:
 e.g., a call whose business outcome moves the lead to hot ⇒ WhatsApp+email to owner within 2 min, D-841) →
-resolve_campaign_contact → outbound_sync(call.completed via the outbox, D-23).
+resolve_campaign_contact → outbound_sync(call.completed via the outbox, D-23) →
+language_pass(its own job, D-931).
 The pipeline's first stage copies ThinnestAI's expiring `recording.url` into our storage
 (`engine/recording_source.py`, §3 step 5).
+
+**The lead first, the English after (D-931).** The summaries are stored as the engine and
+the extraction wrote them (`pipeline._record_reading`, no model round trip): a call whose
+only summary is in its own language (or romanised) shows that one at once, with
+"Translating…" under it. The outcome, the business outcome, the lead's move, the hot-lead
+and team alerts, the after-call actions and `call.completed` are all decided from the
+extraction and never wait on a translation. The last step in the pipeline's final
+transaction (`queue_language_pass`) queues `translate_call_job` (payer `pipeline`,
+absorbed) once per call and owed work; it writes English for the turns and whichever
+summary the call lacks, draws a headline from a newly written English summary when the
+model gave none, and its row update reaches open screens through the `calls` live note.
+Per consumer: the hot-lead email and the team alert go out at once and carry the
+own-language summary when the English is not written yet; a `call.completed` that went out
+with no summary is followed by ONE `call.updated` carrying it when the English lands (a
+Sheet gets a second row, as for D-841); after-call actions read the extracted fields only.
+A provider failure is retried at 30 s and 120 s; after the third the call stays `failed`
+with its own-language summary ("No English yet", "Try again"), the hourly backfill tries it
+once more, and `call_language_pass_exhausted` is an `attention` row, never a mail.
 
 **What a call came to (D-836).** Two readings, stored side by side. `calls.outcome_tag` is
 decided from facts (`crm/outcomes.derive_outcome`: missed, call_back_booked, transferred,

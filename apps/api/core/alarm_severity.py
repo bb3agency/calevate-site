@@ -440,6 +440,9 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # D-848. An answered call settled with no transcript after the pipeline's tries: the
     # client sees no conversation for a call that had one.
     "engine_call_answered_without_transcript": "attention",
+    # D-931. A call's English never arrived after the language pass's tries. Cosmetic for
+    # the client: the lead, outcome and own-language summary stand, and "Try again" works.
+    "call_language_pass_exhausted": "attention",
     # D-678 phase 2, call lifecycle. The vendor deleted (or pointed away) a recording we
     # had not copied: unrecoverable against our 90-day floor.
     "recording_source_gone": "page",

@@ -80,7 +80,9 @@ _ALERT_SQL: Final = (
     "SELECT ta.status, ta.trigger, ta.reasons, ta.call_id, ta.agent_id, "
     f"{_DESTINATION_COLUMNS}, tc.verified_at IS NOT NULL AND tc.removed_at IS NULL "
     "AND (tc.channel = 'email' OR tc.whatsapp_credential_id IS NOT NULL), "
-    "c.direction, c.from_e164, c.to_e164, COALESCE(c.started_at, c.created_at), c.summary, "
+    # The own-language summary while the English is still being written (D-931).
+    "c.direction, c.from_e164, c.to_e164, COALESCE(c.started_at, c.created_at), "
+    "COALESCE(c.summary, c.summary_local), "
     "a.name, o.name, o.slug, "
     "COALESCE(l.name, (SELECT lp.name FROM leads lp WHERE lp.agent_id = ta.agent_id "
     "  AND lp.phone_e164 = CASE WHEN c.direction = 'outbound' THEN c.to_e164 ELSE c.from_e164 END "

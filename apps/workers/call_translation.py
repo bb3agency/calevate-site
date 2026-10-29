@@ -1,14 +1,16 @@
-"""English for a call after the post-call pipeline: the owner's "Try again" and the one-time
-backfill of calls that were never translated (founder decisions 2 and 3, 11 Oct 2026).
+"""English for a call: the call's own language pass, the owner's "Try again" and the
+one-time backfill of calls that were never translated (founder decisions 2 and 3, 11 Oct
+2026; D-931, 29 Oct 2026).
 
-The pipeline translates every call as it settles it (`pipeline._record_reading`). Two kinds
-of call are left without English: calls settled before 10 Oct 2026 23:13 IST, when the
-worker could not see the ops console's keys (`translation_state` `unavailable` or
-`failed`), and calls whose language pass failed at the provider. This module re-runs only
-the language pass for one call, on the same terms as the pipeline: REDACTED text in, one
-Sarvam round trip per forty turns, nothing logged but ids (hard rules 5 and 6).
+The post-call pipeline writes the lead, the outcome and the summaries the call already has
+first, then queues this pass as its own job (`pipeline.queue_language_pass`): English for
+the turns and whichever summary the call lacks arrive afterwards, and the screen shows
+"Translating…" meanwhile. Calls settled before 10 Oct 2026 23:13 IST (`translation_state`
+`unavailable` or `failed`) and calls whose pass failed at the provider are re-run by the
+other two entry points. Every entry runs the same pass: REDACTED text in, one Sarvam round
+trip per forty turns, nothing logged but ids (hard rules 5 and 6).
 
-WHO PAYS is the one difference between the two entry points, and the job carries it:
+WHO PAYS is the one difference between the entry points, and the job carries it:
 
 * `client` — an owner pressed "Try again". That is dashboard AI a person asked for, so it is
   metered as `ASSIST_FEATURE_CALL_TRANSLATION`, which counts against the monthly AI
@@ -16,6 +18,9 @@ WHO PAYS is the one difference between the two entry points, and the job carries
 * `platform` — the backfill. The call should have been translated when it ended and was
   not because of our fault, so it is metered as `ASSIST_FEATURE_CALL_LANGUAGE`, absorbed
   exactly like the pipeline's own pass.
+* `pipeline` — the call's own pass, absorbed (`ASSIST_FEATURE_CALL_LANGUAGE`). The only
+  one retried on a provider failure, on `RETRY_BACKOFF_S`; its last failure is the
+  `attention` alarm `call_language_pass_exhausted`.
 
 `translation_state = 'pending'` is the claim in both paths: the route sets it before it
 queues the job, and the backfill sets it with a compare-and-swap from `failed`/`unavailable`
@@ -26,12 +31,13 @@ the work is outstanding and two deliveries of one job cannot both translate.
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any, Final, Literal
 from uuid import UUID
 
 from arq import Retry
-from calevate_shared.backoff import jittered_delay_s
+from calevate_shared.backoff import ladder_delay_s
 from calevate_shared.engine import SARVAM_DEFAULT_LLM
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -42,11 +48,13 @@ from apps.api.billing.models import (
     ASSIST_FEATURE_CALL_TRANSLATION,
 )
 from apps.api.billing.rates import llm_price_is_billable
+from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES, enqueue, job_id_for
 from apps.api.core.redis import get_redis
 from apps.api.core.settings import get_settings
 from apps.api.db.session import admin_session, tenant_session
+from apps.api.integrations import service as integrations
 from apps.workers import call_language
 from apps.workers.chat import TokenUsage
 from apps.workers.fleet_walk import WalkBudget, resumed_walk
@@ -57,11 +65,22 @@ log = get_logger(__name__)
 #: The ARQ name of `translate_call_job`; `crm/translation.TRANSLATE_CALL_JOB` is the outbox's
 #: spelling of the same name, and `tests/call_translation_test.py` holds the two together.
 JOB_NAME: Final = "translate_call_job"
-Payer = Literal["client", "platform"]
+Payer = Literal["client", "platform", "pipeline"]
+#: `pipeline` is the call's own pass, queued by the post-call pipeline after the lead
+#: (D-931): absorbed like the backfill, and metered as the step that always ran it.
 _FEATURE_OF_PAYER: Final[dict[str, str]] = {
     "client": ASSIST_FEATURE_CALL_TRANSLATION,
     "platform": ASSIST_FEATURE_CALL_LANGUAGE,
+    "pipeline": ASSIST_FEATURE_CALL_LANGUAGE,
 }
+_SOURCE_OF_PAYER: Final[dict[str, str]] = {
+    "client": "translate_call",
+    "platform": "translate_call",
+    "pipeline": "call_reading",
+}
+#: The pipeline pass's wait before its second and third tries: a provider blip is usually
+#: over in seconds, an outage in minutes, and the owner is looking at the call meanwhile.
+RETRY_BACKOFF_S: Final[tuple[float, ...]] = (30.0, 120.0)
 
 #: The backfill reaches back this far, newest first (founder decision 3).
 BACKFILL_WINDOW: Final = timedelta(days=30)
@@ -145,10 +164,88 @@ async def meter_language_pass(
     )
 
 
-async def translate_call(tenant_id: UUID, call_id: UUID, *, feature: str) -> str:
+@dataclass(frozen=True, slots=True)
+class _Written:
+    """What the pass wrote onto the call row, decided under its row lock."""
+
+    summary: str | None
+    summary_local: str | None
+    summary_language: str | None
+    headline: str | None
+    #: `summary` was empty and is not any more: what `call.completed` sent is now stale.
+    filled_english: bool
+
+
+def _settle_row(
+    current: Any,
+    *,
+    language: str,
+    romanised: str,
+    new_english: str,
+    new_local: str,
+    gave_up: bool,
+) -> _Written:
+    """The call row after the pass, from the row as it stands NOW (locked), not as it was
+    read before the round trip: a summary a pipeline re-drive wrote meanwhile is kept."""
+    summary, local, local_language, headline = current[0], current[1], current[2], current[3]
+    # The romanised placeholder is ours to replace; a summary in the language's own script
+    # somebody else wrote is not.
+    replaceable = local is None or (bool(romanised) and local == romanised)
+    if new_local and replaceable:
+        local, local_language = new_local, language
+    filled = False
+    if summary is None and new_english:
+        summary, filled = new_english, True
+    if gave_up and summary is None and romanised and local == romanised:
+        # Neither form could be written: the Latin-letter summary is still the call's
+        # summary, and stands in the English slot as it did before D-931.
+        summary, local, local_language, filled = romanised, None, None, True
+    if headline is None and filled and summary:
+        headline = call_language.headline_from_summary(summary)
+    return _Written(summary, local, local_language, headline, filled)
+
+
+#: The call as `call.completed` described it, read back from the row. The same keys and the
+#: same readings as `pipeline.call_event_data` (`calls.sentiment` is the model's reading or
+#: NULL, as `_call_reading` gives it), held together by `tests/call_translation_test.py`.
+_CALL_EVENT_SQL: Final = (
+    "SELECT id, lead_id, direction, duration_s, outcome_tag, sentiment, summary, "
+    "business_outcome, business_outcome_label FROM calls WHERE id = :cid AND tenant_id = :tid"
+)
+
+
+async def _announce_summary(session: AsyncSession, tenant_id: UUID, call_id: UUID) -> None:
+    """`call.updated` for a call whose `call.completed` went out before its English summary
+    existed (D-931). The client's CRM and Sheet got the lead and the outcome at once; this
+    is the update that fills the summary in, rather than a field that changes silently.
+    Sent once: only the write that FILLED the summary calls this, under the row lock."""
+    row = (await session.execute(text(_CALL_EVENT_SQL), {"cid": call_id, "tid": tenant_id})).one()
+    data = dict(zip(integrations.CALL_EVENT_COLUMNS, row, strict=True))
+    data["call_id"] = str(row[0])
+    data["lead_id"] = str(row[1]) if row[1] else None
+    data["summary"] = redact(row[6]).text if row[6] else None
+    await integrations.enqueue_event(
+        session, tenant_id=tenant_id, event=integrations.CALL_UPDATED_EVENT, data=data
+    )
+
+
+async def translate_call(
+    tenant_id: UUID,
+    call_id: UUID,
+    *,
+    feature: str,
+    source: str = "translate_call",
+    turns: bool = True,
+    final: bool = True,
+) -> str:
     """Write English for every untranslated turn and the missing summary, and settle
     `translation_state`. Returns the state written. Never raises on a provider failure
-    (`run_language_pass` reports it as `failed`); a database error does raise."""
+    (`run_language_pass` reports it as `failed`); a database error does raise.
+
+    `final=False` is a try with another behind it: a provider failure keeps what this try
+    produced and leaves the call `pending` (returned as such) for the next one. `turns=False`
+    writes only the summaries (a call whose turns are already `ready`).
+    """
     async with tenant_session(tenant_id) as session:
         row = (
             await session.execute(
@@ -160,7 +257,7 @@ async def translate_call(tenant_id: UUID, call_id: UUID, *, feature: str) -> str
                 {"cid": call_id, "tid": tenant_id},
             )
         ).first()
-        turns = (
+        turn_rows = (
             await session.execute(
                 text(
                     "SELECT idx, COALESCE(text_redacted, ''), text_en FROM transcript_turns "
@@ -172,24 +269,35 @@ async def translate_call(tenant_id: UUID, call_id: UUID, *, feature: str) -> str
     if row is None:
         return "missing"
     language = call_language.call_language(
-        [str(t[1]) for t in turns], agent_language=str(row[0] or "te-IN")
+        [str(t[1]) for t in turn_rows], agent_language=str(row[0] or "te-IN")
     )
-    pending = call_language.untranslated_turns(
-        [(int(t[0]), str(t[1]), t[2]) for t in turns], language=language
+    pending = (
+        call_language.untranslated_turns(
+            [(int(t[0]), str(t[1]), t[2]) for t in turn_rows], language=language
+        )
+        if turns
+        else []
     )
     english = str(row[1] or "")
     local = "" if call_language.is_english(language) else str(row[2] or "")
-    want_local = bool(english) and not local and not call_language.is_english(language)
-    want_english = not english and bool(local)
-    already_english = any(t[2] for t in turns)
+    romanised = local if call_language.romanised_local(local, language=language) else ""
+    if romanised:
+        local = ""
+    want_local = bool(english or romanised) and not local and not call_language.is_english(language)
+    want_english = not english and bool(local or romanised)
+    already_english = any(t[2] for t in turn_rows)
 
     turns_en: dict[int, str] = {}
     new_local = new_english = ""
     usage: TokenUsage | None = None
+    incomplete = False
     if not (pending or want_local or want_english):
         state = "ready" if already_english else "not_needed"
     elif not (api_key := get_settings().sarvam_api_key):
+        # Nothing a retry can change: no provider on this deployment.
         log.warning("call_translation_no_provider", extra={"call_id": str(call_id)})
+        final = True
+        incomplete = True
         state = "failed" if pending else ("ready" if already_english else "not_needed")
     else:
         done = await call_language.run_language_pass(
@@ -198,38 +306,59 @@ async def translate_call(tenant_id: UUID, call_id: UUID, *, feature: str) -> str
             turns=pending,
             summary_en=redact(english).text if english else "",
             summary_local=redact(local).text if local else "",
+            summary_romanised=redact(romanised).text if romanised else "",
         )
         usage = done.usage
         turns_en = call_language.english_lines(pending, done)
         new_local = done.summary_local if want_local else ""
         new_english = done.summary_en if want_english else ""
-        if pending and done.failed:
+        incomplete = done.failed and bool(
+            pending or (want_english and not new_english) or (want_local and not new_local)
+        )
+        if incomplete and not final:
+            state = "pending"
+        elif pending and done.failed:
             state = "failed"
         else:
             state = "ready" if (pending or already_english) else "not_needed"
 
     async with tenant_session(tenant_id) as session:
-        # COALESCE: a summary written between the read above and this write (a pipeline
-        # re-drive) is kept rather than overwritten by ours.
+        current = (
+            await session.execute(
+                text(
+                    "SELECT summary, summary_local, summary_language, headline, "
+                    "crm_notified_at IS NOT NULL FROM calls "
+                    "WHERE id = :cid AND tenant_id = :tid FOR UPDATE"
+                ),
+                {"cid": call_id, "tid": tenant_id},
+            )
+        ).one()
+        written = _settle_row(
+            current,
+            language=language,
+            romanised=romanised,
+            new_english=new_english,
+            new_local=new_local,
+            gave_up=incomplete and final,
+        )
         await session.execute(
             text(
-                "UPDATE calls SET translation_state = :state, "
-                "summary_language = CASE WHEN summary_local IS NULL "
-                "  AND CAST(:local AS text) IS NOT NULL THEN :language "
-                "  ELSE summary_language END, "
-                "summary_local = COALESCE(summary_local, CAST(:local AS text)), "
-                "summary = COALESCE(summary, CAST(:english AS text)), updated_at = now() "
-                "WHERE id = :cid AND tenant_id = :tid"
+                "UPDATE calls SET translation_state = :state, summary = :summary, "
+                "summary_local = :local, summary_language = :language, headline = :headline, "
+                "updated_at = now() WHERE id = :cid AND tenant_id = :tid"
             ),
             {
                 "state": state,
-                "local": new_local or None,
-                "english": new_english or None,
-                "language": language,
+                "summary": written.summary,
+                "local": written.summary_local,
+                "language": written.summary_language,
+                "headline": written.headline,
                 "cid": call_id,
                 "tid": tenant_id,
             },
         )
+        if written.filled_english and current[4]:
+            await _announce_summary(session, tenant_id, call_id)
         for idx, english_text in turns_en.items():
             await session.execute(
                 text(
@@ -241,7 +370,7 @@ async def translate_call(tenant_id: UUID, call_id: UUID, *, feature: str) -> str
             )
         if usage is not None:
             await meter_language_pass(
-                session, tenant_id, call_id, usage, feature=feature, source="translate_call"
+                session, tenant_id, call_id, usage, feature=feature, source=source
             )
     log.info(
         "call_translation_settled",
@@ -313,18 +442,55 @@ async def translate_call_job(ctx: dict[str, Any], payload: dict[str, Any]) -> st
         # Already translated, or a second delivery of a job that has finished.
         return "skipped"
 
+    # The pipeline's own pass retries a provider failure on the ladder; "Try again" and the
+    # backfill settle on their one try, as before.
+    last_try = payer != "pipeline" or attempt >= WORKER_MAX_TRIES
     try:
-        state = await translate_call(tenant_id, call_id, feature=feature)
+        state = await translate_call(
+            tenant_id,
+            call_id,
+            feature=feature,
+            source=_SOURCE_OF_PAYER[payer],
+            turns=not payload.get("summaries_only"),
+            final=last_try,
+        )
     except Exception as exc:
         log.warning(
             "call_translation_failed",
             extra={"call_id": str(call_id), "reason": type(exc).__name__, "attempt": attempt},
         )
         if attempt < WORKER_MAX_TRIES:
-            raise Retry(defer=jittered_delay_s(30 * attempt)) from exc
+            raise Retry(defer=ladder_delay_s(RETRY_BACKOFF_S, attempt)) from exc
         await _give_up(tenant_id, call_id)
+        _alarm_if_pipeline(payer, tenant_id, call_id)
         return "failed"
+    if state == "pending":
+        log.info("call_translation_retry", extra={"call_id": str(call_id), "attempt": attempt})
+        raise Retry(defer=ladder_delay_s(RETRY_BACKOFF_S, attempt))
+    if state == "failed":
+        _alarm_if_pipeline(payer, tenant_id, call_id)
     return state
+
+
+def _alarm_if_pipeline(payer: str, tenant_id: UUID, call_id: UUID) -> None:
+    """A call's own language pass spent its tries. `attention`, never mailed: the lead,
+    outcome and the call's own-language summary all stand, the screen offers "Try again",
+    and the hourly backfill tries the call once more. Repeats inside the alert window are
+    counted on one row, so an outage reads as one alarm with a count."""
+    if payer != "pipeline" or not get_settings().sarvam_api_key:
+        # A deployment with no provider (the offline baseline) translates nothing by
+        # design; that is configuration, not a failure to look at per call.
+        return
+    alert(
+        "WORKER_DELIVERY",
+        "call_language_pass_exhausted",
+        detail=(
+            "a call's English (its turns or summary) could not be written after every try; "
+            "the call, lead and its own-language summary stand"
+        ),
+        tenant_id=str(tenant_id),
+        call_id=str(call_id),
+    )
 
 
 async def _untried_candidates(tenant_id: UUID, budget: WalkBudget) -> list[tuple[Any, UUID]]:
