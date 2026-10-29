@@ -7,7 +7,11 @@ import { describe, expect, it } from "vitest";
 
 import { middleware } from "@/middleware";
 import { ADMIN_BOOTSTRAP_PATH, ADMIN_RESET_PATH } from "@/lib/authn/adminAuthn";
-import { CLIENT_ACCEPT_INVITE_PATH, CLIENT_RESET_PATH } from "@/lib/authn/clientAuthn";
+import {
+  CLIENT_ACCEPT_INVITE_PATH,
+  CLIENT_RESET_PATH,
+  GOOGLE_CALLBACK_PATH,
+} from "@/lib/authn/clientAuthn";
 import {
   LEGACY_INVITE_PATH,
   LINK_TOKEN_PATHS,
@@ -69,6 +73,7 @@ describe("the routes an emailed token lands on", () => {
         CLIENT_ACCEPT_INVITE_PATH,
         ADMIN_RESET_PATH,
         ADMIN_BOOTSTRAP_PATH,
+        GOOGLE_CALLBACK_PATH,
         LEGACY_INVITE_PATH,
       ].sort(),
     );

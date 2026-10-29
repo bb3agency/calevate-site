@@ -44,6 +44,7 @@ import httpx
 import jwt
 from sqlalchemy import text
 
+from apps.api.actions.oauth import StatePurpose, spend_purpose_state
 from apps.api.authn.sessions import IssuedSession, issue_session
 from apps.api.authn.subjects import (
     create_verified_client,
@@ -78,6 +79,11 @@ _STATE_AUDIENCE: Final = "calevate:google-sign-in"
 _KDF_INFO: Final = b"calevate:google-sign-in:v1"
 _ALGORITHM: Final = "HS256"
 _NEXT_MAX: Final = 512
+#: The connect flows' single-use `state` store (`actions/oauth.spend_purpose_state`), which
+#: reads only `kind` and `ttl` from this.
+_STATE_PURPOSE: Final = StatePurpose(
+    "google_sign_in", "Google", _STATE_AUDIENCE, _KDF_INFO, STATE_TTL
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -318,11 +324,16 @@ def verify_id_token(
         claims: dict[str, Any] = jwt.decode(id_token, options={"verify_signature": False})
     except jwt.PyJWTError as exc:
         raise _google_refused() from exc
+    client_id = get_settings().google_oauth_client_id
     aud = claims.get("aud")
     audiences = aud if isinstance(aud, list) else [aud]
+    azp = claims.get("azp")
     checks = {
         "iss": claims.get("iss") in GOOGLE_ISSUERS,
-        "aud": get_settings().google_oauth_client_id in audiences,
+        "aud": client_id in audiences,
+        # OIDC Core 1.0 §3.1.3.7 items 4-5: a token issued to several audiences must name us
+        # as the party it was issued TO, and an `azp` that names another client is not ours.
+        "azp": (azp is None and len(audiences) == 1) or azp == client_id,
         "exp": isinstance(claims.get("exp"), int | float) and claims["exp"] + LEEWAY_S > at,
         "nonce": hmac.compare_digest(str(claims.get("nonce", "")), oidc_nonce(browser_nonce)),
         "sub": isinstance(claims.get("sub"), str) and 0 < len(claims["sub"]) <= 255,
@@ -410,6 +421,9 @@ async def finish(
     at = now or datetime.now(UTC)
     claims = _state_claims(state, browser_nonce)
     assert browser_nonce is not None  # `_state_claims` refuses a missing one
+    # One callback per `state` (RFC 9700 §4.7.1), before any code is exchanged: a replayed
+    # callback URL from a log or a history entry is refused even inside the ten minutes.
+    await spend_purpose_state(_STATE_PURPOSE, str(claims["jti"]), refusal=_not_started_here())
     id_claims = verify_id_token(
         await _exchange(code, browser_nonce, client), browser_nonce=browser_nonce, now=at
     )

@@ -301,6 +301,8 @@ async def test_a_sign_in_started_in_another_browser_cannot_finish_here(
         {"aud": "someone-else.apps.googleusercontent.com"},
         {"exp": int((datetime.now(UTC) - timedelta(hours=2)).timestamp())},
         {"nonce": "replayed"},
+        {"azp": "someone-else.apps.googleusercontent.com"},
+        {"aud": [CLIENT_ID, "someone-else.apps.googleusercontent.com"]},
     ],
 )
 def test_the_id_token_checks_refuse_a_bad_claim(claims: dict[str, Any]) -> None:
@@ -310,6 +312,40 @@ def test_the_id_token_checks_refuse_a_bad_claim(claims: dict[str, Any]) -> None:
     with pytest.raises(ProblemError) as refused:
         google.verify_id_token(token, browser_nonce=begun.browser_nonce)
     assert refused.value.code == "google_sign_in_failed"
+
+
+def test_a_token_for_several_audiences_passes_when_it_was_issued_to_us() -> None:
+    begun = google.begin(next_path=None)
+    _, nonce = _state_and_nonce(begun.authorize_url)
+    token = _id_token(nonce, aud=[CLIENT_ID, "another.apps.googleusercontent.com"], azp=CLIENT_ID)
+    assert google.verify_id_token(token, browser_nonce=begun.browser_nonce)["azp"] == CLIENT_ID
+
+
+async def test_a_state_answers_one_callback_only(
+    monkeypatch: pytest.MonkeyPatch, planted: list[str]
+) -> None:
+    """RFC 9700 §4.7.1: the same callback replayed in the same browser inside the ten
+    minutes is refused before any code reaches Google."""
+    begun = google.begin(next_path=None)
+    state, nonce = _state_and_nonce(begun.authorize_url)
+    token = _id_token(nonce)
+    planted.append(jwt.decode(token, options={"verify_signature": False})["email"])
+    exchanges: list[str] = []
+
+    async def exchange(code: str, nonce_in: str, client: Any) -> str:
+        exchanges.append(code)
+        return token
+
+    monkeypatch.setattr(google, "_exchange", exchange)
+    await google.finish(
+        code="the-code", state=state, browser_nonce=begun.browser_nonce, signup_open=True
+    )
+    with pytest.raises(ProblemError) as replayed:
+        await google.finish(
+            code="the-code", state=state, browser_nonce=begun.browser_nonce, signup_open=True
+        )
+    assert replayed.value.code == "google_sign_in_expired"
+    assert exchanges == ["the-code"], "the replay must be refused before the code exchange"
 
 
 def test_the_authorization_request_asks_for_identity_only_with_pkce() -> None:
