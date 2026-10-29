@@ -421,6 +421,14 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
     AreaEntry("lead_view_save", "leads", "save `lens` as a named view"),
     AreaEntry("leads_export", "leads", "spreadsheet of the `lens` leads"),
     AreaEntry("calls_export", "calls", "spreadsheet of the `call_lens` calls"),
+    # D-935: troubleshoot mode. Each runs ordered checks and names the first cause and fix.
+    AreaEntry("agent_diagnose", "agents", "why it does not pick up or answer"),
+    AreaEntry("call_diagnose", "calls", "why one call failed"),
+    AreaEntry("campaign_diagnose", "campaigns", "why it is not calling"),
+    AreaEntry(
+        "delivery_diagnose", "integrations", "why a lead did not reach a Sheet, webhook or WhatsApp"
+    ),
+    AreaEntry("knowledge_diagnose", "knowledge", "why agents do not use what they were given"),
 )
 
 AREA_OF: Final[dict[str, Area]] = {entry.tool: entry.area for entry in ENTRIES}
