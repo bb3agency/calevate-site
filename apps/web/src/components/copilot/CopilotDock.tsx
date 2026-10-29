@@ -13,6 +13,7 @@ import { useClientRealm } from "@/lib/api/session";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { fallbackSurface } from "@/lib/copilot/fallback";
 import { useAssistantRequests } from "@/lib/copilot/launcher";
+import { launcherCount, useCopilotNotes } from "@/lib/copilot/notes";
 import { resolveDestination } from "@/lib/copilot/navigate";
 import { useCopilotSurfaceHolder, type SurfaceHolder } from "@/lib/copilot/registry";
 
@@ -128,6 +129,9 @@ export function CopilotDock({
   }, [pathname, realm]);
   const holder = declared ?? fallback;
   const [isOpen, setIsOpen] = useState(false);
+  // PIP'S OWN NOTES NOBODY HAS SEEN (D-936), as a small count on the launcher. Client realm
+  // only: the operator's notes are the health board's, which has its own screen.
+  const unseenNotes = launcherCount(useCopilotNotes(session, realm, realm === "client").data);
   // The portal target exists only in the browser; mounting it after hydration keeps the
   // server and first client render identical.
   const [mounted, setMounted] = useState(false);
@@ -236,7 +240,11 @@ export function CopilotDock({
         type="button"
         aria-expanded={isOpen}
         // One name in both states; `aria-expanded` says whether the panel is open.
-        aria-label={`Ask ${ASSISTANT_NAME}`}
+        aria-label={
+          unseenNotes > 0
+            ? `Ask ${ASSISTANT_NAME}, ${unseenNotes} new ${unseenNotes === 1 ? "note" : "notes"}`
+            : `Ask ${ASSISTANT_NAME}`
+        }
         onPointerEnter={preloadPanel}
         onFocus={preloadPanel}
         onClick={() => {
@@ -251,10 +259,10 @@ export function CopilotDock({
         // two consoles never look alike on the one control that floats over both.
         className={
           realm === "client" && placement === "header"
-            ? "press inline-flex h-9 items-center gap-1.5 rounded-md border border-line bg-surface px-2.5 text-body font-medium text-ink hover:bg-ink/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 aria-expanded:bg-ink/[0.06] touch:h-11 touch:min-w-11 touch:justify-center"
+            ? "press relative inline-flex h-9 items-center gap-1.5 rounded-md border border-line bg-surface px-2.5 text-body font-medium text-ink hover:bg-ink/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 aria-expanded:bg-ink/[0.06] touch:h-11 touch:min-w-11 touch:justify-center"
             : `${
                 placement === "header"
-                  ? "flex h-9 w-9 items-center justify-center rounded-md touch:h-11 touch:w-11"
+                  ? "relative flex h-9 w-9 items-center justify-center rounded-md touch:h-11 touch:w-11"
                   : "fixed bottom-[calc(1rem+env(safe-area-inset-bottom,0px))] right-4 z-assistant flex h-11 w-11 items-center justify-center rounded-full border border-line shadow-raised"
               } text-white press focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 ${
                 realm === "admin"
@@ -270,6 +278,15 @@ export function CopilotDock({
           </>
         ) : (
           <PipMark size={24} />
+        )}
+        {unseenNotes > 0 && (
+          <span
+            aria-hidden
+            data-testid="pip-note-count"
+            className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-brand-strong px-1 text-[10px] font-semibold leading-none text-white tabular-nums"
+          >
+            {unseenNotes > 9 ? "9+" : unseenNotes}
+          </span>
         )}
       </button>
       )}

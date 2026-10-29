@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Info, Undo2, X } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 
@@ -27,6 +27,7 @@ import { ActionReceipt } from "./ActionReceipt";
 import { JobCard } from "./JobCard";
 import { NavigationReceipt } from "./NavigationReceipt";
 import { PipConsentGate } from "./PipConsent";
+import { PipNotes } from "./PipNotes";
 import { ProposalCard } from "./ProposalCard";
 import { StepList } from "./StepList";
 import { panelFrame, type PanelPlacement } from "./panelFrame";
@@ -184,18 +185,22 @@ export function CopilotPanel({
     panel.current?.querySelector("textarea")?.focus();
   }, [placement]);
 
-  // A prefilled request: into the box, caret at the end, ready to edit or send.
-  const requestNonce = request?.nonce;
-  const requestPrompt = request?.prompt;
-  useEffect(() => {
-    if (requestNonce === undefined || requestPrompt === undefined) return;
-    setQuestion(requestPrompt);
+  // A prefilled request: into the box, caret at the end, ready to edit or send. A screen's
+  // button and a note's `ask` button (D-936) both arrive here.
+  const prefill = useCallback((prompt: string) => {
+    setQuestion(prompt);
     const box = panel.current?.querySelector("textarea");
     if (box) {
       box.focus();
       requestAnimationFrame(() => box.setSelectionRange(box.value.length, box.value.length));
     }
-  }, [requestNonce, requestPrompt]);
+  }, []);
+  const requestNonce = request?.nonce;
+  const requestPrompt = request?.prompt;
+  useEffect(() => {
+    if (requestNonce === undefined || requestPrompt === undefined) return;
+    prefill(requestPrompt);
+  }, [requestNonce, requestPrompt, prefill]);
   const reduced = useReducedMotion();
 
   /*
@@ -383,6 +388,8 @@ export function CopilotPanel({
         </div>
       ) : (
       <>
+      {/* WHAT PIP NOTICED ON ITS OWN (D-936), above the conversation. */}
+      <PipNotes session={session} realm={realm} onOpen={onNavigate} onAsk={prefill} />
       <div className="relative flex min-h-0 flex-1 flex-col">
       <div
         ref={transcript}

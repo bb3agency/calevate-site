@@ -492,6 +492,13 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "copilot_azure_fallback": AppliesRule(LIVE),
     "copilot_daily_message_cap": AppliesRule(LIVE),
     "copilot_daily_ktok_cap": AppliesRule(LIVE),
+    # Pip's notes (D-936): read by the hourly detector run, so a change lands on its next pass.
+    "pip_notes_enabled": AppliesRule(LIVE),
+    "pip_notes_daily_cap": AppliesRule(LIVE),
+    "pip_notes_hot_lead_hours": AppliesRule(LIVE),
+    "pip_notes_runway_days": AppliesRule(LIVE),
+    "pip_notes_gap_repeat_calls": AppliesRule(LIVE),
+    "pip_notes_good_week_percent": AppliesRule(LIVE),
     # The EMBEDDING deployment (D-502). LIVE, and genuinely so: unlike the three chat
     # deployment fields above, this value is never published into an agent's engine record —
     # it is read per request by `retrieval/embedding.embedding_leg` and per tick by the

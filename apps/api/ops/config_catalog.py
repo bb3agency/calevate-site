@@ -604,6 +604,45 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "Assistant: thousand tokens per account per day",
         "The fair-use cap on model usage, counted alongside the question cap.",
     ),
+    "pip_notes_enabled": _m(
+        "language-models",
+        "assistant",
+        "Assistant: notes on its own",
+        "Pip leaves short notes in its panel about things it noticed in an account. Off stops "
+        "new notes.",
+    ),
+    "pip_notes_daily_cap": _m(
+        "language-models",
+        "assistant",
+        "Assistant: new notes per account per day",
+        "The most new notes Pip leaves for one account in one IST day.",
+    ),
+    "pip_notes_hot_lead_hours": _m(
+        "language-models",
+        "assistant",
+        "Assistant: hours before a hot lead is noted",
+        "A hot lead nobody has called back for this long gets a note.",
+    ),
+    "pip_notes_runway_days": _m(
+        "language-models",
+        "assistant",
+        "Assistant: days of credit left before a note",
+        "Credit expected to run out within this many days at the account's own spending gets "
+        "a note.",
+    ),
+    "pip_notes_gap_repeat_calls": _m(
+        "language-models",
+        "assistant",
+        "Assistant: calls before an unanswered question is noted",
+        "One question the agents could not answer, asked on this many calls in a week, gets "
+        "a note.",
+    ),
+    "pip_notes_good_week_percent": _m(
+        "language-models",
+        "assistant",
+        "Assistant: rise that makes a good week",
+        "Calls and new leads both up by at least this much on the week before gets a note.",
+    ),
     "platform_llm_model": _m(
         "language-models",
         "default",
@@ -1378,6 +1417,11 @@ CONTROL_HINTS: Final[dict[str, ControlHint]] = {
     ),
     "copilot_daily_message_cap": ControlHint(unit="questions a day"),
     "copilot_daily_ktok_cap": ControlHint(unit="thousand tokens a day"),
+    "pip_notes_daily_cap": ControlHint(unit="notes a day"),
+    "pip_notes_hot_lead_hours": ControlHint(unit="hours"),
+    "pip_notes_runway_days": ControlHint(unit="days"),
+    "pip_notes_gap_repeat_calls": ControlHint(unit="calls"),
+    "pip_notes_good_week_percent": ControlHint(unit="percent"),
     "cartesia_agent_cap": ControlHint(unit="agents", help="0 switches the Studio voice off."),
     "auto_recharge_max_failures": ControlHint(unit="failures in a row"),
     "number_hold_after_negative_days": ControlHint(unit="days"),

@@ -15946,6 +15946,165 @@
         "title": "CopilotJobProgressOut",
         "type": "object"
       },
+      "CopilotNoteAckOut": {
+        "additionalProperties": false,
+        "properties": {
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "title": "CopilotNoteAckOut",
+        "type": "object"
+      },
+      "CopilotNoteButtonOut": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "open",
+              "ask"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "prompt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt"
+          },
+          "route": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Route"
+          },
+          "screen": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Screen"
+          }
+        },
+        "required": [
+          "kind",
+          "label",
+          "screen",
+          "route",
+          "prompt"
+        ],
+        "title": "CopilotNoteButtonOut",
+        "type": "object"
+      },
+      "CopilotNoteOut": {
+        "additionalProperties": false,
+        "properties": {
+          "button": {
+            "$ref": "#/components/schemas/CopilotNoteButtonOut"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "dismissible": {
+            "title": "Dismissible",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "line": {
+            "title": "Line",
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "pip",
+              "linked"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "tone": {
+            "enum": [
+              "info",
+              "success",
+              "warning",
+              "critical"
+            ],
+            "title": "Tone",
+            "type": "string"
+          },
+          "unread": {
+            "title": "Unread",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "source",
+          "tone",
+          "line",
+          "button",
+          "created_at",
+          "unread",
+          "dismissible"
+        ],
+        "title": "CopilotNoteOut",
+        "type": "object"
+      },
+      "CopilotNotesOut": {
+        "additionalProperties": false,
+        "properties": {
+          "notes": {
+            "items": {
+              "$ref": "#/components/schemas/CopilotNoteOut"
+            },
+            "title": "Notes",
+            "type": "array"
+          },
+          "unread": {
+            "title": "Unread",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "notes",
+          "unread"
+        ],
+        "title": "CopilotNotesOut",
+        "type": "object"
+      },
       "CopilotOption": {
         "additionalProperties": false,
         "description": "One choice on a `select`. `value` is what may be written; `label` is what the\nperson sees, and is what the model needs in order to map \"Telugu\" onto `te-IN`.",
@@ -58341,6 +58500,34 @@
         "x-calevate-permission": "copilot:admin"
       }
     },
+    "/v1/admin/copilot/notes": {
+      "get": {
+        "operationId": "list_admin_copilot_notes_v1_admin_copilot_notes_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CopilotNotesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Fleet notes for the operator's Pip: clients at risk and failing deliveries",
+        "tags": [
+          "copilot"
+        ],
+        "x-calevate-permission": "org:read"
+      }
+    },
     "/v1/admin/copilot/uploads": {
       "post": {
         "description": "Attach one file to Pip's next question. The body IS the file \u2014 not a form \u2014\nwith `Content-Type` set to the type the browser produced, and `X-Upload-Name` set to the\nname the person chose, percent-encoded.\n\nAllowed: pictures (JPG, PNG, WebP, HEIC \u2014 re-drawn by the browser as `image/jpeg`, which\ndrops their location and camera data), text and CSV (`text/plain`, `text/csv`), and Word,\nExcel and PowerPoint files the browser has turned into `text/plain`, and PDFs\n(`application/pdf`, sent as they are). Up to 20 MB a file, 5 MB a picture and 14 MB a PDF;\nup to 5 files, 2 of them pictures, 50 MB in all and 14 MB of pictures and PDFs together, on\none message. For a PDF the browser also sends the text it found in it, as `text/plain` with\n`X-Upload-Text-Of` naming the PDF: Pip reads that only when the PDF itself cannot be read.\nFiles with macros, older Office formats, ZIPs, audio and anything else are refused with a\nsentence saying what to do; so is a body whose first bytes are not what its type says.\n\nWhen files cannot be stored this answers 503 `copilot_uploads_unavailable`; the\nconversation read says so beforehand in `uploads_available`, so a browser never starts\nsuch an upload.\n\nNothing in the file is opened, scanned or reviewed: it is stored privately and sent to\nPip's AI provider as it is. Requires `copilot:admin`.",
@@ -77851,6 +78038,142 @@
           }
         },
         "summary": "Follow a background job as it runs \u2014 streamed",
+        "tags": [
+          "copilot"
+        ],
+        "x-calevate-permission": "copilot:use"
+      }
+    },
+    "/v1/copilot/notes": {
+      "get": {
+        "operationId": "list_copilot_notes_v1_copilot_notes_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CopilotNotesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "What Pip noticed in this account, and the items it repeats from other screens",
+        "tags": [
+          "copilot"
+        ],
+        "x-calevate-permission": "copilot:use"
+      }
+    },
+    "/v1/copilot/notes/seen": {
+      "post": {
+        "operationId": "mark_copilot_notes_seen_v1_copilot_notes_seen_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CopilotNoteAckOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Mark Pip's open notes as seen (the panel was opened)",
+        "tags": [
+          "copilot"
+        ],
+        "x-calevate-permission": "copilot:use"
+      }
+    },
+    "/v1/copilot/notes/{note_id}/acted": {
+      "post": {
+        "operationId": "mark_copilot_note_acted_v1_copilot_notes__note_id__acted_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "note_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Note Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CopilotNoteAckOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Record that a note's button was pressed",
+        "tags": [
+          "copilot"
+        ],
+        "x-calevate-permission": "copilot:use"
+      }
+    },
+    "/v1/copilot/notes/{note_id}/dismiss": {
+      "post": {
+        "operationId": "dismiss_copilot_note_v1_copilot_notes__note_id__dismiss_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "note_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Note Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CopilotNoteAckOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Put one of Pip's notes away for the account",
         "tags": [
           "copilot"
         ],

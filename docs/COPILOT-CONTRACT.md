@@ -895,3 +895,29 @@ one name for many people is never a correction.
 * Tests: `apps/api/copilot/lead_actions_test.py`, `tests/saved_views_lens_test.py`; tool
   choice: `c-source-fields`, `c-dnc-restore`, `c-view-save`, `c-export-leads`,
   `c-export-calls`.
+
+## 24. Notes Pip leaves on its own (D-936, `copilot/notes.py`)
+
+* **What it is.** A line and a button at the top of Pip's panel, and a count on its launcher,
+  for something Pip noticed without being asked. In-app only; nothing is mailed.
+* **Stored notes** (`copilot_notes`, ids and counts only): `hot_lead_waiting` (a hot lead with
+  no call and no promised call-back for `pip_notes_hot_lead_hours`), `balance_runway` (the
+  wallet's own projection inside `pip_notes_runway_days`, above the low-credit line),
+  `knowledge_gap_repeat` (an open gap asked on `pip_notes_gap_repeat_calls` calls in seven days
+  that the setup checklist is not already nudging about), `good_week` (the dashboard's calls
+  and new leads both up `pip_notes_good_week_percent` on the week before, once per ISO week).
+* **Linked items** (read live, never stored, not dismissible): the needs-attention queue's
+  `inbound_stopped`, `campaign_stalled`, `delivery_failed`, `action_broken` and `credit_low`
+  counts, and the healer's open line incident. They leave when their own screen's item does.
+  Missed-call spikes and degraded knowledge are the healer's signals and reach Pip that way.
+* **Dedupe and rate.** One open note per (kind, subject); an episode key (subject and IST day)
+  unique for ever; at most `pip_notes_daily_cap` new notes per account per IST day, spent in
+  `DETECTORS` order. A dismissed note keeps its slot until its condition clears.
+* **Buttons.** `open` carries a screen NAME and its route constant from `CLIENT_SCREENS`
+  (admin: `ADMIN_SCREENS`), offered only when the reader's role may open that screen; the
+  browser checks it against its sidebar before moving. `ask` prefills the ask box and never
+  sends. No new model-facing tool: notes are composed by us, not by the model.
+* **Runs.** `sweep_pip_notes` (hourly, 08:00-21:00 IST) queues `detect_pip_notes` per open
+  account on the bulk queue, keyed by account and hour. Operator twin:
+  `GET /v1/admin/copilot/notes`, the Client health board as two lines.
+* Tests: `tests/pip_notes_test.py`, `apps/web/tests/pipNotes.test.tsx`.
