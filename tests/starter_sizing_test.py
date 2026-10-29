@@ -73,3 +73,27 @@ def test_redis_is_capped_and_never_evicts_a_queued_job() -> None:
     assert block
     assert "--maxmemory-policy\n      - noeviction" in block.group(1)
     assert "${REDIS_MAXMEMORY:-" in block.group(1)
+
+
+#: DEPLOYMENT §2b's starter row, in MB.
+STARTER_RAM_MB = 4096
+STARTER_SHARED_BUFFERS_MB = 768
+STARTER_REDIS_MAXMEMORY_MB = 256
+
+
+def _megabytes(value: str) -> int:
+    match = re.fullmatch(r"(\d+)([mg])b?", value.lower())
+    assert match is not None, value
+    number, unit = match.groups()
+    return int(number) * (1024 if unit == "g" else 1)
+
+
+def test_the_worker_has_a_memory_ceiling_inside_what_the_starter_can_spare() -> None:
+    """Without a ceiling a ballooning job is the host OOM killer's problem, and its pick
+    can be Postgres."""
+    text = COMPOSE.read_text(encoding="utf-8")
+    workers = text.split("\n  workers:\n", 1)[1].split("\n  migrate:\n", 1)[0]
+    assert "mem_limit: ${WORKERS_MEM_LIMIT:-" in workers
+    assert _megabytes(_defaults()["REDIS_MAXMEMORY"]) == STARTER_REDIS_MAXMEMORY_MB
+    spare = STARTER_RAM_MB - STARTER_SHARED_BUFFERS_MB - STARTER_REDIS_MAXMEMORY_MB
+    assert _megabytes(_defaults()["WORKERS_MEM_LIMIT"]) <= spare // 2
