@@ -2,7 +2,8 @@
 
 Two rules from the blueprint drive this module:
 
-1. **The recording copy runs FIRST in the pipeline, always** (TRD §8, FLOWS §3).
+1. **The recording copy starts FIRST in the pipeline, always** (TRD §8, FLOWS §3), and
+   no later stage's failure can abandon it (`pipeline._post_call_stages` waits for it).
    The engine keeps its copy of a recording on the vendor's terms, not ours, so that
    copy is not our system of record; ours is. Everything downstream can be re-run; a
    recording we failed to copy may simply be gone, and TRAI's 90-day floor is our
@@ -87,9 +88,10 @@ MIN_RECORDING_BYTES = 1
 #: `RECORDING_REDIRECT_LIMIT + 1` hops in front of it there was no total bound on this
 #: function at all. The number has to be read against `WorkerSettings.job_timeout` (300s),
 #: which is the whole post-call pipeline's budget and not just this stage's — the
-#: recording copy runs FIRST and everything after it (extraction, the lead upsert,
-#: metering, the alert) has to fit in what is left. `recording_source_egress_test` asserts
-#: the relationship rather than trusting this comment.
+#: recording copy starts first and runs beside extraction, the lead upsert and metering,
+#: but the CRM fan-out waits for it, so the job ends no sooner than this deadline plus that
+#: last transaction. `recording_source_egress_test` asserts the relationship rather than
+#: trusting this comment.
 RECORDING_FETCH_DEADLINE_S = 120.0
 # A recording copy is worth waiting for: the vendor's S3 link has no documented expiry
 # but no promise either, so a retry should be soon enough to beat a link going away and
@@ -108,7 +110,7 @@ class StorageUnavailableError(Retry):
     retries", and it now does.
 
     Of everything in the pipeline this is the failure least tolerable to drop: the
-    recording copy runs FIRST precisely because the engine keeps its copy on its own
+    recording copy starts FIRST precisely because the engine keeps its copy on its own
     terms, so a copy we quietly gave up on is a call recording
     that is simply gone — against a 90-day TRAI floor that is our obligation, not the
     vendor's.

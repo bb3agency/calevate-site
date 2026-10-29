@@ -45,6 +45,8 @@ from html.parser import HTMLParser
 from typing import Any, Final
 from uuid import UUID
 
+from arq import Retry
+from calevate_shared.backoff import jittered_delay_s
 from calevate_shared.document_ingest import (
     MAX_IMAGE_BYTES,
     MAX_OCR_IMAGES,
@@ -57,11 +59,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
+from apps.api.core.queue import enqueue, job_id_for
 from apps.api.db.session import tenant_session
 from apps.api.kb import service as kb_service
 from apps.api.kb.models import READ_COPY_KINDS, READ_FAILED, READ_READING, READ_READY
+from apps.workers.fleet_walk import WalkBudget
 
 log = get_logger(__name__)
+
+#: This module's own job, named again for the continuation it enqueues: `check_job_wiring`
+#: reads an enqueued name only as a literal or a constant of the enqueuing module.
+REDELIVERY_JOB: Final = "redeliver_extracted_knowledge"
 
 #: The most pages of one PDF we read. A price list or a menu is a few pages; past this a
 #: document is a book, and the copy would be a cost nobody asked for.
@@ -432,6 +440,25 @@ class RedeliveryIncompleteError(RuntimeError):
     """Some live PDFs or links could not be re-sent; every other one was."""
 
 
+def _redelivery_key(tenant_id: UUID, source_id: UUID) -> str:
+    """One source's place in the redelivery order: tenant, then source, as text."""
+    return f"{tenant_id}:{source_id}"
+
+
+async def _continue_redelivery(after: str, attempt: int) -> None:
+    """Queue the rest of the redelivery, starting after `after`, as a job of its own."""
+    try:
+        await enqueue(
+            REDELIVERY_JOB,
+            {"after": after},
+            job_id=job_id_for(REDELIVERY_JOB, "after", after),
+        )
+    except Exception as exc:
+        # The retry re-walks from this run's own start; sources already re-sent are
+        # skipped by `publish_source`'s digest guard, so nothing is sent twice.
+        raise Retry(defer=jittered_delay_s(30.0 * attempt)) from exc
+
+
 async def redeliver_extracted_knowledge(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     """Re-send every live PDF and link of every client after `kb_send_extracted_files`
     changes (`kb.reading.queue_redelivery`).
@@ -439,26 +466,56 @@ async def redeliver_extracted_knowledge(ctx: dict[str, Any], payload: dict[str, 
     `publish_source` on the live version: its digest now includes or leaves out the read
     words (`kb.service._with_sent_text`), so the re-upload guard sends the new copy, takes
     the old one down, and recompiles every agent's facts block. One transaction per source,
-    so one vendor refusal neither rolls back nor stops the rest; the tick raises at the end
-    so arq's retry and alarm see what did not go.
+    so one vendor refusal neither rolls back nor stops the rest; the run raises at the end
+    so what did not go is a failed job, not a quiet one.
+
+    Each source is a vendor upload plus a recompile of every agent, so the whole fleet does
+    not fit one `job_timeout`: a run stops at its `WalkBudget` and queues the rest as a
+    continuation (`payload["after"]`, the last source it reached, in tenant-then-source
+    order). Cancelled at the timeout instead, the fleet's tail was never re-sent, and the
+    run held one of the worker's few slots for all five minutes.
     """
-    del ctx, payload
     from apps.workers.kb_gloss import tenants_holding_knowledge
 
+    after = str(payload.get("after") or "")
+    after_tenant = after.partition(":")[0]
+    attempt = int(ctx.get("job_try", 1))
+    budget = WalkBudget()
+    reached = after
     sent = 0
     failures: list[str] = []
-    for tenant_id in await tenants_holding_knowledge():
+    for tenant_id in sorted(await tenants_holding_knowledge(), key=str):
+        if str(tenant_id) < after_tenant:
+            continue
         async with tenant_session(tenant_id) as session:
-            source_ids = [
-                UUID(str(sid))
-                for sid in (
-                    await session.execute(
-                        text(_LIVE_COPIES_SQL),
-                        {"tid": tenant_id, "kinds": list(READ_COPY_KINDS)},
-                    )
-                ).scalars()
-            ]
+            source_ids = sorted(
+                (
+                    UUID(str(sid))
+                    for sid in (
+                        await session.execute(
+                            text(_LIVE_COPIES_SQL),
+                            {"tid": tenant_id, "kinds": list(READ_COPY_KINDS)},
+                        )
+                    ).scalars()
+                ),
+                key=str,
+            )
         for source_id in source_ids:
+            key = _redelivery_key(tenant_id, source_id)
+            if key <= after:
+                continue
+            if budget.spent():
+                await _continue_redelivery(reached, attempt)
+                log.info(
+                    "kb_redelivery_continued",
+                    extra={"sources": sent, "failed": len(failures)},
+                )
+                if failures:
+                    raise RedeliveryIncompleteError(
+                        f"{len(failures)} source(s) failed: {failures[:5]}"
+                    )
+                return f"sent={sent} continued"
+            reached = key
             try:
                 async with tenant_session(tenant_id) as session:
                     await kb_service.publish_source(

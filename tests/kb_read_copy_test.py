@@ -315,6 +315,58 @@ async def test_redelivery_republishes_each_live_pdf(
     assert uuid.UUID(str(row["source_id"])) in published
 
 
+class _OneItemBudget:
+    """A `WalkBudget` with room for exactly one source per run."""
+
+    def __init__(self) -> None:
+        self._asked = 0
+
+    def spent(self) -> bool:
+        self._asked += 1
+        return self._asked > 1
+
+
+async def test_a_redelivery_that_runs_out_of_budget_queues_the_rest_as_a_continuation(
+    s3: FakeS3, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from apps.workers import kb_gloss
+
+    tenant_id, _agent = await _tenant_with_published_agent()
+    for name, page in (("Prices", PRICE_PAGE), ("Hours", HOURS_PAGE)):
+        row = await _pdf_upload(tenant_id, _pdf(page), name=name)
+        await _ingest(tenant_id, row["source_id"])
+    published: list[uuid.UUID] = []
+    queued: list[tuple[str, dict[str, Any], str | None]] = []
+
+    async def _publish(session: Any, *, tenant_id: uuid.UUID, source_id: uuid.UUID) -> int:
+        published.append(source_id)
+        return 1
+
+    async def _enqueue(job: str, payload: dict[str, Any], *, job_id: str | None = None) -> str:
+        queued.append((job, payload, job_id))
+        return job_id or job
+
+    async def _only_this_tenant() -> list[uuid.UUID]:
+        return [tenant_id]
+
+    monkeypatch.setattr(kb_service, "publish_source", _publish)
+    monkeypatch.setattr(kb_gloss, "tenants_holding_knowledge", _only_this_tenant)
+    monkeypatch.setattr(kb_read, "WalkBudget", _OneItemBudget)
+    monkeypatch.setattr(kb_read, "enqueue", _enqueue)
+
+    assert await kb_read.redeliver_extracted_knowledge({}, {}) == "sent=1 continued"
+    assert len(published) == 1 and len(queued) == 1
+    job, payload, job_id = queued[0]
+    assert job == "redeliver_extracted_knowledge"
+    assert payload == {"after": f"{tenant_id}:{published[0]}"}
+    assert job_id == f"redeliver_extracted_knowledge:after:{tenant_id}:{published[0]}"
+
+    # The continuation sends the other source and nothing it already sent.
+    assert await kb_read.redeliver_extracted_knowledge({}, payload) == "sent=1"
+    assert len(published) == 2 and published[0] != published[1]
+    assert len(queued) == 1
+
+
 # --- 3. Pip reads --------------------------------------------------------------------
 
 
