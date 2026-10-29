@@ -712,15 +712,19 @@ async def _write_greeting(
             await session.execute(text("SELECT name, vertical_template FROM organizations LIMIT 1"))
         ).one()
     names = (str(business[0]), name)
-    if greeting_fits(current, language, names=names, introduced=introduced):
+    vertical = None if business[1] is None else str(business[1])
+
+    def starter_line_for(form: bool) -> str:
+        return starter_opening(
+            vertical, _jobs(run), business=str(business[0]), language=language, introduced=form
+        )
+
+    other_form = starter_line_for(not introduced).strip()
+    if current != other_form and greeting_fits(
+        current, language, names=names, introduced=introduced
+    ):
         return {"state": "done"}
-    starter_line = starter_opening(
-        None if business[1] is None else str(business[1]),
-        _jobs(run),
-        business=str(business[0]),
-        language=language,
-        introduced=introduced,
-    )
+    starter_line = starter_line_for(introduced)
     if starter_line.strip() == current:
         return {"state": "kept"}
     try:

@@ -11,6 +11,7 @@ from apps.api.compliance.call_purpose import (
     MAX_FINDINGS,
     ScriptPart,
     campaign_purpose,
+    first_finding,
     lead_source_purpose,
     lint,
     script_parts,
@@ -82,6 +83,37 @@ def test_promotional_wording_is_found(wording: str, category: str) -> None:
 )
 def test_everyday_wording_is_not_promotional(wording: str) -> None:
     assert _verdict(wording) == "clear", lint([ScriptPart("Test", wording)]).findings
+
+
+@pytest.mark.parametrize(
+    ("wording", "phrase", "severity"),
+    [
+        # The script lint's own cases (D-945), now read through this checker.
+        ("Book today, special offer for you!", "special offer", "strong"),
+        ("ఈ వారం డిస్కౌంట్ ఉంది అండి", "డిస్కౌంట్", "strong"),
+        ("अभी कैशबैक मिलेगा", "कैशबैक", "strong"),
+        ("Hi, I'm Priya. Limited offer today, shall we talk?", "Limited offer", "strong"),
+        ("Only the last few flats are left.", "last few flats", "strong"),
+        ("Hurry, only today!", "Hurry", "strong"),
+        ("I will send it on WhatsApp, best price!", "best price", "soft"),
+        ("It gives guaranteed returns.", "guaranteed returns", "soft"),
+        ("ఇది బెస్ట్ ప్రైస్ అండి", "బెస్ట్ ప్రైస్", "soft"),
+        ("यह बेस्ट प्राइस है", "बेस्ट प्राइस", "soft"),
+    ],
+)
+def test_first_finding_names_the_first_wording_in_one_line(
+    wording: str, phrase: str, severity: str
+) -> None:
+    found = first_finding(wording)
+    assert found is not None, wording
+    assert (found.phrase, found.severity) == (phrase, severity)
+
+
+@pytest.mark.parametrize(
+    "wording", ["There is free parking.", "We offer home delivery.", "It is open now."]
+)
+def test_first_finding_leaves_an_ordinary_fact_alone(wording: str) -> None:
+    assert first_finding(wording) is None
 
 
 def test_soft_wording_asks_for_a_check_and_never_blocks() -> None:

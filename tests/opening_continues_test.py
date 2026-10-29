@@ -85,7 +85,7 @@ def test_the_prompt_quotes_the_exact_opening_already_spoken_and_says_to_go_on() 
 def test_who_is_calling_goes_on_to_the_first_question_in_every_direction() -> None:
     # An outbound agent had no who-is-calling rule, and on the call of 28 Oct 2026 it said
     # who and why and asked "can we talk now?" again (D-912).
-    who = "Asked who or why? Say both in one line, then your first question."
+    who = "Asked who or why? Say both in one line, then stop and wait."
     assert who in OPENING_CONTINUES_RULE
     assert "good time" not in OPENING_CONTINUES_RULE
     for direction in ("inbound", "outbound", "both"):

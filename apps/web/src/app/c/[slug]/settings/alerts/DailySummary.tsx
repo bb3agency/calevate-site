@@ -1,5 +1,6 @@
 "use client";
 
+import { useActionFeedback } from "@/components/arc/feedback";
 import { Section } from "@/components/console/section";
 import { ProblemNotice, RestrictionNote, Skeleton, ToggleSwitch } from "@/components/ui";
 import { useWriteAccess } from "@/lib/api/hooks";
@@ -16,6 +17,8 @@ export function DailySummary() {
   const session = useClientSession();
   const state = useDailySummary(session);
   const save = useSetDailySummary(session);
+  // The switch itself shows the new state; a refusal is drawn beside it.
+  const saveFeedback = useActionFeedback(save, { errorDisplay: "inline" });
   const write = useWriteAccess(session, "org:manage", "turn the daily summary on or off");
 
   return (
@@ -33,7 +36,7 @@ export function DailySummary() {
             hint={channels(state.data)}
             checked={state.data.enabled}
             disabled={!write.allowed || save.isPending}
-            onChange={(next) => save.mutate(next)}
+            onChange={(next) => saveFeedback.run(next)}
           />
         </div>
       )}

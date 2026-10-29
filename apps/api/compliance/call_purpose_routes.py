@@ -54,7 +54,7 @@ class PromoCheckIn(Strict):
 
 class FindingOut(Strict):
     phrase: str
-    category: Literal["discount", "urgency", "free_offer", "cross_sell", "buy_now"]
+    category: Literal["discount", "urgency", "free_offer", "cross_sell", "buy_now", "claim"]
     language: Literal["en", "hi", "te"]
     severity: Literal["strong", "soft"]
     where: str

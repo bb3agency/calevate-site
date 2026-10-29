@@ -50,6 +50,8 @@ MAX_BUILD_RUNS: Final = 3
 
 #: The four questions at most that follow the brief (D-863).
 MAX_QUESTIONS: Final = 4
+#: Those and the one every owner is asked (`questions.ONE_THING`, D-945).
+MAX_ASKED: Final = MAX_QUESTIONS + 1
 
 #: Documents the owner may add beside the brief (D-918). Three, the bound the spoken brief
 #: already has: enough for a price list, a menu and a brochure, and with the
@@ -178,6 +180,7 @@ __all__ = [
     "BUILD_STEPS",
     "DOCUMENT_CHARS",
     "FIRST_RUN_JOBS",
+    "MAX_ASKED",
     "MAX_BRIEF_CHARS",
     "MAX_BUILD_RUNS",
     "MAX_DOCUMENTS",

@@ -36,6 +36,11 @@ never goes below 0, so the total is 0-100.
 Every component that is not full contributes one `fix` with a realm-relative link to the
 screen where it is fixed. Fixes are ordered by the points they would recover, largest
 first, and ties by the table order above, so the list is deterministic.
+
+ADVICE IS NOT SCORED (D-945). `advice` carries what the owner should still do but no point
+measures: a calendar for an agent that places calls and books visits (founder, 30 Oct 2026:
+only where it matters, never for an agent that mostly answers calls), and what the script
+lint finds in the draft (`agents/script_lint`). One short line and a button each.
 """
 
 from __future__ import annotations
@@ -45,15 +50,19 @@ from datetime import UTC, datetime, timedelta
 from typing import Final, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from calevate_shared.call_script import upgrade_to_v2
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents import test_conversations
+from apps.api.actions.calendar import calendar_configured
+from apps.api.agents import script_builder, test_conversations
 from apps.api.agents.call_rules import OPENING_LINE_MAX_CHARS
+from apps.api.agents.capability_manifest import books_visits, lint_context_for
 from apps.api.agents.reconciliation import DRIFT_STATES_OUT_OF_SYNC
 from apps.api.agents.roster import agent_by_id
 from apps.api.agents.schemas import AgentOut
+from apps.api.agents.script_lint import plain, script_problems
 from apps.api.core.errors import ProblemError
 
 ComponentKey = Literal["tests", "knowledge", "opening", "live", "missed"]
@@ -95,6 +104,23 @@ class ReadinessFixOut(BaseModel):
     points: int
 
 
+AdviceKind = Literal["calendar", "script"]
+
+
+class ReadinessAdviceOut(BaseModel):
+    """Something to do that the score does not count (D-945)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: AdviceKind
+    #: The button's label: the step, in a few words.
+    action: str
+    #: Realm-relative link to the screen where it is done.
+    href: str
+    #: Why, in one sentence, shown behind a tap; null when the label says it all.
+    detail: str | None = None
+
+
 class ReadinessComponentOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -118,6 +144,8 @@ class AgentReadinessOut(BaseModel):
     #: Every component short of full, the biggest gain first.
     fixes: list[ReadinessFixOut]
     computed_at: datetime
+    #: What to do that the score does not count (D-945).
+    advice: list[ReadinessAdviceOut] = Field(default_factory=list)
 
 
 class AccountReadinessOut(BaseModel):
@@ -154,6 +182,8 @@ class ReadinessInputs:
     draft_waiting: bool
     out_of_sync: bool
     missed_7d: int
+    #: Not scored (D-945): passed through to `AgentReadinessOut.advice`.
+    advice: tuple[ReadinessAdviceOut, ...] = ()
 
 
 def _state(points: int, maximum: int) -> ComponentState:
@@ -278,7 +308,50 @@ def score(i: ReadinessInputs, *, now: datetime) -> AgentReadinessOut:
         components=components,
         fixes=fixes,
         computed_at=now,
+        advice=list(i.advice),
     )
+
+
+#: Lint findings shown at most; the script page shows where each is.
+MAX_SCRIPT_ADVICE: Final = 2
+
+
+async def advice_for(session: AsyncSession, agent: AgentOut) -> tuple[ReadinessAdviceOut, ...]:
+    """The calendar reminder and the script lint's findings for one agent (D-945)."""
+    base = f"/agents/{agent.id}"
+    tenant_id = (
+        await session.execute(
+            text("SELECT tenant_id FROM agents WHERE id = :aid"), {"aid": agent.id}
+        )
+    ).scalar_one()
+    script = upgrade_to_v2((await script_builder.load_agent_script(session, agent.id)).script)
+    context = await lint_context_for(session, tenant_id=tenant_id, agent_id=agent.id)
+    out: list[ReadinessAdviceOut] = []
+    manifest = context.manifest
+    if (
+        manifest is not None
+        and not manifest.booking_tool
+        and calendar_configured()
+        and books_visits(agent.direction, script)
+    ):
+        out.append(
+            ReadinessAdviceOut(
+                kind="calendar",
+                action="Connect a calendar",
+                href=f"{base}?section=actions",
+                detail="Your agent then offers times you are really free.",
+            )
+        )
+    out += [
+        ReadinessAdviceOut(
+            kind="script",
+            action="Fix a line in the script",
+            href=f"{base}?section=script",
+            detail=plain(problem),
+        )
+        for problem in script_problems(script, context)[:MAX_SCRIPT_ADVICE]
+    ]
+    return tuple(out)
 
 
 _AGENT_FACTS_SQL: Final = (
@@ -343,6 +416,7 @@ async def gather(
         draft_waiting=bool(facts.draft_waiting),
         out_of_sync=bool(facts.out_of_sync),
         missed_7d=int(facts.missed),
+        advice=await advice_for(session, agent),
     )
 
 
@@ -383,10 +457,12 @@ __all__ = [
     "MAX_POINTS",
     "AccountReadinessOut",
     "AgentReadinessOut",
+    "ReadinessAdviceOut",
     "ReadinessComponentOut",
     "ReadinessFixOut",
     "ReadinessInputs",
     "account_readiness",
+    "advice_for",
     "agent_readiness",
     "gather",
     "score",

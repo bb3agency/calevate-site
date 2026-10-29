@@ -1,7 +1,7 @@
 """The script change Pip prepares for an agent, waiting on the Script page (D-820).
 
 Pip is the one AI assistant (founder, 18 Oct 2026). A person asks Pip to change an agent's
-script, to draft the whole script from the five owner questions, or to turn a hand-written
+script, to draft the whole script from the six owner questions, or to turn a hand-written
 script into steps; the `agent_script_propose` action (`copilot/script_actions.py`) records
 the request here and queues `draft_script_proposal` (`workers/script_proposal.py`), which
 writes it with `workers/script_assist.draft_script` — the one script-writing path, with its
@@ -15,7 +15,7 @@ and cleared by the review, so a table would only add rows nobody reads, plus a p
 tenant scope `agents` already carries.
 
 The stored shape (JSON): `id`, `mode`, `status` (`drafting` | `ready` | `failed`), `request`
-(the person's change, or null), `answers` (the five owner answers, `whole` only),
+(the person's change, or null), `answers` (the six owner answers, `whole` only),
 `base_script` (the script it was made from, fixed at request time), `requested_by`,
 `requested_at`, and for `knowledge` (D-923) `documents` and `document_names` (the uploads it
 is written from); once written `script`, `unplaced` (`steps` only) and `disclosure` (D-127
@@ -39,6 +39,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import script_builder
+from apps.api.agents.capability_manifest import manifest_for, owner_facts
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
 from apps.api.first_run.models import MAX_DOCUMENTS
@@ -381,7 +382,8 @@ async def discard(session: AsyncSession, *, agent_id: UUID, proposal_id: UUID) -
 async def brief_for(session: AsyncSession, tenant_id: UUID, agent_id: UUID) -> ScriptBrief:
     """What every draft is written from besides the owner's words: the business, the
     agent's direction and call language with its spoken register, the details it collects
-    and the knowledge titles. Tenant-authored configuration only (D-127 G-2)."""
+    and the knowledge titles, what it can do on a call and the owner's facts (D-945).
+    Tenant-authored configuration only (D-127 G-2)."""
     row = (
         await session.execute(
             text(
@@ -413,6 +415,8 @@ async def brief_for(session: AsyncSession, tenant_id: UUID, agent_id: UUID) -> S
         collect=tuple(f.label for f in await script_builder.collect_fields(session, agent_id)),
         knowledge_titles=tuple(str(r[0])[:120] for r in titles),
         introduced=introduces_itself(ai_notice=str(row[5]), language=language),
+        capabilities=await manifest_for(session, tenant_id=tenant_id, agent_id=agent_id),
+        facts=await owner_facts(session, tenant_id=tenant_id, agent_id=agent_id),
     )
 
 

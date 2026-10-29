@@ -19,6 +19,7 @@ from apps.api.agents.trade_playbooks import (
     JOB_SHAPES,
     PLAYBOOK_LANGUAGES,
     TRADE_WORDS,
+    VALUE_STEP_TITLE,
     is_playbook_line,
     playbook_for,
     playbook_guidance,
@@ -44,7 +45,10 @@ def test_every_trade_and_job_has_a_plan() -> None:
             assert len(plan.objections) >= 3, (trade, job)
             for step in plan.steps:
                 assert step.title and step.instruction and step.exit_when
-                assert set(step.say) == set(PLAYBOOK_LANGUAGES), (trade, job, step.title)
+                # The value step has no example line: what it says is a fact (D-945).
+                assert set(step.say) == set(PLAYBOOK_LANGUAGES) or (
+                    not step.say and step.title == VALUE_STEP_TITLE
+                ), (trade, job, step.title)
 
 
 def test_an_unknown_trade_gets_the_neutral_plan_and_an_unknown_job_is_refused() -> None:
@@ -80,7 +84,7 @@ def test_each_starter_is_built_from_its_plan_with_its_lines() -> None:
         for language in PLAYBOOK_LANGUAGES:
             script = starter.call_script(business="Acme", language=language)
             assert [stage.sounds_like for stage in script.stages] == [
-                step.say[language] for step in plan.steps
+                step.say.get(language, "") for step in plan.steps
             ]
             # Each step fits the engine's step and branches to the next, the last to the end.
             steps = native_steps(script)
@@ -112,7 +116,7 @@ def test_the_writer_reads_the_plan_for_its_trade_direction_and_language() -> Non
     guide = playbook_guidance("real_estate", "outbound", "te-IN")
     plan = playbook_for("real_estate", "call_leads", TRADES["real_estate"])
     for step in plan.steps:
-        assert step.title in guide and step.say["te-IN"] in guide
+        assert step.title in guide and step.say.get("te-IN", "") in guide
     assert "answer calls" not in guide
     both = playbook_guidance("clinic", "both", "hi-IN")
     assert "(answer calls)" in both and "(call leads)" in both

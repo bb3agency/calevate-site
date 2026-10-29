@@ -273,6 +273,7 @@ function routes(over: Record<string, unknown> = {}) {
     "/v1/agents/agent-1": agent(),
     "/v1/business-profile": businessProfileFixture(),
     "/v1/agents/agent-1/pending": settled(),
+    "POST /v1/agents/agent-1/script/check": { warnings: [] },
     // The header reads the trial to lock an answer-only agent's switch on a trial (D-853).
     "/v1/trial": { on_trial: false },
     "/v1/kb/notes": { notes: [] },

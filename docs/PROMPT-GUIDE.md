@@ -228,8 +228,8 @@ the per-call budget.
 
 **What the 28 Oct call showed (D-912).** The first call after D-910 shipped: asked "who is
 this?", the outbound agent said who and why and asked "can we talk now?" again (the
-who-is-calling rule was an answering agent's only; START OF THE CALL now says for every agent
-"Asked who or why? Say both in one line, then your first question."); "how many bedrooms, I
+who-is-calling rule was an answering agent's only; START OF THE CALL now says it for every
+agent, ending "then stop and wait" since D-945); "how many bedrooms, I
 mean two or three BHK?" (counts and amounts: "not even as examples"); "టీవీహెచ్కే", which names
 neither option, taken as three BHK ("Unclear? Ask again; never pick for them."); "I'll speak
 slowly from now on" (the speed is the agent's setting and ThinnestAI documents no way to change
@@ -259,6 +259,45 @@ spoken example line per step in Telugu, Hindi and English. Starters are built fr
 script writer reads it with every new draft; a business's own example lines (D-827) replace the
 plan's, a person's never are. Step instructions say only the trade's part: the turn rules are
 HOW TO SPEAK's, said once.
+
+**Selling without promising (D-945, founder, 30 Oct 2026).** Evidence and the turn-by-turn
+structure: `docs/research/reports/Sales call scripts and generation.md`. What the prompt and
+the writer now do:
+
+- *Opening.* After the agent's AI introduction, a call it places says why before its one
+  question: the language's `openings.outbound_reason` in `spoken_style.json`, else the
+  statement half of its `outbound` line (the founder's "we are calling from {business}").
+  A call to a lead whose name is known asks the name as its one question where the language
+  has `openings.outbound_name_check` (`engine.named_lead_opening`, chosen per dial by
+  `agents.service.dial_first_words`). Telugu and Hindi have neither line yet; the founder
+  writes them and they slot in as data. "Who is this?" gets who and why in one line, then
+  a stop (`OPENING_CONTINUES_RULE`, the 30 Oct stacked-question defect). The volunteered
+  notices stay off by default (D-669 unchanged).
+- *Value and close.* The calling plans gained "Say one thing that fits": one fact from the
+  owner's facts that answers what the lead said, after the questions and before the offer,
+  never a discount, scheme, offer, urgency or superlative, social proof only when a fact says
+  it, skipped when none fits; it has no example line because any example would be a fact.
+  The offer is two exact times (weekday and date from THIS CALL, from the booking tool if
+  there is one, else two windows inside the business's hours) plus "or another time that
+  suits you"; the close reads back weekday, date, time and place once, then the true next
+  step. Objections per calling job: busy, price, timing, who gave my number, send it on
+  WhatsApp, no machine, already bought, each answered once (`let_go`).
+- *Dates.* `{{today}}` now carries the next six days with their weekdays in IST ("Saturday,
+  31 October 2026; then Sun 1 Nov, …"), so DAYS_RULE takes dates from the list rather than
+  counting. The value is per call; the measured template did not grow (7,312 / 6,437).
+- *Writer.* `ScriptBrief` carries a capability manifest (calendar, WhatsApp, call backs,
+  hand-over, team alerts, lead sources) and the owner's facts, plus a sixth owner question,
+  "What one thing should every caller know about you?". `agents/script_lint` checks every
+  line it writes for promotional or urgency words (through the D-943 checker,
+  `compliance/call_purpose.first_finding`), promises outside the manifest, figures no fact
+  gives, two questions in one line and another name for the agent; the writer gets one
+  repair round, and the same lint warns on the readiness card and before "Put it live",
+  where the promotional wording is the D-943 promo warning's alone.
+- *Tests.* New turn checks: `stacked_after_who` and `reasked_name` (notes), `unbacked_promise`
+  and `wrong_weekday` (fail the test). The judge fills an advisory sales scorecard
+  (reason_given, qualified, value_line, close_offered, read_back) that never moves a verdict
+  until it is shown to predict bookings; a test passes only when every try passes, so one
+  unbacked promise in three tries fails it.
 
 **`[STYLE]` IS PLATFORM-OWNED AND AUTO-INJECTED — DO NOT HAND-AUTHOR IT (D-479).** The
 speech-register guidance below is emitted on EVERY agent by `compose_engine_prompt`

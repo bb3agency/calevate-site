@@ -209,6 +209,23 @@ def fixed_question(
     )
 
 
+#: The question every owner is asked after the written ones (D-945, founder, 30 Oct 2026): its
+#: answer is the fact an agent that calls leads may say in its value step. A fixed question,
+#: so it is asked whether or not a model wrote the others; no profile section, so the answer
+#: reaches the script writer with the rest (`service.answers_for_script`).
+ONE_THING: Final = Question(
+    id="value",
+    prompt="What is one thing every caller should know about you?",
+    hint="One true fact, like how long you have been open or what you are known for.",
+    kind="text",
+)
+
+
+def with_one_thing(questions: Sequence[Question]) -> list[Question]:
+    """`questions` with `ONE_THING` last, once."""
+    return [*(q for q in questions if q.id != ONE_THING.id), ONE_THING]
+
+
 def answered_topics(profile: Profile) -> frozenset[ProfileTopic]:
     """The profile sections already filled, so they are never asked about again."""
     done: set[ProfileTopic] = set()
@@ -349,6 +366,7 @@ __all__ = [
     "MAX_WRITTEN",
     "MIN_OPTIONS",
     "MIN_WRITTEN",
+    "ONE_THING",
     "OPTION_MAX",
     "PROFILE_TOPICS",
     "PROMPT_MAX",
@@ -364,5 +382,6 @@ __all__ = [
     "fixed_question",
     "stored_questions",
     "trade_choices",
+    "with_one_thing",
     "written_questions",
 ]

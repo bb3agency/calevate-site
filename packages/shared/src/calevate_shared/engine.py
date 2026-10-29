@@ -15,7 +15,7 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from enum import StrEnum
 from typing import (
@@ -52,6 +52,7 @@ from calevate_shared.spoken_style import (
     PackChoice,
     amounts_rule,
     language_pack,
+    name_check_in,
     pack_facts_rule,
     pack_lines,
     placed_call_opening,
@@ -3241,7 +3242,7 @@ NAME_RULE: Final = "- No name in THIS CALL? Ask theirs, early and once."
 #: was Monday. After the client script, because the real-estate starter's own example line
 #: offered the weekend first.
 DAYS_RULE: Final = (
-    "- Count days from today in THIS CALL; offer the soonest ahead, never a past one. A day "
+    "- Take dates from THIS CALL's days; offer the soonest ahead, never a past one. A day "
     "that does not fit its date? Ask which."
 )
 
@@ -3293,10 +3294,23 @@ NAME_VARIABLE: Final = "lead_name"
 NAME_LINE: Final = f"Name: {{{{{NAME_VARIABLE}}}}}"
 
 
+#: Days after today that `today_value` names with their weekday (D-945). A model counting
+#: weekdays in its head is the weak point (SPAN, arXiv 2511.09993: 34.5% average on date
+#: arithmetic, 95% with a tool; `docs/research/reports/Sales call scripts and generation.md`),
+#: so the week ahead is written out rather than computed on the call.
+DAYS_AHEAD: Final = 6
+
+
 def today_value(now: datetime) -> str:
-    """`Sunday, 25 October 2026`: the IST calendar day of `now`, as `TODAY_LINE` reads it."""
-    day = ist_wall_clock(now)
-    return f"{day.strftime('%A')}, {day.day} {day.strftime('%B %Y')}"
+    """`Sunday, 25 October 2026; then Mon 26 Oct, Tue 27 Oct, …`: the IST calendar day of
+    `now` and the `DAYS_AHEAD` days after it, as `TODAY_LINE` reads them. About 100
+    characters, inside `CALL_VARIABLE_VALUE_MAX`."""
+    day = ist_wall_clock(now).date()
+    ahead = ", ".join(
+        f"{d.strftime('%a')} {d.day} {d.strftime('%b')}"
+        for d in (day + timedelta(days=n) for n in range(1, DAYS_AHEAD + 1))
+    )
+    return f"{day.strftime('%A')}, {day.day} {day.strftime('%B %Y')}; then {ahead}"
 
 
 def without_this_call(prompt: str) -> str:
@@ -4444,6 +4458,30 @@ def placed_call_line(*, body: str | None, language: str, business: str, ai_notic
     )
 
 
+_SENTENCE_END_SPACE: Final = re.compile(r"(?<=[.?!।])\s+")
+
+
+def named_lead_opening(opening: str, *, language: str, introduced: bool) -> str | None:
+    """The opening of a call to a lead whose name is known (D-945, founder, 30 Oct 2026), or
+    None while the language has no name check (`spoken_style.name_check_in`).
+
+    The name check is the turn's one question. After the agent's AI introduction it replaces
+    the opening's question and the reason before it stays; without an introduction it follows
+    the opening's greeting alone, so the person is confirmed before anything about the
+    business or their enquiry is said. The name is left as `{{lead_name}}` for the dial to
+    fill with its marker-neutralised value."""
+    check = name_check_in(language)
+    if check is None or not opening.strip():
+        return None
+    question = check.replace("{name}", f"{{{{{NAME_VARIABLE}}}}}")
+    if introduced:
+        kept = [s for s in _SENTENCE_END_SPACE.split(opening.strip()) if s and s[-1] != "?"]
+        return " ".join([*kept, question])
+    rest = without_greeting(opening)
+    greeting = opening.strip()[: len(opening.strip()) - len(rest)].strip()
+    return " ".join(part for part in (greeting, question) if part)
+
+
 def placed_call_first_words(
     *, body: str | None, notices: str, ai_notice: str, language: str, business: str
 ) -> str:
@@ -4486,11 +4524,12 @@ START_OF_CALL_HEADER: Final = "--- START OF THE CALL ---"
 #: only (D-856: it rings out on a trial test call or a call back, and the engine does not tell
 #: the model who placed a call, `docs/vendor/thinnest-replies-2026-10-12.md` §18.0), so an
 #: outbound agent had nothing saying what follows its answer to "who is this?"; on the call of
-#: 28 Oct 2026 it said who and why and asked "can we talk now?" again. Naming the next step
-#: ("your first question") rather than "carry on" leaves no gap for the opening's question.
+#: 28 Oct 2026 it said who and why and asked "can we talk now?" again.
+#: "Then stop and wait" (D-945): "then your first question" stacked a question on the answer
+#: on the call of 30 Oct 2026; the person who asked "who is this?" decides whether to go on.
 OPENING_CONTINUES_RULE: Final = (
     " Never greet, repeat it or ask if now suits again, even after answering a question "
-    "first. Asked who or why? Say both in one line, then your first question. A word or two "
+    "first. Asked who or why? Say both in one line, then stop and wait. A word or two "
     '("hello", "yes", in any language) means go on: why you are calling or your first '
     "question."
 )
@@ -6562,6 +6601,7 @@ __all__ = [
     "CLIENT_SCRIPT_OPEN",
     "CONFIDENTIALITY_MARKER",
     "CONFIDENTIALITY_RULE",
+    "DAYS_AHEAD",
     "DAYS_RULE",
     "DETAILS_LINE",
     "DETAILS_VARIABLE",
@@ -6659,6 +6699,7 @@ __all__ = [
     "contact_call_variables",
     "engine_prompt_layers",
     "fill_caller_memory_slot",
+    "named_lead_opening",
     "neutralise_markers",
     "phone_value",
     "places_calls",

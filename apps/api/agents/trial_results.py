@@ -124,6 +124,7 @@ _TRY_FIELDS: Final = (
     "conversation",
     "sounds",
     "judge",
+    "scorecard",
 )
 
 

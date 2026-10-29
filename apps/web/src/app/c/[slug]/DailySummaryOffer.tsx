@@ -1,6 +1,7 @@
 "use client";
 
-import { SECONDARY_BUTTON_SM, ProblemNotice } from "@/components/ui";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { ProblemNotice } from "@/components/ui";
 import type { Session } from "@/lib/api/client";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useDailySummary, useSetDailySummary } from "@/lib/api/proof";
@@ -15,6 +16,12 @@ export function DailySummaryOffer({ session }: { session: Session }) {
   const write = useWriteAccess(session, "org:manage", "turn the daily summary on");
   const state = useDailySummary(session, { enabled: write.allowed });
   const save = useSetDailySummary(session);
+  // The offer disappears once the switch is on, so the success is said in a toast.
+  const saveFeedback = useActionFeedback(save, {
+    errorDisplay: "inline",
+    successToast: "Daily summary on",
+    successDescription: "Turn it off in Notification settings.",
+  });
   if (!write.allowed) return null;
   if (state.isError) {
     return <ProblemNotice error={state.error} onRetry={() => void state.refetch()} />;
@@ -25,14 +32,15 @@ export function DailySummaryOffer({ session }: { session: Session }) {
     <div className="space-y-2 border-y border-line py-4">
       <p className="text-body text-ink">Get a summary of each day, every evening.</p>
       {save.error != null && <ProblemNotice error={save.error} />}
-      <button
+      <ActionButton
         type="button"
-        className={SECONDARY_BUTTON_SM}
-        disabled={save.isPending}
-        onClick={() => save.mutate(true)}
+        variant="secondary"
+        status={saveFeedback.status}
+        pendingLabel="Turning it on…"
+        onClick={() => saveFeedback.run(true)}
       >
         Send me a daily summary
-      </button>
+      </ActionButton>
     </div>
   );
 }

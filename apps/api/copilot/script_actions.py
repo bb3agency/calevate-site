@@ -3,7 +3,7 @@ the tests it failed, for review where each lives.
 
 Founder, 18 Oct 2026: Pip is the one AI assistant, and the Script tab's own "AI helper"
 panel is retired in its favour. This action is what the panel did — make one change the
-person asked for, draft the whole script from the five owner questions, or turn a
+person asked for, draft the whole script from the six owner questions, or turn a
 hand-written script into steps — through the same writer (`workers/script_assist.
 draft_script`), and it ends where the panel ended: a PROPOSAL the owner keeps part by part
 into their draft on the Script tab, or discards. It never writes the draft and never puts
@@ -82,6 +82,7 @@ class _Answers(BaseModel):
     good_outcome: _Said | None = None
     common_questions: _Said | None = None
     never_say: _Said | None = None
+    one_thing: _Said | None = None
 
 
 class _ScriptSuggestArgs(BaseModel):
@@ -101,13 +102,13 @@ async def _agent_name(session: AsyncSession, agent_id: UUID) -> str:
     return strip_invisible(str(name or "This agent"))
 
 
-NO_ANSWERS_REASON: Final = "no answers were given, so ask the person the five questions first"
+NO_ANSWERS_REASON: Final = "no answers were given, so ask the person the six questions first"
 
 
 def _whole_rests_on_the_owner(args: Mapping[str, Any], said: Sequence[str]) -> str | None:
     """A whole script is drafted only from answers the owner typed (D-820, D-833).
 
-    The tool description asks Pip to put the five questions first; a production eval
+    The tool description asks Pip to put the six questions first; a production eval
     (19 Oct 2026) saw it call `whole` on "Draft the whole script for this agent" anyway.
     Each answer must be words the person wrote in this conversation (`quotes.quoted_in`),
     so answers Pip made up, or none at all, send it back to ask."""
@@ -130,7 +131,7 @@ def _whole_rests_on_the_owner(args: Mapping[str, Any], said: Sequence[str]) -> s
         return None
     return (
         f"the answers to {', '.join(f'`{key}`' for key in invented)} are not the person's own "
-        "words, so ask the person the five questions together and copy each answer from "
+        "words, so ask the person the six questions together and copy each answer from "
         "what they wrote"
     )
 
@@ -271,7 +272,7 @@ AGENT_SCRIPT_SUGGEST: Final = ActionTool(
         "Write a suggested change to an agent's call script; the person reviews it on its "
         "Script tab. For rewriting, adding to or drafting the script; `set_fields` only types "
         "a dictated value into a field on screen. `change`: one change in their words. "
-        "`whole`: ask the five questions together first, then copy each answer from their "
+        "`whole`: ask the six questions together first, then copy each answer from their "
         "words. `steps`: a hand-written script into steps. Failed tests: `agent_tests_fix`."
         + PROPOSES_ONLY,
         {

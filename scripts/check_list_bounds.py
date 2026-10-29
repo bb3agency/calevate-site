@@ -962,6 +962,10 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
         "`script_parts` one row per `CallScript` section, both fixed sets in "
         "`agents/prompt_size.py`, never a caller's row count."
     ),
+    "POST /v1/agents/{agent_id}/script/check": BoundedByConstruction(
+        by="at most a few findings per field of one `CallScript`, whose fields are bounded by "
+        "the `calevate_shared.call_script` `max_length` ceilings (D-945)."
+    ),
     "GET /v1/agents/{agent_id}/script/tests": BoundedByConstruction(
         by="one run's `results`, at most `MAX_GENERATED` scenarios, `MAX_REAL_QUESTIONS` "
         "questions from real calls, `MAX_SAVED` saved "

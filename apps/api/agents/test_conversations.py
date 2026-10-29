@@ -68,17 +68,19 @@ import json
 import re
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field, replace
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any, Final, Literal, cast, get_args
 from uuid import UUID
 
 from calevate_shared.call_script import upgrade_to_v2
+from calevate_shared.calling_window import ist_wall_clock
 from calevate_shared.spoken_style import style_for
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.actions import service as action_service
 from apps.api.agents import handoff, script_builder, trial_results
+from apps.api.agents.script_lint import CapabilityManifest
 from apps.api.agents.trial_results import OWNERS, Owner, owner_of, result_owner
 from apps.api.agents.turn_checks import (
     JOB_KINDS,
@@ -539,13 +541,20 @@ class Turn:
 
 
 def speech_problems(
-    turns: list[Turn], *, language: str = "", memory_notice: str = "", known: str = ""
+    turns: list[Turn],
+    *,
+    language: str = "",
+    memory_notice: str = "",
+    known: str = "",
+    manifest: CapabilityManifest | None = None,
+    today: date | None = None,
 ) -> list[TurnProblem]:
     """The shape problems in a conversation's replies (`agents/turn_checks`), each kind
     once, in the order they first appear. Each reply is judged against the caller line it
     answered, which decides whether a longer reply was asked for. `memory_notice` is the
     sentence a closing goodbye must carry (D-865), empty where none is owed. `known` is the
-    agent's script and facts (D-888)."""
+    agent's script and facts (D-888). `manifest` and `today` judge promises and weekdays
+    (D-945)."""
     seen: set[str] = set()
     out: list[TurnProblem] = []
     for turn in turns:
@@ -557,7 +566,9 @@ def speech_problems(
     # asked for, part of a number taken as all of it, goodbye mid-question (D-749).
     out += [
         p
-        for p in conversation_problems(turns, memory_notice=memory_notice, known=known)
+        for p in conversation_problems(
+            turns, memory_notice=memory_notice, known=known, manifest=manifest, today=today
+        )
         if p.kind not in seen
     ]
     return out
@@ -586,6 +597,11 @@ class RuleContext:
     #: What the agent was given to say (its script and pinned facts), so a reply naming where
     #: the caller found the business is judged against it (D-888).
     known: str = ""
+    #: What the agent can do, against which a reply's promise is judged (D-945). None where
+    #: nobody read the account, which skips that check.
+    manifest: CapabilityManifest | None = None
+    #: The IST date of the run, against which a stated weekday is checked (D-945).
+    today: date | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -768,7 +784,14 @@ def hard_check(
         )
     # A caller who asks to stop gets no memory sentence with the goodbye (D-865).
     memory = "" if scenario.probe == "stop_calling" else rules.memory_notice
-    problems = speech_problems(turns, language=language, memory_notice=memory, known=rules.known)
+    problems = speech_problems(
+        turns,
+        language=language,
+        memory_notice=memory,
+        known=rules.known,
+        manifest=rules.manifest,
+        today=rules.today,
+    )
     if scenario.probe == "person":
         # The test chat's sandbox switches off anything that would ring a person and "says
         # what it would have done instead" (vendor test-chat.md:7, 18 Oct 2026 snapshot), in
@@ -819,6 +842,23 @@ class Judged:
     formal_words: tuple[str, ...] = ()
     #: One of `JUDGED_FAULTS`, None when the judge did not say.
     fault: str | None = None
+    #: (item, mark) of the judge's sales scorecard (D-945): advice, never the verdict.
+    scorecard: tuple[tuple[str, str], ...] = ()
+
+
+#: The sales scorecard the judge fills (D-945). ADVISORY until a mark is shown to predict
+#: bookings (founder, 30 Oct 2026): no item ever fails a test or reaches the owner's score.
+#: Judges read single turns better than state across turns (`docs/research/reports/Sales call
+#: scripts and generation.md`, "What the tests score"), another reason it stays advice.
+SCORECARD_ITEMS: Final = ("reason_given", "qualified", "value_line", "close_offered", "read_back")
+SCORE_MARKS: Final = ("yes", "no", "n/a")
+
+
+def scorecard_from(raw: object) -> tuple[tuple[str, str], ...]:
+    """The judge's scorecard, items and marks it may not use dropped."""
+    if not isinstance(raw, dict):
+        return ()
+    return tuple((item, str(raw[item])) for item in SCORECARD_ITEMS if raw.get(item) in SCORE_MARKS)
 
 
 _SEVERITY: Final[dict[str, int]] = {"passed": 0, "unjudged": 1, "needs_fix": 2, "failed": 3}
@@ -895,6 +935,7 @@ def decide(
         "formal_words": words,
         "limit": hard.limit,
         "sounds": [{"kind": p.kind, "reason": p.reason} for p in hard.sounds],
+        "scorecard": dict(judged.scorecard) if judged is not None else {},
         # The engine's sandboxed test chat, as a chat or in its call mode; neither is the
         # voice or the hearing, so a problem seen only here may not happen on a call.
         "channel": channel,
@@ -960,6 +1001,13 @@ class AgentBrief:
             call_backs=self.call_backs,
             agreements_waiting=agreements_waiting,
             memory_notice=self.memory_notice,
+            manifest=CapabilityManifest(
+                booking_tool=any(kind == "calendar" for kind, _ in self.actions),
+                whatsapp=any(kind == "whatsapp" for kind, _ in self.actions),
+                call_backs=self.call_backs,
+                hand_over=self.hand_over == "someone_on_duty",
+            ),
+            today=ist_wall_clock(datetime.now(UTC)).date(),
             known=" ".join(
                 (
                     self.opening_line,

@@ -345,6 +345,15 @@ READS_SHAPED_AS_POSTS: dict[str, str] = {
         "POST because the whole `CallScript` travels in the body, not because it mutates, so "
         "it keeps `agents:read` (the reader scope) rather than a manage permission"
     ),
+    "/v1/agents/{agent_id}/script/check": (
+        "runs the script lint (`agents/script_lint`, D-945) over a (possibly unsaved) script "
+        "and writes nothing; a POST only because the whole `CallScript` travels in the body, "
+        "for the same reason as `.../script/preview`"
+    ),
+    "/v1/compliance/promo-check": (
+        "runs the D-943 promo check (`compliance/call_purpose.lint`) over wording a person "
+        "is writing and writes nothing; a POST because the text travels in the body"
+    ),
     "/v1/compliance/subject-export": (
         "a DPDP §11 access request: it reads one data principal's record, and the "
         "identifier that selects it is the personal data itself"

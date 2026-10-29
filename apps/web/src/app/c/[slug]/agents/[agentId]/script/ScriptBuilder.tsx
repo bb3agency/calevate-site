@@ -729,6 +729,7 @@ function Editor({
 
       {publishing && (
         <PutLiveDialog
+          agentId={agentId}
           live={out.script}
           draft={script}
           agentOn={agentOn}

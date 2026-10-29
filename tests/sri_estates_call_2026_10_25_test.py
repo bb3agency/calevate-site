@@ -101,7 +101,7 @@ def test_a_source_the_caller_or_the_facts_named_or_a_question_is_no_invention() 
     facts_say = [Turn("ఏ ప్రాజెక్ట్?", WEBSITE)]
     assert conversation_problems(facts_say, known="Leads come from our website form.") == []
     asked = [Turn("ఎవరు మీరు?", "మీరు మా వెబ్‌సైట్ చూశారా అండి?")]
-    assert conversation_problems(asked) == []
+    assert "invented_source" not in [p.kind for p in conversation_problems(asked)]
     searched = [Turn("ఏ ప్రాజెక్ట్?", WEBSITE, tools=["search_knowledge"])]
     assert conversation_problems(searched) == []
 
@@ -119,9 +119,14 @@ def test_the_test_run_judges_against_what_the_agent_was_given() -> None:
 
 def test_today_is_the_ist_day_with_its_weekday() -> None:
     # 20:00 IST on Sunday 25 Oct 2026, when the agent offered "this weekend".
-    assert today_value(datetime(2026, 10, 25, 14, 30, tzinfo=UTC)) == "Sunday, 25 October 2026"
+    assert today_value(datetime(2026, 10, 25, 14, 30, tzinfo=UTC)) == (
+        "Sunday, 25 October 2026; then Mon 26 Oct, Tue 27 Oct, Wed 28 Oct, Thu 29 Oct, "
+        "Fri 30 Oct, Sat 31 Oct"
+    )
     # 19:00 UTC is already Monday in India.
-    assert today_value(datetime(2026, 10, 25, 19, 0, tzinfo=UTC)) == "Monday, 26 October 2026"
+    assert today_value(datetime(2026, 10, 25, 19, 0, tzinfo=UTC)).startswith(
+        "Monday, 26 October 2026; then Tue 27 Oct"
+    )
 
 
 def test_every_agent_reads_today_and_the_name_and_the_rules_that_use_them() -> None:

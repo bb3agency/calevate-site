@@ -63,6 +63,12 @@ REGISTER_KEY: Final = "line"
 #: 23 Oct 2026), with `{name}` and `{business}` to fill. Each `_introduced` form is the same
 #: line said right after the agent's AI notice has introduced it (D-865): no greeting, and
 #: no name of the agent or the business, which the introduction has just said.
+#:
+#: Two slots shape the first turn of a call to a lead (D-945, founder, 30 Oct 2026), each
+#: empty until a native speaker writes it, so the line slots in as data with no code change:
+#: `outbound_reason`, the reason clause said after the agent's AI introduction (without it the
+#: statement half of `outbound` is said, which is what the founder's own line gives), and
+#: `outbound_name_check`, the one question when the lead's name is known, with `{name}`.
 OPENING_KEYS: Final = (
     "inbound",
     "outbound",
@@ -70,8 +76,12 @@ OPENING_KEYS: Final = (
     "inbound_introduced",
     "outbound_introduced",
     "test_call_introduced",
+    "outbound_reason",
+    "outbound_name_check",
 )
 INTRODUCED_SUFFIX: Final = "_introduced"
+REASON_KEY: Final = "outbound_reason"
+NAME_CHECK_KEY: Final = "outbound_name_check"
 
 #: Bounds on what an edit may hold, so a typo cannot blow the prompt budget.
 MAX_TEXT: Final = 600
@@ -771,23 +781,62 @@ def placed_call_opening(tag: str | None, *, business: str, introduced: bool = Fa
     now suits, never the answering greeting. `introduced`, only the question (D-865), which
     is also all that is said when no business name is known, rather than a gap where it
     goes."""
-    introduced = introduced or not business.strip()
-    template = opening_in(tag, "outbound", introduced=introduced) or (
+    known = bool(business.strip())
+    introduced = introduced or not known
+    template = opening_in(tag, "outbound", introduced=introduced, with_reason=known) or (
         PLACED_CALL_FALLBACK_INTRODUCED if introduced else PLACED_CALL_FALLBACK
     )
     return " ".join(template.replace("{business}", business).split())
 
 
-def opening_in(tag: str | None, direction: str, *, introduced: bool = False) -> str | None:
+_SENTENCE_BREAK: Final = re.compile(r"(?<=[.?!।])\s+")
+#: A greeting at the head of a line: at most three words before its first comma.
+_GREETING_LEAD: Final = re.compile(r"^[^,.?!।]{1,30},\s*")
+
+
+def reason_clause(openings: Mapping[str, str]) -> str:
+    """What an introduced call to a lead says between the AI introduction and its question
+    (D-945): the language's `outbound_reason`, else the statements of its `outbound` line
+    with the greeting at their head dropped ("we are calling from {business}"). Before D-945
+    the introduced form kept only the question, so the first turn named no reason at all."""
+    own = openings.get(REASON_KEY, "").strip()
+    if own:
+        return own
+    statements = [
+        s for s in _SENTENCE_BREAK.split(openings.get("outbound", "").strip()) if s and s[-1] != "?"
+    ]
+    if not statements:
+        return ""
+    head = statements[0]
+    lead = _GREETING_LEAD.match(head)
+    if lead and len(lead.group(0).split()) <= 3:
+        statements[0] = head[lead.end() :]
+    return " ".join(s for s in statements if s.strip())
+
+
+def opening_in(
+    tag: str | None, direction: str, *, introduced: bool = False, with_reason: bool = True
+) -> str | None:
     """A starter's opening line in the agent's language (`{business}` unfilled), or None
     where the table has none for it. `introduced` asks for the form said after the agent's
-    introduction, and falls back to the plain one where the table has none."""
+    introduction, and falls back to the plain one where the table has none. An introduced call
+    to a lead carries its reason before the question (`reason_clause`, D-945) unless
+    `with_reason` is False (no business name to fill it with)."""
     style = style_for(tag)
     if style is None or not style.openings:
         return None
     if introduced and (line := style.openings.get(direction + INTRODUCED_SUFFIX)):
-        return line
+        reason = reason_clause(style.openings) if direction == "outbound" and with_reason else ""
+        return f"{reason} {line}".strip()
     return style.openings.get(direction)
+
+
+def name_check_in(tag: str | None) -> str | None:
+    """The language's question for a lead whose name is known (`{name}` unfilled), or None
+    while no native speaker has written one (D-945)."""
+    style = style_for(tag)
+    line = (style.openings or {}).get(NAME_CHECK_KEY, "").strip() if style is not None else ""
+    return line or None
 
 
 def _exchanges_for(style: LanguageStyle, business_type: str | None, count: int) -> list[str]:
@@ -863,12 +912,14 @@ __all__ = [
     "COMPACT_SAY",
     "DEFAULT_EXAMPLES",
     "ENTRY_KINDS",
+    "NAME_CHECK_KEY",
     "OPENING_KEYS",
     "PACK_APPROVED",
     "PACK_FACTS_RULE",
     "PACK_FORMS",
     "PRICE_WORDS",
     "PROMPT_EXAMPLES_APPROVED",
+    "REASON_KEY",
     "REGISTER_KEY",
     "AvoidForm",
     "EntryKind",
@@ -894,6 +945,7 @@ __all__ = [
     "language_pack",
     "languages",
     "merged_entries",
+    "name_check_in",
     "native_reviewed",
     "normalize_value",
     "opening_in",
@@ -901,6 +953,7 @@ __all__ = [
     "pack_lines",
     "placed_call_opening",
     "prompt_example_line",
+    "reason_clause",
     "register_guidance",
     "shipped_pack_choice",
     "spelled_address",

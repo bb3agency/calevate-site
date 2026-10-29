@@ -48,7 +48,7 @@ from calevate_shared.call_script import CallScript
 
 Severity = Literal["strong", "soft"]
 Verdict = Literal["clear", "check", "promotional"]
-Category = Literal["discount", "urgency", "free_offer", "cross_sell", "buy_now"]
+Category = Literal["discount", "urgency", "free_offer", "cross_sell", "buy_now", "claim"]
 Language = Literal["en", "hi", "te"]
 
 #: The most findings one report carries. A script that trips this many is promotional
@@ -155,7 +155,8 @@ _RULES: Final[tuple[_Rule, ...]] = (
     _latin(
         r"limited\s+(?:period|time|stock|stocks|units)|hurry(?:\s+up)?|last\s+chance|"
         r"today\s+only|only\s+today|offer\s+ends|while\s+stocks?\s+last|don'?t\s+miss|"
-        r"book\s+now\s+and\s+(?:get|save)|before\s+it'?s\s+gone",
+        r"book\s+now\s+and\s+(?:get|save)|before\s+it'?s\s+gone|"
+        r"last\s+few\s+(?:units|flats|plots|homes|villas)",
         "urgency",
         "en",
         "strong",
@@ -177,6 +178,7 @@ _RULES: Final[tuple[_Rule, ...]] = (
         "en",
         "soft",
     ),
+    _latin(r"guaranteed\s+returns?", "claim", "en", "soft"),
     # --- Romanised Telugu and Hindi ----------------------------------------------------
     _latin(
         r"taggimpu|rayithi|rayiti|offer\s+(?:undi|unnadi|undhi|hai|chal\s+raha)",
@@ -201,6 +203,7 @@ _RULES: Final[tuple[_Rule, ...]] = (
     ),
     _indic(("ఇప్పుడే కొనండి", "ఇప్పుడే ఆర్డర్ చేయండి"), "buy_now", "te", "strong"),
     _indic(("ఉచిత బహుమతి",), "free_offer", "te", "strong"),
+    _indic(("బెస్ట్ ప్రైస్",), "discount", "te", "soft"),
     _indic(("కొత్త స్కీమ్", "కొత్త ప్లాన్", "కొత్త ప్రాజెక్ట్", "కొత్త ఉత్పత్తి"), "cross_sell", "te", "soft"),
     # --- Hindi -------------------------------------------------------------------------
     _indic(
@@ -219,6 +222,7 @@ _RULES: Final[tuple[_Rule, ...]] = (
     ),
     _indic(("अभी खरीदें", "अभी ऑर्डर करें"), "buy_now", "hi", "strong"),
     _indic(("मुफ्त उपहार", "मुफ़्त उपहार", "फ्री गिफ्ट"), "free_offer", "hi", "strong"),
+    _indic(("बेस्ट प्राइस",), "discount", "hi", "soft"),
     _indic(("नई स्कीम", "नया प्लान", "नई योजना", "नया प्रोजेक्ट"), "cross_sell", "hi", "soft"),
 )
 
@@ -329,6 +333,16 @@ def _part_findings(part: ScriptPart) -> list[Finding]:
     return findings
 
 
+def first_finding(text: str) -> Finding | None:
+    """The first promotional or urgency wording in one line, in reading order, or None.
+
+    The script lint (`agents/script_lint`, D-945) reports per line through this, so the
+    writer's repair round, the readiness card and the launch block read one word list
+    with one negation and everyday-sense logic."""
+    found = _part_findings(ScriptPart("", text))
+    return found[0] if found else None
+
+
 def lint(parts: Sequence[ScriptPart]) -> PromoReport:
     """Every finding in every part, and the verdict they add up to."""
     findings = [finding for part in parts if part.text.strip() for finding in _part_findings(part)]
@@ -409,6 +423,10 @@ WHY: Final[dict[Category, str]] = {
         "something else makes the call promotional."
     ),
     "buy_now": "Asks the person to buy or order. A service call helps with what they asked about.",
+    "claim": (
+        "Promises a result, like guaranteed returns. That reads as a sales pitch; say only what "
+        "the business can show."
+    ),
 }
 
 #: What the client is asked to do instead, the same for every finding.
@@ -527,6 +545,7 @@ __all__ = [
     "PurposeVerdict",
     "ScriptPart",
     "campaign_purpose",
+    "first_finding",
     "lead_source_purpose",
     "lint",
     "script_parts",

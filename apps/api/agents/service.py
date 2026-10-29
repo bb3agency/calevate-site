@@ -96,6 +96,7 @@ from calevate_shared.call_script import (
     NativeStep,
     call_backs_withheld,
     native_steps,
+    opening_line_of,
     substitute_variables,
     without_outline,
 )
@@ -116,8 +117,10 @@ from calevate_shared.engine import (
     compose_opening_line,
     introduces_itself,
     join_first_words,
+    named_lead_opening,
     notice_fields,
     placed_call_first_words,
+    placed_call_line,
     spoken_ai_notice,
     truthful_answer_directive,
 )
@@ -3850,13 +3853,53 @@ def trial_call_first_words(agent: AgentRow, *, call_is_recorded: bool) -> str | 
     return join_first_words(notices, line, ai_notice=ai_notice, language=language)
 
 
-def dial_first_words(agent: AgentRow, *, test_call: bool, call_is_recorded: bool) -> str | None:
+def lead_first_words(agent: AgentRow, *, call_is_recorded: bool) -> str | None:
+    """What an agent that calls leads says first to a lead whose name is known (D-945): its
+    opening with the language's name check as the one question, the notices where its
+    greeting carries them. None while the language has no name check, so the greeting is
+    spoken as before."""
+    if agent["direction"] == "inbound":
+        return None
+    posture = posture_of(agent)
+    language = str(agent["language_primary"])
+    ai_notice = spoken_ai_notice(posture)
+    body = str(agent.get("prompt") or "")
+    line = (
+        placed_call_line(
+            body=body,
+            language=language,
+            business=str(agent.get("business_name") or ""),
+            ai_notice=ai_notice,
+        )
+        if agent["direction"] == "both"
+        else opening_line_of(body)
+    )
+    named = named_lead_opening(
+        line,
+        language=language,
+        introduced=introduces_itself(ai_notice=ai_notice, language=language),
+    )
+    if named is None:
+        return None
+    notices = compose_opening_line(posture, call_is_recorded=call_is_recorded)
+    return join_first_words(notices, named, ai_notice=ai_notice, language=language)
+
+
+def dial_first_words(
+    agent: AgentRow, *, test_call: bool, call_is_recorded: bool, lead_name: str | None = None
+) -> str | None:
     """The first words of a call this agent places, or None for its greeting.
 
-    A "both" agent opens EVERY call it places, test calls included, with its outbound opening
-    (D-920): its greeting thanks the person for calling, which on the founder's call of
-    28 Oct 2026 it said to the person it had rung. An answering agent rings out with the
-    test-call line on a test call only; an outbound agent's greeting is its opening."""
+    A call to a lead whose name is known opens with the name check where the language has one
+    (`lead_first_words`, D-945). A "both" agent opens EVERY call it places, test calls
+    included, with its outbound opening (D-920): its greeting thanks the person for calling,
+    which on the founder's call of 28 Oct 2026 it said to the person it had rung. An
+    answering agent rings out with the test-call line on a test call only; an outbound
+    agent's greeting is its opening."""
+    if lead_name and lead_name.strip() and not test_call:
+        named = lead_first_words(agent, call_is_recorded=call_is_recorded)
+        if named is not None:
+            return named
     if agent["direction"] == "both":
         posture = posture_of(agent)
         return placed_call_first_words(
@@ -4141,6 +4184,7 @@ async def dispatch_call(
                     agent,
                     test_call=trial is not None or owner_test is not None,
                     call_is_recorded=engine.capabilities.records_audio,
+                    lead_name=lead_name or prefill.name,
                 ),
                 rings_at_any_hour=rings_at_any_hour,
             ),

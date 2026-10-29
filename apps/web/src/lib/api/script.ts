@@ -402,6 +402,28 @@ export function withDraft(out: ScriptOut, draft: { script: CallScript; saved_at:
   return { ...out, draft };
 }
 
+/**
+ * What the script lint finds in the script about to go live (D-945): promotional words, a
+ * promise the account cannot keep, a figure no fact gives, two questions in one line, another
+ * name for the agent. Warnings only; nothing is refused. Keyed by the script itself, so an
+ * edit asks again and the same script is read once.
+ */
+export function useScriptCheck(
+  session: Session,
+  agentId: string,
+  script: CallScript,
+): UseQueryResult<{ warnings: string[] }, Error> {
+  return useQuery({
+    queryKey: ["script-check", session.orgSlug, agentId, JSON.stringify(script)] as const,
+    queryFn: () =>
+      apiRequest<{ warnings: string[] }>(session, `${base(agentId)}/check`, {
+        method: "POST",
+        body: { script },
+      }),
+    staleTime: Infinity,
+  });
+}
+
 /** "Put it live": the draft becomes a history entry and is applied in one request. */
 export function usePublishScript(
   session: Session,

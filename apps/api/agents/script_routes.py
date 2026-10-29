@@ -27,6 +27,7 @@ discarded it (`DELETE .../proposal/{id}`). The test routes below still gate on t
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime
 from typing import Annotated, Any, Final, Literal, get_args
 from uuid import UUID
@@ -65,8 +66,10 @@ from apps.api.agents import (
     test_titles,
     trial_results,
 )
+from apps.api.agents.capability_manifest import lint_context_for
 from apps.api.agents.engine_limits import too_long_sentence
 from apps.api.agents.script_edits import MAX_EDITS, ScriptEdit, apply_edits
+from apps.api.agents.script_lint import plain, script_problems
 from apps.api.billing.ai_quota import require_ai_assist
 from apps.api.campaigns.contact_details import list_columns
 from apps.api.compliance.audit import write_audit
@@ -379,6 +382,32 @@ async def preview_script(
     return preview_out(await script_builder.compiled_preview(session, agent_id, payload.script))
 
 
+class ScriptCheckOut(BaseModel):
+    """What the script lint finds in a (possibly unsaved) script (D-945): warnings shown
+    before it goes live, never a refusal. Promotional wording is left to the D-943 promo
+    check, which the same dialog shows (`/v1/compliance/promo-check/agents/{id}`)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    warnings: list[str]
+
+
+@router.post(
+    "/check",
+    response_model=ScriptCheckOut,
+    openapi_extra=permission_meta("agents:read"),
+    summary="What the script lint finds in a (possibly unsaved) script, before it goes live",
+)
+async def check_script(
+    agent_id: UUID, payload: PreviewIn, session: Session, principal: ScriptReader
+) -> ScriptCheckOut:
+    assert principal.tenant_id is not None  # client realm; `requires()` resolves it
+    await script_builder.assert_agent_visible(session, agent_id)
+    context = await lint_context_for(session, tenant_id=principal.tenant_id, agent_id=agent_id)
+    found = script_problems(upgrade_to_v2(payload.script), replace(context, promo=False))
+    return ScriptCheckOut(warnings=[plain(problem) for problem in found])
+
+
 @router.put(
     "",
     response_model=SaveScriptOut,
@@ -480,6 +509,17 @@ class TestSoundOut(BaseModel):
     tries: int
 
 
+class TestScorecardItemOut(BaseModel):
+    """One item of the judge's sales scorecard (D-945): advice, never the verdict."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: `reason_given` · `qualified` · `value_line` · `close_offered` · `read_back`.
+    item: str
+    #: `yes` · `no` · `n/a`.
+    mark: str
+
+
 class TestTryOut(BaseModel):
     """One try of a test: the conversation it was and its verdict."""
 
@@ -541,6 +581,8 @@ class TestResultOut(BaseModel):
     change: TestChange | None = None
     #: How its replies sounded, when wrong: notes for us, never the verdict.
     sounds: list[TestSoundOut] = Field(default_factory=list)
+    #: The judge's sales scorecard on the shown try (D-945): advice, never the verdict.
+    scorecard: list[TestScorecardItemOut] = Field(default_factory=list)
     #: Where it was produced: `test_chat`, the engine's website-chat sandbox, or
     #: `test_chat_call`, the same sandbox with the agent's call prompt, model and thinking
     #: level (D-847). Runs in different channels are not compared.
@@ -889,6 +931,10 @@ def _result_out(
         counted=trial_results.in_owner_score(raw, wrong_keys),
         change=change,
         sounds=_sounds_out(raw),
+        scorecard=[
+            TestScorecardItemOut(item=item, mark=mark)
+            for item, mark in test_conversations.scorecard_from(raw.get("scorecard"))
+        ],
         channel=test_conversations.result_channel(raw),
         tries=tries,
     )

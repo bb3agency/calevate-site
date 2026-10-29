@@ -18,14 +18,17 @@ from collections.abc import Mapping
 from typing import Any, Final
 from uuid import UUID
 
+from calevate_shared.call_script import upgrade_to_v2
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.actions import credentials as action_credentials
 from apps.api.actions import service as actions_service
+from apps.api.actions.calendar import calendar_configured
 from apps.api.agents import call_handling, field_suggestions, script_builder, voice_tuning
 from apps.api.agents import handoff as handoff_service
 from apps.api.agents import lead_fields as lead_fields_service
+from apps.api.agents.capability_manifest import books_visits
 from apps.api.agents.llm_tiers import LLM_TIER_LABELS, tier_of_model
 from apps.api.agents.models import CALL_CAP_DEFAULT_S
 from apps.api.copilot.tools import ReadTool, ToolContext, _clean, ist_date
@@ -194,7 +197,29 @@ async def _actions_part(session: AsyncSession, agent_id: UUID) -> list[str]:
         "Connections made (`connection_id`): "
         + ("; ".join(f"{c.label} ({c.kind}) [{c.id}]" for c in connections) or "none")
     )
+    if await _calendar_would_help(session, agent_id, tools):
+        # The readiness card's reminder (`agents/readiness.advice_for`), in Pip's words.
+        lines.append(
+            "No calendar is connected, and this agent places calls that book visits: you "
+            "may suggest connecting one on its Actions tab so it offers times the business "
+            "is really free."
+        )
     return lines
+
+
+async def _calendar_would_help(
+    session: AsyncSession, agent_id: UUID, tools: list[actions_service.LoadedTool]
+) -> bool:
+    """D-945: only an agent that places calls and books visits, with no calendar on it."""
+    if not calendar_configured() or any(
+        t.kind == "calendar" and t.enabled and t.trigger == "during_call" for t in tools
+    ):
+        return False
+    direction = (
+        await session.execute(text("SELECT direction FROM agents WHERE id = :a"), {"a": agent_id})
+    ).scalar()
+    script = upgrade_to_v2((await script_builder.load_agent_script(session, agent_id)).script)
+    return books_visits(str(direction), script)
 
 
 async def _lead_fields_part(

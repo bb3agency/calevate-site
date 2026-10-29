@@ -4,6 +4,7 @@ import BillingPage from "@/app/c/[slug]/billing/page";
 import { WALLET_LOTS_PATH } from "@/app/c/[slug]/billing/lots";
 import { spendSeriesPath, statementsPath } from "@/lib/api/billingHistory";
 
+import { COST_PER_RESULT_ROUTE } from "./fixtures/proof";
 import { PLATFORM_FEE_OFF, walletLots } from "./fixtures/sharedReads";
 import { renderClientPage, stillLoading, type Routes } from "./harness";
 
@@ -64,6 +65,8 @@ export function hubUsageIdle(): Routes {
     [VOICE_TIERS_PATH]: stillLoading(),
     // The monthly platform fee card (D-707), switched off: it renders nothing.
     "/v1/billing/platform-fee": PLATFORM_FEE_OFF,
+    // What each result cost (D-944); its own suites answer it.
+    [COST_PER_RESULT_ROUTE]: stillLoading(),
   };
 }
 

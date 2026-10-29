@@ -3962,6 +3962,13 @@
       "AgentReadinessOut": {
         "additionalProperties": false,
         "properties": {
+          "advice": {
+            "items": {
+              "$ref": "#/components/schemas/ReadinessAdviceOut"
+            },
+            "title": "Advice",
+            "type": "array"
+          },
           "agent_id": {
             "format": "uuid",
             "title": "Agent Id",
@@ -5868,7 +5875,7 @@
             "items": {
               "$ref": "#/components/schemas/AnswerIn"
             },
-            "maxItems": 4,
+            "maxItems": 5,
             "title": "Answers",
             "type": "array"
           }
@@ -24996,7 +25003,8 @@
               "urgency",
               "free_offer",
               "cross_sell",
-              "buy_now"
+              "buy_now",
+              "claim"
             ],
             "title": "Category",
             "type": "string"
@@ -43693,6 +43701,46 @@
         "title": "RateCardWriteOut",
         "type": "object"
       },
+      "ReadinessAdviceOut": {
+        "additionalProperties": false,
+        "description": "Something to do that the score does not count (D-945).",
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "href": {
+            "title": "Href",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "calendar",
+              "script"
+            ],
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "action",
+          "href"
+        ],
+        "title": "ReadinessAdviceOut",
+        "type": "object"
+      },
       "ReadinessComponentOut": {
         "additionalProperties": false,
         "properties": {
@@ -47347,6 +47395,24 @@
           "held"
         ],
         "title": "ScheduledCallbackOut",
+        "type": "object"
+      },
+      "ScriptCheckOut": {
+        "additionalProperties": false,
+        "description": "What the script lint finds in a (possibly unsaved) script (D-945): warnings shown\nbefore it goes live, never a refusal. Promotional wording is left to the D-943 promo\ncheck, which the same dialog shows (`/v1/compliance/promo-check/agents/{id}`).",
+        "properties": {
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "warnings"
+        ],
+        "title": "ScriptCheckOut",
         "type": "object"
       },
       "ScriptContextOut": {
@@ -54755,6 +54821,13 @@
             "title": "Reliability",
             "type": "string"
           },
+          "scorecard": {
+            "items": {
+              "$ref": "#/components/schemas/TestScorecardItemOut"
+            },
+            "title": "Scorecard",
+            "type": "array"
+          },
           "setting": {
             "anyOf": [
               {
@@ -55108,6 +55181,26 @@
           "total"
         ],
         "title": "TestScoreOut",
+        "type": "object"
+      },
+      "TestScorecardItemOut": {
+        "additionalProperties": false,
+        "description": "One item of the judge's sales scorecard (D-945): advice, never the verdict.",
+        "properties": {
+          "item": {
+            "title": "Item",
+            "type": "string"
+          },
+          "mark": {
+            "title": "Mark",
+            "type": "string"
+          }
+        },
+        "required": [
+          "item",
+          "mark"
+        ],
+        "title": "TestScorecardItemOut",
         "type": "object"
       },
       "TestSettingOut": {
@@ -74865,6 +74958,56 @@
           "agents"
         ],
         "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/agents/{agent_id}/script/check": {
+      "post": {
+        "operationId": "check_script_v1_agents__agent_id__script_check_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScriptCheckOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "What the script lint finds in a (possibly unsaved) script, before it goes live",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "agents:read"
       }
     },
     "/v1/agents/{agent_id}/script/draft": {

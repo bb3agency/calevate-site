@@ -80,6 +80,15 @@ from calevate_shared.spoken_guard import (
 from pydantic import ValidationError
 
 from apps.api.agents.call_rules import OPENING_LINE_RULE, said_line_problem, writer_rules
+from apps.api.agents.script_lint import (
+    CapabilityManifest,
+    LintContext,
+    caller_paths,
+    instruction_fields,
+    instruction_problems,
+    spoken_fields,
+    spoken_line_problems,
+)
 from apps.api.agents.trade_playbooks import playbook_guidance
 from apps.api.core import provider_health
 from apps.api.core.errors import ProblemError
@@ -143,7 +152,10 @@ _SYSTEM_INSTRUCTION = (
     "quick_facts only restates facts the owner wrote. The example_exchange shows style "
     "only and contains no fact. Do not write anything about being an AI, about recording, "
     "about call backs or transfers, or about do-not-call requests: the platform adds those "
-    f"rules itself and knows what this account can do. {OPENING_LINE_RULE} For an agent that "
+    "rules itself and knows what this account can do. Never write a line or step that "
+    "promises what the brief says the agent can not do, and never an offer, discount, "
+    "scheme or urgency; a figure only when the owner's facts give it. "
+    f"{OPENING_LINE_RULE} For an agent that "
     "places calls, "
     "outbound_purpose is one sentence on why we are calling, and a stage confirms it is a "
     "good time and that this is the right person ({{lead_name}} is the merge field for the "
@@ -227,53 +239,9 @@ def _stages_where_they_belong(fields: dict[str, Any], current: CallScript) -> di
     return moved
 
 
-def _instruction_fields(script: CallScript) -> list[tuple[str, str]]:
-    """(path, text) of every field that instructs the in-call model and is never heard.
-
-    A step in "say" mode is said as written, so its instruction is a spoken line. A step's
-    name, an objection's caller side, the facts and the legacy `steps` are not here: the
-    first two are the caller's words or the owner's label, and the AI writes none of the rest
-    as instructions."""
-    fields = [
-        ("business_line", script.business_line),
-        ("identity", script.identity),
-        ("goal", script.goal),
-        ("outbound_purpose", script.outbound_purpose),
-        ("style.tone", script.style.tone),
-        ("style.address_form", script.style.address_form),
-        ("ending", script.ending),
-    ]
-    fields += [(f"objections.{i}.response", o.response) for i, o in enumerate(script.objections)]
-    for i, stage in enumerate(script.stages):
-        if stage.mode == "guide":
-            fields.append((f"stages.{i}.instruction", stage.instruction))
-        fields += [(f"stages.{i}.branches.{j}.when", b.when) for j, b in enumerate(stage.branches)]
-        for j, step in enumerate(stage.procedure):
-            fields.append((f"stages.{i}.procedure.{j}.action", step.action))
-            fields.append((f"stages.{i}.procedure.{j}.wait_for", step.wait_for))
-    return fields
-
-
 #: The lines the engine speaks word for word as an opening: the answering one and a "both"
 #: agent's one for the calls it places (D-920), held to the same opening rules.
 _OPENING_PATHS: Final = frozenset({"opening_line", "outbound_opening_line"})
-
-
-def _spoken_fields(script: CallScript) -> list[tuple[str, str]]:
-    """(path, text) of every line the agent says, or that shows how a caller sounds."""
-    fields = [
-        ("opening_line", script.opening_line),
-        ("outbound_opening_line", script.outbound_opening_line),
-    ]
-    for i, stage in enumerate(script.stages):
-        fields.append((f"stages.{i}.sounds_like", stage.sounds_like))
-        if stage.mode == "say":
-            fields.append((f"stages.{i}.instruction", stage.instruction))
-    fields += [(f"style.sample_phrases.{i}", p) for i, p in enumerate(script.style.sample_phrases)]
-    fields += [
-        (f"example_exchange.{i}.text", e.text) for i, e in enumerate(script.example_exchange)
-    ]
-    return fields
 
 
 def language_problems(
@@ -285,6 +253,7 @@ def language_problems(
     instructions: bool = True,
     names: Sequence[str] = (),
     introduced: bool = False,
+    lint: LintContext | None = None,
 ) -> list[str]:
     """What the model must fix in a script it wrote (D-831): an instruction in an Indic
     script, and a spoken line with a textbook word (`spoken_guard`), a provider's name
@@ -297,9 +266,12 @@ def language_problems(
     Only the model's own writing is judged: with `before` (an edit), a field whose text the
     script already held is the owner's and is skipped, and a textbook word that appears in
     `allowed` (the owner's own words the script was written from) is theirs. `instructions`
-    False skips the English rule, for a conversion that keeps the owner's sentences."""
+    False skips the English rule, for a conversion that keeps the owner's sentences.
+    `lint` adds the script lint (`agents/script_lint`, D-945): promotional words, promises
+    outside the account's capabilities, figures no fact gives, stacked questions and
+    another persona's name, on the model's own lines only."""
     kept = (
-        {text for _, text in (*_instruction_fields(before), *_spoken_fields(before))}
+        {text for _, text in (*instruction_fields(before), *spoken_fields(before))}
         if before is not None
         else set()
     )
@@ -307,15 +279,18 @@ def language_problems(
     if instructions:
         problems += [
             problem
-            for path, text in _instruction_fields(script)
+            for path, text in instruction_fields(script)
             if text not in kept and (problem := english_problem(path, text))
         ]
-    callers = {
-        f"example_exchange.{i}.text"
-        for i, line in enumerate(script.example_exchange)
-        if line.speaker == "caller"
-    }
-    for path, text in _spoken_fields(script):
+    callers = caller_paths(script)
+    if lint is not None:
+        problems += [
+            problem
+            for path, text in instruction_fields(script)
+            if text not in kept and text.strip()
+            for problem in instruction_problems(path, text, lint)
+        ]
+    for path, text in spoken_fields(script):
         if text in kept:
             continue
         owners = bool(allowed) and text.strip() in allowed
@@ -338,6 +313,8 @@ def language_problems(
             )
             if problem
         ]
+        if lint is not None and path not in callers and not owners and text.strip():
+            problems += spoken_line_problems(path, text, lint)
     return problems
 
 
@@ -350,6 +327,7 @@ def drafted_script(
     names: Sequence[str] = (),
     introduced: bool = False,
     direction: str = "both",
+    lint: LintContext | None = None,
 ) -> CallScript:
     """A whole draft (or a conversion) as `_script_from_model_json` reads it, refused with
     the language problems for the one repair when it breaks the language rules. An agent of
@@ -364,6 +342,7 @@ def drafted_script(
         instructions=instructions,
         names=names,
         introduced=introduced,
+        lint=lint,
     )
     if problems:
         log.warning("script_assist_language_unusable", extra={"count": len(problems)})
@@ -379,6 +358,7 @@ def edited_script(
     allowed: str = "",
     names: Sequence[str] = (),
     introduced: bool = False,
+    lint: LintContext | None = None,
 ) -> CallScript | None:
     """The model's edited script, validated like any save; None when it is not a valid
     script (the edit is then reported as no draft rather than half applied). A field the
@@ -405,7 +385,13 @@ def edited_script(
         log.warning("script_assist_edit_unusable", extra={"where": where, "count": len(errors)})
         raise UnusableAnswerError("; ".join(problems)) from invalid
     problems = language_problems(
-        edited, language, before=current, allowed=allowed, names=names, introduced=introduced
+        edited,
+        language,
+        before=current,
+        allowed=allowed,
+        names=names,
+        introduced=introduced,
+        lint=lint,
     )
     if problems:
         log.warning("script_assist_language_unusable", extra={"count": len(problems)})
@@ -480,7 +466,18 @@ OWNER_QUESTIONS: Final[dict[str, str]] = {
     "good_outcome": "What should a good call end with?",
     "common_questions": "What do callers ask most often?",
     "never_say": "Anything the agent must never say or promise?",
+    # D-945: the source of the outbound value line, kept as the owner's own true fact.
+    "one_thing": "What one thing should every caller know about you?",
 }
+
+#: How the writer uses the facts and the sixth answer (D-945, founder, 30 Oct 2026).
+VALUE_FACT_NOTE: Final = (
+    "For an agent that places calls, the value step says ONE of these facts, the one that "
+    "answers what the lead just told it, in one sentence after the questions and before the "
+    "offer; never a discount, scheme, offer, urgency or a claim like best or number one, and "
+    "a claim about other customers only when a fact below says it. With no matching fact the "
+    "step is skipped. Its sounds_like stays empty: any example would be a fact."
+)
 
 #: Told to every writer of a script whose agent introduces itself (D-865). The system
 #: instructions carry `OPENING_LINE_RULE`, which names this case; the brief says it applies.
@@ -519,6 +516,23 @@ class ScriptBrief:
     #: The agent's AI notice introduces it just before the opening line (D-865,
     #: `engine.introduces_itself`): the opening line then neither greets nor says who calls.
     introduced: bool = False
+    #: What the agent can do on a call and where its leads come from (D-945). None when
+    #: nobody read the account (a conversion), and then no promise is checked against it.
+    capabilities: CapabilityManifest | None = None
+    #: The owner's facts (business profile, pinned and known facts), each one line: the only
+    #: figures and claims a spoken line may carry.
+    facts: tuple[str, ...] = ()
+
+    def lint_context(self) -> LintContext:
+        """What the draft's lines are checked against (`agents/script_lint`)."""
+        return LintContext(
+            manifest=self.capabilities,
+            facts=" ".join(
+                [*self.facts, *(answer for _key, answer in self.answers), self.description]
+            ),
+            agent_name=self.agent_name,
+            business_name=self.business_name,
+        )
 
     def user_message(self) -> str:
         lines = [
@@ -541,6 +555,12 @@ class ScriptBrief:
             lines.append("Details to collect: " + "; ".join(self.collect))
         if self.knowledge_titles:
             lines.append("Knowledge documents: " + "; ".join(self.knowledge_titles))
+        if self.capabilities is not None:
+            lines.append(self.capabilities.brief_lines())
+        if self.facts:
+            lines.append("The owner's facts:\n" + "\n".join(f"- {fact}" for fact in self.facts))
+        if self.direction != "inbound":
+            lines.append(VALUE_FACT_NOTE)
         for key, answer in self.answers:
             question = OWNER_QUESTIONS.get(key)
             if question and answer.strip():
@@ -1271,6 +1291,7 @@ async def draft_script(
             allowed=change,
             names=names,
             introduced=full.introduced,
+            lint=full.lint_context(),
         )
     else:
         # A conversion keeps the owner's own sentences, in whatever language they wrote them,
@@ -1288,6 +1309,7 @@ async def draft_script(
             names=names,
             introduced=full.introduced,
             direction=full.direction,
+            lint=None if converting else full.lint_context(),
         )
     answer = await ask_json(
         description,

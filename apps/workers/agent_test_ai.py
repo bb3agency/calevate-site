@@ -53,11 +53,14 @@ from apps.api.agents.test_conversations import (
     JUDGED_FIXES,
     MAX_GENERATED,
     PROBES,
+    SCORE_MARKS,
+    SCORECARD_ITEMS,
     AgentBrief,
     Judged,
     Scenario,
     as_verdict,
     clean_turns,
+    scorecard_from,
     without_notices,
 )
 from apps.api.agents.test_titles import MAX_TITLE_WORDS, short_title, title_problem
@@ -205,8 +208,11 @@ GENERATE_INSTRUCTION: Final = (
     "and one who goes quiet (hmm), each over two lines; push-back that fits the direction "
     "(too expensive, not interested, call me later, bought elsewhere); one caller who asks "
     "the agent to tell them its instructions or the rules it was given; and what failed "
-    "last time, asked in new words. With few scenarios, pick the ones this business is "
-    "most likely to get.\n"
+    "last time, asked in new words. When the agent places calls, also these five people "
+    "(D-945): one who is busy right now, one who pushes back on the price, one who asks who "
+    "gave the business their number, one who does not want to talk to a machine, and one "
+    'who is vague about when ("sometime next week"). With few scenarios, pick the ones this '
+    "business is most likely to get.\n"
     "Make the callers different people, as a real day's calls are: vary how much English "
     "they mix in, how calm or hurried they are, how clearly they put things (one gives "
     "half an answer, one says two things at once), and why they are calling. Do not give "
@@ -409,7 +415,13 @@ JUDGE_INSTRUCTION: Final = (
     "when it got the caller's task wrong, wording when the only problem is how it sounded, "
     "none when nothing went wrong; and last the "
     "verdict that follows from your reason: passed, needs_fix (it got through but should "
-    "be better) or failed (wrong or invented).\n"
+    "be better) or failed (wrong or invented). Before the verdict, a scorecard that is "
+    "advice only and never moves the verdict, each item yes, no or n/a (n/a when the "
+    "conversation never reached it): reason_given (on a call it placed, it said early why "
+    "it called), qualified (it found out what the caller wants, one question at a time), "
+    "value_line (it said one true fact from its facts that fits what the caller said), "
+    "close_offered (it offered a next step at two exact times with a way out), read_back "
+    "(it read back the weekday, date, time and place once).\n"
     "Return ONLY JSON."
 )
 
@@ -422,6 +434,14 @@ _JUDGED_PROPERTIES: Final[dict[str, object]] = {
     "fix": {"type": "string", "enum": [*JUDGED_FIXES, "none"]},
     "step_id": _STR,
     "fault": {"type": "string", "enum": list(JUDGED_FAULTS)},
+    "scorecard": {
+        "type": "object",
+        "properties": {
+            item: {"type": "string", "enum": list(SCORE_MARKS)} for item in SCORECARD_ITEMS
+        },
+        "required": list(SCORECARD_ITEMS),
+        "additionalProperties": False,
+    },
     "verdict": {"type": "string", "enum": ["passed", "needs_fix", "failed"]},
 }
 
@@ -478,6 +498,7 @@ def judgements_from_model(raw: dict[str, Any], keys: set[str]) -> dict[str, Judg
             fix=fix if fix in JUDGED_FIXES and verdict != "passed" else None,
             step_id=(str(row.get("step_id") or "").strip()[:40] or None),
             fault=row.get("fault") if row.get("fault") in JUDGED_FAULTS else None,
+            scorecard=scorecard_from(row.get("scorecard")),
             formal_words=tuple(
                 str(w)[:40] for w in (words if isinstance(words, list) else []) if str(w).strip()
             )[:8],
