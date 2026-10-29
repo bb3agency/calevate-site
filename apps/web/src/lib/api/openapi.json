@@ -5309,7 +5309,8 @@
               "all",
               "trial",
               "paid",
-              "tenant"
+              "tenant",
+              "outbound"
             ],
             "title": "Audience",
             "type": "string"
@@ -5456,7 +5457,8 @@
               "all",
               "trial",
               "paid",
-              "tenant"
+              "tenant",
+              "outbound"
             ],
             "title": "Audience",
             "type": "string"
@@ -5648,7 +5650,8 @@
                   "all",
                   "trial",
                   "paid",
-                  "tenant"
+                  "tenant",
+                  "outbound"
                 ],
                 "type": "string"
               },
@@ -11711,6 +11714,198 @@
           "end"
         ],
         "title": "CallingHoursIn",
+        "type": "object"
+      },
+      "CallingNumberDeclarationIn": {
+        "additionalProperties": false,
+        "properties": {
+          "attestation_sha256": {
+            "maxLength": 64,
+            "minLength": 64,
+            "title": "Attestation Sha256",
+            "type": "string"
+          },
+          "attestation_version": {
+            "title": "Attestation Version",
+            "type": "integer"
+          },
+          "declared_clis": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Declared Clis",
+            "type": "array"
+          },
+          "notice_reference": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notice Reference"
+          },
+          "notified_on": {
+            "format": "date",
+            "title": "Notified On",
+            "type": "string"
+          },
+          "withdraw": {
+            "default": false,
+            "title": "Withdraw",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "notified_on",
+          "attestation_version",
+          "attestation_sha256"
+        ],
+        "title": "CallingNumberDeclarationIn",
+        "type": "object"
+      },
+      "CallingNumberDeclarationOut": {
+        "additionalProperties": false,
+        "description": "What this account has declared, what it still has to, and from when it counts.",
+        "properties": {
+          "applies": {
+            "title": "Applies",
+            "type": "boolean"
+          },
+          "attestation_sha256": {
+            "title": "Attestation Sha256",
+            "type": "string"
+          },
+          "attestation_text": {
+            "title": "Attestation Text",
+            "type": "string"
+          },
+          "attestation_version": {
+            "title": "Attestation Version",
+            "type": "integer"
+          },
+          "attested": {
+            "title": "Attested",
+            "type": "boolean"
+          },
+          "attested_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attested Version"
+          },
+          "blocker": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DeclarationBlockerOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "declared_clis": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Declared Clis",
+            "type": "array"
+          },
+          "effective": {
+            "title": "Effective",
+            "type": "boolean"
+          },
+          "enforced": {
+            "title": "Enforced",
+            "type": "boolean"
+          },
+          "enforced_from": {
+            "format": "date",
+            "title": "Enforced From",
+            "type": "string"
+          },
+          "notice_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notice Reference"
+          },
+          "notified_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notified On"
+          },
+          "recorded": {
+            "title": "Recorded",
+            "type": "boolean"
+          },
+          "rented_numbers": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Rented Numbers",
+            "type": "array"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "State"
+          },
+          "undeclared_clis": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Undeclared Clis",
+            "type": "array"
+          }
+        },
+        "required": [
+          "recorded",
+          "state",
+          "notified_on",
+          "notice_reference",
+          "declared_clis",
+          "attested",
+          "attested_version",
+          "effective",
+          "rented_numbers",
+          "undeclared_clis",
+          "applies",
+          "enforced_from",
+          "enforced",
+          "blocker",
+          "attestation_version",
+          "attestation_text",
+          "attestation_sha256"
+        ],
+        "title": "CallingNumberDeclarationOut",
         "type": "object"
       },
       "CampaignDayOut": {
@@ -20120,6 +20315,25 @@
           "summary"
         ],
         "title": "DecideStepOut",
+        "type": "object"
+      },
+      "DeclarationBlockerOut": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "rule": {
+            "title": "Rule",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rule",
+          "reason"
+        ],
+        "title": "DeclarationBlockerOut",
         "type": "object"
       },
       "DeleteCampaignOut": {
@@ -33392,6 +33606,13 @@
             ],
             "title": "Provisional Notice"
           },
+          "upcoming": {
+            "items": {
+              "$ref": "#/components/schemas/ReadinessRowOut"
+            },
+            "title": "Upcoming",
+            "type": "array"
+          },
           "verdict": {
             "title": "Verdict",
             "type": "string"
@@ -33408,7 +33629,8 @@
           "can_accept",
           "can_accept_reason",
           "documents",
-          "blockers"
+          "blockers",
+          "upcoming"
         ],
         "title": "LegalReadinessOut",
         "type": "object"
@@ -80648,6 +80870,72 @@
           "campaigns"
         ],
         "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/compliance/autodialer-notice": {
+      "get": {
+        "description": "Automated calls may only come from numbers declared in advance to the telephone company that provides them. This says which numbers you have declared, which of your agents' numbers are missing, and the day from which a call from an undeclared number is refused. Incoming calls are never affected.",
+        "operationId": "read_notice_v1_compliance_autodialer_notice_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallingNumberDeclarationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The calling numbers this account has declared",
+        "tags": [
+          "compliance"
+        ],
+        "x-calevate-permission": "org:read"
+      },
+      "post": {
+        "description": "Record the numbers your automated calls come from, the day you declared them and any reference you hold, and confirm the statement shown. Withdrawing files a new record rather than deleting the old one.",
+        "operationId": "record_notice_v1_compliance_autodialer_notice_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CallingNumberDeclarationIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallingNumberDeclarationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Declare your calling numbers, or withdraw the declaration",
+        "tags": [
+          "compliance"
+        ],
+        "x-calevate-permission": "org:manage"
       }
     },
     "/v1/compliance/call-consent": {

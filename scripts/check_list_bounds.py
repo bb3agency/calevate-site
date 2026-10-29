@@ -643,6 +643,18 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
             "frozenset in this repo, for the one month the request names."
         )
     ),
+    "GET /v1/compliance/autodialer-notice": BoundedByConstruction(
+        by=(
+            "`declared_clis` is capped at `compliance/autodialer.MAX_DECLARED_CLIS` (20) by "
+            "the recorder; `rented_numbers` and `undeclared_clis` are the account's own "
+            "unreleased `phone_numbers` rows, bounded by the numbers it rents one at a time. "
+            "No `limit`, because a declaration must be made over the whole list: a page of it "
+            "would leave calls refused from numbers the client was never shown."
+        )
+    ),
+    "POST /v1/compliance/autodialer-notice": BoundedByConstruction(
+        by="the same lists as `GET /v1/compliance/autodialer-notice`, which it returns."
+    ),
     "GET /v1/ops/kb-orphans": BoundedByConstruction(
         by=(
             "`kb/orphans.MAX_ORPHAN_ROWS` (200), applied inside `reconcile_account_kb` "

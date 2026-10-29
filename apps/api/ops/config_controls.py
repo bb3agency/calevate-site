@@ -50,6 +50,7 @@ CONTROL_KINDS: Final[frozenset[str]] = frozenset(
         "url",
         "email",
         "text",
+        "date",
     }
 )
 

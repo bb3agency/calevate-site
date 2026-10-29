@@ -262,16 +262,22 @@ async def end(
 
 
 #: The audience test against this account's own `organizations` row, which a tenant session
-#: can read (its policy matches on `id`).
+#: can read (its policy matches on `id`), and its own agents for `outbound`. One spelling,
+#: shared by the read and the dismissal, so the two cannot disagree about who was shown what.
+_AUDIENCE_SQL: Final = (
+    "(p.audience = 'all' "
+    "  OR (p.audience = 'trial' AND o.first_paid_at IS NULL) "
+    "  OR (p.audience = 'paid' AND o.first_paid_at IS NOT NULL) "
+    "  OR (p.audience = 'tenant' AND p.target_tenant_id = :tid) "
+    "  OR (p.audience = 'outbound' AND EXISTS (SELECT 1 FROM agents a "
+    "      WHERE a.tenant_id = :tid AND a.deleted_at IS NULL AND a.direction <> 'inbound')))"
+)
 _ACTIVE_SQL: Final = (
     "SELECT p.id, p.message, p.link_url, p.link_label, p.tone, p.starts_at, p.ends_at "
     "FROM platform_announcements p JOIN organizations o ON o.id = :tid "
     "WHERE p.ended_at IS NULL AND p.starts_at <= :now "
     "AND (p.ends_at IS NULL OR p.ends_at > :now) "
-    "AND (p.audience = 'all' "
-    "  OR (p.audience = 'trial' AND o.first_paid_at IS NULL) "
-    "  OR (p.audience = 'paid' AND o.first_paid_at IS NOT NULL) "
-    "  OR (p.audience = 'tenant' AND p.target_tenant_id = :tid)) "
+    f"AND {_AUDIENCE_SQL} "
     "AND NOT EXISTS (SELECT 1 FROM announcement_dismissals d "
     "  WHERE d.announcement_id = p.id AND d.tenant_id = :tid) "
     f"ORDER BY {_TONE_RANK_SQL}, p.starts_at DESC, p.id DESC LIMIT :limit"
@@ -309,10 +315,7 @@ async def dismiss(session: AsyncSession, *, tenant_id: UUID, announcement_id: UU
         await session.execute(
             text(
                 "SELECT 1 FROM platform_announcements p JOIN organizations o ON o.id = :tid "
-                "WHERE p.id = :id AND (p.audience = 'all' "
-                "  OR (p.audience = 'trial' AND o.first_paid_at IS NULL) "
-                "  OR (p.audience = 'paid' AND o.first_paid_at IS NOT NULL) "
-                "  OR (p.audience = 'tenant' AND p.target_tenant_id = :tid))"
+                f"WHERE p.id = :id AND {_AUDIENCE_SQL}"
             ),
             {"tid": tenant_id, "id": announcement_id},
         )

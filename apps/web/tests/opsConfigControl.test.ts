@@ -85,6 +85,28 @@ const playbooks = field({
   control: control("multi_select", { multiple: true }),
 });
 
+const enforcedFrom = field({
+  key: "a2p_declaration_enforced_from",
+  kind: "string",
+  value: "2026-11-17",
+  default: "2026-11-17",
+  control: control("date"),
+});
+
+describe("a date setting (D-941)", () => {
+  it("is drawn as a date and read as a day", () => {
+    expect(controlKind(enforcedFrom)).toBe("date");
+    expect(displayValue(enforcedFrom, "2026-11-17")).toBe("17 Nov 2026");
+  });
+
+  it("refuses a day the month does not have, and sends the day as typed", () => {
+    expect(validateDraft(enforcedFrom, "2026-11-31")).toBe("Use a date, like 2026-11-17.");
+    expect(validateDraft(enforcedFrom, "17/11/2026")).toBe("Use a date, like 2026-11-17.");
+    expect(validateDraft(enforcedFrom, "2026-11-17")).toBeNull();
+    expect(valueOf(enforcedFrom, " 2026-11-17 ")).toBe("2026-11-17");
+  });
+});
+
 describe("showing a value", () => {
   it("says it the way a person reads it", () => {
     expect(displayValue(field(), "4.00")).toBe("₹4.00 per minute");

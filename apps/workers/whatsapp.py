@@ -1018,8 +1018,9 @@ async def _send_escalation(
         tenant_id=tenant_id,
         agent_id=escalation.agent_id,
         phone_e164=escalation.phone_e164,
-        # The gate asks no TCCCPR-only rule since D-692 and D-762, so WhatsApp runs the same
-        # checks as a voice dial; the WABA opt-in is checked just below.
+        # A message is not a call, so the calling-number declaration (D-941) is not asked;
+        # every other check is the voice dial's, and the WABA opt-in is checked just below.
+        places_call=False,
     )
     if not decision.allowed:
         # The RULE, never the client-facing prose and never the number: the reason lands

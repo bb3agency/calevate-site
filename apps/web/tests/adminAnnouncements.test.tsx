@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 
 import { AnnouncementsScreen } from "@/app/admin/announcements/AnnouncementsScreen";
 import {
+  AUDIENCE_OPTIONS,
+  audienceLabel,
   createInput,
   messageLength,
   updateInput,
@@ -69,6 +71,19 @@ describe("announcement draft rules", () => {
     const before = { ...EMPTY_DRAFT, message: "Hi", linkUrl: "/billing" };
     expect(updateInput(before, before)).toEqual({});
     expect(updateInput(before, { ...before, linkUrl: "" })).toEqual({ link_url: null });
+  });
+});
+
+describe("the outbound audience (D-941)", () => {
+  it("is offered, named in words, and sent as its wire value", () => {
+    expect(AUDIENCE_OPTIONS.find((option) => option.value === "outbound")?.label).toBe(
+      "Accounts that place calls",
+    );
+    expect(audienceLabel({ audience: "outbound", target_tenant_name: null })).toBe("Accounts that place calls");
+    expect(createInput({ ...EMPTY_DRAFT, message: "Declare your numbers.", audience: "outbound" })).toMatchObject({
+      audience: "outbound",
+      target_tenant_id: null,
+    });
   });
 });
 

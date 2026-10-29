@@ -840,6 +840,13 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "How long a DLT PE verification stays valid",
         "After this, a principal-entity registration must be re-verified. 0 turns the check off.",
     ),
+    "a2p_declaration_enforced_from": _m(
+        "compliance",
+        "checks",
+        "Calling numbers must be declared from",
+        "From this day (IST) an outbound call from a number the client has not declared is "
+        "refused. Before it, clients are only asked to declare.",
+    ),
     "kyc_verification_provider": _m(
         "compliance",
         "checks",
@@ -1367,6 +1374,7 @@ CONTROL_HINTS: Final[dict[str, ControlHint]] = {
     "maintenance_notice_lead_hours": ControlHint(unit="hours"),
     "campaign_consent_max_age_days": ControlHint(unit="days", help="0 turns the check off."),
     "pe_verification_max_age_days": ControlHint(unit="days", help="0 turns the check off."),
+    "a2p_declaration_enforced_from": ControlHint(kind="date", help="A day in IST."),
     "self_serve_trial_days": ControlHint(unit="days"),
     "self_serve_trial_free_minutes": ControlHint(unit="minutes"),
     "credit_pack_expiry_months": ControlHint(unit="months"),
@@ -1462,6 +1470,8 @@ HIGH_RISK: Final[dict[str, str]] = {
     "razorpay_mode": "Live takes real money; test takes none.",
     "campaign_consent_max_age_days": "Decides which contact lists a campaign may call.",
     "pe_verification_max_age_days": "Decides when a DLT registration must be re-verified.",
+    "a2p_declaration_enforced_from": "An earlier date stops every client's calls from "
+    "undeclared numbers at once.",
     "kyc_verification_environment": "Sandbox verifications are not real identity checks.",
     "healer_enabled": "Off stops every automatic repair.",
     "first_party_auth_enabled": "Off locks everyone out, operators included.",

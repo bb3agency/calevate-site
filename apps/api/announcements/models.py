@@ -19,9 +19,10 @@ from apps.api.db.base import Base, PKMixin, TimestampMixin
 Tone = Literal["info", "success", "warning", "critical"]
 TONES: tuple[Tone, ...] = ("info", "success", "warning", "critical")
 #: `trial` is an account that has never paid (`organizations.first_paid_at IS NULL`, D-697);
-#: `paid` is one that has; `tenant` is one named account.
-Audience = Literal["all", "trial", "paid", "tenant"]
-AUDIENCES: tuple[Audience, ...] = ("all", "trial", "paid", "tenant")
+#: `paid` is one that has; `tenant` is one named account; `outbound` is every account with an
+#: agent that places calls (D-941).
+Audience = Literal["all", "trial", "paid", "tenant", "outbound"]
+AUDIENCES: tuple[Audience, ...] = ("all", "trial", "paid", "tenant", "outbound")
 
 #: What fits in one line of the bar on a phone without becoming a paragraph.
 MAX_MESSAGE_CHARS = 280

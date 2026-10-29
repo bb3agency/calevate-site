@@ -73,6 +73,7 @@ from apps.api.campaigns.models import (
     TEMPLATE_STATUSES,
 )
 from apps.api.compliance import service as compliance_clock
+from apps.api.compliance.autodialer import a2p_dial_blocker
 from apps.api.compliance.models import PE_REGISTRATION_STATUSES, TM_LINK_STATUSES
 from apps.api.compliance.preference_scrub import national_dnd_blocker, read_current_scrub
 from apps.api.compliance.registration import refuse_promotional_without_registration
@@ -1276,8 +1277,19 @@ async def launch_blockers(
     # WHAT it may say and from WHERE (SEC-COMP §3, bullet two).
     blockers.extend(_channel_blockers(facts))
 
-    # No Regulation 4 autodialer-notice check here or in `check_dispatch` (D-762): the
-    # disclosure in pledge v2, asked through `account_outbound_blockers`, replaces it.
+    # THE DECLARED CALLING NUMBERS (D-941), with the dial gate's own function and arguments,
+    # so a campaign that every dial would refuse is not launched. Not in `dispatch_blockers`:
+    # `check_dispatch` asks it per contact. Before the enforcement date it refuses nothing,
+    # and the launch screen asks for the declaration instead.
+    undeclared = await a2p_dial_blocker(
+        session,
+        tenant_id=tenant_id,
+        agent_id=facts.agent_id,
+        trial_call=False,
+        own_number_attested=False,
+    )
+    if undeclared is not None:
+        blockers.append(LaunchBlocker(*undeclared))
 
     # SEC-COMP §3, third bullet, NATIONAL half. Refused rather than warned about,
     # because the bullet is a legal claim: a promotional campaign dialled without a

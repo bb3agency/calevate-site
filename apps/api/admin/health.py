@@ -172,6 +172,7 @@ from apps.api.compliance.service import account_dial_blockers, account_stopped_b
 from apps.api.compliance.trial_access import restricting_trial
 from apps.api.core.logging import get_logger
 from apps.api.db.session import tenant_session
+from apps.api.legal.readiness import a2p_readiness_row
 from apps.workers.pipeline import PIPELINE_STALL_AFTER
 
 log = get_logger(__name__)
@@ -243,6 +244,9 @@ CAUSE_OWNER: Final[dict[str, Owner | None]] = {
     "kyc_digilocker_required": "client",
     "outbound_pledge_missing": "client",
     "outbound_pledge_outdated": "client",
+    "a2p_declaration_missing": "client",
+    "a2p_declaration_not_yet_effective": "client",
+    "a2p_number_undeclared": "client",
     "trial_ended": "client",
     "trial_minutes_used": "client",
     "no_credits": "client",
@@ -501,6 +505,26 @@ async def _outbound_signals(
     return signals
 
 
+async def _declaration_signal(session: AsyncSession, *, tenant_id: UUID) -> HealthSignal | None:
+    """`calling_numbers_undeclared`: an account that places calls and whose declaration does
+    not cover its agents' numbers (D-941), from the readiness row the client sees.
+
+    Before the enforcement date it is a `warn`, so ops can chase every such client while
+    the calls still go out; from the date it is a `stop`, because every dial is refused.
+    A trial account is not asked: its test calls ring the owner's own phone.
+    """
+    row = await a2p_readiness_row(session, tenant_id=tenant_id)
+    if row is None:
+        return None
+    rule, blocking = row[0].rule, row[1]
+    return HealthSignal(
+        rule="calling_numbers_undeclared",
+        severity="stop" if blocking else "warn",
+        causes=(rule,),
+        waiting_on="client",
+    )
+
+
 def _cap_utilisation(
     *, minutes_used: Decimal, billed_inr: Decimal, cap_min: int | None, cap_spend: Decimal | None
 ) -> int | None:
@@ -579,6 +603,10 @@ async def tenant_health(
     on_trial = await restricting_trial(session, tenant_id=account.tenant_id) is not None
     if _dials_out(outbound_agents=int(facts[5] or 0), campaigns=int(facts[6] or 0)):
         signals += await _outbound_signals(session, tenant_id=account.tenant_id, on_trial=on_trial)
+        if not on_trial:
+            declaration = await _declaration_signal(session, tenant_id=account.tenant_id)
+            if declaration is not None:
+                signals.append(declaration)
 
     unmetered = int(facts[7] or 0)
     if unmetered:

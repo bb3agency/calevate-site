@@ -297,12 +297,16 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         name="Verify your business",
         group="Compliance & data",
         summary=(
-            "Where the owner verifies the business and their own ID and accepts the "
-            "no-cold-calls pledge, which together unlock outbound calling; it also shows "
-            "what is on file from the business checks and anything still blocking calls."
+            "Where the owner verifies the business and their own ID, accepts the "
+            "no-cold-calls pledge and declares the numbers automated calls come from, which "
+            "together unlock outbound calling; it also shows what is on file from the "
+            "business checks and anything still blocking calls."
         ),
         aliases=(
             "kyc",
+            "calling numbers",
+            "declare numbers",
+            "trai declaration",
             "business proof",
             "upload documents",
             "digilocker",

@@ -16,7 +16,11 @@ export function consoleHref(
   slug: string,
   href: (path: string) => string,
 ): string {
-  return link.startsWith("https://") ? link : href(`/c/${slug}${link}`);
+  if (link.startsWith("https://")) return link;
+  // A fragment ("/verify-business#calling-numbers") goes after the realm's query, or a
+  // view-as session's parameter would land inside the fragment and be lost.
+  const [path, fragment] = link.split("#", 2);
+  return `${href(`/c/${slug}${path}`)}${fragment ? `#${fragment}` : ""}`;
 }
 
 /**

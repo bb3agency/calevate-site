@@ -1602,16 +1602,16 @@ outbound_pledge_acceptances(id, tenant_id → organizations RESTRICT, pledge_ver
   -- `compliance.outbound_pledge.PLEDGE_VERSION`. Append-only + TRUNCATE triggers, ALWAYS.
 kyc_verification_requests gains id_document ENUM[aadhaar,pan] NULL (D-692).
 autodialer_notices(id, tenant_id → organizations RESTRICT, state ENUM[notified,withdrawn],
-  access_provider TEXT NOT NULL, objective TEXT NOT NULL, notified_on DATE,
+  access_provider TEXT NULL, objective TEXT NULL, notified_on DATE,
   notice_reference TEXT NULL, declared_clis TEXT[] NOT NULL DEFAULT '{}',
+  attestation_version SMALLINT NULL, attestation_sha256 TEXT NULL (64 hex),
   recorded_by → users RESTRICT, created_at)          -- INSERT-only (hard rule 4)
-  -- UNWRITTEN SINCE D-762 (13 Oct 2026): the product no longer asks for the notice, so no
-  -- route, gate or screen reads or writes this table. Kept with its rows, FORCEd RLS and
-  -- append-only triggers; dropped in a later release (hard rule 8).
-  -- It held the client's TCCCPR Regulation 4 notice to its access provider (migration
-  -- e5c1a70b93f4); the LATEST row was the current position (INDEX
-  -- ix_autodialer_notices_latest_for_tenant), a withdrawal a new row. `declared_clis`
-  -- (migration f39583a282fb) were the E.164 numbers the calls would present.
+  -- D-941 (migration d941a2c7e5b3): the client's declaration of the numbers its automated
+  -- calls come from, read by the dial gate from `a2p_declaration_enforced_from`. The
+  -- LATEST row is the current position (INDEX ix_autodialer_notices_latest_for_tenant), a
+  -- withdrawal a new row. CHECKs: version and SHA paired; a row is attested OR carries
+  -- the D-637 provider and objective. D-637 rows (migration e5c1a70b93f4, CLIs from
+  -- f39583a282fb) carry no attestation and cover no dial.
 -- consent_ledger also carries ix_consent_ledger_callback_lookup (tenant_id, phone_e164,
 --   captured_at DESC, id DESC) WHERE purpose = 'callback' and ix_consent_ledger_withdrawn_call
 --   (call_id) WHERE status = 'withdrawn' AND call_id IS NOT NULL (migration e95e0d780629),
@@ -1916,8 +1916,9 @@ a pause the healer must undo, cleared by any person's pause or resume
 
 ```
 platform_announcements(id, message 1..280, link_url NULL, link_label NULL (needs a link),
-  tone IN (info, success, warning, critical), audience IN (all, trial, paid, tenant),
+  tone IN (info, success, warning, critical), audience IN (all, trial, paid, tenant, outbound),
   target_tenant_id NULL FK organizations CASCADE (set exactly when audience = tenant),
+  -- `outbound` (D-941, migration d941a2c7e5b3): accounts with an agent that places calls.
   starts_at, ends_at NULL (> starts_at), ended_at NULL, created_by/updated_by NULL
   FK admin_users SET NULL, created_at, updated_at)
   -- Platform-scoped, RLS-exempt with its reason in RLS_EXEMPT_TENANT_COLUMNS. A client

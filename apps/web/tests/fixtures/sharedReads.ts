@@ -77,6 +77,7 @@ export const LEGAL_READY = {
     { ...ACCEPTED, slug: "dpa", title: "Data Processing Addendum", href: "/legal/dpa" },
   ],
   blockers: [],
+  upcoming: [],
 } satisfies LegalReadiness;
 
 /**

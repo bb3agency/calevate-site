@@ -142,6 +142,7 @@ export const AUDIENCE_OPTIONS: { value: Audience; label: string; hint: string }[
   { value: "all", label: "Every client", hint: "Trial and paying accounts alike." },
   { value: "trial", label: "Trial accounts", hint: "Accounts that have never paid." },
   { value: "paid", label: "Paying clients", hint: "Accounts that have paid at least once." },
+  { value: "outbound", label: "Accounts that place calls", hint: "Accounts with an agent that calls out." },
   { value: "tenant", label: "One client", hint: "Only the account you choose." },
 ];
 

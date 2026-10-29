@@ -152,9 +152,10 @@ const QUESTIONS: { q: string; a: string }[] = [
   {
     q: "Do we need a DLT registration to make outbound calls?",
     /*
-     * WHAT THE GATE ASKS SINCE D-692 AND D-762: verified KYC (`compliance/kyc.py`) and the
-     * no-cold-calls pledge with its disclosure (`compliance/outbound_pledge.py`). No DLT
-     * registration and no autodialler notice is asked for. The answer says what the
+     * WHAT THE GATE ASKS SINCE D-692 AND D-941: verified KYC (`compliance/kyc.py`), the
+     * no-cold-calls pledge with its disclosure (`compliance/outbound_pledge.py`) and, from
+     * 17 Nov 2026, the declared calling numbers (`compliance/autodialer.py`). No DLT
+     * registration is asked for. The answer says what the
      * product refuses, never that the law requires nothing, because the legal questions
      * in `docs/evidence/dlt-roles-and-operating-model-2026-09-18.md` are still open with
      * counsel. No figure and no price vocabulary: this block renders on the homepage.
@@ -164,8 +165,9 @@ const QUESTIONS: { q: string; a: string }[] = [
       "agent can call out, we verify the identity of the business behind the account, " +
       "and you accept our no-cold-calls pledge: your agent calls only people who asked " +
       "to hear from you, with our disclosure of how your automated calls are placed and " +
-      "what we keep for each one. The product refuses to dial until both are in place. " +
-      "Inbound answering is not affected by either.",
+      "what we keep for each one. From 17 Nov 2026 you also declare the numbers your " +
+      "automated calls come from. The product refuses to dial until these are in place. " +
+      "Inbound answering is not affected by any of them.",
   },
   {
     q: "Can we stop it once it is running?",

@@ -173,6 +173,28 @@ describe("the client health board", () => {
     expect(screen.getByRole("link", { name: "Open the account" })).toBeDefined();
   });
 
+  it("names an account whose calling numbers are not declared, and why (D-941)", async () => {
+    const { container } = renderAdminPage(<ClientHealthPage />, {
+      [CLIENT_HEALTH_PATH]: [
+        row({
+          signals: [
+            signal({
+              rule: "calling_numbers_undeclared",
+              severity: "warn",
+              count: null,
+              causes: ["a2p_declaration_missing"],
+              waiting_on: "client",
+            }),
+          ],
+        }),
+      ],
+    });
+    await screen.findByText("Sri Traders");
+    expect(container.textContent).toContain("Calling numbers not declared");
+    expect(container.textContent).not.toContain("calling_numbers_undeclared");
+    expect(container.textContent).not.toContain("a2p_declaration_missing");
+  });
+
   it("refuses to call a failed read a healthy estate", async () => {
     const { container } = renderAdminPage(<ClientHealthPage />, {
       // A real refusal, the way the API issues one. A malformed 200 would exercise a

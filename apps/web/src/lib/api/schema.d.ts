@@ -7064,6 +7064,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/compliance/autodialer-notice": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The calling numbers this account has declared
+         * @description Automated calls may only come from numbers declared in advance to the telephone company that provides them. This says which numbers you have declared, which of your agents' numbers are missing, and the day from which a call from an undeclared number is refused. Incoming calls are never affected.
+         */
+        get: operations["read_notice_v1_compliance_autodialer_notice_get"];
+        put?: never;
+        /**
+         * Declare your calling numbers, or withdraw the declaration
+         * @description Record the numbers your automated calls come from, the day you declared them and any reference you hold, and confirm the statement shown. Withdrawing files a new record rather than deleting the old one.
+         */
+        post: operations["record_notice_v1_compliance_autodialer_notice_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/compliance/call-consent": {
         parameters: {
             query?: never;
@@ -14980,7 +15004,7 @@ export interface components {
              * Audience
              * @enum {string}
              */
-            audience: "all" | "trial" | "paid" | "tenant";
+            audience: "all" | "trial" | "paid" | "tenant" | "outbound";
             /**
              * Created At
              * Format: date-time
@@ -15033,7 +15057,7 @@ export interface components {
              * @default all
              * @enum {string}
              */
-            audience: "all" | "trial" | "paid" | "tenant";
+            audience: "all" | "trial" | "paid" | "tenant" | "outbound";
             /** Ends At */
             ends_at?: string | null;
             /** Link Label */
@@ -15094,7 +15118,7 @@ export interface components {
          */
         AnnouncementUpdateIn: {
             /** Audience */
-            audience?: ("all" | "trial" | "paid" | "tenant") | null;
+            audience?: ("all" | "trial" | "paid" | "tenant" | "outbound") | null;
             /** Ends At */
             ends_at?: string | null;
             /** Link Label */
@@ -17114,6 +17138,69 @@ export interface components {
             end: string;
             /** Start */
             start: string;
+        };
+        /** CallingNumberDeclarationIn */
+        CallingNumberDeclarationIn: {
+            /** Attestation Sha256 */
+            attestation_sha256: string;
+            /** Attestation Version */
+            attestation_version: number;
+            /** Declared Clis */
+            declared_clis?: string[];
+            /** Notice Reference */
+            notice_reference?: string | null;
+            /**
+             * Notified On
+             * Format: date
+             */
+            notified_on: string;
+            /**
+             * Withdraw
+             * @default false
+             */
+            withdraw: boolean;
+        };
+        /**
+         * CallingNumberDeclarationOut
+         * @description What this account has declared, what it still has to, and from when it counts.
+         */
+        CallingNumberDeclarationOut: {
+            /** Applies */
+            applies: boolean;
+            /** Attestation Sha256 */
+            attestation_sha256: string;
+            /** Attestation Text */
+            attestation_text: string;
+            /** Attestation Version */
+            attestation_version: number;
+            /** Attested */
+            attested: boolean;
+            /** Attested Version */
+            attested_version: number | null;
+            blocker: components["schemas"]["DeclarationBlockerOut"] | null;
+            /** Declared Clis */
+            declared_clis: string[];
+            /** Effective */
+            effective: boolean;
+            /** Enforced */
+            enforced: boolean;
+            /**
+             * Enforced From
+             * Format: date
+             */
+            enforced_from: string;
+            /** Notice Reference */
+            notice_reference: string | null;
+            /** Notified On */
+            notified_on: string | null;
+            /** Recorded */
+            recorded: boolean;
+            /** Rented Numbers */
+            rented_numbers: string[];
+            /** State */
+            state: string | null;
+            /** Undeclared Clis */
+            undeclared_clis: string[];
         };
         /** CampaignDayOut */
         CampaignDayOut: {
@@ -20382,6 +20469,13 @@ export interface components {
             other?: string | null;
             /** Summary */
             summary: string;
+        };
+        /** DeclarationBlockerOut */
+        DeclarationBlockerOut: {
+            /** Reason */
+            reason: string;
+            /** Rule */
+            rule: string;
         };
         /**
          * DeleteCampaignOut
@@ -25295,6 +25389,8 @@ export interface components {
             pending_legal_review: boolean;
             /** Provisional Notice */
             provisional_notice: string | null;
+            /** Upcoming */
+            upcoming: components["schemas"]["ReadinessRowOut"][];
             /** Verdict */
             verdict: string;
         };
@@ -48408,6 +48504,68 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_notice_v1_compliance_autodialer_notice_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallingNumberDeclarationOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    record_notice_v1_compliance_autodialer_notice_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CallingNumberDeclarationIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallingNumberDeclarationOut"];
+                };
             };
             /** @description RFC-9457 problem+json */
             default: {

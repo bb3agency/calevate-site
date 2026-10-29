@@ -18,9 +18,10 @@ public. It has its own, narrower checks instead, every one of them explicit here
 * a daily cap per client (`forwarding_test_daily_cap`) and one open test per client;
 * every run is audited.
 
-Whether TRAI's autodialer notice (TCCCPR reg. 4 as amended 12 Feb 2025, web-secondary)
-reaches a non-commercial test call is not settled: OPERATIONS gate F-6. The product asks no
-client for that notice since D-762.
+The calling-number declaration (D-941) is not asked: the test rings the business's own
+attested line at its request, which is not a commercial communication to a subscriber, the
+reasoning that exempts an owner's test call to their own number (`autodialer.a2p_dial_blocker`).
+Whether TRAI reads it the same way is not settled: OPERATIONS gate F-6.
 
 HOW IT RUNS. Leg 1 rings from the shared trial number, leg 2 (when an operator has chosen a
 second number) from that one, each placed by its own developer-workspace agent

@@ -35,6 +35,13 @@ const VERIFY_BUSINESS_RULES = new Set([
   "outbound_pledge_outdated",
 ]);
 
+/** D-941's calling-number rules, cleared in the Calling numbers card on Verify your business. */
+const CALLING_NUMBER_RULES = new Set([
+  "a2p_declaration_missing",
+  "a2p_declaration_not_yet_effective",
+  "a2p_number_undeclared",
+]);
+
 type NextAction = { href: string; label: string; internal: boolean };
 
 /**
@@ -71,10 +78,19 @@ export function Readiness({ readiness }: { readiness: LegalReadiness }) {
     if (VERIFY_BUSINESS_RULES.has(row.rule)) {
       return { href: href(`/c/${session.orgSlug}/verify-business`), label: COPY.verifyBusiness, internal: false };
     }
+    if (CALLING_NUMBER_RULES.has(row.rule) && row.rule !== "a2p_declaration_not_yet_effective") {
+      return {
+        // The fragment after the realm query, so a view-as session keeps both.
+        href: `${href(`/c/${session.orgSlug}/verify-business`)}#calling-numbers`,
+        label: COPY.declareNumbers,
+        internal: false,
+      };
+    }
     return null;
   };
-  // One action per destination: three verification rules are one trip to one page.
-  const actions = [...(agreements ? [agreements] : []), ...others]
+  // One action per destination: three verification rules are one trip to one page. An
+  // upcoming item comes after every blocker: it does not stop calls yet.
+  const actions = [...(agreements ? [agreements] : []), ...others, ...readiness.upcoming]
     .map(actionFor)
     .filter((action): action is NextAction => action !== null)
     .filter((action, index, all) => all.findIndex((other) => other.href === action.href) === index);
@@ -102,6 +118,9 @@ export function Readiness({ readiness }: { readiness: LegalReadiness }) {
             )}
             {others.map((row) => (
               <BlockerRow key={row.rule} row={row} />
+            ))}
+            {readiness.upcoming.map((row) => (
+              <BlockerRow key={`upcoming-${row.rule}`} row={row} upcoming />
             ))}
           </ul>
 
@@ -162,8 +181,10 @@ export function Readiness({ readiness }: { readiness: LegalReadiness }) {
  * sentences, the reason first; the step is dropped when the server sent the same sentence
  * twice, so the tip never repeats itself.
  */
-function BlockerRow({ row }: { row: ReadinessBlocker }) {
-  const status = ACTOR_STATUS[row.actor];
+function BlockerRow({ row, upcoming = false }: { row: ReadinessBlocker; upcoming?: boolean }) {
+  // An upcoming item does not stop calls yet, so its pill does not say "Your move" in the
+  // blocking tone; its title carries the date.
+  const status = upcoming ? { label: COPY.comingUp, tone: "neutral" as const } : ACTOR_STATUS[row.actor];
   const step = row.next_step.trim() === row.reason.trim() ? null : row.next_step;
   return (
     <StatusRow

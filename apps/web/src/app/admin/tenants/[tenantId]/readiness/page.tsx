@@ -42,6 +42,10 @@ const RULE_SCREENS: Record<string, RuleScreen> = {
   // DELIBERATELY ABSENT: `agreements_not_accepted`. Accepting is the account owner's own
   // act and there is no admin path to it — `VIEW_AS_WITHHELD_ACTS` withholds it from a
   // view-as session for the same reason. A button here would be a door around that.
+  //
+  // DELIBERATELY ABSENT too: the `a2p_*` calling-number rules (D-941). The declaration is
+  // the business's own statement about its numbers, the server refuses it from a view-as
+  // session, and no admin screen records it; the row's next step says what to ask for.
 };
 
 export default function TenantReadinessPage({

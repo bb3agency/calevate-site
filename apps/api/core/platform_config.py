@@ -417,6 +417,8 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
         "keeps the value it read, and the next one (≤30s later) uses the new one",
     ),
     "pe_verification_max_age_days": AppliesRule(LIVE),  # compliance/registration, per check
+    # Read on every outbound dial and every readiness read (D-941).
+    "a2p_declaration_enforced_from": AppliesRule(LIVE),
     "self_serve_signup_enabled": AppliesRule(LIVE),  # tenancy/signup, per request
     # D-170. `authn/routes.py::_require_enabled` reads it per request, so the cutover (and
     # the rollback) takes effect on the next call rather than on the next deploy — which is

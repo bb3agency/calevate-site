@@ -15,6 +15,7 @@ import {
   renderClientPage,
   type Routes,
 } from "./harness";
+import { CALLING_NUMBERS_NOT_APPLICABLE, CALLING_NUMBERS_PATH } from "./harness";
 
 /**
  * The control that stands where a launch begins — whichever of the two it is.
@@ -278,6 +279,29 @@ describe("the launch panel with blockers outstanding", () => {
         .getAttribute("href"),
     ).toContain("/billing?tab=usage");
     expect(text).not.toContain("spend_cap");
+  });
+
+  it("sends an undeclared calling number to the declaration card (D-941)", async () => {
+    await openLaunchPanel(
+      check({
+        rule: "a2p_number_undeclared",
+        reason: "This agent calls from a number you have not declared.",
+      }),
+    );
+    expect(
+      screen.getByRole("link", { name: /Declare your calling numbers/ }).getAttribute("href"),
+    ).toBe("/c/acme/verify-business#calling-numbers");
+  });
+
+  it("reminds an account to declare before the date, while nothing is refused yet", async () => {
+    await openLaunchPanel(check(), ME, {
+      [CALLING_NUMBERS_PATH]: {
+        ...CALLING_NUMBERS_NOT_APPLICABLE,
+        applies: true,
+        blocker: { rule: "a2p_declaration_missing", reason: "Declare your calling numbers." },
+      },
+    });
+    expect(await screen.findByText("Declare your calling numbers before 17 Nov")).toBeTruthy();
   });
 
   it("keeps the enum names out of the DOM for the rules it does know", async () => {

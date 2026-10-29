@@ -15,6 +15,8 @@ export const AGREEMENTS_COPY = {
   reviewAndAccept: "Review and accept",
   seeAgreements: "See the agreements",
   verifyBusiness: "Verify your business",
+  declareNumbers: "Declare numbers",
+  comingUp: "Coming up",
   inboundFine: "Incoming calls still work.",
   nothingElse: "Nothing else is blocking calls.",
   nothingElseWhy: "A campaign can have its own checks. They show on the campaign.",

@@ -4,6 +4,7 @@ import type { ReactElement } from "react";
 import { expect, vi } from "vitest";
 
 import { LANGUAGE_CHOICES } from "@/lib/agentState";
+import type { CallingNumberDeclaration } from "@/lib/api/autodialerNotice";
 import { clearImpersonationGrants } from "@/lib/api/admin";
 import { dismissStepUpPrompt } from "@/lib/authn/stepUpPrompt";
 import { API_BASE } from "@/lib/api/client";
@@ -235,6 +236,33 @@ export interface ApiCall {
 const GRANT_ROUTE = "POST /v1/admin/impersonation-grants";
 const PIN_LISTS = new Set(["GET /v1/copilot/pins", "GET /v1/admin/copilot/pins"]);
 
+export const CALLING_NUMBERS_PATH = "/v1/compliance/autodialer-notice";
+
+/**
+ * The calling-number declaration (D-941) for an account with nothing to declare: no agent
+ * places calls, so the card renders nothing and the launch screen shows no reminder. Verify
+ * your business and every campaign's launch panel read it, so a test not about it gets this.
+ */
+export const CALLING_NUMBERS_NOT_APPLICABLE = {
+  recorded: false,
+  state: null,
+  notified_on: null,
+  notice_reference: null,
+  declared_clis: [],
+  attested: false,
+  attested_version: null,
+  effective: false,
+  rented_numbers: [],
+  undeclared_clis: [],
+  applies: false,
+  enforced_from: "2026-11-17",
+  enforced: false,
+  blocker: null,
+  attestation_version: 1,
+  attestation_text: "On behalf of this business I confirm the numbers listed.",
+  attestation_sha256: "a".repeat(64),
+} satisfies CallingNumberDeclaration;
+
 function defaultGrant(): Record<string, unknown> {
   return {
     slug: "stub",
@@ -287,6 +315,7 @@ export function stubApi(routes: Routes): ApiCall[] {
         // Both homes read their pinned charts (D-934); a test that is not about them gets
         // a home with none, which renders nothing.
         if (PIN_LISTS.has(scoped)) return jsonResponse({ pins: [], max_pins: 12 });
+        if (scoped === `GET ${CALLING_NUMBERS_PATH}`) return jsonResponse(CALLING_NUMBERS_NOT_APPLICABLE);
         // BOTH REALMS' SESSION RESTORE, answered by default (D-177) — the same shape as
         // the grant above and for the same reason. Every `/admin` and `/c/<slug>` screen
         // now sits under a session gate, so a harness that did not answer this would

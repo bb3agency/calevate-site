@@ -13,6 +13,7 @@ from sqlalchemy import (
     Index,
     Integer,
     LargeBinary,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -1485,27 +1486,25 @@ class ProcessorErasureTask(PKMixin, Base):
     )
 
 
-#: The two states a recorded notice could be in. Kept beside the model since D-762 deleted
-#: the module that wrote the rows; the CHECK constraint in migration `e5c1a70b93f4` spells it.
+#: The two states a declaration can be in (`compliance/autodialer.py`); the CHECK in
+#: migration `e5c1a70b93f4` spells it.
 NOTICE_STATES = ("notified", "withdrawn")
 
 
 class AutodialerNotice(PKMixin, Base):
-    """A client's record of its TCCCPR Regulation 4 notice to its access provider.
+    """A client's declaration of the numbers its automated calls come from (D-941).
 
-    NOTHING WRITES THIS TABLE SINCE D-762 (13 Oct 2026), which removed the notice from the
-    product: no route, no gate and no screen reads or writes it. The table and its rows are
-    kept for one release and dropped in a later one (hard rule 8: never drop in the release
-    that stops writing). Do not build on it.
+    Written by `compliance/autodialer.record_declaration` and read by the dial gate. Rows
+    from D-637's notice (before D-762) name a provider and an objective and carry no
+    attestation; rows since D-941 carry the attestation and may leave those two empty.
 
-    INSERT-only (hard rule 4). A withdrawal is a NEW row with `state='withdrawn'`, and
-    the current position is the LATEST row for the tenant — an UPDATE would destroy the
-    only evidence that the notice was live while last month's calls were placed, which
-    is the whole value of the record. `autodialer_notices_no_mutation` and
-    `_no_truncate` enforce that at the database.
+    INSERT-only (hard rule 4). A withdrawal is a NEW row with `state='withdrawn'`, and the
+    current position is the LATEST row for the tenant: an UPDATE would destroy the evidence
+    of what was declared while earlier calls were placed. The append-only and no-truncate
+    triggers enforce that at the database.
 
-    The constraints below mirror migration `e5c1a70b93f4`, which is the source of truth
-    (DATA-MODEL §10).
+    The constraints below mirror migrations `e5c1a70b93f4` and `d941a2c7e5b3`, which are
+    the source of truth (DATA-MODEL §10).
     """
 
     __tablename__ = "autodialer_notices"
@@ -1513,6 +1512,19 @@ class AutodialerNotice(PKMixin, Base):
         CheckConstraint(f"state IN {NOTICE_STATES!r}", name="state_enum"),
         CheckConstraint("length(btrim(access_provider)) > 0", name="access_provider_present"),
         CheckConstraint("length(btrim(objective)) > 0", name="objective_present"),
+        CheckConstraint(
+            "(attestation_version IS NULL) = (attestation_sha256 IS NULL)",
+            name="attestation_paired",
+        ),
+        CheckConstraint(
+            "attestation_sha256 IS NULL OR attestation_sha256 ~ '^[0-9a-f]{64}$'",
+            name="attestation_sha256_hex",
+        ),
+        CheckConstraint(
+            "attestation_sha256 IS NOT NULL "
+            "OR (access_provider IS NOT NULL AND objective IS NOT NULL)",
+            name="attested_or_described",
+        ),
         Index("ix_autodialer_notices_latest_for_tenant", "tenant_id", text("created_at DESC")),
     )
 
@@ -1520,10 +1532,13 @@ class AutodialerNotice(PKMixin, Base):
         ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
     )
     state: Mapped[str] = mapped_column(String, nullable=False)
-    # The client's own carrier relationship, which Model B means we hold no account with
-    # and may never see — so free text, not a foreign key to anything of ours.
-    access_provider: Mapped[str] = mapped_column(Text, nullable=False)
-    objective: Mapped[str] = mapped_column(Text, nullable=False)
+    # D-637 rows only: the client's own carrier relationship, which we may never see.
+    access_provider: Mapped[str | None] = mapped_column(Text)
+    objective: Mapped[str | None] = mapped_column(Text)
+    #: The attestation accepted (`autodialer.DECLARATION_VERSION`) and the SHA-256 of its
+    #: exact text; NULL on D-637 rows, which therefore cover no dial.
+    attestation_version: Mapped[int | None] = mapped_column(SmallInteger)
+    attestation_sha256: Mapped[str | None] = mapped_column(Text)
     # A DATE: what a letter is dated, in the client's own calendar. An instant would
     # invite a timezone question the evidence cannot answer.
     notified_on: Mapped[date] = mapped_column(Date, nullable=False)
