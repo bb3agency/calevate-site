@@ -138,6 +138,7 @@ const FIGURES = {
   number_rental_inr: "499.00",
   ai_assist_inr: "0.00",
   adjustments_inr: "0.00",
+  expired_inr: "0.00",
   spent_inr: "2809.00",
   added_inr: "2000.00",
 };

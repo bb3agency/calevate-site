@@ -22,6 +22,9 @@ import { useCreditUsage, type CreditUsagePeriod } from "@/lib/api/voiceTiers";
  * to look complete. A zero part is left out; the total always shows, because "nothing
  * spent" is itself an answer.
  *
+ * Credit that lapsed unused is not spend: it is its own "Credit expired" line beside the
+ * credit added, never a part of the donut or of `spent_inr`.
+ *
  * **NO ARITHMETIC ON MONEY HAPPENS HERE.** `spent_inr` is the server's sum of the four
  * parts; every figure a reader sees is its string through `formatINR`. `Number()` is used
  * only to size the arcs.
@@ -49,7 +52,9 @@ export function WhereItWent({ session }: { session: Session }) {
         <ProblemNotice error={usage.error} onRetry={() => void usage.refetch()} />
       ) : !figures ? (
         <Skeleton rows={4} label="Loading where your credit went" />
-      ) : !hasNonZeroDigit(figures.spent_inr) && !hasNonZeroDigit(figures.added_inr) ? (
+      ) : !hasNonZeroDigit(figures.spent_inr) &&
+        !hasNonZeroDigit(figures.added_inr) &&
+        !hasNonZeroDigit(figures.expired_inr) ? (
         <EmptyState
           illustration={<EmptySketch kind="deliveries" />}
           message={period === "month" ? "Nothing has moved on your credit this month" : "Nothing has moved on your credit yet"}
@@ -74,6 +79,12 @@ export function WhereItWent({ session }: { session: Session }) {
             <p className="text-body text-ink-muted">
               Credit added {scope}:{" "}
               <span className="font-semibold tabular-nums text-ink">{formatINR(figures.added_inr)}</span>
+            </p>
+          ) : null}
+          {hasNonZeroDigit(figures.expired_inr) ? (
+            <p className="text-body text-ink-muted">
+              Credit expired {scope}:{" "}
+              <span className="font-semibold tabular-nums text-ink">{formatINR(figures.expired_inr)}</span>
             </p>
           ) : null}
         </div>

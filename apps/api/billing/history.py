@@ -130,6 +130,9 @@ class SpendSeries:
     number_rental_inr: Decimal
     spent_inr: Decimal
     by_agent: tuple[AgentSpend, ...]
+    #: Credit that lapsed unused in the window: off the balance, not spent, so in no day's
+    #: `spent_inr`.
+    expired_inr: Decimal = Decimal("0.00")
 
 
 def today_ist(now: datetime | None = None) -> date:
@@ -206,7 +209,8 @@ async def spend_series(
 
     raw_days: dict[date, tuple[Decimal, Decimal, Decimal, Decimal]] = {}
     raw_agents: list[tuple[UUID | None, str | None, Decimal]] = []
-    for per_agent, day, agent_id, agent_name, calls, ai, adjustments, rental in rows:
+    expired = _ZERO
+    for per_agent, day, agent_id, agent_name, calls, ai, adjustments, rental, lapsed in rows:
         if per_agent:
             if _dec(calls) > 0:
                 raw_agents.append(
@@ -218,6 +222,7 @@ async def spend_series(
                 )
         else:
             raw_days[day] = (_dec(calls), _dec(ai), _dec(adjustments), _dec(rental))
+            expired += _dec(lapsed)
 
     calendar = [start + timedelta(days=offset) for offset in range((end - start).days + 1)]
     zero = (_ZERO, _ZERO, _ZERO, _ZERO)
@@ -270,6 +275,7 @@ async def spend_series(
             AgentSpend(agent_id=agent[0], agent_name=agent[1], calls_inr=amount)
             for agent, amount in zip(raw_agents, agent_amounts, strict=True)
         ),
+        expired_inr=to_paise(expired),
     )
 
 
@@ -282,6 +288,8 @@ class StatementSummary:
     total_inr: Decimal
     credit_added_inr: Decimal
     wallet_spent_inr: Decimal
+    #: Credit that lapsed unused in the month ("Credit expired"); not in `wallet_spent_inr`.
+    credit_expired_inr: Decimal
     calls: int
     minutes_used: Decimal
 
@@ -346,14 +354,18 @@ async def statement_page(
         )
     ).all()
     totals = {
-        str(row[0]): (_dec(row[1]), _dec(row[2]) + _dec(row[3]) + _dec(row[4]) + _dec(row[5]))
+        str(row[0]): (
+            _dec(row[1]),
+            _dec(row[2]) + _dec(row[3]) + _dec(row[4]) + _dec(row[5]),
+            _dec(row[6]),
+        )
         for row in totals_rows
     }
 
     summaries: list[StatementSummary] = []
     for listed in months:
         invoice = await build_invoice(session, tenant_id=tenant_id, month=listed)
-        added, spent = totals.get(listed, (_ZERO, _ZERO))
+        added, spent, lapsed = totals.get(listed, (_ZERO, _ZERO, _ZERO))
         summaries.append(
             StatementSummary(
                 month=listed,
@@ -363,6 +375,7 @@ async def statement_page(
                 total_inr=invoice["total_inr"],
                 credit_added_inr=to_paise(added),
                 wallet_spent_inr=to_paise(spent),
+                credit_expired_inr=to_paise(lapsed),
                 calls=int(invoice["usage"]["calls"]),
                 minutes_used=invoice["usage"]["minutes_used"],
             )

@@ -76,6 +76,14 @@ export function StatementsView({ session, allowed }: { session: Session; allowed
       cell: (row) => <span className="tabular-nums text-ink-muted">{formatINRExact(row.wallet_spent_inr)}</span>,
     },
     {
+      // Lapsed credit left the balance but was not spent, so it is its own column.
+      id: "expired",
+      header: "Credit expired",
+      align: "right",
+      hideBelow: "md",
+      cell: (row) => <span className="tabular-nums text-ink-muted">{formatINRExact(row.credit_expired_inr)}</span>,
+    },
+    {
       id: "calls",
       header: "Calls",
       align: "right",

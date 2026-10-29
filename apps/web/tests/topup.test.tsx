@@ -107,6 +107,7 @@ function wallet(over: Partial<Wallet> = {}): Wallet {
       spent_inr: "2730.00",
       added_inr: "3930.00",
       refunded_inr: "0.00",
+      expired_inr: "0.00",
     },
     ...over,
   };

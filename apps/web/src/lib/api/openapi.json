@@ -19757,6 +19757,11 @@
             "title": "Calls Inr",
             "type": "string"
           },
+          "expired_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Expired Inr",
+            "type": "string"
+          },
           "number_rental_inr": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Number Rental Inr",
@@ -19783,7 +19788,8 @@
           "calls_inr",
           "ai_assist_inr",
           "number_rental_inr",
-          "adjustments_inr"
+          "adjustments_inr",
+          "expired_inr"
         ],
         "title": "CreditUsagePeriodOut",
         "type": "object"
@@ -21642,6 +21648,11 @@
             "title": "Calls Inr",
             "type": "string"
           },
+          "expired_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Expired Inr",
+            "type": "string"
+          },
           "number_rental_inr": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Number Rental Inr",
@@ -21665,7 +21676,8 @@
           "number_rental_inr",
           "spent_inr",
           "added_inr",
-          "refunded_inr"
+          "refunded_inr",
+          "expired_inr"
         ],
         "title": "DrawdownOut",
         "type": "object"
@@ -49676,6 +49688,10 @@
             "title": "Days",
             "type": "array"
           },
+          "expired_inr": {
+            "title": "Expired Inr",
+            "type": "string"
+          },
           "from_date": {
             "title": "From Date",
             "type": "string"
@@ -49709,7 +49725,8 @@
           "adjustments_inr",
           "number_rental_inr",
           "spent_inr",
-          "by_agent"
+          "by_agent",
+          "expired_inr"
         ],
         "title": "SpendSeriesOut",
         "type": "object"
@@ -50091,6 +50108,10 @@
             "title": "Credit Added Inr",
             "type": "string"
           },
+          "credit_expired_inr": {
+            "title": "Credit Expired Inr",
+            "type": "string"
+          },
           "document_type": {
             "title": "Document Type",
             "type": "string"
@@ -50124,6 +50145,7 @@
           "total_inr",
           "credit_added_inr",
           "wallet_spent_inr",
+          "credit_expired_inr",
           "calls",
           "minutes_used"
         ],

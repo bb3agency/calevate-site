@@ -190,6 +190,8 @@ class CreditUsagePeriodOut(Strict):
     ai_assist_inr: Decimal
     number_rental_inr: Decimal
     adjustments_inr: Decimal
+    #: Credit that lapsed unused ("Credit expired"); not part of `spent_inr`.
+    expired_inr: Decimal
 
 
 class CreditUsageOut(Strict):
@@ -220,7 +222,7 @@ async def _period(
             {"tid": tenant_id, "start": start, "end": end, "ai_kind": OVERAGE_META_KIND},
         )
     ).one()
-    added, calls, ai, adjustments, rental = (Decimal(str(v)) for v in row)
+    added, calls, ai, adjustments, rental, expired = (Decimal(str(v)) for v in row)
     # The parts are allocated against the rounded total, so the lines printed under
     # "spent" add up to it: call debits carry sub-paisa digits.
     spent = to_paise(calls + ai + adjustments + rental)
@@ -233,6 +235,7 @@ async def _period(
         ai_assist_inr=ai_p,
         number_rental_inr=rental_p,
         adjustments_inr=adjustments_p,
+        expired_inr=to_paise(expired),
     )
 
 
