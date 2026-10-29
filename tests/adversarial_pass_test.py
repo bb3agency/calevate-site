@@ -579,6 +579,56 @@ async def _seed_one_of_everything(tenant_id: uuid.UUID, user_id: uuid.UUID) -> d
             ),
             {"i": uuid.uuid4(), "t": tenant_id, "u": user_id, "turn": uuid.UUID(ids["turn_id"])},
         )
+        # D-940: a live Follow-up and one lead going through it. The run reuses the
+        # `{run_id}` the script-test row already holds (a different table, so the same uuid
+        # is free), and the rights-desk request (D-944) reuses `{request_id}` the same way, so
+        # each route sharing a parameter name is driven with a real row of its own kind.
+        follow_up_id, version_id = uuid.uuid4(), uuid.uuid4()
+        await s.execute(
+            text(
+                "INSERT INTO follow_ups (id, tenant_id, name, status, trigger, settings) VALUES "
+                "(:f, :t, 'Adversarial follow-up', 'draft', '{\"kind\": \"manual\"}'::jsonb, "
+                "'{}'::jsonb)"
+            ),
+            {"f": follow_up_id, "t": tenant_id},
+        )
+        await s.execute(
+            text(
+                "INSERT INTO follow_up_versions (id, tenant_id, follow_up_id, number, steps, "
+                "trigger, settings) VALUES (:v, :t, :f, 1, "
+                "'[{\"id\": \"s1\", \"kind\": \"end\", \"goal\": true}]'::jsonb, "
+                "'{\"kind\": \"manual\"}'::jsonb, '{}'::jsonb)"
+            ),
+            {"v": version_id, "t": tenant_id, "f": follow_up_id},
+        )
+        await s.execute(
+            text("UPDATE follow_ups SET status = 'live', live_version_id = :v WHERE id = :f"),
+            {"v": version_id, "f": follow_up_id},
+        )
+        await s.execute(
+            text(
+                "INSERT INTO follow_up_runs (id, tenant_id, follow_up_id, version_id, lead_id, "
+                "phone_e164, status, step_id, trigger_ref) VALUES (:r, :t, :f, :v, :l, "
+                "'+919000000001', 'waiting', 's1', 'manual:adversarial')"
+            ),
+            {
+                "r": uuid.UUID(ids["run_id"]),
+                "t": tenant_id,
+                "f": follow_up_id,
+                "v": version_id,
+                "l": uuid.UUID(ids["lead_id"]),
+            },
+        )
+        ids["follow_up_id"] = str(follow_up_id)
+        await s.execute(
+            text(
+                "INSERT INTO data_rights_requests (id, tenant_id, kind, channel, subject_ref, "
+                "received_at, due_at, status, created_at, updated_at) VALUES (:i, :t, 'access', "
+                "'phone', repeat('0', 32), now(), now() + interval '90 days', 'open', "
+                "now(), now())"
+            ),
+            {"i": uuid.UUID(ids["request_id"]), "t": tenant_id},
+        )
         ids["version"] = "1"
         # A test's key inside a run: the run id is what a neighbour must not reach.
         ids["key"] = "k1"
@@ -1006,6 +1056,51 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
         # The test's confirmation, bound to the CALLER's own account.
         {"X-Confirm-Action": "forwarding_test:{caller_slug}"},
     ),
+    # D-940: a neighbour's Follow-up read, edited, published, paused, started on leads, or
+    # one of its leads stopped. Every one loads the row under the caller's RLS first.
+    ("GET", "/v1/follow-ups/{follow_up_id}", {}, {}),
+    ("PATCH", "/v1/follow-ups/{follow_up_id}", {"name": "idor sweep"}, {}),
+    (
+        "PUT",
+        "/v1/follow-ups/{follow_up_id}/draft",
+        {
+            "trigger": {"kind": "manual"},
+            "steps": [{"id": "s1", "kind": "end", "goal": True}],
+            "settings": {},
+        },
+        {},
+    ),
+    (
+        "POST",
+        "/v1/follow-ups/{follow_up_id}/publish",
+        {"expected_updated_at": "2026-01-01T00:00:00+00:00"},
+        {},
+    ),
+    ("POST", "/v1/follow-ups/{follow_up_id}/pause", {}, {}),
+    ("POST", "/v1/follow-ups/{follow_up_id}/resume", {}, {}),
+    ("POST", "/v1/follow-ups/{follow_up_id}/turn-off", {}, {}),
+    (
+        "POST",
+        "/v1/follow-ups/{follow_up_id}/start",
+        {"lead_ids": ["0192f0aa-5555-7000-8000-000000000003"]},
+        {},
+    ),
+    ("GET", "/v1/follow-ups/{follow_up_id}/runs", {}, {}),
+    ("GET", "/v1/follow-ups/{follow_up_id}/runs/{run_id}", {}, {}),
+    ("POST", "/v1/follow-ups/{follow_up_id}/runs/{run_id}/stop", {}, {}),
+    ("GET", "/v1/follow-ups/{follow_up_id}/results", {}, {}),
+    # D-943: stretching a neighbour's form consent from seven days to three months.
+    ("PUT", "/v1/lead-sources/{webhook_id}/consent-basis", {"consent_basis": "application"}, {}),
+    # D-944: answering a neighbour's data-rights request would close their legal clock.
+    (
+        "POST",
+        "/v1/compliance/rights-requests/{request_id}/close",
+        {"status": "refused", "outcome": "explained"},
+        {},
+    ),
+    # D-945: a neighbour's script and campaign read through the promotional-wording check.
+    ("GET", "/v1/compliance/promo-check/agents/{agent_id}", {}, {}),
+    ("GET", "/v1/compliance/call-purpose/campaigns/{campaign_id}", {}, {}),
 )
 
 
