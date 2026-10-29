@@ -345,6 +345,10 @@ async def _write_tenant_root(
                     "action": policy["action"],
                 },
             )
+        # New leads are called from day one: the account's "Call new leads" (D-940).
+        from apps.api.follow_ups.runner import ensure_call_new_leads
+
+        await ensure_call_new_leads(session, tenant_id=tenant_id)
         if owner_user_id is not None:
             # `ON CONFLICT DO NOTHING` for the same reason `accept_invitation` has it:
             # one owner per (tenant, user) whatever the caller retries. The user must

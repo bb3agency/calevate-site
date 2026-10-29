@@ -221,6 +221,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.crm.swipe_routes import router as swipe_router
     from apps.api.first_run.routes import router as first_run_router
     from apps.api.flags.routes import router as feature_flags_router
+    from apps.api.follow_ups.routes import router as follow_ups_router
     from apps.api.forwarding.routes import admin_router as admin_forwarding_router
     from apps.api.forwarding.routes import router as forwarding_router
     from apps.api.go_live.routes import router as go_live_router
@@ -373,6 +374,8 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(call_handling_admin_router)
     # Tell my team (D-904): `/v1/team-alerts/...` and a four-segment agent path.
     application.include_router(team_alerts_router)
+    # Follow-ups (D-940): `/v1/follow-ups/...`, `/starters` declared before `/{id}`.
+    application.include_router(follow_ups_router)
     # How a Studio voice sounds (D-843): four- and five-segment agent paths, so mount order
     # is not load-bearing.
     application.include_router(voice_tuning_router)

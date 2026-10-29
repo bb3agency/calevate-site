@@ -1548,27 +1548,23 @@ LEAD_SOURCE_ROTATE: Final = ActionTool(
 
 
 class _CallingRulesArgs(BaseModel):
-    """Each field null keeps what the plan holds now."""
+    """Each field null keeps what the account holds now. The agent, wait and retries are
+    the "Call new leads" Follow-up's (D-940), not these rules'."""
 
     model_config = ConfigDict(extra="forbid")
 
-    calling_agent_id: UUID | Literal["each_source"] | None
-    wait_seconds: int | None = Field(ge=0, le=3600)
     hours_start: time | None
     hours_end: time | None
     days: list[Literal["mon", "tue", "wed", "thu", "fri", "sat", "sun"]] | None
     after_hours: Literal["next_open", "open_plus_3h", "next_day", "hold"] | None
-    retry_attempts: int | None = Field(ge=0, le=3)
-    retry_interval_minutes: int | None = Field(ge=10, le=1440)
     detect_machines: bool | None
 
 
 def _rules_line(plan: Any) -> str:
     days = ",".join(plan.days)
     return (
-        f"{plan.hours_start:%H:%M}-{plan.hours_end:%H:%M} on {days}; wait {plan.wait_seconds}s; "
-        f"after hours {plan.after_hours}; {plan.retry_attempts} retr(ies) every "
-        f"{plan.retry_interval_minutes} min; answering machines "
+        f"{plan.hours_start:%H:%M}-{plan.hours_end:%H:%M} on {days}; "
+        f"after hours {plan.after_hours}; answering machines "
         + ("detected" if plan.detect_machines else "not detected")
     )
 
@@ -1584,20 +1580,7 @@ async def _plan_calling_rules(
     parsed = parse_args(_CallingRulesArgs, args)
     current = await lead_policy.load_plan(session)
     changes: dict[str, Any] = {}
-    if parsed.calling_agent_id == "each_source":
-        changes["calling_agent_id"] = None
-    elif parsed.calling_agent_id is not None:
-        await _agent_name(session, parsed.calling_agent_id)
-        changes["calling_agent_id"] = parsed.calling_agent_id
-    for field in (
-        "wait_seconds",
-        "hours_start",
-        "hours_end",
-        "after_hours",
-        "retry_attempts",
-        "retry_interval_minutes",
-        "detect_machines",
-    ):
+    for field in ("hours_start", "hours_end", "after_hours", "detect_machines"):
         value = getattr(parsed, field)
         if value is not None:
             changes[field] = value
@@ -1608,24 +1591,18 @@ async def _plan_calling_rules(
     proposed = lead_policy.validated(replace(current, **changes))
     return Plan(
         object_id="",
-        title="Change how new leads are called",
-        summary=f"New leads: {_rules_line(proposed)}. Do-not-call and 9 AM-9 PM still apply.",
+        title="Change your calling hours",
+        summary=f"Calls: {_rules_line(proposed)}. Do-not-call and 9 AM-9 PM still apply.",
         current=_rules_line(current),
         proposed=_rules_line(proposed),
         cost=None,
         reversal="Change it again on the Lead sources screen.",
         args={
-            "calling_agent_id": None
-            if proposed.calling_agent_id is None
-            else str(proposed.calling_agent_id),
-            "wait_seconds": proposed.wait_seconds,
             "hours_start": proposed.hours_start.strftime("%H:%M"),
             "hours_end": proposed.hours_end.strftime("%H:%M"),
             "days": list(proposed.days),
             "holidays": [day.isoformat() for day in proposed.holidays],
             "after_hours": proposed.after_hours,
-            "retry_attempts": proposed.retry_attempts,
-            "retry_interval_minutes": proposed.retry_interval_minutes,
             "detect_machines": proposed.detect_machines,
         },
     )
@@ -1638,15 +1615,11 @@ async def _execute_calling_rules(
     from apps.api.ingest import lead_policy
 
     plan = lead_policy.LeadCallPlan(
-        calling_agent_id=_uuid_or_none(args["calling_agent_id"]),
-        wait_seconds=int(args["wait_seconds"]),
         hours_start=time.fromisoformat(str(args["hours_start"])),
         hours_end=time.fromisoformat(str(args["hours_end"])),
         days=tuple(str(day) for day in args["days"]),
         holidays=tuple(date.fromisoformat(str(day)) for day in args["holidays"]),
         after_hours=str(args["after_hours"]),
-        retry_attempts=int(args["retry_attempts"]),
-        retry_interval_minutes=int(args["retry_interval_minutes"]),
         detect_machines=bool(args["detect_machines"]),
     )
     stored, updating = await lead_policy.save_and_apply(
@@ -1660,7 +1633,6 @@ async def _execute_calling_rules(
         detail=detail,
         audit_summary={
             "after_hours": stored.after_hours,
-            "retry_attempts": stored.retry_attempts,
             "detect_machines": stored.detect_machines,
         },
     )
@@ -1678,14 +1650,9 @@ LEAD_CALLING_RULES: Final = ActionTool(
     where="on the Lead sources screen",
     schema=action_schema(
         "lead_calling_rules",
-        "Propose how new leads from lead sources are called. Null keeps a rule as it is."
-        + PROPOSES_ONLY,
+        "Propose the account's calling hours, days, after-hours handling and answering-"
+        "machine check. Null keeps a rule as it is." + PROPOSES_ONLY,
         {
-            "calling_agent_id": {
-                "anyOf": [{"type": "string"}, {"type": "null"}],
-                "description": "An agent id, or each_source for each source's own agent.",
-            },
-            "wait_seconds": _NULLABLE_INT,
             "hours_start": {
                 "anyOf": [{"type": "string"}, {"type": "null"}],
                 "description": "HH:MM IST",
@@ -1709,8 +1676,6 @@ LEAD_CALLING_RULES: Final = ActionTool(
                     {"type": "null"},
                 ]
             },
-            "retry_attempts": _NULLABLE_INT,
-            "retry_interval_minutes": _NULLABLE_INT,
             "detect_machines": {"anyOf": [{"type": "boolean"}, {"type": "null"}]},
         },
     ),

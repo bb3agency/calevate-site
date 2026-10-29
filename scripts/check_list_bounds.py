@@ -124,8 +124,41 @@ _TEAM_RULE = BoundedByConstruction(
     )
 )
 
+#: Follow-ups (D-940): one Follow-up's steps and the problems found in them.
+_FOLLOW_UP = BoundedByConstruction(
+    by=(
+        "ONE Follow-up: its steps at most `follow_ups/definition.MAX_STEPS` (thirty, the "
+        "request models' `max_length` and the shape check), its problems a few per step, and "
+        "a decide step's branches at most `definition.MAX_OUTCOMES`."
+    )
+)
+_FOLLOW_UP_RUN = BoundedByConstruction(
+    by=(
+        "ONE run's events: a few per step and per call try, so at most "
+        "`definition.MAX_STEPS` steps times `definition.CALL_RETRIES_MAX` + 1 tries, and a "
+        "run ends at `settings.max_days`."
+    )
+)
+
 #: Every list-shaped route that legitimately has no `limit`, keyed `"METHOD /path"`.
 BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
+    "POST /v1/follow-ups": _FOLLOW_UP,
+    "GET /v1/follow-ups/{follow_up_id}": _FOLLOW_UP,
+    "PATCH /v1/follow-ups/{follow_up_id}": _FOLLOW_UP,
+    "PUT /v1/follow-ups/{follow_up_id}/draft": _FOLLOW_UP,
+    "POST /v1/follow-ups/{follow_up_id}/publish": _FOLLOW_UP,
+    "POST /v1/follow-ups/{follow_up_id}/pause": _FOLLOW_UP,
+    "POST /v1/follow-ups/{follow_up_id}/resume": _FOLLOW_UP,
+    "POST /v1/follow-ups/{follow_up_id}/turn-off": _FOLLOW_UP,
+    "GET /v1/follow-ups/{follow_up_id}/results": _FOLLOW_UP,
+    "GET /v1/follow-ups/{follow_up_id}/runs/{run_id}": _FOLLOW_UP_RUN,
+    "POST /v1/follow-ups/{follow_up_id}/runs/{run_id}/stop": _FOLLOW_UP_RUN,
+    "GET /v1/follow-ups/starters": BoundedByConstruction(
+        by=(
+            "the ready-made Follow-ups, one per `follow_ups/models.STARTER_KEYS` entry (six), "
+            "each with at most `definition.MAX_STEPS` steps."
+        )
+    ),
     "GET /v1/team-alerts/contacts": _TEAM_CONTACTS,
     "POST /v1/team-alerts/contacts": _TEAM_CONTACTS,
     "POST /v1/team-alerts/contacts/{contact_id}/code": _TEAM_CONTACTS,

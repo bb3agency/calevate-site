@@ -2332,6 +2332,37 @@ async def _erase_scheduled_callbacks(session: AsyncSession, *, phone: str | None
     return int(rowcount_of(result) or 0)
 
 
+_FOLLOW_UP_RUN_ERASE_SQL = """
+UPDATE follow_up_runs
+SET phone_e164 = :anon || right(replace(id::text, '-', ''), 12),
+    status = CASE WHEN status IN ('running', 'waiting') THEN 'stopped' ELSE status END,
+    end_reason = CASE WHEN status IN ('running', 'waiting') THEN 'lead_erased' ELSE end_reason END,
+    ended_at = coalesce(ended_at, now()),
+    wake_at = NULL,
+    waiting_call_id = NULL,
+    updated_at = now()
+WHERE {predicate}
+  AND left(phone_e164, length(:anon)) <> :anon
+"""
+
+
+async def _erase_follow_up_runs(session: AsyncSession, *, phone: str | None = None) -> int:
+    """Stop and forget this subject's Follow-up runs, or every one in the tenant (D-940).
+
+    `_erase_scheduled_callbacks`' shape and reason: keyed on the number, one statement for
+    both erasures, the anonymized prefix as the already-done guard and the id's random tail
+    as the per-row suffix. A run's events hold ids and short codes only, so they stay.
+    """
+    predicate = "TRUE" if phone is None else "phone_e164 = :phone"
+    params: dict[str, Any] = {"anon": ANONYMIZED_PHONE[:9]}
+    if phone is not None:
+        params["phone"] = phone
+    result = await session.execute(
+        text(_FOLLOW_UP_RUN_ERASE_SQL.format(predicate=predicate)), params
+    )
+    return int(rowcount_of(result) or 0)
+
+
 # THE KNOWLEDGE-BASE SEARCH — what an erasure can honestly do about a client's own
 # uploaded content, and what it must not do (D-179, LEGAL-SURFACE F-3).
 #
@@ -2939,6 +2970,9 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
         # instant onward, which is the row that would ring this person AFTER the certificate
         # was issued.
         callbacks_erased = await _erase_scheduled_callbacks(session, phone=phone)
+        # Their Follow-up runs (D-940): the run's own copy of the number, and any run still
+        # going, which would otherwise call or message them after the certificate.
+        await _erase_follow_up_runs(session, phone=phone)
 
         # The "save our number" claim for this caller (D-746): keyed on a keyed hash of the
         # number, so the hash is derived here and the row deleted. A later booking would
@@ -3683,6 +3717,11 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         counts["campaign_contacts_erased"] = await _erase_campaign_contacts(session)
         # Its twin, one table along (D-514). Unpaged for the same reason as the line above.
         counts["scheduled_callbacks"] = await _erase_scheduled_callbacks(session)
+        # Follow-up runs (D-940): stopped, and their copy of each number anonymized.
+        await _erase_follow_up_runs(session)
+        await session.execute(
+            text("UPDATE follow_ups SET status = 'off', updated_at = now() WHERE status <> 'off'")
+        )
         # THE QUEUED AND DEAD-LETTERED JOBS (P6.7), which no arm above can see: the table
         # has no `tenant_id` and no RLS policy, so it is reached by the tenant id inside
         # the payload. Unconditional over this account for `copilot_memories`' reason —

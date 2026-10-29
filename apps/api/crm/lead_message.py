@@ -41,8 +41,12 @@ async def send_lead_whatsapp(
     idempotency_key: str,
     ip: str | None = None,
     audit_extra: dict[str, Any] | None = None,
+    actor: str | None = None,
 ) -> swipe.WhatsAppSendOut:
-    """Gate, consent, then one template message. `blocked` and `failed` are answers."""
+    """Gate, consent, then one template message. `blocked` and `failed` are answers.
+
+    `actor` names who sent it on the lead's timeline when that is not a person (a
+    Follow-up's step, D-940); left out, it is the principal."""
     assert principal.tenant_id is not None
     tenant_id = principal.tenant_id
     async with tenant_session(tenant_id) as claim_session:
@@ -72,7 +76,7 @@ async def send_lead_whatsapp(
             lead_id=lead_id,
             template=template,
             out=out,
-            actor=str(principal.user_id),
+            actor=actor or str(principal.user_id),
         )
         await complete_idempotency(
             record_session,

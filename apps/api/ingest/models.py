@@ -56,6 +56,9 @@ class LeadCallPolicy(PKMixin, TimestampMixin, Base):
     tenant_id: Mapped[UUID] = mapped_column(
         ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
     )
+    #: `calling_agent_id`, `wait_seconds`, `retry_attempts` and `retry_interval_minutes` are
+    #: no longer written (D-940): the agent, wait and retries are the "Call new leads"
+    #: Follow-up's call step. Dropped in a later release (hard rule 8).
     calling_agent_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("agents.id", ondelete="SET NULL")
     )

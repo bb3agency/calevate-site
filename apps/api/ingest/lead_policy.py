@@ -22,6 +22,7 @@ no DST); instants in and out are UTC.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Any, Final, Literal
@@ -41,9 +42,11 @@ log = get_logger(__name__)
 
 AfterHours = Literal["next_open", "open_plus_3h", "next_day", "hold"]
 
-#: `scheduled_callbacks.source_execution_id` prefixes of a NEW LEAD's call. The first is
-#: `ingest.service.INGEST_CALLBACK_PREFIX` (re-exported there); the other two are this
-#: module's: a lead the client released from hold, and a retry after no answer.
+#: `scheduled_callbacks.source_execution_id` prefixes of a NEW LEAD's call booked before
+#: D-940: a deferred first call, a lead the client released from hold, and a retry after no
+#: answer. Nothing books them now (a new lead's calls carry its Follow-up run's key,
+#: `follow_ups.runner.callback_key`); they are read so call-backs already on the books
+#: when D-940 shipped still retry as they were promised.
 LEAD_INGEST_PREFIX: Final = "lead-ingest:"
 LEAD_RELEASE_PREFIX: Final = "lead-release:"
 LEAD_RETRY_PREFIX: Final = "lead-retry:"
@@ -236,63 +239,36 @@ def validated(plan: LeadCallPlan) -> LeadCallPlan:
     return replace(plan, days=days, holidays=tuple(sorted(set(plan.holidays))))
 
 
-async def _refuse_unusable_agent(session: AsyncSession, agent_id: UUID) -> None:
-    row = (
-        await session.execute(
-            text(
-                "SELECT direction FROM agents WHERE id = :aid AND deleted_at IS NULL "
-                "AND archived_at IS NULL"
-            ),
-            {"aid": agent_id},
-        )
-    ).first()
-    if row is None:
-        raise _refuse("lead_agent_unknown", "That agent was not found.", "calling_agent_id")
-    if str(row[0]) not in ("outbound", "both"):
-        raise _refuse(
-            "lead_agent_cannot_call",
-            "That agent only answers calls. Choose an agent that places calls.",
-            "calling_agent_id",
-        )
-
-
 async def save_plan(
     session: AsyncSession, *, tenant_id: UUID, plan: LeadCallPlan, user_id: UUID | None
 ) -> tuple[LeadCallPlan, bool]:
-    """Store the plan. Returns it as stored and whether the machine switch changed."""
+    """Store the account's calling hours. Returns them as stored and whether the machine
+    switch changed.
+
+    The agent, wait and retries are not written (D-940): they belong to the "Call new
+    leads" Follow-up's call step, and their columns are dropped in a later release."""
     clean = validated(plan)
-    if clean.calling_agent_id is not None:
-        await _refuse_unusable_agent(session, clean.calling_agent_id)
     before = await machine_detection_on(session)
     row = (
         await session.execute(
             text(
-                "INSERT INTO lead_call_policies (id, tenant_id, calling_agent_id, wait_seconds, "
-                "hours_start, hours_end, days, holidays, after_hours, retry_attempts, "
-                "retry_interval_minutes, detect_machines, updated_by) VALUES (:id, :tid, :agent, "
-                ":wait, :start, :end, :days, :holidays, :after, :retries, :interval, :machines, "
-                ":by) ON CONFLICT (tenant_id) DO UPDATE SET "
-                "calling_agent_id = EXCLUDED.calling_agent_id, "
-                "wait_seconds = EXCLUDED.wait_seconds, hours_start = EXCLUDED.hours_start, "
+                "INSERT INTO lead_call_policies (id, tenant_id, hours_start, hours_end, days, "
+                "holidays, after_hours, detect_machines, updated_by) VALUES (:id, :tid, :start, "
+                ":end, :days, :holidays, :after, :machines, :by) ON CONFLICT (tenant_id) DO "
+                "UPDATE SET hours_start = EXCLUDED.hours_start, "
                 "hours_end = EXCLUDED.hours_end, days = EXCLUDED.days, "
                 "holidays = EXCLUDED.holidays, after_hours = EXCLUDED.after_hours, "
-                "retry_attempts = EXCLUDED.retry_attempts, "
-                "retry_interval_minutes = EXCLUDED.retry_interval_minutes, "
                 "detect_machines = EXCLUDED.detect_machines, updated_by = EXCLUDED.updated_by, "
                 f"updated_at = now() RETURNING {_COLUMNS}"
             ),
             {
                 "id": uuid7(),
                 "tid": tenant_id,
-                "agent": clean.calling_agent_id,
-                "wait": clean.wait_seconds,
                 "start": clean.hours_start,
                 "end": clean.hours_end,
                 "days": list(clean.days),
                 "holidays": list(clean.holidays),
                 "after": clean.after_hours,
-                "retries": clean.retry_attempts,
-                "interval": clean.retry_interval_minutes,
                 "machines": clean.detect_machines,
                 "by": user_id,
             },
@@ -465,17 +441,26 @@ async def release_held(
     ).first()
     if row is None:
         raise await _hold_not_found(session, hold_id=hold_id, user_id=user_id)
+    from apps.api.follow_ups import runner
+
     plan = await load_plan(session)
     # The client asked for it now: the plan's own hours still apply, and the platform
     # window is the gate's when the tick dials.
     due = align(plan, moment) or moment
+    # The lead's "Call new leads" run waits at its first call for this release (D-940); a
+    # hold made before Follow-ups existed keeps its own key.
+    run = await runner.held_run(session, lead_id=UUID(str(row[0])))
     booked = await book_callback(
         session,
         callback_id=uuid7(),
         tenant_id=tenant_id,
         agent_id=UUID(str(row[1])),
         source_call_id=None,
-        source_execution_id=f"{LEAD_RELEASE_PREFIX}{hold_id}",
+        source_execution_id=(
+            runner.callback_key(run.id, run.step_id, 0)
+            if run is not None
+            else f"{LEAD_RELEASE_PREFIX}{hold_id}"
+        ),
         lead_id=UUID(str(row[0])),
         phone_e164=str(row[3]),
         requested_at=due,
@@ -496,17 +481,25 @@ async def release_held(
 
 
 async def drop_held(session: AsyncSession, *, hold_id: UUID, user_id: UUID | None) -> None:
-    """The client will not call this lead: it leaves the queue; the lead itself stays."""
-    result = await session.execute(
-        text(
-            "UPDATE lead_call_holds SET status = 'dropped', settled_at = now(), "
-            "settled_by = :by, updated_at = now() WHERE id = :hid AND status = 'held' "
-            "RETURNING id"
-        ),
-        {"by": user_id, "hid": hold_id},
-    )
-    if result.first() is None:
+    """The client will not call this lead: it leaves the queue (and its Follow-up run
+    ends); the lead itself stays."""
+    from apps.api.follow_ups import runner
+
+    dropped = (
+        await session.execute(
+            text(
+                "UPDATE lead_call_holds SET status = 'dropped', settled_at = now(), "
+                "settled_by = :by, updated_at = now() WHERE id = :hid AND status = 'held' "
+                "RETURNING lead_id"
+            ),
+            {"by": user_id, "hid": hold_id},
+        )
+    ).first()
+    if dropped is None:
         raise await _hold_not_found(session, hold_id=hold_id, user_id=user_id)
+    run = await runner.held_run(session, lead_id=UUID(str(dropped[0])))
+    if run is not None:
+        await runner.end_run(session, run.id, reason="stopped_by_client")
 
 
 # --- retries --------------------------------------------------------------------------
@@ -542,11 +535,16 @@ async def book_retry(
     attempt: int,
     root: str,
     now: datetime | None = None,
+    key: Callable[[int], str] | None = None,
 ) -> datetime | None:
     """After a new lead's call `attempt` was placed, book the next try in case nobody
     answers. Booked in advance and checked when it falls due (`retry_still_wanted`): the
     call's outcome is not known yet, and booking now means a retry cannot be forgotten.
-    Returns when, or None when the plan wants no more tries."""
+    Returns when, or None when the plan wants no more tries.
+
+    `key` names the call-back of attempt n; a Follow-up's call step passes its own
+    (`follow_ups.runner.callback_key`), and a call-back booked before D-940 keeps
+    `retry_key`."""
     if lead_id is None or attempt >= plan.retry_attempts:
         return None
     moment = now or datetime.now(UTC)
@@ -559,7 +557,7 @@ async def book_retry(
         tenant_id=tenant_id,
         agent_id=agent_id,
         source_call_id=None,
-        source_execution_id=retry_key(attempt + 1, root),
+        source_execution_id=(key or (lambda n: retry_key(n, root)))(attempt + 1),
         lead_id=lead_id,
         phone_e164=phone_e164,
         requested_at=due,

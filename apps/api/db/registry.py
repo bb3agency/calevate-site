@@ -24,6 +24,7 @@ from apps.api.crm import models as crm_models
 from apps.api.db.base import Base
 from apps.api.first_run import models as first_run_models
 from apps.api.flags import models as flags_models
+from apps.api.follow_ups import models as follow_ups_models
 from apps.api.forwarding import models as forwarding_models
 from apps.api.go_live import models as go_live_models
 from apps.api.healer import models as healer_models
@@ -64,6 +65,7 @@ __all__ = [
     "crm_models",
     "first_run_models",
     "flags_models",
+    "follow_ups_models",
     "forwarding_models",
     "go_live_models",
     "healer_models",
@@ -133,6 +135,12 @@ TENANT_TABLES = [
     "team_alert_contacts",
     "team_alert_rules",
     "team_alerts",
+    # Follow-ups (D-940, migration f4b8d2a6c913): the journeys, their frozen versions, one
+    # lead going through one version, and what happened at each step.
+    "follow_ups",
+    "follow_up_versions",
+    "follow_up_runs",
+    "follow_up_run_events",
     # Example-line steps the platform changed for an owner, so the change undoes exactly
     # (migration `d7c2e9a4f6b1`).
     "script_line_changes",
@@ -1294,4 +1302,10 @@ APPEND_ONLY_TABLES = [
     # when a reviewed set was published. A change is a new revision, never an edit.
     "spoken_style_revisions",
     "spoken_style_publications",
+    # A Follow-up's published steps (D-940): a run finishes on the version it started on,
+    # which holds only if a version cannot change under it. A change is a new version.
+    "follow_up_versions",
+    # What happened at each step of a run (D-940): ids and short codes, the record a client
+    # reads on the Runs tab and the key that makes a worker retry a no-op.
+    "follow_up_run_events",
 ]

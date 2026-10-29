@@ -754,6 +754,30 @@ async def queue_after_call(
     return "queued" if queued else "already_queued"
 
 
+async def queue_for_follow_up(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    agent_id: UUID,
+    call_id: UUID,
+    contact_id: UUID,
+    why: str,
+    follow_up_id: UUID,
+) -> bool:
+    """A Follow-up's "tell the team" step (D-940), about the call its run last placed.
+    Once per call and address, like every alert: a team already told about this call by
+    the agent's own rule is not told again."""
+    return await _queue(
+        session,
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        call_id=call_id,
+        contact_id=contact_id,
+        trigger="follow_up",
+        reasons=[{"kind": "follow_up", "why": why, "follow_up_id": str(follow_up_id)}],
+    )
+
+
 def clean_problem(raw: object) -> str:
     """The agent's note of the problem, as any action input reaching a person is: redacted,
     on one line, clipped."""
@@ -814,6 +838,7 @@ __all__ = [
     "list_contacts",
     "load_rule",
     "queue_after_call",
+    "queue_for_follow_up",
     "queue_in_call",
     "read_rule",
     "refuse_verify",

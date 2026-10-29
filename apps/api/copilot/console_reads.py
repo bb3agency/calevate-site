@@ -676,16 +676,11 @@ async def _integrations_status(
     )
     plan = await lead_policy.load_plan(session)
     lines.append(
-        f"New leads are called {plan.hours_start:%H:%M}-{plan.hours_end:%H:%M} IST on "
-        f"{','.join(plan.days)}, after a {plan.wait_seconds}s wait; after hours: "
-        f"{plan.after_hours}; {plan.retry_attempts} retr(ies) every "
-        f"{plan.retry_interval_minutes} min; answering machines "
+        f"Calling hours {plan.hours_start:%H:%M}-{plan.hours_end:%H:%M} IST on "
+        f"{','.join(plan.days)}; after hours: {plan.after_hours}; answering machines "
         + ("detected" if plan.detect_machines else "not detected")
-        + (
-            f"; one agent calls them all [agent_id {plan.calling_agent_id}]."
-            if plan.calling_agent_id
-            else "; each source's own agent calls."
-        )
+        + ". Which agent calls new leads, the wait and the retries are the "
+        "'Call new leads' Follow-up's."
     )
     held = await lead_policy.list_held(session, limit=10)
     if held:
