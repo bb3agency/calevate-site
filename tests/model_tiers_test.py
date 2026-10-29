@@ -104,6 +104,24 @@ async def test_a_flex_refusal_or_timeout_falls_back_to_standard(
     assert outcome.service_tier == "standard" and outcome.content == "ok"
 
 
+async def test_a_flex_ask_the_response_says_standard_served_is_recorded_as_standard() -> None:
+    """FAILS IF: the ledger labels an answer Flex because we asked for it, when Google says
+    it served standard (it did exactly that for `priority` on our key, 21 Oct 2026)."""
+
+    def _served_standard(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={**ANSWER, "service_tier": "default"})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(_served_standard)) as client:
+        outcome = await chat.complete(
+            GOOGLE,
+            [{"role": "user", "content": "x"}],
+            timeout_s=30,
+            client=client,
+            flex=chat.FlexRequest(wait_s=45),
+        )
+    assert outcome.service_tier == "standard"
+
+
 async def test_only_the_standard_attempts_failure_is_raised() -> None:
     provider = _Provider(503, 500)
     with pytest.raises(httpx.HTTPStatusError) as failed:

@@ -681,6 +681,24 @@ def _failure_fields(failure: httpx.HTTPError) -> dict[str, object]:
     return {"error": type(failure).__name__}
 
 
+#: The tier a response says served it, in OpenAI's vocabulary (`default` is standard).
+_REPORTED_TIER: Final[dict[str, ServiceTier]] = {
+    "flex": "flex",
+    "standard": "standard",
+    "default": "standard",
+}
+
+
+def _served_tier(body: Mapping[str, Any], asked: ServiceTier) -> ServiceTier:
+    """The tier the response reports, else the one asked for.
+
+    A Flex ask is only believed when nothing contradicts it: on 21 Oct 2026 our key's
+    `service_tier: "priority"` requests came back reporting `standard` in native
+    `usageMetadata.serviceTier`, so Google can serve a tier other than the one asked."""
+    reported = body.get("service_tier")
+    return _REPORTED_TIER.get(reported, asked) if isinstance(reported, str) else asked
+
+
 def _outcome_of(body: object, tier: ServiceTier) -> ChatOutcome:
     if not isinstance(body, dict):  # pragma: no cover - a provider that is not this API
         return ChatOutcome(content="", service_tier=tier)
@@ -691,7 +709,7 @@ def _outcome_of(body: object, tier: ServiceTier) -> ChatOutcome:
         tool_calls=_tool_calls_of(message),
         finish_reason=finish_reason if isinstance(finish_reason, str) else None,
         usage=usage_from_body(body),
-        service_tier=tier,
+        service_tier=_served_tier(body, tier),
     )
 
 
