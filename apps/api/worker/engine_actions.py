@@ -58,6 +58,7 @@ and outcome words in logs; never the number, never the caller's words.
 
 from __future__ import annotations
 
+import asyncio
 import hmac
 import json
 import secrets
@@ -306,13 +307,37 @@ def named_call_id(header: str | None, body_call_id: str | None) -> str | None:
     return header_id
 
 
+#: How long the read of the live call may take. The platform gives an action ten seconds
+#: ("Answer within 10 seconds", thinnest-findings/mirror/snapshots/2026-10-28/pages/mcp/
+#: own-database.md:48) and this read comes BEFORE the work: a client action then has
+#: `actions/in_call.IN_CALL_BUDGET_S` (7 s) and a repeat waits `in_call_once.WAIT_S` (6 s).
+#: The vendor client's own bound is `REQUEST_TIMEOUT_S` (10 s) plus a 429 retry ladder, so
+#: without this a slow vendor alone spends the whole ten seconds and the caller hears the
+#: platform's failure instead of our honest `unavailable`.
+LIVE_CALL_BUDGET_S: Final = 2.0
+
+
+def _live_call_slow() -> ProblemError:
+    return ProblemError(
+        kind="dependency",
+        code="engine_live_call_slow",
+        title="The voice platform did not say which call this is in time",
+        detail="Nothing was done.",
+    )
+
+
 async def resolve_live_call(
     client: ThinnestActions, engine_agent_ref: str, call_id: str | None
 ) -> LiveCall | None:
-    """The call `call_id` names, when it is live on THIS vendor agent; else None."""
+    """The call `call_id` names, when it is live on THIS vendor agent; else None. Raises
+    `ProblemError` when the platform cannot say inside `LIVE_CALL_BUDGET_S`."""
     if call_id is None:
         return None
-    call = await client.call(engine_agent_ref, call_id)
+    try:
+        async with asyncio.timeout(LIVE_CALL_BUDGET_S):
+            call = await client.call(engine_agent_ref, call_id)
+    except TimeoutError:
+        raise _live_call_slow() from None
     if call is None or call.agent_ref != engine_agent_ref or not call.live:
         return None
     return call
@@ -657,6 +682,7 @@ async def verify_agent_secret(
 
 
 __all__ = [
+    "LIVE_CALL_BUDGET_S",
     "NOT_MATCHED_SAY",
     "NO_CALL_SAY",
     "TEST_CHAT_ANSWERS",

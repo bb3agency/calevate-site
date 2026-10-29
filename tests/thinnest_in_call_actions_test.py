@@ -15,7 +15,9 @@ SHARED DATABASE DISCIPLINE: every row is minted here and every assertion is scop
 
 from __future__ import annotations
 
+import asyncio
 import json
+import time
 import uuid
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
@@ -47,6 +49,7 @@ from apps.api.reliability.engine_actions import (
     open_action_secret,
     retire_agent_actions,
 )
+from apps.api.worker import engine_actions as action_route
 from apps.api.worker.engine_actions import (
     NOT_MATCHED_SAY,
     TEST_CHAT_ANSWERS,
@@ -737,6 +740,38 @@ async def test_a_vendor_outage_is_an_honest_unavailable(vendor: FakeThinnest) ->
     answer = await _post("opt-out", ref, secret, {}, call_id=f"in_{uuid.uuid4()}")
     assert answer.status_code == 200
     assert answer.json() == {"status": "unavailable", "say": UNAVAILABLE_SAY}
+
+
+async def test_a_slow_live_call_read_answers_unavailable_inside_the_platforms_wait(
+    vendor: FakeThinnest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The platform gives an action ten seconds; a vendor read that hangs must not spend
+    them all. The agent is told plainly nothing was done, and nothing is written."""
+    tenant_id, agent_id, ref, secret = await _published(vendor)
+    call_id, row = _live(ref, phone="919876511199")
+    vendor.live.append(row)
+
+    async def slow(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith(f"/calls/{call_id}"):
+            await asyncio.sleep(5)
+        return vendor.handler(request)
+
+    set_thinnest_actions(
+        ThinnestActions(
+            api_key="ta_live_test",
+            client=httpx.AsyncClient(
+                transport=httpx.MockTransport(slow),
+                base_url="https://app.thinnest.ai/api/v1",
+                headers={"Authorization": "Bearer ta_live_test"},
+            ),
+        )
+    )
+    monkeypatch.setattr(action_route, "LIVE_CALL_BUDGET_S", 0.2)
+    started = time.perf_counter()
+    answer = await _post("opt-out", ref, secret, {}, call_id=call_id)
+    assert time.perf_counter() - started < 2
+    assert answer.json() == {"status": "unavailable", "say": UNAVAILABLE_SAY}
+    assert await _writes(tenant_id, agent_id) == (0, 0, 0, 0)
 
 
 # --- the endpoint: the tools ---------------------------------------------------------
