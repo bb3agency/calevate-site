@@ -322,9 +322,12 @@ class ResultCounts:
     booked_results: int
 
 
+#: The owner ringing their own agent (D-697, D-859) is neither an answered call nor a
+#: booking, as on every other result count (`crm/performance`, the daily summary).
+_NOT_TEST_CALL: Final = "NOT (c.trial_call OR c.paid_test_call)"
 _ANSWERED_SQL: Final = text(
-    "SELECT count(*) FROM calls WHERE started_at >= :start AND started_at < :end "
-    f"AND {CONNECTED_SQL}"
+    "SELECT count(*) FROM calls c WHERE c.started_at >= :start AND c.started_at < :end "
+    f"AND {CONNECTED_SQL} AND {_NOT_TEST_CALL}"
 )
 _LEADS_SQL: Final = text(
     "SELECT count(*) FROM leads WHERE deleted_at IS NULL "
@@ -335,6 +338,7 @@ _OUTCOMES_SQL: Final = text(
     "SELECT a.business_outcomes, c.business_outcome, count(*) FROM calls c "
     "JOIN agents a ON a.id = c.agent_id "
     "WHERE c.started_at >= :start AND c.started_at < :end AND c.business_outcome IS NOT NULL "
+    f"AND {_NOT_TEST_CALL} "
     "GROUP BY a.id, a.business_outcomes, c.business_outcome"
 )
 
