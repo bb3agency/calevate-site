@@ -1131,9 +1131,13 @@ ranges so the raw IP serves nothing; MX/TXT/DKIM independent of proxy status.
      refuses an unverified sender domain, and a public webmail domain can never be
      verified), so this is the header that gets a client's reply to a mailbox somebody
      reads. Change it and `apps/web/src/lib/legal/placeholders.ts` together — D-518.
-   - `NOTIFICATIONS_FROM` — defaults to `support@calevate.tech`. It is also the alert
-     sender, deliberately: one address, because a client who allowlists one and not the
-     other has half a channel.
+   - `NOTIFICATIONS_FROM` — defaults to `support@calevate.tech`, and is the sender of
+     every email whose purpose has no sender of its own.
+   - `SENDER_SECURITY`, `SENDER_BILLING`, `SENDER_ALERTS`, `SENDER_OPERATOR` (D-933) — the
+     From address for sign-in and security mail, billing mail, lead and team alerts, and
+     operator alarms. Unset (the default) sends from `NOTIFICATIONS_FROM`, so nothing
+     changes until one is set; set them from the ops console on rename day
+     (`docs/EMAILS.md` §2). Any address on the verified domain works with no extra DNS.
 
    The external step is **domain verification**, and it is the one thing no setting can
    stand in for: Resend refuses a send from an unverified domain outright (403), so the
