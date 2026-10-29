@@ -3586,6 +3586,20 @@ _HAS_CARRIER_DOCUMENT_SQL: Final = "SELECT 1 FROM carrier_compliance_application
 _HAS_KYC_DOCUMENT_SQL: Final = "SELECT 1 FROM kyc_documents LIMIT 1"
 
 
+#: Closes every §12 request still open when the account is erased, and clears any number a
+#: completed row still holds. `subject_hash` is copied from `subject_ref` into the proof so
+#: the per-subject certificate lines up with the subject-access export, as on a request the
+#: worker completed itself.
+_CLOSE_OPEN_DELETION_REQUESTS_SQL = (
+    "UPDATE deletion_requests SET "
+    "proof = CASE WHEN completed_at IS NULL "
+    "THEN jsonb_set(CAST(:proof AS jsonb), '{subject_hash}', to_jsonb(subject_ref)) "
+    "ELSE proof END, "
+    "completed_at = COALESCE(completed_at, now()), phone_e164 = NULL "
+    "WHERE completed_at IS NULL OR phone_e164 IS NOT NULL"
+)
+
+
 async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     """Erase every caller record this tenant holds, then mark the organisation deleted.
 
@@ -3812,14 +3826,35 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
                 counts["uploaded_files_destroyed"] += len(kyc_files)
         # A §12 REQUEST STILL QUEUED WHEN THE ACCOUNT CLOSES. `assert_erasable` refuses an
         # account that is not already `churned`, which is a PRECONDITION and not a proof
-        # that no request is open — so that row's `phone_e164` outlived the account whose
-        # closure was supposed to erase it. Blanked rather than deleted: the request itself
-        # is the record that somebody asked, and destroying it would erase the evidence of
-        # the obligation along with the subject of it.
+        # that no request is open. This erasure covers every subject the account holds, so
+        # it CLOSES those requests, clearing the number in the same write as
+        # `execute_deletion_request` does; the row stays as the record that somebody asked.
+        # Closed rather than blanked: a blanked request that stays open collides with a
+        # second one on `uq_deletion_requests_open_subject` as (tenant, '') and rolls this
+        # erasure back, and a lone one never closes, so `erasure_requests_overdue` pages
+        # for it indefinitely.
         pending = await session.execute(
-            text("UPDATE deletion_requests SET phone_e164 = '' WHERE phone_e164 <> ''")
+            text(_CLOSE_OPEN_DELETION_REQUESTS_SQL),
+            {
+                "proof": json.dumps(
+                    {
+                        "executed_at": datetime.now(UTC).isoformat(),
+                        "tenant_erasure_id": str(request_id),
+                        "scope": {},
+                        "actions": {
+                            "account": (
+                                "erased with the whole account; the account's erasure "
+                                "certificate records what was done"
+                            )
+                        },
+                    }
+                )
+            },
         )
         counts["deletion_requests_scrubbed"] = int(rowcount_of(pending) or 0)
+        # The client's escalation roster (D-695): staff names and mobiles, whose numbers end
+        # with the engagement. `agent_handoff_members` cascades from it.
+        await session.execute(text("DELETE FROM business_contacts"))
         # EVERY CALLER'S VECTORS AND EVERY REMEMBERED FACT (D-503). UNCONDITIONAL, for
         # `copilot_memories`' reason one line up: when the subject is "all of them" there is
         # nothing to match on, and a predicate would leave behind exactly the rows whose

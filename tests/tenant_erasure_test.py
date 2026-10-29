@@ -982,3 +982,52 @@ def test_the_certificate_names_the_files_the_client_uploaded() -> None:
         strict=True,
     ):
         assert exception.keyword.lower() in sentence.lower(), exception.what
+
+
+@pytest.mark.anyio
+async def test_open_subject_requests_close_with_the_account_and_the_roster_goes() -> None:
+    """Two §12 requests still open when the account is erased.
+
+    Blanking their numbers while leaving them open made both (tenant, '') under
+    `uq_deletion_requests_open_subject`, so the whole erasure rolled back; a lone one never
+    closed and kept `erasure_requests_overdue` paging. They close with the account, and the
+    client's escalation roster (staff mobiles) goes with it.
+    """
+    tenant_id, _, _ = await _tenant()
+    await _churn(tenant_id)
+    async with tenant_session(tenant_id) as session:
+        for number in (_phone(), _phone()):
+            await session.execute(
+                text(
+                    "INSERT INTO deletion_requests (id, tenant_id, phone_e164, scope, "
+                    "requested_at, created_at) VALUES (:id, :tid, :phone, 'all', now(), now())"
+                ),
+                {"id": uuid.uuid4(), "tid": tenant_id, "phone": number},
+            )
+        await session.execute(
+            text(
+                "INSERT INTO business_contacts (id, tenant_id, position, label, phone_e164) "
+                "VALUES (:id, :tid, 0, 'Front desk', :phone)"
+            ),
+            {"id": uuid.uuid4(), "tid": tenant_id, "phone": _phone()},
+        )
+    token = await _admin()
+    filed = await _post(token, tenant_id, confirm=_confirm(tenant_id))
+    assert "tenant erased" in await _run_worker(tenant_id, filed.json()["request_id"])
+
+    async with tenant_session(tenant_id) as session:
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT phone_e164, completed_at, proof->>'subject_hash', subject_ref "
+                    "FROM deletion_requests"
+                )
+            )
+        ).all()
+        contacts = (await session.execute(text("SELECT count(*) FROM business_contacts"))).scalar()
+    assert len(rows) == 2
+    for phone, completed_at, subject_hash, ref in rows:
+        assert phone is None
+        assert completed_at is not None, "an open request keeps the overdue alarm paging"
+        assert subject_hash == ref
+    assert contacts == 0
