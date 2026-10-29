@@ -16,9 +16,11 @@ import {
   LEGACY_INVITE_PATH,
   LINK_TOKEN_PATHS,
   LINK_TOKEN_REFERRER_POLICY,
+  OAUTH_CALLBACK_PATHS,
   REFERRER_POLICY_HEADER_NAME,
   carriesLinkToken,
 } from "@/lib/authn/linkTokenRoutes";
+import { PROVIDER_KINDS } from "@/app/c/[slug]/integrations/oauthReturn";
 
 /**
  * THE `Referer` LEAK OF A LIVE SINGLE-USE TOKEN, pinned at all three of the places it was
@@ -75,6 +77,7 @@ describe("the routes an emailed token lands on", () => {
         ADMIN_BOOTSTRAP_PATH,
         GOOGLE_CALLBACK_PATH,
         LEGACY_INVITE_PATH,
+        ...OAUTH_CALLBACK_PATHS,
       ].sort(),
     );
   });
@@ -150,5 +153,15 @@ describe("the edge Referrer-Policy", () => {
     // empty, and nginx adds no header for an empty value.
     expect(template).toMatch(/default\s+"strict-origin-when-cross-origin";/);
     expect(template).toMatch(/"~\."\s+"";/);
+  });
+});
+
+describe("the connect return pages", () => {
+  it("cover every provider the callback page finishes", () => {
+    expect([...OAUTH_CALLBACK_PATHS].sort()).toEqual(
+      Object.keys(PROVIDER_KINDS)
+        .map((provider) => `/oauth/callback/${provider}`)
+        .sort(),
+    );
   });
 });

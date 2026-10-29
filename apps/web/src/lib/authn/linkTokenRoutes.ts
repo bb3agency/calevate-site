@@ -87,9 +87,17 @@ export const LEGACY_INVITE_PATH = "/invite";
  * `CLIENT_RESET_PASSWORD_PATH`, `CLIENT_ACCEPT_INVITE_PATH`, at `:36-39`); the fifth entry
  * is the legacy door above. The sixth is Google's sign-in return page, which arrives with
  * `?code=&state=` in its URL and preloads its chunks before it strips them, exactly like
- * the others. A new token-bearing route goes here in the same change that mints it — the
- * same instruction the nginx map carries for the same reason.
+ * the others. The connect return pages (`/oauth/callback/<provider>`, one per key of
+ * `PROVIDER_KINDS` in `oauthReturn.ts`) arrive the same way. A new token-bearing route goes
+ * here in the same change that mints it — the same instruction the nginx map carries for
+ * the same reason.
  */
+export const OAUTH_CALLBACK_PATHS: readonly string[] = [
+  "/oauth/callback/google",
+  "/oauth/callback/zoho",
+  "/oauth/callback/hubspot",
+];
+
 export const LINK_TOKEN_PATHS: readonly string[] = [
   "/auth/reset-password",
   "/auth/accept-invitation",
@@ -97,6 +105,7 @@ export const LINK_TOKEN_PATHS: readonly string[] = [
   "/auth/admin/bootstrap",
   "/auth/google/callback",
   LEGACY_INVITE_PATH,
+  ...OAUTH_CALLBACK_PATHS,
 ];
 
 /**
