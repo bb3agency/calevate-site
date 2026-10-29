@@ -190,6 +190,28 @@ async def test_the_transcript_clock_clears_the_reading_with_the_summary() -> Non
     assert held is None and detail.insights is None
 
 
+async def test_the_retention_probe_sees_a_call_whose_only_copy_left_is_its_reading() -> None:
+    """The probe gates every transcript-clock statement, so it must ask about every column
+    `_SUMMARY_SQL` clears; otherwise a call holding only its reading keeps it for ever."""
+    tenant_id, call_id = await _call_with_insights()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE calls SET ended_at = now() - interval '900 days' WHERE id = :id"),
+            {"id": call_id},
+        )
+        rows = (
+            await session.execute(
+                text(retention._PROBE_SQL),
+                {
+                    "floor": retention.RECORDING_FLOOR_DAYS,
+                    "mark": retention.REDACTED_MARK,
+                    "anon": retention.ANONYMIZED_PHONE[:9],
+                },
+            )
+        ).all()
+    assert {str(r[0]): bool(r[3]) for r in rows}["transcript"]
+
+
 async def test_the_column_refuses_a_value_that_is_not_a_reading() -> None:
     tenant_id, call_id = await _call_with_insights()
     async with tenant_session(tenant_id) as session:

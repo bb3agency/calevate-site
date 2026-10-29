@@ -513,6 +513,9 @@ async def test_every_derived_copy_is_governed_by_a_category_a_tenant_actually_ha
         # clause in `retention_uploaded_and_promised_test` fails the day somebody merges
         # this with the call-back above under one category.
         "campaign_contacts.phone_e164+name+custom",
+        # A Follow-up run's copy of the number it calls (D-940): the lead's number, so the
+        # lead's clock.
+        "follow_up_runs.phone_e164",
     )
 
 

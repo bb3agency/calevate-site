@@ -391,6 +391,10 @@ DERIVED_COPIES: Mapping[str, tuple[str, ...]] = {
         # the document callers read; and SECURITY-COMPLIANCE §1's retention table would
         # have needed a row this change cannot write.
         "campaign_contacts.phone_e164+name+custom",
+        # A Follow-up run's copy of the number it calls (D-940): the lead's number, on the
+        # lead's clock, from when the run started. Settled runs only; an open one ends
+        # within `follow_ups/definition.MAX_DAYS_CAP` and is taken by the next sweep.
+        "follow_up_runs.phone_e164",
     ),
 }
 
@@ -488,6 +492,8 @@ _EMPTY_TOTALS: Mapping[str, int] = {
     # ROWS, which is one person each: the number a client recognises about their own
     # upload, and the number a data principal's question is about.
     "campaign_contacts": 0,
+    # Follow-up runs whose number was anonymized on the CRM clock (`DERIVED_COPIES`).
+    "follow_up_runs": 0,
     # Handover briefs cleared on the TRANSCRIPT clock (`DERIVED_COPIES`). Counted in ROWS
     # rather than in columns, unlike `knowledge_gap_quotes`: both columns of one attempt
     # are one model's account of one conversation, and clearing them is one act.
@@ -719,7 +725,7 @@ SELECT r.data_category, r.ttl_days, r.action,
       OR EXISTS (
       SELECT 1 FROM calls c
       WHERE (c.summary IS NOT NULL OR c.summary_local IS NOT NULL
-        OR c.headline IS NOT NULL OR c.next_step IS NOT NULL)
+        OR c.headline IS NOT NULL OR c.next_step IS NOT NULL OR c.insights IS NOT NULL)
         AND {_CLOCK} < now() - make_interval(days => r.ttl_days))
       -- The vector projection of the TRANSCRIPT scopes, on this same clock (D-503). Asked
       -- in the PROBE and not only in the arm, because a category the probe reports as
@@ -798,6 +804,11 @@ SELECT r.data_category, r.ttl_days, r.action,
       SELECT 1 FROM campaign_contacts k
       WHERE k.created_at < now() - make_interval(days => r.ttl_days)
         AND left(k.phone_e164, length(:anon)) <> :anon)
+      OR EXISTS (
+      SELECT 1 FROM follow_up_runs fr
+      WHERE fr.status IN ('done', 'stopped')
+        AND fr.started_at < now() - make_interval(days => r.ttl_days)
+        AND left(fr.phone_e164, length(:anon)) <> :anon)
     WHEN 'engine_payload' THEN EXISTS (
       SELECT 1 FROM calls c
       WHERE c.engine_payload_ref IS NOT NULL
@@ -1501,6 +1512,22 @@ CALLBACK_EXPIRED_REASON = (
 #:
 #: `note` is emptied rather than inspected: it is a model's summary of what a person said
 #: on a phone call, which is the class of text this sweep exists to forget.
+#: A FOLLOW-UP RUN'S NUMBER, anonymized in place on the CRM clock (`DERIVED_COPIES`), with
+#: `_erase_follow_up_runs`' anonymization. Settled runs only, so an expiry never rewrites a
+#: run's status or `end_reason` (the client's record of what happened); an open run is at
+#: most `MAX_DAYS_CAP` days from settling. `started_at` is the clock: `updated_at` moves on
+#: every step the runner takes.
+_FOLLOW_UP_RUN_EXPIRE_SQL = """
+UPDATE follow_up_runs
+SET phone_e164 = :anon || right(replace(id::text, '-', ''), 12),
+    updated_at = now()
+WHERE id IN (
+  SELECT id FROM follow_up_runs
+  WHERE status IN ('done', 'stopped') AND started_at < :cutoff
+    AND left(phone_e164, length(:anon)) <> :anon
+  ORDER BY started_at LIMIT :batch)
+"""
+
 _CALLBACK_EXPIRE_SQL = """
 UPDATE scheduled_callbacks
 SET phone_e164 = :anon || right(replace(id::text, '-', ''), 12),
@@ -1914,6 +1941,10 @@ async def _apply_one(
         # for `_LEAD_SQL`'s reason: a running campaign counts its own rows.
         counts["campaign_contacts"], deferred = await _sweep_in_batches(
             session, _CAMPAIGN_CONTACT_EXPIRE_SQL, {"cutoff": cutoff, "anon": ANONYMIZED_PHONE[:9]}
+        )
+        counts["deferred"] += int(deferred)
+        counts["follow_up_runs"], deferred = await _sweep_in_batches(
+            session, _FOLLOW_UP_RUN_EXPIRE_SQL, {"cutoff": cutoff, "anon": ANONYMIZED_PHONE[:9]}
         )
         counts["deferred"] += int(deferred)
         return counts
