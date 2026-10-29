@@ -16,9 +16,9 @@ import {
   LOW_LABELS,
   PIP_DEFAULT_WINDOW_DAYS,
   PIP_WINDOW_CHOICES,
-  REASON_LABELS,
   WHY_LABELS,
   areaLabel,
+  reasonLabel,
   formatShare,
   usePipQuality,
   type PipAreaQuality,
@@ -325,7 +325,7 @@ export function PipQualityReportView({ report }: { report: PipQualityReport }) {
           <Metric label="Refused at the door" value="0" />
         ) : (
           report.refusals.map((row) => (
-            <Metric key={row.reason} label={REASON_LABELS[row.reason] ?? row.reason} value={formatCount(row.count)} />
+            <Metric key={row.reason} label={reasonLabel(row.reason)} value={formatCount(row.count)} />
           ))
         )}
         <Metric label="Permission refusals" value={formatCount(overall.permission_refusals)} />
@@ -368,7 +368,7 @@ export function PipQualityReportView({ report }: { report: PipQualityReport }) {
           <ul className="space-y-1 text-sm text-ink">
             {overall.reasons.map((row) => (
               <li key={row.reason}>
-                {REASON_LABELS[row.reason] ?? row.reason}: {formatCount(row.count)}
+                {reasonLabel(row.reason)}: {formatCount(row.count)}
               </li>
             ))}
           </ul>

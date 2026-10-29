@@ -5,7 +5,7 @@ import { PipNotes } from "@/components/copilot/PipNotes";
 import { useClientRealm } from "@/lib/api/session";
 import { launcherCount, type CopilotNote, type CopilotNotes } from "@/lib/copilot/notes";
 
-import { renderClientPage } from "./harness";
+import { problem, renderClientPage } from "./harness";
 
 /**
  * D-936: what Pip noticed, at the top of its panel.
@@ -127,6 +127,14 @@ describe("Pip's notes", () => {
       "GET /v1/copilot/notes": { notes: [], unread: 0 },
     });
     await waitFor(() => expect(container.querySelector("section")).toBeNull());
+  });
+
+  it("says so when the notes could not be read, rather than showing nothing", async () => {
+    await renderClientPage(<Harnessed onOpen={vi.fn()} onAsk={vi.fn()} />, {
+      "GET /v1/copilot/notes": problem(503, { title: "Unavailable", status: 503 }),
+    });
+    expect((await screen.findByRole("alert")).textContent).toContain("Could not check what");
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
   });
 
   it("counts only Pip's own unseen notes on the launcher", () => {

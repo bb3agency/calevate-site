@@ -179,6 +179,15 @@ export function copilotAskPath(realm: "client" | "admin"): string {
 }
 
 /**
+ * A chart frame is drawable when it names its `chart` and `kind`. A predicate rather than
+ * `as ChartSpec`: an assertion onto a generated wire type stops the compiler checking it
+ * (tests/wireFixtureGuard.test.ts), and the predicate states exactly what this browser checks.
+ */
+function isChartFrame(payload: Record<string, unknown> | null): payload is ChartSpec {
+  return typeof payload?.chart === "string" && typeof payload.kind === "string";
+}
+
+/**
  * Parse one `data:` payload, or `null` if it is not JSON we can read.
  *
  * A FRAME IS NOT THE ANSWER, and that is the whole reason for this function. `JSON.parse`
@@ -262,10 +271,8 @@ export async function askCopilot(
         }
       } else if (event.event === "chart") {
         // Guarded on `chart` and `kind`, without which there is nothing to draw.
-        const payload = safeJson(event.data) as ChartSpec | null;
-        if (typeof payload?.chart === "string" && typeof payload.kind === "string") {
-          handlers.onChart?.(payload);
-        }
+        const payload = safeJson(event.data);
+        if (isChartFrame(payload)) handlers.onChart?.(payload);
       } else if (event.event === "step") {
         // Guarded on `id`, which pairs the terminal frame with its own `running` one.
         const payload = safeJson(event.data) as CopilotStep | null;

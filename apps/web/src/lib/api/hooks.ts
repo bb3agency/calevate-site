@@ -354,11 +354,8 @@ export function useExportCalls(session: Session) {
   });
 }
 
-function callQuery(session: Session, callId: string) {
-  return {
-    queryKey: queryKeys.call(session.orgSlug, callId),
-    queryFn: () => apiRequest<CallDetail>(session, `/v1/calls/${callId}`),
-  };
+function fetchCall(session: Session, callId: string): Promise<CallDetail> {
+  return apiRequest<CallDetail>(session, `/v1/calls/${callId}`);
 }
 
 /**
@@ -370,7 +367,10 @@ function callQuery(session: Session, callId: string) {
 export function usePrefetchCall(session: Session): (callId: string) => void {
   const client = useQueryClient();
   return (callId: string) => {
-    void client.prefetchQuery(callQuery(session, callId));
+    void client.prefetchQuery({
+      queryKey: queryKeys.call(session.orgSlug, callId),
+      queryFn: () => fetchCall(session, callId),
+    });
   };
 }
 
@@ -379,7 +379,8 @@ export function useCall(
   callId: string,
 ): UseQueryResult<CallDetail> {
   return useQuery({
-    ...callQuery(session, callId),
+    queryKey: queryKeys.call(session.orgSlug, callId),
+    queryFn: () => fetchCall(session, callId),
     // A call opened while it is live, or while its summary and English turns are still
     // being written, fills in as they land; once they have, there is nothing to poll for.
     // The summary is bounded by age, so one that was never written is not re-read forever.

@@ -3,7 +3,8 @@
 import { useEffect, useId, useState } from "react";
 import { ThumbsDown, ThumbsUp } from "lucide-react";
 
-import { FIELD_INLINE, QUIET_ICON_BUTTON, SECONDARY_BUTTON_SM } from "@/components/ui";
+import { useActionFeedback } from "@/components/arc/feedback";
+import { FIELD_INLINE, ProblemNotice, QUIET_ICON_BUTTON, SECONDARY_BUTTON_SM } from "@/components/ui";
 import type { Session } from "@/lib/api/client";
 import {
   MAX_NOTE,
@@ -32,6 +33,9 @@ export function AnswerRating({
   reason?: VoteReason | null;
 }) {
   const rate = useRateAnswer(session, realm, turnId);
+  // Inline: the vote goes back on screen and the reason shows under the thumbs, so a toast
+  // would say it twice. Each save passes its own callbacks to put the vote back.
+  useActionFeedback(rate, { errorDisplay: "inline" });
   const [vote, setVote] = useState<AnswerVote | null>(savedVote);
   const [reason, setReason] = useState<VoteReason | null>(savedReason);
   const [picking, setPicking] = useState(false);
@@ -118,6 +122,11 @@ export function AnswerRating({
           {status === "failed" ? "Couldn't save. Try again." : null}
         </span>
       </div>
+      {status === "failed" && rate.error ? (
+        <div className="mt-1">
+          <ProblemNotice error={rate.error} />
+        </div>
+      ) : null}
       {picking && vote === "down" && (
         <div className="mt-1 space-y-1.5" role="group" aria-label="What went wrong?">
           <p className="text-ink-faint">What went wrong?</p>
@@ -136,6 +145,7 @@ export function AnswerRating({
           </div>
           {reason === "other" && (
             <form
+              noValidate
               className="flex flex-wrap items-center gap-1.5"
               onSubmit={(event) => {
                 event.preventDefault();

@@ -69,6 +69,8 @@ describe("thumbs on a Pip answer (D-937)", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Not helpful" }));
     await screen.findByText("Couldn't save. Try again.");
+    // The server's own reason shows under the thumbs (BUILD-LOG §52).
+    expect(screen.getByRole("alert").textContent).toContain("Answer not found");
     expect(up.getAttribute("aria-pressed")).toBe("true");
     expect(screen.getByRole("button", { name: "Not helpful" }).getAttribute("aria-pressed")).toBe("false");
   });

@@ -71,6 +71,7 @@ export function QuestionsStep({
   const [answers, setAnswers] = useState<Record<string, DraftAnswer>>({});
   const [kept, setKept] = useState<Set<string>>(() => new Set());
   const retry = useSaveBrief(session);
+  const retryFeedback = useActionFeedback(retry, { errorDisplay: "inline" });
   const writing = run.questions.status === "writing";
   const failed = run.questions.status === "failed";
   const question = questions[at] ?? null;
@@ -109,7 +110,7 @@ export function QuestionsStep({
             type="button"
             className={TEXT_ACTION}
             disabled={pending}
-            onClick={() => retry.mutate({ brief: run.brief ?? "" })}
+            onClick={() => retryFeedback.run({ brief: run.brief ?? "" })}
           >
             <RotateCw aria-hidden className="h-4 w-4" />
             {retry.isPending ? "Trying…" : "Try again"}

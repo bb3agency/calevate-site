@@ -16,6 +16,8 @@ import {
   useCopilotSurfaceHolder,
 } from "@/lib/copilot/registry";
 
+import { nothingNoticed } from "./copilotNotesStub";
+
 vi.mock("next/navigation", () => ({
   usePathname: () => "/",
   useSearchParams: () => new URLSearchParams(),
@@ -80,6 +82,8 @@ function stubConversation(turns: { role: string; content: string }[]) {
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input).replace(API_BASE, "");
+      const notes = nothingNoticed(path);
+      if (notes) return notes;
       calls.push(`${init?.method ?? "GET"} ${path}`);
       if (path.startsWith("/v1/copilot/conversation")) {
         if (init?.method === "DELETE") {

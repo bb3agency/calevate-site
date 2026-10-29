@@ -12,6 +12,8 @@ import { useCopilotSurface, useCopilotSurfaceHolder } from "@/lib/copilot/regist
 import { ALL_LIVE_FAMILIES, familiesFor } from "@/lib/live/topics";
 import { useLiveUpdates } from "@/lib/live/useLiveUpdates";
 
+import { nothingNoticed } from "./copilotNotesStub";
+
 vi.mock("next/navigation", () => ({
   usePathname: () => "/",
   useSearchParams: () => new URLSearchParams(),
@@ -66,6 +68,8 @@ function fakeApi() {
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input).replace(API_BASE, "");
+      const notes = nothingNoticed(path);
+      if (notes) return notes;
       const method = init?.method ?? "GET";
       if (path === "/v1/live") {
         let mine: ReadableStreamDefaultController<Uint8Array> | null = null;
