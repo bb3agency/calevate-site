@@ -134,3 +134,12 @@ def test_clean_transcript_is_untouched() -> None:
     result = redact(clean)
     assert result.text == clean
     assert not result.changed
+
+
+def test_a_uuid_whose_digits_look_like_a_phone_survives_and_the_phone_beside_it_does_not() -> None:
+    # `98-4695-8302` inside this id passes the numbering plan as a mobile on its own.
+    record_id = "b374607e-5d98-4695-8302-797ae8f7549d"
+    result = redact(f"Reception [agent_id {record_id}] call +919876543210")
+    assert record_id in result.text
+    assert "9876543210" not in result.text
+    assert result.kinds == ["phone"]

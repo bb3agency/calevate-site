@@ -237,10 +237,32 @@ def spoken_digit_runs(text: str) -> list[tuple[int, int, str]]:
 # --- The pass ------------------------------------------------------------------
 
 
+#: A canonical UUID, which is never PII. Its hex groups can hold a digit run that passes
+#: the numbering plan (`…-5d98-4695-8302-…` reads as `9846958302`), so without this the
+#: phone pass corrupts the record ids handed to Pip and to every redacted response.
+_UUID_RE = re.compile(
+    r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", re.IGNORECASE
+)
+
+
 def redact(text: str) -> RedactionResult:
-    """Deterministic redaction pass. Order matters: the most specific patterns run
-    first so a card number is not eaten by the generic phone rule."""
+    """Deterministic redaction pass over everything outside a UUID. Redacting the gaps
+    rather than placeholder-swapping the ids keeps a substituted token from ever meeting
+    the patterns."""
     kinds: list[str] = []
+    pieces: list[str] = []
+    cursor = 0
+    for match in _UUID_RE.finditer(text):
+        pieces.append(_redact_free_text(text[cursor : match.start()], kinds))
+        pieces.append(match.group(0))
+        cursor = match.end()
+    pieces.append(_redact_free_text(text[cursor:], kinds))
+    return RedactionResult(text="".join(pieces), kinds=kinds)
+
+
+def _redact_free_text(text: str, kinds: list[str]) -> str:
+    """Order matters: the most specific patterns run first so a card number is not eaten
+    by the generic phone rule. Adds what it masked to `kinds`."""
     out = text
 
     def _note(kind: str) -> None:
@@ -346,7 +368,7 @@ def redact(text: str) -> RedactionResult:
         replacement = PHONE_MASK.format(last2=digits[-2:]) if len(digits) == 10 else MASK
         out = out[:start] + replacement + out[end:]
 
-    return RedactionResult(text=out, kinds=kinds)
+    return out
 
 
 __all__ = [

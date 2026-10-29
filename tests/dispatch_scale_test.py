@@ -70,6 +70,7 @@ from apps.api.campaigns import service
 from apps.api.db.base import uuid7
 from apps.api.db.session import admin_session, get_engine, tenant_session, untenanted_session
 from apps.api.engine import reset_engine_cache
+from apps.workers import callbacks as callback_worker
 from apps.workers import campaign_dispatch
 from apps.workers.campaign_dispatch import dispatch_campaign_tick
 from sqlalchemy import event, text
@@ -207,11 +208,16 @@ class Visits:
 
     def __init__(self) -> None:
         self.tenants: list[uuid.UUID] = []
+        #: Sessions the call-back loop opened (`workers/callbacks.py` binds its own
+        #: `tenant_session`). Their statements reach the cursor counter, so they are in
+        #: the query bill's denominator; they are kept out of `tenants` because a tenant
+        #: with a due call-back is work the campaign census does not see.
+        self.callback_sessions = 0
         self.queries = 0
 
     @property
     def sessions(self) -> int:
-        return len(self.tenants)
+        return len(self.tenants) + self.callback_sessions
 
     @property
     def distinct(self) -> int:
@@ -243,6 +249,16 @@ def _measure(monkeypatch: pytest.MonkeyPatch) -> Any:
             yield session
 
     monkeypatch.setattr(campaign_dispatch, "tenant_session", counting)
+
+    real_callback = callback_worker.tenant_session
+
+    @contextlib.asynccontextmanager
+    async def counting_callback(tenant_id: uuid.UUID) -> AsyncIterator[AsyncSession]:
+        visits.callback_sessions += 1
+        async with real_callback(tenant_id) as session:
+            yield session
+
+    monkeypatch.setattr(callback_worker, "tenant_session", counting_callback)
 
     engine = get_engine().sync_engine
 
