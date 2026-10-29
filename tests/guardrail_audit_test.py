@@ -607,6 +607,9 @@ class TestRlsCoverage:
             # D-781: the files an operator attached to the admin assistant, owned by
             # `admin_user_id`; `viewing_tenant_id` is context, as above.
             "admin_copilot_uploads",
+            # D-937: how each admin assistant answer went and the operator's thumbs, owned
+            # by `admin_user_id`; `viewing_tenant_id` is context, as above.
+            "admin_copilot_answer_outcomes",
             # The state behind `engine_error_spike` (OPERATIONS §4): one row per
             # (engine, minute) of vendor server errors. Platform state for the same
             # reason `platform_state` is — the engine is answering or it is not, for

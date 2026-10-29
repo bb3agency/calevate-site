@@ -539,6 +539,9 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "copilot_routines_tick_failed": "attention",
     "copilot_plans_resume_failed": "attention",
     "copilot_routine_fire_failed": "attention",
+    # D-937. People are rating one area of Pip's answers down, or its actions are failing.
+    # Pip's quality, not an outage: look today, on the scores page.
+    "copilot_quality_low": "attention",
     "kb_gloss_worklist_failed": "attention",
     # DPDP §12: the statutory clock has already run out.
     "erasure_requests_overdue": "page",

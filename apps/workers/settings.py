@@ -140,6 +140,8 @@ from apps.workers.comp_notices import notify_comp
 from apps.workers.copilot_jobs import run_copilot_job
 from apps.workers.copilot_memory import DISTILL_MINUTE, distil_copilot_memories
 from apps.workers.copilot_plans import resume_copilot_plans, run_copilot_plan
+from apps.workers.copilot_quality import ALARM_MINUTE as COPILOT_QUALITY_MINUTE
+from apps.workers.copilot_quality import alarm_copilot_quality
 from apps.workers.copilot_routines import fire_due_routines
 from apps.workers.copilot_transcript import (
     TRANSCRIPT_SWEEP_MINUTE,
@@ -1560,6 +1562,18 @@ CRON_JOBS = [
         walk=fleet_wide("one directory read, then one tenant_session per organization"),
         minute=set(KYC_OVERDUE_MINUTES),
         second={30},
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # D-937. Pip's scores over the last day; an area rated down or failing its actions raises
+    # `copilot_quality_low`. Hourly, inside the alarm's quiet period, so one episode per area.
+    _cron(
+        traced_job(alarm_copilot_quality),
+        walk=fleet_wide(
+            "one copilot_quality_scan statement entering each organization, bounded by "
+            "ops/copilot_quality.MAX_ANSWERS, plus one admin-table read"
+        ),
+        minute=set(COPILOT_QUALITY_MINUTE),
+        second={45},
         max_tries=WORKER_MAX_TRIES,
     ),
     # THE ENGLISH GLOSS SWEEP. Not a drift sweep — it is INGESTION, finishing a chunk that

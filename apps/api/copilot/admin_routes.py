@@ -70,6 +70,7 @@ from apps.api.copilot import (
     live_sync,
     memory,
     model_tiers,
+    quality,
     service,
     session_run,
     transcript,
@@ -94,6 +95,8 @@ from apps.api.copilot.schemas import (
     CopilotTextEvent,
     CopilotTurnIds,
     CopilotUndoOut,
+    CopilotVoteIn,
+    CopilotVoteOut,
 )
 from apps.api.copilot.tools import Unmasked
 from apps.api.core.auth import client_request_ip, requires
@@ -201,6 +204,33 @@ async def _store_question(
     except Exception:
         log.exception(
             "admin_copilot_question_store_failed", extra={"admin_user_id": str(operator_id)}
+        )
+
+
+async def _score_refusal(
+    refusal: ProblemError,
+    *,
+    operator_id: UUID | None,
+    viewing_tenant_id: UUID | None,
+    turn_id: UUID,
+) -> None:
+    """`copilot/routes._score_refusal` for the operator's table (D-937)."""
+    kind = quality.gate_refusal_of(refusal)
+    if kind is None or operator_id is None:
+        return
+    try:
+        async with untenanted_session() as session:
+            await quality.record_refusal(
+                session,
+                realm="admin",
+                turn_id=turn_id,
+                owner_id=operator_id,
+                tenant_id=viewing_tenant_id,
+                refusal=kind,
+            )
+    except Exception:
+        log.exception(
+            "admin_copilot_quality_refusal_failed", extra={"admin_user_id": str(operator_id)}
         )
 
 
@@ -329,6 +359,12 @@ async def ask_admin_copilot(
         # The bytes, read into memory for this one call and never written anywhere.
         attached = await attachments.load(uploads)
     except ProblemError as refusal:
+        await _score_refusal(
+            refusal,
+            operator_id=principal.user_id,
+            viewing_tenant_id=tenant_id,
+            turn_id=payload.turn_ids.answer if payload.turn_ids else uuid7(),
+        )
         yield _error_event(refusal)
         return
 
@@ -394,7 +430,17 @@ async def ask_admin_copilot(
     completed = False
 
     async def _store_answer(session: AsyncSession, operator_id: UUID) -> None:
-        """The answer, under the id the asking window minted (D-782)."""
+        """The answer, under the id the asking window minted (D-782), and how it went (D-937:
+        tool names, ids and timings, never text)."""
+        await quality.record_answer(
+            session,
+            realm="admin",
+            turn_id=turn_ids.answer,
+            owner_id=operator_id,
+            tenant_id=tenant_id,
+            capture=capture,
+            completed=completed,
+        )
         if run_started_at is None:
             return
         await transcript.append_turn(
@@ -544,6 +590,8 @@ async def ask_admin_copilot(
             if syncs and operator is not None:
                 await live_sync.answer_settled("admin", operator, turn_ids.answer)
 
+    # The scores' clock starts here, once the question is admitted (D-937).
+    capture = quality.AnswerCapture()
     try:
         async for event in service.run_copilot(
             payload,
@@ -591,6 +639,7 @@ async def ask_admin_copilot(
             ),
             ip=client_request_ip(request),
         ):
+            capture.observe(event)
             if event.text is not None:
                 answer_parts.append(event.text)
                 yield ServerSentEvent(event="text", data=CopilotTextEvent(delta=event.text))
@@ -719,11 +768,18 @@ async def load_admin_copilot_conversation(
             limit=limit,
             before=transcript.turn_cursor(before),
         )
+        votes = await quality.votes_for(
+            session,
+            realm="admin",
+            owner_id=operator,
+            turn_ids=[turn.id for turn in page.turns if turn.role == "assistant"],
+        )
     return transcript.conversation_out(
         page,
         uploads_available=attachments.uploads_available(),
         consent=consent,
         answering=await live_sync.is_answering("admin", operator),
+        votes=votes,
     )
 
 
@@ -778,6 +834,48 @@ async def clear_admin_copilot_conversation(
     # After the commit, so the operator's other windows re-read an empty conversation.
     await live_sync.conversation_changed("admin", operator)
     return CopilotConversationClearedOut(cleared=cleared)
+
+
+@router.put(
+    "/copilot/turns/{turn_id}/vote",
+    response_model=CopilotVoteOut,
+    openapi_extra=permission_meta("copilot:admin"),
+    summary=f"Rate one of the admin {ASSISTANT_NAME}'s answers — thumbs up, down, or take it back",
+)
+async def vote_admin_copilot_answer(
+    turn_id: UUID,
+    payload: Annotated[CopilotVoteIn, Body()],
+    request: Request,
+    principal: AdminCopilotUser,
+) -> CopilotVoteOut:
+    """`copilot/routes.vote_copilot_answer` for the operator's own answers (D-937).
+
+    It writes an audit row, for the invariant `clear_admin_copilot_conversation` states:
+    every admin-realm mutation does. The vote and the reason word only, never the note.
+    """
+    operator = _operator_id(principal)
+    async with untenanted_session() as session:
+        stored = await quality.record_vote(
+            session,
+            realm="admin",
+            turn_id=turn_id,
+            owner_id=operator,
+            vote=payload.vote,
+            reason=payload.reason,
+            note=payload.note,
+        )
+        await write_audit(
+            session,
+            action="admin_copilot.answer_rated",
+            actor=principal,
+            tenant_id=None,
+            object_type="admin_copilot_answer",
+            object_id=str(turn_id),
+            ip=client_request_ip(request),
+            summary={"vote": stored.vote, "reason": stored.reason},
+        )
+    await live_sync.conversation_changed("admin", operator)
+    return CopilotVoteOut(turn_id=str(turn_id), vote=stored.vote, vote_reason=stored.reason)
 
 
 #: `copilot:admin` at the door, as on the ask route. The ACTION's own permission is checked

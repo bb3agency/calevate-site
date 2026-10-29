@@ -350,6 +350,11 @@ ADMIN_CONSOLE_GETS: dict[str, str] = {
         "/v1/ops/reply-times below, one step stronger: that board at least aggregates "
         "tenants' calls, and this one has no tenant axis to aggregate."
     ),
+    "/v1/ops/copilot-quality": (
+        "Pip's success scores across every client (D-937) — admin console, cross-client: "
+        "counts, tool names and answer ids, never a conversation. It is not a view of any "
+        "one client, and the answers it names are reviewed through their own audited paths."
+    ),
     "/v1/ops/reply-times": (
         "reply times across every client (D-770) — admin console, cross-client. It ranks "
         "clients and agents against each other, so it is not a view of any one client; "

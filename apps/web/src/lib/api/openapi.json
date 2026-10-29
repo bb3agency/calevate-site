@@ -5877,6 +5877,24 @@
         "title": "ApplyScriptOut",
         "type": "object"
       },
+      "AreaQuality": {
+        "additionalProperties": false,
+        "properties": {
+          "area": {
+            "title": "Area",
+            "type": "string"
+          },
+          "figures": {
+            "$ref": "#/components/schemas/QualityFigures"
+          }
+        },
+        "required": [
+          "area",
+          "figures"
+        ],
+        "title": "AreaQuality",
+        "type": "object"
+      },
       "AssignIn": {
         "additionalProperties": false,
         "description": "Which agent answers this number, and what the number is for.\n\n`agent_id: null` DETACHES, which is the recovery path from a wrong assignment and is\ndeliberately not gated on activation.",
@@ -16373,6 +16391,96 @@
         "title": "CopilotPlanTargetPageOut",
         "type": "object"
       },
+      "CopilotQualityReport": {
+        "additionalProperties": false,
+        "description": "`GET /v1/ops/copilot-quality`. Lists are bounded by the area list, the registered tool\nlist, the three gate refusals, the answering legs and `MAX_EXAMPLES`.",
+        "properties": {
+          "action_failure_low_share": {
+            "title": "Action Failure Low Share",
+            "type": "number"
+          },
+          "by_area": {
+            "items": {
+              "$ref": "#/components/schemas/AreaQuality"
+            },
+            "title": "By Area",
+            "type": "array"
+          },
+          "by_provider": {
+            "items": {
+              "$ref": "#/components/schemas/ProviderCount"
+            },
+            "title": "By Provider",
+            "type": "array"
+          },
+          "by_tool": {
+            "items": {
+              "$ref": "#/components/schemas/ToolQuality"
+            },
+            "title": "By Tool",
+            "type": "array"
+          },
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "min_attempts": {
+            "title": "Min Attempts",
+            "type": "integer"
+          },
+          "min_votes": {
+            "title": "Min Votes",
+            "type": "integer"
+          },
+          "overall": {
+            "$ref": "#/components/schemas/QualityFigures"
+          },
+          "questions": {
+            "title": "Questions",
+            "type": "integer"
+          },
+          "realm": {
+            "enum": [
+              "client",
+              "admin"
+            ],
+            "title": "Realm",
+            "type": "string"
+          },
+          "refusals": {
+            "items": {
+              "$ref": "#/components/schemas/ReasonCount"
+            },
+            "title": "Refusals",
+            "type": "array"
+          },
+          "thumbs_down_low_share": {
+            "title": "Thumbs Down Low Share",
+            "type": "number"
+          },
+          "window_days": {
+            "title": "Window Days",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "realm",
+          "window_days",
+          "complete",
+          "questions",
+          "refusals",
+          "overall",
+          "by_area",
+          "by_tool",
+          "by_provider",
+          "thumbs_down_low_share",
+          "min_votes",
+          "action_failure_low_share",
+          "min_attempts"
+        ],
+        "title": "CopilotQualityReport",
+        "type": "object"
+      },
       "CopilotRoutineIn": {
         "additionalProperties": false,
         "description": "`POST /v1/copilot/routines`.",
@@ -16772,6 +16880,39 @@
           "screen_route": {
             "title": "Screen Route",
             "type": "string"
+          },
+          "vote": {
+            "anyOf": [
+              {
+                "enum": [
+                  "up",
+                  "down"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vote"
+          },
+          "vote_reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "wrong",
+                  "not_done",
+                  "too_slow",
+                  "misunderstood",
+                  "other"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vote Reason"
           }
         },
         "required": [
@@ -16908,6 +17049,112 @@
           "status"
         ],
         "title": "CopilotUploadOut",
+        "type": "object"
+      },
+      "CopilotVoteIn": {
+        "additionalProperties": false,
+        "description": "`PUT .../turns/{turn_id}/vote`: thumbs up, thumbs down, or `null` to take it back.\n\nA reason explains a thumbs down only, and `note` explains `other` only; the server\nrefuses any other combination rather than silently dropping half of it.",
+        "properties": {
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "wrong",
+                  "not_done",
+                  "too_slow",
+                  "misunderstood",
+                  "other"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "vote": {
+            "anyOf": [
+              {
+                "enum": [
+                  "up",
+                  "down"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vote"
+          }
+        },
+        "required": [
+          "vote"
+        ],
+        "title": "CopilotVoteIn",
+        "type": "object"
+      },
+      "CopilotVoteOut": {
+        "additionalProperties": false,
+        "description": "The vote as stored.",
+        "properties": {
+          "turn_id": {
+            "title": "Turn Id",
+            "type": "string"
+          },
+          "vote": {
+            "anyOf": [
+              {
+                "enum": [
+                  "up",
+                  "down"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vote"
+          },
+          "vote_reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "wrong",
+                  "not_done",
+                  "too_slow",
+                  "misunderstood",
+                  "other"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vote Reason"
+          }
+        },
+        "required": [
+          "turn_id",
+          "vote",
+          "vote_reason"
+        ],
+        "title": "CopilotVoteOut",
         "type": "object"
       },
       "CostAttestIn": {
@@ -21786,6 +22033,55 @@
           "text"
         ],
         "title": "ExampleLine",
+        "type": "object"
+      },
+      "ExampleTurn": {
+        "additionalProperties": false,
+        "description": "An answer to review: its turn id and, on the client Pip, its account.",
+        "properties": {
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "tenant_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Id"
+          },
+          "turn_id": {
+            "title": "Turn Id",
+            "type": "string"
+          },
+          "why": {
+            "enum": [
+              "thumbs_down",
+              "tool_failed",
+              "action_undone",
+              "unfinished"
+            ],
+            "title": "Why",
+            "type": "string"
+          }
+        },
+        "required": [
+          "turn_id",
+          "tenant_id",
+          "why"
+        ],
+        "title": "ExampleTurn",
         "type": "object"
       },
       "ExperimentOut": {
@@ -38469,6 +38765,25 @@
         "title": "ProposedFactOut",
         "type": "object"
       },
+      "ProviderCount": {
+        "additionalProperties": false,
+        "properties": {
+          "answers": {
+            "title": "Answers",
+            "type": "integer"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "answers"
+        ],
+        "title": "ProviderCount",
+        "type": "object"
+      },
       "ProvisionNumberIn": {
         "additionalProperties": false,
         "properties": {
@@ -39181,6 +39496,193 @@
         "title": "QaSampleOut",
         "type": "object"
       },
+      "QualityFigures": {
+        "additionalProperties": false,
+        "description": "One group's scores. Shares are 0..1, `None` when there is nothing to divide by.",
+        "properties": {
+          "action_failure_share": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Action Failure Share"
+          },
+          "actions_done": {
+            "title": "Actions Done",
+            "type": "integer"
+          },
+          "actions_failed": {
+            "title": "Actions Failed",
+            "type": "integer"
+          },
+          "actions_undone": {
+            "title": "Actions Undone",
+            "type": "integer"
+          },
+          "answers": {
+            "title": "Answers",
+            "type": "integer"
+          },
+          "done": {
+            "title": "Done",
+            "type": "integer"
+          },
+          "done_share": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Done Share"
+          },
+          "examples": {
+            "items": {
+              "$ref": "#/components/schemas/ExampleTurn"
+            },
+            "title": "Examples",
+            "type": "array"
+          },
+          "fell_back": {
+            "title": "Fell Back",
+            "type": "integer"
+          },
+          "first_token_slow_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Token Slow Ms"
+          },
+          "first_token_typical_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Token Typical Ms"
+          },
+          "low": {
+            "items": {
+              "enum": [
+                "thumbs_down",
+                "action_failures"
+              ],
+              "type": "string"
+            },
+            "title": "Low",
+            "type": "array"
+          },
+          "permission_refusals": {
+            "title": "Permission Refusals",
+            "type": "integer"
+          },
+          "proposals": {
+            "title": "Proposals",
+            "type": "integer"
+          },
+          "proposals_abandoned": {
+            "title": "Proposals Abandoned",
+            "type": "integer"
+          },
+          "proposals_accepted": {
+            "title": "Proposals Accepted",
+            "type": "integer"
+          },
+          "reasons": {
+            "items": {
+              "$ref": "#/components/schemas/ReasonCount"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "thumbs_down": {
+            "title": "Thumbs Down",
+            "type": "integer"
+          },
+          "thumbs_down_share": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thumbs Down Share"
+          },
+          "thumbs_up": {
+            "title": "Thumbs Up",
+            "type": "integer"
+          },
+          "tool_failures": {
+            "title": "Tool Failures",
+            "type": "integer"
+          },
+          "total_slow_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Slow Ms"
+          },
+          "total_typical_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Typical Ms"
+          }
+        },
+        "required": [
+          "answers",
+          "done",
+          "done_share",
+          "thumbs_up",
+          "thumbs_down",
+          "thumbs_down_share",
+          "reasons",
+          "tool_failures",
+          "permission_refusals",
+          "actions_done",
+          "actions_undone",
+          "actions_failed",
+          "action_failure_share",
+          "proposals",
+          "proposals_accepted",
+          "proposals_abandoned",
+          "fell_back",
+          "first_token_typical_ms",
+          "first_token_slow_ms",
+          "total_typical_ms",
+          "total_slow_ms",
+          "low",
+          "examples"
+        ],
+        "title": "QualityFigures",
+        "type": "object"
+      },
       "QuestionOut": {
         "additionalProperties": false,
         "properties": {
@@ -39818,6 +40320,25 @@
           "next_step"
         ],
         "title": "ReadinessRowOut",
+        "type": "object"
+      },
+      "ReasonCount": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason",
+          "count"
+        ],
+        "title": "ReasonCount",
         "type": "object"
       },
       "ReceiptOut": {
@@ -51144,6 +51665,34 @@
         "title": "ToolOut",
         "type": "object"
       },
+      "ToolQuality": {
+        "additionalProperties": false,
+        "properties": {
+          "area": {
+            "title": "Area",
+            "type": "string"
+          },
+          "figures": {
+            "$ref": "#/components/schemas/QualityFigures"
+          },
+          "is_action": {
+            "title": "Is Action",
+            "type": "boolean"
+          },
+          "tool": {
+            "title": "Tool",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tool",
+          "area",
+          "is_action",
+          "figures"
+        ],
+        "title": "ToolQuality",
+        "type": "object"
+      },
       "TopUpAttemptOut": {
         "additionalProperties": false,
         "description": "A payment that was STARTED \u2014 including the ones that went nowhere.\n\nTHE POINT OF THIS LIST is the rows a ledger cannot hold. A declined card moves no\nmoney, so it has no `credit_ledger` entry, so before it existed a client whose payment\nfailed came back to a screen indistinguishable from one they had never touched.",
@@ -58335,6 +58884,57 @@
           }
         },
         "summary": "The operator's own conversation with the admin assistant \u2014 durable, paged",
+        "tags": [
+          "copilot"
+        ],
+        "x-calevate-permission": "copilot:admin"
+      }
+    },
+    "/v1/admin/copilot/turns/{turn_id}/vote": {
+      "put": {
+        "description": "`copilot/routes.vote_copilot_answer` for the operator's own answers (D-937).\n\nIt writes an audit row, for the invariant `clear_admin_copilot_conversation` states:\nevery admin-realm mutation does. The vote and the reason word only, never the note.",
+        "operationId": "vote_admin_copilot_answer_v1_admin_copilot_turns__turn_id__vote_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "turn_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Turn Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CopilotVoteIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CopilotVoteOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Rate one of the admin Pip's answers \u2014 thumbs up, down, or take it back",
         "tags": [
           "copilot"
         ],
@@ -78405,6 +79005,57 @@
         "x-calevate-permission": "copilot:use"
       }
     },
+    "/v1/copilot/turns/{turn_id}/vote": {
+      "put": {
+        "description": "The asker's thumbs on one answer (D-937), changeable, one per answer.\n\n`404 copilot_answer_not_found` for an id that is not one of YOUR answers in this\naccount: a question, someone else's answer and a refused question all read the same.\nThe reason is a closed list; `note` (for `other`) is redacted before it is stored and\nnever logged. NO audit row, for `clear_copilot_conversation`'s reason: it is feedback\nabout the assistant, not an act on the account. Own session, so the person's other\nwindows are told after the commit.",
+        "operationId": "vote_copilot_answer_v1_copilot_turns__turn_id__vote_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "turn_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Turn Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CopilotVoteIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CopilotVoteOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Rate one of Pip's answers \u2014 thumbs up, thumbs down, or take it back",
+        "tags": [
+          "copilot"
+        ],
+        "x-calevate-permission": "copilot:use"
+      }
+    },
     "/v1/copilot/uploads": {
       "post": {
         "description": "Attach one file to Pip's next question. The body IS the file \u2014 not a form \u2014\nwith `Content-Type` set to the type the browser produced, and `X-Upload-Name` set to the\nname the person chose, percent-encoded.\n\nAllowed: pictures (JPG, PNG, WebP, HEIC \u2014 re-drawn by the browser as `image/jpeg`, which\ndrops their location and camera data), text and CSV (`text/plain`, `text/csv`), and Word,\nExcel and PowerPoint files the browser has turned into `text/plain`, and PDFs\n(`application/pdf`, sent as they are). Up to 20 MB a file, 5 MB a picture and 14 MB a PDF;\nup to 5 files, 2 of them pictures, 50 MB in all and 14 MB of pictures and PDFs together, on\none message. For a PDF the browser also sends the text it found in it, as `text/plain` with\n`X-Upload-Text-Of` naming the PDF: Pip reads that only when the PDF itself cannot be read.\nFiles with macros, older Office formats, ZIPs, audio and anything else are refused with a\nsentence saying what to do; so is a body whose first bytes are not what its type says.\n\nWhen files cannot be stored this answers 503 `copilot_uploads_unavailable`; the\nconversation read says so beforehand in `uploads_available`, so a browser never starts\nsuch an upload.\n\nNothing in the file is opened, scanned or reviewed: it is stored privately and sent to\nPip's AI provider as it is. Requires `copilot:use`.",
@@ -85583,6 +86234,67 @@
           "ops"
         ],
         "x-calevate-permission": "platform:config"
+      }
+    },
+    "/v1/ops/copilot-quality": {
+      "get": {
+        "description": "How Pip's answers went: done share, thumbs, action outcomes, refusals, latency and\nfallback, per area and per tool, with example answer ids for each low score.\n\nNo step-up and no audit row, for `read_reply_times`' reasons: a read of counts, names\nand ids, refreshed while watching. Never a word anybody said.",
+        "operationId": "read_copilot_quality_v1_ops_copilot_quality_get",
+        "parameters": [
+          {
+            "description": "How many days of answers to include.",
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 7,
+              "description": "How many days of answers to include.",
+              "maximum": 30,
+              "minimum": 1,
+              "title": "Days",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The client Pip or the admin Pip.",
+            "in": "query",
+            "name": "realm",
+            "required": false,
+            "schema": {
+              "default": "client",
+              "description": "The client Pip or the admin Pip.",
+              "enum": [
+                "client",
+                "admin"
+              ],
+              "title": "Realm",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CopilotQualityReport"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Pip's live success scores, by area and by tool (D-937)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
       }
     },
     "/v1/ops/cost-attestations/{subject}": {

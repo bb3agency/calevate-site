@@ -508,6 +508,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/copilot/turns/{turn_id}/vote": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Rate one of the admin Pip's answers — thumbs up, down, or take it back
+         * @description `copilot/routes.vote_copilot_answer` for the operator's own answers (D-937).
+         *
+         *     It writes an audit row, for the invariant `clear_admin_copilot_conversation` states:
+         *     every admin-realm mutation does. The vote and the reason word only, never the note.
+         */
+        put: operations["vote_admin_copilot_answer_v1_admin_copilot_turns__turn_id__vote_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/copilot/uploads": {
         parameters: {
             query?: never;
@@ -7947,6 +7970,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/copilot/turns/{turn_id}/vote": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Rate one of Pip's answers — thumbs up, thumbs down, or take it back
+         * @description The asker's thumbs on one answer (D-937), changeable, one per answer.
+         *
+         *     `404 copilot_answer_not_found` for an id that is not one of YOUR answers in this
+         *     account: a question, someone else's answer and a refused question all read the same.
+         *     The reason is a closed list; `note` (for `other`) is redacted before it is stored and
+         *     never logged. NO audit row, for `clear_copilot_conversation`'s reason: it is feedback
+         *     about the assistant, not an act on the account. Own session, so the person's other
+         *     windows are told after the commit.
+         */
+        put: operations["vote_copilot_answer_v1_copilot_turns__turn_id__vote_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/copilot/uploads": {
         parameters: {
             query?: never;
@@ -10696,6 +10746,30 @@ export interface paths {
          * @description Deletes the stored row so the value falls back to the environment, or to the code default when the environment does not set it. Requires `X-Confirm-Action: revert_config:<key>` — a DIFFERENT string from setting it, because reverting puts a value nobody has looked at recently back into force.
          */
         delete: operations["revert_config_v1_ops_config__key__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/copilot-quality": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Pip's live success scores, by area and by tool (D-937)
+         * @description How Pip's answers went: done share, thumbs, action outcomes, refusals, latency and
+         *     fallback, per area and per tool, with example answer ids for each low score.
+         *
+         *     No step-up and no audit row, for `read_reply_times`' reasons: a read of counts, names
+         *     and ids, refreshed while watching. Never a word anybody said.
+         */
+        get: operations["read_copilot_quality_v1_ops_copilot_quality_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -14581,6 +14655,12 @@ export interface components {
             /** Live Version */
             live_version: number;
         };
+        /** AreaQuality */
+        AreaQuality: {
+            /** Area */
+            area: string;
+            figures: components["schemas"]["QualityFigures"];
+        };
         /**
          * AssignIn
          * @description Which agent answers this number, and what the number is for.
@@ -18370,6 +18450,41 @@ export interface components {
             total: number;
         };
         /**
+         * CopilotQualityReport
+         * @description `GET /v1/ops/copilot-quality`. Lists are bounded by the area list, the registered tool
+         *     list, the three gate refusals, the answering legs and `MAX_EXAMPLES`.
+         */
+        CopilotQualityReport: {
+            /** Action Failure Low Share */
+            action_failure_low_share: number;
+            /** By Area */
+            by_area: components["schemas"]["AreaQuality"][];
+            /** By Provider */
+            by_provider: components["schemas"]["ProviderCount"][];
+            /** By Tool */
+            by_tool: components["schemas"]["ToolQuality"][];
+            /** Complete */
+            complete: boolean;
+            /** Min Attempts */
+            min_attempts: number;
+            /** Min Votes */
+            min_votes: number;
+            overall: components["schemas"]["QualityFigures"];
+            /** Questions */
+            questions: number;
+            /**
+             * Realm
+             * @enum {string}
+             */
+            realm: "client" | "admin";
+            /** Refusals */
+            refusals: components["schemas"]["ReasonCount"][];
+            /** Thumbs Down Low Share */
+            thumbs_down_low_share: number;
+            /** Window Days */
+            window_days: number;
+        };
+        /**
          * CopilotRoutineIn
          * @description `POST /v1/copilot/routines`.
          */
@@ -18538,6 +18653,10 @@ export interface components {
             said_at: string;
             /** Screen Route */
             screen_route: string;
+            /** Vote */
+            vote?: ("up" | "down") | null;
+            /** Vote Reason */
+            vote_reason?: ("wrong" | "not_done" | "too_slow" | "misunderstood" | "other") | null;
         };
         /**
          * CopilotTurn
@@ -18611,6 +18730,33 @@ export interface components {
              * @constant
              */
             status: "ready";
+        };
+        /**
+         * CopilotVoteIn
+         * @description `PUT .../turns/{turn_id}/vote`: thumbs up, thumbs down, or `null` to take it back.
+         *
+         *     A reason explains a thumbs down only, and `note` explains `other` only; the server
+         *     refuses any other combination rather than silently dropping half of it.
+         */
+        CopilotVoteIn: {
+            /** Note */
+            note?: string | null;
+            /** Reason */
+            reason?: ("wrong" | "not_done" | "too_slow" | "misunderstood" | "other") | null;
+            /** Vote */
+            vote: ("up" | "down") | null;
+        };
+        /**
+         * CopilotVoteOut
+         * @description The vote as stored.
+         */
+        CopilotVoteOut: {
+            /** Turn Id */
+            turn_id: string;
+            /** Vote */
+            vote: ("up" | "down") | null;
+            /** Vote Reason */
+            vote_reason: ("wrong" | "not_done" | "too_slow" | "misunderstood" | "other") | null;
         };
         /** CostAttestIn */
         CostAttestIn: {
@@ -20532,6 +20678,23 @@ export interface components {
             speaker: "caller" | "agent";
             /** Text */
             text: string;
+        };
+        /**
+         * ExampleTurn
+         * @description An answer to review: its turn id and, on the client Pip, its account.
+         */
+        ExampleTurn: {
+            /** Note */
+            note?: string | null;
+            /** Tenant Id */
+            tenant_id: string | null;
+            /** Turn Id */
+            turn_id: string;
+            /**
+             * Why
+             * @enum {string}
+             */
+            why: "thumbs_down" | "tool_failed" | "action_undone" | "unfinished";
         };
         /** ExperimentOut */
         ExperimentOut: {
@@ -26662,6 +26825,13 @@ export interface components {
             /** Why */
             why: string;
         };
+        /** ProviderCount */
+        ProviderCount: {
+            /** Answers */
+            answers: number;
+            /** Provider */
+            provider: string;
+        };
         /** ProvisionNumberIn */
         ProvisionNumberIn: {
             /** Agent Id */
@@ -26978,6 +27148,58 @@ export interface components {
              */
             week_start: string;
         };
+        /**
+         * QualityFigures
+         * @description One group's scores. Shares are 0..1, `None` when there is nothing to divide by.
+         */
+        QualityFigures: {
+            /** Action Failure Share */
+            action_failure_share: number | null;
+            /** Actions Done */
+            actions_done: number;
+            /** Actions Failed */
+            actions_failed: number;
+            /** Actions Undone */
+            actions_undone: number;
+            /** Answers */
+            answers: number;
+            /** Done */
+            done: number;
+            /** Done Share */
+            done_share: number | null;
+            /** Examples */
+            examples: components["schemas"]["ExampleTurn"][];
+            /** Fell Back */
+            fell_back: number;
+            /** First Token Slow Ms */
+            first_token_slow_ms: number | null;
+            /** First Token Typical Ms */
+            first_token_typical_ms: number | null;
+            /** Low */
+            low: ("thumbs_down" | "action_failures")[];
+            /** Permission Refusals */
+            permission_refusals: number;
+            /** Proposals */
+            proposals: number;
+            /** Proposals Abandoned */
+            proposals_abandoned: number;
+            /** Proposals Accepted */
+            proposals_accepted: number;
+            /** Reasons */
+            reasons: components["schemas"]["ReasonCount"][];
+            /** Thumbs Down */
+            thumbs_down: number;
+            /** Thumbs Down Share */
+            thumbs_down_share: number | null;
+            /** Thumbs Up */
+            thumbs_up: number;
+            /** Tool Failures */
+            tool_failures: number;
+            /** Total Slow Ms */
+            total_slow_ms: number | null;
+            /** Total Typical Ms */
+            total_typical_ms: number | null;
+        };
         /** QuestionOut */
         QuestionOut: {
             /** Hint */
@@ -27234,6 +27456,13 @@ export interface components {
             rule: string;
             /** Title */
             title: string;
+        };
+        /** ReasonCount */
+        ReasonCount: {
+            /** Count */
+            count: number;
+            /** Reason */
+            reason: string;
         };
         /**
          * ReceiptOut
@@ -31602,6 +31831,16 @@ export interface components {
             /** Trigger */
             trigger: string;
         };
+        /** ToolQuality */
+        ToolQuality: {
+            /** Area */
+            area: string;
+            figures: components["schemas"]["QualityFigures"];
+            /** Is Action */
+            is_action: boolean;
+            /** Tool */
+            tool: string;
+        };
         /**
          * TopUpAttemptOut
          * @description A payment that was STARTED — including the ones that went nowhere.
@@ -34555,6 +34794,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CopilotConversationClearedOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    vote_admin_copilot_answer_v1_admin_copilot_turns__turn_id__vote_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                turn_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CopilotVoteIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotVoteOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -47939,6 +48213,41 @@ export interface operations {
             };
         };
     };
+    vote_copilot_answer_v1_copilot_turns__turn_id__vote_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                turn_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CopilotVoteIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotVoteOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     upload_file_v1_copilot_uploads_post: {
         parameters: {
             query?: never;
@@ -53099,6 +53408,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ConfigWriteOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_copilot_quality_v1_ops_copilot_quality_get: {
+        parameters: {
+            query?: {
+                /** @description How many days of answers to include. */
+                days?: number;
+                /** @description The client Pip or the admin Pip. */
+                realm?: "client" | "admin";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotQualityReport"];
                 };
             };
             /** @description RFC-9457 problem+json */

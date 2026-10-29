@@ -64,6 +64,8 @@ interface StoredTurn {
   content: string;
   screen_route: string;
   said_at: string;
+  vote?: "up" | "down" | null;
+  vote_reason?: "wrong" | "not_done" | "too_slow" | "misunderstood" | "other" | null;
 }
 
 interface ConversationBody {
@@ -134,6 +136,8 @@ export async function loadConversation(
       role: turn.role,
       content: turn.content,
       wire: turn.content,
+      vote: turn.vote ?? null,
+      voteReason: turn.vote_reason ?? null,
     })),
     answering: body.answering === true,
     uploadsAvailable: body.uploads_available === true,

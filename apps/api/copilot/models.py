@@ -28,11 +28,14 @@ from sqlalchemy import (
     Computed,
     ForeignKey,
     Index,
+    Integer,
     String,
     Text,
+    false,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TSVECTOR
+from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from apps.api.db.base import Base, PKMixin, TimestampMixin
@@ -584,20 +587,125 @@ class CopilotJob(PKMixin, TimestampMixin, Base):
     finished_at: Mapped[datetime | None]
 
 
+#: How one Pip answer can be rated (D-937, migration `c9e4a7d2f15b`). A reason explains a
+#: thumbs down only; `other` carries one short redacted line.
+VOTES: Final[tuple[str, ...]] = ("up", "down")
+VOTE_REASONS: Final[tuple[str, ...]] = ("wrong", "not_done", "too_slow", "misunderstood", "other")
+#: A question the gate refused before any answer: the daily fair-use cap, Pip not turned on
+#: for the account, or the platform-wide AI brake.
+GATE_REFUSALS: Final[tuple[str, ...]] = ("fair_use", "consent", "paused")
+MAX_VOTE_NOTE: Final = 120
+
+_OUTCOME_CHECKS: Final[tuple[tuple[str, str], ...]] = (
+    ("refusal IS NULL OR refusal IN ('fair_use', 'consent', 'paused')", "refusal_enum"),
+    ("vote IS NULL OR vote IN ('up', 'down')", "vote_enum"),
+    (
+        "vote_reason IS NULL OR vote_reason IN "
+        "('wrong', 'not_done', 'too_slow', 'misunderstood', 'other')",
+        "vote_reason_enum",
+    ),
+    ("vote_reason IS NULL OR vote = 'down'", "reason_needs_down"),
+    ("vote_note IS NULL OR vote_reason = 'other'", "note_needs_other"),
+    ("(vote IS NULL) = (voted_at IS NULL)", "vote_pair"),
+    ("refusal IS NULL OR vote IS NULL", "refusal_not_voted"),
+    (
+        "(first_token_ms IS NULL OR first_token_ms >= 0) AND (total_ms IS NULL OR total_ms >= 0)",
+        "timings_non_negative",
+    ),
+)
+
+
+class _OutcomeColumns:
+    """How one answer went (D-937): tool NAMES, ids, timings, the leg, and the asker's vote.
+
+    Never the conversation text: `turn_id` points at the answer turn, which dies with its
+    sign-in run while this row lives on the scores' 30-day window. No foreign key to it for
+    that reason. See the migration for why the vote is on this row.
+    """
+
+    turn_id: Mapped[UUID] = mapped_column(nullable=False, unique=True)
+    tools: Mapped[list[str]] = mapped_column(
+        ARRAY(String(80)), nullable=False, server_default=text("'{}'")
+    )
+    failed_tools: Mapped[list[str]] = mapped_column(
+        ARRAY(String(80)), nullable=False, server_default=text("'{}'")
+    )
+    refused_tools: Mapped[list[str]] = mapped_column(
+        ARRAY(String(80)), nullable=False, server_default=text("'{}'")
+    )
+    #: The immediate actions this answer executed (`copilot_actions.id`). "Kept" or "undone"
+    #: is read from the action log at scoring time rather than copied here.
+    action_ids: Mapped[list[UUID]] = mapped_column(
+        ARRAY(PgUUID(as_uuid=True)), nullable=False, server_default=text("'{}'")
+    )
+    proposed_tool: Mapped[str | None] = mapped_column(String(80))
+    navigated: Mapped[bool] = mapped_column(nullable=False, server_default=false())
+    job_started: Mapped[bool] = mapped_column(nullable=False, server_default=false())
+    provider: Mapped[str | None] = mapped_column(String(40))
+    fell_back: Mapped[bool] = mapped_column(nullable=False, server_default=false())
+    first_token_ms: Mapped[int | None] = mapped_column(Integer)
+    total_ms: Mapped[int | None] = mapped_column(Integer)
+    completed: Mapped[bool] = mapped_column(nullable=False)
+    refusal: Mapped[str | None] = mapped_column(String(16))
+    vote: Mapped[str | None] = mapped_column(String(4))
+    vote_reason: Mapped[str | None] = mapped_column(String(16))
+    #: Redacted on write (`copilot/quality.record_vote`).
+    vote_note: Mapped[str | None] = mapped_column(String(MAX_VOTE_NOTE))
+    voted_at: Mapped[datetime | None]
+
+
+class CopilotAnswerOutcome(_OutcomeColumns, PKMixin, TimestampMixin, Base):
+    """How one CLIENT Pip answer went, and its asker's thumbs (D-937). Tenant data, RLS."""
+
+    __tablename__ = "copilot_answer_outcomes"
+    __table_args__ = (
+        *(CheckConstraint(sql, name=name) for sql, name in _OUTCOME_CHECKS),
+        Index("ix_copilot_answer_outcomes_tenant_created", "tenant_id", "created_at"),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
+    )
+    user_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+
+
+class AdminCopilotAnswerOutcome(_OutcomeColumns, PKMixin, TimestampMixin, Base):
+    """How one ADMIN Pip answer went (D-937). Platform-scoped, no RLS, as its action log."""
+
+    __tablename__ = "admin_copilot_answer_outcomes"
+    __table_args__ = (
+        *(CheckConstraint(sql, name=name) for sql, name in _OUTCOME_CHECKS),
+        Index("ix_admin_copilot_answer_outcomes_created", "created_at"),
+    )
+
+    admin_user_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("admin_users.id", ondelete="SET NULL")
+    )
+    viewing_tenant_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("organizations.id", ondelete="SET NULL")
+    )
+
+
 __all__ = [
     "ACTION_SOURCES",
     "ACTION_STATUSES",
+    "GATE_REFUSALS",
     "JOB_STATUSES",
     "MAX_ACTION_TEXT",
     "MAX_CONTENT_CHARS",
     "MAX_JOB_PROGRESS",
+    "MAX_VOTE_NOTE",
     "MEMORY_KINDS",
     "SEARCH_CONFIG",
     "TURN_ROLES",
+    "VOTES",
+    "VOTE_REASONS",
     "AdminCopilotAction",
+    "AdminCopilotAnswerOutcome",
     "AdminCopilotConversationTurn",
     "AdminCopilotMemory",
     "CopilotAction",
+    "CopilotAnswerOutcome",
     "CopilotConsent",
     "CopilotConversationTurn",
     "CopilotJob",

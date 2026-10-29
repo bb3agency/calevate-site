@@ -135,6 +135,13 @@ ADMIN_SCREENS: Final[tuple[AdminScreen, ...]] = (
         "ops:manage",
     ),
     AdminScreen(
+        "/admin/ops/pip-quality",
+        "Pip quality",
+        "Platform",
+        "Pip's answer scores.",
+        "ops:manage",
+    ),
+    AdminScreen(
         "/admin/ops/whatsapp",
         "Clients' WhatsApp",
         "Platform",
