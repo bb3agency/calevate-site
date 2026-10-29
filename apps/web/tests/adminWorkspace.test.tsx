@@ -299,6 +299,21 @@ describe("an operator buying a number for the client", () => {
     ).toBeTruthy();
   });
 
+  it("offers to try a failed number search again", async () => {
+    const searched = WORKSPACE_PATHS.available(TENANT, "Hyderabad", "", null);
+    let asked = 0;
+    await render(workspace(), {
+      [searched]: () => {
+        asked += 1;
+        return problem(503, { title: "The voice platform did not answer", retryable: true });
+      },
+    });
+    fireEvent.change(await screen.findByLabelText("City"), { target: { value: "Hyderabad" } });
+    fireEvent.click(await enabledButton("Find numbers"));
+    fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(asked).toBeGreaterThan(1));
+  });
+
   it("keeps only digits in the search, ten at most", async () => {
     const searched = WORKSPACE_PATHS.available(TENANT, "Hyderabad", "8012345678", null);
     const { calls } = await render(workspace(), { [searched]: { numbers: [], next_cursor: null } });
