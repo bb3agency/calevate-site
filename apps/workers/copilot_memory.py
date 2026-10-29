@@ -304,8 +304,7 @@ async def _distil_group(
 
     leg = distil.leg
     async with provider_health.watch("memory", chat.provider_of(leg), model=leg.wire_model):
-        outcome = await chat.complete(
-            leg,
+        outcome, tier = await distil.complete(
             [
                 {"role": "system", "content": _SYSTEM_PROMPT},
                 {"role": "user", "content": record},
@@ -356,6 +355,7 @@ async def _distil_group(
             # never the deployment id the call was addressed to.
             model=distil.meter_model,
             feature=ASSIST_FEATURE_COPILOT_MEMORY,
+            service_tier=tier,
         )
     else:
         log.warning("copilot_distil_unmetered", extra={"tenant_id": str(tenant_id)})
@@ -379,7 +379,7 @@ async def distil_copilot_memories(ctx: dict[str, Any]) -> str:
     read, the pool, a missing credential), because retrying that is the only thing that
     could help.
     """
-    distil = background_leg(azure_credentials())
+    distil = background_leg(azure_credentials(), call="copilot_memory")
     if distil is None:
         # Tolerant boot (BACKEND-PATTERNS §2): a deployment with no language credential
         # runs every other queue. Not an alert — it is a configuration state an operator

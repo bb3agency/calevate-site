@@ -411,8 +411,7 @@ async def _distil_call(
     transcript = "\n".join(f"{row[0]}: {row[1]}" for row in turns)
     leg = distil.leg
     async with provider_health.watch("memory", chat.provider_of(leg), model=leg.wire_model):
-        outcome = await chat.complete(
-            leg,
+        outcome, tier = await distil.complete(
             [
                 {"role": "system", "content": _SYSTEM_PROMPT},
                 {"role": "user", "content": transcript},
@@ -461,6 +460,7 @@ async def _distil_call(
             # name (D-410/D-417), for which `rates.llm_inr_per_ktok` publishes no price.
             model=distil.meter_model,
             feature=ASSIST_FEATURE_CALLER_MEMORY,
+            service_tier=tier,
         )
     else:
         log.warning("caller_memory_distil_unmetered", extra={"call_id": str(call_id)})
@@ -561,7 +561,7 @@ async def distil_caller_memories(ctx: dict[str, Any]) -> str:
         return "engine_remembers"
     # Gemini first, Azure only if configured, never the Sarvam standby: the rows are durable
     # and read back into later calls (`background_leg`'s reason).
-    distil = background_leg(azure_credentials())
+    distil = background_leg(azure_credentials(), call="caller_memory")
     if distil is None:
         # Tolerant boot (BACKEND-PATTERNS §2): a deployment with no language credential runs
         # every other queue. Not an alert — it is a configuration state an operator already

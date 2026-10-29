@@ -417,6 +417,7 @@ class FakeModel:
                 cached_reported=True,
             ),
             model=MODEL,
+            service_tier="flex" if kw.get("flex") is not None else "standard",
         )
 
 
@@ -558,6 +559,36 @@ async def test_the_scheduled_check_skips_unchanged_inputs_and_runs_on_a_change(
         )
     assert await _run(tenant_id, "scheduled") == "stored"
     assert (await _row(tenant_id))[1] != first[1]
+
+
+async def test_only_the_daily_check_asks_on_flex_and_its_cost_stays_at_the_standard_rate(
+    model: FakeModel, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D-930. FAILS IF: a run somebody asked for waits on Flex, or a Flex answer is recorded
+    below the attested rate while no Flex rate can be attested (hard rule 7)."""
+    _trial(monkeypatch, False)
+    asked, _slug, _token = await _make_tenant()
+    assert await _run(asked, "refresh") == "stored"
+    assert model.calls[-1]["flex"] is None
+    scheduled, _slug, _token = await _make_tenant()
+    assert await _run(scheduled, "scheduled") == "stored"
+    assert model.calls[-1]["flex"].call == "business_copy_scheduled"
+
+    assert (await _row(scheduled))[2] == (await _row(asked))[2]
+
+    async def _meta(tenant_id: uuid.UUID) -> set[tuple[str | None, str | None]]:
+        async with tenant_session(tenant_id) as session:
+            rows = await session.execute(
+                text(
+                    "SELECT meta->>'service_tier', meta->>'priced_at' FROM usage_events "
+                    "WHERE tenant_id = :t AND unit_type LIKE 'ai_assist%'"
+                ),
+                {"t": tenant_id},
+            )
+            return {(r[0], r[1]) for r in rows}
+
+    assert await _meta(scheduled) == {("flex", "standard")}
+    assert await _meta(asked) == {(None, None)}
 
 
 async def test_a_used_up_allowance_skips_the_run_and_keeps_the_copy(

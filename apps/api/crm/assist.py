@@ -379,8 +379,12 @@ async def meter_assist(
     feature: str = ASSIST_FEATURE_RESUMMARISE,
     model: str | None = None,
     unused: bool = False,
+    service_tier: str = "standard",
 ) -> AssistMetering:
     """Turn one `AssistResult` into `usage_events` rows, or say why it did not.
+
+    `service_tier` is the Gemini tier that served a paid answer (D-930); see
+    `record_ai_assist_usage` for how a `flex` row is priced.
 
     `unused` marks a paid turn that ANSWERED but whose answer the client did not get (it
     was unusable, truncated, or its leg died before the answer finished). It is our cost
@@ -536,6 +540,7 @@ async def meter_assist(
         model=model,
         feature=ASSIST_FEATURE_UNUSED if unused else feature,
         extra_meta={"unused_for": feature} if unused else None,
+        service_tier=service_tier,
     )
     return AssistMetering(metered=metered.recorded and not unused, cost_inr=metered.cost_inr)
 

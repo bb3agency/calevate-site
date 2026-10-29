@@ -104,7 +104,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.kb.gloss import GLOSS_NOT_NEEDED, GLOSS_PENDING, GLOSS_READY, needs_gloss
 from apps.api.kb.service import refresh_projection_keys
 from apps.workers import chat
-from apps.workers.background_leg import background_leg
+from apps.workers.background_leg import BackgroundLeg, background_leg
 from apps.workers.extraction import azure_credentials
 from apps.workers.set_aside import (
     REFUSED_INPUT_SET_ASIDE,
@@ -212,8 +212,7 @@ async def _gloss_one(
     tenant_id: UUID,
     chunk_id: UUID,
     content: str,
-    leg: chat.ChatLeg,
-    model: str,
+    chosen: BackgroundLeg,
 ) -> bool:
     """One chunk → a stored gloss, or a stored "nothing owed". True when a model was paid.
 
@@ -229,9 +228,9 @@ async def _gloss_one(
         )
         return False
 
+    leg, model = chosen.leg, chosen.meter_model
     async with provider_health.watch("kb_gloss", chat.provider_of(leg), model=leg.wire_model):
-        outcome = await chat.complete(
-            leg,
+        outcome, tier = await chosen.complete(
             [
                 {"role": "system", "content": _SYSTEM_PROMPT},
                 {"role": "user", "content": content},
@@ -278,6 +277,7 @@ async def _gloss_one(
             # ledger row that could never afterwards be corrected.
             model=model,
             feature=ASSIST_FEATURE_KB_GLOSS,
+            service_tier=tier,
         )
     else:
         alert(
@@ -377,7 +377,7 @@ async def write_knowledge_glosses(ctx: dict[str, Any]) -> str:
     DOES reach the retry ladder is a tick-wide failure — the worklist read — because
     retrying that is the only thing that could help.
     """
-    chosen = background_leg(azure_credentials())
+    chosen = background_leg(azure_credentials(), call="kb_gloss")
     if chosen is None:
         # Tolerant boot (BACKEND-PATTERNS §2): a deployment with no language credential runs
         # every other queue. Not an alert — it is a configuration state an operator already
@@ -385,7 +385,6 @@ async def write_knowledge_glosses(ctx: dict[str, Any]) -> str:
         # noise.
         log.info("kb_gloss_no_provider")
         return "no_provider"
-    leg, model = chosen.leg, chosen.meter_model
 
     try:
         tenants = await tenants_holding_knowledge()
@@ -444,8 +443,7 @@ async def write_knowledge_glosses(ctx: dict[str, Any]) -> str:
                                     tenant_id=tenant_id,
                                     chunk_id=UUID(str(row[0])),
                                     content=str(row[1]),
-                                    leg=leg,
-                                    model=model,
+                                    chosen=chosen,
                                 )
                         except (httpx.HTTPError, TimeoutError) as failure:
                             # The provider, for THIS chunk. Its savepoint rolls back, so it
