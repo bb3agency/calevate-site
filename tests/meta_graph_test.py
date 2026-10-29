@@ -124,6 +124,22 @@ async def test_the_request_is_the_pinned_graph_node_read_with_a_bearer_token() -
     assert "access_token" not in str(request.url), "never in the URL"
 
 
+@pytest.mark.parametrize("forged", ["..", "../me/accounts", "me?fields=access_token", "1/x"])
+async def test_a_lead_id_that_would_read_another_node_is_never_sent(forged: str) -> None:
+    """The id is spliced into the path, and a client holding its own app secret can sign
+    any notification it likes; httpx would collapse `..` and carry `?` into the query."""
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={"id": "1", "field_data": FIELD_DATA})
+
+    result = await _retriever(handler).fetch_answers(source_id=SOURCE_ID, leadgen_id=forged)
+
+    assert seen == []
+    assert (result.status, result.reason) == (meta.RetrievalStatus.PERMANENT, MALFORMED_REASON)
+
+
 def test_the_pinned_version_is_a_real_pin() -> None:
     """A `v` and a number, not a floating alias. `latest`, an empty string or a bare
     number would all "work" against the host and all mean something we did not choose."""
