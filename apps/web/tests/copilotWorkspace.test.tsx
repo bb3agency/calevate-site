@@ -20,8 +20,10 @@ import {
   PREVIEW,
   REFUSED_ACTION,
   ROUTINE_ON,
+  RUNNING_JOB,
   workspaceRoutes,
 } from "./copilotWorkspaceFixture";
+import { JobCard } from "@/components/copilot/JobCard";
 import { renderClientPage, type ApiCall } from "./harness";
 import { PLAN_ID, planFixture } from "./planFixture";
 import { TasksList } from "@/components/copilot/workspace/TasksList";
@@ -156,6 +158,39 @@ describe("the Approvals inbox", () => {
     await screen.findByText("That lead has been deleted.");
     expect(screen.getByRole("button", { name: "Approve" })).toHaveProperty("disabled", true);
     expect(screen.getByRole("button", { name: "Decline" })).toHaveProperty("disabled", false);
+  });
+});
+
+describe("a background job card in the panel", () => {
+  it("offers Stop while the job runs, posts it, and shows the job cancelled", async () => {
+    let cancelled = false;
+    const jobPath = `/v1/copilot/jobs/${RUNNING_JOB.id}`;
+    const view = await renderClientPage(
+      <WithSession>
+        {(session) => (
+          <JobCard
+            session={session}
+            job={{ job_id: RUNNING_JOB.id, status: "running", goal: RUNNING_JOB.goal, detail: "" }}
+          />
+        )}
+      </WithSession>,
+      {
+        ...workspaceRoutes(),
+        [`GET ${jobPath}`]: () =>
+          cancelled ? { ...RUNNING_JOB, status: "cancelled" } : RUNNING_JOB,
+        [`POST ${jobPath}/cancel`]: () => {
+          cancelled = true;
+          return { ...RUNNING_JOB, status: "cancelled" };
+        },
+      },
+    );
+    await screen.findByText("Working on it");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+    });
+    expect(posted(view.calls, `${jobPath}/cancel`)).toHaveLength(1);
+    expect(await screen.findByText("Cancelled")).toBeTruthy();
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Stop" })).toBeNull());
   });
 });
 

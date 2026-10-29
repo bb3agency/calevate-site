@@ -167,14 +167,22 @@ export function useCopilotJobs(session: Session) {
   });
 }
 
+/**
+ * Stop a background job. Also re-reads that one job's own card (`useCopilotJob`), which
+ * otherwise keeps saying "Working on it" until its next poll.
+ */
 export function useCancelJob(session: Session) {
+  const client = useQueryClient();
   const invalidate = useInvalidateWorkspace(session);
   return useMutation<CopilotJobOut, unknown, string>({
     mutationFn: (jobId) =>
       apiRequest<CopilotJobOut>(session, `/v1/copilot/jobs/${encodeURIComponent(jobId)}/cancel`, {
         method: "POST",
       }),
-    onSuccess: invalidate,
+    onSuccess: (_job, jobId) => {
+      invalidate();
+      void client.invalidateQueries({ queryKey: ["copilot-job", session.orgSlug, jobId] });
+    },
   });
 }
 
