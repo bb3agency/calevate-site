@@ -328,6 +328,33 @@ def _unusable_kek(env_var: str, what: str) -> ProblemError:
     )
 
 
+#: What a reader of an unwrap or integrity refusal is told. Same reasoning as
+#: `_unusable_kek`: `unseal` runs behind client routes (a saved integration key, a sealed
+#: lead-source secret), so the body is for that client and the operator's instructions —
+#: the environment variable, the rewrap, "treat as an incident" — travel in the log line
+#: under `fix` (OWASP Error Handling Cheat Sheet: no internals in an error response).
+_SECRET_REFUSAL_DETAIL = (
+    "A saved detail could not be opened, so we have stopped rather than carry on. Nothing "
+    "of yours has been changed or lost."
+)
+_SECRET_REFUSAL_REMEDIATION = (
+    "There is nothing for you to fix. Your Calevate team has been alerted — quote the "
+    "reference on this message if you contact us."
+)
+
+
+def _secret_refusal(code: str, title: str, *, fix: str, **extra: object) -> ProblemError:
+    """Log `code` with the operator's `fix`, and return the client-safe refusal."""
+    log.error(code, extra={**extra, "fix": fix})
+    return ProblemError(
+        kind="dependency",
+        code=code,
+        title=title,
+        detail=_SECRET_REFUSAL_DETAIL,
+        remediation=_SECRET_REFUSAL_REMEDIATION,
+    )
+
+
 def _fingerprint(material: bytes) -> int:
     """A stable, positive 31-bit id for one key. See `Kek` for why this is not a counter."""
     digest = hashlib.sha256(b"calevate/platform-kek-id/v1\x00" + material).digest()
@@ -472,18 +499,15 @@ def unseal_bytes(envelope: Envelope, *, context: str, ring: KekRing | None = Non
         except _UNOPENABLE:
             continue
     if dek is None:
-        log.error("platform_secret_unwrappable", extra={"keys_tried": len(keys)})
-        raise ProblemError(
-            kind="dependency",
-            code="platform_secret_unwrappable",
-            title="A stored credential could not be unwrapped",
-            detail="No configured platform key opens this credential.",
-            remediation=(
-                "The deployment's PLATFORM_KEK is not the key this value was written "
-                "under. If it was rotated, put the outgoing value in "
-                "PLATFORM_KEK_RETIRED and redeploy; the rewrap job then moves the rows "
-                "onto the new key."
+        raise _secret_refusal(
+            "platform_secret_unwrappable",
+            "A saved detail could not be opened",
+            fix=(
+                "PLATFORM_KEK is not the key this was written under. After a rotation, "
+                "put the outgoing key in PLATFORM_KEK_RETIRED and redeploy; the rewrap "
+                "job then moves the rows."
             ),
+            keys_tried=len(keys),
         )
     try:
         return AESGCM(dek).decrypt(envelope.nonce, envelope.ciphertext, aad)
@@ -491,17 +515,15 @@ def unseal_bytes(envelope: Envelope, *, context: str, ring: KekRing | None = Non
         # The DEK opened, so the KEK is right and the wrapping is intact — but the
         # payload's tag did not verify. Either the row was edited, or this envelope came
         # from a different context and was moved here. Both are incidents.
-        log.error("platform_secret_corrupt", extra={"context": context})
-        raise ProblemError(
-            kind="dependency",
-            code="platform_secret_corrupt",
-            title="A stored credential failed its integrity check",
-            detail="This credential's stored value does not verify against its own key.",
-            remediation=(
-                "The row was modified outside the application, or moved from another "
-                "key's row. Do not overwrite it — capture it and treat this as a "
-                "security incident."
+        raise _secret_refusal(
+            "platform_secret_corrupt",
+            "A saved detail could not be opened",
+            fix=(
+                "The row was edited outside the application or moved from another key's "
+                "row. Do not overwrite it: capture it and treat this as a security "
+                "incident."
             ),
+            context=context,
         ) from None
 
 
@@ -533,17 +555,15 @@ def rewrap(envelope: Envelope, *, context: str, ring: KekRing | None = None) -> 
         except _UNOPENABLE:
             continue
     if dek is None:
-        log.error("platform_secret_unwrappable", extra={"keys_tried": len(keys.all_keys)})
-        raise ProblemError(
-            kind="dependency",
-            code="platform_secret_unwrappable",
-            title="A stored credential could not be unwrapped",
-            detail="No configured platform key opens this credential.",
-            remediation=(
-                "This row was written under a KEK this deployment no longer has. Put the "
-                "outgoing value in PLATFORM_KEK_RETIRED and run the rewrap again; until "
-                "then this row must not be treated as re-wrapped."
+        raise _secret_refusal(
+            "platform_secret_unwrappable",
+            "A saved detail could not be opened",
+            fix=(
+                "Written under a KEK this deployment no longer has. Put that key in "
+                "PLATFORM_KEK_RETIRED and run the rewrap again; until then the row is "
+                "not re-wrapped."
             ),
+            keys_tried=len(keys.all_keys),
         )
     dek_nonce = os.urandom(NONCE_BYTES)
     return Envelope(

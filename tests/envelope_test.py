@@ -309,6 +309,47 @@ def test_a_key_no_longer_in_the_ring_refuses_by_name() -> None:
     assert raised.value.code == "platform_secret_unwrappable"
 
 
+def _refusal_fix(caplog: pytest.LogCaptureFixture, code: str) -> str:
+    records = [r for r in caplog.records if r.getMessage() == code]
+    assert len(records) == 1, [r.getMessage() for r in caplog.records]
+    return str(getattr(records[0], "fix", ""))
+
+
+def test_an_unwrap_refusal_keeps_the_key_rotation_steps_in_the_log(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """`unseal` runs behind client routes, so the KEK and rewrap instructions are the
+    operator's and go to the log; the body names nothing of the deployment."""
+    envelope = seal(
+        SECRET, context=CONTEXT, ring=build_ring(kek=_kek(b"\x11"), retired=None, app_env="prod")
+    )
+    stranger = build_ring(kek=_kek(b"\x99"), retired=None, app_env="prod")
+    with caplog.at_level(logging.ERROR), pytest.raises(ProblemError) as raised:
+        unseal(envelope, context=CONTEXT, ring=stranger)
+    _assert_reader_can_act_on_it(raised.value)
+    assert "rewrap" not in f"{raised.value.detail} {raised.value.remediation}"
+    assert "PLATFORM_KEK_RETIRED" in _refusal_fix(caplog, "platform_secret_unwrappable")
+
+
+def test_an_integrity_refusal_keeps_the_incident_instruction_in_the_log(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    ring = _ring()
+    envelope = seal(SECRET, context=CONTEXT, ring=ring)
+    tampered = Envelope(
+        ciphertext=_flip(envelope.ciphertext),
+        nonce=envelope.nonce,
+        dek_wrapped=envelope.dek_wrapped,
+        dek_nonce=envelope.dek_nonce,
+        kek_id=envelope.kek_id,
+    )
+    with caplog.at_level(logging.ERROR), pytest.raises(ProblemError) as raised:
+        unseal(tampered, context=CONTEXT, ring=ring)
+    _assert_reader_can_act_on_it(raised.value)
+    assert "incident" not in f"{raised.value.detail} {raised.value.remediation}"
+    assert "security incident" in _refusal_fix(caplog, "platform_secret_corrupt")
+
+
 # --- tampering ----------------------------------------------------------------
 
 
