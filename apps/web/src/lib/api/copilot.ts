@@ -119,6 +119,13 @@ const INVALIDATES: Record<string, readonly (readonly string[])[]> = {
   // An export changes nothing on screen; the file is the result.
   leads_export: [],
   calls_export: [],
+  // D-938: each the keys its own screen's save refreshes.
+  account_model_tier_set: [["llm-defaults"], ["agents"], ["agent"]],
+  account_switch_set: [["kb-staff-curation"], ["outbound-consent-policy"], ["forwarding"]],
+  agent_team_alert_set: [["team-alerts"]],
+  team_alert_contact: [["team-alerts"]],
+  knowledge_refresh: [["kb-uploads"], ["kb"], ["kb-knows"]],
+  connection_disconnect: [["actions", "credentials"], ["agents"], ["agent"]],
 };
 
 export function refreshAfterConfirm(

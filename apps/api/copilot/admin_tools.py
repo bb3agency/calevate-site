@@ -236,11 +236,9 @@ _FIRST_ADMIN_READ_TOOLS: Final[tuple[ReadTool, ...]] = (
     ReadTool(
         name="platform_tenants",
         description=(
-            "Every client account on the platform, newest first: name, slug, status, "
-            "vertical, how many live agents, calls in the last 7 days, total leads, when "
-            "they last made a call, whether they are spend-capped, and which human-action "
-            "gates are holding them. Use it for which clients exist; for one client's "
-            "verification, trial or dialling block use `admin_client_standing`."
+            "Every client account, newest first: slug, status, live agents, calls in 7 days, "
+            "leads, last call, spend cap and the gates holding them. One client's "
+            "verification, trial or dialling block: `admin_client_standing`."
         ),
         parameters={
             "type": "object",
@@ -262,11 +260,8 @@ _FIRST_ADMIN_READ_TOOLS: Final[tuple[ReadTool, ...]] = (
     ReadTool(
         name="platform_health",
         description=(
-            "The client triage board: every account with at least one live health signal, "
-            "worst first, with the rule names that fired (spend cap, KYC missing, PE "
-            "registration missing, stalled pipeline, knowledge waiting, failed webhook "
-            "deliveries, call volume collapse) and this week's call volume against last "
-            "week's. Use it to answer which clients need attention."
+            "Which clients need attention: every account with a live health signal, worst "
+            "first, the rules that fired, and this week's calls against last week's."
         ),
         parameters={
             "type": "object",
@@ -752,6 +747,34 @@ async def _healer_incident(
     return "\n".join(lines)
 
 
+async def _admin_rate_card(
+    session: AsyncSession, context: ToolContext, args: Mapping[str, Any]
+) -> str:
+    """The Rate card panel's own read (`ops/config_routes.read_rate_card`, D-547): every
+    figure and verdict is the server's, as decimal strings, so Pip quotes and never
+    computes a margin."""
+    del context, args
+    from apps.api.ops.config_routes import read_rate_card
+
+    card = await read_rate_card(session, None)  # type: ignore[arg-type]
+    lines = [
+        f"Rate card in force since {card.effective_from or 'the committed catalogue'}; "
+        f"margin target {card.target_gross_margin_pct}%; notice {card.notice_days} days, "
+        f"earliest new date {card.earliest_effective_from}.",
+    ]
+    lines.extend(
+        f"- {c.pack_id} (₹{c.amount_inr}) {c.tier_label}: ₹{c.inr_per_min}/min, cost "
+        f"₹{c.cost_floor_inr_per_min}/min, margin "
+        + (f"{c.gross_margin_pct}%" if c.gross_margin_pct is not None else "undefined")
+        + (" BELOW COST" if c.below_floor else " below target" if c.below_target else "")
+        for c in card.cells
+    )
+    lines.extend(
+        f"Scheduled card from {p.effective_from}: {len(p.cells)} rates." for p in card.pending
+    )
+    return _clean("\n".join(lines))
+
+
 async def _healer_money_review(
     session: AsyncSession, context: ToolContext, args: Mapping[str, Any]
 ) -> str:
@@ -994,6 +1017,19 @@ ADMIN_READ_TOOLS: Final[tuple[ReadTool, ...]] = (
         permission="admin:tenants",
         scope="platform",
         run=_admin_diagnose,
+    ),
+    # D-938: the rate card, as the Rate card panel shows it.
+    ReadTool(
+        name="admin_rate_card",
+        description=(
+            "The credit-pack rate card in force: each pack and voice, its per-minute rate, "
+            "cost and margin verdict, and any scheduled card."
+        ),
+        parameters=_NO_ARGS,
+        # The panel's own permission (`ops/config_routes.ConfigOperator`).
+        permission="platform:config",
+        scope="platform",
+        run=_admin_rate_card,
     ),
 )
 

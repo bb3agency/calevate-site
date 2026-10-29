@@ -302,4 +302,5 @@ def test_the_admin_reads_are_appended_after_the_first_four() -> None:
         "healer_incident",
         "healer_money_review",
         "admin_diagnose",
+        "admin_rate_card",
     ]
