@@ -873,9 +873,7 @@ export interface paths {
         };
         /**
          * Clients whose identity verification is waiting for a reviewer
-         * @description Built the way `admin/holds.held_tenants` is: the admin GUC lists organizations, and
-         *     each tenant's record is read under its OWN RLS session, so no policy is widened to
-         *     let an admin session read `kyc_records`. Oldest submission first.
+         * @description `kyc_review.waiting_reviews`, oldest submission first.
          */
         get: operations["kyc_review_queue_v1_admin_kyc_reviews_get"];
         put?: never;
@@ -10778,6 +10776,28 @@ export interface paths {
          * @description Writes `dnc_list` rows with `scope='global'` — an absolute platform-wide refusal to dial, honoured by every tenant's compliance gate on the next dispatch decision and removable by no client. Use it for a regulator, TSP or registrar instruction naming a number, or for a number this platform must never call again. It is NOT the national customer preference register: that is a per-list scrub run on an access provider's DLT platform and recorded against the campaign it covers.
          */
         post: operations["suppress_globally_v1_ops_dnc_global_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/dnc/global/find": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Is this number suppressed for everyone? (POST: the number IS personal data)
+         * @description The list stops at its newest `MAX_LIST` rows, so filtering it in the browser reads an
+         *     older suppression as "no match". This asks the key instead. A POST for the reason
+         *     `dnc_routes.check` gives: a GET would write the number into access logs.
+         */
+        post: operations["find_global_v1_ops_dnc_global_find_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -21307,6 +21327,17 @@ export interface components {
             scope: string;
             /** Source */
             source: string | null;
+        };
+        /** GlobalFindIn */
+        GlobalFindIn: {
+            /** Phone */
+            phone: string;
+        };
+        /** GlobalFindOut */
+        GlobalFindOut: {
+            entry: components["schemas"]["GlobalEntryOut"] | null;
+            /** Valid */
+            valid: boolean;
         };
         /** GlobalSuppressIn */
         GlobalSuppressIn: {
@@ -53237,6 +53268,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GlobalSuppressOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    find_global_v1_ops_dnc_global_find_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GlobalFindIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GlobalFindOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

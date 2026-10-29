@@ -23860,6 +23860,47 @@
         "title": "GlobalEntryOut",
         "type": "object"
       },
+      "GlobalFindIn": {
+        "additionalProperties": false,
+        "properties": {
+          "phone": {
+            "maxLength": 20,
+            "minLength": 8,
+            "title": "Phone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "phone"
+        ],
+        "title": "GlobalFindIn",
+        "type": "object"
+      },
+      "GlobalFindOut": {
+        "additionalProperties": false,
+        "properties": {
+          "entry": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GlobalEntryOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "valid": {
+            "title": "Valid",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "valid",
+          "entry"
+        ],
+        "title": "GlobalFindOut",
+        "type": "object"
+      },
       "GlobalSuppressIn": {
         "additionalProperties": false,
         "properties": {
@@ -59298,7 +59339,7 @@
     },
     "/v1/admin/kyc/reviews": {
       "get": {
-        "description": "Built the way `admin/holds.held_tenants` is: the admin GUC lists organizations, and\neach tenant's record is read under its OWN RLS session, so no policy is widened to\nlet an admin session read `kyc_records`. Oldest submission first.",
+        "description": "`kyc_review.waiting_reviews`, oldest submission first.",
         "operationId": "kyc_review_queue_v1_admin_kyc_reviews_get",
         "parameters": [
           {
@@ -85804,6 +85845,45 @@
           }
         },
         "summary": "Suppress numbers for EVERY tenant (step-up confirmed, audited)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/ops/dnc/global/find": {
+      "post": {
+        "description": "The list stops at its newest `MAX_LIST` rows, so filtering it in the browser reads an\nolder suppression as \"no match\". This asks the key instead. A POST for the reason\n`dnc_routes.check` gives: a GET would write the number into access logs.",
+        "operationId": "find_global_v1_ops_dnc_global_find_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GlobalFindIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GlobalFindOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Is this number suppressed for everyone? (POST: the number IS personal data)",
         "tags": [
           "ops"
         ],
