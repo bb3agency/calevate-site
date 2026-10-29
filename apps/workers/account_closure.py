@@ -570,7 +570,9 @@ async def sweep_due_erasures(ctx: dict[str, Any]) -> str:
     **Already-filed is a success, not a skip.** `request_tenant_erasure` dedupes on the
     open request under an advisory lock and a partial unique index, so a tick that overlaps
     a slow predecessor converges on one request rather than minting a second. This
-    therefore needs no cursor and no lease of its own.
+    therefore needs no cursor and no lease of its own. It does not reset the account's
+    failure count, though: an account due again with its request already open is one whose
+    erasure job has not completed.
 
     A tenant that fails does not fail the tick, and the count of failures is alerted
     AFTER the sweep — the shape `apply_retention` was rewritten into, for the reason it
@@ -599,7 +601,16 @@ async def sweep_due_erasures(ctx: dict[str, Any]) -> str:
                     # is what a person reads next year.
                     reason=reason or "Grace period after account closure elapsed.",
                 )
-                await record_erasure_attempt(scoped, tenant_id=tenant_id, filed=True)
+                # An erasure filed on an earlier tick that is STILL open is a deadline
+                # slipping, not a success: the account is only due again because the job
+                # has not marked it erased. Counted like a failed tick, so one whose job
+                # keeps rolling back is named in `closure_erasure_stuck` rather than having
+                # its count reset every hour.
+                waiting = await record_erasure_attempt(
+                    scoped, tenant_id=tenant_id, filed=not record.already_open
+                )
+            if record.already_open and waiting >= ERASURE_STUCK_AFTER:
+                stuck.append(tenant_id)
         except ProblemError as exc:
             # `assert_erasable` refused. An account restored between the read and the
             # write — `tenant_not_closed` — is the undo working as designed and must not
@@ -644,10 +655,12 @@ async def sweep_due_erasures(ctx: dict[str, Any]) -> str:
             "WORKER_TERMINAL",
             "closure_erasure_stuck",
             detail=(
-                f"{len(stuck)} account(s) past their erasure date have failed to be filed "
+                f"{len(stuck)} account(s) past their erasure date have not been erased "
                 f"on {ERASURE_STUCK_AFTER} or more hourly ticks in a row: {named}{more}. "
-                "Another tick will not clear this; read their closure_sweep_tenant_failed "
-                "and closure_sweep_tenant_refused log lines."
+                "Another tick will not clear this. Either filing failed (read their "
+                "closure_sweep_tenant_failed and closure_sweep_tenant_refused log lines) "
+                "or the filed erasure job did not complete (fix its cause, then "
+                "`python -m scripts.redrive_tenant_erasures --apply`)."
             ),
         )
     return json.dumps(totals)
