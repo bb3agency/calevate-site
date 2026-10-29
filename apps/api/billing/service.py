@@ -56,6 +56,7 @@ from apps.api.billing.credit_packs import PACK_CATALOGUE, CreditPack, pack_paid_
 from apps.api.billing.list_rates import card_at, self_serve_rate_at
 from apps.api.billing.models import (
     GRANTED_CREDIT_REASONS,
+    LEDGER_KEY_SINCE_SQL,
     PAID_CREDIT_REASONS,
     PLATFORM_ABSORBED_UNIT_TYPES,
 )
@@ -573,11 +574,19 @@ async def read_entry_by_ref(
     then waited on its own parent until `statement_timeout` (D-748). A writer calls
     `find_entry_by_ref`, which is this inside the lock.
     """
+    # Two arms: entries since the key's cutoff are read from the key, older ones from the
+    # tenant's ledger before it, which stops growing. One unsplit predicate read every row
+    # the tenant ever had, under the credit lock on the charge path.
     row = (
         await session.execute(
             text(
-                "SELECT id, delta FROM credit_ledger WHERE tenant_id = :tid "
-                "AND reason = :reason AND ref = :ref ORDER BY occurred_at DESC, id DESC LIMIT 1"
+                "SELECT id, delta FROM ("
+                "(SELECT id, delta, occurred_at FROM credit_ledger WHERE tenant_id = :tid "
+                f"AND reason = :reason AND ref = :ref AND occurred_at >= {LEDGER_KEY_SINCE_SQL}) "
+                "UNION ALL "
+                "(SELECT id, delta, occurred_at FROM credit_ledger WHERE tenant_id = :tid "
+                f"AND reason = :reason AND ref = :ref AND occurred_at < {LEDGER_KEY_SINCE_SQL})"
+                ") e ORDER BY occurred_at DESC, id DESC LIMIT 1"
             ),
             {"tid": tenant_id, "reason": reason, "ref": ref},
         )

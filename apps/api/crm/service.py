@@ -34,6 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents.business_hours import count_after_hours_calls
 from apps.api.agents.call_outcomes import outcome_lead_move
 from apps.api.billing.caps import read_spend_counters
+from apps.api.billing.models import LEDGER_KEY_SINCE_SQL
 from apps.api.core.errors import ProblemError
 from apps.api.core.spreadsheet_safety import disarm_for_csv
 from apps.api.crm import columns as lead_column_registry
@@ -301,12 +302,12 @@ async def list_calls(
 
 #: What the call took from the balance: its `usage` debit, keyed by the call id
 #: (`billing/service.charge_for_call`), read through `ux_credit_ledger_tenant_reason_ref`.
-#: That index is partial on `occurred_at >= '2026-08-11 08:07:00+00'` (migration
-#: f9c2b41a8e57), so the lookup must repeat the bound or the planner cannot use it and reads
-#: every ledger row of the tenant once per call on the page (4.5 ms a row at 24k debits). A
-#: call created on or after the line has its debit after it too (`record_entry` stamps
-#: `clock_timestamp()` after the call row exists); an older call keeps the unbounded read.
-_LEDGER_KEY_SINCE: Final = "TIMESTAMPTZ '2026-08-11 08:07:00+00'"
+#: That index is partial on its cutoff (`LEDGER_KEY_SINCE_SQL`), so the lookup must repeat
+#: the bound or the planner reads every ledger row of the tenant once per call on the page
+#: (4.5 ms a row at 24k debits). A call created on or after the cutoff has its debit after it
+#: too (`record_entry` stamps `clock_timestamp()` after the call row exists); an older call
+#: keeps the unbounded read.
+_LEDGER_KEY_SINCE: Final = LEDGER_KEY_SINCE_SQL
 _CREDITS_USED_COLUMN = (
     f"(CASE WHEN c.created_at >= {_LEDGER_KEY_SINCE} THEN "
     "(SELECT -sum(l.delta) FROM credit_ledger l WHERE l.tenant_id = c.tenant_id "
