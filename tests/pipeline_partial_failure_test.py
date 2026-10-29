@@ -34,6 +34,7 @@ Scope discipline: every test builds its own tenant and asserts only on rows it c
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import uuid
@@ -584,6 +585,101 @@ async def test_a_re_drive_does_not_re_fetch_a_recording_we_already_hold() -> Non
     assert fetches["n"] == 1, f"the vendor's audio was fetched {fetches['n']} times for one call"
     key = await _scalar(tenant_id, "SELECT recording_url FROM calls WHERE id = :c", c=call_id)
     assert key == storage.recording_key(tenant_id, call_id)
+
+
+async def test_a_recording_that_is_not_ready_does_not_hold_back_the_lead(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The engine answers "not ready yet" for audio it is still writing; the copy defers.
+
+    The lead, the meter and the hot-lead promise read nothing the copy writes, so they
+    land on the first attempt; the job still goes onto the ladder for the recording, and
+    the retry converges on exactly what one clean run leaves.
+    """
+    clean = await _clean_census("notready")
+    tenant_id, execution_id, call_id = await _staged("notready")
+    tries = {"n": 0}
+
+    async def _not_ready_once(
+        *, source_url: str, tenant_id: UUID, call_id: UUID, leg: str = "call"
+    ) -> str:
+        tries["n"] += 1
+        if tries["n"] == 1:
+            raise storage.RecordingNotReadyError("audio not written yet", defer_s=15.0)
+        return storage.recording_key(tenant_id, call_id)
+
+    monkeypatch.setattr(pipeline, "copy_recording", _not_ready_once)
+
+    with pytest.raises(Retry):
+        await _run(tenant_id, call_id, execution_id, attempt=1)
+    partial = await _census(tenant_id, call_id)
+    assert partial["leads"] == 1 and partial["call_linked_to_lead"], partial
+    assert partial["usage_rows"] == clean["usage_rows"], partial
+    assert not partial["recording_stored"], partial
+
+    assert await _run(tenant_id, call_id, execution_id, attempt=2) == "ok"
+    assert await _census(tenant_id, call_id) == clean
+
+
+async def test_a_slow_recording_download_runs_beside_the_lead_not_before_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The copy is still downloading when the lead is written; the job waits for both."""
+    tenant_id, execution_id, call_id = await _staged("slowcopy")
+    lead_written = asyncio.Event()
+    real_upsert = pipeline._upsert_lead
+
+    async def _upsert_then_signal(*args: Any, **kwargs: Any) -> Any:
+        result = await real_upsert(*args, **kwargs)
+        lead_written.set()
+        return result
+
+    async def _download_until_the_lead_exists(
+        *, source_url: str, tenant_id: UUID, call_id: UUID, leg: str = "call"
+    ) -> str:
+        # In line, this would wait for a lead that can only come after it.
+        await asyncio.wait_for(lead_written.wait(), timeout=10)
+        return storage.recording_key(tenant_id, call_id)
+
+    monkeypatch.setattr(pipeline, "_upsert_lead", _upsert_then_signal)
+    monkeypatch.setattr(pipeline, "copy_recording", _download_until_the_lead_exists)
+
+    assert await _run(tenant_id, call_id, execution_id) == "ok"
+    final = await _census(tenant_id, call_id)
+    assert final["recording_stored"] and final["call_linked_to_lead"], final
+
+
+async def test_a_job_cancelled_mid_pipeline_cancels_its_recording_copy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`job_timeout` cancels the job; the copy it started must not run on unowned."""
+    tenant_id, execution_id, call_id = await _staged("cancelcopy")
+    copy_started, lead_started, copy_cancelled = asyncio.Event(), asyncio.Event(), asyncio.Event()
+
+    async def _hanging_copy(
+        *, source_url: str, tenant_id: UUID, call_id: UUID, leg: str = "call"
+    ) -> str:
+        copy_started.set()
+        try:
+            await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            copy_cancelled.set()
+            raise
+        return storage.recording_key(tenant_id, call_id)
+
+    async def _hanging_upsert(*args: Any, **kwargs: Any) -> Any:
+        lead_started.set()
+        await asyncio.sleep(30)
+
+    monkeypatch.setattr(pipeline, "copy_recording", _hanging_copy)
+    monkeypatch.setattr(pipeline, "_upsert_lead", _hanging_upsert)
+
+    job = asyncio.create_task(_run(tenant_id, call_id, execution_id))
+    await asyncio.wait_for(asyncio.gather(copy_started.wait(), lead_started.wait()), timeout=10)
+    job.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await job
+    assert copy_cancelled.is_set(), "the recording copy outlived the job that owned it"
 
 
 def _snapshot_with_handoff(execution_id: str, *, transfer_url: str | None) -> ExecutionSnapshot:

@@ -28,6 +28,7 @@ SLO: lead visible in the client dashboard under 2 minutes after hangup — measu
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -1217,6 +1218,33 @@ async def _archive_engine_document(
     return "archived" if stored is not None else "put_refused"
 
 
+async def _recording_copy_stage(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) -> str:
+    with span("pipeline.recording_copy", call_id=str(call_id)) as stage:
+        outcome = await _copy_recordings(tenant_id, call_id, snapshot)
+        set_span_attributes(stage, outcome=outcome)
+    return outcome
+
+
+async def _settle_side_tasks(tasks: Sequence[asyncio.Task[Any]], *, cancel: bool) -> None:
+    """Wait for work started beside the stages before their failure leaves the job.
+
+    A stage's exception is the one arq acts on; the side task's own outcome is not lost
+    (its stage alerts on failure, and the re-run's guard picks up whatever it left), so
+    it is retrieved here only so asyncio does not log it as never retrieved. On
+    cancellation (`job_timeout`, a shutdown) the side task is cancelled too, because a
+    copy the job no longer owns would run on with no retry behind it.
+    """
+    pending = [task for task in tasks if not task.done()]
+    if cancel:
+        for task in pending:
+            task.cancel()
+    if pending:
+        await asyncio.wait(pending)
+    for task in tasks:
+        if not task.cancelled():
+            task.exception()
+
+
 async def _post_call_stages(
     tenant_id: UUID,
     call_id: UUID,
@@ -1227,6 +1255,32 @@ async def _post_call_stages(
     attempt: int | None = None,
 ) -> str:
     """`attempt` is arq's `job_try`; None (a direct call) settles at once."""
+    side_tasks: list[asyncio.Task[Any]] = []
+    try:
+        return await _run_post_call_stages(
+            tenant_id,
+            call_id,
+            execution_id,
+            delivery=delivery,
+            listed=listed,
+            attempt=attempt,
+            side_tasks=side_tasks,
+        )
+    except BaseException as exc:
+        await _settle_side_tasks(side_tasks, cancel=isinstance(exc, asyncio.CancelledError))
+        raise
+
+
+async def _run_post_call_stages(
+    tenant_id: UUID,
+    call_id: UUID,
+    execution_id: str,
+    *,
+    delivery: Mapping[str, Any] | None,
+    listed: Mapping[str, Any] | None,
+    attempt: int | None,
+    side_tasks: list[asyncio.Task[Any]],
+) -> str:
     started = time.perf_counter()
 
     snapshot = await post_call_truth(
@@ -1281,9 +1335,18 @@ async def _post_call_stages(
                 outcome=await _archive_engine_document(tenant_id, call_id, execution_id, snapshot),
             )
 
-    # STEP 1 — recording first, always. Everything else can be recomputed.
-    with span("pipeline.recording_copy", call_id=str(call_id)) as stage:
-        set_span_attributes(stage, outcome=await _copy_recordings(tenant_id, call_id, snapshot))
+    # STEP 1 — the recording copy starts first, always, and runs BESIDE the stages below
+    # rather than in front of them. It is the one stage that waits on a third party (up to
+    # `storage.RECORDING_FETCH_DEADLINE_S`, or a "not ready yet" deferral of up to five
+    # minutes), and nothing up to the CRM fan-out reads what it writes, so in line it held
+    # the lead, the meter and the hot-lead alert behind a download; a copy that ran out of
+    # tries left the call with no lead at all until the poller's re-drive. It is still
+    # awaited before STEP 7, so the CRM event, after-call actions and the erasure re-file
+    # see the recording exactly as before, and a failed copy still fails the job onto the
+    # ladder. A stage failing meanwhile waits for the copy (`_post_call_stages`), so a later
+    # failure can never take the recording with it — the reason it went first.
+    recording = asyncio.create_task(_recording_copy_stage(tenant_id, call_id, snapshot))
+    side_tasks.append(recording)
 
     # STEP 1b — the vendor's own document, archived under this call's prefix (D-126).
     # After the recording because the recording is the artefact a third party can take
@@ -1538,6 +1601,10 @@ async def _post_call_stages(
                     labels={f.key: f.label for f in spec.fields},
                 )
             set_span_attributes(stage, outcome=team_outcome)
+
+    # The recording copy started at STEP 1 settles here: a copy that failed raises its
+    # `Retry` now, after the lead and the meter are in, and the re-run finds both done.
+    await recording
 
     # STEP 7 — if this call was a campaign dial, the outcome closes the contact or puts
     # it back on the retry ladder (FLOWS §5). Local import: the dispatcher is a worker
