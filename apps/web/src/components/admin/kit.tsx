@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
-import { Check } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight } from "lucide-react";
+
+import { SECONDARY_BUTTON_SM, formatCount } from "@/components/ui";
 
 export { MetricRow } from "@/components/console/metric";
 export { StatusPill } from "@/components/console/statusPill";
@@ -59,5 +61,82 @@ export function SavedNote({ children, className = "" }: { children?: ReactNode; 
       <Check aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand-strong" />
       <span>{children ?? "Saved"}</span>
     </p>
+  );
+}
+
+/**
+ * THE ROWS OF A SERVER-PAGED LIST, MARKED WHILE THE NEXT ANSWER IS IN FLIGHT.
+ *
+ * Paged admin lists keep the previous page on screen while the next loads
+ * (`placeholderData`), so a page turn or a search never blanks the table. Without a mark,
+ * nothing on screen moves for the length of the request and the old rows read as the
+ * answer to the new question. `busy` dims them and sets `aria-busy`, which tells assistive
+ * technology the region is about to change.
+ */
+export function PagedRows({ busy, children }: { busy: boolean; children: ReactNode }) {
+  return (
+    <div
+      aria-busy={busy || undefined}
+      className={`transition-opacity duration-(--duration-fast) ${busy ? "opacity-60" : ""}`}
+    >
+      {children}
+    </div>
+  );
+}
+
+/**
+ * "Showing 26–50 of 312" with Previous and Next, for an offset-paged admin list.
+ *
+ * While the next page loads (`busy`) the line says so — it is a polite live region, so the
+ * change is announced — and both buttons are disabled, so a second click cannot step past
+ * a page whose rows have not arrived.
+ */
+export function OffsetPager({
+  offset,
+  shown,
+  total,
+  pageSize,
+  busy,
+  onOffset,
+  previousLabel = "Previous",
+  nextLabel = "Next",
+}: {
+  offset: number;
+  shown: number;
+  total: number;
+  pageSize: number;
+  busy: boolean;
+  onOffset: (next: number) => void;
+  previousLabel?: string;
+  nextLabel?: string;
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 text-meta text-ink-muted">
+      <span aria-live="polite">
+        {busy
+          ? "Loading…"
+          : `Showing ${formatCount(offset + 1)}–${formatCount(offset + shown)} of ${formatCount(total)}`}
+      </span>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          className={SECONDARY_BUTTON_SM}
+          disabled={busy || offset === 0}
+          onClick={() => onOffset(Math.max(0, offset - pageSize))}
+        >
+          <ChevronLeft aria-hidden className="h-3.5 w-3.5" />
+          {previousLabel}
+        </button>
+        <button
+          type="button"
+          className={SECONDARY_BUTTON_SM}
+          disabled={busy || offset + shown >= total}
+          onClick={() => onOffset(offset + pageSize)}
+        >
+          {nextLabel}
+          <ChevronRight aria-hidden className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    </div>
   );
 }

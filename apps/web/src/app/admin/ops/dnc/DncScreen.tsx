@@ -246,7 +246,19 @@ export function DncScreen() {
             {shown.length === 0 ? (
               <EmptyState
                 variant="filtered"
-                message="No suppressed number matches that."
+                // At the endpoint's ceiling the search ran over the newest entries only, so
+                // a miss is not evidence the number is unsuppressed — the answer an operator
+                // on the phone to a regulator would otherwise give.
+                message={
+                  truncated
+                    ? `Not among the ${formatCount(DNC_LIST_LIMIT)} most recently added.`
+                    : "No suppressed number matches that."
+                }
+                hint={
+                  truncated
+                    ? "Older suppressions are not searched here, so this does not mean the number may be called."
+                    : undefined
+                }
                 onClear={() => setQuery("")}
                 clearLabel="Clear search"
               />

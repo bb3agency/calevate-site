@@ -398,7 +398,9 @@ function AdminBuyNumber({
           Find numbers
         </button>
       </form>
-      {available.error && <ProblemNotice error={available.error} />}
+      {available.error && (
+        <ProblemNotice error={available.error} onRetry={() => void available.refetch()} />
+      )}
       {search !== null &&
         !available.error &&
         (numbers === undefined ? (

@@ -29,7 +29,9 @@ import {
   formatIST,
 } from "@/components/ui";
 import {
+  DISPUTES_LIMIT,
   EVIDENCE_KINDS,
+  RECENT_PAYMENTS_LIMIT,
   type Dispute,
   useAcceptDispute,
   useContestDispute,
@@ -144,11 +146,18 @@ export function PaymentsScreen() {
         {disputes.isLoading ? (
           <Skeleton rows={2} label="Loading disputes" />
         ) : disputes.data && disputes.data.length > 0 ? (
-          <ul aria-label="Disputes" className={HAIRLINE_LIST}>
-            {disputes.data.map((d) => (
-              <DisputeRow key={d.dispute_id} dispute={d} canAct={operator.allowed} />
-            ))}
-          </ul>
+          <>
+            <ul aria-label="Disputes" className={HAIRLINE_LIST}>
+              {disputes.data.map((d) => (
+                <DisputeRow key={d.dispute_id} dispute={d} canAct={operator.allowed} />
+              ))}
+            </ul>
+            {disputes.data.length >= DISPUTES_LIMIT && (
+              <p className="mt-2 text-meta text-ink-muted">
+                The newest {DISPUTES_LIMIT} are shown. Older ones are in the Razorpay dashboard.
+              </p>
+            )}
+          </>
         ) : disputes.data ? (
           <EmptyState message={showClosed ? "No disputes." : "No open disputes."} />
         ) : (
@@ -230,21 +239,29 @@ export function PaymentsScreen() {
             recent.data.length === 0 ? (
               <EmptyState message="No payments in the last three days." />
             ) : (
-              <ul aria-label="Recent payments" className={HAIRLINE_LIST}>
-                {recent.data.map((p) => (
-                  <li
-                    key={p.payment_id}
-                    className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-2.5 text-meta"
-                  >
-                    <span className="font-mono text-ink">{p.payment_id}</span>
-                    <span className="text-ink-muted">
-                      {p.status} · {formatINRExact(p.amount_inr)} · {p.method ?? "?"}
-                      {p.international ? " · international" : ""} ·{" "}
-                      {p.tenant_id ? `client ${p.tenant_id}` : "no order record"}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+              <>
+                <ul aria-label="Recent payments" className={HAIRLINE_LIST}>
+                  {recent.data.map((p) => (
+                    <li
+                      key={p.payment_id}
+                      className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-2.5 text-meta"
+                    >
+                      <span className="font-mono text-ink">{p.payment_id}</span>
+                      <span className="text-ink-muted">
+                        {p.status} · {formatINRExact(p.amount_inr)} · {p.method ?? "?"}
+                        {p.international ? " · international" : ""} ·{" "}
+                        {p.tenant_id ? `client ${p.tenant_id}` : "no order record"}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                {recent.data.length >= RECENT_PAYMENTS_LIMIT && (
+                  <p className="mt-2 text-meta text-ink-muted">
+                    The newest {RECENT_PAYMENTS_LIMIT} are shown. Older ones are in the Razorpay
+                    dashboard.
+                  </p>
+                )}
+              </>
             )
           ) : recent.isLoading ? (
             <Skeleton rows={3} label="Reading Razorpay" />

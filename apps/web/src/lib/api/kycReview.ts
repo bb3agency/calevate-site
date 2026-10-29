@@ -16,6 +16,7 @@ import {
 } from "./admin";
 import { apiRequest } from "./client";
 import { openProtectedFile } from "./protectedFile";
+import { CLIENT_HEALTH_QUERY_KEY } from "./clientHealth";
 import { HOLDS_QUERY_KEY } from "./holds";
 import { livePoll } from "@/lib/live/liveStatus";
 import type { components } from "./schema";
@@ -60,6 +61,8 @@ function useRefresh(tenantId: string) {
       client.invalidateQueries({ queryKey: QUEUE_KEY }),
       client.invalidateQueries({ queryKey: ["admin", "kyc"] }),
       client.invalidateQueries({ queryKey: HOLDS_QUERY_KEY }),
+      // An unverified identity is one of `outbound_blocked`'s causes on the health board.
+      client.invalidateQueries({ queryKey: CLIENT_HEALTH_QUERY_KEY }),
       // The overview's readiness rows and account facts read the same record.
       client.invalidateQueries({ queryKey: ["admin", "tenant", tenantId] }),
     ]);

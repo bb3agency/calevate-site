@@ -12,7 +12,7 @@ import { Combobox } from "@/components/arc/combobox";
 import { TEXT_ACTION } from "@/components/console/section";
 import { Pagination } from "@/components/interior/pagination";
 import { SegmentedControl } from "@/components/interior/segmented-control";
-import { ADMIN_PAGE_WIDE } from "@/components/admin/kit";
+import { ADMIN_PAGE_WIDE, PagedRows } from "@/components/admin/kit";
 import {
   FIELD,
   FIELD_LABEL,
@@ -157,7 +157,9 @@ export function QaQueueScreen() {
         ) : data.total === 0 ? (
           <Empty filters={filters} data={data} onClear={() => update(DEFAULT_FILTERS)} />
         ) : (
-          <Results data={data} filters={filters} search={search} update={update} />
+          <PagedRows busy={queue.isPlaceholderData}>
+            <Results data={data} filters={filters} search={search} update={update} />
+          </PagedRows>
         )}
       </div>
     </div>

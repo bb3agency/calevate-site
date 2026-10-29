@@ -44,7 +44,9 @@ export function ModelBandControl({ model }: { model: EngineCatalogueModel }) {
       <p className="text-meta text-ink-muted">{access.reason}</p>
     ) : null;
   }
-  if (bands.error != null) return <ProblemNotice error={bands.error} />;
+  if (bands.error != null) {
+    return <ProblemNotice error={bands.error} onRetry={() => void bands.refetch()} />;
+  }
   const row = bandForCatalogueModel(bands.data, model.model_id);
   const engine = bands.data?.engine;
   const ready = row !== undefined && engine != null;

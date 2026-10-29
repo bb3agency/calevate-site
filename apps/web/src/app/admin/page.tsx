@@ -3,11 +3,20 @@
 import { EmptySketch } from "@/components/console/emptySketch";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 
 import { useAdminAccess, type AdminAccess } from "@/app/admin/access";
 import { CreditLeft } from "@/components/admin/credit";
-import { ADMIN_PAGE_WIDE, HAIRLINE_LIST, LIST_HEAD, ROW_HOVER, StatusPill, sentenceCase } from "@/components/admin/kit";
+import {
+  ADMIN_PAGE_WIDE,
+  HAIRLINE_LIST,
+  LIST_HEAD,
+  OffsetPager,
+  PagedRows,
+  ROW_HOVER,
+  StatusPill,
+  sentenceCase,
+} from "@/components/admin/kit";
 import { EmptyState } from "@/components/console/emptyState";
 import { PageHeader } from "@/components/console/pageHeader";
 import { RowMenu } from "@/components/arc/menu";
@@ -19,7 +28,6 @@ import {
   type NoticeTone,
   ProblemNotice,
   RestrictionNote,
-  SECONDARY_BUTTON_SM,
   ScrollRegion,
   Skeleton,
   formatCount,
@@ -408,6 +416,7 @@ export default function AdminClientsPage() {
           // A TABLE ON EVERY WIDTH (founder, 10 Oct 2026): on a phone it scrolls sideways
           // with a shadow at the clipped edge rather than stacking each client into a card,
           // so an operator compares the same columns on any screen.
+          <PagedRows busy={tenants.isPlaceholderData}>
           <ScrollRegion label="Clients" className="scroll-shadow-x relative">
             <div className="min-w-[760px]">
             {/* Column labels for a sighted reader. Each cell below names itself to a screen
@@ -427,38 +436,21 @@ export default function AdminClientsPage() {
             </ul>
             </div>
           </ScrollRegion>
+          </PagedRows>
         )}
       </div>
 
       {/* Says WHICH rows are on screen: "26-50 of 312" is what an operator reads back on a
           support call, and it cannot be off by one the way a derived page index can. */}
       {page && page.rows.length > 0 && page.total > page.rows.length && (
-        <div className="flex flex-wrap items-center justify-between gap-3 text-meta text-ink-muted">
-          <span aria-live="polite">
-            Showing {formatCount(page.offset + 1)}–{formatCount(page.offset + page.rows.length)} of{" "}
-            {formatCount(page.total)}
-          </span>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              className={SECONDARY_BUTTON_SM}
-              disabled={page.offset === 0}
-              onClick={() => setOffset(Math.max(0, page.offset - DIRECTORY_PAGE_SIZE))}
-            >
-              <ChevronLeft aria-hidden className="h-3.5 w-3.5" />
-              Previous
-            </button>
-            <button
-              type="button"
-              className={SECONDARY_BUTTON_SM}
-              disabled={page.offset + page.rows.length >= page.total}
-              onClick={() => setOffset(page.offset + DIRECTORY_PAGE_SIZE)}
-            >
-              Next
-              <ChevronRight aria-hidden className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        </div>
+        <OffsetPager
+          offset={page.offset}
+          shown={page.rows.length}
+          total={page.total}
+          pageSize={DIRECTORY_PAGE_SIZE}
+          busy={tenants.isPlaceholderData}
+          onOffset={setOffset}
+        />
       )}
     </div>
   );

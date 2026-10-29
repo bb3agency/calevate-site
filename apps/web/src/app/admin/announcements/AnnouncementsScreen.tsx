@@ -205,6 +205,11 @@ export function AnnouncementsScreen() {
             ))}
           </ul>
         )}
+        {rows && list.data && list.data.total > rows.length && (
+          <p className="text-meta text-ink-muted">
+            The newest {formatCount(rows.length)} of {formatCount(list.data.total)} are shown.
+          </p>
+        )}
       </div>
 
       <Drawer

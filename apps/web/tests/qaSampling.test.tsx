@@ -20,7 +20,7 @@ import {
   type QaSample,
 } from "@/lib/api/qaSamples";
 
-import { browserOffline, problem, stubApi } from "./harness";
+import { browserOffline, problem, stillLoading, stubApi } from "./harness";
 import { renderAdminRoute, routeParams } from "./adminRoute";
 
 /**
@@ -199,6 +199,19 @@ describe("the QA sampling queue", () => {
     });
     await screen.findByText(/of 120 calls/);
     expect(screen.getByRole("navigation", { name: "Queue pages" })).toBeTruthy();
+  });
+
+  it("marks the page it is leaving as loading while the next is fetched", async () => {
+    await renderAdminRoute(<QaSamplingPage />, {
+      [QUEUE]: page([SAMPLE], { total: 120, waiting_total: 120 }),
+      [queuePath({ ...DEFAULT_FILTERS, page: 2 })]: stillLoading(),
+      [NEXT]: page([SAMPLE]),
+    });
+    await screen.findByText(/of 120 calls/);
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+    await waitFor(() =>
+      expect(screen.getByText(/of 120 calls/).closest("[aria-busy='true']")).not.toBeNull(),
+    );
   });
 
   it("refuses rather than claiming everything has been reviewed", async () => {

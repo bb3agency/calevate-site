@@ -92,6 +92,11 @@ export function useTenantActivity(
     // The page an operator is reading does not move under them while they page back
     // through it; a refetch on focus would renumber the offsets mid-read.
     refetchOnWindowFocus: false,
+    // The page being left stays on screen (marked busy) until the next arrives, rather
+    // than collapsing to a skeleton and taking the pager with it on every turn. Only within
+    // one account: another client's trail must never stand in for this one's.
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[2] === tenantId ? previous : undefined,
   });
 }
 
