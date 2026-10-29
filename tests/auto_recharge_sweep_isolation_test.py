@@ -39,9 +39,13 @@ async def test_a_crash_for_one_tenant_is_counted_and_the_rest_still_run(
     monkeypatch.setattr(razorpay_jobs, "pending_mandates", _mandates)
     monkeypatch.setattr(razorpay_jobs, "refresh_pending_mandate", _refresh)
     monkeypatch.setattr(razorpay_jobs, "due_tenants", _due)
+    alarms: list[str] = []
+    monkeypatch.setattr(razorpay_jobs, "alert", lambda _stage, code, **_kw: alarms.append(code))
 
     result: dict[str, Any] = await razorpay_jobs.sweep_auto_recharge({})
 
     assert refreshed == [second]
     assert result["refreshed"] == 1
     assert result["failed"] >= 1
+    # Swallowed per tenant, so the job wrapper never sees it: the sweep must raise it.
+    assert alarms == ["auto_recharge_sweep_crashed"]

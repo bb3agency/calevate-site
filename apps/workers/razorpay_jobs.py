@@ -59,7 +59,7 @@ async def sweep_auto_recharge(ctx: dict[str, Any]) -> dict[str, int]:
     """One pass. A tenant whose recharge fails does not stop the others."""
     if not payment_capability().creates_orders:
         return {"skipped": 1}
-    started = unconfirmed = expired = refreshed = failed = 0
+    started = unconfirmed = expired = refreshed = failed = crashed = 0
     async with untenanted_session() as session:
         pending_tenants = [
             UUID(str(r[0]))
@@ -78,7 +78,7 @@ async def sweep_auto_recharge(ctx: dict[str, Any]) -> dict[str, int]:
         except Exception:
             # One tenant's failure must not stop every other wallet's recharge this tick.
             log.exception("auto_recharge_expire_crashed", extra={"tenant_id": str(tenant_id)})
-            failed += 1
+            crashed += 1
     for tenant_id, customer_id, token_id in await pending_mandates():
         try:
             if await refresh_pending_mandate(tenant_id, customer_id, token_id):
@@ -89,17 +89,31 @@ async def sweep_auto_recharge(ctx: dict[str, Any]) -> dict[str, int]:
             log.exception(
                 "auto_recharge_mandate_refresh_crashed", extra={"tenant_id": str(tenant_id)}
             )
-            failed += 1
+            crashed += 1
     for tenant_id in await due_tenants():
         try:
             outcome = await maybe_start_recharge(tenant_id)
         except Exception:
             log.exception("auto_recharge_start_crashed", extra={"tenant_id": str(tenant_id)})
-            failed += 1
+            crashed += 1
             continue
         started += outcome == "started"
         unconfirmed += outcome == "unconfirmed"
         failed += outcome == "failed"
+    # Caught per tenant so one wallet cannot stop the rest, which also means the job never
+    # raises and no job-failure alarm sees them. A declined payment (`failed` above) is the
+    # client's and is emailed to them; a crash is ours and is alarmed here.
+    if crashed:
+        alert(
+            "WORKER_TERMINAL",
+            "auto_recharge_sweep_crashed",
+            detail=(
+                f"{crashed} tenant step(s) of the auto-recharge sweep raised this tick; those "
+                "wallets were not expired, refreshed or topped up. Read the "
+                "auto_recharge_*_crashed log lines for the tenant ids."
+            ),
+        )
+    failed += crashed
     return {
         "started": started,
         "unconfirmed": unconfirmed,

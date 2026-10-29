@@ -727,6 +727,8 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "razorpay_reconciliation_failed": "attention",
     # One client's auto-recharge switched itself off after repeated failures; they are told.
     "auto_recharge_disabled": "attention",
+    # Our code raised for some wallets in a sweep tick; it runs again in five minutes.
+    "auto_recharge_sweep_crashed": "attention",
     "payment_notice_no_billing_email": "attention",
     "rate_card_notice_fanout_budget_reached": "attention",
     "rate_card_notice_no_billing_email": "attention",
