@@ -39,6 +39,7 @@ import {
 } from "@/lib/api/opsConfig";
 import {
   OPS_MODEL_PRICES_PATH,
+  type ModelPrice,
   type ModelPrices,
 } from "@/lib/api/opsModelPricing";
 import {
@@ -345,6 +346,7 @@ function modelPrices(): ModelPrices {
         reference_output_usd_per_mtok: "0.60",
         reference_verified: true,
         withheld_reason: null,
+        used_by: [],
         off_call_only: false,
       },
     ],
@@ -3239,8 +3241,11 @@ describe("a model withheld on merit says so, instead of asking for a price", () 
    * engine's terminal branch for the outcome yields NOTHING — silence, mid-call. The screen
    * invited work that cannot succeed and hid the one fact worth knowing.
    */
-  const WITHHELD =
-    "THINKING_TOKENS_SHARE_THE_REPLY_BUDGET is UNMITIGABLE on this family and the failure is dead air.";
+  // The API's plain operator sentences (`ops/model_price_routes._withheld_line`); the
+  // engineering ground stays in the catalogue, never on this screen.
+  const WITHHELD = "Not offered: this model has not been cleared for use here.";
+  const OFF_CALLS =
+    "Not used on calls: this model can go silent mid-call. Pip and photo reading can use it.";
 
   function withheldPrices(): ModelPrices {
     const base = modelPrices();
@@ -3273,18 +3278,13 @@ describe("a model withheld on merit says so, instead of asking for a price", () 
     );
   });
 
-  it("gives the catalogue's own ground, not a paraphrase", async () => {
-    // The grounds cite vendor enums and engine line numbers. A summary is the version
-    // people argue with; the sentence is the version they can check.
+  it("gives the ground in one plain sentence", async () => {
     const view = renderAdminPage(
       <OpsConfigPage />,
       configRoutes(SUPERADMIN, { [OPS_MODEL_PRICES_PATH]: withheldPrices() }),
     );
     await screen.findByText("gpt-5.6-luna");
-    expect(view.container.textContent).toContain(WITHHELD);
-    expect(view.container.textContent).toContain(
-      "a price will not change that",
-    );
+    expect(view.container.textContent).toContain(`${WITHHELD} A price will not change that.`);
   });
 
   it("does not print a to-do list for a decision that was already taken", async () => {
@@ -3312,7 +3312,8 @@ describe("a model withheld on merit says so, instead of asking for a price", () 
           price_attested: false,
           offerable: false,
           reference_verified: false,
-          withheld_reason: WITHHELD,
+          withheld_reason: OFF_CALLS,
+          used_by: ["pip", "photo_reading"],
           off_call_only: true,
         },
       ],
@@ -3323,10 +3324,45 @@ describe("a model withheld on merit says so, instead of asking for a price", () 
     );
     await screen.findByText("gemini-3.5-flash-lite");
     expect(view.container.textContent).toContain("Not for calls: needs a price");
-    expect(view.container.textContent).toContain(
-      "Pip, photo reading and the dashboard assists use it once its price is confirmed.",
+    expect(view.container.textContent).toContain(OFF_CALLS);
+    expect(view.container.textContent).toContain("Pip and photo reading need this price");
+    expect(view.container.textContent).not.toContain("A price will not change that");
+    expect(view.container.textContent).not.toContain("THINKING_TOKENS");
+  });
+
+  it("puts a model Pip or photo reading is waiting on first, and names who waits", async () => {
+    const base = modelPrices();
+    const row = (model: string, extra: Partial<ModelPrice>): ModelPrice => ({
+      ...base.prices[0],
+      model,
+      provider: "google",
+      credential_installed: true,
+      offerable: false,
+      reference_verified: false,
+      withheld_reason: OFF_CALLS,
+      off_call_only: true,
+      ...extra,
+    });
+    const prices: ModelPrices = {
+      ...base,
+      prices: [
+        row("gemini-3.1-flash-lite", { price_attested: true, used_by: ["pip"] }),
+        row("gemini-3.8-flash", { price_attested: false, used_by: [] }),
+        row("gemini-3.5-flash-lite", { price_attested: false, used_by: ["pip"] }),
+      ],
+    };
+    const view = renderAdminPage(
+      <OpsConfigPage />,
+      configRoutes(SUPERADMIN, { [OPS_MODEL_PRICES_PATH]: prices }),
     );
-    expect(view.container.textContent).not.toContain("a price will not change that");
+    await screen.findByText("gemini-3.5-flash-lite");
+    const order = ["gemini-3.1-flash-lite", "gemini-3.8-flash", "gemini-3.5-flash-lite"]
+      .map((model) => ({ model, at: view.container.textContent!.indexOf(model) }))
+      .sort((a, b) => a.at - b.at)
+      .map(({ model }) => model);
+    expect(order[0]).toBe("gemini-3.5-flash-lite");
+    // Only the unpriced row Pip uses is flagged.
+    expect(screen.getAllByText("Pip needs this price")).toHaveLength(1);
   });
 
   it("still asks for a price on a model that only needs one", async () => {

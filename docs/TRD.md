@@ -246,8 +246,9 @@ Models (per-agent config, BYOK):
     Gemini leg (`copilot_fast_model` / `copilot_planning_model`, `agents/assist_leg.py`) for
     every account whose own leg cannot serve, behind the Google dashboard data-use
     attestation; this Azure resource is an optional rung used only when configured and
-    Gemini cannot serve; Sarvam is the disclosed last resort, and a Gemini leg that cannot
-    serve raises `assistant_gemini_unavailable`. Every rule D-127 wrote (G-1..G-7: redaction before the call,
+    Gemini cannot serve; Sarvam is the disclosed last resort. An unpriced Pip Gemini model is
+    never called and the other, priced one answers instead; only when no Pip Gemini model
+    can serve is `assistant_gemini_unavailable` raised. Every rule D-127 wrote (G-1..G-7: redaction before the call,
     no raw PII, the disclosed Sarvam fallback) is unchanged and now binds Azure, except
     for Pip after the account owner turns it on (D-788): its primary model then receives
     what is typed, attached and read by its tools unmasked; the standby stays masked.

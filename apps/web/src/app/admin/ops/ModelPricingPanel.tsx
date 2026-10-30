@@ -154,7 +154,7 @@ export function ModelPricingPanel({
 
         {state.status === "read" && (
           <ul className="divide-y divide-line border-t border-line">
-            {state.list.prices.map((price) => (
+            {needsPriceFirst(state.list.prices).map((price) => (
               <li key={price.model}>
                 <ModelPriceRow price={price} access={access} />
               </li>
@@ -186,6 +186,27 @@ export function ModelPricingPanel({
       </div>
     </Section>
   );
+}
+
+/**
+ * "Pip needs this price" — a model one of our own features runs on (`used_by`) that has no
+ * billable price. Those features never call an unpriced model (hard rule 7), so until it is
+ * recorded they run on another model or the backup. `null` when nothing is waiting on it.
+ */
+export function neededPriceLine(price: ModelPrice): string | null {
+  if (price.price_attested || price.reference_verified) return null;
+  const pip = price.used_by.includes("pip");
+  const photos = price.used_by.includes("photo_reading");
+  if (pip && photos) return "Pip and photo reading need this price";
+  if (pip) return "Pip needs this price";
+  if (photos) return "Photo reading needs this price";
+  return null;
+}
+
+/** The rows, with every model a feature of ours is waiting on first; otherwise as served. */
+export function needsPriceFirst(prices: readonly ModelPrice[]): ModelPrice[] {
+  const waiting = prices.filter((price) => neededPriceLine(price) !== null);
+  return [...waiting, ...prices.filter((price) => neededPriceLine(price) === null)];
 }
 
 /** The one-line "can customers use this?" verdict, and the tone it renders in. */
@@ -231,6 +252,7 @@ function ModelPriceRow({
 }) {
   const [open, setOpen] = useState(false);
   const v = verdict(price);
+  const needed = neededPriceLine(price);
   const toneClass =
     v.tone === "ok"
       ? "text-brand"
@@ -260,6 +282,12 @@ function ModelPriceRow({
           {v.label}
         </span>
       </div>
+      {needed !== null && (
+        <p className="mt-1 inline-flex items-center gap-1 text-meta font-medium text-warn">
+          <TriangleAlert aria-hidden className="h-3.5 w-3.5" />
+          {needed}
+        </p>
+      )}
 
       <dl className="mt-2 grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-4 gap-y-0.5 text-meta">
         <dt className="text-ink-muted">Input price (US$ per million tokens)</dt>
@@ -317,28 +345,16 @@ function ModelPriceRow({
         )}
       </dl>
 
-      {/* WITHHELD ON MERIT COMES FIRST, and it replaces the price sentence rather than
-          joining it. Without this the screen told the founder that `gemini-3.1-flash-lite`
-          "becomes available to customers only once you confirm a price" — which is false
-          however carefully the price is attested, because `LlmModelSpec.selectable` refuses
-          it regardless. It invited work that cannot succeed AND hid the reason it cannot:
-          on that family, thinking tokens draw on the reply budget with no knob to set, and
-          the engine's terminal branch yields nothing — silence, mid-call.
-
-          The catalogue's own words, not a paraphrase: these grounds cite vendor enums and
-          engine line numbers, and a screen that summarised them would be the version people
-          argue with. */}
+      {/* WITHHELD ON MERIT replaces the price sentence rather than joining it: a model
+          refused on calls never becomes "available to customers" however its price is
+          attested. The sentence is the API's plain operator line
+          (`ops/model_price_routes._withheld_line`); the engineering ground stays in the
+          catalogue (`LlmModelSpec.withdrawn_reason`). */}
       {price.withheld_reason != null ? (
-        <div className="mt-2 border-l-2 border-line py-1 pl-3">
-          <p className="text-meta font-medium text-ink">
-            {price.off_call_only
-              ? "Not offered for calls. Pip, photo reading and the dashboard assists use it once its price is confirmed."
-              : "Not offered on this platform — a price will not change that"}
-          </p>
-          <p className="mt-1 text-meta leading-relaxed text-ink-muted">
-            {price.withheld_reason}
-          </p>
-        </div>
+        <p className="mt-2 border-l-2 border-line py-1 pl-3 text-meta text-ink-muted">
+          {price.withheld_reason}
+          {price.off_call_only ? "" : " A price will not change that."}
+        </p>
       ) : (
         !price.price_attested && (
           <p className="mt-2 text-meta text-ink-muted">

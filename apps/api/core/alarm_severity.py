@@ -813,6 +813,8 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # The platform's Gemini assistant leg cannot serve (attestation, price or key missing),
     # so Pip and the dashboard assists answer on a backup until an operator records it.
     "assistant_gemini_unavailable": "attention",
+    # One Pip Gemini model is unpriced and another answers in its place: Pip is working.
+    "assistant_gemini_model_substituted": "record",
     # The KEK cannot decrypt this deployment's credentials: no vendor call can be made.
     "platform_secret_unreadable": "page",
     # "Informational, and deliberately loud" — and the loud half stays, one rung down. It

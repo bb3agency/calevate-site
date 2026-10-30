@@ -19,6 +19,13 @@ import type { SurfaceHolder } from "@/lib/copilot/registry";
 import { unsavedWork } from "@/lib/copilot/unsaved";
 import { openingLine, suggestedQuestions } from "@/lib/copilot/suggestions";
 import { pipLocked } from "@/lib/copilot/conversation";
+import {
+  MAX_QUESTION_CHARS,
+  QUESTION_COUNT_FROM,
+  questionLength,
+  questionOverBy,
+  tooLongLine,
+} from "@/lib/copilot/questionLimit";
 import { pressedInAnotherLayer } from "@/lib/focusTrap";
 import { useCopilotConversation, type CopilotTurn } from "@/lib/copilot/useCopilotConversation";
 
@@ -136,7 +143,11 @@ export function CopilotPanel({
   // the API before Ask; Ask waits while any is still on its way.
   const tray = useAttachmentTray(session, realm, conversation.uploadsAvailable);
   const [dropping, setDropping] = useState(false);
-  const canAsk = (question.trim() !== "" || tray.ready > 0) && !tray.busy;
+  // A message past the server's limit is never sent and never cut: Send waits, and the line
+  // under the box says by how much (`questionLimit.ts`).
+  const questionChars = questionLength(question);
+  const overBy = questionOverBy(question);
+  const canAsk = (question.trim() !== "" || tray.ready > 0) && !tray.busy && overBy === 0;
   const send = () => {
     if (!canAsk) return;
     setConfirmAtCeiling(false);
@@ -154,6 +165,7 @@ export function CopilotPanel({
    */
   const stick = useRef(true);
   const inputId = useId();
+  const lengthId = useId();
 
   const wantsQuota = realm === "client" && (conversation.atCeiling || confirmAtCeiling);
   const quota = useAiQuota(session, { enabled: wantsQuota });
@@ -850,8 +862,21 @@ export function CopilotPanel({
           }}
           enterKeyHint="send"
           placeholder={surface.fields.length > 0 ? "Ask a question, or say what to fill in" : "Ask a question"}
+          aria-describedby={questionChars >= QUESTION_COUNT_FROM ? lengthId : undefined}
+          aria-invalid={overBy > 0 || undefined}
           className="block w-full resize-none bg-transparent px-1 py-1 text-body text-ink placeholder:text-ink-faint focus:outline-none"
         />
+        {questionChars >= QUESTION_COUNT_FROM && (
+          <p
+            id={lengthId}
+            aria-live="polite"
+            className={`px-1 pt-1 text-meta ${overBy > 0 ? "text-danger" : "text-ink-faint"}`}
+          >
+            {overBy > 0
+              ? tooLongLine(overBy)
+              : `${questionChars.toLocaleString("en-IN")} of ${MAX_QUESTION_CHARS.toLocaleString("en-IN")} characters`}
+          </p>
+        )}
         <div className="flex items-center justify-between gap-3 pt-1">
           <div className="flex min-w-0 items-center gap-1">
             <AttachButton onFiles={tray.add} disabled={conversation.asking} available={tray.available} />

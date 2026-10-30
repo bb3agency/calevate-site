@@ -49,6 +49,11 @@ MEMORY_KINDS: Final[tuple[str, ...]] = ("episodic", "semantic")
 #: Same number as `copilot/schemas._MAX_TEXT`, for that constant's reason.
 MAX_CONTENT_CHARS: Final = 2_000
 
+#: The ceiling on one conversation TURN (`copilot_conversation_turns`, its admin twin): what
+#: a person typed, stored whole. Equal to `copilot/schemas.MAX_QUESTION_CHARS`, so an
+#: admitted question is never cut on the way to the panel (migration `a8d3f1c6e2b9`).
+MAX_TURN_CHARS: Final = 8_000
+
 #: The text-search configuration the generated column uses. `simple`, not `english` — see
 #: the migration: this console is Telugu-first and English stemming helps none of it.
 SEARCH_CONFIG: Final = "simple"
@@ -229,7 +234,7 @@ class CopilotConversationTurn(_ConversationTurnColumns, PKMixin, TimestampMixin,
     __table_args__ = (
         CheckConstraint("role IN ('user', 'assistant')", name="role_enum"),
         CheckConstraint("length(btrim(content)) > 0", name="content_not_blank"),
-        CheckConstraint(f"length(content) <= {MAX_CONTENT_CHARS}", name="content_cap"),
+        CheckConstraint(f"length(content) <= {MAX_TURN_CHARS}", name="content_cap"),
         Index(
             "ix_copilot_conversation_turns_tenant_user_seq",
             "tenant_id",
@@ -262,7 +267,7 @@ class AdminCopilotConversationTurn(_ConversationTurnColumns, PKMixin, TimestampM
     __table_args__ = (
         CheckConstraint("role IN ('user', 'assistant')", name="role_enum"),
         CheckConstraint("length(btrim(content)) > 0", name="content_not_blank"),
-        CheckConstraint(f"length(content) <= {MAX_CONTENT_CHARS}", name="content_cap"),
+        CheckConstraint(f"length(content) <= {MAX_TURN_CHARS}", name="content_cap"),
         Index(
             "ix_admin_copilot_conversation_turns_user_seq",
             "admin_user_id",
@@ -694,6 +699,7 @@ __all__ = [
     "MAX_ACTION_TEXT",
     "MAX_CONTENT_CHARS",
     "MAX_JOB_PROGRESS",
+    "MAX_TURN_CHARS",
     "MAX_VOTE_NOTE",
     "MEMORY_KINDS",
     "SEARCH_CONFIG",

@@ -73,7 +73,8 @@ export function PipAsk({ handWritten }: { handWritten: boolean }) {
               id="pip-change"
               className={`${FIELD} mt-0`}
               rows={3}
-              maxLength={600}
+              // No `maxLength`: it cuts a paste without a word. Pip's ask box, which this
+              // prefills, shows the count and holds Send past the limit.
               disabled={!write.allowed}
               value={change}
               placeholder={eg.scriptChange}

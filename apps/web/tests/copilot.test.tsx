@@ -24,6 +24,13 @@ import {
   type SurfaceHolder,
 } from "@/lib/copilot/registry";
 import { forgetOpenOffers } from "@/lib/copilot/useCopilotConversation";
+import openapi from "@/lib/api/openapi.json";
+import {
+  MAX_QUESTION_CHARS,
+  QUESTION_COUNT_FROM,
+  questionOverBy,
+  tooLongLine,
+} from "@/lib/copilot/questionLimit";
 
 import { expectNoA11yViolations } from "./a11y";
 import { PLAN_ID, planFixture } from "./planFixture";
@@ -2222,5 +2229,64 @@ describe("a Follow-up draft's card (D-940)", () => {
     expect(screen.getByText("2. Check how the call went").tagName).toBe("LI");
     expect(screen.getByText("1. Wait 2 hours").tagName).toBe("LI");
     expect(screen.getByText("Would become")).toBeTruthy();
+  });
+});
+
+/**
+ * A long message is never cut (30 Oct 2026): past `MAX_QUESTION_CHARS` the box says by how
+ * much and Send waits; near it, the count shows.
+ */
+describe("a message too long to send", () => {
+  it("says by how much, holds Send and Enter, and keeps every character typed", async () => {
+    const { held, asks } = renderHeld();
+    const box = screen.getByLabelText("Your question about this screen") as HTMLTextAreaElement;
+    const long = "a".repeat(MAX_QUESTION_CHARS + 1);
+    fireEvent.change(box, { target: { value: long } });
+
+    expect(
+      screen.getByText("Too long by 1 character — shorten it or attach it as a file."),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Ask" }).hasAttribute("disabled")).toBe(true);
+    expect(box.getAttribute("aria-invalid")).toBe("true");
+    await act(async () => {
+      fireEvent.keyDown(box, { key: "Enter", shiftKey: false });
+    });
+    expect(asks.length).toBe(0);
+    expect(box.value).toBe(long);
+    held.release();
+  });
+
+  it("shows the count near the limit and still sends the whole message", async () => {
+    const { held, asks } = renderHeld();
+    const question = "b".repeat(QUESTION_COUNT_FROM + 500);
+    fireEvent.change(screen.getByLabelText("Your question about this screen"), {
+      target: { value: question },
+    });
+    expect(
+      screen.getByText(`${(QUESTION_COUNT_FROM + 500).toLocaleString("en-IN")} of 8,000 characters`),
+    ).toBeTruthy();
+    await act(async () => {
+      fireEvent.submit(screen.getByRole("button", { name: "Ask" }).closest("form")!);
+    });
+    expect(asks.length).toBe(1);
+    expect(JSON.parse(asks[0]).question).toBe(question);
+    held.release();
+  });
+
+  it("counts characters as the server does, an emoji as one", () => {
+    expect(questionOverBy("😀".repeat(MAX_QUESTION_CHARS))).toBe(0);
+    expect(questionOverBy("😀".repeat(MAX_QUESTION_CHARS + 2))).toBe(2);
+    expect(tooLongLine(1_234)).toBe(
+      "Too long by 1,234 characters — shorten it or attach it as a file.",
+    );
+  });
+
+  it("matches the API's limit", () => {
+    const schemas = (
+      openapi as unknown as {
+        components: { schemas: Record<string, { properties: Record<string, { maxLength?: number }> }> };
+      }
+    ).components.schemas;
+    expect(schemas.CopilotAskIn.properties.question.maxLength).toBe(MAX_QUESTION_CHARS);
   });
 });

@@ -18,6 +18,7 @@ from apps.api.agents.llm_models import (
     NO_DATA_USE_ATTESTATION_REASON,
     install_dashboard_data_use_reader,
 )
+from apps.api.copilot import model_tiers
 from apps.api.core.settings import get_settings
 from apps.workers.extraction import (
     AZURE_PROVIDER,
@@ -117,3 +118,68 @@ async def test_azure_answers_only_when_configured_and_gemini_cannot(
     _attest_google()
     serving = await assist_leg.account_assist_leg(cast(Any, _Session(None)))
     assert assist_capability(tenant_leg=serving).provider == GOOGLE_PROVIDER
+
+
+def _priced(monkeypatch: pytest.MonkeyPatch, *models: str) -> None:
+    monkeypatch.setattr(assist_leg, "off_call_offerable_models", lambda: frozenset(models))
+
+
+def _pip_models(monkeypatch: pytest.MonkeyPatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "copilot_fast_model", "gemini-3.1-flash-lite", raising=False)
+    monkeypatch.setattr(settings, "copilot_planning_model", "gemini-3.5-flash-lite", raising=False)
+
+
+async def test_an_unpriced_planning_model_is_never_called_and_the_priced_fast_one_answers(
+    production: list[dict[str, Any]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """30 Oct 2026: planning unpriced, fast priced. Pip stays on Gemini, on the priced model,
+    with no disclosure; the operator gets a record, not an alarm."""
+    _pip_models(monkeypatch)
+    _priced(monkeypatch, "gemini-3.1-flash-lite")
+    _attest_google()
+    leg = model_tiers.tier_leg("planning")
+    assert (leg.model, leg.serves_dashboard) == ("gemini-3.1-flash-lite", True)
+    capability = assist_capability(tenant_leg=leg, allow_azure=False)
+    assert capability.provider == GOOGLE_PROVIDER and not capability.disclosure
+    assert [a["code"] for a in production] == [assist_leg.GEMINI_SUBSTITUTED_NOTICE]
+    assert production[0]["model"] == "gemini-3.5-flash-lite"
+    assert production[0]["used"] == "gemini-3.1-flash-lite"
+    assert (
+        "Pip is using gemini-3.1-flash-lite because gemini-3.5-flash-lite"
+        in (production[0]["detail"])
+    )
+
+
+async def test_an_unpriced_fast_model_falls_to_the_priced_planning_one(
+    production: list[dict[str, Any]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _pip_models(monkeypatch)
+    _priced(monkeypatch, "gemini-3.5-flash-lite")
+    _attest_google()
+    assert assist_leg.google_assist_leg().model == "gemini-3.5-flash-lite"
+    assert [a["code"] for a in production] == [assist_leg.GEMINI_SUBSTITUTED_NOTICE]
+
+
+async def test_with_no_pip_model_priced_the_standby_answers_and_the_alarm_names_the_model(
+    production: list[dict[str, Any]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _pip_models(monkeypatch)
+    _priced(monkeypatch)
+    _attest_google()
+    leg = model_tiers.tier_leg("planning")
+    assert (leg.model, leg.serves_dashboard) == ("gemini-3.5-flash-lite", False)
+    assert assist_capability(tenant_leg=leg, allow_azure=False).provider == SARVAM_PROVIDER
+    assert [a["code"] for a in production] == [assist_leg.GEMINI_UNAVAILABLE_ALARM]
+    assert production[0]["model"] == "gemini-3.5-flash-lite"
+
+
+async def test_unattested_data_use_goes_to_the_standby_even_with_both_models_priced(
+    production: list[dict[str, Any]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _pip_models(monkeypatch)
+    _priced(monkeypatch, "gemini-3.1-flash-lite", "gemini-3.5-flash-lite")
+    leg = model_tiers.tier_leg("planning")
+    assert leg.blocked_reason == NO_DATA_USE_ATTESTATION_REASON
+    assert assist_capability(tenant_leg=leg, allow_azure=False).provider == SARVAM_PROVIDER
+    assert [a["code"] for a in production] == [assist_leg.GEMINI_UNAVAILABLE_ALARM]
