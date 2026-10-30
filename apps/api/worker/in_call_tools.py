@@ -52,7 +52,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents.handoff import HANDOFF_DEGRADED_SAY
 from apps.api.agents.transfer_providers import NOT_OUR_CARRIER_LEG
 from apps.api.callbacks import service as callbacks
-from apps.api.compliance.consent import record_callback_request_consent
+from apps.api.compliance.consent import reask_locked_until, record_callback_request_consent
+from apps.api.compliance.models import CALLBACK_PURPOSE
 from apps.api.compliance.optout import DETECTED_IN_CALL, record_call_optout
 from apps.api.compliance.trial_access import (
     TRIAL_CALLBACK_RULE,
@@ -229,6 +230,14 @@ _CALLBACK_NO_NUMBER_SAY = (
     "there is nothing to ring. Tell them that plainly and ask them to say the number they "
     "would like us to call, or to ring back themselves."
 )
+#: D-943's 90-day lockout on asking for permission to call. The agent offers call-backs,
+#: so inside the window the tool books nothing and the agent is told not to offer again.
+CALLBACK_REASK_LOCKED_RULE = "consent_reask_locked"
+_CALLBACK_REASK_LOCKED_SAY = (
+    "That call-back was NOT booked. This caller asked recently not to be called, so do NOT "
+    "offer a call-back again on this call. Tell them they are welcome to call the business "
+    "whenever suits them."
+)
 
 
 async def book_callback_for(
@@ -286,6 +295,20 @@ async def book_callback_for(
                 extra={"tenant_id": str(tenant_id), "call_id": str(call.id), "ground": ground},
             )
             return CallbackToolOut(status="not_booked", reason=ground, say=_CALLBACK_NO_NUMBER_SAY)
+        # Before the promise, because the booking IS the consent row
+        # (`record_callback_request_consent`), and that writer refuses it in the window.
+        if await reask_locked_until(
+            session, tenant_id=tenant_id, phone_e164=phone, purpose=CALLBACK_PURPOSE
+        ):
+            log.info(
+                "worker_tool_callback_reask_locked",
+                extra={"tenant_id": str(tenant_id), "call_id": str(call.id)},
+            )
+            return CallbackToolOut(
+                status="not_booked",
+                reason=CALLBACK_REASK_LOCKED_RULE,
+                say=_CALLBACK_REASK_LOCKED_SAY,
+            )
         booked = await callbacks.book(
             session,
             callback_id=uuid7(),

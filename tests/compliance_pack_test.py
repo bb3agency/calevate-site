@@ -11,9 +11,15 @@ from uuid import UUID
 
 import pytest
 from apps.api.actions import whatsapp as wa
+from apps.api.billing.plans import IST
 from apps.api.campaigns import service as campaigns_service
 from apps.api.compliance import rights_desk
-from apps.api.compliance.consent import reask_locked_until, relationship_window
+from apps.api.compliance.consent import (
+    reask_locked_until,
+    record_call_consent,
+    record_messaging_consent,
+    relationship_window,
+)
 from apps.api.compliance.export import subject_ref
 from apps.api.compliance.privacy_notice import build_short_notice
 from apps.api.compliance.promo_checks import SCRIPT_PROMOTIONAL_RULE, agent_check
@@ -71,7 +77,15 @@ async def test_an_application_form_consent_lasts_three_calendar_months() -> None
     assert row[1] == "application"
 
 
-async def _ledger(tenant_id: UUID, phone: str, status: str, source: str, ago: timedelta) -> None:
+async def _ledger(
+    tenant_id: UUID,
+    phone: str,
+    status: str,
+    source: str,
+    ago: timedelta,
+    *,
+    purpose: str = "messaging",
+) -> None:
     """A row captured `ago` in the past. The ledger is append-only, so history is INSERTed
     with its own capture time rather than updated into the past."""
     async with tenant_session(tenant_id) as session:
@@ -79,12 +93,13 @@ async def _ledger(tenant_id: UUID, phone: str, status: str, source: str, ago: ti
             text(
                 "INSERT INTO consent_ledger (id, tenant_id, phone_e164, purpose, status, "
                 "consent_source, evidence, captured_at, created_at) VALUES (:id, :t, :p, "
-                "'messaging', :s, :src, CAST(:ev AS jsonb), :at, now())"
+                "CAST(:purpose AS text), :s, :src, CAST(:ev AS jsonb), :at, now())"
             ),
             {
                 "id": uuid7(),
                 "t": tenant_id,
                 "p": phone,
+                "purpose": purpose,
                 "s": status,
                 "src": source,
                 "ev": json.dumps({"message_id": "m-1"}) if status == "granted" else None,
@@ -165,6 +180,170 @@ async def test_the_in_call_whatsapp_action_tells_the_agent_not_to_ask() -> None:
             )
         ).scalar_one()
     assert granted == 0
+
+
+# --- the same lockout on CALL consent ----------------------------------------------------
+
+
+async def _call_row(tenant_id: UUID, agent_id: UUID, phone: str) -> UUID:
+    """A finished outbound call to `phone`, so a spoken grant has a call to name."""
+    call_id = uuid7()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, status, "
+                "to_e164) VALUES (:i, :t, :a, :e, 'outbound', 'completed', :p)"
+            ),
+            {"i": call_id, "t": tenant_id, "a": agent_id, "e": f"eng-{uuid7().hex}", "p": phone},
+        )
+        await session.commit()
+    return call_id
+
+
+async def _spoken_call_yes(tenant_id: UUID, phone: str, call_id: UUID) -> None:
+    async with tenant_session(tenant_id) as session:
+        await record_call_consent(
+            session,
+            tenant_id=tenant_id,
+            raw_phone=phone,
+            status="granted",
+            source="inbound_call_verbal",
+            call_id=call_id,
+            evidence={"transcript_turn": "4"},
+        )
+        await session.commit()
+
+
+async def _granted(tenant_id: UUID, phone: str, purpose: str) -> int:
+    async with tenant_session(tenant_id) as session:
+        return int(
+            (
+                await session.execute(
+                    text(
+                        "SELECT count(*) FROM consent_ledger WHERE phone_e164 = :p "
+                        "AND purpose = CAST(:purpose AS text) AND status = 'granted'"
+                    ),
+                    {"p": phone, "purpose": purpose},
+                )
+            ).scalar_one()
+        )
+
+
+@pytest.mark.parametrize(
+    ("purpose", "status", "source"),
+    [
+        ("callback", "declined", "web_form_optin"),
+        ("callback", "withdrawn", "staff_recorded_request"),
+        # "Stop calling me", heard on a call (`optout.record_call_optout`).
+        ("marketing", "withdrawn", "inbound_call_verbal"),
+    ],
+)
+async def test_a_call_consent_yes_inside_ninety_days_of_a_no_is_refused(
+    purpose: str, status: str, source: str
+) -> None:
+    tenant_id, agent_id = await _tenant("d943-call")
+    phone = _fresh_phone()
+    await _ledger(tenant_id, phone, status, source, timedelta(days=10), purpose=purpose)
+    call_id = await _call_row(tenant_id, agent_id, phone)
+    with pytest.raises(ProblemError) as refused:
+        await _spoken_call_yes(tenant_id, phone, call_id)
+    assert refused.value.code == "consent_reask_locked"
+    assert await _granted(tenant_id, phone, "callback") == 0
+
+
+async def test_a_call_consent_yes_after_ninety_days_is_accepted() -> None:
+    tenant_id, agent_id = await _tenant("d943-call-old")
+    phone = _fresh_phone()
+    await _ledger(
+        tenant_id, phone, "declined", "web_form_optin", timedelta(days=91), purpose="callback"
+    )
+    call_id = await _call_row(tenant_id, agent_id, phone)
+    await _spoken_call_yes(tenant_id, phone, call_id)
+    assert await _granted(tenant_id, phone, "callback") == 1
+
+
+async def test_the_call_lockout_leaves_the_whatsapp_rules_as_they_were() -> None:
+    """A no to messages does not lock a call ask, a no to calls does not lock a WhatsApp ask,
+    and a messaging yes the client records from a call is filed as before."""
+    tenant_id, agent_id = await _tenant("d943-call-wa")
+    phone = _fresh_phone()
+    await _ledger(tenant_id, phone, "declined", "in_call_agent_question", timedelta(days=5))
+    call_id = await _call_row(tenant_id, agent_id, phone)
+    await _spoken_call_yes(tenant_id, phone, call_id)
+    assert await _granted(tenant_id, phone, "callback") == 1
+
+    other = _fresh_phone()
+    await _ledger(
+        tenant_id, other, "declined", "web_form_optin", timedelta(days=5), purpose="callback"
+    )
+    async with tenant_session(tenant_id) as session:
+        assert (
+            await reask_locked_until(
+                session, tenant_id=tenant_id, phone_e164=other, purpose="messaging"
+            )
+            is None
+        )
+    locked = _fresh_phone()
+    await _ledger(tenant_id, locked, "declined", "in_call_agent_question", timedelta(days=5))
+    other_call = await _call_row(tenant_id, agent_id, locked)
+    async with tenant_session(tenant_id) as session:
+        await record_messaging_consent(
+            session,
+            tenant_id=tenant_id,
+            raw_phone=locked,
+            status="granted",
+            source="inbound_call_verbal",
+            call_id=other_call,
+            evidence={"transcript_turn": "2"},
+        )
+        await session.commit()
+    assert await _granted(tenant_id, locked, "messaging") == 1
+
+
+async def test_the_agent_is_not_given_a_call_back_to_offer_inside_the_lockout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The call-back tool is the in-call place a call-consent yes is collected: inside the
+    window it books nothing, files nothing, and tells the agent not to offer one."""
+    from apps.api.worker import in_call_tools as tools
+    from calevate_shared.worker_api import CallbackBookIn
+
+    async def _not_restricted(session: object, *, tenant_id: UUID) -> None:
+        return None
+
+    monkeypatch.setattr(tools, "restricting_trial", _not_restricted)
+    tenant_id, agent_id = await _tenant("d943-call-cb")
+    phone = _fresh_phone()
+    await _ledger(
+        tenant_id, phone, "withdrawn", "inbound_call_verbal", timedelta(days=3), purpose="marketing"
+    )
+    call_id = await _call_row(tenant_id, agent_id, phone)
+
+    async def _locate(session: object) -> tools.ToolCall:
+        return tools.ToolCall(
+            id=call_id, agent_id=agent_id, direction="outbound", from_e164=None, to_e164=phone
+        )
+
+    tomorrow = (datetime.now(UTC) + timedelta(days=1)).astimezone(IST).date().isoformat()
+    out = await tools.book_callback_for(
+        tenant_id,
+        f"exec-{uuid.uuid4().hex[:8]}",
+        CallbackBookIn.model_validate(
+            {"callback_date": tomorrow, "callback_time": "11:00", "confirmed": True}
+        ),
+        locate=_locate,
+    )
+    assert out.status == "not_booked" and out.reason == tools.CALLBACK_REASK_LOCKED_RULE
+    assert "do NOT offer a call-back" in out.say
+    assert await _granted(tenant_id, phone, "callback") == 0
+    async with tenant_session(tenant_id) as session:
+        booked = (
+            await session.execute(
+                text("SELECT count(*) FROM scheduled_callbacks WHERE phone_e164 = :p"),
+                {"p": phone},
+            )
+        ).scalar_one()
+    assert booked == 0
 
 
 # --- the rights desk -------------------------------------------------------------------
