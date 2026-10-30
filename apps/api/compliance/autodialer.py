@@ -1,4 +1,4 @@
-"""The client's declaration of the numbers its automated calls come from (D-941).
+"""The client's confirmation of the numbers its automated calls come from (D-941).
 
 WHAT THE OBLIGATION IS, AND HOW SURE WE ARE OF IT
 -------------------------------------------------
@@ -12,18 +12,26 @@ market and technology edge/india_regulation.md` lines 37-38 and 62 (read 30 Oct 
 rememory 8a05aded); the Gazette date is NOT verified, which is why the date the gate starts
 refusing is the live setting `a2p_declaration_enforced_from`, not a constant.
 
-**UNKNOWN, and the gate is built so neither answer breaks it:** who the Sender is when a
-client calls from a number rented through us (the client, Calevate or the voice platform),
-and the exact filing route (asked of the voice platform the week of 30 Oct 2026; OPERATIONS
-§2 gate 59). The record is the client's own statement of which numbers it calls from and
-when and how it declared them, with an attestation; if the answer turns out to be that we
-file, the same record is what we would file from.
+WHO FILES, AND WHY IT IS NOT THE CLIENT
+---------------------------------------
+A client calls from numbers it rents through us; we get them from the voice platform, which
+gets them from a carrier. The client cannot identify that carrier or file with it, so the
+version-1 attestation ("we declared them in advance to the telephone company") asked it to
+swear to something it could not have done, which is why D-762 removed the first one. Since
+30 Oct 2026 (founder, D-941 amended) the client CONFIRMS which numbers its agents call from
+and AUTHORISES Calevate to declare them on its behalf (version 2), and we file
+(`compliance/a2p_filing.py`; the route is pending the voice platform's answer, OPERATIONS
+§2 gate 59). The gate asks only for the client's part. Our filing is tracked for operations
+and never holds a client's calls: the client has done what it can.
+
+Only a row carrying the CURRENT attestation covers a number. A version-1 row is the old
+statement, not an authorisation, so the screen asks the client to confirm again.
 
 WHY A DATE GATES THE GATE
 -------------------------
 Before the rule bites nothing is refused: refusing early would stop clients' calling over a
-duty that does not exist yet. The screens ask for the declaration from now on, and from the
-enforcement date (IST) every outbound dial from an undeclared number is refused.
+duty that does not exist yet. The screens ask for the confirmation from now on, and from the
+enforcement date (IST) every outbound dial from an unconfirmed number is refused.
 
 INBOUND IS UNTOUCHED
 --------------------
@@ -53,17 +61,17 @@ DeclarationState = Literal["notified", "withdrawn"]
 #: Ours, not the regulator's: a small business presents a handful of numbers, and a list of
 #: dozens is one somebody pasted by mistake.
 MAX_DECLARED_CLIS: Final = 20
-MAX_NOTICE_REFERENCE_CHARS: Final = 200
 
-#: The attestation the person recording the declaration accepts, versioned like the pledge
+#: The attestation the person confirming the numbers accepts, versioned like the pledge
 #: (`outbound_pledge.py`): the row keeps the version and the SHA-256 of the exact text, and
 #: a screen showing an older text is refused rather than recorded against the new one.
-DECLARATION_VERSION: Final = 1
+#: Version 1 had the client swear it had declared the numbers itself; see the module note.
+DECLARATION_VERSION: Final = 2
 DECLARATION_TEXT: Final = (
-    "On behalf of this business I confirm that the numbers listed are the numbers our "
-    "automated calls come from, that we declared them in advance to the telephone company "
-    "that provides them on the date shown, and that we will declare any new number before "
-    "it places an automated call."
+    "On behalf of this business I confirm that our agents place automated calls only from "
+    "the numbers listed, and I authorise Calevate to declare these numbers to the telephone "
+    "company on our behalf. We will add any new number here before it places an automated "
+    "call."
 )
 DECLARATION_TEXT_SHA256: Final = hashlib.sha256(DECLARATION_TEXT.encode("utf-8")).hexdigest()
 
@@ -75,10 +83,10 @@ A2P_TEST_CALL_OWN_NUMBER_RULE: Final = "a2p_test_call_own_number_only"
 # Client-facing: short, the next action first, no provider named (D-679), and inbound said
 # because "calls are paused" read alone sounds like the line is down.
 A2P_DECLARATION_MISSING_REASON: Final = (
-    "Declare your calling numbers to place calls. Incoming calls still work."
+    "Confirm your calling numbers to place calls. Incoming calls still work."
 )
 A2P_NUMBER_UNDECLARED_REASON: Final = (
-    "This agent calls from a number you have not declared. Add it to your calling numbers. "
+    "This agent calls from a number you have not confirmed. Add it to your calling numbers. "
     "Incoming calls still work."
 )
 A2P_TEST_CALL_OWN_NUMBER_REASON: Final = (
@@ -87,9 +95,9 @@ A2P_TEST_CALL_OWN_NUMBER_REASON: Final = (
 
 
 def a2p_declaration_not_yet_effective_reason(effective_on: date) -> str:
-    """The wording when the declaration on file is dated in the future."""
+    """The wording when the confirmation on file is dated in the future."""
     return (
-        f"Your calling numbers count as declared from {effective_on.isoformat()}. Calls can "
+        f"Your calling numbers count as confirmed from {effective_on.isoformat()}. Calls can "
         "start then. Incoming calls still work."
     )
 
@@ -112,15 +120,15 @@ class Declaration:
     """The latest declaration a tenant recorded, read as an answer rather than a history.
 
     `recorded` is False for a tenant with no row, a different fact from a withdrawn one.
-    `attested` is False for a row recorded before D-941 (the D-637 notice), which named a
-    provider and an objective but carries no attestation of the current text: it does not
-    cover a dial, and the client records the declaration once more.
+    `attested` is True only when the row carries the CURRENT attestation
+    (`DECLARATION_VERSION`). A D-637 notice (no attestation) and a version-1 row (the
+    client's own "we declared them" statement, not an authorisation for us to file) cover
+    no dial, and the client confirms once more.
     """
 
     recorded: bool
     state: DeclarationState | None
     notified_on: date | None
-    notice_reference: str | None
     created_at: datetime | None
     declared_clis: tuple[str, ...] = ()
     attested: bool = False
@@ -134,17 +142,20 @@ class Declaration:
         return self.notified_on <= (today or ist_today())
 
 
-NOT_RECORDED: Final = Declaration(
-    recorded=False, state=None, notified_on=None, notice_reference=None, created_at=None
-)
+NOT_RECORDED: Final = Declaration(recorded=False, state=None, notified_on=None, created_at=None)
 
 # `id` after `created_at` because two rows in one transaction share `now()`; uuid7 is
 # time-ordered, so the tiebreak is still chronological.
 _LATEST_SQL = text(
-    "SELECT state, notified_on, notice_reference, created_at, declared_clis, "
-    "attestation_sha256, attestation_version FROM autodialer_notices WHERE tenant_id = :tid "
+    "SELECT state, notified_on, created_at, declared_clis, attestation_version "
+    "FROM autodialer_notices WHERE tenant_id = :tid "
     "ORDER BY created_at DESC, id DESC LIMIT 1"
 )
+
+
+def _covers(attestation_version: int | None) -> bool:
+    """Does a row with this attestation version authorise the numbers it lists?"""
+    return attestation_version == DECLARATION_VERSION
 
 
 async def read_declaration(session: AsyncSession, *, tenant_id: UUID) -> Declaration:
@@ -156,11 +167,10 @@ async def read_declaration(session: AsyncSession, *, tenant_id: UUID) -> Declara
         recorded=True,
         state="withdrawn" if str(row[0]) == "withdrawn" else "notified",
         notified_on=row[1],
-        notice_reference=row[2],
-        created_at=row[3],
-        declared_clis=tuple(row[4] or ()),
-        attested=row[5] is not None,
-        attested_version=row[6],
+        created_at=row[2],
+        declared_clis=tuple(row[3] or ()),
+        attested=_covers(row[4]),
+        attested_version=row[4],
     )
 
 
@@ -224,23 +234,23 @@ async def _still_declared(
 ) -> frozenset[str]:
     """The numbers of a future-dated latest declaration that an earlier one already covers.
 
-    A client adding a number it will declare next week records the whole list again with
-    next week's date; the numbers it declared last month stay declared meanwhile. Only
+    A confirmation is dated the day it is made, but the gate does not rely on it: a row
+    dated later must not stop the numbers an earlier row already covers. Only
     numbers BOTH rows list carry over (the newer list is the client's current statement),
     and nothing carries past a withdrawal.
     """
     rows = await session.execute(
         text(
-            "SELECT state, notified_on, declared_clis, attestation_sha256 "
+            "SELECT state, notified_on, declared_clis, attestation_version "
             "FROM autodialer_notices WHERE tenant_id = :tid "
             "ORDER BY created_at DESC, id DESC LIMIT :limit"
         ),
         {"tid": tenant_id, "limit": _HISTORY_LIMIT},
     )
-    for state, notified_on, clis, attested in list(rows)[1:]:
+    for state, notified_on, clis, version in list(rows)[1:]:
         if str(state) == "withdrawn":
             return frozenset()
-        if attested is not None and notified_on <= (today or ist_today()):
+        if _covers(version) and notified_on <= (today or ist_today()):
             return frozenset(clis or ()) & frozenset(latest.declared_clis)
     return frozenset()
 
@@ -353,8 +363,8 @@ def _declared_clis(raw: Sequence[str], *, required: bool) -> list[str]:
     if len(numbers) > MAX_DECLARED_CLIS:
         raise ProblemError.business_rule(
             "a2p_declaration_numbers_too_many",
-            "That is more numbers than one declaration can hold.",
-            remediation=f"Declare at most {MAX_DECLARED_CLIS} numbers.",
+            "That is more numbers than one confirmation can hold.",
+            remediation=f"Confirm at most {MAX_DECLARED_CLIS} numbers.",
         )
     return numbers
 
@@ -363,48 +373,40 @@ async def record_declaration(
     session: AsyncSession,
     *,
     tenant_id: UUID,
-    notified_on: date,
     recorded_by: UUID,
     attestation_version: int,
     attestation_sha256: str,
-    notice_reference: str | None = None,
     declared_clis: Sequence[str] = (),
     withdraw: bool = False,
+    notified_on: date | None = None,
 ) -> UUID:
-    """Append one declaration or withdrawal. INSERT-only (hard rule 4).
+    """Append one confirmation or withdrawal. INSERT-only (hard rule 4).
 
-    A future `notified_on` is accepted and the gate holds the calls until it arrives:
-    refusing the write would push the client to record a date they did not write.
-    A withdrawal need not list numbers, since it retracts the declaration whole.
+    `notified_on` is the day the client authorised us, today in IST: the client no longer
+    states a date of its own (it filed nothing), and `notice_reference` stays NULL on these
+    rows for the same reason. The parameter exists for the gate's tests of a dated row.
+    A withdrawal need not list numbers, since it retracts the confirmation whole.
     """
     if attestation_version != DECLARATION_VERSION or attestation_sha256 != DECLARATION_TEXT_SHA256:
         raise ProblemError.business_rule(
             "a2p_declaration_version_stale",
             "The confirmation on your screen has changed.",
-            remediation="Reload the page, read the confirmation again and declare.",
-        )
-    reference = (notice_reference or "").strip() or None
-    if reference is not None and len(reference) > MAX_NOTICE_REFERENCE_CHARS:
-        raise ProblemError.business_rule(
-            "a2p_declaration_reference_invalid",
-            "That reference is too long.",
-            remediation=f"Use at most {MAX_NOTICE_REFERENCE_CHARS} characters.",
+            remediation="Reload the page, read the confirmation again and confirm.",
         )
     numbers = _declared_clis(declared_clis, required=not withdraw)
     row_id = uuid7()
     await session.execute(
         text(
             "INSERT INTO autodialer_notices "
-            "(id, tenant_id, state, notified_on, notice_reference, declared_clis, "
+            "(id, tenant_id, state, notified_on, declared_clis, "
             "recorded_by, attestation_version, attestation_sha256) "
-            "VALUES (:id, :tid, :state, :on, :ref, :clis, :by, :version, :sha)"
+            "VALUES (:id, :tid, :state, :on, :clis, :by, :version, :sha)"
         ),
         {
             "id": row_id,
             "tid": tenant_id,
             "state": "withdrawn" if withdraw else "notified",
-            "on": notified_on,
-            "ref": reference,
+            "on": notified_on or ist_today(),
             "clis": numbers,
             "by": recorded_by,
             "version": attestation_version,
@@ -426,7 +428,6 @@ __all__ = [
     "DECLARATION_TEXT_SHA256",
     "DECLARATION_VERSION",
     "MAX_DECLARED_CLIS",
-    "MAX_NOTICE_REFERENCE_CHARS",
     "NOT_RECORDED",
     "Declaration",
     "DeclarationState",

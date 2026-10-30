@@ -168,6 +168,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.caps import read_caps, read_spend_counters
 from apps.api.campaigns.service import account_outbound_blockers
+from apps.api.compliance.a2p_filing import filing_alarm_active, filing_status
+from apps.api.compliance.autodialer import enforcement_active
 from apps.api.compliance.service import account_dial_blockers, account_stopped_blocker
 from apps.api.compliance.trial_access import restricting_trial
 from apps.api.core.logging import get_logger
@@ -525,6 +527,26 @@ async def _declaration_signal(session: AsyncSession, *, tenant_id: UUID) -> Heal
     )
 
 
+async def _filing_signal(session: AsyncSession, *, tenant_id: UUID) -> HealthSignal | None:
+    """`calling_numbers_unfiled`: numbers the client authorised us to declare that we have
+    not marked filed, from `FILING_ALARM_DAYS` before the enforcement date (D-941 amended).
+
+    Ours to clear, so `waiting_on="calevate"`. A `warn` until the date and a `stop` from it:
+    the client's calls still go out (the gate does not wait for our filing), but each one
+    from an unfiled number is then a call the regulation treats as undeclared.
+    """
+    if not filing_alarm_active():
+        return None
+    status = await filing_status(session, tenant_id=tenant_id)
+    if not status.unfiled:
+        return None
+    return HealthSignal(
+        rule="calling_numbers_unfiled",
+        severity="stop" if enforcement_active() else "warn",
+        count=len(status.unfiled),
+    )
+
+
 def _cap_utilisation(
     *, minutes_used: Decimal, billed_inr: Decimal, cap_min: int | None, cap_spend: Decimal | None
 ) -> int | None:
@@ -607,6 +629,9 @@ async def tenant_health(
             declaration = await _declaration_signal(session, tenant_id=account.tenant_id)
             if declaration is not None:
                 signals.append(declaration)
+    unfiled = await _filing_signal(session, tenant_id=account.tenant_id)
+    if unfiled is not None:
+        signals.append(unfiled)
 
     unmetered = int(facts[7] or 0)
     if unmetered:

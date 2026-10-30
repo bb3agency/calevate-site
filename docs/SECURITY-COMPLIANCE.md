@@ -247,16 +247,28 @@ cite the same string:
   treated as Unsolicited commercial communication"*. It is a 60-day item, about 17 Nov
   2026 (`docs/research/research_notes/Calevate market and technology edge/
   india_regulation.md`, read 30 Oct 2026, rememory 8a05aded; the Gazette date is NOT
-  verified). **Who the Sender is on a number rented through us, and the filing route, are
-  UNKNOWN** (asked of ThinnestAI the same week; OPERATIONS §2 gate 59).
+  verified). **The filing route is UNKNOWN** (asked of ThinnestAI; OPERATIONS §2 gate 59).
+  **Since 30 Oct 2026 (D-941 amended, founder) the client confirms and authorises, and
+  Calevate declares:** a client rents its numbers through us and cannot identify or file
+  with the originating telephone company, so it is not asked to swear it did.
   - **THE RECORD.** `compliance/autodialer.py` and `GET`/`POST /v1/compliance/autodialer-notice`
-    (client realm; `org:manage` to declare, never an operator): the numbers (prefilled from
-    the account's rented numbers), the day they were declared, an optional reference, and
-    an attestation of a versioned text (version and SHA-256 stored, a stale screen refused)
-    in the append-only `autodialer_notices` plus an `audit_log` row. A withdrawal is a new
-    row. A D-637 notice row carries no attestation and covers no dial.
+    (client realm; `org:manage` to confirm, never an operator): the numbers (prefilled from
+    the account's rented numbers) and attestation **v2**, "...our agents place automated
+    calls only from the numbers listed, and I authorise Calevate to declare these numbers to
+    the telephone company on our behalf..." (version and SHA-256 stored, a stale screen
+    refused), in the append-only `autodialer_notices` plus an `audit_log` row. No date and
+    no reference from the client: the row is dated the IST day it is confirmed. A
+    withdrawal is a new row. Only a v2 row covers a dial; a D-637 notice row or a v1 row
+    covers none and the screen asks the client to confirm again.
+  - **OUR FILING.** Calevate files the authorised numbers and records it in the append-only,
+    tenant-scoped `a2p_number_filings` (filed numbers, IST date, reference, the operator)
+    from the admin **Calling numbers** board (`GET /v1/admin/calling-number-filings`,
+    `org:read`; `POST /v1/admin/tenants/{id}/calling-number-filings`, `admin:tenants`,
+    audited; only numbers the client currently authorises). The gate does NOT wait for it.
+    The client-health board raises `calling_numbers_unfiled` (ours) from 7 days before the
+    enforcement date: `warn`, then `stop` from the date.
   - **THE DATE.** The ops setting `a2p_declaration_enforced_from` (IST date, default
-    2026-11-17). Before it nothing is refused: the readiness screen lists "Declare your
+    2026-11-17). Before it nothing is refused: the readiness screen lists "Confirm your
     calling numbers before 17 Nov" under `upcoming`, the launch screen shows the same with
     one button, and every account with an agent that places calls gets one announcement
     (audience `outbound`). From it, `check_dispatch` refuses every outbound VOICE dial

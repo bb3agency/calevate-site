@@ -1,14 +1,15 @@
-"""Where a client declares the numbers its automated calls come from (D-941).
+"""Where a client confirms the numbers its automated calls come from (D-941).
 
-    GET  /v1/compliance/autodialer-notice   what is declared, what is not, and from when it counts
-    POST /v1/compliance/autodialer-notice   declare the numbers, or withdraw the declaration
+    GET  /v1/compliance/autodialer-notice   what is confirmed, what is not, and from when it counts
+    POST /v1/compliance/autodialer-notice   confirm the numbers, or withdraw the confirmation
 
-**CLIENT-REALM, AND THERE IS NO ADMIN WRITE.** The declaration is the sender's statement
-about its own numbers; a route that let somebody at Calevate record it would open the dial
-gate on a statement the client never made. Support helping on the phone still has the client
-press it. Operators read who has declared from the client-health board.
+**CLIENT-REALM, AND THERE IS NO ADMIN WRITE.** The confirmation is the client's statement
+about its own numbers and its authorisation for us to declare them; a route that let
+somebody at Calevate record it would open the dial gate on an authorisation the client never
+gave. Support helping on the phone still has the client press it. Our own filing of the
+numbers is a separate record (`a2p_filing_routes.py`).
 
-**`org:read` to look, `org:manage` to declare.** Looking stays open to a view-as session,
+**`org:read` to look, `org:manage` to confirm.** Looking stays open to a view-as session,
 which is the session support is in when a client rings asking why nothing dials.
 
 **A tenant with nothing on file is a 200 with `recorded: false`, never a 404.**
@@ -30,7 +31,6 @@ from apps.api.compliance.autodialer import (
     DECLARATION_TEXT_SHA256,
     DECLARATION_VERSION,
     MAX_DECLARED_CLIS,
-    MAX_NOTICE_REFERENCE_CHARS,
     a2p_declaration_blocker,
     enforced_from,
     enforcement_active,
@@ -63,32 +63,32 @@ class DeclarationBlockerOut(BaseModel):
 
 
 class CallingNumberDeclarationOut(BaseModel):
-    """What this account has declared, what it still has to, and from when it counts."""
+    """What this account has confirmed, what it still has to, and from when it counts."""
 
     model_config = ConfigDict(extra="forbid")
 
     recorded: bool
     state: str | None
+    #: The IST day the latest row was confirmed.
     notified_on: date | None
-    notice_reference: str | None
     declared_clis: list[str]
-    #: False on a row recorded before D-941, which covers no dial.
+    #: True only when the latest row carries the CURRENT attestation; an older row covers no
+    #: dial and the screen asks for the confirmation again.
     attested: bool
-    #: The attestation version accepted on the latest row; a screen offers the current text
-    #: again when it differs from `attestation_version`.
+    #: The attestation version accepted on the latest row.
     attested_version: int | None
     #: The same predicate the dial gate uses: recorded, notified, attested, dated today or
     #: earlier (IST).
     effective: bool
     #: Every number rented for this account, to prefill the form.
     rented_numbers: list[str]
-    #: Numbers bound to agents that place calls and missing from the declaration: a call from
-    #: one is refused once the rule is in force.
+    #: Numbers bound to agents that place calls and not covered by a current confirmation: a
+    #: call from one is refused once the rule is in force.
     undeclared_clis: list[str]
     #: Whether this account has an agent that places calls. An answering-only account has
-    #: nothing to declare.
+    #: nothing to confirm.
     applies: bool
-    #: The first IST day calls from undeclared numbers are refused, and whether it has come.
+    #: The first IST day calls from unconfirmed numbers are refused, and whether it has come.
     enforced_from: date
     enforced: bool
     #: What the gate says about this account's agents' numbers, whether or not it is in
@@ -100,14 +100,12 @@ class CallingNumberDeclarationOut(BaseModel):
 
 
 class CallingNumberDeclarationIn(BaseModel):
+    """No date and no reference: the client files nothing itself, so it has neither. The
+    row is dated the day it is confirmed (IST)."""
+
     model_config = ConfigDict(extra="forbid")
 
     declared_clis: list[str] = Field(default_factory=list, max_length=MAX_DECLARED_CLIS)
-    #: The day the numbers were declared, in the client's calendar. A future date is
-    #: accepted and counts from that day.
-    notified_on: date
-    #: The client's own handle for the declaration: a ticket number, a subject line.
-    notice_reference: str | None = Field(default=None, max_length=MAX_NOTICE_REFERENCE_CHARS)
     attestation_version: int
     attestation_sha256: str = Field(min_length=64, max_length=64)
     #: A withdrawal is a NEW row, never an edit (hard rule 4).
@@ -124,17 +122,17 @@ async def _out(session: AsyncSession, *, tenant_id: UUID) -> CallingNumberDeclar
         if applies
         else None
     )
+    covered = declaration.declared_clis if declaration.attested else ()
     return CallingNumberDeclarationOut(
         recorded=declaration.recorded,
         state=declaration.state,
         notified_on=declaration.notified_on,
-        notice_reference=declaration.notice_reference,
         declared_clis=list(declaration.declared_clis),
         attested=declaration.attested,
         attested_version=declaration.attested_version,
         effective=declaration.is_effective(),
         rented_numbers=await tenant_rented_numbers(session),
-        undeclared_clis=[n for n in agent_numbers if n not in declaration.declared_clis],
+        undeclared_clis=[n for n in agent_numbers if n not in covered],
         applies=applies,
         enforced_from=enforced_from(),
         enforced=enforcement_active(),
@@ -151,12 +149,12 @@ async def _out(session: AsyncSession, *, tenant_id: UUID) -> CallingNumberDeclar
     "",
     response_model=CallingNumberDeclarationOut,
     openapi_extra=permission_meta("org:read"),
-    summary="The calling numbers this account has declared",
+    summary="The calling numbers this account has confirmed",
     description=(
-        "Automated calls may only come from numbers declared in advance to the telephone "
-        "company that provides them. This says which numbers you have declared, which of "
-        "your agents' numbers are missing, and the day from which a call from an undeclared "
-        "number is refused. Incoming calls are never affected."
+        "Automated calls may only come from numbers registered in advance with the telephone "
+        "company. This says which numbers you have confirmed, which of your agents' numbers "
+        "are missing, and the day from which a call from an unconfirmed number is refused. "
+        "Incoming calls are never affected."
     ),
 )
 async def read_notice(session: Session, principal: Reader) -> CallingNumberDeclarationOut:
@@ -169,34 +167,32 @@ async def read_notice(session: Session, principal: Reader) -> CallingNumberDecla
     response_model=CallingNumberDeclarationOut,
     status_code=201,
     openapi_extra=permission_meta("org:manage"),
-    summary="Declare your calling numbers, or withdraw the declaration",
+    summary="Confirm your calling numbers, or withdraw the confirmation",
     description=(
-        "Record the numbers your automated calls come from, the day you declared them and "
-        "any reference you hold, and confirm the statement shown. Withdrawing files a new "
-        "record rather than deleting the old one."
+        "Confirm the numbers your automated calls come from and authorise Calevate to "
+        "register them with the telephone company on your behalf, by accepting the "
+        "statement shown. Withdrawing files a new record rather than deleting the old one."
     ),
 )
 async def record_notice(
     body: CallingNumberDeclarationIn, request: Request, session: Session, principal: Recorder
 ) -> CallingNumberDeclarationOut:
-    """Append the declaration, then read the account's position back from the database:
+    """Append the confirmation, then read the account's position back from the database:
     the gate reads the LATEST row, so the honest answer is that same read."""
     assert principal.tenant_id is not None
     # `client_user_id`, never `user_id` (D-587): `recorded_by` is a `users.id`, and on a
-    # view-as session `user_id` is an operator. A declaration with no client behind it is
-    # not the sender's statement, so it is refused.
+    # view-as session `user_id` is an operator. An authorisation with no client behind it is
+    # not the client's, so it is refused.
     actor = principal.client_user_id
     if actor is None:
         raise ProblemError.business_rule(
             "a2p_declaration_is_the_senders_own_act",
-            "Somebody at your own business has to declare these numbers.",
-            remediation="Sign in to your own account and declare them there.",
+            "Somebody at your own business has to confirm these numbers.",
+            remediation="Sign in to your own account and confirm them there.",
         )
     row_id = await record_declaration(
         session,
         tenant_id=principal.tenant_id,
-        notified_on=body.notified_on,
-        notice_reference=body.notice_reference,
         declared_clis=body.declared_clis,
         recorded_by=actor,
         attestation_version=body.attestation_version,
@@ -213,10 +209,8 @@ async def record_notice(
         object_id=str(row_id),
         ip=client_request_ip(request),
         summary={
-            "notified_on": body.notified_on.isoformat(),
             "numbers": len(body.declared_clis),
             "attestation_version": body.attestation_version,
-            "notice_reference_given": bool((body.notice_reference or "").strip()),
         },
     )
     return await _out(session, tenant_id=principal.tenant_id)

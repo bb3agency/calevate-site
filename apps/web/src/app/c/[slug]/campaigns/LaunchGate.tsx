@@ -195,7 +195,7 @@ export function LaunchGate({
 /**
  * Before the calling-number rule is in force (D-941) the gate refuses nothing for it, so a
  * launch goes through; this says calls will stop on that date unless the numbers are
- * declared. From the date the gate's own blocker, with its link, takes over and this hides.
+ * confirmed. From the date the gate's own blocker, with its link, takes over and this hides.
  */
 function DeclarationDue({
   declaration,
@@ -209,15 +209,15 @@ function DeclarationDue({
   return (
     <NoticeBox
       tone="warn"
-      title={`Declare your calling numbers before ${shortDay(declaration.enforced_from)}`}
+      title={`Confirm your calling numbers before ${shortDay(declaration.enforced_from)}`}
       className="mb-4"
       action={
         <Link href={href} className={SECONDARY_BUTTON_SM}>
-          Declare your calling numbers
+          Confirm numbers
         </Link>
       }
     >
-      From that day, calls from undeclared numbers are refused.
+      From that day, calls from numbers you have not confirmed are refused.
     </NoticeBox>
   );
 }

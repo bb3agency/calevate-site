@@ -121,6 +121,8 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "outbound-pledge",
     // The calling-number declaration (D-941); `autodialer_notices` announces `campaigns`.
     "calling-numbers",
+    // Our filing of the numbers clients authorise (D-941 amended), `a2p_number_filings`.
+    "admin/calling-number-filings",
     "outbound-consent-policy",
     // The agreements screen lists the pledge among what stops outgoing calls.
     "legal-readiness",

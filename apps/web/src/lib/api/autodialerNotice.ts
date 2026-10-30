@@ -1,14 +1,15 @@
 "use client";
 
 /**
- * The client's declaration of the numbers its automated calls come from (D-941).
+ * The client's confirmation of the numbers its automated calls come from, and its
+ * authorisation for Calevate to register them (D-941, amended 30 Oct 2026).
  *
  * What the server decides and this module never re-derives: `effective`, `blocker` and
  * `enforced`. They come from the predicate the dial gate uses, and a browser comparing
  * dates would disagree with it around midnight IST.
  *
- * Declaring invalidates the readiness reads and the campaign check, not only this key:
- * the declaration is one of the predicates they compose, so they say "declare your
+ * Confirming invalidates the readiness reads and the campaign check, not only this key:
+ * the confirmation is one of the predicates they compose, so they say "confirm your
  * numbers" until they are read again.
  */
 
@@ -36,11 +37,9 @@ export function useCallingNumbers(session: Session): UseQueryResult<CallingNumbe
   });
 }
 
+/** No date and no reference: the client files nothing itself; the server dates the row. */
 export interface DeclareBody {
   numbers: string[];
-  /** YYYY-MM-DD, the day the client declared them. */
-  declaredOn: string;
-  reference: string;
   /** The attestation the screen showed, echoed so a stale screen is refused. */
   attestationVersion: number;
   attestationSha256: string;
@@ -54,8 +53,6 @@ export function useDeclareCallingNumbers(session: Session) {
         method: "POST",
         body: {
           declared_clis: body.numbers,
-          notified_on: body.declaredOn,
-          notice_reference: body.reference.trim() || null,
           attestation_version: body.attestationVersion,
           attestation_sha256: body.attestationSha256,
           withdraw: false,
@@ -74,9 +71,4 @@ export function shortDay(isoDay: string): string {
   const [year, month, day] = isoDay.split("-").map(Number);
   const date = new Date(Date.UTC(year, month - 1, day));
   return new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", timeZone: "UTC" }).format(date);
-}
-
-/** Today's calendar day in India, YYYY-MM-DD, for the form's default. */
-export function todayIST(now: Date = new Date()): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(now);
 }

@@ -46,6 +46,7 @@ import TenantMembersPage from "@/app/admin/tenants/[tenantId]/members/page";
 import HeldAccountsPage from "@/app/admin/holds/page";
 import AnnouncementsPage from "@/app/admin/announcements/page";
 import KycReviewsPage from "@/app/admin/kyc-reviews/page";
+import CallingNumbersPage from "@/app/admin/calling-numbers/page";
 import NewClientPage from "@/app/admin/new/page";
 import GlobalDncPage from "@/app/admin/ops/dnc/page";
 import OpsAlertsPage from "@/app/admin/ops/alerts/page";
@@ -1077,10 +1078,30 @@ const LEGAL_READINESS = {
   upcoming: [
     {
       rule: "a2p_declaration_missing",
-      title: "Declare your calling numbers before 17 Nov",
-      reason: "From 17 Nov 2026, automated calls may only come from numbers you have declared.",
+      title: "Confirm your calling numbers before 17 Nov",
+      reason: "From 17 Nov 2026, the law needs the numbers your agent calls from to be registered.",
       actor: "client",
-      next_step: "Declare your calling numbers on Verify your business.",
+      next_step: "Confirm your calling numbers on Verify your business.",
+    },
+  ],
+};
+
+/** The operations board of authorised numbers (D-941 amended): one filed, one to file. */
+const CALLING_NUMBER_FILINGS = {
+  enforced_from: "2026-11-17",
+  alarm_from: "2026-11-10",
+  alarm: true,
+  clients: [
+    {
+      tenant_id: "t1",
+      name: "Sri Clinic",
+      slug: "sri-clinic",
+      authorised_on: "2026-10-30",
+      numbers: [
+        { number: "+919848022338", filed_on: null, filing_reference: null },
+        { number: "+914049001234", filed_on: "2026-11-02", filing_reference: "ACK-77" },
+      ],
+      unfiled: 1,
     },
   ],
 };
@@ -1090,7 +1111,6 @@ const CALLING_NUMBERS_DUE = {
   recorded: false,
   state: null,
   notified_on: null,
-  notice_reference: null,
   declared_clis: [],
   attested: false,
   attested_version: null,
@@ -1102,9 +1122,9 @@ const CALLING_NUMBERS_DUE = {
   enforced: false,
   blocker: {
     rule: "a2p_declaration_missing",
-    reason: "Declare your calling numbers to place calls. Incoming calls still work.",
+    reason: "Confirm your calling numbers to place calls. Incoming calls still work.",
   },
-  attestation_version: 1,
+  attestation_version: 2,
   attestation_text: "On behalf of this business I confirm the numbers listed.",
   attestation_sha256: "a".repeat(64),
 };
@@ -4379,6 +4399,17 @@ const ADMIN_SCREENS: Screen[] = [
           submitted_at: "2026-02-01T06:00:00Z",
         },
       ],
+    },
+  },
+  {
+    // D-941 amended: one client with a number filed and one still to file, so the form and
+    // the alarm notice are both swept.
+    file: "admin/calling-numbers/page.tsx",
+    realm: "admin",
+    element: () => <CallingNumbersPage />,
+    routes: {
+      "/v1/admin/me": { ...ADMIN_ME, permissions: ["org:read", "admin:tenants"] },
+      "/v1/admin/calling-number-filings": CALLING_NUMBER_FILINGS,
     },
   },
   {

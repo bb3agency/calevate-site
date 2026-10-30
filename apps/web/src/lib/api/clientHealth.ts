@@ -129,13 +129,22 @@ export const SIGNAL_COPY: Record<string, SignalCopy> = {
     cta: "Approve knowledge",
   },
   calling_numbers_undeclared: {
-    label: "Calling numbers not declared",
+    label: "Calling numbers not confirmed",
     meaning:
-      "This account places calls from numbers it has not declared. From the enforcement " +
-      "date, calls from undeclared numbers are refused; only the client can declare, on " +
+      "This account places calls from numbers it has not confirmed. From the enforcement " +
+      "date, calls from unconfirmed numbers are refused; only the client can confirm, on " +
       "Verify your business. Amber before that date, red after it.",
     screen: (tenantId) => `/admin/tenants/${tenantId}`,
     cta: "Open the account",
+  },
+  calling_numbers_unfiled: {
+    label: "Calling numbers not filed by us",
+    meaning:
+      "The client authorised us to register these numbers with the telephone company and " +
+      "nobody here has marked them filed. Their calls still go out; from the enforcement " +
+      "date each one is undeclared. Ours to clear. Amber from a week before, red after.",
+    screen: () => "/admin/calling-numbers",
+    cta: "Open calling numbers",
   },
   calls_unmetered: {
     label: "Calls billed to us and to nobody",
@@ -185,10 +194,10 @@ const CAUSE_LABELS: Record<string, string> = {
   payment_dispute: "Payment dispute open",
   platform_fee_overdue: "Platform fee unpaid",
   no_credits: "Prepaid wallet empty",
-  // D-941. Only the client can declare; an operator chases them.
-  a2p_declaration_missing: "Calling numbers not declared",
-  a2p_declaration_not_yet_effective: "Calling numbers declared from a later date",
-  a2p_number_undeclared: "An agent's calling number not declared",
+  // D-941. Only the client can confirm; an operator chases them.
+  a2p_declaration_missing: "Calling numbers not confirmed",
+  a2p_declaration_not_yet_effective: "Calling numbers confirmed from a later date",
+  a2p_number_undeclared: "An agent's calling number not confirmed",
 };
 
 /**

@@ -17,6 +17,7 @@ import {
   Languages,
   Megaphone,
   MessageCircle,
+  PhoneCall,
   PhoneOff,
   ShieldUser,
   SlidersHorizontal,
@@ -135,6 +136,16 @@ export const ADMIN_NAV: NavGroup[] = [
         icon: BadgeCheck,
         permission: "admin:tenants",
         action: "open the identity review queue",
+      },
+      {
+        // D-941 amended: the numbers clients authorised us to register with the telephone
+        // company, and whether we have. `org:read` is what the board's GET carries
+        // (`compliance/a2p_filing_routes.py`); marking filed asks `admin:tenants` on the page.
+        href: "/admin/calling-numbers",
+        label: "Calling numbers",
+        icon: PhoneCall,
+        permission: "org:read",
+        action: "open the calling numbers to file",
       },
       {
         href: "/admin/qa-sampling",

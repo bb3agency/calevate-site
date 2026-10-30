@@ -247,7 +247,6 @@ export const CALLING_NUMBERS_NOT_APPLICABLE = {
   recorded: false,
   state: null,
   notified_on: null,
-  notice_reference: null,
   declared_clis: [],
   attested: false,
   attested_version: null,
@@ -258,7 +257,7 @@ export const CALLING_NUMBERS_NOT_APPLICABLE = {
   enforced_from: "2026-11-17",
   enforced: false,
   blocker: null,
-  attestation_version: 1,
+  attestation_version: 2,
   attestation_text: "On behalf of this business I confirm the numbers listed.",
   attestation_sha256: "a".repeat(64),
 } satisfies CallingNumberDeclaration;

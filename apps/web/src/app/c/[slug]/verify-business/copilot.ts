@@ -140,7 +140,7 @@ function callingNumberFacts(declaration: UseQueryResult<CallingNumberDeclaration
     return [
       {
         key: "calling_numbers_state",
-        label: "Has the calling-numbers declaration loaded?",
+        label: "Have the calling numbers loaded?",
         value: declaration.error ? "no — it failed to load" : "still loading",
       },
     ];
@@ -148,12 +148,12 @@ function callingNumberFacts(declaration: UseQueryResult<CallingNumberDeclaration
   return [
     {
       key: "calling_numbers_applies",
-      label: "Does an agent on this account place calls (so numbers need declaring)?",
+      label: "Does an agent on this account place calls (so numbers need confirming)?",
       value: data.applies ? "yes" : "no",
     },
     {
       key: "calling_numbers_declared",
-      label: "Are the calling numbers declared and in effect?",
+      label: "Are the calling numbers confirmed and in effect?",
       value: data.effective && data.blocker === null ? "yes" : "no",
     },
     {
@@ -163,19 +163,19 @@ function callingNumberFacts(declaration: UseQueryResult<CallingNumberDeclaration
     },
     {
       key: "calling_numbers_enforced_from",
-      label: "From which day calls from undeclared numbers are refused",
+      label: "From which day calls from unconfirmed numbers are refused",
       value: data.enforced_from,
     },
     { key: "calling_numbers_enforced", label: "Has that day come?", value: data.enforced ? "yes" : "no" },
     {
       key: "calling_numbers_undeclared",
-      label: "Agent numbers not yet declared",
+      label: "Agent numbers not yet confirmed",
       value: String(data.undeclared_clis.length),
     },
     {
       key: "calling_numbers_where",
-      label: "Where they are declared",
-      value: "the Calling numbers card on this screen; only someone at the business can press Declare numbers",
+      label: "Where they are confirmed",
+      value: "the Calling numbers card on this screen; only someone at the business can press Confirm numbers. Calevate then registers them with the telephone company",
     },
   ];
 }

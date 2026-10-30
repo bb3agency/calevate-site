@@ -1611,7 +1611,18 @@ autodialer_notices(id, tenant_id → organizations RESTRICT, state ENUM[notified
   -- LATEST row is the current position (INDEX ix_autodialer_notices_latest_for_tenant), a
   -- withdrawal a new row. CHECKs: version and SHA paired; a row is attested OR carries
   -- the D-637 provider and objective. D-637 rows (migration e5c1a70b93f4, CLIs from
-  -- f39583a282fb) carry no attestation and cover no dial.
+  -- f39583a282fb) carry no attestation and cover no dial. Since 30 Oct 2026 (D-941
+  -- amended) only a row with attestation_version 2 (the client's authorisation for
+  -- Calevate to declare) covers a dial; a v1 row does not, and new rows leave
+  -- notice_reference NULL and date notified_on as the IST day of confirming.
+a2p_number_filings(id, tenant_id → organizations RESTRICT, filed_clis TEXT[] NOT NULL
+  (cardinality > 0), filed_on DATE, filing_reference TEXT NOT NULL (non-blank),
+  recorded_by_admin_id → admin_users RESTRICT, created_at)   -- INSERT-only (hard rule 4)
+  -- D-941 amended (migration c4e1a9b7d305): Calevate's filing of a client's authorised
+  -- numbers with the telephone company. FORCEd RLS; append-only + TRUNCATE triggers,
+  -- ALWAYS. A number's latest filing is the one shown (INDEX
+  -- ix_a2p_number_filings_tenant_latest); a correction is a new filing. Not rows in
+  -- autodialer_notices, whose latest row is the client's own statement.
 -- consent_ledger also carries ix_consent_ledger_callback_lookup (tenant_id, phone_e164,
 --   captured_at DESC, id DESC) WHERE purpose = 'callback' and ix_consent_ledger_withdrawn_call
 --   (call_id) WHERE status = 'withdrawn' AND call_id IS NOT NULL (migration e95e0d780629),

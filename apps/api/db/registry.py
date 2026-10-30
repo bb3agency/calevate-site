@@ -341,6 +341,9 @@ TENANT_TABLES = [
     # A client's declaration of the numbers its automated calls come from (migration
     # e5c1a70b93f4, D-941). Tenant data: one client's calling numbers and its statement.
     "autodialer_notices",
+    # Calevate's filing of one client's authorised calling numbers with the telephone
+    # company (migration c4e1a9b7d305, D-941 amended). Tenant data: that client's numbers.
+    "a2p_number_filings",
     # One recording whose destruction an erasure OWES but could not lawfully perform yet
     # (migration 9c1d3e7a05f4). Tenant data: it names one of this client's calls and the
     # object key of its audio. NOT append-only — `erased_at` is stamped when the bytes
@@ -1183,6 +1186,9 @@ APPEND_ONLY_TABLES = [
     # A calling-number declaration and its withdrawal are two rows, never one row edited
     # (migration e5c1a70b93f4): the record of what was declared while a call was placed.
     "autodialer_notices",
+    # When Calevate filed a client's numbers (migration c4e1a9b7d305): a correction is a new
+    # filing, never an edit of the evidence of the first.
+    "a2p_number_filings",
     "credit_ledger",
     "one_time_charges",
     # A paid monthly platform fee (D-707). Append-only for `credit_ledger`'s reason: it is

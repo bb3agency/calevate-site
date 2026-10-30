@@ -203,6 +203,11 @@ USER_A = UUID("aaaaaaaa-0000-4000-8000-00000000c5e1")
 USER_B = UUID("bbbbbbbb-0000-4000-8000-00000000c5e2")
 #: One purchased number for TENANT_A, so the ledgers that hang off a number have a row.
 NUMBER_A = UUID("aaaaaaaa-0000-4000-8000-0000000000a1")
+#: One Follow-up, its published version and one run for TENANT_A, so the two Follow-up
+#: ledgers (versions and run events, D-940) have a row for the probe.
+FOLLOW_UP_A = UUID("aaaaaaaa-0000-4000-8000-0000000000f1")
+FOLLOW_UP_VERSION_A = UUID("aaaaaaaa-0000-4000-8000-0000000000f2")
+FOLLOW_UP_RUN_A = UUID("aaaaaaaa-0000-4000-8000-0000000000f3")
 ADMIN_ID = UUID("cccccccc-0000-4000-8000-0000000000ad")
 LEADS_PER_TENANT = 7
 AUDIT_ENTRIES = 6
@@ -795,6 +800,30 @@ class RestoreDrill:
             f"objective, notified_on, recorded_by) VALUES (gen_random_uuid(), '{TENANT_A}', "
             "'notified', 'Drill Access Provider', 'restore-drill fixture', CURRENT_DATE, "
             f"'{USER_A}')",
+            # A D-941 version-2 confirmation beside the D-637 row above, the shape every
+            # row has had since 30 Oct 2026.
+            "INSERT INTO autodialer_notices (id, tenant_id, state, notified_on, declared_clis, "
+            "recorded_by, attestation_version, attestation_sha256) VALUES (gen_random_uuid(), "
+            f"'{TENANT_A}', 'notified', CURRENT_DATE, ARRAY['+918000000001'], '{USER_A}', 2, "
+            f"'{'0' * 64}')",
+            # D-940's two ledgers need their parents: a draft Follow-up (no live version, so
+            # its CHECK holds), one version, one waiting run.
+            "INSERT INTO follow_ups (id, tenant_id, name, status, trigger, settings) VALUES "
+            f"('{FOLLOW_UP_A}', '{TENANT_A}', 'Drill follow-up', 'draft', "
+            "'{\"kind\": \"new_lead\"}'::jsonb, '{}'::jsonb)",
+            "INSERT INTO follow_up_versions (id, tenant_id, follow_up_id, number, steps, "
+            f"trigger, settings) VALUES ('{FOLLOW_UP_VERSION_A}', '{TENANT_A}', "
+            f"'{FOLLOW_UP_A}', 1, '[]'::jsonb, '{{\"kind\": \"new_lead\"}}'::jsonb, '{{}}'::jsonb)",
+            "INSERT INTO follow_up_runs (id, tenant_id, follow_up_id, version_id, phone_e164, "
+            f"status, step_id, trigger_ref) VALUES ('{FOLLOW_UP_RUN_A}', '{TENANT_A}', "
+            f"'{FOLLOW_UP_A}', '{FOLLOW_UP_VERSION_A}', '+918000000002', 'waiting', 's1', "
+            "'restore-drill')",
+            "INSERT INTO follow_up_run_events (id, tenant_id, run_id, step_id, kind, result) "
+            f"VALUES (gen_random_uuid(), '{TENANT_A}', '{FOLLOW_UP_RUN_A}', 's1', 'drill', "
+            "'fixture')",
+            "INSERT INTO a2p_number_filings (id, tenant_id, filed_clis, filed_on, "
+            f"filing_reference, recorded_by_admin_id) VALUES (gen_random_uuid(), '{TENANT_A}', "
+            f"ARRAY['+918000000001'], CURRENT_DATE, 'restore-drill fixture', '{ADMIN_ID}')",
             # PLATFORM-scoped, so no tenant: one attested rupee price per month.
             "INSERT INTO number_price_attestations (id, inr_per_month, source, attested_by) "
             f"VALUES (gen_random_uuid(), 499.00, 'restore-drill fixture', '{ADMIN_ID}')",

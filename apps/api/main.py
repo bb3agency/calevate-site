@@ -187,6 +187,8 @@ def _mount_routers(application: FastAPI) -> None:
     )
     from apps.api.campaigns.provisioning_routes import router as numbers_router
     from apps.api.campaigns.routes import router as campaigns_router
+    from apps.api.compliance.a2p_filing_routes import board_router as a2p_filing_board_router
+    from apps.api.compliance.a2p_filing_routes import tenant_router as a2p_filing_router
     from apps.api.compliance.autodialer_routes import router as autodialer_notice_router
     from apps.api.compliance.call_purpose_routes import router as call_purpose_router
     from apps.api.compliance.caller_notice_routes import router as caller_notice_router
@@ -472,6 +474,9 @@ def _mount_routers(application: FastAPI) -> None:
     # `/v1/admin/tenants/{tenant_id}/...` for the per-tenant scrub.
     application.include_router(global_dnc_router)
     application.include_router(preference_scrub_router)
+    # Calevate's filing of the calling numbers clients authorise (D-941 amended).
+    application.include_router(a2p_filing_board_router)
+    application.include_router(a2p_filing_router)
     application.include_router(subject_export_router)
     # All four `/v1/compliance/...` routers carry literal second segments and none has a
     # `{param}` at that position, so declaration order is not load-bearing between them

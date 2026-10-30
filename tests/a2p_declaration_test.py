@@ -14,6 +14,7 @@ outbound path reaches the gate; the record is tenant-isolated and append-only.
 from __future__ import annotations
 
 import ast
+import hashlib
 import uuid
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -109,10 +110,75 @@ async def _declare(
             recorded_by=user_id,
             attestation_version=DECLARATION_VERSION,
             attestation_sha256=DECLARATION_TEXT_SHA256,
-            notice_reference="OAP-TKT-1",
             declared_clis=numbers,
             withdraw=withdraw,
         )
+
+
+# --- the attestation (D-941 amended 30 Oct 2026) -------------------------------------------
+
+_V2_TEXT = (
+    "On behalf of this business I confirm that our agents place automated calls only from "
+    "the numbers listed, and I authorise Calevate to declare these numbers to the telephone "
+    "company on our behalf. We will add any new number here before it places an automated "
+    "call."
+)
+
+
+def test_the_attestation_is_version_2_the_authorisation_and_its_hash_is_pinned() -> None:
+    """The client authorises us to declare; it no longer swears it declared them itself."""
+    assert DECLARATION_VERSION == 2
+    assert autodialer.DECLARATION_TEXT == _V2_TEXT
+    assert hashlib.sha256(_V2_TEXT.encode("utf-8")).hexdigest() == DECLARATION_TEXT_SHA256
+    assert "on the date shown" not in autodialer.DECLARATION_TEXT
+
+
+async def _version_1_row(tenant_id: uuid.UUID, numbers: list[str]) -> None:
+    user_id = await _member(tenant_id)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO autodialer_notices (id, tenant_id, state, notified_on, "
+                "notice_reference, declared_clis, recorded_by, attestation_version, "
+                "attestation_sha256) VALUES (:id, :t, 'notified', '2026-10-01', 'OAP-1', :c, "
+                ":u, 1, :sha)"
+            ),
+            {"id": uuid.uuid4(), "t": tenant_id, "c": numbers, "u": user_id, "sha": "b" * 64},
+        )
+
+
+async def test_a_version_1_row_covers_no_dial_and_the_screen_asks_again(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _today(monkeypatch, ENFORCED)
+    tenant_id, agent_id = await _tenant("a2p-v1")
+    numbers = await _agent_numbers(tenant_id, agent_id)
+    await _version_1_row(tenant_id, numbers)
+    assert (await _gate(tenant_id, agent_id)).rule == A2P_DECLARATION_MISSING_RULE
+    headers = await _org_headers(tenant_id)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:
+        body = (await http.get(PATH, headers=headers)).json()
+    assert body["recorded"] is True
+    assert body["attested"] is False
+    assert body["attested_version"] == 1
+    assert body["effective"] is False
+    assert body["undeclared_clis"] == numbers
+    assert body["blocker"]["rule"] == A2P_DECLARATION_MISSING_RULE
+
+    # Confirming once more on version 2 covers the same numbers.
+    await _declare(tenant_id, numbers)
+    assert (await _gate(tenant_id, agent_id)).allowed is True
+
+
+async def test_a_version_1_row_does_not_carry_numbers_under_a_later_dated_row(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _today(monkeypatch, ENFORCED)
+    tenant_id, agent_id = await _tenant("a2p-v1-carry")
+    numbers = await _agent_numbers(tenant_id, agent_id)
+    await _version_1_row(tenant_id, numbers)
+    await _declare(tenant_id, numbers, notified_on=date(2026, 11, 20))
+    assert (await _gate(tenant_id, agent_id)).rule == A2P_DECLARATION_NOT_YET_EFFECTIVE_RULE
 
 
 async def _gate(tenant_id: uuid.UUID, agent_id: uuid.UUID, **kwargs: Any) -> DispatchDecision:
@@ -421,7 +487,7 @@ async def test_readiness_lists_the_declaration_as_due_before_the_date_and_blocki
         due = await a2p_readiness_row(session, tenant_id=tenant_id)
         rows = await readiness_rows(session, tenant_id=tenant_id, platform=platform)
     assert due is not None and due[1] is False
-    assert due[0].title == "Declare your calling numbers before 17 Nov"
+    assert due[0].title == "Confirm your calling numbers before 17 Nov"
     assert A2P_DECLARATION_MISSING_RULE not in {r.rule for r in rows}
 
     _today(monkeypatch, ENFORCED)
@@ -486,7 +552,6 @@ async def test_an_operator_in_view_as_cannot_declare_for_the_client() -> None:
     principal: Any = SimpleNamespace(tenant_id=tenant_id, client_user_id=None)
     body = CallingNumberDeclarationIn(
         declared_clis=["+919848022338"],
-        notified_on=date(2026, 10, 30),
         attestation_version=DECLARATION_VERSION,
         attestation_sha256=DECLARATION_TEXT_SHA256,
     )
@@ -545,18 +610,16 @@ async def test_a_stale_attestation_and_an_empty_list_are_refused() -> None:
                 declared_clis=[f"+91984802{n:04d}" for n in range(21)],
             )
         assert many.value.code == "a2p_declaration_numbers_too_many"
-        with pytest.raises(ProblemError) as long_ref:
+        with pytest.raises(ProblemError) as old_version:
             await record_declaration(
                 session,
                 tenant_id=tenant_id,
-                notified_on=date(2026, 10, 1),
                 recorded_by=user_id,
-                attestation_version=DECLARATION_VERSION,
+                attestation_version=1,
                 attestation_sha256=DECLARATION_TEXT_SHA256,
                 declared_clis=["+919848022338"],
-                notice_reference="x" * 201,
             )
-        assert long_ref.value.code == "a2p_declaration_reference_invalid"
+        assert old_version.value.code == "a2p_declaration_version_stale"
 
 
 async def test_the_record_is_tenant_isolated() -> None:
@@ -619,31 +682,47 @@ async def test_the_route_reads_prefills_and_records_and_the_gate_agrees(
         assert before["undeclared_clis"] == numbers
         assert before["blocker"]["rule"] == A2P_DECLARATION_MISSING_RULE
 
+        assert before["attestation_version"] == 2
+        assert "notice_reference" not in before
+
         stale = await http.post(
             PATH,
             headers=headers,
             json={
                 "declared_clis": numbers,
-                "notified_on": "2026-10-30",
                 "attestation_version": before["attestation_version"],
                 "attestation_sha256": "0" * 64,
             },
         )
         assert stale.status_code == 422, stale.text
 
+        # The client files nothing itself, so it gives no date and no reference.
+        for extra in ({"notified_on": "2026-10-30"}, {"notice_reference": "OAP-1"}):
+            refused = await http.post(
+                PATH,
+                headers=headers,
+                json={
+                    "declared_clis": numbers,
+                    "attestation_version": before["attestation_version"],
+                    "attestation_sha256": before["attestation_sha256"],
+                    **extra,
+                },
+            )
+            assert refused.status_code == 422, refused.text
+
         recorded = await http.post(
             PATH,
             headers=headers,
             json={
                 "declared_clis": numbers,
-                "notified_on": "2026-10-30",
-                "notice_reference": "OAP-1",
                 "attestation_version": before["attestation_version"],
                 "attestation_sha256": before["attestation_sha256"],
             },
         )
         assert recorded.status_code == 201, recorded.text
         body = recorded.json()
+    # Dated the day it was confirmed, in IST.
+    assert body["notified_on"] == BEFORE.isoformat()
     assert body["effective"] is True
     assert body["undeclared_clis"] == []
     assert body["blocker"] is None
@@ -693,10 +772,18 @@ async def test_the_migration_sent_the_announcement_to_the_outbound_audience() ->
         row = (
             await session.execute(
                 text(
-                    "SELECT audience, link_url, tone FROM platform_announcements "
+                    "SELECT audience, link_url, tone, message, link_label "
+                    "FROM platform_announcements "
                     "WHERE id = '019a33c0-d941-7000-8000-0000000d0941'"
                 )
             )
         ).first()
     assert row is not None
-    assert tuple(row) == ("outbound", "/verify-business#calling-numbers", "warning")
+    assert tuple(row) == (
+        "outbound",
+        "/verify-business#calling-numbers",
+        "warning",
+        "From 17 Nov, the law needs the numbers your agent calls from to be registered. "
+        "Confirm your calling numbers so your calls keep going.",
+        "Confirm numbers",
+    )
