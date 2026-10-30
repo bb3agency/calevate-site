@@ -147,6 +147,16 @@ MESSAGING_CONSENT_VALIDITY_DAYS = 365
 #: ask; a person who comes back on their own (writes in on WhatsApp, fills a form) has not
 #: been asked, and their new yes lifts the lockout.
 ASKED_CONSENT_SOURCES = AGENT_RECORDED_CONSENT_SOURCES
+#: The same, for permission to be CALLED (D-943, extended 30 Oct 2026): a yes spoken on a
+#: call. Our agent offers call-backs, and staff record what a caller agreed to on the phone,
+#: so a spoken yes is an answer to our question; a form the person fills in is not, and
+#: lifts the lockout as it does for messaging. `inbound_call_verbal` stays outside the
+#: messaging set, whose rules this extension leaves as they were.
+CALL_ASKED_CONSENT_SOURCES = CALL_BOUND_CONSENT_SOURCES
+_ASKED_SOURCES_BY_PURPOSE: dict[str, tuple[str, ...]] = {
+    MESSAGING_PURPOSE: ASKED_CONSENT_SOURCES,
+    CALLBACK_PURPOSE: CALL_ASKED_CONSENT_SOURCES,
+}
 
 #: The latest no to `purpose` (or to marketing at all) inside the lockout, unless the person
 #: has said yes since. `marketing` rows are the opt-outs callers speak on a call
@@ -212,6 +222,30 @@ def reask_locked(until: datetime) -> ProblemError:
             "record it where they asked (a form or their own WhatsApp message)."
         ),
     )
+
+
+async def _refuse_a_locked_ask(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    phone_e164: str,
+    purpose: str,
+    status: str,
+    source: str,
+) -> None:
+    """The one lockout check both writers make: a yes to OUR question inside the window is
+    a yes we were not allowed to ask for (D-943), so it is refused rather than filed."""
+    if status != "granted" or source not in _ASKED_SOURCES_BY_PURPOSE[purpose]:
+        return
+    locked_until = await reask_locked_until(
+        session, tenant_id=tenant_id, phone_e164=phone_e164, purpose=purpose
+    )
+    if locked_until is not None:
+        log.info(
+            "consent_reask_refused",
+            extra={"tenant_id": str(tenant_id), "purpose": purpose, "source": source},
+        )
+        raise reask_locked(locked_until)
 
 
 # The statuses this surface may record. `declined` is the live "no thanks" of a caller
@@ -384,18 +418,14 @@ async def record_messaging_consent(
     # your call", and before the INSERT so nothing is written either way.
     await assert_visible(session, "call", call_id)
 
-    # A yes to OUR question inside the lockout is a yes we were not allowed to ask for
-    # (D-943), so it is refused rather than filed as consent.
-    if status == "granted" and source in ASKED_CONSENT_SOURCES:
-        locked_until = await reask_locked_until(
-            session, tenant_id=tenant_id, phone_e164=phone_e164, purpose=MESSAGING_PURPOSE
-        )
-        if locked_until is not None:
-            log.info(
-                "consent_reask_refused",
-                extra={"tenant_id": str(tenant_id), "purpose": MESSAGING_PURPOSE, "source": source},
-            )
-            raise reask_locked(locked_until)
+    await _refuse_a_locked_ask(
+        session,
+        tenant_id=tenant_id,
+        phone_e164=phone_e164,
+        purpose=MESSAGING_PURPOSE,
+        status=status,
+        source=source,
+    )
 
     captured_at = await _append_consent_row(
         session,
@@ -470,6 +500,14 @@ async def record_call_consent(
                 remediation="Leave the expiry empty, or give a date in the future.",
             )
     await assert_visible(session, "call", call_id)
+    await _refuse_a_locked_ask(
+        session,
+        tenant_id=tenant_id,
+        phone_e164=phone_e164,
+        purpose=CALLBACK_PURPOSE,
+        status=status,
+        source=source,
+    )
     captured_at = await _append_consent_row(
         session,
         tenant_id=tenant_id,
@@ -713,6 +751,10 @@ async def record_callback_request_consent(
     So it is written over nothing on an account that requires consent, over a refusal (the
     request is the affirmative act that lifts it; the DNC list is a separate block), and over
     a grant that ends before the call.
+
+    Not over a refusal inside the 90-day re-ask lockout: our agent offers call-backs, so the
+    yes may answer our question, and `record_call_consent` refuses it (D-943). The call-back
+    tool asks the lockout before it books, so it never reaches that refusal.
     """
     lapses_at = callback_at + GRACE
     consent = await latest_call_consent(session, tenant_id=tenant_id, phone_e164=phone_e164)
@@ -776,6 +818,7 @@ def _assert_grant_is_evidenced(
 
 __all__ = [
     "ASKED_CONSENT_SOURCES",
+    "CALL_ASKED_CONSENT_SOURCES",
     "GRANT_CAPABLE_SOURCES",
     "MESSAGING_CONSENT_VALIDITY_DAYS",
     "NO_CONSENT",

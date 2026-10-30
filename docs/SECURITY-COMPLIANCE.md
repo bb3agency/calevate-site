@@ -417,9 +417,14 @@ implies it: it is one switch an owner finds.
   days from the enquiry (2026 cl.2(bb)(ii)). Shown on the launch checklist.
 - **Application window.** A lead source the client declares an application form grants a
   consent row three calendar months long (2026 cl.2(bb)(iii)); an enquiry form, seven days.
-- **Re-ask lockout.** After a person declines or withdraws messaging consent, or says
-  "stop calling", the business may not ask them again for 90 days unless they come back on
-  their own (2025 Sch. I 2(2)(g)); the in-call WhatsApp ask is refused inside it.
+- **Re-ask lockout.** After a person declines or withdraws consent to be messaged or to be
+  called, or says "stop calling", the business may not ask them again for that purpose for
+  90 days unless they come back on their own, by a form or their own WhatsApp message (2025
+  Sch. I 2(2)(g)). One check (`consent.reask_locked_until`) serves both purposes: the in-call
+  WhatsApp ask is refused inside it, a spoken yes to being called (`inbound_call_verbal`,
+  `in_call_agent_question`) is refused rather than filed, and the in-call call-back tool
+  books nothing and tells the agent not to offer one. The own-number test-call attestation
+  is not a consent row and is unaffected.
 
 Evidence: official text as read from the TRAI PDFs in `docs/research/research_notes/
 Calevate market and technology edge/india_regulation.md` §1 (30 Oct 2026). Counsel review:

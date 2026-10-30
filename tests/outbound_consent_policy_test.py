@@ -502,16 +502,21 @@ async def test_a_callback_request_is_the_consent_an_account_that_requires_one_ne
 
 async def test_a_callback_request_lifts_an_earlier_refusal() -> None:
     """The request is the affirmative act; the newest row is what the gate reads, so a
-    grant is appended over the refusal and the refusal stays on the ledger."""
+    grant is appended over the refusal and the refusal stays on the ledger. The refusal is
+    older than the 90-day re-ask lockout (D-943); inside it the request is refused
+    (`compliance_pack_test`)."""
     tenant_id, agent_id = await _tenant()
     phone = _fresh_phone()
     async with tenant_session(tenant_id) as session:
-        await consent.record_call_consent(
-            session,
-            tenant_id=tenant_id,
-            raw_phone=phone,
-            status="declined",
-            source="staff_recorded_request",
+        # Inserted with its own capture time: the ledger is append-only, so history is
+        # written in the past rather than updated into it.
+        await session.execute(
+            text(
+                "INSERT INTO consent_ledger (id, tenant_id, phone_e164, purpose, status, "
+                "consent_source, captured_at, created_at) VALUES (:i, :t, :p, 'callback', "
+                "'declined', 'staff_recorded_request', now() - interval '91 days', now())"
+            ),
+            {"i": uuid7(), "t": tenant_id, "p": phone},
         )
         await session.commit()
 
