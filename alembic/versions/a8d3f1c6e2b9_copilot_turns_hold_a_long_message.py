@@ -1,7 +1,7 @@
 """Pip conversation turns hold a long message: 8,000 characters, up from 2,000
 
 Revision ID: a8d3f1c6e2b9
-Revises: f2a9c4e7d613
+Revises: c4e1a9b7d305
 Create Date: 2026-10-30 14:00:00.000000
 
 A person's question may now be 8,000 characters (`copilot/schemas.MAX_QUESTION_CHARS`), and
@@ -22,7 +22,7 @@ from collections.abc import Sequence
 from alembic import op
 
 revision: str = "a8d3f1c6e2b9"
-down_revision: str | None = "f2a9c4e7d613"
+down_revision: str | None = "c4e1a9b7d305"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
