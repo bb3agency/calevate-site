@@ -1272,7 +1272,7 @@
             "type": "array"
           },
           "question": {
-            "maxLength": 2000,
+            "maxLength": 8000,
             "minLength": 1,
             "title": "Question",
             "type": "string"
@@ -16601,7 +16601,7 @@
             "type": "array"
           },
           "question": {
-            "maxLength": 2000,
+            "maxLength": 8000,
             "minLength": 1,
             "title": "Question",
             "type": "string"
@@ -18269,7 +18269,7 @@
         "description": "One earlier turn of this conversation, replayed by the browser.\n\n`role` admits `user` and `assistant` and NOT `tool` or `system`: a caller who could\ninject a `system` turn could rewrite the platform rules the static prompt states, and\na caller who could inject a `tool` turn could claim a fill already succeeded.",
         "properties": {
           "content": {
-            "maxLength": 2000,
+            "maxLength": 8000,
             "title": "Content",
             "type": "string"
           },
@@ -36508,6 +36508,17 @@
             ],
             "title": "Source Note"
           },
+          "used_by": {
+            "items": {
+              "enum": [
+                "pip",
+                "photo_reading"
+              ],
+              "type": "string"
+            },
+            "title": "Used By",
+            "type": "array"
+          },
           "withheld_reason": {
             "anyOf": [
               {
@@ -36527,6 +36538,7 @@
           "price_attested",
           "offerable",
           "withheld_reason",
+          "used_by",
           "off_call_only",
           "input_usd_per_mtok",
           "output_usd_per_mtok",

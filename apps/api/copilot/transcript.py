@@ -63,6 +63,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.copilot.memory import redacted_content, stored_content
+from apps.api.copilot.models import MAX_TURN_CHARS
 from apps.api.copilot.schemas import (
     CopilotConsentOut,
     CopilotConversationOut,
@@ -413,7 +414,11 @@ async def append_turn(
     operator's is redacted, because the admin table is platform-scoped, outside every
     tenant's erasure, and registered as holding no caller's data.
     """
-    content = stored_content(spoken) if realm is CLIENT else redacted_content(spoken)
+    content = (
+        stored_content(spoken, cap=MAX_TURN_CHARS)
+        if realm is CLIENT
+        else redacted_content(spoken, cap=MAX_TURN_CHARS)
+    )
     if not content:
         return False
     result = await session.execute(

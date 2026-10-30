@@ -365,6 +365,7 @@ const MODEL_PRICES_BASE = {
       reference_output_usd_per_mtok: "0.60",
       reference_verified: true,
       withheld_reason: null,
+      used_by: [],
       off_call_only: false,
     },
   ],

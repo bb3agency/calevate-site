@@ -62,6 +62,13 @@ _MAX_ID = 200
 _MAX_LABEL = 200
 _MAX_TEXT = 2_000
 
+#: The longest message a person may send Pip, and the longest turn replayed as history. A
+#: real instruction (a pasted brief, a script to rewrite) runs past 2,000 characters; 8,000
+#: is about 2,000 tokens, inside every assistant leg's context with room to spare. The
+#: browser shows the count and blocks Send past it (`lib/copilot/questionLimit.ts`), and
+#: the stored turn holds the same number (`models.MAX_TURN_CHARS`).
+MAX_QUESTION_CHARS: Final = 8_000
+
 #: A screen with more controls than this is not a screen a person is asking a question
 #: about. The widest form in this console is the agent intake, and it is well under a
 #: hundred controls including every repeated group.
@@ -209,7 +216,7 @@ class CopilotTurn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     role: Literal["user", "assistant"]
-    content: Annotated[str, Field(max_length=_MAX_TEXT)]
+    content: Annotated[str, Field(max_length=MAX_QUESTION_CHARS)]
 
 
 class CopilotAskIn(BaseModel):
@@ -218,7 +225,7 @@ class CopilotAskIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     screen: CopilotScreen
-    question: Annotated[str, Field(min_length=1, max_length=_MAX_TEXT)]
+    question: Annotated[str, Field(min_length=1, max_length=MAX_QUESTION_CHARS)]
     fields: Annotated[list[CopilotField], Field(max_length=MAX_FIELDS)] = []
     facts: Annotated[list[CopilotFact], Field(max_length=MAX_FACTS)] = []
     history: Annotated[list[CopilotTurn], Field(max_length=MAX_HISTORY)] = []
@@ -900,6 +907,7 @@ __all__ = [
     "MAX_FIELDS",
     "MAX_HISTORY",
     "MAX_OPTIONS",
+    "MAX_QUESTION_CHARS",
     "STREAM_FRAMES",
     "CopilotActionEvent",
     "CopilotActionOut",

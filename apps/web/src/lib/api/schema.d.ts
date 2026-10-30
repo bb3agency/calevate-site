@@ -26828,6 +26828,8 @@ export interface components {
             reference_verified: boolean;
             /** Source Note */
             source_note: string | null;
+            /** Used By */
+            used_by: ("pip" | "photo_reading")[];
             /** Withheld Reason */
             withheld_reason: string | null;
         };

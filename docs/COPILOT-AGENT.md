@@ -143,8 +143,13 @@ is handed the platform's Gemini leg before Azure), then Azure only where it is c
 then the Sarvam standby, which answers in prose with no tools. The Gemini compat endpoint's
 streamed tool-call deltas carry no `index`; `chat.stream` reads an index-less delta on that
 dialect as a whole call, so both tool-capable legs stream (how Gemini shapes a streamed tool
-call is not on Google's page: OPERATIONS §2 gate 61). A Gemini leg that cannot serve raises
-`assistant_gemini_unavailable` naming what to record. The standby's answer is one blocking
+call is not on Google's page: OPERATIONS §2 gate 61). Not every Pip model has to be priced
+(founder, 30 Oct 2026): a Pip Gemini model without an attested price is never called, and
+the other Pip Gemini model answers in its place, metered on its own price, with no client
+disclosure (`agents/assist_leg.google_leg_for`; `assistant_gemini_model_substituted`, record only).
+Only when no Pip Gemini model can serve does `assistant_gemini_unavailable` fire. On the
+standby a request to change something is declined with a sentence and no model call
+(`service.asks_for_a_change`), and the standby asks Sarvam with reasoning off. The standby's answer is one blocking
 completion, so its timeout is the whole request, `copilot/service.STANDBY_ANSWER_S` (60 s,
 inside the question's own deadline), not the 15 s gap between stream frames that cut a
 Sarvam answer on 27 Oct 2026; the standby answering first logs `copilot_standby_first` with

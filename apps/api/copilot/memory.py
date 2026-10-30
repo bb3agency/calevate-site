@@ -136,7 +136,7 @@ class RecalledMemory:
     from_relevant: bool
 
 
-def redacted_content(*parts: str) -> str:
+def redacted_content(*parts: str, cap: int = MAX_CONTENT_CHARS) -> str:
     """The parts, joined, redacted and capped — the ONE way text becomes a memory row.
 
     Returns `""` when there is nothing left worth storing, so a caller's `if not content`
@@ -155,10 +155,10 @@ def redacted_content(*parts: str) -> str:
     if result.changed:
         # KINDS, never the text and never the value (hard rule 6).
         log.warning("copilot_memory_redacted_on_write", extra={"kinds": len(result.kinds)})
-    return _capped(result.text)
+    return _capped(result.text, cap)
 
 
-def stored_content(*parts: str) -> str:
+def stored_content(*parts: str, cap: int = MAX_CONTENT_CHARS) -> str:
     """The parts, joined and capped, NOT redacted: a conversation turn's form (D-788).
 
     A turn is stored as said because the person's next question is answered from it (the
@@ -166,13 +166,13 @@ def stored_content(*parts: str) -> str:
     long as the conversation (`transcript.py`), and a caller's erasure by number still finds
     it. Distilled memories keep `redacted_content`: they outlive the conversation."""
     joined = "\n".join(part.strip() for part in parts if part and part.strip())
-    return _capped(joined) if joined.strip() else ""
+    return _capped(joined, cap) if joined.strip() else ""
 
 
-def _capped(content: str) -> str:
+def _capped(content: str, cap: int = MAX_CONTENT_CHARS) -> str:
     cleaned = content.strip()
-    if len(cleaned) > MAX_CONTENT_CHARS:
-        cleaned = cleaned[: MAX_CONTENT_CHARS - 1].rstrip() + "…"
+    if len(cleaned) > cap:
+        cleaned = cleaned[: cap - 1].rstrip() + "…"
     return cleaned
 
 

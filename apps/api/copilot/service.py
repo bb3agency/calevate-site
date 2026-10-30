@@ -29,6 +29,7 @@ from __future__ import annotations
 import asyncio
 import functools
 import json
+import re
 import time
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -77,6 +78,7 @@ from apps.api.copilot.identity import (
     identity_answer,
     question_touches_model_identity,
 )
+from apps.api.copilot.model_tiers import LONG_QUESTION_CHARS
 from apps.api.copilot.quotes import quoted_in
 from apps.api.copilot.sanitize import clean_value, strip_invisible
 from apps.api.copilot.schemas import (
@@ -527,7 +529,54 @@ _NO_TOOL_NOTE: Final = (
     "correct and you must not say the screen does not exist: name it, say where it sits in "
     "the sidebar, and say they will have to open it themselves this time. If they asked "
     "for a number about their business, say you cannot look it up "
-    "right now — do not estimate one."
+    "right now — do not estimate one. If they asked you to rewrite or change something in "
+    "their account (a script, an agent, a lead, a campaign, a setting), do not write out a "
+    "new version: say in one or two sentences that you cannot change it right now, that "
+    "nothing was changed, and that they can try again in a few minutes."
+)
+
+#: A request for a change, on the standby, is answered with a sentence and no model call.
+#: The standby has no tools, so the best it can do with "rewrite my script" is a long draft
+#: nobody asked to copy by hand; on 30 Oct 2026 that attempt spent the whole token ceiling
+#: and showed nothing. Two shapes count: an imperative that opens the message ("rewrite…",
+#: "please change…", "can you add…"), and a long brief (`LONG_QUESTION_CHARS`, the planning
+#: tier's own threshold) that names a change anywhere. A how-to question ("how do I change
+#: my script?") is neither, and still gets an answer in words.
+_CHANGE_VERBS: Final = (
+    r"re-?write|change|update|edit|modify|create|delete|remove|add|fix|replace|redo|"
+    r"improve|rename"
+)
+_CHANGE_OPENING_RE: Final = re.compile(
+    r"^\W*(?:(?:hi|hey|hello|pip)\b\W*)*"
+    r"(?:(?:please|pls|kindly|can you|could you|would you|will you)\s+)?"
+    rf"(?:{_CHANGE_VERBS})\b",
+    re.IGNORECASE,
+)
+_CHANGE_ANYWHERE_RE: Final = re.compile(rf"\b(?:{_CHANGE_VERBS})\b", re.IGNORECASE)
+_SCRIPT_RE: Final = re.compile(r"\bscripts?\b", re.IGNORECASE)
+
+
+def asks_for_a_change(question: str) -> bool:
+    """Whether the standby should decline `question` rather than attempt it."""
+    if _CHANGE_OPENING_RE.search(question):
+        return True
+    return len(question) >= LONG_QUESTION_CHARS and bool(_CHANGE_ANYWHERE_RE.search(question))
+
+
+def standby_change_refusal(question: str) -> str:
+    """What the standby says instead of attempting a change it has no tools for."""
+    what = "scripts" if _SCRIPT_RE.search(question) else "anything"
+    return (
+        f"I can't change {what} right now — my usual AI model isn't available. Nothing was "
+        "changed. Try again in a few minutes."
+    )
+
+
+#: The standby's `finish_reason == "length"` with nothing said. Unlike `TRUNCATED_MESSAGE`
+#: it does not ask for a narrower question: on this leg the cause is the leg, not the ask.
+STANDBY_TRUNCATED_MESSAGE: Final = (
+    "I couldn't finish that answer on the backup assistant. Nothing was changed. Try again "
+    "in a few minutes."
 )
 
 
@@ -928,6 +977,11 @@ async def _answer_via_sarvam(
     settings = get_settings()
     if not settings.sarvam_api_key:  # pragma: no cover - unreachable via the selector
         raise assist_unavailable(capability)
+    if asks_for_a_change(payload.question):
+        # No model call, so no spend: nothing was paid for (the `identity_answer` precedent).
+        log.info("copilot_standby_declined_change")
+        yield CopilotEvent(text=standby_change_refusal(payload.question))
+        return
     # Counted as its own leg (`standby`): Sarvam failing here means the assistant has no
     # answer left, and running out of Sarvam credit (API errors once credits run out,
     # sarvam.ai/api-pricing, 10 Oct 2026) also stops post-call extraction.
@@ -957,6 +1011,12 @@ async def _answer_via_sarvam(
             # PRICED (`billing/rates.SARVAM_LLM_INR_PER_MTOK`, ₹73.20/Mtok out), so a runaway
             # is real spend.
             max_tokens=MAX_ANSWER_TOKENS,
+            # Reasoning off. Left unset, Sarvam reasons by default ("Default is 'medium'";
+            # null disables it), its trace arrives in `reasoning_content`, which this answer
+            # does not read, and its tokens bill as completion tokens
+            # (docs.sarvam.ai/api-reference-docs/chat/chat-completions, read 30 Oct 2026).
+            # On 30 Oct 2026 that spent the whole `max_tokens` and left `content` empty.
+            reasoning_effort="off",
         )
     if outcome.finish_reason == "length":
         # The same operator signal the tool-capable legs give: the answer shown is cut short
@@ -965,9 +1025,12 @@ async def _answer_via_sarvam(
     # THE FALLBACK IS SUBJECT TO THE SAME RULE AS THE LOOP: a leg that answered nothing
     # says so. This one is the last rung of the ladder, so silence here is silence for the
     # whole question — there is nothing left to fall back to.
-    yield CopilotEvent(
-        text=strip_invisible(outcome.content or _no_answer_sentence(outcome.finish_reason))
+    unsaid = (
+        STANDBY_TRUNCATED_MESSAGE
+        if outcome.finish_reason == "length"
+        else _no_answer_sentence(outcome.finish_reason)
     )
+    yield CopilotEvent(text=strip_invisible(outcome.content or unsaid))
     yield CopilotEvent(
         spend=CopilotSpend(usage=outcome.usage, capability=capability, model=SARVAM_DEFAULT_LLM)
     )
@@ -3090,6 +3153,7 @@ __all__ = [
     "NO_ANSWER_MESSAGE",
     "READ_TOOL_BUDGET_S",
     "STANDBY_ANSWER_S",
+    "STANDBY_TRUNCATED_MESSAGE",
     "STREAM_IDLE_S",
     "TIMED_OUT_DETAIL",
     "TIMED_OUT_REMEDIATION",
@@ -3102,6 +3166,7 @@ __all__ = [
     "FillRefusedError",
     "RunLimits",
     "ToolContext",
+    "asks_for_a_change",
     "chat_leg",
     "disclosure_for",
     "interrupted_problem",
@@ -3110,6 +3175,7 @@ __all__ = [
     "refused_fill_turn",
     "refused_proposal_turn",
     "run_copilot",
+    "standby_change_refusal",
     "streamed_turn",
     "tool_array",
     "validate_fill",

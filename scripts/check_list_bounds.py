@@ -1094,6 +1094,10 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
         by="one row per model in `calevate_shared.engine.LLM_MODELS`, a closed catalogue "
         "whose size is a decision-log entry — never a caller's row count."
     ),
+    "POST /v1/ops/model-prices/{model}": BoundedByConstruction(
+        by="the one row just attested; its only list, `used_by`, holds members of the "
+        "two-value `ModelUse` literal, each at most once (`model_price_routes.model_uses`)."
+    ),
     "POST /v1/ops/rate-card": BoundedByConstruction(
         by="the card the operator just recorded, echoed back — one cell per credit pack in "
         "`billing/credit_packs.PACK_CATALOGUE` times one per voice tier in "

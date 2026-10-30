@@ -46,8 +46,9 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
-from typing import Annotated, Final, cast
+from typing import Annotated, Final, Literal, cast
 
+from calevate_shared.engine import DOCUMENT_OCR_MODEL
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, Path, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -64,6 +65,7 @@ from apps.api.core.context import Principal
 from apps.api.core.deps import global_db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
+from apps.api.core.settings import get_settings
 from apps.api.core.stepup import StepUpGate
 from apps.api.ops.model_pricing import (
     PLAN_BILLED_TTS_PROVIDERS,
@@ -260,6 +262,10 @@ def _money(
     return value
 
 
+#: A feature of ours that runs on a catalogue model (`ModelPriceOut.used_by`).
+ModelUse = Literal["pip", "photo_reading"]
+
+
 class ModelPriceOut(BaseModel):
     """One catalogue model, as the pricing panel renders it.
 
@@ -285,11 +291,15 @@ class ModelPriceOut(BaseModel):
     #: "available to customers" told the founder that a model withheld on merit would
     #: become available once priced.
     offerable: bool
-    #: `null` when this repository permits the model on merit. Otherwise the GROUND, in the
-    #: catalogue's own words: attesting a price will not change it, and the reason is
-    #: usually the more useful fact (dead air mid-call, a 10x cost tier, a vendor page
-    #: nobody has read). `LlmModelSpec.withdrawn_reason`.
+    #: `null` when this repository permits the model on merit. Otherwise ONE plain sentence
+    #: for an operator (`_withheld_line`): attesting a price will not change it. The
+    #: technical ground, with its sources, stays in `LlmModelSpec.withdrawn_reason`.
     withheld_reason: str | None
+    #: Which of our own features run on this model: `pip` (Pip and the dashboard assists,
+    #: `copilot_fast_model` / `copilot_planning_model`) and `photo_reading`
+    #: (`engine.DOCUMENT_OCR_MODEL`). A row used by one and not priced is the one an operator
+    #: needs to see first.
+    used_by: list[ModelUse]
     #: Withheld from calls (`withheld_reason` says why) but used by Pip, photo reading and the
     #: dashboard assists once
     #: its key and price are in place (D-786), so for these rows the price form matters.
@@ -714,18 +724,45 @@ def _plan_fee_row(attested: TtsPlanFeeAttestation) -> TtsPlanFeeOut:
     )
 
 
+def model_uses(model: str) -> list[ModelUse]:
+    """Which of our features run on `model` (`ModelPriceOut.used_by`)."""
+    settings = get_settings()
+    uses: list[ModelUse] = []
+    if model in (settings.copilot_fast_model, settings.copilot_planning_model):
+        uses.append("pip")
+    if model == DOCUMENT_OCR_MODEL:
+        uses.append("photo_reading")
+    return uses
+
+
+def _withheld_line(offer: ModelOfferability, uses: list[ModelUse]) -> str | None:
+    """The operator's sentence for a model withheld from clients on merit.
+
+    The catalogue's `withdrawn_reason` is written for engineers (vendor enums, file paths,
+    evidence); an operator deciding whether to record a price needs what it means for them.
+    """
+    if offer.withheld_reason is None:
+        return None
+    if offer.off_call_only:
+        who = "Pip and photo reading" if "photo_reading" in uses else "Pip"
+        return f"Not used on calls: this model can go silent mid-call. {who} can use it."
+    return "Not offered: this model has not been cleared for use here."
+
+
 def _row(
     offer: ModelOfferability,
     attested: AttestedModelPrice | None,
 ) -> ModelPriceOut:
     ref_in, ref_out, ref_verified = reference_price(offer.model)
+    uses = model_uses(offer.model)
     return ModelPriceOut(
         model=offer.model,
         provider=offer.provider,
         credential_installed=offer.credential_installed,
         price_attested=offer.price_attested,
         offerable=offer.offerable,
-        withheld_reason=offer.withheld_reason,
+        withheld_reason=_withheld_line(offer, uses),
+        used_by=uses,
         off_call_only=offer.off_call_only,
         input_usd_per_mtok=str(attested.input_usd_per_mtok) if attested else None,
         output_usd_per_mtok=str(attested.output_usd_per_mtok) if attested else None,

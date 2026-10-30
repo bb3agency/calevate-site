@@ -88,7 +88,8 @@ async def account_assist_leg(session: AsyncSession) -> TenantModelLeg:
 
 
 def google_assist_leg() -> TenantModelLeg:
-    """The Google arm of the dashboard assists, on the assistant's fast model (D-786).
+    """The Google arm of the dashboard assists, on the assistant's fast model (D-786), or
+    on the other Pip model when the fast one is not priced (`google_leg_for`).
 
     NOT the account's own Gemini id. Under ThinnestAI an account's model is only an id
     (the engine runs its own), so what this leg sends to Google on OUR key is a platform
@@ -97,15 +98,47 @@ def google_assist_leg() -> TenantModelLeg:
     return google_leg_for(get_settings().copilot_fast_model)
 
 
-def google_leg_for(model: str) -> TenantModelLeg:
-    """`model` as a Google dashboard leg, or a leg that says why it cannot serve.
+def pip_gemini_models() -> tuple[str, ...]:
+    """The Gemini models Pip and the dashboard assists may run on, fast first."""
+    settings = get_settings()
+    return tuple(dict.fromkeys((settings.copilot_fast_model, settings.copilot_planning_model)))
 
-    `off_call_offerable_models()` is asked first (key and attested price, hard rule 7):
-    `serves_dashboard` answers only the data-use question, and an unpriced model that
-    answered would raise on the meter after Google was paid. The selector then
-    substitutes and discloses."""
+
+def google_leg_for(model: str) -> TenantModelLeg:
+    """`model` as a Google dashboard leg; else another Pip Gemini model that can serve; else
+    `model`'s leg saying why it cannot.
+
+    The founder does not require every Pip model to be priced (30 Oct 2026): an unpriced
+    model is simply never CALLED (hard rule 7 — `off_call_offerable_models()` holds only
+    models with a key and an attested price, and an unpriced model that answered would raise
+    on the meter after Google was paid), and the priced one answers in its place, metered on
+    its own attested price. That swap is the same provider under the same data-use
+    attestation, so the client is told nothing; the operator gets a record-level notice. Only
+    when no Pip Gemini model can serve does the selector move to Azure or the standby."""
+    wanted = _google_leg(model)
+    if wanted.serves_dashboard:
+        return wanted
+    keyed = bool(get_settings().gemini_api_key)
+    for other in pip_gemini_models():
+        if other == model:
+            continue
+        stand_in = _google_leg(other)
+        if stand_in.serves_dashboard:
+            if keyed:
+                _note_gemini_substituted(model, other, wanted.blocked_reason or "")
+            return stand_in
+    # A deployment holding no Gemini key was not given Gemini at all (a dev box, a test run);
+    # one that holds it and still cannot use it is missing a record an operator can add.
+    if keyed:
+        _alarm_gemini_unavailable(model, wanted.blocked_reason or "")
+    return wanted
+
+
+def _google_leg(model: str) -> TenantModelLeg:
+    """One Gemini model as a dashboard leg. Price and key are asked first: `serves_dashboard`
+    answers only the data-use question."""
     if model not in off_call_offerable_models():
-        leg = TenantModelLeg(
+        return TenantModelLeg(
             model=model,
             provider=GOOGLE_PROVIDER,
             serves_dashboard=False,
@@ -113,42 +146,58 @@ def google_leg_for(model: str) -> TenantModelLeg:
             or "this model is not offerable here",
             account_chose_model=False,
         )
-    else:
-        leg = tenant_dashboard_leg(model=model, source="platform")
-    # A deployment holding no Gemini key was not given Gemini at all (a dev box, a test run);
-    # one that holds it and still cannot use it is missing a record an operator can add.
-    if not leg.serves_dashboard and get_settings().gemini_api_key:
-        _alarm_gemini_unavailable(model, leg.blocked_reason or "")
-    return leg
+    return tenant_dashboard_leg(model=model, source="platform")
 
 
-#: Raised when the platform's Gemini assistant leg cannot serve, so the assistant answers on
-#: the Sarvam standby (or Azure, when configured) instead of its main model.
+#: Raised when no Pip Gemini model can serve, so the assistant answers on the Sarvam standby
+#: (or Azure, when configured) instead of Gemini.
 GEMINI_UNAVAILABLE_ALARM = "assistant_gemini_unavailable"
+
+#: Recorded when the Gemini model Pip wanted cannot serve and another Pip Gemini model
+#: answers instead. Informational: Pip is working.
+GEMINI_SUBSTITUTED_NOTICE = "assistant_gemini_model_substituted"
+
+
+def _where_to_fix(reason: str) -> str:
+    return (
+        "Record it in Admin → Ops → Dashboard data use."
+        if reason == NO_DATA_USE_ATTESTATION_REASON
+        else "Fix it in Admin → Ops (AI models and prices)."
+    )
 
 
 def _alarm_gemini_unavailable(model: str, reason: str) -> None:
     """Tell an operator exactly what to record. The alert path suppresses repeats, so a
     request that hits this every time raises one notice per window."""
-    where = (
-        "Record it in Admin → Ops → Dashboard data use."
-        if reason == NO_DATA_USE_ATTESTATION_REASON
-        else "Fix it in Admin → Ops (AI models and prices)."
-    )
     alert(
         "CORE_LOGIC",
         GEMINI_UNAVAILABLE_ALARM,
         detail=(
-            "The assistant's Gemini model cannot serve the dashboard, so Pip and the "
-            f"dashboard assists answer on a backup: {reason}. {where}"
+            "No Gemini model Pip uses can serve the dashboard, so Pip and the dashboard "
+            f"assists answer on a backup: {model}: {reason}. {_where_to_fix(reason)}"
         ),
         model=model,
     )
 
 
+def _note_gemini_substituted(model: str, used: str, reason: str) -> None:
+    alert(
+        "CORE_LOGIC",
+        GEMINI_SUBSTITUTED_NOTICE,
+        detail=(
+            f"Pip is using {used} because {model} cannot be used here ({reason}). "
+            f"Nothing is wrong with Pip. To use {model}: {_where_to_fix(reason)}"
+        ),
+        model=model,
+        used=used,
+    )
+
+
 __all__ = [
+    "GEMINI_SUBSTITUTED_NOTICE",
     "GEMINI_UNAVAILABLE_ALARM",
     "account_assist_leg",
     "google_assist_leg",
     "google_leg_for",
+    "pip_gemini_models",
 ]
