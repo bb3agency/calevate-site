@@ -11759,6 +11759,7 @@
       },
       "CallingNumberDeclarationIn": {
         "additionalProperties": false,
+        "description": "No date and no reference: the client files nothing itself, so it has neither. The\nrow is dated the day it is confirmed (IST).",
         "properties": {
           "attestation_sha256": {
             "maxLength": 64,
@@ -11778,23 +11779,6 @@
             "title": "Declared Clis",
             "type": "array"
           },
-          "notice_reference": {
-            "anyOf": [
-              {
-                "maxLength": 200,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Notice Reference"
-          },
-          "notified_on": {
-            "format": "date",
-            "title": "Notified On",
-            "type": "string"
-          },
           "withdraw": {
             "default": false,
             "title": "Withdraw",
@@ -11802,7 +11786,6 @@
           }
         },
         "required": [
-          "notified_on",
           "attestation_version",
           "attestation_sha256"
         ],
@@ -11811,7 +11794,7 @@
       },
       "CallingNumberDeclarationOut": {
         "additionalProperties": false,
-        "description": "What this account has declared, what it still has to, and from when it counts.",
+        "description": "What this account has confirmed, what it still has to, and from when it counts.",
         "properties": {
           "applies": {
             "title": "Applies",
@@ -11874,17 +11857,6 @@
             "title": "Enforced From",
             "type": "string"
           },
-          "notice_reference": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Notice Reference"
-          },
           "notified_on": {
             "anyOf": [
               {
@@ -11931,7 +11903,6 @@
           "recorded",
           "state",
           "notified_on",
-          "notice_reference",
           "declared_clis",
           "attested",
           "attested_version",
@@ -13674,6 +13645,51 @@
           "on_trial"
         ],
         "title": "ClientCallLinesOut",
+        "type": "object"
+      },
+      "ClientFilingOut": {
+        "additionalProperties": false,
+        "description": "One client's authorised numbers and our filing of each.",
+        "properties": {
+          "authorised_on": {
+            "format": "date",
+            "title": "Authorised On",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "numbers": {
+            "items": {
+              "$ref": "#/components/schemas/FiledNumberOut"
+            },
+            "title": "Numbers",
+            "type": "array"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "unfiled": {
+            "title": "Unfiled",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "name",
+          "slug",
+          "authorised_on",
+          "numbers",
+          "unfiled"
+        ],
+        "title": "ClientFilingOut",
         "type": "object"
       },
       "ClientHealthOut": {
@@ -25006,6 +25022,79 @@
         "title": "FieldValueCountOut",
         "type": "object"
       },
+      "FiledNumberOut": {
+        "additionalProperties": false,
+        "properties": {
+          "filed_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filed On"
+          },
+          "filing_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filing Reference"
+          },
+          "number": {
+            "title": "Number",
+            "type": "string"
+          }
+        },
+        "required": [
+          "number",
+          "filed_on",
+          "filing_reference"
+        ],
+        "title": "FiledNumberOut",
+        "type": "object"
+      },
+      "FilingBoardOut": {
+        "additionalProperties": false,
+        "properties": {
+          "alarm": {
+            "title": "Alarm",
+            "type": "boolean"
+          },
+          "alarm_from": {
+            "format": "date",
+            "title": "Alarm From",
+            "type": "string"
+          },
+          "clients": {
+            "items": {
+              "$ref": "#/components/schemas/ClientFilingOut"
+            },
+            "title": "Clients",
+            "type": "array"
+          },
+          "enforced_from": {
+            "format": "date",
+            "title": "Enforced From",
+            "type": "string"
+          }
+        },
+        "required": [
+          "enforced_from",
+          "alarm_from",
+          "alarm",
+          "clients"
+        ],
+        "title": "FilingBoardOut",
+        "type": "object"
+      },
       "FindingOut": {
         "additionalProperties": false,
         "properties": {
@@ -35767,6 +35856,38 @@
           "tiers"
         ],
         "title": "MarginOut",
+        "type": "object"
+      },
+      "MarkFiledIn": {
+        "additionalProperties": false,
+        "properties": {
+          "filed_on": {
+            "format": "date",
+            "title": "Filed On",
+            "type": "string"
+          },
+          "filing_reference": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Filing Reference",
+            "type": "string"
+          },
+          "numbers": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Numbers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "numbers",
+          "filed_on",
+          "filing_reference"
+        ],
+        "title": "MarkFiledIn",
         "type": "object"
       },
       "MasterSwitchIn": {
@@ -63424,6 +63545,34 @@
         "x-calevate-permission": "admin:tenants"
       }
     },
+    "/v1/admin/calling-number-filings": {
+      "get": {
+        "operationId": "read_filing_board_v1_admin_calling_number_filings_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilingBoardOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Clients' authorised calling numbers and whether Calevate has filed them",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "org:read"
+      }
+    },
     "/v1/admin/client-health": {
       "get": {
         "description": "Every live client account with at least one live signal, ranked by how much is broken: the account with the most `stop` signals first, then the most `warn`. An account with nothing wrong is ABSENT \u2014 this is an exception report, not the client directory (`GET /v1/admin/tenants` is the roster). Signals are composed from the same predicates that refuse the client's dial, so the board cannot say an account is fine while the client is looking at a refusal. `calls_basis` says whether the call-volume comparison is entitled to be made at all; a trend must never be rendered on any value but `measured`.",
@@ -69255,6 +69404,56 @@
           "admin"
         ],
         "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/calling-number-filings": {
+      "post": {
+        "operationId": "mark_filed_v1_admin_tenants__tenant_id__calling_number_filings_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarkFiledIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientFilingOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Mark a client's calling numbers filed with the telephone company (audited)",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
       }
     },
     "/v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/preference-scrub": {
@@ -82285,7 +82484,7 @@
     },
     "/v1/compliance/autodialer-notice": {
       "get": {
-        "description": "Automated calls may only come from numbers declared in advance to the telephone company that provides them. This says which numbers you have declared, which of your agents' numbers are missing, and the day from which a call from an undeclared number is refused. Incoming calls are never affected.",
+        "description": "Automated calls may only come from numbers registered in advance with the telephone company. This says which numbers you have confirmed, which of your agents' numbers are missing, and the day from which a call from an unconfirmed number is refused. Incoming calls are never affected.",
         "operationId": "read_notice_v1_compliance_autodialer_notice_get",
         "responses": {
           "200": {
@@ -82305,14 +82504,14 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "The calling numbers this account has declared",
+        "summary": "The calling numbers this account has confirmed",
         "tags": [
           "compliance"
         ],
         "x-calevate-permission": "org:read"
       },
       "post": {
-        "description": "Record the numbers your automated calls come from, the day you declared them and any reference you hold, and confirm the statement shown. Withdrawing files a new record rather than deleting the old one.",
+        "description": "Confirm the numbers your automated calls come from and authorise Calevate to register them with the telephone company on your behalf, by accepting the statement shown. Withdrawing files a new record rather than deleting the old one.",
         "operationId": "record_notice_v1_compliance_autodialer_notice_post",
         "requestBody": {
           "content": {
@@ -82342,7 +82541,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Declare your calling numbers, or withdraw the declaration",
+        "summary": "Confirm your calling numbers, or withdraw the confirmation",
         "tags": [
           "compliance"
         ],

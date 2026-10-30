@@ -204,24 +204,24 @@ describe("the layout", () => {
     expect(screen.getAllByRole("link", { name: /Verify your business/ })).toHaveLength(1);
   });
 
-  it("lists the calling-number declaration as coming up, with a link to declare (D-941)", async () => {
+  it("lists the calling numbers as coming up, with a link to confirm them (D-941)", async () => {
     await renderClientPage(<AgreementsPage />, {
       ...ME_ROUTE,
       [READINESS_PATH]: readiness({
         upcoming: [
           {
             rule: "a2p_declaration_missing",
-            title: "Declare your calling numbers before 17 Nov",
-            reason: "From 17 Nov 2026, automated calls may only come from numbers you have declared.",
+            title: "Confirm your calling numbers before 17 Nov",
+            reason: "From 17 Nov 2026, the law needs the numbers your agent calls from to be registered.",
             actor: "client",
-            next_step: "Declare your calling numbers on Verify your business.",
+            next_step: "Confirm your calling numbers on Verify your business.",
           },
         ],
       }),
     });
-    expect(await screen.findByText("Declare your calling numbers before 17 Nov")).toBeTruthy();
+    expect(await screen.findByText("Confirm your calling numbers before 17 Nov")).toBeTruthy();
     expect(screen.getByText("Coming up")).toBeTruthy();
-    expect(screen.getByRole("link", { name: /Declare numbers/ }).getAttribute("href")).toBe(
+    expect(screen.getByRole("link", { name: /Confirm numbers/ }).getAttribute("href")).toBe(
       "/c/acme/verify-business#calling-numbers",
     );
   });

@@ -795,6 +795,9 @@ class RestoreDrill:
             f"objective, notified_on, recorded_by) VALUES (gen_random_uuid(), '{TENANT_A}', "
             "'notified', 'Drill Access Provider', 'restore-drill fixture', CURRENT_DATE, "
             f"'{USER_A}')",
+            "INSERT INTO a2p_number_filings (id, tenant_id, filed_clis, filed_on, "
+            f"filing_reference, recorded_by_admin_id) VALUES (gen_random_uuid(), '{TENANT_A}', "
+            f"ARRAY['+918000000001'], CURRENT_DATE, 'restore-drill fixture', '{ADMIN_ID}')",
             # PLATFORM-scoped, so no tenant: one attested rupee price per month.
             "INSERT INTO number_price_attestations (id, inr_per_month, source, attested_by) "
             f"VALUES (gen_random_uuid(), 499.00, 'restore-drill fixture', '{ADMIN_ID}')",

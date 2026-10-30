@@ -15,7 +15,7 @@ export const AGREEMENTS_COPY = {
   reviewAndAccept: "Review and accept",
   seeAgreements: "See the agreements",
   verifyBusiness: "Verify your business",
-  declareNumbers: "Declare numbers",
+  confirmNumbers: "Confirm numbers",
   comingUp: "Coming up",
   inboundFine: "Incoming calls still work.",
   nothingElse: "Nothing else is blocking calls.",

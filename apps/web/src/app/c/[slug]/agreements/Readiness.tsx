@@ -82,7 +82,7 @@ export function Readiness({ readiness }: { readiness: LegalReadiness }) {
       return {
         // The fragment after the realm query, so a view-as session keeps both.
         href: `${href(`/c/${session.orgSlug}/verify-business`)}#calling-numbers`,
-        label: COPY.declareNumbers,
+        label: COPY.confirmNumbers,
         internal: false,
       };
     }

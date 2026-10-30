@@ -655,14 +655,15 @@ async def _verification_status(
 
     declaration = await a2p_readiness_row(session, tenant_id=context.tenant_id)
     if declaration is None:
-        lines.append("Calling numbers: declared, or nothing to declare (no agent places calls).")
+        lines.append("Calling numbers: confirmed, or nothing to confirm (no agent places calls).")
     else:
         row, blocking = declaration
         lines.append(
             f"Calling numbers: {row.title} ({row.rule}). {row.reason} "
             + ("Outgoing calls are refused until it is done. " if blocking else "")
-            + "The owner declares them in the Calling numbers step of Verify your business "
-            "(/c/{slug}/verify-business#calling-numbers); the assistant cannot declare them."
+            + "The owner confirms them in the Calling numbers step of Verify your business "
+            "(/c/{slug}/verify-business#calling-numbers), and Calevate registers them with "
+            "the telephone company; the assistant cannot confirm them."
         )
     profile = await load_profile(session, tenant_id=context.tenant_id)
     blockers = go_live_blockers(profile)

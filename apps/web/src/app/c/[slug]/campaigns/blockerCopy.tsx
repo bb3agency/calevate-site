@@ -183,9 +183,9 @@ const KYC_BLOCKERS = [
 ];
 
 /**
- * D-941's calling-number refusals, fixed in the Calling numbers card. A declaration dated in
+ * D-941's calling-number refusals, fixed in the Calling numbers card. A confirmation dated in
  * the future (`a2p_declaration_not_yet_effective`) is absent: nothing is wrong with it, and
- * a link would invite declaring again.
+ * a link would invite confirming again.
  */
 export const A2P_DECLARATION_BLOCKERS = ["a2p_declaration_missing", "a2p_number_undeclared"];
 
@@ -207,7 +207,7 @@ export function blockerDestination(
   if (KYC_BLOCKERS.includes(rule)) return { href: at("/verify-business"), label: "Verify your business" };
   if (A2P_DECLARATION_BLOCKERS.includes(rule))
     // The fragment after the realm query, so a view-as session keeps both.
-    return { href: `${at("/verify-business")}#calling-numbers`, label: "Declare your calling numbers" };
+    return { href: `${at("/verify-business")}#calling-numbers`, label: "Confirm your calling numbers" };
   if (rule.startsWith("number_")) return { href: at("/phone-number"), label: "Open Phone number" };
   if (rule === "agent_not_live" || rule === "agent_inbound_only" || rule === "disclosure_missing")
     return { href: at("/agents"), label: "Open Agents" };

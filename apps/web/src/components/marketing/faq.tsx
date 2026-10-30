@@ -166,8 +166,9 @@ const QUESTIONS: { q: string; a: string }[] = [
       "agent can call out, we verify the identity of the business behind the account, " +
       "and you accept our no-cold-calls pledge: your agent calls only people who asked " +
       "to hear from you, with our disclosure of how your automated calls are placed and " +
-      "what we keep for each one. From 17 Nov 2026 you also declare the numbers your " +
-      "automated calls come from. The product refuses to dial until these are in place. " +
+      "what we keep for each one. From 17 Nov 2026 you also confirm the numbers your " +
+      "automated calls come from, and we register them with the telephone company for " +
+      "you. The product refuses to dial until these are in place. " +
       "Inbound answering is not affected by any of them.",
   },
   {

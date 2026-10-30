@@ -308,6 +308,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/calling-number-filings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Clients' authorised calling numbers and whether Calevate has filed them */
+        get: operations["read_filing_board_v1_admin_calling_number_filings_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/client-health": {
         parameters: {
             query?: never;
@@ -2318,6 +2335,23 @@ export interface paths {
          * @description Queues one AI suggestion for a client whose business type nobody has chosen. The suggestion replaces any on file and changes nothing by itself. Refused when the type is already chosen or the platform-wide AI brake is on.
          */
         post: operations["suggest_business_type_again_v1_admin_tenants__tenant_id__business_type_suggest_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/calling-number-filings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark a client's calling numbers filed with the telephone company (audited) */
+        post: operations["mark_filed_v1_admin_tenants__tenant_id__calling_number_filings_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7149,14 +7183,14 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The calling numbers this account has declared
-         * @description Automated calls may only come from numbers declared in advance to the telephone company that provides them. This says which numbers you have declared, which of your agents' numbers are missing, and the day from which a call from an undeclared number is refused. Incoming calls are never affected.
+         * The calling numbers this account has confirmed
+         * @description Automated calls may only come from numbers registered in advance with the telephone company. This says which numbers you have confirmed, which of your agents' numbers are missing, and the day from which a call from an unconfirmed number is refused. Incoming calls are never affected.
          */
         get: operations["read_notice_v1_compliance_autodialer_notice_get"];
         put?: never;
         /**
-         * Declare your calling numbers, or withdraw the declaration
-         * @description Record the numbers your automated calls come from, the day you declared them and any reference you hold, and confirm the statement shown. Withdrawing files a new record rather than deleting the old one.
+         * Confirm your calling numbers, or withdraw the confirmation
+         * @description Confirm the numbers your automated calls come from and authorise Calevate to register them with the telephone company on your behalf, by accepting the statement shown. Withdrawing files a new record rather than deleting the old one.
          */
         post: operations["record_notice_v1_compliance_autodialer_notice_post"];
         delete?: never;
@@ -17422,7 +17456,11 @@ export interface components {
             /** Start */
             start: string;
         };
-        /** CallingNumberDeclarationIn */
+        /**
+         * CallingNumberDeclarationIn
+         * @description No date and no reference: the client files nothing itself, so it has neither. The
+         *     row is dated the day it is confirmed (IST).
+         */
         CallingNumberDeclarationIn: {
             /** Attestation Sha256 */
             attestation_sha256: string;
@@ -17430,13 +17468,6 @@ export interface components {
             attestation_version: number;
             /** Declared Clis */
             declared_clis?: string[];
-            /** Notice Reference */
-            notice_reference?: string | null;
-            /**
-             * Notified On
-             * Format: date
-             */
-            notified_on: string;
             /**
              * Withdraw
              * @default false
@@ -17445,7 +17476,7 @@ export interface components {
         };
         /**
          * CallingNumberDeclarationOut
-         * @description What this account has declared, what it still has to, and from when it counts.
+         * @description What this account has confirmed, what it still has to, and from when it counts.
          */
         CallingNumberDeclarationOut: {
             /** Applies */
@@ -17472,8 +17503,6 @@ export interface components {
              * Format: date
              */
             enforced_from: string;
-            /** Notice Reference */
-            notice_reference: string | null;
             /** Notified On */
             notified_on: string | null;
             /** Recorded */
@@ -18215,6 +18244,30 @@ export interface components {
             in_progress: number;
             /** On Trial */
             on_trial: boolean;
+        };
+        /**
+         * ClientFilingOut
+         * @description One client's authorised numbers and our filing of each.
+         */
+        ClientFilingOut: {
+            /**
+             * Authorised On
+             * Format: date
+             */
+            authorised_on: string;
+            /** Name */
+            name: string;
+            /** Numbers */
+            numbers: components["schemas"]["FiledNumberOut"][];
+            /** Slug */
+            slug: string;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+            /** Unfiled */
+            unfiled: number;
         };
         /**
          * ClientHealthOut
@@ -22573,6 +22626,32 @@ export interface components {
             /** Value */
             value: string;
         };
+        /** FiledNumberOut */
+        FiledNumberOut: {
+            /** Filed On */
+            filed_on: string | null;
+            /** Filing Reference */
+            filing_reference: string | null;
+            /** Number */
+            number: string;
+        };
+        /** FilingBoardOut */
+        FilingBoardOut: {
+            /** Alarm */
+            alarm: boolean;
+            /**
+             * Alarm From
+             * Format: date
+             */
+            alarm_from: string;
+            /** Clients */
+            clients: components["schemas"]["ClientFilingOut"][];
+            /**
+             * Enforced From
+             * Format: date
+             */
+            enforced_from: string;
+        };
         /** FindingOut */
         FindingOut: {
             /**
@@ -26461,6 +26540,18 @@ export interface components {
              * @default false
              */
             trial_in_month: boolean;
+        };
+        /** MarkFiledIn */
+        MarkFiledIn: {
+            /**
+             * Filed On
+             * Format: date
+             */
+            filed_on: string;
+            /** Filing Reference */
+            filing_reference: string;
+            /** Numbers */
+            numbers: string[];
         };
         /** MasterSwitchIn */
         MasterSwitchIn: {
@@ -36958,6 +37049,35 @@ export interface operations {
             };
         };
     };
+    read_filing_board_v1_admin_calling_number_filings_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FilingBoardOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     read_client_health_v1_admin_client_health_get: {
         parameters: {
             query?: never;
@@ -40564,6 +40684,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BusinessTypeOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    mark_filed_v1_admin_tenants__tenant_id__calling_number_filings_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarkFiledIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientFilingOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

@@ -679,6 +679,17 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "POST /v1/compliance/autodialer-notice": BoundedByConstruction(
         by="the same lists as `GET /v1/compliance/autodialer-notice`, which it returns."
     ),
+    "GET /v1/admin/calling-number-filings": BoundedByConstruction(
+        by=(
+            "one row per signed client with a current authorisation, each listing at most "
+            "`compliance/autodialer.MAX_DECLARED_CLIS` (20) numbers. A LIMIT would hide a "
+            "client whose numbers we have not filed, which is the row the board exists for; "
+            "the walk is the client-health board's, with the same operational bound."
+        )
+    ),
+    "POST /v1/admin/tenants/{tenant_id}/calling-number-filings": BoundedByConstruction(
+        by="ONE client's authorised numbers, at most `MAX_DECLARED_CLIS` (20)."
+    ),
     "GET /v1/ops/kb-orphans": BoundedByConstruction(
         by=(
             "`kb/orphans.MAX_ORPHAN_ROWS` (200), applied inside `reconcile_account_kb` "

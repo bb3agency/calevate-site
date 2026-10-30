@@ -1599,6 +1599,42 @@ class AutodialerNotice(PKMixin, Base):
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
 
 
+class A2pNumberFiling(PKMixin, Base):
+    """Calevate's filing of a client's authorised calling numbers with the telephone
+    company (D-941, as amended 30 Oct 2026). Written by `compliance/a2p_filing.record_filing`.
+
+    A table of its own rather than our rows in `autodialer_notices`: the gate reads the
+    LATEST row there as the client's current statement, so an operator's row would displace
+    the client's authorisation, and it could carry neither the client's attestation nor the
+    D-637 provider and objective its CHECKs require.
+
+    INSERT-only (hard rule 4): a mistaken entry is corrected by filing again, and the latest
+    filing naming a number is what the operations screen shows. Mirrors migration
+    `c4e1a9b7d305`, the source of truth.
+    """
+
+    __tablename__ = "a2p_number_filings"
+    __table_args__ = (
+        CheckConstraint("cardinality(filed_clis) > 0", name="names_a_number"),
+        CheckConstraint("length(btrim(filing_reference)) > 0", name="reference_present"),
+        Index("ix_a2p_number_filings_tenant_latest", "tenant_id", text("created_at DESC")),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
+    )
+    # E.164, as `autodialer_notices.declared_clis` holds them: business numbers we rent out.
+    filed_clis: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False)
+    # A DATE, the day the filing was made, in IST.
+    filed_on: Mapped[date] = mapped_column(Date, nullable=False)
+    # What the telephone company or the voice platform gave back for the filing.
+    filing_reference: Mapped[str] = mapped_column(Text, nullable=False)
+    recorded_by_admin_id: Mapped[UUID] = mapped_column(
+        ForeignKey("admin_users.id", ondelete="RESTRICT"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+
 class DataRightsRequest(PKMixin, TimestampMixin, Base):
     """One rights request a client's customer made of the client (D-943, DPDP §11-§14).
 

@@ -167,17 +167,17 @@ ROW_COPY: dict[str, _Copy] = {
     ),
     # D-941. The reason already says incoming calls still work; these say what to do.
     "a2p_declaration_missing": _Copy(
-        title="Calling numbers not declared",
+        title="Calling numbers not confirmed",
         actor="client",
-        next_step="Declare your calling numbers on Verify your business.",
+        next_step="Confirm your calling numbers on Verify your business.",
     ),
     "a2p_declaration_not_yet_effective": _Copy(
-        title="Calling numbers declared from a later date",
+        title="Calling numbers confirmed from a later date",
         actor="client",
-        next_step="Nothing to fix. Calls can start on the date you gave.",
+        next_step="Nothing to fix. Calls can start on that date.",
     ),
     "a2p_number_undeclared": _Copy(
-        title="A calling number is not declared",
+        title="A calling number is not confirmed",
         actor="client",
         next_step="Add the number to your calling numbers on Verify your business.",
     ),
@@ -400,13 +400,14 @@ async def a2p_readiness_row(
     return (
         ReadinessRow(
             rule=blocker[0],
-            title=f"Declare your calling numbers before {due.day} {due:%b}",
+            title=f"Confirm your calling numbers before {due.day} {due:%b}",
             reason=(
-                f"From {due.day} {due:%b %Y}, automated calls may only come from numbers you "
-                "have declared. Incoming calls are not affected."
+                f"From {due.day} {due:%b %Y}, the law needs the numbers your agent calls from "
+                "to be registered. Calevate registers them once you confirm them. Incoming "
+                "calls are not affected."
             ),
             actor="client",
-            next_step="Declare your calling numbers on Verify your business.",
+            next_step="Confirm your calling numbers on Verify your business.",
         ),
         False,
     )

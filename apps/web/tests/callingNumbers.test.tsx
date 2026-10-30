@@ -1,15 +1,18 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { CallingNumbers } from "@/app/c/[slug]/verify-business/CallingNumbers";
-import { shortDay, todayIST, type CallingNumberDeclaration } from "@/lib/api/autodialerNotice";
+import { CallingNumbers, WE_REGISTER } from "@/app/c/[slug]/verify-business/CallingNumbers";
+import { AnnouncementBar, platformAnnouncementProps } from "@/components/arc/announcement-bar";
+import { shortDay, type CallingNumberDeclaration } from "@/lib/api/autodialerNotice";
 import type { Me } from "@/lib/api/client";
 
 import { renderClientPage } from "./harness";
 
 /**
- * The calling-number declaration card (D-941): what it shows before and after the
- * enforcement date, what it sends, and who may press it. `POST` is `org:manage`.
+ * The calling numbers card (D-941, amended 30 Oct 2026): the client confirms its numbers
+ * and authorises Calevate to register them. What it shows before and after the
+ * enforcement date, what it sends (no date, no reference), and who may press it.
+ * `POST` is `org:manage`.
  */
 
 const PATH = "/v1/compliance/autodialer-notice";
@@ -33,7 +36,6 @@ function declaration(over: Partial<CallingNumberDeclaration> = {}): CallingNumbe
     recorded: false,
     state: null,
     notified_on: null,
-    notice_reference: null,
     declared_clis: [],
     attested: false,
     attested_version: null,
@@ -45,9 +47,9 @@ function declaration(over: Partial<CallingNumberDeclaration> = {}): CallingNumbe
     enforced: false,
     blocker: {
       rule: "a2p_declaration_missing",
-      reason: "Declare your calling numbers to place calls. Incoming calls still work.",
+      reason: "Confirm your calling numbers to place calls. Incoming calls still work.",
     },
-    attestation_version: 1,
+    attestation_version: 2,
     attestation_text: "On behalf of this business I confirm the numbers listed.",
     attestation_sha256: "a".repeat(64),
     ...over,
@@ -55,7 +57,7 @@ function declaration(over: Partial<CallingNumberDeclaration> = {}): CallingNumbe
 }
 
 describe("the calling numbers card", () => {
-  it("asks for the declaration before the date, prefilled with the rented numbers", async () => {
+  it("asks for confirmation before the date, prefilled, and sends no date or reference", async () => {
     const { calls } = await renderClientPage(<CallingNumbers pageFacts={[]} />, {
       "/v1/me": OWNER,
       [PATH]: declaration(),
@@ -65,35 +67,59 @@ describe("the calling numbers card", () => {
         notified_on: "2026-10-30",
         declared_clis: ["+919848022338", "+914049001234"],
         attested: true,
-        attested_version: 1,
+        attested_version: 2,
         effective: true,
         undeclared_clis: [],
         blocker: null,
       }),
     });
 
-    expect(await screen.findByText("Declare your calling numbers before 17 Nov")).toBeTruthy();
+    expect(await screen.findByText("Confirm your calling numbers before 17 Nov")).toBeTruthy();
+    expect(screen.getByText("Calling numbers")).toBeTruthy();
+    // The client files nothing itself: no date field and no reference field.
+    expect(screen.queryByLabelText(/Declared on/)).toBeNull();
+    expect(screen.queryByLabelText(/Reference/)).toBeNull();
+    expect(document.querySelector('input[type="date"]')).toBeNull();
+    expect(document.querySelector('input[type="text"]')).toBeNull();
+    expect(screen.getByText(WE_REGISTER)).toBeTruthy();
+    expect(WE_REGISTER).toBe("Calevate registers them with the telephone company for you.");
+
     const boxes = screen.getAllByRole("checkbox");
-    // Two rented numbers, ticked, and the attestation, not ticked.
+    // Two rented numbers, ticked, and the authorisation, not ticked.
     expect(boxes.filter((box) => (box as HTMLInputElement).checked)).toHaveLength(2);
-    const declare = screen.getByRole("button", { name: "Declare numbers" });
-    expect(declare.matches(":disabled")).toBe(true);
+    const confirm = screen.getByRole("button", { name: "Confirm numbers" });
+    expect(confirm.matches(":disabled")).toBe(true);
 
     fireEvent.click(screen.getByRole("checkbox", { name: /On behalf of this business/ }));
-    await waitFor(() => expect(declare.matches(":disabled")).toBe(false));
-    fireEvent.click(declare);
+    await waitFor(() => expect(confirm.matches(":disabled")).toBe(false));
+    fireEvent.click(confirm);
 
     await waitFor(() => expect(calls.some((call) => call.method === "POST")).toBe(true));
     const sent = JSON.parse(calls.find((call) => call.method === "POST")?.body ?? "{}");
-    expect(sent).toMatchObject({
+    expect(sent).toEqual({
       declared_clis: ["+919848022338", "+914049001234"],
-      notified_on: todayIST(),
-      notice_reference: null,
-      attestation_version: 1,
+      attestation_version: 2,
       attestation_sha256: "a".repeat(64),
       withdraw: false,
     });
     expect(await screen.findByRole("button", { name: "Change" })).toBeTruthy();
+    expect(screen.getByText("Confirmed on 30 Oct.")).toBeTruthy();
+  });
+
+  it("asks again when the account confirmed on an older wording", async () => {
+    await renderClientPage(<CallingNumbers pageFacts={[]} />, {
+      "/v1/me": OWNER,
+      [PATH]: declaration({
+        recorded: true,
+        state: "notified",
+        notified_on: "2026-10-30",
+        declared_clis: ["+919848022338"],
+        attested: false,
+        attested_version: 1,
+      }),
+    });
+    expect(await screen.findByText("Confirm your calling numbers again before 17 Nov")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Confirm numbers" })).toBeTruthy();
   });
 
   it("says outgoing calls are paused once the date has come", async () => {
@@ -102,7 +128,7 @@ describe("the calling numbers card", () => {
       [PATH]: declaration({ enforced: true }),
     });
     expect(
-      await screen.findByText("Outgoing calls are paused. Declare your numbers."),
+      await screen.findByText("Outgoing calls are paused. Confirm your numbers."),
     ).toBeTruthy();
   });
 
@@ -128,20 +154,34 @@ describe("the calling numbers card", () => {
       "/v1/me": me("staff", ["org:read"]),
       [PATH]: declaration(),
     });
-    const declare = await screen.findByRole("button", { name: "Declare numbers" });
+    const confirm = await screen.findByRole("button", { name: "Confirm numbers" });
     await waitFor(() => expect(screen.getAllByRole("checkbox")[0].matches(":disabled")).toBe(true));
-    fireEvent.click(declare);
+    fireEvent.click(confirm);
     expect(calls.some((call) => call.method === "POST")).toBe(false);
+  });
+});
+
+describe("the banner that sends accounts to the card", () => {
+  it("renders the D-941 announcement as the migration writes it, with its button", () => {
+    // `alembic/versions/c4e1a9b7d305_*.py` NEW_MESSAGE / NEW_LABEL; the row is the source.
+    const announcement = {
+      message:
+        "From 17 Nov, the law needs the numbers your agent calls from to be registered. " +
+        "Confirm your calling numbers so your calls keep going.",
+      tone: "warning" as const,
+      link_url: "/verify-business#calling-numbers",
+      link_label: "Confirm numbers",
+    };
+    render(<AnnouncementBar {...platformAnnouncementProps(announcement)} />);
+    expect(screen.getByText(announcement.message)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Confirm numbers" }).getAttribute("href")).toContain(
+      "#calling-numbers",
+    );
   });
 });
 
 describe("dates on the card", () => {
   it("reads a calendar day without a zone shift", () => {
     expect(shortDay("2026-11-17")).toBe("17 Nov");
-  });
-
-  it("takes today in India, not in the browser's zone", () => {
-    // 20:00 UTC on 30 Oct is already 31 Oct in India.
-    expect(todayIST(new Date("2026-10-30T20:00:00Z"))).toBe("2026-10-31");
   });
 });

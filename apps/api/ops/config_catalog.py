@@ -850,9 +850,9 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
     "a2p_declaration_enforced_from": _m(
         "compliance",
         "checks",
-        "Calling numbers must be declared from",
-        "From this day (IST) an outbound call from a number the client has not declared is "
-        "refused. Before it, clients are only asked to declare.",
+        "Calling numbers must be confirmed from",
+        "From this day (IST) an outbound call from a number the client has not confirmed is "
+        "refused. Before it, clients are only asked to confirm.",
     ),
     "kyc_verification_provider": _m(
         "compliance",
@@ -1484,7 +1484,7 @@ HIGH_RISK: Final[dict[str, str]] = {
     "campaign_consent_max_age_days": "Decides which contact lists a campaign may call.",
     "pe_verification_max_age_days": "Decides when a DLT registration must be re-verified.",
     "a2p_declaration_enforced_from": "An earlier date stops every client's calls from "
-    "undeclared numbers at once.",
+    "unconfirmed numbers at once.",
     "kyc_verification_environment": "Sandbox verifications are not real identity checks.",
     "healer_enabled": "Off stops every automatic repair.",
     "first_party_auth_enabled": "Off locks everyone out, operators included.",

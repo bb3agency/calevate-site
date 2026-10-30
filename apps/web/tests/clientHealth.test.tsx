@@ -173,7 +173,22 @@ describe("the client health board", () => {
     expect(screen.getByRole("link", { name: "Open the account" })).toBeDefined();
   });
 
-  it("names an account whose calling numbers are not declared, and why (D-941)", async () => {
+  it("names an account whose numbers we have not filed, as ours, with the filing screen", async () => {
+    const { container } = renderAdminPage(<ClientHealthPage />, {
+      [CLIENT_HEALTH_PATH]: [
+        row({
+          signals: [
+            signal({ rule: "calling_numbers_unfiled", severity: "warn", count: 2, causes: [] }),
+          ],
+        }),
+      ],
+    });
+    await screen.findByText("Sri Traders");
+    expect(container.textContent).toContain("Calling numbers not filed by us");
+    expect(container.textContent).not.toContain("calling_numbers_unfiled");
+  });
+
+  it("names an account whose calling numbers are not confirmed, and why (D-941)", async () => {
     const { container } = renderAdminPage(<ClientHealthPage />, {
       [CLIENT_HEALTH_PATH]: [
         row({
@@ -190,7 +205,7 @@ describe("the client health board", () => {
       ],
     });
     await screen.findByText("Sri Traders");
-    expect(container.textContent).toContain("Calling numbers not declared");
+    expect(container.textContent).toContain("Calling numbers not confirmed");
     expect(container.textContent).not.toContain("calling_numbers_undeclared");
     expect(container.textContent).not.toContain("a2p_declaration_missing");
   });

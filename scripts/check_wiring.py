@@ -172,6 +172,11 @@ UNWIRED_BASELINE: dict[str, str] = {
         "D-637 notice recorded; nothing reads or writes them. Kept with the D-637 rows under "
         "hard rule 8; closes with the migration that drops the two columns"
     ),
+    "AutodialerNotice.notice_reference": (
+        "D-941 as amended 30 Oct 2026: the client authorises Calevate and files nothing, so it "
+        "gives no reference; our filing reference lives in `a2p_number_filings`. Kept with the "
+        "D-637 and version-1 rows under hard rule 8; closes with the migration that drops it"
+    ),
     "Agent.escalation_config": (
         "D-533 stopped writing it (the handover roster moved to `agent_handoff_members`) and "
         "D-695 removed its last reader, the admin intake's fallback. Kept under hard rule 8's "

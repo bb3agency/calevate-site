@@ -281,27 +281,29 @@ describe("the launch panel with blockers outstanding", () => {
     expect(text).not.toContain("spend_cap");
   });
 
-  it("sends an undeclared calling number to the declaration card (D-941)", async () => {
+  it("sends an unconfirmed calling number to the calling numbers card (D-941)", async () => {
     await openLaunchPanel(
       check({
         rule: "a2p_number_undeclared",
-        reason: "This agent calls from a number you have not declared.",
+        reason: "This agent calls from a number you have not confirmed.",
       }),
     );
     expect(
-      screen.getByRole("link", { name: /Declare your calling numbers/ }).getAttribute("href"),
+      screen.getByRole("link", { name: /Confirm your calling numbers/ }).getAttribute("href"),
     ).toBe("/c/acme/verify-business#calling-numbers");
   });
 
-  it("reminds an account to declare before the date, while nothing is refused yet", async () => {
+  it("reminds an account to confirm before the date, while nothing is refused yet", async () => {
     await openLaunchPanel(check(), ME, {
       [CALLING_NUMBERS_PATH]: {
         ...CALLING_NUMBERS_NOT_APPLICABLE,
         applies: true,
-        blocker: { rule: "a2p_declaration_missing", reason: "Declare your calling numbers." },
+        blocker: { rule: "a2p_declaration_missing", reason: "Confirm your calling numbers." },
       },
     });
-    expect(await screen.findByText("Declare your calling numbers before 17 Nov")).toBeTruthy();
+    expect(await screen.findByText("Confirm your calling numbers before 17 Nov")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Confirm numbers" })).toBeTruthy();
+    expect(screen.getByText("From that day, calls from numbers you have not confirmed are refused.")).toBeTruthy();
   });
 
   it("keeps the enum names out of the DOM for the rules it does know", async () => {

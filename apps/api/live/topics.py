@@ -93,6 +93,7 @@ TABLE_TOPICS: Final[dict[str, Topic]] = {
     "outbound_pledge_acceptances": "campaigns",
     "outbound_sender_attestations": "campaigns",
     "autodialer_notices": "campaigns",
+    "a2p_number_filings": "campaigns",
     # call-backs
     "scheduled_callbacks": "callbacks",
     # knowledge
