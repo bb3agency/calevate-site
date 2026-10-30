@@ -596,7 +596,7 @@ async def _seed_one_of_everything(tenant_id: uuid.UUID, user_id: uuid.UUID) -> d
             text(
                 "INSERT INTO follow_up_versions (id, tenant_id, follow_up_id, number, steps, "
                 "trigger, settings) VALUES (:v, :t, :f, 1, "
-                "'[{\"id\": \"s1\", \"kind\": \"end\", \"goal\": true}]'::jsonb, "
+                '\'[{"id": "s1", "kind": "end", "goal": true}]\'::jsonb, '
                 "'{\"kind\": \"manual\"}'::jsonb, '{}'::jsonb)"
             ),
             {"v": version_id, "t": tenant_id, "f": follow_up_id},
