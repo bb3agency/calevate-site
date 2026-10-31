@@ -127,6 +127,11 @@ DATA_ONLY_REPAIRS: dict[str, str] = {
         "stt_autodetect_language, which Settings no longer declares since D-939; no DDL, the "
         "DELETE is a no-op once done, and no revision reads either key"
     ),
+    "c5e2a9d4f713": (
+        "gives back the real name, or none, to leads a call renamed to their own agent; no "
+        "DDL beyond the RLS bracket, the predicate is false once applied, and restoring the "
+        "replaced value would rename those leads to the agent again"
+    ),
 }
 
 #: What a schema change looks like in a migration's source. A revision claiming to be a
