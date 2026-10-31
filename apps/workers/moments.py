@@ -8,9 +8,9 @@ ONCE, in the post-call pipeline, and stored in `call_extractions.moments`.
 ## Two provenances
 
 `derived` markers are computed here from facts the pipeline already holds: a captured
-field's value found verbatim in a turn, and the opt-out detector's turn. They are arithmetic,
-not a judgement, so a derived marker is never on the wrong TURN. `model` markers are
-suggested by the extraction model in the same request that reads the call
+field's value found verbatim in a caller turn, and the opt-out detector's turn. They are
+arithmetic, not a judgement, so a derived marker is never on the wrong TURN. `model` markers
+are suggested by the extraction model in the same request that reads the call
 (`calevate_shared.extraction.build_extraction_prompt(..., moments=...)`); they are fallible
 and the screen calls them "Suggested" (D-36: the model's quality is unscored).
 
@@ -67,6 +67,9 @@ class Turn(Protocol):
 
     @property
     def idx(self) -> int: ...
+
+    @property
+    def speaker(self) -> str: ...
 
     @property
     def text(self) -> str: ...
@@ -164,11 +167,16 @@ def derive_moments(
     "Appointment slot captured", not "appointment_slot captured". `unheard` holds the
     agent turns the caller probably spoke over (`calevate_shared.cut_off`): no marker is
     placed on one, because what the caller may not have heard is not a moment of the call.
+
+    A captured field anchors only on a CALLER turn. The agent often says the value first
+    ("Kondapur or Gachibowli?"), and the earliest match would then put the marker on the
+    question rather than on the answer that gave it.
     """
     out: list[dict[str, Any]] = []
     heard = [turn for turn in turns if turn.idx not in unheard]
+    said_by_caller = [turn for turn in heard if turn.speaker == "caller"]
     for key, value in extraction.items():
-        turn = anchor_turn(value, heard)
+        turn = anchor_turn(value, said_by_caller)
         if turn is None:
             continue
         out.append(
@@ -238,6 +246,7 @@ def model_moments(
     line_turns: Sequence[Turn],
     field_labels: dict[str, str],
     redact: Callable[[str], str],
+    captured: Collection[str],
     unheard: Collection[int] = (),
 ) -> list[dict[str, Any]]:
     """The model's suggestions, placed on their turns. Unplaceable ones are dropped.
@@ -246,6 +255,9 @@ def model_moments(
     `field_captured` label is OURS, from the client's field label; any other label is the
     model's raw wording plus its redacted form (`redact`), falling back to the kind's plain
     label when the model wrote none.
+
+    `captured` is the keys the final reading holds a value for. A `field_captured`
+    suggestion is kept only for one of them and only on a caller turn (`field_backed`).
     """
     out: list[dict[str, Any]] = []
     for candidate in candidates:
@@ -271,7 +283,40 @@ def model_moments(
                 field=candidate.field,
             )
         )
-    return out
+    caller_turns = {t.idx for t in line_turns if t.speaker == "caller"}
+    backed: list[dict[str, Any]] = field_backed(out, captured=captured, caller_turns=caller_turns)
+    return backed
+
+
+def field_backed(
+    stored: Any, *, captured: Collection[str], caller_turns: Collection[int] | None
+) -> Any:
+    """`stored` without any `field_captured` marker the reading does not back.
+
+    The model suggests its moments in the same answer as the fields, and the two disagree:
+    a field it flagged can come back null, be refused by validation, or be dropped as the
+    agent's own name, and it can point at the agent's question instead of the caller's
+    answer. Such a marker says "Location captured" beside "Not mentioned: Location". Kept:
+    every other kind, and a field marker whose field `captured` holds, on a caller turn.
+    `caller_turns=None` skips the turn check, for a reader that has no turns loaded; a
+    stored marker with no `turn_idx` (written before it existed) is not turn-checked.
+
+    Applied where markers are written AND where they are read, so rows stored before this
+    rule stop showing without a backfill. Anything that is not a list is returned as it is,
+    for `_moments_out` to judge.
+    """
+    if not isinstance(stored, list):
+        return stored
+    kept: list[Any] = []
+    for item in stored:
+        if isinstance(item, dict) and item.get("kind") == "field_captured":
+            if item.get("field") not in captured:
+                continue
+            turn_idx = item.get("turn_idx")
+            if caller_turns is not None and turn_idx is not None and turn_idx not in caller_turns:
+                continue
+        kept.append(item)
+    return kept
 
 
 def _same_moment(a: dict[str, Any], b: dict[str, Any]) -> bool:
@@ -319,6 +364,7 @@ __all__ = [
     "anchor_of",
     "anchor_turn",
     "derive_moments",
+    "field_backed",
     "merge_moments",
     "model_moments",
     "moment",

@@ -51,23 +51,18 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 @dataclass
 class _Turn:
-    """EXACTLY the Protocol `moments.Turn` names, and nothing else.
-
-    No `speaker`, deliberately: the module does not read it, so a fixture that carries one
-    would let the Protocol grow a requirement without any test noticing. This class
-    failing to construct IS the signal that the Protocol widened.
-    """
+    """EXACTLY the Protocol `moments.Turn` names, and nothing else, so a Protocol that
+    grows a requirement fails to construct here instead of passing unnoticed."""
 
     idx: int
+    speaker: str
     text: str
     start_ms: int | None
     start_approximate: bool = False
 
 
 def _turns(*rows: tuple[int, str, str, int | None]) -> list[Any]:
-    """`rows` keeps the speaker column for readability at the call sites — a transcript
-    fixture that does not say who spoke is hard to read — and drops it on the way in."""
-    return [_Turn(idx=i, text=t, start_ms=ms) for i, _speaker, t, ms in rows]
+    return [_Turn(idx=i, speaker=s, text=t, start_ms=ms) for i, s, t, ms in rows]
 
 
 CALL = _turns(
@@ -440,7 +435,7 @@ async def test_a_marker_written_by_the_worker_is_read_back_by_the_api() -> None:
         )
 
     moments = derive_moments(
-        turns=[_Turn(idx=0, text="I need Tuesday at four", start_ms=8_000)],
+        turns=[_Turn(idx=0, speaker="caller", text="I need Tuesday at four", start_ms=8_000)],
         extraction={"slot": "Tuesday at four"},
         field_labels={"slot": "Appointment slot"},
     )
