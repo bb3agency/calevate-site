@@ -31,6 +31,7 @@ from calevate_shared.engine import (
     compose_placed_call_first_words,
     introduces_itself,
     join_first_words,
+    said_as_taught,
     spoken_ai_notice,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -250,7 +251,9 @@ def refuse_over_engine_limits(engine: VoiceEngine, cfg: AgentConfig) -> None:
     length = greeting_chars(
         engine,
         notices=cfg.opening_line,
-        opening=opening_line_of(cfg.system_prompt),
+        opening=said_as_taught(
+            opening_line_of(cfg.system_prompt), body=cfg.system_prompt, business=cfg.business
+        ),
         ai_notice=cfg.ai_notice,
         language=cfg.language_primary,
     )

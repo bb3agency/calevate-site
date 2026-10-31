@@ -91,6 +91,8 @@ Kind = Literal[
     "unbacked_promise",
     # D-945: a weekday said with a date it does not fall on, in IST.
     "wrong_weekday",
+    # D-947 (the Sri Estates call of 30 Oct 2026): one sentence said again on the same call.
+    "said_again",
 ]
 
 #: How a reply SOUNDS (D-828): the words, numbers, punctuation, length and language of a
@@ -151,6 +153,9 @@ JOB_KINDS: Final = frozenset(
         "invented_source",
         "unbacked_promise",
         "wrong_weekday",
+        # A fail, not a sound note like `asked_again` (D-947): on the call of 30 Oct 2026 the
+        # same line four times ended the call with nothing gained, which is the task lost.
+        "said_again",
     }
 )
 
@@ -1173,6 +1178,24 @@ _PACE_PROMISE: Final = re.compile(
 )
 
 
+#: Words a sentence needs before saying it again counts as `said_again`: "సరే అండి." or
+#: "Thank you." twice is ordinary speech.
+SAID_AGAIN_MIN_WORDS: Final = 4
+
+
+def _said_again(reply: str, earlier: Sequence[str]) -> str | None:
+    """The sentence of `reply` that an earlier reply already said (word for word, or as
+    `_same_reply` reads it), or None."""
+    return next(
+        (
+            s
+            for s in sentences(reply)
+            if len(_words(s)) >= SAID_AGAIN_MIN_WORDS and any(_same_reply(s, b) for b in earlier)
+        ),
+        None,
+    )
+
+
 def _asked_again(reply: str, previous_reply: str) -> str | None:
     """The question of `reply` that repeats one of `previous_reply` word for word, or None."""
     before = [s for s in sentences(previous_reply) if _is_question(s)]
@@ -1502,6 +1525,7 @@ def conversation_problems(
     caller_raised_number = False
     awaiting: int | None = None  # digits given since the agent asked for a number
     previous_reply = ""
+    earlier_sentences: list[str] = []
     said_before = ""
     caller_lines = ""
     searched = False
@@ -1682,6 +1706,19 @@ def conversation_problems(
                     "question, in new words.",
                 ),
             )
+        # A caller who asks to hear it again is `repeated_turn`'s, judged on the whole turn.
+        repeated = None if _ASKS_REPEAT.search(said) else _said_again(reply, earlier_sentences)
+        if repeated:
+            found.setdefault(
+                "said_again",
+                TurnProblem(
+                    "said_again",
+                    f"After the caller said {_quoted(said)} it said {_quoted(repeated)} again, "
+                    "a line it had already said on this call. With no clear reply it tries "
+                    "once in other words, then offers what comes next and closes.",
+                ),
+            )
+        earlier_sentences += sentences(reply)
         if previous_reply and _ASKS_REPEAT.search(said) and _same_reply(reply, previous_reply):
             found.setdefault(
                 "repeated_turn",
