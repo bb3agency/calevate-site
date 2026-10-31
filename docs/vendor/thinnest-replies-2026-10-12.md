@@ -2297,3 +2297,37 @@ point; nothing here reaches money or a wire value without that.
 | 10 Timer v2 | Beta; batch STT + decider model | Founder test call, then decide the platform default |
 | 11 WhatsApp calling | Yes, SIP to the attached agent | How (SIP address per agent, Meta set-up) UNVERIFIED — check docs |
 | 12 DPA and sub-processors | Not answered | Still open (gate T-5) |
+
+## 42. Follow-up to §41 (DRAFTED 1 Nov 2026)
+
+Checked §41 against the live API (`https://app.thinnest.ai/openapi.json`, read 1 Nov 2026) and the
+29 Oct docs snapshot: no Update Agent field switches Call insights on; no field reports our
+concurrency or per-workspace agent limits; WhatsApp calling (`whatsapp/calls.md`) is switched
+on under Connect WhatsApp in the console, and WhatsApp is connected only in the console. Our
+clients' WhatsApp numbers are connected through our own Meta Tech Provider set-up (D-784).
+
+> Subject: Re: TRAI, limits and your 29 Oct release — a few follow-ups
+>
+> Hi Ashutosh,
+>
+> Thanks for the quick answers. A few follow-ups:
+>
+> 1. **Call insights through the API.** We create and manage every client's agents only
+>    through the API, in their customer workspaces. Is there (or can there be) an Update
+>    Agent field to switch Call insights on? The API spec we read today has none.
+> 2. **Our new limits.** What are they now: concurrent calls for the account, and agents per
+>    customer workspace? Noted on 20+ concurrent — we will tell you per client before it
+>    happens.
+> 3. **WhatsApp calling on a number connected elsewhere.** Our clients connect their own
+>    WhatsApp numbers through our Meta Tech Provider app, not in your console. Can such a
+>    number's calls reach an agent — for example a SIP address per agent that we point
+>    Meta's Calling API to — and is there an API for it?
+> 4. **A2P declaration.** Understood that it is not live yet. Please tell us as soon as the
+>    telcos publish the process, and whether you or Plivo will file for numbers rented in our
+>    customer workspaces.
+> 5. Still open from the last mail: caller name display (which name shows on a client's
+>    number), 1601-series numbers, the ₹0.05/min automated-call charge, and the signed DPA
+>    with your sub-processor list.
+>
+> Thanks,
+> Umesh
