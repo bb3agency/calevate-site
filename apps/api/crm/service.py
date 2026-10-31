@@ -84,6 +84,7 @@ from apps.api.db.transition import transition_status
 # import of the function that enforces hard rule 5 is a function that is easy to
 # forget to call.
 from apps.workers.call_language import call_language
+from apps.workers.moments import field_backed
 from apps.workers.redaction import redact
 
 MAX_PAGE = 200
@@ -651,7 +652,14 @@ async def get_call(
         extraction=extraction_data,
         captured=captured,
         extraction_valid=bool(extraction[1]) if extraction else True,
-        moments=_moments_out(extraction[2] if extraction else None, raw=raw),
+        moments=_moments_out(
+            field_backed(
+                extraction[2] if extraction else None,
+                captured=extraction_data.keys(),
+                caller_turns={t[0] for t in turns if t[1] == "caller"},
+            ),
+            raw=raw,
+        ),
         # Per-field "confirm before acting" advisories (P4). NOT on the redaction switch:
         # the reasons are PII-free by construction (the flagged value lives in `extraction`
         # above, this map names only the field and why), so one form serves both the
@@ -729,13 +737,18 @@ async def _call_moments(
     rows = (
         await session.execute(
             text(
-                "SELECT call_id, moments FROM call_extractions "
+                "SELECT call_id, moments, data FROM call_extractions "
                 "WHERE call_id = ANY(:ids) AND moments IS NOT NULL"
             ),
             {"ids": list(call_ids)},
         )
     ).all()
-    return {row[0]: _moments_out(row[1], raw=False) for row in rows}
+    return {
+        row[0]: _moments_out(
+            field_backed(row[1], captured=(row[2] or {}).keys(), caller_turns=None), raw=False
+        )
+        for row in rows
+    }
 
 
 def _label_for(item: dict[str, Any], *, raw: bool) -> str | None:

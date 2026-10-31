@@ -2081,6 +2081,44 @@
       "expect_outcome": "hung_up_early"
     },
     {
+      "id": "re_unclear_looping_outbound_call",
+      "vertical": "real_estate",
+      "scenario": 4,
+      "title": "Still looking, then only repeats the company name: nothing is captured",
+      "transcript": [
+        "agent: నమస్కారం అండి, Sri-Estates నుంచి AI assistant call చేస్తున్నాను. Ee call record avutundi. ఇప్పుడు మాట్లాడొచ్చా?",
+        "caller: Sri Estates.",
+        "agent: మీరు ఇంతకు ముందు ప్రాపర్టీ గురించి ఎంక్వైరీ చేశారు కదా, ఇంకా చూస్తున్నారా అండి?",
+        "caller: Yes.",
+        "agent: సంతోషం అండి. మీరు ఏ ఏరియాలో ప్రాపర్టీ చూస్తున్నారు?",
+        "caller: Ah.",
+        "agent: పర్లేదు అండి, మీకు ఏ ఏరియాలో అయితే బాగుంటుంది అనిపిస్తుందో చెప్తారా?",
+        "caller: Sri Estates.",
+        "agent: అవునండి, శ్రీ ఎస్టేట్స్ నుంచి కాల్ చేస్తున్నాను. మీరు ఏ ఏరియాలో ప్రాపర్టీ చూస్తున్నారు?",
+        "caller: Sri Estates.",
+        "agent: అవునండి, శ్రీ ఎస్టేట్స్ నుంచి కాల్ చేస్తున్నాను. మీరు ఏ ఏరియాలో ప్రాపర్టీ చూస్తున్నారు?",
+        "caller: Sri Estates."
+      ],
+      "expect": {},
+      "expect_absent": [
+        "name",
+        "intent",
+        "urgency",
+        "party_size",
+        "wants_callback",
+        "callback_number",
+        "callback_time",
+        "number_belongs_to",
+        "budget_lakhs",
+        "preferred_location",
+        "bhk_size",
+        "timeline",
+        "site_visit_interest"
+      ],
+      "expect_outcome": "needs_you",
+      "note": "The founder's trial call of 30 Oct 2026, with the caller's opening 'Hello.' dropped and the AI and recording notice in the agent's first line, as every case here opens. A site visit never came up, so it is null, not false; the area was only ever asked. 'Yes' to still looking is not a decline, and the agent could not get past the first question, so a person has to follow up."
+    },
+    {
       "id": "re_hostile_delayed_possession",
       "vertical": "real_estate",
       "scenario": 4,
