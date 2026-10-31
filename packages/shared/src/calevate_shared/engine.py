@@ -32,7 +32,12 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from calevate_shared.call_script import NativeStep, opening_line_of, outbound_opening_of
+from calevate_shared.call_script import (
+    NativeStep,
+    opening_line_of,
+    outbound_opening_of,
+    pronunciations_of,
+)
 from calevate_shared.calling_window import ist_wall_clock
 from calevate_shared.events import (
     CallBilling,
@@ -2920,6 +2925,9 @@ _REGISTER_BULLET: Final = (
 #: Paid for by "then ask the next thing" (the one-question bullet already asks) and "each
 #: turn begun differently" (the reaction is how a turn begins, and the bullet before says
 #: never the same way twice).
+#: D-947, from the founder's Sri Estates call of 30 Oct 2026: "Unclear? Ask again" let the
+#: agent say the same question word for word after each non-answer; "reworded" makes the one
+#: retry a different approach. What follows a second non-answer is in WHAT YOU CAN DO.
 #: The agent's default call language (`AgentConfig.language_primary`).
 DEFAULT_PRIMARY_LANGUAGE: Final = "te-IN"
 
@@ -2955,7 +2963,7 @@ VOICE_STYLE_GUIDANCE: Final = (
     'amount that could be a range or a decimal ("one two crores") as which one ("one to two '
     'crores?").\n'
     f"{_REGISTER_BULLET}"
-    "- Unclear? Ask again; never pick for them. Asked to repeat? Say it shorter.\n"
+    "- Unclear? Ask again, reworded; never pick for them. Asked to repeat? Say it shorter.\n"
     "- Never narrate a search or a wait.\n"
     "- Close: what happens next in one line, no recap, anything else, then one goodbye and "
     "nothing more. End only then or when asked, never while they talk or ask."
@@ -3490,8 +3498,12 @@ def _when_you_cannot_help_section(cfg: AgentConfig) -> str:
         # do not know, say so", which is read on calls only (`VOICE_STYLE_GUIDANCE`), so a
         # chat reply is told too. The quoted words are the one way to say it (D-888): left to
         # itself, an agent with nothing on a location or a project filled the gap instead.
-        f'- No answer after searching ("the team will share that"), or still unclear after '
-        f"two tries: say so, then {follow_up}.\n"
+        # "No clear reply" rather than "still unclear" (D-947): a caller who only said the
+        # business name back four times was never "unclear" to the model, which answered it
+        # as "who is calling?" and asked its script's question again each time. After the
+        # script, so a script step cannot send the agent back to the same question.
+        f'- No answer after searching ("the team will share that"), or no clear reply twice: '
+        f"say so, then {follow_up}.\n"
         f"{person}\n"
         # The do-not-call tool is the voice platform's own, always attached and not
         # describable by us (not in the switchable list, `api-reference/tools/
@@ -4437,6 +4449,39 @@ def join_first_words(notices: str, opening: str, *, ai_notice: str, language: st
     return " ".join(part for part in (salutation, lead, without_greeting(opening), others) if part)
 
 
+#: What may stand between the words of a name as an opening line spells it: "Sri-Estates",
+#: "Sri_Estates" and "Sri  Estates" are all "Sri Estates".
+_NAME_GAP: Final = r"[\s\-\u2010-\u2015_.]+"
+
+
+def _name_pattern(name: str) -> re.Pattern[str] | None:
+    words = [w for w in re.split(_NAME_GAP, name.strip()) if w]
+    if not words:
+        return None
+    joined = _NAME_GAP.join(re.escape(w) for w in words)
+    return re.compile(rf"(?<!\w){joined}(?!\w)", re.IGNORECASE)
+
+
+def said_as_taught(line: str, *, body: str | None, business: str) -> str:
+    """`line` with each name the owner taught the voice (the script's pronunciation line) in
+    its taught form, then the business's name as the business writes it (D-947).
+
+    The engine speaks an opening line verbatim, without the model, so the pronunciation line,
+    which the model reads, never reached it: on the call of 30 Oct 2026 the opening said the
+    name in English letters with a hyphen and every later turn said it in Telugu. Applied
+    only to the opening line, never to the notices, whose words the publish read-back finds
+    verbatim in the greeting."""
+    pairs = [(word, said) for word, said in pronunciations_of(body) if said]
+    if business.strip():
+        pairs.append((business, " ".join(business.split())))
+    for word, said in pairs:
+        pattern = _name_pattern(word)
+        if pattern is not None:
+            # A literal replacement: a backslash in the taught form is not a group reference.
+            line = pattern.sub(said.replace("\\", "\\\\"), line)
+    return line
+
+
 def compose_first_utterance(cfg: AgentConfig) -> str:
     """`cfg`'s first words, for an engine that speaks one greeting field verbatim.
 
@@ -4446,7 +4491,9 @@ def compose_first_utterance(cfg: AgentConfig) -> str:
     """
     return join_first_words(
         cfg.opening_line,
-        opening_line_of(cfg.system_prompt),
+        said_as_taught(
+            opening_line_of(cfg.system_prompt), body=cfg.system_prompt, business=cfg.business
+        ),
         ai_notice=cfg.ai_notice,
         language=cfg.language_primary,
     )
@@ -4457,13 +4504,12 @@ def placed_call_line(*, body: str | None, language: str, business: str, ai_notic
     opening, else the language's composed one (`spoken_style.placed_call_opening`), never
     the answering greeting, which thanks the person for calling."""
     own = outbound_opening_of(body)
-    if own:
-        return own
-    return placed_call_opening(
+    line = own or placed_call_opening(
         language,
         business=business,
         introduced=introduces_itself(ai_notice=ai_notice, language=language),
     )
+    return said_as_taught(line, body=body, business=business)
 
 
 _SENTENCE_END_SPACE: Final = re.compile(r"(?<=[.?!।])\s+")
@@ -4535,10 +4581,15 @@ START_OF_CALL_HEADER: Final = "--- START OF THE CALL ---"
 #: 28 Oct 2026 it said who and why and asked "can we talk now?" again.
 #: "Then stop and wait" (D-945): "then your first question" stacked a question on the answer
 #: on the call of 30 Oct 2026; the person who asked "who is this?" decides whether to go on.
+#: "Or the business name said back ... once" (D-947): on that call the caller's "Sri
+#: Estates." came four times and each drew the same who-and-why line and question. Said back
+#: once, it is confirmed; after that it is no clear reply, which WHAT YOU CAN DO answers.
+#: Paid for inside this rule ("re-ask", "answering", "any language", "why you call"), so it
+#: did not grow past `tests/opening_continues_test` and the full-v2 bound.
 OPENING_CONTINUES_RULE: Final = (
-    " Never greet, repeat it or ask if now suits again, even after answering a question "
-    "first. Asked who or why? Say both in one line, then stop and wait. A word or two "
-    '("hello", "yes", in any language) means go on: why you are calling or your first '
+    " Never greet, repeat it or re-ask if now suits, even after answering. Asked who or "
+    "why, or the business name said back? Say both in one line, once, then stop and wait. A "
+    'word or two ("hello", "yes", any language) means go on: why you call or your first '
     "question."
 )
 
@@ -6715,6 +6766,7 @@ __all__ = [
     "platform_rules_preamble",
     "render_caller_memory",
     "role_sentence",
+    "said_as_taught",
     "screen_steps_bullet",
     "sends_our_call_rules",
     "tenant_of_pipecat_ref",

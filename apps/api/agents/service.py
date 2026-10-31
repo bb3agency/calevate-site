@@ -121,6 +121,7 @@ from calevate_shared.engine import (
     notice_fields,
     placed_call_first_words,
     placed_call_line,
+    said_as_taught,
     spoken_ai_notice,
     truthful_answer_directive,
 )
@@ -3849,6 +3850,9 @@ def trial_call_first_words(agent: AgentRow, *, call_is_recorded: bool) -> str | 
     )
     if line is None:
         return None
+    line = said_as_taught(
+        line, body=str(agent.get("prompt") or ""), business=str(agent.get("business_name") or "")
+    )
     notices = compose_opening_line(posture, call_is_recorded=call_is_recorded)
     return join_first_words(notices, line, ai_notice=ai_notice, language=language)
 
@@ -3864,15 +3868,11 @@ def lead_first_words(agent: AgentRow, *, call_is_recorded: bool) -> str | None:
     language = str(agent["language_primary"])
     ai_notice = spoken_ai_notice(posture)
     body = str(agent.get("prompt") or "")
+    business = str(agent.get("business_name") or "")
     line = (
-        placed_call_line(
-            body=body,
-            language=language,
-            business=str(agent.get("business_name") or ""),
-            ai_notice=ai_notice,
-        )
+        placed_call_line(body=body, language=language, business=business, ai_notice=ai_notice)
         if agent["direction"] == "both"
-        else opening_line_of(body)
+        else said_as_taught(opening_line_of(body), body=body, business=business)
     )
     named = named_lead_opening(
         line,
