@@ -95,4 +95,4 @@ export const TEXT_ACTION_SM =
 
 /** The same, for the one destructive action a row may carry ("Remove"). */
 export const TEXT_ACTION_DANGER =
-  "press -mx-2 inline-flex min-h-8 items-center gap-1.5 rounded-md px-2 text-body font-medium text-danger transition-colors duration-(--duration-fast) [&:not(:disabled)]:hover:bg-danger/10 [&:not(:disabled)]:active:bg-danger/15 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger touch:min-h-11";
+  "press -mx-2 inline-flex min-h-8 items-center gap-1.5 rounded-md px-2 text-body font-medium text-danger transition-colors duration-(--duration-fast) dark:text-rose-400 [&:not(:disabled)]:hover:bg-danger/10 [&:not(:disabled)]:active:bg-danger/15 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger touch:min-h-11";

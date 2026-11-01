@@ -2,6 +2,7 @@ import { act, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import SignupPage from "@/app/signup/page";
+import { resolvePlaceholders } from "@/lib/legal/placeholders";
 
 import { stubApi } from "./harness";
 
@@ -35,6 +36,16 @@ describe("signup with the kill switch off", () => {
     await mount();
     await screen.findByText("Signing up online is closed");
     expect(calls.every((call) => !call.url.includes("/v1/auth/signup"))).toBe(true);
+  });
+
+  it("gives a way to reach a person when no contact address is configured", async () => {
+    expect(process.env.NEXT_PUBLIC_SIGNUP_CONTACT_EMAIL ?? "").toBe("");
+    stubApi(CLOSED);
+    await mount();
+    await screen.findByText("Signing up online is closed");
+    const mail = resolvePlaceholders("{{SUPPORT_EMAIL}}");
+    const link = screen.getByRole("link", { name: mail });
+    expect(link.getAttribute("href")).toBe(`mailto:${mail}`);
   });
 
   it("promises no turnaround it cannot keep", async () => {
