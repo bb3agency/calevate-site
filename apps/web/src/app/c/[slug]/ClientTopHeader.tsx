@@ -10,7 +10,14 @@ import { NotificationCenter, type NotificationItem } from "@/components/arc/noti
 import { ClientCopilotDock } from "@/components/copilot/CopilotDock";
 import { LiveCallsPill } from "@/components/console/liveCalls";
 import { BAR_STATUS } from "@/components/console/statusPill";
-import { NOTICE_DOT, SHELL_RAIL_CLASS, formatCount, formatCountOf } from "@/components/ui";
+import {
+  NOTICE_DOT,
+  PRIMARY_BUTTON_SM,
+  SECONDARY_BUTTON_SM,
+  SHELL_RAIL_CLASS,
+  formatCount,
+  formatCountOf,
+} from "@/components/ui";
 import { useAttention } from "@/lib/api/attention";
 import { useWriteAccess } from "@/lib/api/hooks";
 import {
@@ -25,6 +32,7 @@ import { useDesktopAlerts } from "@/lib/desktopAlerts";
 
 import { consoleHref } from "./ClientAnnouncements";
 import { currentItem } from "./ClientSidebar";
+import { HOME } from "./setup/_ui/copy";
 import { TrialChip, trialView } from "./TrialBanner";
 
 /** Failures read red, things slowing down read amber, news and good news stay neutral. */
@@ -154,6 +162,39 @@ function NotificationBell({ slug }: { slug: string }) {
 
 /** Rows the bell asks for; the attention screen has the rest. */
 const BELL_ROWS = 20;
+
+/**
+ * The credit chip's phone twin: the bar has no room for the chip under `sm`, so on a phone
+ * the same warning is a strip under the bar, one line and one button, on every screen but
+ * the dashboard, whose "What needs you" already says it with the same button.
+ */
+export function CreditStrip({ slug }: { slug: string }) {
+  const pathname = usePathname();
+  const { session, href } = useClientRealm();
+  const wallet = useWallet(session);
+  if (!wallet.data || pathname === `/c/${slug}`) return null;
+  if (trialView(wallet.data) !== null) return null;
+  const state = walletState(wallet.data);
+  if (state !== "low" && state !== "stopped") return null;
+  const stopped = state === "stopped";
+  return (
+    <div
+      role="status"
+      className="flex items-center justify-between gap-3 border-b border-line bg-surface px-4 py-2 text-body text-ink sm:hidden"
+    >
+      <span className="flex min-w-0 items-center gap-2">
+        <span aria-hidden className={`h-2 w-2 shrink-0 rounded-full ${NOTICE_DOT[stopped ? "stop" : "warn"]}`} />
+        <span className="min-w-0">{stopped ? HOME.creditStopped : HOME.creditLow}</span>
+      </span>
+      <Link
+        href={href(`/c/${slug}/billing?tab=credits`)}
+        className={`${stopped ? PRIMARY_BUTTON_SM : SECONDARY_BUTTON_SM} shrink-0`}
+      >
+        {HOME.creditAction}
+      </Link>
+    </div>
+  );
+}
 
 /**
  * Credit in the bar, ONLY when it is about to stop calls or already has. A healthy balance
