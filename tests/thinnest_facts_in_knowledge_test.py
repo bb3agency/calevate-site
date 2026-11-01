@@ -49,12 +49,13 @@ SCRIPT = f"[IDENTITY] Sunrise Clinic receptionist\n{FACTS}\n[TASK FLOW]\nGreet, 
 
 #: sha256 of `compose_engine_prompt` for the two configs below. A change here is a change to
 #: every other engine's prompt, so it is re-pinned only by a decision that changes the
-#: platform layers on purpose (last: D-920, 28 Oct 2026: these "both" agents' START OF THE
+#: platform layers on purpose (last: D-947, 30 Oct 2026: the no-clear-reply and name-said-back
+#: rules; before it D-920, 28 Oct 2026: these "both" agents' START OF THE
 #: CALL quotes the first turn of a call they answer and of a call they place).
 #: The screen switch, off here, adds nothing.
 PINNED = (
-    "ae8390f79637fd763101b3d647fb1dd13280d75660e6cbac3ab888c7298ab04b",
-    "713053a6e26a69adb4b09a22d889b14ad3cadb9fdc94cba8636724702a016017",
+    "807a841a14ba658bceaf1062f8b8a1d7242bfee2e91d45775bd7a73e766f4161",
+    "b1be44e90399ddd64722f1eb1ce432f3bc07a33c2b57d812a29bd5f9c2cfc2ad",
 )
 
 
@@ -158,10 +159,14 @@ class _KbEngine(FakeEngine):
         super().__init__(name="thinnest", capabilities=THINNEST_CAPABILITIES)
         self.attached: list[tuple[str, str]] = []
         self.detached: list[str] = []
+        #: Every page posted as an address, refused or not.
+        self.linked: list[str] = []
 
     async def attach_kb(
         self, ref: EngineAgentRef, source: KBSourceRef, *, agent: AgentConfig | None = None
     ) -> EngineKBRef:
+        if source.source_url:
+            self.linked.append(source.source_url)
         handle = await super().attach_kb(ref, source, agent=agent)
         self.attached.append((source.title, source.text))
         return handle

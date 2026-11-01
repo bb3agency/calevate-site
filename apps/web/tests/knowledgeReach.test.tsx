@@ -9,9 +9,10 @@ import type { KbUpload } from "@/lib/api/kb";
 import { renderClientPage, type Routes } from "./harness";
 
 /**
- * WHAT A STATUS MAY CLAIM (D-874, D-893 L8). A PDF's and a link's words are read into a copy
- * the owner and Pip can open, and reach the agents only while our console sends them — the
- * server's `reaches_agents`. Until it does, a published PDF must never be called "In use".
+ * WHAT A STATUS MAY CLAIM (D-874, D-868). A PDF reaches the agents once its words are read,
+ * a link as its address — the server's `reaches_agents` — and a page the agents could not
+ * read comes back as an `error` with the reason. Until the server says it reaches them, a
+ * published PDF must never be called "In use".
  */
 
 const ME: Me = {
@@ -46,31 +47,45 @@ function upload(over: Partial<KbUpload> = {}): KbUpload {
     reaches_agents: false,
     ...over,
   };
-  // What the server says unless a test says otherwise: a converted kind always reaches.
-  return { ...base, reaches_agents: over.reaches_agents ?? !["pdf", "url"].includes(base.source_kind) };
+  // What the server says unless a test says otherwise (`upload_reaches_agents`).
+  const reaches = base.source_kind !== "pdf" || base.read_state === "ready";
+  return { ...base, reaches_agents: over.reaches_agents ?? reaches };
 }
 
 describe("which kinds reach the agents", () => {
   it("is the server's answer, never a list of kinds kept here", () => {
     expect(reachesAgents(upload({ source_kind: "docx" }))).toBe(true);
-    expect(reachesAgents(upload())).toBe(false);
-    expect(reachesAgents(upload({ reaches_agents: true }))).toBe(true);
+    expect(reachesAgents(upload())).toBe(true);
+    expect(reachesAgents(upload({ reaches_agents: false }))).toBe(false);
   });
 
-  it("never calls a published PDF or link in use while the agents do not get it", () => {
-    const pdf = uploadState(upload());
-    expect(pdf.label).toBe("Saved, not used yet");
-    expect(pdf.meaning).toContain("Agents don't use PDFs yet");
-    expect(pdf.meaning).toContain("It still shapes their scripts");
-    expect(pdf.tone).toBe("neutral");
-
+  it("calls a read PDF and a live link in use, and says how much of the PDF was read", () => {
+    expect(uploadState(upload()).label).toBe("In use");
+    const partial = uploadState(upload({ read_detail: "We read 18 of 20 pages." }));
+    expect(partial.label).toBe("In use");
+    expect(partial.meaning).toBe("We read 18 of 20 pages.");
     const link = uploadState(upload({ source_kind: "url", name: "Prices page", source_url: "https://example.in" }));
-    expect(link.label).toBe("Saved, not used yet");
-    expect(link.meaning).toContain("Agents don't use links yet");
+    expect(link.label).toBe("In use");
+    expect(link.meaning).toContain("this page");
   });
 
-  it("calls a PDF in use once the server says its words reach the agents", () => {
-    expect(uploadState(upload({ reaches_agents: true })).label).toBe("In use");
+  it("never calls a live PDF in use before its words are read", () => {
+    const unread = uploadState(upload({ read_state: null }));
+    expect(unread.label).toBe("Not read yet");
+    expect(unread.meaning).toContain("Read it again");
+  });
+
+  it("says why the agents could not read a page, in the platform's reason", () => {
+    const refused = uploadState(
+      upload({
+        source_kind: "url",
+        ingest_status: "error",
+        ingest_detail: "Your agents could not read that page. The page may require a login.",
+      }),
+    );
+    expect(refused.label).toBe("Agents couldn't read it");
+    expect(refused.meaning).toContain("may require a login");
+    expect(refused.tone).toBe("stop");
   });
 
   it("says while the words are being read, and when they could not be", () => {
@@ -82,10 +97,10 @@ describe("which kinds reach the agents", () => {
     expect(uploadState(failed).meaning).toBe("This PDF is locked with a password.");
   });
 
-  it("says the same of a PDF that is still moving, and draws no steps towards 'In use'", () => {
+  it("walks a read PDF that is still on its way through the steps to 'In use'", () => {
     const moving = upload({ is_live: false, ingest_status: "processing" });
-    expect(uploadState(moving).label).toBe("Saved, not used yet");
-    expect(uploadSteps(moving)).toBeNull();
+    expect(uploadState(moving).label).toBe("Going to your agents");
+    expect(uploadSteps(moving)?.current).toBe(2);
   });
 
   it("still puts a refusal first, whatever the kind", () => {
@@ -127,10 +142,10 @@ describe("the one Add area (D-874)", () => {
     await renderKnowledge();
     fireEvent.click(await screen.findByRole("radio", { name: "File" }));
     // One short line each by default; the full sentence sits behind the ⓘ beside it.
-    expect(screen.getByText("PDFs are saved, but agents may not use them.")).toBeTruthy();
+    expect(screen.getByText("Scanned PDF pages are read too.")).toBeTruthy();
     expect(screen.getByRole("button", { name: "About what you can send" })).toBeTruthy();
     fireEvent.click(screen.getByRole("radio", { name: "Link" }));
-    expect(screen.getByText("We read that one page. Agents may not use it.")).toBeTruthy();
+    expect(screen.getByText("Your agents read that one page.")).toBeTruthy();
     expect(screen.getByRole("button", { name: "About links" })).toBeTruthy();
     expect(screen.getByRole("button", { name: /save link/i })).toBeTruthy();
   });
@@ -185,8 +200,16 @@ describe("what the agents know, grouped", () => {
     await renderKnowledge({
       "/v1/kb/uploads": [
         upload({ id: "a", name: "Menu.docx", source_kind: "docx", filename: "Menu.docx" }),
-        upload({ id: "b", name: "Brochure.pdf" }),
-        upload({ id: "c", name: "Prices page", source_kind: "url", source_url: "https://example.in/p", filename: null }),
+        upload({ id: "b", name: "Brochure.pdf", read_state: "failed", read_detail: "This PDF is locked with a password." }),
+        upload({
+          id: "c",
+          name: "Prices page",
+          source_kind: "url",
+          source_url: "https://example.in/p",
+          filename: null,
+          ingest_status: "error",
+          ingest_detail: "Your agents could not read that page.",
+        }),
         // History, not a row: the version that replaced it is the row.
         upload({ id: "d", name: "Old menu.docx", source_kind: "docx", review_state: "archived", is_live: false }),
       ],
@@ -197,10 +220,11 @@ describe("what the agents know, grouped", () => {
     const menu = within(files).getByText("Menu.docx").closest("li") as HTMLElement;
     expect(menu.textContent).toContain("In use");
     const brochure = within(files).getByText("Brochure.pdf").closest("li") as HTMLElement;
-    expect(brochure.textContent).toContain("Saved, not used yet");
+    expect(brochure.textContent).toContain("Couldn't read");
     expect(brochure.textContent).not.toContain("In use");
     const page = within(links).getByText("Prices page").closest("li") as HTMLElement;
-    expect(page.textContent).toContain("Saved, not used yet");
+    expect(page.textContent).toContain("Agents couldn't read it");
+    expect(page.textContent).not.toContain("In use");
     expect(screen.queryByText("Old menu.docx")).toBeNull();
   });
 

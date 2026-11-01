@@ -59,6 +59,27 @@ ADMIN_CONSOLE_GETS: dict[str, str] = {
         "the platform's spoken-style table under the founder's review (D-744): how agents "
         "speak each language, platform-wide, never a client screen"
     ),
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/knowledge": (
+        "what one agent holds on the voice platform, including documents we did not send "
+        "(D-868): the operator's door for an account they are not impersonating. The client's "
+        "own knowledge is GET /v1/kb/sources, which is org:read"
+    ),
+    # The blind voice comparison (D-946): platform tables of our own and our own keys,
+    # admin console only. No client screen shows any of it.
+    "/v1/ops/voice-comparison/setup": "the comparison's set-up state (D-946), admin console only",
+    "/v1/ops/voice-comparison/voices": "the comparison's candidate voices (D-946), admin only",
+    "/v1/ops/voice-comparison/sentences": "the comparison's test sentences (D-946), admin only",
+    "/v1/ops/voice-comparison/rounds": "the comparison's rounds (D-946), admin console only",
+    "/v1/ops/voice-comparison/rounds/{round_id}": "one blind round (D-946), admin console only",
+    "/v1/ops/voice-comparison/rounds/{round_id}/summary": (
+        "a finished round's reveal (D-946), admin console only"
+    ),
+    "/v1/ops/voice-comparison/rounds/{round_id}/export": (
+        "a finished round's CSV (D-946), admin console only"
+    ),
+    "/v1/ops/voice-comparison/trials/{trial_id}/audio": (
+        "one side of one pair, spoken on our own key (D-946), admin console only"
+    ),
     "/v1/ops/spoken-style/{language}": (
         "one language of the platform's spoken-style review (D-744), entry by entry: an "
         "operator screen, never a client view"

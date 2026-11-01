@@ -972,6 +972,85 @@ class SpokenStylePublication(Base):
     __table_args__ = (Index("ix_spoken_style_publications_language", "language", text("seq DESC")),)
 
 
+class PlatformVoiceComparisonRound(PKMixin, Base):
+    """One blind listening round (D-946): the admin's chosen voices from two providers, the
+    sentences, and when it was finished. Platform data: the voices are our own provider
+    accounts' and the listener is an operator, so there is no tenant and no `tenant_id`
+    (registered in `db/registry.RLS_EXEMPT_TENANT_COLUMNS`).
+
+    `voices` is `[{"provider", "vendor_id", "label"}]`; a trial names a voice by its index
+    here, so the pairing lives only in this table and never in what the page renders before
+    the round is finished. The two character counters are what this round sent each provider
+    to speak (a clip already cached costs nothing and adds nothing)."""
+
+    __tablename__ = "platform_voice_comparison_rounds"
+
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    language: Mapped[str] = mapped_column(Text, nullable=False)
+    voices: Mapped[Any] = mapped_column(JSONB, nullable=False)
+    sentences: Mapped[Any] = mapped_column(JSONB, nullable=False)
+    created_by: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    finished_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    cartesia_chars: Mapped[int] = mapped_column(
+        BigInteger, server_default=text("0"), nullable=False
+    )
+    sarvam_chars: Mapped[int] = mapped_column(BigInteger, server_default=text("0"), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "cartesia_chars >= 0 AND sarvam_chars >= 0",
+            name="chars",
+        ),
+        Index("ix_platform_voice_comparison_rounds_created", text("created_at DESC")),
+    )
+
+
+class PlatformVoiceComparisonTrial(PKMixin, Base):
+    """One pair in a round: one sentence spoken by voice A and voice B, which provider is on
+    which side drawn at random, and the listener's two naturalness scores and preference."""
+
+    __tablename__ = "platform_voice_comparison_trials"
+
+    round_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True),
+        ForeignKey("platform_voice_comparison_rounds.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    #: The order the listener hears the pairs in, from 1.
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    sentence_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    #: Indexes into the round's `voices`.
+    voice_a: Mapped[int] = mapped_column(Integer, nullable=False)
+    voice_b: Mapped[int] = mapped_column(Integer, nullable=False)
+    rating_a: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    rating_b: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    #: `a`, `b` or `none` (no preference).
+    preference: Mapped[str | None] = mapped_column(Text, nullable=True)
+    rated_by: Mapped[uuid.UUID | None] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True
+    )
+    rated_at: Mapped[datetime | None] = mapped_column(nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "rating_a BETWEEN 1 AND 5 AND rating_b BETWEEN 1 AND 5",
+            name="ratings",
+        ),
+        CheckConstraint(
+            "preference IN ('a', 'b', 'none')",
+            name="preference",
+        ),
+        CheckConstraint(
+            "(rated_at IS NULL) = (preference IS NULL)",
+            name="rated_whole",
+        ),
+        Index("uq_platform_voice_comparison_trials_position", "round_id", "position", unique=True),
+    )
+
+
 __all__ = [
     "DEFAULT_MAX_DRAIN_MINUTES",
     "FX_RATE",
@@ -990,6 +1069,8 @@ __all__ = [
     "PlatformModelPrice",
     "PlatformSecret",
     "PlatformSetting",
+    "PlatformVoiceComparisonRound",
+    "PlatformVoiceComparisonTrial",
     "SpokenStylePublication",
     "SpokenStyleRevision",
 ]

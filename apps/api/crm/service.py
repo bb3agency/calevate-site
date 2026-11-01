@@ -84,6 +84,8 @@ from apps.api.db.transition import transition_status
 # import of the function that enforces hard rule 5 is a function that is easy to
 # forget to call.
 from apps.workers.call_language import call_language
+from apps.workers.caller_name import is_own_name
+from apps.workers.moments import field_backed
 from apps.workers.redaction import redact
 
 MAX_PAGE = 200
@@ -253,7 +255,7 @@ async def list_calls(
                 "c.summary, c.lead_id, c.summary_state, c.headline, c.trial_call, "
                 f"{_CALLBACK_COLUMNS}, {_LEAD_NAME_COLUMN}, {credits_column}, "
                 "c.business_outcome, c.business_outcome_label, c.follow_up_state, c.created_at, "
-                f"a.business_outcomes, {_LIVE_STATE} AS live_state "
+                f"a.business_outcomes, {_LIVE_STATE} AS live_state, {_BUSINESS_NAME_COLUMN} "
                 "FROM page JOIN calls c ON c.id = page.id JOIN agents a ON a.id = c.agent_id "
                 f"{_CALLBACK_JOIN} "
                 f"ORDER BY page.live DESC, {_CALL_AT} DESC, c.id DESC"
@@ -288,7 +290,7 @@ async def list_calls(
             headline=r[14],
             test_call=bool(r[15]),
             callback=_callback_out(r[16:21]),
-            lead_name=r[21],
+            lead_name=_caller_name(r[21], agent_name=r[2], business_name=r[29]),
             credits_used_inr=f"{r[22]:.2f}" if r[22] is not None and r[22] > 0 else None,
             captured_preview=previews.get(r[0], []),
             business_outcome=r[23],
@@ -416,6 +418,26 @@ _CALLBACK_COLUMNS = (
 _LEAD_NAME_COLUMN = (
     "(SELECT ln.name FROM leads ln WHERE ln.id = c.lead_id AND ln.deleted_at IS NULL) AS lead_name"
 )
+#: The business's own name, which `_caller_name` keeps off the caller's side of a call.
+_BUSINESS_NAME_COLUMN = (
+    "(SELECT o.name FROM organizations o WHERE o.id = c.tenant_id) AS business_name"
+)
+
+
+def _caller_name(
+    lead_name: str | None, *, agent_name: str | None, business_name: str | None
+) -> str | None:
+    """The lead's name as the caller on this call, or None when it is the call's own agent's
+    name or the business's. Leads renamed to the agent before the pipeline stopped doing it
+    (`caller_name.py`) are repaired by migration c5e2a9d4f713; this keeps any that a lead
+    source or an import still carries from labelling the caller's lines as the agent.
+
+    The lead itself keeps the name and the Leads screen shows it: there the owner may have
+    set it on purpose, while on a call it is the agent's own name standing in the caller's
+    place."""
+    if is_own_name(lead_name, agent_name=agent_name, business_name=business_name):
+        return None
+    return lead_name
 
 
 def _shown_summary(summary: str | None, state: str | None) -> str | None:
@@ -528,7 +550,8 @@ async def get_call(
                 f"{_LEAD_NAME_COLUMN}, a.language_primary, c.engine_quality, c.engine_call_id, "
                 "c.caller_id_hidden, c.forwarding_test_id IS NOT NULL, c.forwarded_to_phone, "
                 "c.business_outcome, c.business_outcome_label, c.not_placed_reason, "
-                "c.follow_up_state, a.business_outcomes, c.engine_timeline, c.insights "
+                "c.follow_up_state, a.business_outcomes, c.engine_timeline, c.insights, "
+                f"{_BUSINESS_NAME_COLUMN} "
                 f"FROM calls c JOIN agents a ON a.id = c.agent_id {_CALLBACK_JOIN} "
                 "WHERE c.id = :cid"
             ),
@@ -627,7 +650,7 @@ async def get_call(
         insights=_insights_out(row[42]),
         callback_requested=row[27],
         translation_state=row[28],
-        lead_name=row[29],
+        lead_name=_caller_name(row[29], agent_name=row[2], business_name=row[43]),
         language=_call_language(turns, agent_language=row[30]),
         extraction_model=extraction[5] if extraction else None,
         quality=CallQualityOut.model_validate(row[31]) if isinstance(row[31], dict) else None,
@@ -651,7 +674,14 @@ async def get_call(
         extraction=extraction_data,
         captured=captured,
         extraction_valid=bool(extraction[1]) if extraction else True,
-        moments=_moments_out(extraction[2] if extraction else None, raw=raw),
+        moments=_moments_out(
+            field_backed(
+                extraction[2] if extraction else None,
+                captured=extraction_data.keys(),
+                caller_turns={t[0] for t in turns if t[1] == "caller"},
+            ),
+            raw=raw,
+        ),
         # Per-field "confirm before acting" advisories (P4). NOT on the redaction switch:
         # the reasons are PII-free by construction (the flagged value lives in `extraction`
         # above, this map names only the field and why), so one form serves both the
@@ -729,13 +759,18 @@ async def _call_moments(
     rows = (
         await session.execute(
             text(
-                "SELECT call_id, moments FROM call_extractions "
+                "SELECT call_id, moments, data FROM call_extractions "
                 "WHERE call_id = ANY(:ids) AND moments IS NOT NULL"
             ),
             {"ids": list(call_ids)},
         )
     ).all()
-    return {row[0]: _moments_out(row[1], raw=False) for row in rows}
+    return {
+        row[0]: _moments_out(
+            field_backed(row[1], captured=(row[2] or {}).keys(), caller_turns=None), raw=False
+        )
+        for row in rows
+    }
 
 
 def _label_for(item: dict[str, Any], *, raw: bool) -> str | None:

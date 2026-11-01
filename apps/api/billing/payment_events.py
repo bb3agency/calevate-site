@@ -430,14 +430,25 @@ async def apply_token(envelope: Any, *, event: str) -> EventResult:
 
 
 async def apply_dispute(envelope: Any, *, event: str, event_id: str | None) -> EventResult:
-    """A `payment.dispute.*` event: tenant from the disputed payment's notes or OUR order
-    record, then `disputes.apply_dispute_event`."""
+    """A `payment.dispute.*` event: tenant from OUR order record, else the disputed
+    payment's notes, then `disputes.apply_dispute_event`.
+
+    Our record wins over the notes because Checkout options are set in the payer's browser,
+    so a payment's notes can name any account. `apply_captured` refuses such a payment
+    (`verify_order`); trusting the notes here would let the payer's chargeback pause another
+    account's outbound calling and debit its wallet."""
     dispute = extract_dispute(envelope)
-    payment_entity = _entity(envelope, "payment")
-    tenant_id = _notes_tenant(payment_entity)
-    if tenant_id is None:
-        route = await route_for(payment_order_id(envelope))
-        tenant_id = None if route is None else route.tenant_id
+    route = await route_for(payment_order_id(envelope))
+    notes_tenant = _notes_tenant(_entity(envelope, "payment"))
+    if route is not None:
+        if notes_tenant is not None and notes_tenant != route.tenant_id:
+            log.error(
+                "razorpay_dispute_tenant_mismatch",
+                extra={"dispute_id": dispute.dispute_id, "order_id": route.object_id},
+            )
+        tenant_id: UUID | None = route.tenant_id
+    else:
+        tenant_id = notes_tenant
     if tenant_id is None:
         alert("ROUTE_HANDLER", _UNKNOWN_TENANT)
         raise ProblemError.not_found("Organization")

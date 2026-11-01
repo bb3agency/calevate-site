@@ -326,6 +326,12 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "GET /v1/kb/notes": BoundedByConstruction(
         by="one row per note name, `LIMIT 200` in `kb.store._NOTES_SQL`."
     ),
+    "GET /v1/admin/tenants/{tenant_id}/agents/{agent_id}/knowledge": BoundedByConstruction(
+        by=(
+            "ONE agent's items, each query read with `LIMIT kb.agent_view.MAX_ITEMS` and the "
+            "whole list cut to the same `MAX_ITEMS` (500)."
+        )
+    ),
     "GET /v1/kb/uploads/{upload_id}/text": BoundedByConstruction(
         by=(
             "one reading page: one PDF page or `kb.store.CHUNKS_PER_PART` chunks "
@@ -1061,6 +1067,36 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "POST /v1/admin/tenants/{tenant_id}/business-type/suggest": BoundedByConstruction(
         by="`choices` is one row per `scripts/seed.BUSINESS_TYPE_LABELS` entry, a fixed "
         "product list whose size is a product decision."
+    ),
+    # D-946: the comparison set-up answers its readiness, whose only list is the steps left.
+    "POST /v1/ops/voice-comparison/setup": BoundedByConstruction(
+        by="`steps` is at most the three set-up steps `VoiceComparisonSetupOut.of` can name."
+    ),
+    "GET /v1/ops/voice-comparison/setup": BoundedByConstruction(
+        by="`steps` is at most the three set-up steps `VoiceComparisonSetupOut.of` can name."
+    ),
+    "GET /v1/ops/voice-comparison/voices": BoundedByConstruction(
+        by="`cartesia` is the Studio voices an operator ADDED under Voices; `sarvam` is the "
+        "vendor's listing of our own Sarvam key's voices (`GET /byok/voices`, one request, "
+        "no paging), which the picker must show whole to be chosen from."
+    ),
+    "GET /v1/ops/voice-comparison/sentences": BoundedByConstruction(
+        by="at most `ops/voice_comparison.MAX_SENTENCES` (20) lines from `spoken_style.json`."
+    ),
+    "GET /v1/ops/voice-comparison/rounds/{round_id}": BoundedByConstruction(
+        by="one round; `trials` is at most `ops/voice_comparison.MAX_TRIALS` (120) pairs, "
+        "read with that LIMIT."
+    ),
+    "GET /v1/ops/voice-comparison/rounds/{round_id}/summary": BoundedByConstruction(
+        by="one row per voice in the round (at most six) and one per provider (two)."
+    ),
+    "POST /v1/ops/voice-comparison/rounds": BoundedByConstruction(
+        by="the round just made; `trials` is at most `ops/voice_comparison.MAX_TRIALS` (120) "
+        "pairs, refused above that before anything is written."
+    ),
+    "POST /v1/ops/voice-comparison/rounds/{round_id}/finish": BoundedByConstruction(
+        by="one round; `trials` is at most `ops/voice_comparison.MAX_TRIALS` (120) pairs, "
+        "refused at creation and read with that LIMIT."
     ),
     "POST /v1/ops/voices/studio-voices/enable": BoundedByConstruction(
         by="the same `StudioVoicesOut` as `GET /v1/ops/voices/studio-voices`, re-read after "

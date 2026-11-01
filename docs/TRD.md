@@ -989,8 +989,8 @@ from caller demand, knowledge gaps and the script within `hot_facts_max_chars`
 (`agents/hot_facts.py`, D-896), which is the T0 tier below on this engine. Everything else is
 a knowledge search inside ThinnestAI's pipeline, stated on at every publish
 (`knowledgeOnCalls`, `engine/thinnest._knowledge_on_calls`, D-903). The engine takes text
-only: a source with no text to send (a PDF or link while `kb_send_extracted_files` is off,
-D-868) is not attached, and a copy an agent holds of it is withdrawn
+only, or a page address it fetches (`kb_fetches_url`): a PDF with no words we could read (D-868)
+is not attached, and a copy an agent holds of it is withdrawn
 (`kb/service._withheld_from_engine`, D-911). THINNEST-INTEGRATION §4 has the detail.
 
 **THE BAKE-OFF HAS RUN AND THE STORE IS DECIDED, AND THE FINDING THAT MATTERS IS THAT THE

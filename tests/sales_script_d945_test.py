@@ -90,7 +90,7 @@ EVERYTHING = CapabilityManifest(
 
 
 def test_who_is_this_gets_who_and_why_then_a_stop() -> None:
-    assert "Asked who or why? Say both in one line, then stop and wait." in OPENING_CONTINUES_RULE
+    assert "Say both in one line, once, then stop and wait" in OPENING_CONTINUES_RULE
     assert "then your first question." not in OPENING_CONTINUES_RULE.split("Asked who")[1][:60]
 
 

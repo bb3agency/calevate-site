@@ -73,18 +73,24 @@ def test_a_cut_off_line_is_never_a_key_moment() -> None:
     ]
     unheard = likely_cut_off(turns)
     assert unheard == {0}
-    extraction = {"delivery_day": "Friday delivery"}
-    assert derive_moments(turns=turns, extraction=extraction, field_labels={}) != []
-    assert (
-        derive_moments(turns=turns, extraction=extraction, field_labels={}, unheard=unheard) == []
-    )
+
+    def derived(cut: frozenset[int]) -> list[dict[str, object]]:
+        return derive_moments(
+            turns=turns, extraction={}, field_labels={}, claimed_not_done_turn_idx=0, unheard=cut
+        )
+
+    assert derived(frozenset()) != []
+    assert derived(unheard) == []
     candidate = MomentCandidate(line=1, kind="booking_agreed", label="Order booked")
     lines = prompt_line_turns(turns)
-    assert model_moments([candidate], line_turns=lines, field_labels={}, redact=str) != []
-    assert (
-        model_moments([candidate], line_turns=lines, field_labels={}, redact=str, unheard=unheard)
-        == []
-    )
+
+    def suggested(cut: frozenset[int]) -> list[dict[str, object]]:
+        return model_moments(
+            [candidate], line_turns=lines, field_labels={}, redact=str, captured=(), unheard=cut
+        )
+
+    assert suggested(frozenset()) != []
+    assert suggested(unheard) == []
 
 
 def test_the_extraction_label_is_one_line_and_not_an_agent_prefix() -> None:
@@ -92,3 +98,16 @@ def test_the_extraction_label_is_one_line_and_not_an_agent_prefix() -> None:
     # "agent:", so the rule-based reader does not count it as either speaker's words.
     assert "\n" not in UNHEARD_LABEL
     assert UNHEARD_LABEL.startswith("agent (")
+
+
+def test_the_founders_call_flags_only_the_line_the_caller_came_in_on() -> None:
+    """Sri Estates, 30 Oct 2026. The agent's area question at 0:26 has about three seconds
+    of speech and the caller's next turn was written down the same second, so they spoke
+    over it; the agent's next reply answers what they said ("yes, from Sri Estates"). The
+    earlier agent lines each had seven seconds and are heard."""
+    from tests.call_moments_backed_test import SRI_ESTATES
+
+    question = SRI_ESTATES[7]
+    assert question.start_ms == SRI_ESTATES[8].start_ms
+    assert speaking_ms(len(question.text)) > TOLERANCE_MS
+    assert likely_cut_off(SRI_ESTATES) == {7}

@@ -459,8 +459,8 @@ one moved; `agent_script_suggest` is its tool.
   suggestion the owner asked Pip for is never replaced; a script written as one piece is
   skipped. The Script page's review says "From your new file: “…”. Your own lines stay."
   (`PipProposal.tsx`), and quick facts are a row in every suggestion's review
-  (`script/scriptDiff.ts`). A PDF still shapes the suggestion while `kb_send_extracted_files` is
-  off. Removing the file does not undo a change already kept.
+  (`script/scriptDiff.ts`). A PDF whose words could not be read still shapes nothing; one read
+  shapes the suggestion and reaches calls (D-868). Removing the file does not undo a change already kept.
 * **`agent_tests_fix`** is the Test section's "Improve my agent" / "Suggest a fix for this",
   moved the same way: confirm tier, `org:manage`, audit `agent.tests_improvement`,
   arguments `agent_id` and `test_keys` (null for every failure; keys from the screen's

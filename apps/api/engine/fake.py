@@ -72,6 +72,7 @@ from apps.api.billing.rates import ROUNDING
 from apps.api.campaigns.provisioning import PURCHASABLE_SERIES
 from apps.api.core.errors import ProblemError
 from apps.api.engine.capabilities import (
+    ENGINE_KB_LINK_UNREADABLE,
     require_call_compliance_floor,
     require_capability,
     require_kb_text,
@@ -523,6 +524,9 @@ class FakeEngine:
         self._agents: dict[str, AgentConfig] = {}
         self._calls: dict[str, _StoredCall] = {}
         self._kb: dict[str, list[KBSourceRef]] = {}
+        #: Pages this engine refuses as unreadable, the way a fetching engine answers a page
+        #: behind a login. Set by a test.
+        self.unreadable_urls: set[str] = set()
         #: The ACCOUNT's knowledge bases, which is a different object from the agent
         #: linkage above and outlives it — see `list_account_kb` and `delete_agent`.
         self._account_kb: dict[EngineKBRef, AccountKBObject] = {}
@@ -1117,7 +1121,16 @@ class FakeEngine:
         # Accepting and ignoring it is what keeps the fake a fair stand-in: a fake that
         # REQUIRED it would make the parameter look load-bearing everywhere.
         require_capability("knowledge_base", engine=self)
-        require_kb_text(source.text, engine=self)
+        require_kb_text(source.text, engine=self, url=source.source_url)
+        if source.source_url and source.source_url in self.unreadable_urls:
+            # The shape of a page the engine fetched and could not read (`kb_fetches_url`).
+            raise ProblemError(
+                kind="business_rule",
+                code=ENGINE_KB_LINK_UNREADABLE,
+                title="Your agents could not read that page",
+                detail="Your agents could not read that page. No readable text found.",
+                remediation="Check the page opens in a browser without a login, then add it again.",
+            )
         attached = self._kb.get(ref, [])
         # Re-attaching the SAME source replaces it. Appending a second copy would make
         # the fake engine the one place where a duplicate is normal, and the duplicate

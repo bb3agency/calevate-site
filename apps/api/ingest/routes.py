@@ -182,7 +182,7 @@ async def ingest(webhook_id: UUID, request: Request) -> IngestAckOut:
         raise ProblemError(
             kind="validation",
             code="ingest_not_json",
-            title="Payload is not JSON",
+            title="Lead is not JSON",
             detail="This endpoint accepts JSON bodies only.",
         ) from exc
     if not isinstance(payload, dict):
@@ -277,7 +277,7 @@ async def ingest_push(webhook_id: UUID, request: Request) -> PushAckOut:
         raise ProblemError(
             kind="validation",
             code="payload_too_large",
-            title="Payload too large",
+            title="Lead too large",
             detail="The push body exceeds the accepted size.",
             status=413,
         )
@@ -509,7 +509,7 @@ async def meta_leadgen(webhook_id: UUID, request: Request) -> MetaLeadgenAckOut:
         raise ProblemError(
             kind="validation",
             code="payload_too_large",
-            title="Payload too large",
+            title="Notification too large",
             detail="The notification body exceeds the accepted size.",
             status=413,
         )
@@ -538,7 +538,7 @@ async def meta_leadgen(webhook_id: UUID, request: Request) -> MetaLeadgenAckOut:
         raise ProblemError(
             kind="validation",
             code="meta_not_json",
-            title="Payload is not JSON",
+            title="Notification is not JSON",
             detail="This endpoint accepts JSON notifications only.",
         ) from exc
 

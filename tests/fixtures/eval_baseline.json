@@ -144,6 +144,9 @@
     "re_two_projects_offered_one_chosen": [
       "capture_miss"
     ],
+    "re_unclear_looping_outbound_call": [
+      "outcome"
+    ],
     "re_undecided_declines_site_visit": [
       "capture_miss"
     ],

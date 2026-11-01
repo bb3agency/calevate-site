@@ -15,7 +15,8 @@ answers it differently by KIND:
   conversion lane (`workers/kb_ingest._extract` → `kb_service.store_extracted_text`), so
   they have chunks and are reachable;
 * a **PDF** and a **link** are read into a COPY of their words (D-893 L8,
-  `workers/kb_read.py`) that the agents get only while `kb_send_extracted_files` is on.
+  `workers/kb_read.py`); a PDF's words are what the agents get once read, and a link goes to
+  them as its address (D-868).
 
 So the agents' answer must name a live PDF the agents do not use rather than quote it or
 tell the client to add what they already uploaded; `tests/kb_read_copy_test.py` covers the
@@ -153,10 +154,10 @@ async def test_a_published_pdf_the_agents_do_not_use_is_named_and_never_quoted(
 ) -> None:
     """A live PDF whose words the agents do not get is NAMED, never passed off as an answer.
 
-    Since D-893 L8 a PDF's words are read into our copy, and they reach the agents only while
-    `kb_send_extracted_files` is on. With it off (the default) the agents' answer must not
-    say "nothing on file" (the client uploaded it this morning) and must not claim the agent
-    answers from it: it names the file as saved and not used yet.
+    A PDF's words reach the agents once we have read them (D-868). Published before that,
+    the agents' answer must not say "nothing on file" (the client uploaded it this morning)
+    and must not claim the agent answers from it: it names the file as saved and not used
+    yet.
     """
     tenant_id, _agent_id = await _tenant_with_published_agent()
     async with tenant_session(tenant_id) as session:

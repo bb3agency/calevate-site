@@ -327,16 +327,19 @@ def require_call_compliance_floor(*, engine: VoiceEngine, prompt_on_the_wire: st
 #: text only (`EngineCapabilities.kb_text_only`). Its own code: the engine HAS a knowledge
 #: base, so `engine_capability_absent` would send an operator looking in the wrong place.
 ENGINE_KB_TEXT_EMPTY: Final = "engine_kb_text_empty"
+#: The refusal for a link the engine fetched and could not read (`kb_fetches_url`). The
+#: publisher records it on the client's item and goes on with the other sources.
+ENGINE_KB_LINK_UNREADABLE: Final = "engine_kb_link_unreadable"
 
 
-def require_kb_text(text: str, *, engine: VoiceEngine) -> None:
+def require_kb_text(text: str, *, engine: VoiceEngine, url: str | None = None) -> None:
     """Refuse a knowledge document the engine could hold nothing of, before any request.
 
     The publisher does not attach such a source (`kb.service`), so reaching this is a
     caller that skipped `EngineCapabilities.kb_can_hold`; posting anyway would put a blank
     document named after the client's file on their agent.
     """
-    if engine.capabilities.kb_can_hold(text):
+    if engine.capabilities.kb_can_hold(text, url=url):
         return
     log.warning("engine_kb_text_empty", extra={"engine": engine.name})
     raise ProblemError(
@@ -361,6 +364,7 @@ def require_kb_text(text: str, *, engine: VoiceEngine) -> None:
 __all__ = [
     "ENGINE_CAPABILITY_ABSENT",
     "ENGINE_COMPLIANCE_FLOOR_ABSENT",
+    "ENGINE_KB_LINK_UNREADABLE",
     "ENGINE_KB_TEXT_EMPTY",
     "NO_CREDENTIALS_REASON",
     "EngineCapabilityAbsentError",

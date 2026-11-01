@@ -65,7 +65,7 @@ Trigger: Sri opens Admin → New Client: one screen, one "Create and invite" (D-
    review and OCR metering, and known to every agent, D-689); `POST`/`DELETE
    /v1/first-run/documents` only record which uploads are the run's documents
    (`first_runs.document_ids`), and the screen shows each as reading, read or failed, and
-   whether a PDF reaches calls while `kb_send_extracted_files` is off. Then two to four
+   whether a PDF reaches calls (once its words are read, D-868). Then two to four
    follow-up questions WRITTEN by our AI for this business (D-863;
    `first_run/questions.written_questions` drops any item that is not plain English, carries
    a link, runs long or asks about a profile section already filled, and falls back to the
@@ -646,7 +646,7 @@ three files), asking for quick facts, and for step, objection and opening-line c
 where the file changes them. A waiting `knowledge` suggestion from another file is merged
 with this one (newest three files kept); a suggestion the owner asked Pip for is never
 replaced; an agent whose script is written as one piece is skipped. The Script page names
-the file, and quick facts are a row in every suggestion review (`scriptDiff.ts`). A PDF shapes the suggestion even while `kb_send_extracted_files` is off. Removing the
+the file, and quick facts are a row in every suggestion review (`scriptDiff.ts`). A PDF shapes the suggestion once its words are read (D-868). Removing the
 file later does not undo a script change already kept.
 
 ## 8. Billing Cycle
