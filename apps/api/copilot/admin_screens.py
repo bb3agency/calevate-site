@@ -61,7 +61,7 @@ ADMIN_SCREENS: Final[tuple[AdminScreen, ...]] = (
         "/admin/calling-numbers",
         "Calling numbers",
         None,
-        "Clients' authorised calling numbers to file with the telephone company.",
+        "Client calling numbers to file.",
         "org:read",
     ),
     AdminScreen(
@@ -75,7 +75,7 @@ ADMIN_SCREENS: Final[tuple[AdminScreen, ...]] = (
         "/admin/announcements",
         "Announcements",
         None,
-        "The message strip shown at the top of client consoles.",
+        "The banner atop client consoles.",
         "admin:tenants",
     ),
     AdminScreen(
@@ -109,7 +109,7 @@ ADMIN_SCREENS: Final[tuple[AdminScreen, ...]] = (
         "/admin/ops/voice-comparison",
         "Voice comparison",
         "Platform",
-        "The blind listening test of Cartesia and Sarvam voices.",
+        "Blind voice listening test.",
         "ops:manage",
     ),
     AdminScreen(
