@@ -59913,6 +59913,640 @@
         "title": "VoiceCatalogueRefreshOut",
         "type": "object"
       },
+      "VoiceComparisonBlindTrialOut": {
+        "additionalProperties": false,
+        "description": "One pair as the listener sees it before the reveal: no voice, label or provider.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "position": {
+            "title": "Position",
+            "type": "integer"
+          },
+          "preference": {
+            "anyOf": [
+              {
+                "enum": [
+                  "a",
+                  "b",
+                  "none"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preference"
+          },
+          "rated": {
+            "title": "Rated",
+            "type": "boolean"
+          },
+          "rating_a": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rating A"
+          },
+          "rating_b": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rating B"
+          },
+          "sentence": {
+            "title": "Sentence",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "position",
+          "sentence",
+          "rating_a",
+          "rating_b",
+          "preference",
+          "rated"
+        ],
+        "title": "VoiceComparisonBlindTrialOut",
+        "type": "object"
+      },
+      "VoiceComparisonCandidateOut": {
+        "additionalProperties": false,
+        "properties": {
+          "gender": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gender"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "vendor_id": {
+            "title": "Vendor Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "vendor_id",
+          "label",
+          "language",
+          "gender"
+        ],
+        "title": "VoiceComparisonCandidateOut",
+        "type": "object"
+      },
+      "VoiceComparisonProviderResultOut": {
+        "additionalProperties": false,
+        "properties": {
+          "characters": {
+            "title": "Characters",
+            "type": "integer"
+          },
+          "heard": {
+            "title": "Heard",
+            "type": "integer"
+          },
+          "mean_naturalness": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mean Naturalness"
+          },
+          "preferred": {
+            "title": "Preferred",
+            "type": "integer"
+          },
+          "preferred_share": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preferred Share"
+          },
+          "provider": {
+            "enum": [
+              "cartesia",
+              "sarvam"
+            ],
+            "title": "Provider",
+            "type": "string"
+          },
+          "voices": {
+            "title": "Voices",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "provider",
+          "voices",
+          "heard",
+          "mean_naturalness",
+          "preferred",
+          "preferred_share",
+          "characters"
+        ],
+        "title": "VoiceComparisonProviderResultOut",
+        "type": "object"
+      },
+      "VoiceComparisonRateIn": {
+        "additionalProperties": false,
+        "properties": {
+          "preference": {
+            "enum": [
+              "a",
+              "b",
+              "none"
+            ],
+            "title": "Preference",
+            "type": "string"
+          },
+          "rating_a": {
+            "maximum": 5.0,
+            "minimum": 1.0,
+            "title": "Rating A",
+            "type": "integer"
+          },
+          "rating_b": {
+            "maximum": 5.0,
+            "minimum": 1.0,
+            "title": "Rating B",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "rating_a",
+          "rating_b",
+          "preference"
+        ],
+        "title": "VoiceComparisonRateIn",
+        "type": "object"
+      },
+      "VoiceComparisonRoundIn": {
+        "additionalProperties": false,
+        "properties": {
+          "cartesia_voice_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 3,
+            "minItems": 1,
+            "title": "Cartesia Voice Ids",
+            "type": "array"
+          },
+          "language": {
+            "default": "te-IN",
+            "pattern": "^[a-z]{2}-[A-Z]{2}$",
+            "title": "Language",
+            "type": "string"
+          },
+          "sarvam_voice_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 3,
+            "minItems": 1,
+            "title": "Sarvam Voice Ids",
+            "type": "array"
+          },
+          "sentences": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Sentences",
+            "type": "array"
+          },
+          "title": {
+            "default": "",
+            "maxLength": 80,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cartesia_voice_ids",
+          "sarvam_voice_ids",
+          "sentences"
+        ],
+        "title": "VoiceComparisonRoundIn",
+        "type": "object"
+      },
+      "VoiceComparisonRoundListItem": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "pairs": {
+            "title": "Pairs",
+            "type": "integer"
+          },
+          "rated": {
+            "title": "Rated",
+            "type": "integer"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "created_at",
+          "finished_at",
+          "pairs",
+          "rated"
+        ],
+        "title": "VoiceComparisonRoundListItem",
+        "type": "object"
+      },
+      "VoiceComparisonRoundOut": {
+        "additionalProperties": false,
+        "properties": {
+          "cartesia_voices": {
+            "title": "Cartesia Voices",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "language": {
+            "title": "Language",
+            "type": "string"
+          },
+          "pairs": {
+            "title": "Pairs",
+            "type": "integer"
+          },
+          "rated": {
+            "title": "Rated",
+            "type": "integer"
+          },
+          "sarvam_voices": {
+            "title": "Sarvam Voices",
+            "type": "integer"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "trials": {
+            "items": {
+              "$ref": "#/components/schemas/VoiceComparisonBlindTrialOut"
+            },
+            "title": "Trials",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "language",
+          "created_at",
+          "finished_at",
+          "pairs",
+          "rated",
+          "cartesia_voices",
+          "sarvam_voices",
+          "trials"
+        ],
+        "title": "VoiceComparisonRoundOut",
+        "type": "object"
+      },
+      "VoiceComparisonRoundsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "rounds": {
+            "items": {
+              "$ref": "#/components/schemas/VoiceComparisonRoundListItem"
+            },
+            "title": "Rounds",
+            "type": "array"
+          }
+        },
+        "required": [
+          "rounds"
+        ],
+        "title": "VoiceComparisonRoundsOut",
+        "type": "object"
+      },
+      "VoiceComparisonSentencesOut": {
+        "additionalProperties": false,
+        "properties": {
+          "language": {
+            "title": "Language",
+            "type": "string"
+          },
+          "max_chars": {
+            "title": "Max Chars",
+            "type": "integer"
+          },
+          "max_sentences": {
+            "title": "Max Sentences",
+            "type": "integer"
+          },
+          "sentences": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Sentences",
+            "type": "array"
+          }
+        },
+        "required": [
+          "language",
+          "sentences",
+          "max_sentences",
+          "max_chars"
+        ],
+        "title": "VoiceComparisonSentencesOut",
+        "type": "object"
+      },
+      "VoiceComparisonSetupOut": {
+        "additionalProperties": false,
+        "properties": {
+          "cartesia_ready": {
+            "title": "Cartesia Ready",
+            "type": "boolean"
+          },
+          "sarvam_key_stored": {
+            "title": "Sarvam Key Stored",
+            "type": "boolean"
+          },
+          "sarvam_ready": {
+            "title": "Sarvam Ready",
+            "type": "boolean"
+          },
+          "steps": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Steps",
+            "type": "array"
+          },
+          "voice_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Voice Provider"
+          },
+          "workspace_made": {
+            "title": "Workspace Made",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "sarvam_key_stored",
+          "workspace_made",
+          "sarvam_ready",
+          "voice_provider",
+          "cartesia_ready",
+          "steps"
+        ],
+        "title": "VoiceComparisonSetupOut",
+        "type": "object"
+      },
+      "VoiceComparisonSummaryOut": {
+        "additionalProperties": false,
+        "properties": {
+          "cost_note": {
+            "title": "Cost Note",
+            "type": "string"
+          },
+          "finished_at": {
+            "format": "date-time",
+            "title": "Finished At",
+            "type": "string"
+          },
+          "no_preference": {
+            "title": "No Preference",
+            "type": "integer"
+          },
+          "pairs": {
+            "title": "Pairs",
+            "type": "integer"
+          },
+          "providers": {
+            "items": {
+              "$ref": "#/components/schemas/VoiceComparisonProviderResultOut"
+            },
+            "title": "Providers",
+            "type": "array"
+          },
+          "round_id": {
+            "format": "uuid",
+            "title": "Round Id",
+            "type": "string"
+          },
+          "voices": {
+            "items": {
+              "$ref": "#/components/schemas/VoiceComparisonVoiceResultOut"
+            },
+            "title": "Voices",
+            "type": "array"
+          }
+        },
+        "required": [
+          "round_id",
+          "finished_at",
+          "pairs",
+          "no_preference",
+          "voices",
+          "providers",
+          "cost_note"
+        ],
+        "title": "VoiceComparisonSummaryOut",
+        "type": "object"
+      },
+      "VoiceComparisonVoiceResultOut": {
+        "additionalProperties": false,
+        "properties": {
+          "heard": {
+            "title": "Heard",
+            "type": "integer"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "mean_naturalness": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mean Naturalness"
+          },
+          "no_preference": {
+            "title": "No Preference",
+            "type": "integer"
+          },
+          "not_preferred": {
+            "title": "Not Preferred",
+            "type": "integer"
+          },
+          "preferred": {
+            "title": "Preferred",
+            "type": "integer"
+          },
+          "provider": {
+            "enum": [
+              "cartesia",
+              "sarvam"
+            ],
+            "title": "Provider",
+            "type": "string"
+          },
+          "vendor_id": {
+            "title": "Vendor Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "vendor_id",
+          "label",
+          "heard",
+          "mean_naturalness",
+          "preferred",
+          "not_preferred",
+          "no_preference"
+        ],
+        "title": "VoiceComparisonVoiceResultOut",
+        "type": "object"
+      },
+      "VoiceComparisonVoicesOut": {
+        "additionalProperties": false,
+        "properties": {
+          "cartesia": {
+            "items": {
+              "$ref": "#/components/schemas/VoiceComparisonCandidateOut"
+            },
+            "title": "Cartesia",
+            "type": "array"
+          },
+          "sarvam": {
+            "items": {
+              "$ref": "#/components/schemas/VoiceComparisonCandidateOut"
+            },
+            "title": "Sarvam",
+            "type": "array"
+          },
+          "sarvam_complete": {
+            "title": "Sarvam Complete",
+            "type": "boolean"
+          },
+          "sarvam_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sarvam Note"
+          }
+        },
+        "required": [
+          "cartesia",
+          "sarvam",
+          "sarvam_complete",
+          "sarvam_note"
+        ],
+        "title": "VoiceComparisonVoicesOut",
+        "type": "object"
+      },
       "VoiceStateOut": {
         "additionalProperties": false,
         "description": "The voice CONFIGURED on the agent and the voice the engine was last SENT.\n\nTwo fields because they are two facts. A voice written to our row\nreaches the engine only at a publish, so a paused agent keeps its old voice \u2014 one\nvalue labelled \"the voice\" would be a claim about a client's phone line that nobody\nchecked.\n\n`live` is null when nothing is recorded as sent, which reads two ways and is\ndisambiguated by `PendingOut.published`: an unpublished agent has nothing live, and\na published one was published before the mirror existed (or with no voice set). Both\nresolve to `republish_required` when a voice is configured, because a sync we cannot\nprove is not a sync.",
@@ -96716,6 +97350,499 @@
           "ops"
         ],
         "x-calevate-permission": "platform:config"
+      }
+    },
+    "/v1/ops/voice-comparison/rounds": {
+      "get": {
+        "operationId": "get_rounds_v1_ops_voice_comparison_rounds_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceComparisonRoundsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The latest comparison rounds (admin realm)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      },
+      "post": {
+        "description": "Every Cartesia voice against every Sarvam voice on every sentence, at most 120 pairs, which provider is Voice A drawn at random for each pair and the order shuffled. The answer names no voice or provider.",
+        "operationId": "post_round_v1_ops_voice_comparison_rounds_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VoiceComparisonRoundIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceComparisonRoundOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Start a blind round (audited)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/ops/voice-comparison/rounds/{round_id}": {
+      "get": {
+        "operationId": "get_round_v1_ops_voice_comparison_rounds__round_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "round_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Round Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceComparisonRoundOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "A round as the listener sees it, blind (admin realm)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/ops/voice-comparison/rounds/{round_id}/export": {
+      "get": {
+        "operationId": "get_export_v1_ops_voice_comparison_rounds__round_id__export_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "round_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Round Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Every pair."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Every pair of a finished round as CSV (audited)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/ops/voice-comparison/rounds/{round_id}/finish": {
+      "post": {
+        "operationId": "post_finish_v1_ops_voice_comparison_rounds__round_id__finish_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "round_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Round Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceComparisonRoundOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Finish a round once every pair is rated (audited)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/ops/voice-comparison/rounds/{round_id}/summary": {
+      "get": {
+        "operationId": "get_summary_v1_ops_voice_comparison_rounds__round_id__summary_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "round_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Round Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceComparisonSummaryOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Which provider spoke each voice, and how each was rated (once finished)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/ops/voice-comparison/sentences": {
+      "get": {
+        "operationId": "get_sentences_v1_ops_voice_comparison_sentences_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "language",
+            "required": false,
+            "schema": {
+              "default": "te-IN",
+              "pattern": "^[a-z]{2}-[A-Z]{2}$",
+              "title": "Language",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceComparisonSentencesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The default test sentences, from our spoken style (admin realm)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/ops/voice-comparison/setup": {
+      "get": {
+        "operationId": "get_setup_v1_ops_voice_comparison_setup_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceComparisonSetupOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Whether Sarvam and Cartesia voices can be compared yet (admin realm)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      },
+      "post": {
+        "description": "Makes our comparison workspace on the voice platform if it does not exist, installs `sarvam_voice_api_key` there and switches it on for the voice only, then reads it back. It holds no agents. Our main workspace and every client workspace are left as they are. Idempotent. Requires `X-Confirm-Action: set_up_sarvam_voices`.",
+        "operationId": "post_setup_v1_ops_voice_comparison_setup_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceComparisonSetupOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Set up Sarvam voices for the comparison (step-up, audited)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/ops/voice-comparison/trials/{trial_id}": {
+      "put": {
+        "operationId": "put_rating_v1_ops_voice_comparison_trials__trial_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trial_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trial Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VoiceComparisonRateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceComparisonBlindTrialOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Rate one pair: naturalness 1-5 for each side and a preference (audited)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/ops/voice-comparison/trials/{trial_id}/audio": {
+      "get": {
+        "description": "Spoken by the voice platform on our own key the first time and cached after, so a pair heard again costs nothing. The provider bills its characters to our account.",
+        "operationId": "get_audio_v1_ops_voice_comparison_trials__trial_id__audio_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trial_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trial Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "side",
+            "required": true,
+            "schema": {
+              "enum": [
+                "a",
+                "b"
+              ],
+              "title": "Side",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "audio/mpeg": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "audio/wav": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The clip."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "One side of one pair, spoken and cached (admin realm)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/ops/voice-comparison/voices": {
+      "get": {
+        "description": "Cartesia: the Studio voices added under Voices. Sarvam: the voices our Sarvam key reaches, as the voice platform lists them in the comparison workspace.",
+        "operationId": "get_voices_v1_ops_voice_comparison_voices_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceComparisonVoicesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The Cartesia and Sarvam voices a round may use (admin realm)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
       }
     },
     "/v1/ops/voices/clones": {

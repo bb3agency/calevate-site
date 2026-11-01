@@ -12751,6 +12751,190 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/ops/voice-comparison/rounds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The latest comparison rounds (admin realm) */
+        get: operations["get_rounds_v1_ops_voice_comparison_rounds_get"];
+        put?: never;
+        /**
+         * Start a blind round (audited)
+         * @description Every Cartesia voice against every Sarvam voice on every sentence, at most 120 pairs, which provider is Voice A drawn at random for each pair and the order shuffled. The answer names no voice or provider.
+         */
+        post: operations["post_round_v1_ops_voice_comparison_rounds_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/voice-comparison/rounds/{round_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A round as the listener sees it, blind (admin realm) */
+        get: operations["get_round_v1_ops_voice_comparison_rounds__round_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/voice-comparison/rounds/{round_id}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every pair of a finished round as CSV (audited) */
+        get: operations["get_export_v1_ops_voice_comparison_rounds__round_id__export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/voice-comparison/rounds/{round_id}/finish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Finish a round once every pair is rated (audited) */
+        post: operations["post_finish_v1_ops_voice_comparison_rounds__round_id__finish_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/voice-comparison/rounds/{round_id}/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Which provider spoke each voice, and how each was rated (once finished) */
+        get: operations["get_summary_v1_ops_voice_comparison_rounds__round_id__summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/voice-comparison/sentences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The default test sentences, from our spoken style (admin realm) */
+        get: operations["get_sentences_v1_ops_voice_comparison_sentences_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/voice-comparison/setup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Whether Sarvam and Cartesia voices can be compared yet (admin realm) */
+        get: operations["get_setup_v1_ops_voice_comparison_setup_get"];
+        put?: never;
+        /**
+         * Set up Sarvam voices for the comparison (step-up, audited)
+         * @description Makes our comparison workspace on the voice platform if it does not exist, installs `sarvam_voice_api_key` there and switches it on for the voice only, then reads it back. It holds no agents. Our main workspace and every client workspace are left as they are. Idempotent. Requires `X-Confirm-Action: set_up_sarvam_voices`.
+         */
+        post: operations["post_setup_v1_ops_voice_comparison_setup_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/voice-comparison/trials/{trial_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Rate one pair: naturalness 1-5 for each side and a preference (audited) */
+        put: operations["put_rating_v1_ops_voice_comparison_trials__trial_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/voice-comparison/trials/{trial_id}/audio": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One side of one pair, spoken and cached (admin realm)
+         * @description Spoken by the voice platform on our own key the first time and cached after, so a pair heard again costs nothing. The provider bills its characters to our account.
+         */
+        get: operations["get_audio_v1_ops_voice_comparison_trials__trial_id__audio_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/voice-comparison/voices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The Cartesia and Sarvam voices a round may use (admin realm)
+         * @description Cartesia: the Studio voices added under Voices. Sarvam: the voices our Sarvam key reaches, as the voice platform lists them in the comparison workspace.
+         */
+        get: operations["get_voices_v1_ops_voice_comparison_voices_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/ops/voices/clones": {
         parameters: {
             query?: never;
@@ -35578,6 +35762,228 @@ export interface components {
             seen: number;
             /** Written */
             written: number;
+        };
+        /**
+         * VoiceComparisonBlindTrialOut
+         * @description One pair as the listener sees it before the reveal: no voice, label or provider.
+         */
+        VoiceComparisonBlindTrialOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Position */
+            position: number;
+            /** Preference */
+            preference: ("a" | "b" | "none") | null;
+            /** Rated */
+            rated: boolean;
+            /** Rating A */
+            rating_a: number | null;
+            /** Rating B */
+            rating_b: number | null;
+            /** Sentence */
+            sentence: string;
+        };
+        /** VoiceComparisonCandidateOut */
+        VoiceComparisonCandidateOut: {
+            /** Gender */
+            gender: string | null;
+            /** Label */
+            label: string;
+            /** Language */
+            language: string | null;
+            /** Vendor Id */
+            vendor_id: string;
+        };
+        /** VoiceComparisonProviderResultOut */
+        VoiceComparisonProviderResultOut: {
+            /** Characters */
+            characters: number;
+            /** Heard */
+            heard: number;
+            /** Mean Naturalness */
+            mean_naturalness: number | null;
+            /** Preferred */
+            preferred: number;
+            /** Preferred Share */
+            preferred_share: number | null;
+            /**
+             * Provider
+             * @enum {string}
+             */
+            provider: "cartesia" | "sarvam";
+            /** Voices */
+            voices: number;
+        };
+        /** VoiceComparisonRateIn */
+        VoiceComparisonRateIn: {
+            /**
+             * Preference
+             * @enum {string}
+             */
+            preference: "a" | "b" | "none";
+            /** Rating A */
+            rating_a: number;
+            /** Rating B */
+            rating_b: number;
+        };
+        /** VoiceComparisonRoundIn */
+        VoiceComparisonRoundIn: {
+            /** Cartesia Voice Ids */
+            cartesia_voice_ids: string[];
+            /**
+             * Language
+             * @default te-IN
+             */
+            language: string;
+            /** Sarvam Voice Ids */
+            sarvam_voice_ids: string[];
+            /** Sentences */
+            sentences: string[];
+            /**
+             * Title
+             * @default
+             */
+            title: string;
+        };
+        /** VoiceComparisonRoundListItem */
+        VoiceComparisonRoundListItem: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Finished At */
+            finished_at: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Pairs */
+            pairs: number;
+            /** Rated */
+            rated: number;
+            /** Title */
+            title: string;
+        };
+        /** VoiceComparisonRoundOut */
+        VoiceComparisonRoundOut: {
+            /** Cartesia Voices */
+            cartesia_voices: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Finished At */
+            finished_at: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Language */
+            language: string;
+            /** Pairs */
+            pairs: number;
+            /** Rated */
+            rated: number;
+            /** Sarvam Voices */
+            sarvam_voices: number;
+            /** Title */
+            title: string;
+            /** Trials */
+            trials: components["schemas"]["VoiceComparisonBlindTrialOut"][];
+        };
+        /** VoiceComparisonRoundsOut */
+        VoiceComparisonRoundsOut: {
+            /** Rounds */
+            rounds: components["schemas"]["VoiceComparisonRoundListItem"][];
+        };
+        /** VoiceComparisonSentencesOut */
+        VoiceComparisonSentencesOut: {
+            /** Language */
+            language: string;
+            /** Max Chars */
+            max_chars: number;
+            /** Max Sentences */
+            max_sentences: number;
+            /** Sentences */
+            sentences: string[];
+        };
+        /** VoiceComparisonSetupOut */
+        VoiceComparisonSetupOut: {
+            /** Cartesia Ready */
+            cartesia_ready: boolean;
+            /** Sarvam Key Stored */
+            sarvam_key_stored: boolean;
+            /** Sarvam Ready */
+            sarvam_ready: boolean;
+            /** Steps */
+            steps: string[];
+            /** Voice Provider */
+            voice_provider: string | null;
+            /** Workspace Made */
+            workspace_made: boolean;
+        };
+        /** VoiceComparisonSummaryOut */
+        VoiceComparisonSummaryOut: {
+            /** Cost Note */
+            cost_note: string;
+            /**
+             * Finished At
+             * Format: date-time
+             */
+            finished_at: string;
+            /** No Preference */
+            no_preference: number;
+            /** Pairs */
+            pairs: number;
+            /** Providers */
+            providers: components["schemas"]["VoiceComparisonProviderResultOut"][];
+            /**
+             * Round Id
+             * Format: uuid
+             */
+            round_id: string;
+            /** Voices */
+            voices: components["schemas"]["VoiceComparisonVoiceResultOut"][];
+        };
+        /** VoiceComparisonVoiceResultOut */
+        VoiceComparisonVoiceResultOut: {
+            /** Heard */
+            heard: number;
+            /** Label */
+            label: string;
+            /** Mean Naturalness */
+            mean_naturalness: number | null;
+            /** No Preference */
+            no_preference: number;
+            /** Not Preferred */
+            not_preferred: number;
+            /** Preferred */
+            preferred: number;
+            /**
+             * Provider
+             * @enum {string}
+             */
+            provider: "cartesia" | "sarvam";
+            /** Vendor Id */
+            vendor_id: string;
+        };
+        /** VoiceComparisonVoicesOut */
+        VoiceComparisonVoicesOut: {
+            /** Cartesia */
+            cartesia: components["schemas"]["VoiceComparisonCandidateOut"][];
+            /** Sarvam */
+            sarvam: components["schemas"]["VoiceComparisonCandidateOut"][];
+            /** Sarvam Complete */
+            sarvam_complete: boolean;
+            /** Sarvam Note */
+            sarvam_note: string | null;
         };
         /**
          * VoiceStateOut
@@ -59716,6 +60122,383 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TtsPlanFeeWriteOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_rounds_v1_ops_voice_comparison_rounds_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceComparisonRoundsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    post_round_v1_ops_voice_comparison_rounds_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VoiceComparisonRoundIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceComparisonRoundOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_round_v1_ops_voice_comparison_rounds__round_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                round_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceComparisonRoundOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_export_v1_ops_voice_comparison_rounds__round_id__export_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                round_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every pair. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    post_finish_v1_ops_voice_comparison_rounds__round_id__finish_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                round_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceComparisonRoundOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_summary_v1_ops_voice_comparison_rounds__round_id__summary_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                round_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceComparisonSummaryOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_sentences_v1_ops_voice_comparison_sentences_get: {
+        parameters: {
+            query?: {
+                language?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceComparisonSentencesOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_setup_v1_ops_voice_comparison_setup_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceComparisonSetupOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    post_setup_v1_ops_voice_comparison_setup_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceComparisonSetupOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    put_rating_v1_ops_voice_comparison_trials__trial_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trial_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VoiceComparisonRateIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceComparisonBlindTrialOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_audio_v1_ops_voice_comparison_trials__trial_id__audio_get: {
+        parameters: {
+            query: {
+                side: "a" | "b";
+            };
+            header?: never;
+            path: {
+                trial_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The clip. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "audio/mpeg": string;
+                    "audio/wav": string;
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_voices_v1_ops_voice_comparison_voices_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceComparisonVoicesOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

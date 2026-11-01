@@ -266,6 +266,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.ops.secret_routes import router as ops_secrets_router
     from apps.api.ops.spoken_style_routes import router as ops_spoken_style_router
     from apps.api.ops.trial_number import router as ops_trial_number_router
+    from apps.api.ops.voice_comparison_routes import router as ops_voice_comparison_router
     from apps.api.quality.routes import router as quality_router
     from apps.api.quality.sampling_routes import router as qa_sampling_router
     from apps.api.security.routes import router as csp_report_router
@@ -645,6 +646,7 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(ops_embedding_prices_router)
     # The same panel on an engine that HOSTS its voices (D-687): literal sub-paths only.
     application.include_router(ops_hosted_voice_router)
+    application.include_router(ops_voice_comparison_router)
     # Which LLM legs the in-app assistant may run on, and the operator attestation behind it
     # (D-477). Its own router beside the price panel for `model_price_routes.py`'s reason:
     # same realm and permission, different store and a different write shape.

@@ -345,6 +345,7 @@ from apps.workers.trial_notices import (
 )
 from apps.workers.trials import sweep_trials
 from apps.workers.voice_catalogue import REFRESH_MINUTE, refresh_voice_catalogue
+from apps.workers.voice_comparison_key import push_voice_comparison_key
 from apps.workers.wallet_alerts import notify_low_balance
 from apps.workers.whatsapp import escalate_campaign_contact, notify_hot_lead_whatsapp
 from apps.workers.whatsapp_meta import (
@@ -601,6 +602,9 @@ FUNCTIONS: list[Any] = [
         # the platform.
         push_studio_voice_key,
         push_studio_voice_key_to_workspace,
+        # D-946. A rotated Sarvam voice key, pushed to the voice-comparison workspace;
+        # published by `ops/secret_routes.set_secret_route`.
+        push_voice_comparison_key,
         # D-764. A rotated Google key, fanned out to every client workspace on our model,
         # one outbox job each; published by `ops/secret_routes.set_secret_route`.
         push_own_model_key,

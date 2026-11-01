@@ -425,6 +425,10 @@ class Settings(BaseSettings):
     #: (`scope: voice`, D-717/D-727), installed into each Studio workspace by
     #: `agents/studio_voices`.
     cartesia_api_key: str | None = None
+    #: A Sarvam key for its voices (Bulbul) alone, installed in our voice-comparison
+    #: workspace on ThinnestAI and nowhere else (D-946). Not `sarvam_api_key`: that key reads
+    #: raw transcripts for extraction, and this one is handed to another company to hold.
+    sarvam_voice_api_key: str | None = None
     #: ThinnestAI API key (`ta_live_…`, full access: a Build key cannot place calls —
     #: `thinnest-findings/mirror/pages/api-reference/authentication.md:29-37`). ENV-ONLY
     #: (`core/settings.ENV_ONLY_REASONS`). Absent ⇒ the adapter reports itself unconfigured.
