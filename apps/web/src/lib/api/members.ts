@@ -124,7 +124,10 @@ export function useSetMemberRole(session: Session) {
         apiRequest<Member>(session, path, { method: "PATCH", body, confirmAction: action }),
       );
     },
-    onSuccess: () => invalidateTeam(client, session.orgSlug),
+    // On a refusal too: `member_role_changed_elsewhere` means the row's role is stale, and
+    // until the list is re-read every retry sends the same stale `expected_role` and is
+    // refused again.
+    onSettled: () => invalidateTeam(client, session.orgSlug),
   });
 }
 
@@ -133,7 +136,8 @@ export function useRemoveMember(session: Session) {
   return useMutation({
     mutationFn: (userId: string) =>
       apiRequest<MemberRemoved>(session, `/v1/members/${userId}`, { method: "DELETE" }),
-    onSuccess: () => invalidateTeam(client, session.orgSlug),
+    // On a refusal too: the person may already be gone, or have become the last owner.
+    onSettled: () => invalidateTeam(client, session.orgSlug),
   });
 }
 

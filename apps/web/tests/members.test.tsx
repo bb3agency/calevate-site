@@ -281,6 +281,43 @@ describe("what a click actually sends", () => {
     );
   });
 
+  it("re-reads the team when another owner changed the role first, so a retry is not refused forever", async () => {
+    let refused = false;
+    const { container, calls } = await renderClientPage(<TeamPage />, {
+      "/v1/me": ME,
+      // After the refusal the server's list shows what the other owner did.
+      "/v1/members": () => (refused ? [OWNER, { ...STAFF, role: "owner" }] : [OWNER, STAFF]),
+      "/v1/team/members": ROSTER,
+      "/v1/invitations": [],
+      [`PATCH /v1/members/${STAFF.id}`]: () => {
+        refused = true;
+        return problem(409, {
+          title: "Conflict",
+          detail: "This person's role was changed by someone else while you were looking.",
+          code: "member_role_changed_elsewhere",
+        });
+      },
+    });
+
+    await screen.findByText("Priya");
+    fireEvent.change(screen.getByRole("combobox", { name: /Role for Priya/ }), {
+      target: { value: "owner" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save Priya as Owner" }));
+
+    await waitFor(() => expect(container.textContent).toContain("changed by someone else"));
+    await waitFor(() =>
+      expect(calls.filter((c) => c.method === "GET" && c.path === "/v1/members")).toHaveLength(2),
+    );
+    // The row now shows the role the server holds, and there is nothing stale to re-send.
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Save Priya as Owner" })).toBeNull(),
+    );
+    expect(
+      (screen.getByRole("combobox", { name: /Role for Priya/ }) as HTMLSelectElement).value,
+    ).toBe("owner");
+  });
+
   it("states how many leads a removed colleague still owns", async () => {
     const { container } = await renderClientPage(<TeamPage />, {
       "/v1/me": ME,
