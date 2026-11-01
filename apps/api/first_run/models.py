@@ -58,10 +58,10 @@ MAX_ASKED: Final = MAX_QUESTIONS + 1
 #: `DOCUMENT_CHARS` budget split between them each still keeps a readable share.
 MAX_DOCUMENTS: Final = 3
 #: The documents' read text the question and script writers are given, in characters, all
-#: documents together and after redaction. With the brief's own `MAX_BRIEF_CHARS` it makes
-#: 9000, `workers/business_copy.MAX_INPUT_CHARS`: the largest owner-authored description
-#: this same assist ladder is already sent.
-DOCUMENT_CHARS: Final = 5000
+#: documents together and after redaction. Founder, 1 Nov 2026: 20,000, so a whole guide
+#: (a Telugu one runs about three times the old 5,000) shapes the script rather than its
+#: first third; the rest still reaches calls as knowledge either way.
+DOCUMENT_CHARS: Final = 20000
 
 #: One agent does every job picked, so at most all three (D-863).
 MAX_JOBS: Final = len(FIRST_RUN_JOBS)

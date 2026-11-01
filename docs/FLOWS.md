@@ -72,7 +72,7 @@ Trigger: Sri opens Admin → New Client: one screen, one "Create and invite" (D-
    fixed questions when none survive); answers that map to the profile are saved there and
    every answer is kept beside its question for the script writer (`first_runs.answers`).
    The question and script writers read the documents' words through
-   `workers/first_run.documents_block`: redacted (D-127 G-1/G-2), cut to 5,000 characters
+   `workers/first_run.documents_block`: redacted (D-127 G-1/G-2), cut to 20,000 characters
    shared across the files, fenced and labelled as data. A document still being read is
    waited for up to 60 s and then left out and named on the build step, with "Try another
    file"; a failure reading them never fails the build. The build is a list of its four real
@@ -647,7 +647,7 @@ onboarding document (its words already wrote the first script, D-918) and a web 
 otherwise asks `request_knowledge_proposal` for a `knowledge` proposal on every agent of the
 client (`agents.script_proposal`, §12). The proposal is an EDIT of the agent's current
 script, written from the file's words read the way onboarding reads them
-(`workers/first_run.documents_block`: redacted, fenced, 5,000 characters shared by at most
+(`workers/first_run.documents_block`: redacted, fenced, 20,000 characters shared by at most
 three files), asking for quick facts, and for step, objection and opening-line changes only
 where the file changes them. A waiting `knowledge` suggestion from another file is merged
 with this one (newest three files kept); a suggestion the owner asked Pip for is never
