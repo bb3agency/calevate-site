@@ -84,7 +84,7 @@ class VoiceComparisonSetupOut(Strict):
     def of(cls, state: vc.LabState) -> VoiceComparisonSetupOut:
         steps: list[str] = []
         if not state.key_stored:
-            steps.append("Save sarvam_voice_api_key in Settings, Credentials.")
+            steps.append("Save the Sarvam Voice API Key in Settings, Credentials.")
         if not state.ready:
             steps.append("Choose Set up Sarvam voices.")
         if not state.cartesia_ready:

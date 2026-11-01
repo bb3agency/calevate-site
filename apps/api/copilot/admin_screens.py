@@ -58,6 +58,13 @@ ADMIN_SCREENS: Final[tuple[AdminScreen, ...]] = (
         "admin:tenants",
     ),
     AdminScreen(
+        "/admin/calling-numbers",
+        "Calling numbers",
+        None,
+        "Clients' authorised calling numbers to file with the telephone company.",
+        "org:read",
+    ),
+    AdminScreen(
         "/admin/qa-sampling",
         "Call quality checks",
         None,
@@ -97,6 +104,13 @@ ADMIN_SCREENS: Final[tuple[AdminScreen, ...]] = (
     ),
     AdminScreen(
         "/admin/ops/voices", "Voices", "Platform", "The voices the platform offers.", "ops:manage"
+    ),
+    AdminScreen(
+        "/admin/ops/voice-comparison",
+        "Voice comparison",
+        "Platform",
+        "The blind listening test of Cartesia and Sarvam voices.",
+        "ops:manage",
     ),
     AdminScreen(
         "/admin/ops/spoken-style",

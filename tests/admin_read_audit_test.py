@@ -206,6 +206,22 @@ _NOT_A_PER_TENANT_READ: dict[str, str] = {
         "calls, problems or spend per client across the platform, the figures the client "
         "directory, health board and fleet spend screens show, never one client's rows"
     ),
+    # The blind voice comparison (D-946): `platform_voice_comparison_rounds` and `_trials`
+    # have no `tenant_id`; the voices are our own catalogue and the listener an operator.
+    "GET /v1/ops/voice-comparison/rounds/{round_id}": (
+        "the path names a listening round in a platform table that holds no client's rows"
+    ),
+    "GET /v1/ops/voice-comparison/rounds/{round_id}/summary": (
+        "a finished listening round's reveal, from platform tables that hold no client's rows"
+    ),
+    "GET /v1/ops/voice-comparison/rounds/{round_id}/export": (
+        "a finished listening round as CSV, from platform tables that hold no client's rows; "
+        "the export is audited anyway, through the router's `_audit`"
+    ),
+    "GET /v1/ops/voice-comparison/trials/{trial_id}/audio": (
+        "one side of one pair, spoken from our own sentences on our own key; the trial row "
+        "is a platform table's and names no client"
+    ),
 }
 
 
