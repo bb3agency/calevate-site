@@ -20,6 +20,8 @@ import {
   type MaintenanceWindow,
 } from "@/lib/api/maintenance";
 
+import { resetIfSettled } from "@/app/admin/resetIfSettled";
+
 import { AmendWindowDrawer } from "./windowForms";
 import { CurrentWindowHeading, STATE_COPY, StatePill } from "./windowState";
 
@@ -203,7 +205,7 @@ export function CurrentWindow({ window: current }: { window: MaintenanceWindow }
           error={cancel.error}
           onCancel={() => {
             setStopping(false);
-            cancel.reset();
+            resetIfSettled(cancel);
           }}
           onConfirm={() => cancelFeedback.run(current.id)}
         >
@@ -226,7 +228,7 @@ export function CurrentWindow({ window: current }: { window: MaintenanceWindow }
           error={end.error}
           onCancel={() => {
             setStopping(false);
-            end.reset();
+            resetIfSettled(end);
           }}
           onConfirm={() => endFeedback.run(current.id)}
         >

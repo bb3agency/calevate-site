@@ -181,11 +181,11 @@ function Wizard({
   const busy = save.isPending || setup.isPending;
 
   const saveAndNext = () => {
-    if (!step || problem) return;
+    if (!step || problem || busy) return;
     save.mutate(toPatch(draft, step.id), { onSuccess: () => go(index + 1) });
   };
   const skip = () => {
-    if (!step) return;
+    if (!step || busy) return;
     if (!canWrite) return go(index + 1);
     setup.mutate({ action: "skip", step: step.id }, { onSuccess: () => go(index + 1) });
   };

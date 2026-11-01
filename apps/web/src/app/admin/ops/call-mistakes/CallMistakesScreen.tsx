@@ -190,7 +190,9 @@ function MarkFixedDialog({ mistake, onClose }: { mistake: PlatformMistake; onClo
 
   const submit = () => {
     setTried(true);
-    if (blank) return;
+    // The form has no submit button inside it, so Enter submits it directly rather than
+    // through the busy button below.
+    if (blank || mark.isPending) return;
     mark.mutate({ kind: mistake.kind, note: note.trim() }, { onSuccess: onClose });
   };
 

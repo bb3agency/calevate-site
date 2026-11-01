@@ -345,6 +345,31 @@ export function documentLine(document: FirstRunDocument): string {
   return document.reaches_agents ? "Read. Your agent uses it." : "Read. Not used on calls yet.";
 }
 
+/**
+ * Why the brief's Continue must wait, or null when it need not. A file being read holds it
+ * because the questions and the script are written from its words; a failed file does not,
+ * and neither does a reading one forever, since its row's Remove lets the owner go on without
+ * it (the server keeps no clock on a read).
+ */
+export function briefWaitingFor({
+  documents,
+  sending,
+  hearing,
+}: {
+  documents: readonly FirstRunDocument[];
+  /** A file is uploading, or one is being taken off. */
+  sending: boolean;
+  /** Spoken words are still being turned into text for the box. */
+  hearing: boolean;
+}): string | null {
+  if (hearing) return "Waiting for your words to reach the box.";
+  if (sending) return "Waiting for your file to finish sending.";
+  const reading = documents.filter((document) => document.state === "reading").length;
+  if (reading === 1) return "Waiting for your file to be read. Or remove it.";
+  if (reading > 1) return "Waiting for your files to be read. Or remove them.";
+  return null;
+}
+
 /** The documents the build went on without, each in one short line by name. */
 export function leftOutLines(step: FirstRunBuildStep | undefined, documents: readonly FirstRunDocument[]): string[] {
   return (step?.left_out ?? []).map((item) => {

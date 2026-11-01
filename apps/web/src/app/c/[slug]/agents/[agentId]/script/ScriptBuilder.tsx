@@ -421,7 +421,7 @@ function Editor({
   // A hand-written script has no panel: its one move, turning it into steps, sits under the
   // script beside the length check that gates it.
   const twoColumns = sidePanel && !showCanvas && !raw;
-  const pip = <PipAsk />;
+  const pip = <PipAsk drafting={proposal?.status === "drafting"} />;
   const steps = (
     <section id="stages" aria-labelledby="call-heading" className={`scroll-mt-24 space-y-4 ${showCanvas ? "" : "max-w-3xl"}`}>
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -658,7 +658,12 @@ function Editor({
               <h3 id="hand-heading" className="text-heading text-ink">
                 Written by hand
               </h3>
-              <HandWritten script={script} readOnly={!write.allowed} onChange={(text) => setField("raw_override", text)} />
+              <HandWritten
+                script={script}
+                readOnly={!write.allowed}
+                drafting={proposal?.status === "drafting"}
+                onChange={(text) => setField("raw_override", text)}
+              />
             </section>
           ) : (
             <fieldset disabled={!write.allowed} className="min-w-0">

@@ -184,7 +184,10 @@ function ReviewCard({ tenantId, record, access }: { tenantId: string; record: Ad
             <ActionButton
               status={reviewStatus("approve")}
               successLabel="Approved"
-              disabled={!access.allowed || (review.isPending && review.variables?.decision !== "approve") || (documentReview && !panChecked)}
+              disabled={!access.allowed || (documentReview && !panChecked)}
+              waitingFor={
+                review.isPending && review.variables?.decision !== "approve" ? "Waiting for the rejection to save." : null
+              }
               onClick={() =>
                 review.mutate({
                   decision: "approve",
@@ -200,7 +203,10 @@ function ReviewCard({ tenantId, record, access }: { tenantId: string; record: Ad
               variant="secondary"
               status={reviewStatus("reject")}
               successLabel="Rejected"
-              disabled={!access.allowed || (review.isPending && review.variables?.decision !== "reject") || !reason.trim()}
+              disabled={!access.allowed || !reason.trim()}
+              waitingFor={
+                review.isPending && review.variables?.decision !== "reject" ? "Waiting for the approval to save." : null
+              }
               onClick={() => review.mutate({ decision: "reject", document_ref: null, reason: reason.trim(), pan_checked: false })}
             >
               Reject

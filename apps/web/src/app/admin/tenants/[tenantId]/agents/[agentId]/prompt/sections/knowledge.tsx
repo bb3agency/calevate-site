@@ -21,6 +21,7 @@ import {
   useAdminRemoveAgentDocument,
   type AgentKnowledgeItem,
 } from "@/lib/api/agentKnowledge";
+import { resetIfSettled } from "@/app/admin/resetIfSettled";
 
 const VERDICT: Record<AgentKnowledgeItem["verdict"], { label: string; tone: NoticeTone }> = {
   held: { label: "On the agent", tone: "ok" },
@@ -99,8 +100,13 @@ export function AgentKnowledgePanel({
                     pendingLabel="Removing…"
                     successLabel="Removed"
                     disabled={!write.allowed}
+                    waitingFor={
+                      remove.isPending && remove.variables !== item.handle
+                        ? "Waiting for the other removal to finish."
+                        : null
+                    }
                     onClick={() => {
-                      remove.reset();
+                      resetIfSettled(remove);
                       setConfirming(item);
                     }}
                   >

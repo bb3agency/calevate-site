@@ -24,6 +24,7 @@ import {
   type PlanRow,
   type useRecordTerms,
 } from "@/lib/api/commercials";
+import { resetIfSettled } from "@/app/admin/resetIfSettled";
 
 
 /** The draft, as strings — exactly what crosses the wire (hard rule 7). */
@@ -135,7 +136,7 @@ export function TermsForm({
   const [attempted, setAttempted] = useState(false);
   const set = (key: keyof Draft, value: string) => {
     setDraft((prev) => ({ ...prev, [key]: value }));
-    save.reset();
+    resetIfSettled(save);
   };
 
   // One flat draft of strings, so a fill is one `setDraft` — never the DOM — and it leaves

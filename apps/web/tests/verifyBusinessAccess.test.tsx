@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import VerifyBusinessPage from "@/app/c/[slug]/verify-business/page";
@@ -90,8 +90,12 @@ describe("who may act on Verify your business", () => {
     const accept = (await screen.findByRole("button", { name: "Accept the pledge" })) as HTMLButtonElement;
     expect(screen.queryByText(/Only an account owner can/)).toBeNull();
     expect(screen.queryByText(/from a view-as session/)).toBeNull();
-    // Still disabled until the pledge is ticked as read, but for that reason only.
-    expect(accept.disabled).toBe(true);
+    // Waiting until the pledge is ticked as read, for that reason only, and saying so.
+    expect(accept.disabled).toBe(false);
+    expect(accept.getAttribute("aria-disabled")).toBe("true");
+    expect(screen.getByText("Tick the box above first.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("checkbox", { name: /I have read the pledge/ }));
+    expect(accept.getAttribute("aria-disabled")).toBeNull();
   });
 
   it("disables every action for a read-only member and says why", async () => {

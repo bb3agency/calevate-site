@@ -25,6 +25,8 @@ import {
   useStartTrial,
 } from "@/lib/api/trials";
 
+import { resetIfSettled } from "@/app/admin/resetIfSettled";
+
 import { Field, describedBy } from "./fields";
 
 /**
@@ -89,7 +91,7 @@ export function StartTrialForm({
   const set = (key: keyof StartDraft, value: string) => {
     setDraft((prev) => ({ ...prev, [key]: value }));
     // The last result described a trial that is no longer the one in the form.
-    start.reset();
+    resetIfSettled(start);
   };
 
   const daysProblem = dayProblem(draft.days, MIN_TRIAL_DAYS, MAX_TRIAL_DAYS, "A trial");

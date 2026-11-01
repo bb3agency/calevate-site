@@ -341,6 +341,12 @@ describe("the Follow-ups list", () => {
     expect(sent.starter).toBe("missed_call_callback");
     expect(sent.name).toBe("Call back missed calls");
     expect(sent.trigger.kind).toBe("call_ended");
+    // Made, and the page is moving to it: a second press must not make a second draft.
+    await waitFor(() => expect((starter as HTMLButtonElement).disabled).toBe(true));
+    await act(async () => {
+      fireEvent.click(starter);
+    });
+    expect(calls.filter((call) => call.method === "POST")).toHaveLength(1);
   });
 
   it("offers a ready-made one the account cannot use yet only as the fix for what it needs", async () => {

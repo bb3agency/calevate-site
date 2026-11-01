@@ -42,6 +42,7 @@ import {
   type StatusComponentKey,
 } from "@/lib/api/opsHealer";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
+import { resetIfSettled } from "@/app/admin/resetIfSettled";
 
 const COMPONENTS: { value: StatusComponentKey; label: string }[] = [
   { value: "calls", label: "Phone calls" },
@@ -240,6 +241,9 @@ function Incidents() {
               incident={incident}
               // One mutation serves every row, so only the row it was pressed on shows it.
               retryStatus={retry.variables === incident.id ? retryFeedback.status : "idle"}
+              retryWaitingFor={
+                retry.isPending && retry.variables !== incident.id ? "Waiting for the other check to start." : null
+              }
               onRetry={() => retryFeedback.run(incident.id)}
               onResolve={() => setResolving(incident)}
             />
@@ -254,7 +258,7 @@ function Incidents() {
           status={resolveFeedback.status}
           error={resolve.error}
           onCancel={() => {
-            resolve.reset();
+            resetIfSettled(resolve);
             setResolving(null);
           }}
           onConfirm={() => resolveFeedback.run(resolving.id)}
@@ -270,11 +274,14 @@ function Incidents() {
 function IncidentRow({
   incident,
   retryStatus,
+  retryWaitingFor,
   onRetry,
   onResolve,
 }: {
   incident: HealerIncident;
   retryStatus: FeedbackStatus;
+  /** Set while another row's check is out: the rows share one write. */
+  retryWaitingFor: string | null;
   onRetry: () => void;
   onResolve: () => void;
 }) {
@@ -328,6 +335,7 @@ function IncidentRow({
             <ActionButton
               variant="secondary-sm"
               status={retryStatus}
+              waitingFor={retryWaitingFor}
               successLabel="Asked"
               onClick={onRetry}
             >

@@ -16,6 +16,7 @@ import type { FirstRun, FirstRunQuestion } from "@/lib/api/firstRun";
 import {
   GREETING_MAX_CHARS,
   NOT_FEMALE_LINE,
+  briefWaitingFor,
   callsLeft,
   defaultLanguage,
   firstAgentOf,
@@ -192,6 +193,23 @@ function routes(over: Record<string, unknown> = {}) {
   };
 }
 
+describe("what the brief's Continue waits for", () => {
+  const doc = (state: "reading" | "read" | "failed") =>
+    ({ upload_id: state, name: `${state}.pdf`, source_kind: "pdf", state, detail: null, reaches_agents: true }) as const;
+
+  it("waits for words being heard, a file being sent, then files being read; never for a failed or read one", () => {
+    expect(briefWaitingFor({ documents: [], sending: false, hearing: true })).toBe("Waiting for your words to reach the box.");
+    expect(briefWaitingFor({ documents: [], sending: true, hearing: false })).toBe("Waiting for your file to finish sending.");
+    expect(briefWaitingFor({ documents: [doc("reading")], sending: false, hearing: false })).toBe(
+      "Waiting for your file to be read. Or remove it.",
+    );
+    expect(briefWaitingFor({ documents: [doc("reading"), doc("reading")], sending: false, hearing: false })).toBe(
+      "Waiting for your files to be read. Or remove them.",
+    );
+    expect(briefWaitingFor({ documents: [doc("failed"), doc("read")], sending: false, hearing: false })).toBeNull();
+  });
+});
+
 describe("the pieces and where an owner resumes", () => {
   it("starts above zero, with only the account done", () => {
     const pieces = piecesOf({ run: run(), agent: null, calls: undefined });
@@ -225,8 +243,9 @@ describe("the pieces and where an owner resumes", () => {
   it("keeps the greeting ceiling the server's guide and the build worker name", () => {
     const guide = readFileSync(resolve(__dirname, "../../api/copilot/screen_guides.py"), "utf8");
     expect(guide).toMatch(new RegExp(`FIRST_GREETING_MAX_CHARS: Final = ${GREETING_MAX_CHARS}\\b`));
-    const worker = readFileSync(resolve(__dirname, "../../workers/first_run.py"), "utf8");
-    expect(worker).toMatch(new RegExp(`GREETING_MAX_CHARS: Final = ${GREETING_MAX_CHARS}\\b`));
+    // The build worker's ceiling is the server's one opening-line limit (D-957).
+    const rules = readFileSync(resolve(__dirname, "../../api/agents/call_rules.py"), "utf8");
+    expect(rules).toMatch(new RegExp(`OPENING_LINE_MAX_CHARS: Final = ${GREETING_MAX_CHARS}\\b`));
   });
 
   it("starts in the profile's first language we sell, else Telugu", () => {
@@ -369,6 +388,11 @@ describe("meet your agent", () => {
     }
     expect(screen.getByText("1 of 9 ready")).toBeTruthy();
     expect((screen.getByRole("radio", { name: /Telugu/ }) as HTMLInputElement).checked).toBe(true);
+    // No job picked: Continue says so and does nothing.
+    expect(screen.getByRole("button", { name: /Continue/ }).getAttribute("aria-disabled")).toBe("true");
+    expect(screen.getByText("Pick at least one job.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Continue/ }));
+    expect(calls.some((call) => call.method === "PUT")).toBe(false);
     fireEvent.click(screen.getByRole("checkbox", { name: /Run calling campaigns/ }));
     fireEvent.click(screen.getByRole("checkbox", { name: /Call new leads instantly/ }));
     fireEvent.click(screen.getByRole("button", { name: /Continue/ }));
@@ -437,6 +461,46 @@ describe("meet your agent", () => {
     await waitFor(() =>
       expect(calls.some((call) => call.method === "DELETE" && call.path === `/v1/first-run/documents/${broken}`)).toBe(true),
     );
+  });
+
+  it("greys Continue with its reason while a file is read, and gives it back by itself when the read lands", async () => {
+    const MENU = "0192f3a4-0000-7000-8000-00000000d020";
+    const menu = { upload_id: MENU, name: "menu.jpg", source_kind: "image", state: "reading", detail: null, reaches_agents: true } as const;
+    const reading = run({ jobs: ["answer_calls"], language_primary: "te-IN", documents: [menu], documents_left: 2 });
+    const table = routes({ "/v1/first-run": reading, "PUT /v1/first-run/brief": reading });
+    const { calls } = await renderClientPage(page, table);
+    const go = (await screen.findByRole("button", { name: /Continue/ })) as HTMLButtonElement;
+    expect(go.getAttribute("aria-disabled")).toBe("true");
+    // Still in the tab order, so its reason can be heard where it is.
+    expect(go.disabled).toBe(false);
+    const reason = screen.getByText("Waiting for your file to be read. Or remove it.");
+    expect(go.getAttribute("aria-describedby")).toContain(reason.id);
+    fireEvent.click(go);
+    fireEvent.submit(go.closest("form")!);
+    expect(calls.some((call) => call.path === "/v1/first-run/brief")).toBe(false);
+    // The run is polled while a file is reading; the read lands and Continue comes back.
+    table["/v1/first-run"] = { ...reading, documents: [{ ...menu, state: "read" }] };
+    await waitFor(() => expect(go.getAttribute("aria-disabled")).toBeNull(), { timeout: 4000 });
+    expect(screen.queryByText(/Waiting for your file/)).toBeNull();
+    fireEvent.click(go);
+    await waitFor(() =>
+      expect(calls.filter((call) => call.method === "PUT" && call.path === "/v1/first-run/brief")).toHaveLength(1),
+    );
+  });
+
+  it("does not hold Continue for a file that could not be read: it shows failed with Remove", async () => {
+    const OLD = "0192f3a4-0000-7000-8000-00000000d021";
+    const failed = run({
+      jobs: ["answer_calls"],
+      language_primary: "te-IN",
+      documents: [{ upload_id: OLD, name: "old.xlsx", source_kind: "xlsx", state: "failed", detail: null, reaches_agents: true }],
+      documents_left: 2,
+    });
+    await renderClientPage(page, routes({ "/v1/first-run": failed }));
+    const go = (await screen.findByRole("button", { name: /Continue/ })) as HTMLButtonElement;
+    expect(go.getAttribute("aria-disabled")).toBeNull();
+    expect(screen.getByText("Couldn't read this file.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Remove old.xlsx" })).toBeTruthy();
   });
 
   it("uploads a brief file through the knowledge upload, then records it on the first run", async () => {
@@ -664,12 +728,16 @@ describe("meet your agent", () => {
     );
     const call = await screen.findByRole("button", { name: /Call me now/ });
     fireEvent.change(screen.getByRole("textbox", { name: "Your mobile number" }), { target: { value: "98765 43210" } });
-    expect((call as HTMLButtonElement).disabled).toBe(true);
+    expect(call.getAttribute("aria-disabled")).toBe("true");
+    expect(screen.getByText("Tick each box above.")).toBeTruthy();
+    fireEvent.click(call);
+    expect(calls.some((entry) => entry.method === "POST")).toBe(false);
     fireEvent.click(screen.getByRole("checkbox", { name: /I accept the Terms of Service/ }));
     fireEvent.click(screen.getByRole("checkbox", { name: /no-cold-calls pledge/ }));
-    expect((call as HTMLButtonElement).disabled).toBe(true);
+    expect(call.getAttribute("aria-disabled")).toBe("true");
     fireEvent.click(screen.getByRole("checkbox", { name: /This number is my own/ }));
-    expect((call as HTMLButtonElement).disabled).toBe(false);
+    expect(call.getAttribute("aria-disabled")).toBeNull();
+    expect(screen.queryByText("Tick each box above.")).toBeNull();
     fireEvent.click(call);
     expect(await screen.findByText("Dialling your phone")).toBeTruthy();
     const posts = calls.filter((entry) => entry.method === "POST").map((entry) => entry.path);

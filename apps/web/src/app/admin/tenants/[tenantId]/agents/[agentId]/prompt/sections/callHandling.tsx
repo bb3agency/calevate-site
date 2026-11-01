@@ -62,6 +62,11 @@ export function CallHandlingPanel({
   }
   const data = state.data;
   const labels = inheritLabels(data);
+  // One write serves every row; the others wait while one saves.
+  const waiting = (field: keyof NonNullable<typeof save.variables>) =>
+    save.isPending && save.variables?.[field] === undefined
+      ? "Waiting for the other change to save."
+      : null;
   return (
     <div className="mt-8 space-y-2">
       <h3 className="text-heading text-ink">Call handling</h3>
@@ -84,6 +89,7 @@ export function CallHandlingPanel({
           maxMs={data.bounds.turn_silence_max_ms}
           canChange={write.allowed}
           status={save.variables?.turn_silence_ms !== undefined ? feedback.status : "idle"}
+          waitingFor={waiting("turn_silence_ms")}
           error={save.variables?.turn_silence_ms !== undefined ? save.error : null}
           onSave={(next, done) => save.mutate({ turn_silence_ms: next }, { onSuccess: done })}
         />
@@ -95,6 +101,7 @@ export function CallHandlingPanel({
           inheritLabel={labels.hangUp}
           canChange={write.allowed}
           status={save.variables?.end_call_on_finish !== undefined ? feedback.status : "idle"}
+          waitingFor={waiting("end_call_on_finish")}
           error={save.variables?.end_call_on_finish !== undefined ? save.error : null}
           onSave={(next, done) => save.mutate({ end_call_on_finish: next }, { onSuccess: done })}
         />
@@ -102,6 +109,7 @@ export function CallHandlingPanel({
           on={data.opening_waits_for_caller}
           canChange={write.allowed}
           status={save.variables?.opening_waits_for_caller !== undefined ? feedback.status : "idle"}
+          waitingFor={waiting("opening_waits_for_caller")}
           error={save.variables?.opening_waits_for_caller !== undefined ? save.error : null}
           onSave={(next, done) => save.mutate({ opening_waits_for_caller: next }, { onSuccess: done })}
           waitMs={openingWaitMs(data)}
@@ -118,6 +126,7 @@ export function CallHandlingPanel({
             stepMs={data.bounds.opening_wait_step_ms}
             canChange={write.allowed}
             status={save.variables?.opening_wait_ms !== undefined ? feedback.status : "idle"}
+            waitingFor={waiting("opening_wait_ms")}
             error={save.variables?.opening_wait_ms !== undefined ? save.error : null}
             onSave={(next, done) => save.mutate({ opening_wait_ms: next }, { onSuccess: done })}
           />
@@ -143,6 +152,7 @@ export function CallHandlingPanel({
           seedMs={data.bounds.platform_reask_after_ms}
           canChange={write.allowed}
           status={save.variables?.reask_after_ms !== undefined ? feedback.status : "idle"}
+          waitingFor={waiting("reask_after_ms")}
           error={save.variables?.reask_after_ms !== undefined ? save.error : null}
           onSave={(next, done) => save.mutate({ reask_after_ms: next }, { onSuccess: done })}
         />

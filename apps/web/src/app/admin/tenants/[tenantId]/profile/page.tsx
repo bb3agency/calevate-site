@@ -29,6 +29,8 @@ import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 
 import { useAdminAccess } from "@/app/admin/access";
 
+import { resetIfSettled } from "@/app/admin/resetIfSettled";
+
 import { BusinessProfileSummary } from "./BusinessProfileSummary";
 import { BusinessTypeMoved } from "./BusinessTypeMoved";
 
@@ -248,7 +250,7 @@ function EditForm({
                 disabled={!write.allowed}
                 onChange={(event) => {
                   setName(event.target.value);
-                  edit.reset();
+                  resetIfSettled(edit);
                 }}
                 className={`${FIELD_INLINE} w-full sm:w-72`}
               />
@@ -279,7 +281,7 @@ function EditForm({
                 disabled={!write.allowed}
                 onChange={(event) => {
                   setEmail(event.target.value);
-                  edit.reset();
+                  resetIfSettled(edit);
                 }}
                 className={`${FIELD_INLINE} w-full sm:w-72`}
               />
@@ -296,7 +298,7 @@ function EditForm({
                 disabled={!write.allowed}
                 onChange={(event) => {
                   setVertical(event.target.value);
-                  edit.reset();
+                  resetIfSettled(edit);
                 }}
                 className={`${FIELD_INLINE} w-full sm:w-72`}
               >
@@ -319,7 +321,7 @@ function EditForm({
             value={typed}
             onChange={(value) => {
               setTyped(value);
-              edit.reset();
+              resetIfSettled(edit);
             }}
             disabled={!write.allowed}
           />

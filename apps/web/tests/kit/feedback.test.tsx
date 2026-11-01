@@ -78,6 +78,33 @@ describe("ActionButton", () => {
     expect(button.hasAttribute("disabled")).toBe(false);
     expect(document.activeElement).toBe(button);
   });
+
+  it("waits with its reason shown and described, ignores presses and a form's submit, then comes back", () => {
+    const onClick = vi.fn();
+    const onSubmit = vi.fn((event: { preventDefault: () => void }) => event.preventDefault());
+    const view = (waitingFor: string | null) => (
+      <form onSubmit={onSubmit}>
+        <ActionButton type="submit" waitingFor={waitingFor} onClick={onClick}>
+          Continue
+        </ActionButton>
+      </form>
+    );
+    const { rerender } = render(view("Waiting for your file to be read."));
+    const button = screen.getByRole("button", { name: "Continue" });
+    expect(button.getAttribute("aria-disabled")).toBe("true");
+    expect(button.hasAttribute("disabled")).toBe(false);
+    expect(button.getAttribute("aria-describedby")).toBe(screen.getByText("Waiting for your file to be read.").id);
+    fireEvent.click(button);
+    expect(onClick).not.toHaveBeenCalled();
+    expect(onSubmit).not.toHaveBeenCalled();
+    rerender(view(null));
+    expect(button.hasAttribute("aria-disabled")).toBe(false);
+    expect(button.hasAttribute("aria-describedby")).toBe(false);
+    expect(screen.queryByText("Waiting for your file to be read.")).toBeNull();
+    fireEvent.click(button);
+    expect(onClick).toHaveBeenCalledTimes(1);
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("useActionFeedback", () => {

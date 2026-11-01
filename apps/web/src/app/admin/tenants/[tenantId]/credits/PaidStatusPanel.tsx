@@ -28,6 +28,8 @@ import {
 import { lookup } from "@/lib/lookup";
 import { useMakePaid, usePaidStatus, type MakePaidResult, type PaidStatus } from "@/lib/api/paidStatus";
 
+import { resetIfSettled } from "@/app/admin/resetIfSettled";
+
 import { Field, describedBy } from "./fields";
 
 /** How the account became paid, in the operator's words. Keyed by `first_paid_via`. */
@@ -173,7 +175,7 @@ function MakePaidForm({
           disabled={!write.allowed}
           onChange={(event) => {
             setReason(event.target.value);
-            make.reset();
+            resetIfSettled(make);
           }}
           aria-describedby={describedBy("paid-reason", false)}
           className={FIELD}
@@ -195,7 +197,7 @@ function MakePaidForm({
           onChange={(event) => {
             setAmountInr(event.target.value);
             setConfirm("");
-            make.reset();
+            resetIfSettled(make);
           }}
           aria-describedby={describedBy("paid-amount", amountProblem !== null)}
           className={FIELD}

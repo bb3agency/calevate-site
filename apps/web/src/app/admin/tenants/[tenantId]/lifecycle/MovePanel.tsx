@@ -11,6 +11,7 @@ import {
   type LifecycleStatus,
   type useSetTenantStatus,
 } from "@/lib/api/commercials";
+import { resetIfSettled } from "@/app/admin/resetIfSettled";
 
 const CHOICES = Object.keys(LIFECYCLE_COPY) as LifecycleStatus[];
 
@@ -77,7 +78,7 @@ export function MovePanel({
               disabled={!write.allowed}
               onChange={(event) => {
                 setChosen(event.target.value as LifecycleStatus);
-                move.reset();
+                resetIfSettled(move);
               }}
               className={FIELD}
             >
@@ -104,7 +105,7 @@ export function MovePanel({
               disabled={!write.allowed}
               onChange={(event) => {
                 setReason(event.target.value);
-                move.reset();
+                resetIfSettled(move);
               }}
               className={FIELD}
             />

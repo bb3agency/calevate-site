@@ -30,6 +30,8 @@ import { noFill } from "@/lib/copilot/types";
 import { lookup } from "@/lib/lookup";
 
 import { WhatsAppAlertsPanel } from "../WhatsAppAlertsPanel";
+import { resetIfSettled } from "@/app/admin/resetIfSettled";
+
 import { InviteRow } from "./InviteRow";
 import { MemberRow } from "./MemberRow";
 
@@ -289,7 +291,7 @@ function InviteForm({
             disabled={!write.allowed}
             onChange={(event) => {
               setEmail(event.target.value);
-              invite.reset();
+              resetIfSettled(invite);
             }}
             className={FIELD}
           />
@@ -307,7 +309,7 @@ function InviteForm({
             disabled={!write.allowed}
             onChange={(event) => {
               setRole(event.target.value);
-              invite.reset();
+              resetIfSettled(invite);
             }}
             className={FIELD}
           >

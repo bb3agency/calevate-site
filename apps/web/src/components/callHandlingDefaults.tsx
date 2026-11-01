@@ -87,6 +87,9 @@ export function CallHandlingDefaultsRows({
   };
   const rowStatus = (which: DefaultsRow): FeedbackStatus => (row === which ? status : "idle");
   const error = (which: DefaultsRow) => (row === which ? save.error : null);
+  // One write serves every row; the others wait while one saves.
+  const waiting = (which: DefaultsRow) =>
+    save.isPending && row !== which ? "Waiting for your other change to save." : null;
   const hint = (which: DefaultsRow, ...values: readonly unknown[]): ReactNode => (
     <>
       {ownOrOurs(ownLabel, ...values)}
@@ -108,6 +111,7 @@ export function CallHandlingDefaultsRows({
           maxMs={data.bounds.turn_silence_max_ms}
           canChange={canChange}
           status={rowStatus("pause")}
+          waitingFor={waiting("pause")}
           error={error("pause")}
           onSave={(next, done) => send("pause", { turn_silence_ms: next }, done)}
         />
@@ -120,6 +124,7 @@ export function CallHandlingDefaultsRows({
           inheritLabel={`Calevate default: ${data.bounds.platform_end_call_on_finish ? "On" : "Off"}`}
           canChange={canChange}
           status={rowStatus("hang-up")}
+          waitingFor={waiting("hang-up")}
           error={error("hang-up")}
           onSave={(next, done) => send("hang-up", { end_call_on_finish: next }, done)}
         />
@@ -191,6 +196,7 @@ export function CallHandlingDefaultsRows({
           seedMs={data.bounds.platform_reask_after_ms}
           canChange={canChange}
           status={rowStatus("reask")}
+          waitingFor={waiting("reask")}
           error={error("reask")}
           onSave={(next, done) => send("reask", { reask_after_ms: next }, done)}
         />

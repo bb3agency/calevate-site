@@ -48,6 +48,8 @@ import {
   SECONDARY_BUTTON_SM,
 } from "@/components/ui";
 
+import { TEXT_ACTION } from "@/components/console/section";
+
 import { useToast, type ToastApi } from "./toast";
 
 export type FeedbackStatus = "idle" | "pending" | "success" | "error";
@@ -267,6 +269,8 @@ const VARIANT = {
   secondary: SECONDARY_BUTTON,
   "secondary-sm": SECONDARY_BUTTON_SM,
   danger: DANGER_BUTTON,
+  /** A link-weight action beside a primary one ("Skip the questions and build"). */
+  text: TEXT_ACTION,
 } as const;
 
 export type ActionButtonVariant = keyof typeof VARIANT;
@@ -283,6 +287,8 @@ export type ActionButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "c
   /** Default "Try again": the failure's words are in the toast or the inline notice. */
   errorLabel?: ReactNode;
   variant?: ActionButtonVariant;
+  /** Why it cannot be pressed yet, in one short line; null or omitted when it can. */
+  waitingFor?: ReactNode;
 };
 
 /** Only the idle face is ever in the accessibility tree; the others are pictures of state. */
@@ -300,10 +306,47 @@ function Face({ shown, children, keepName = false }: { shown: boolean; children:
   );
 }
 
+/** The greyed look of a button that is waiting (`waitingFor`), per variant. The button classes
+ *  grey only `:disabled`, and a waiting button is not `disabled`, so it is drawn here; `!`
+ *  beats their `[&:not(:disabled)]:hover` fill. */
+const WAITING_LOOK: Record<ActionButtonVariant, string> = {
+  primary: "cursor-not-allowed bg-ink/[0.08]! text-ink-faint!",
+  "primary-lg": "cursor-not-allowed bg-ink/[0.08]! text-ink-faint!",
+  "primary-sm": "cursor-not-allowed bg-ink/[0.08]! text-ink-faint!",
+  secondary: "cursor-not-allowed bg-ink/[0.04]! text-ink-faint!",
+  "secondary-sm": "cursor-not-allowed bg-ink/[0.04]! text-ink-faint!",
+  danger: "cursor-not-allowed bg-ink/[0.08]! text-ink-faint!",
+  text: "cursor-not-allowed bg-transparent! text-ink-faint!",
+};
+
 /**
- * A button that carries its own action's state. Busy buttons ignore presses (`aria-disabled`
- * rather than `disabled`, so focus stays on the control the person just pressed and a
- * screen reader hears the change where they are).
+ * A button that carries its own action's state.
+ *
+ * THE ONE CONVENTION FOR A BUTTON THAT CANNOT BE PRESSED YET (founder, 1 Nov 2026: "buttons
+ * should stay greyed out and only come back to clickable once that process is done"):
+ *
+ * - Its own action is in flight: `status="pending"`. It shows it is working and ignores presses.
+ * - Something it needs is still happening (a file being read, words being heard, a job
+ *   running): `waitingFor="Waiting for your file to be read."`. It is greyed, ignores
+ *   presses (a form's Enter too, since implicit submission is this button's click), and the
+ *   reason is drawn as one visible line after it and tied to it by `aria-describedby`. Pass
+ *   null when ready and it comes back by itself; the screen's own refresh drives that.
+ * - A link styled as a button that is not open yet is this same button with `waitingFor` and
+ *   no `onClick`, rendered in the link's place: an `<a>` cannot be disabled.
+ *
+ * Both use `aria-disabled`, never `disabled`: the control stays in the tab order, so a
+ * keyboard or screen-reader user finds it and hears why it is unavailable, and focus is not
+ * lost from a button the person just pressed. A natively `disabled` button is skipped by Tab
+ * and its reason goes unheard (WAI-ARIA APG, "Focusability of disabled controls",
+ * https://www.w3.org/WAI/ARIA/apg/practices/keyboard-interface/#focusabilityofdisabledcontrols;
+ * MDN aria-disabled, which notes the press must then be blocked in script,
+ * https://developer.mozilla.org/en-US/docs/Web/Accessibility/ARIA/Reference/Attributes/aria-disabled).
+ * Native `disabled` is left for three narrower cases: a choice that cannot apply here (a
+ * built agent's locked language), a save whose reason is already printed at the field being
+ * edited ("1 character too long"), and a secondary control held for the moment the screen's
+ * pressed button is working (that button carries the explanation). Never lock forever: a
+ * failed dependency sets `waitingFor` back to null and shows its own way out (Remove, Try
+ * again).
  */
 export const ActionButton = forwardRef<HTMLButtonElement, ActionButtonProps>(function ActionButton(
   {
@@ -317,11 +360,15 @@ export const ActionButton = forwardRef<HTMLButtonElement, ActionButtonProps>(fun
     type = "button",
     disabled,
     onClick,
+    waitingFor = null,
+    "aria-describedby": describedBy,
     ...props
   },
   ref,
 ) {
+  const reasonId = useId();
   const busy = status === "pending";
+  const waiting = waitingFor !== null && waitingFor !== false && !busy;
   const spoken =
     status === "success"
       ? typeof successLabel === "string"
@@ -336,11 +383,13 @@ export const ActionButton = forwardRef<HTMLButtonElement, ActionButtonProps>(fun
       ref={ref}
       type={type}
       disabled={disabled}
-      aria-disabled={busy || undefined}
+      aria-disabled={busy || waiting || undefined}
       aria-busy={busy || undefined}
+      aria-describedby={clsx(describedBy, waiting && reasonId) || undefined}
       data-status={status}
+      data-waiting={waiting || undefined}
       onClick={(event) => {
-        if (busy) {
+        if (busy || waiting) {
           event.preventDefault();
           return;
         }
@@ -350,6 +399,7 @@ export const ActionButton = forwardRef<HTMLButtonElement, ActionButtonProps>(fun
         VARIANT[variant],
         "relative max-w-full justify-center",
         busy && "cursor-progress",
+        waiting && WAITING_LOOK[variant],
         status === "error" && variant !== "danger" && "ring-1 ring-danger/50",
         className,
       )}
@@ -375,6 +425,11 @@ export const ActionButton = forwardRef<HTMLButtonElement, ActionButtonProps>(fun
         </Face>
       </span>
     </button>
+    {waiting ? (
+      <p id={reasonId} className="text-meta text-ink-muted">
+        {waitingFor}
+      </p>
+    ) : null}
     {/* Outside the button, so the status words never join its accessible name. */}
     <span role="status" className="sr-only">
       {spoken}

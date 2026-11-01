@@ -157,6 +157,7 @@ export function LaunchGate({
             writeReason={refusal}
             status={launch.status}
             onLaunch={() => launch.run()}
+            waiting={check.isRefetching && launch.status !== "pending" ? "Checking your campaign again" : null}
           />
           {!canWrite && writeReason && <p className="text-meta text-ink-muted">{writeReason}</p>}
         </div>

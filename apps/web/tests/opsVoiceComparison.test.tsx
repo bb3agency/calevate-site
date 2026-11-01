@@ -285,6 +285,54 @@ describe("Ops > Voice comparison", () => {
     expect(screen.getByRole("button", { name: "Download CSV" })).toBeTruthy();
   });
 
+  it("holds Save and next, with its reason, until both scores and a choice are in", async () => {
+    const page = renderAdminPage(<VoiceComparisonPage />, routes());
+    fireEvent.click(await screen.findByRole("button", { name: "Open" }));
+    const pair = await screen.findByRole("region", { name: "Pair 1 of 1" });
+    const save = within(pair).getByRole("button", { name: "Save and next" });
+    expect(save.getAttribute("aria-disabled")).toBe("true");
+    within(pair).getByText("Score both voices and choose one first.");
+    fireEvent.click(save);
+    expect(page.calls.some((c) => c.method === "PUT")).toBe(false);
+
+    fireEvent.click(
+      within(
+        within(pair).getByRole("group", { name: "Voice A: how natural?" }),
+      ).getByLabelText("4"),
+    );
+    fireEvent.click(
+      within(
+        within(pair).getByRole("group", { name: "Voice B: how natural?" }),
+      ).getByLabelText("2"),
+    );
+    fireEvent.click(within(pair).getByLabelText("Voice A"));
+    expect(save.getAttribute("aria-disabled")).toBeNull();
+    expect(within(pair).queryByText("Score both voices and choose one first.")).toBeNull();
+  });
+
+  it("shows the CSV download working, and releases it with the refusal when it fails", async () => {
+    stubDownloads();
+    const finished = { ...COMPARISON_ROUND, finished_at: "2026-11-01T07:00:00Z", rated: 1 };
+    const page = renderAdminPage(
+      <VoiceComparisonPage />,
+      routes({
+        [roundPath(ROUND_ID)]: finished,
+        [`${roundPath(ROUND_ID)}/summary`]: SUMMARY,
+        [`${roundPath(ROUND_ID)}/export`]: problem(503, { title: "Export unavailable", status: 503 }),
+      }),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Open" }));
+    const download = await screen.findByRole("button", { name: "Download CSV" });
+    fireEvent.click(download);
+    expect(download.getAttribute("aria-busy")).toBe("true");
+    // A second press while the first is out sends nothing.
+    fireEvent.click(download);
+    await screen.findByText("Export unavailable");
+    expect(page.calls.filter((c) => c.path.endsWith("/export"))).toHaveLength(1);
+    expect(download.getAttribute("aria-busy")).toBeNull();
+    expect(download.getAttribute("aria-disabled")).toBeNull();
+  });
+
   it("fits a 375px phone: the two voices stack and every choice row wraps", async () => {
     const width = window.innerWidth;
     window.innerWidth = 375;

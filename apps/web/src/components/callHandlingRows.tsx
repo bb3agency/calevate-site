@@ -66,6 +66,8 @@ interface RowProps<T> {
   canChange: boolean;
   /** This row's save, from the caller's `useActionFeedback`. */
   status: FeedbackStatus;
+  /** Another row's save is running on the same write: this row's save waits, saying why. */
+  waitingFor?: ReactNode;
   error: Error | null;
   /** On an agent's Settings, for a reader who may change every agent: "All my agents". */
   scope?: ScopeOffer<string>;
@@ -229,6 +231,7 @@ export function PauseRow({
   inheritLabel,
   canChange,
   status,
+  waitingFor,
   error,
   scope,
   onSave,
@@ -348,6 +351,7 @@ export function PauseRow({
             <SaveBar
               label={save.label}
               status={status}
+              waitingFor={waitingFor}
               onCancel={close}
               note={CALL_HANDLING_NEXT_CALL}
             />
@@ -378,6 +382,7 @@ export function HangUpRow({
   inheritLabel,
   canChange,
   status,
+  waitingFor,
   error,
   scope,
   onSave,
@@ -472,6 +477,7 @@ export function HangUpRow({
             <SaveBar
               label={save.label}
               status={status}
+              waitingFor={waitingFor}
               onCancel={close}
               note={CALL_HANDLING_NEXT_CALL}
             />
@@ -512,6 +518,7 @@ export function OpeningWaitsRow({
   waitMs,
   canChange,
   status,
+  waitingFor,
   error,
   onSave,
 }: {
@@ -521,6 +528,8 @@ export function OpeningWaitsRow({
   canChange: boolean;
   /** This row's save, from the caller's `useActionFeedback`. */
   status: FeedbackStatus;
+  /** Another row's save is running on the same write: this row's save waits, saying why. */
+  waitingFor?: ReactNode;
   error: Error | null;
   onSave: (next: boolean, done: () => void) => void;
 }) {
@@ -579,7 +588,7 @@ export function OpeningWaitsRow({
             />
           </div>
           {(changed || saving) && (
-            <SaveBar label="Save" status={status} onCancel={close} note={CALL_HANDLING_NEXT_CALL} />
+            <SaveBar label="Save" status={status} waitingFor={waitingFor} onCancel={close} note={CALL_HANDLING_NEXT_CALL} />
           )}
           {!changed && !saving && (
             <button type="button" onClick={close} className={TEXT_ACTION}>
@@ -612,6 +621,7 @@ export function ReaskRow({
   inheritLabel,
   canChange,
   status,
+  waitingFor,
   error,
   scope,
   onSave,
@@ -730,6 +740,7 @@ export function ReaskRow({
             <SaveBar
               label={save.label}
               status={status}
+              waitingFor={waitingFor}
               onCancel={close}
               note={CALL_HANDLING_NEXT_CALL}
             />
@@ -764,6 +775,7 @@ export function OpeningWaitRow({
   inheritLabel,
   canChange,
   status,
+  waitingFor,
   error,
   scope,
   onSave,
@@ -855,6 +867,7 @@ export function OpeningWaitRow({
             <SaveBar
               label={save.label}
               status={status}
+              waitingFor={waitingFor}
               onCancel={close}
               note={CALL_HANDLING_NEXT_CALL}
             />

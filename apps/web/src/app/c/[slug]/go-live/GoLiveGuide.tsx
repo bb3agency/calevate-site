@@ -7,7 +7,6 @@ import { useState } from "react";
 import { ArrowRight } from "lucide-react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
-import { TEXT_ACTION } from "@/components/console/section";
 import { TaskSteps, type TaskStep } from "@/components/interior/task-steps";
 import { EmptyState } from "@/components/console/emptyState";
 import { PRIMARY_BUTTON, ProblemNotice, RestrictionNote, SECONDARY_BUTTON, Skeleton } from "@/components/ui";
@@ -135,15 +134,15 @@ export function GoLiveGuide({ slug }: { slug: string }) {
           <h1 className="text-title text-ink">Go live</h1>
           <p className="mt-0.5 hidden text-meta text-ink-muted sm:block">{GO_LIVE.subtitle}</p>
         </div>
-        <button
-          type="button"
-          className={`${TEXT_ACTION} shrink-0`}
+        <ActionButton
+          variant="text"
+          className="shrink-0"
           onClick={skip}
-          disabled={dismissFeedback.status === "pending"}
-          aria-busy={dismissFeedback.status === "pending" || undefined}
+          status={dismissFeedback.status}
+          pendingLabel={GO_LIVE.skipping}
         >
-          {dismissFeedback.status === "pending" ? GO_LIVE.skipping : GO_LIVE.skip}
-        </button>
+          {GO_LIVE.skip}
+        </ActionButton>
       </div>
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[13rem_minmax(0,1fr)] lg:gap-8">

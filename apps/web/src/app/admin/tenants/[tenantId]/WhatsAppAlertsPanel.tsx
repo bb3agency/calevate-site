@@ -59,10 +59,9 @@ export function WhatsAppAlertsPanel({ tenantId }: { tenantId: string }) {
   // The document reference is what makes an operator's claim evidence rather than an
   // assertion — the service and a CHECK both refuse a grant without one, so the button
   // is dead until it is typed rather than sending a request that cannot succeed.
-  const ready =
-    write.allowed &&
-    reference.trim().length > 0 &&
-    !(record.isPending && record.variables?.status !== "granted");
+  const ready = write.allowed && reference.trim().length > 0;
+  const otherWrite = (status: "granted" | "withdrawn") =>
+    record.isPending && record.variables?.status !== status ? "Waiting for the other change to save." : null;
   const statusFor = (status: "granted" | "withdrawn") =>
     record.variables?.status === status ? recordFeedback.status : "idle";
 
@@ -139,6 +138,7 @@ export function WhatsAppAlertsPanel({ tenantId }: { tenantId: string }) {
               status={statusFor("granted")}
               successLabel="Recorded"
               disabled={!ready}
+              waitingFor={otherWrite("granted")}
               title={write.reason ?? undefined}
               onClick={() =>
                 record.mutate(
@@ -156,7 +156,8 @@ export function WhatsAppAlertsPanel({ tenantId }: { tenantId: string }) {
               variant="secondary"
               status={statusFor("withdrawn")}
               successLabel="Recorded"
-              disabled={!write.allowed || (record.isPending && record.variables?.status !== "withdrawn")}
+              disabled={!write.allowed}
+              waitingFor={otherWrite("withdrawn")}
               title={write.reason ?? undefined}
               onClick={() => recordFeedback.run({ status: "withdrawn", evidence: null })}
             >

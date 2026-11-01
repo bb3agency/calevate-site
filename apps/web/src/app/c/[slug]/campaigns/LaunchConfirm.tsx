@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 
 import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
 import {
-  PRIMARY_BUTTON,
   SECONDARY_BUTTON,
   formatCount,
   formatPhone,
@@ -92,7 +91,13 @@ export function LaunchConfirm({
   writeReason,
   status,
   onLaunch,
+  waiting = null,
 }: {
+  /**
+   * Why launch must wait for a read still on its way (the launch check re-running after
+   * people were added), or null. Launch is greyed with this line until the read lands.
+   */
+  waiting?: string | null;
   /** `ProgressOut.total` — `undefined` while it is unknown, and then there is no review. */
   contacts: number | undefined;
   /** `ProgressOut.effective_concurrency`: the slider under the plan ceiling and line pool. */
@@ -134,15 +139,15 @@ export function LaunchConfirm({
   if (!confirming) {
     return (
       <div className="space-y-3">
-        <button
-          type="button"
+        <ActionButton
           title={writeReason}
           disabled={!canWrite || pending}
+          waitingFor={canWrite ? waiting : null}
           onClick={() => setConfirming(true)}
-          className={`${PRIMARY_BUTTON} w-full sm:w-auto`}
+          className="w-full sm:w-auto"
         >
           Launch campaign
-        </button>
+        </ActionButton>
       </div>
     );
   }
@@ -195,18 +200,21 @@ export function LaunchConfirm({
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        <ActionButton
-          variant="danger"
-          title={writeReason}
-          disabled={!armed}
-          status={status}
-          pendingLabel="Launching"
-          successLabel="Launched"
-          onClick={onLaunch}
-        >
-          {`Call ${formatCount(contacts)} ${people}`}
-        </ActionButton>
+      <div className="flex flex-wrap items-start gap-2">
+        <div className="flex flex-col gap-1">
+          <ActionButton
+            variant="danger"
+            title={writeReason}
+            disabled={!armed}
+            waitingFor={armed ? waiting : null}
+            status={status}
+            pendingLabel="Launching"
+            successLabel="Launched"
+            onClick={onLaunch}
+          >
+            {`Call ${formatCount(contacts)} ${people}`}
+          </ActionButton>
+        </div>
         <button
           type="button"
           disabled={pending}

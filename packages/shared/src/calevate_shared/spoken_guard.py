@@ -109,6 +109,29 @@ def latin_words(text: str, tag: str | None, *, names: Sequence[str] = ()) -> lis
     return list(dict.fromkeys(_LATIN_WORD.findall(text)))
 
 
+#: The opening-line rules in the words both the writer's instruction and the problems sent
+#: back for its repair use, so the model is told a rule and refused for it in one sentence.
+OWN_LETTERS_RULE: Final = "write every word in the language's own letters, English words too"
+TEXTBOOK_RULE: Final = (
+    "never a textbook word callers do not say: the spoken-style guide lists each with the "
+    "word to say instead"
+)
+QUESTION_END_RULE: Final = (
+    "end on a question with a “?”, so the caller knows it is their turn to speak"
+)
+INTRODUCED_GREETING_RULE: Final = (
+    "the agent's introduction just before it already greeted, so start with why you are "
+    "calling or with the question"
+)
+INTRODUCED_NAMES_RULE: Final = (
+    "the agent's introduction just before it already said who is calling and from which "
+    "business, so leave the names out"
+)
+UNINTRODUCED_RULE: Final = (
+    "nothing is said before this line, so greet the caller or say which business this is"
+)
+
+
 def latin_word_problem(
     where: str, text: str, tag: str | None, *, names: Sequence[str] = ()
 ) -> str | None:
@@ -118,10 +141,14 @@ def latin_word_problem(
     if not found:
         return None
     quoted = ", ".join(f"“{word}”" for word in found)
-    return (
-        f"{where}: writes {quoted} in English letters; write every word in the language's "
-        "own letters, English words too"
-    )
+    return f"{where}: writes {quoted} in English letters; {OWN_LETTERS_RULE}"
+
+
+def question_end_problem(where: str, text: str) -> str | None:
+    """An opening line that does not hand the turn over with a question; None when it does."""
+    if text.strip().endswith("?"):
+        return None
+    return f"{where}: does not end on a question; {QUESTION_END_RULE}"
 
 
 #: A line that opens with a greeting, with the honorific that may follow it ("నమస్కారం అండి,",
@@ -156,18 +183,20 @@ def introduced_opening_problem(where: str, text: str, *, names: Sequence[str] = 
     """What an opening line said right after the agent's own introduction must not do (D-865):
     greet, or say who is calling or from which business. None when it does neither."""
     if opens_with_greeting(text):
-        return (
-            f"{where}: starts with a greeting; the agent's introduction just before it already "
-            "greeted, so start with why you are calling or with the question"
-        )
+        return f"{where}: starts with a greeting; {INTRODUCED_GREETING_RULE}"
     said = names_used(text, names)
     if said:
         quoted = ", ".join(f"“{name}”" for name in said)
-        return (
-            f"{where}: says {quoted}; the agent's introduction just before it already said who "
-            "is calling and from which business, so leave the names out"
-        )
+        return f"{where}: says {quoted}; {INTRODUCED_NAMES_RULE}"
     return None
+
+
+def unintroduced_opening_problem(where: str, text: str, *, names: Sequence[str] = ()) -> str | None:
+    """What an opening line said FIRST, with no introduction before it, must do (D-865):
+    greet, or say one of `names`, so the caller hears who answered. None when it does."""
+    if opens_with_greeting(text) or names_used(text, names):
+        return None
+    return f"{where}: neither greets nor says who is calling; {UNINTRODUCED_RULE}"
 
 
 def english_problem(where: str, text: str) -> str | None:
@@ -204,7 +233,13 @@ def generation_guidance(
 
 
 __all__ = [
+    "INTRODUCED_GREETING_RULE",
+    "INTRODUCED_NAMES_RULE",
+    "OWN_LETTERS_RULE",
     "OWN_LETTER_LANGUAGES",
+    "QUESTION_END_RULE",
+    "TEXTBOOK_RULE",
+    "UNINTRODUCED_RULE",
     "Side",
     "english_problem",
     "generation_guidance",
@@ -214,8 +249,10 @@ __all__ = [
     "latin_words",
     "names_used",
     "opens_with_greeting",
+    "question_end_problem",
     "textbook_note",
     "textbook_problem",
     "textbook_words",
+    "unintroduced_opening_problem",
     "without_greeting",
 ]

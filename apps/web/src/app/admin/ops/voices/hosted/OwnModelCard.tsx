@@ -23,6 +23,7 @@ import {
   useOwnModel,
   type OwnModel,
 } from "@/lib/api/opsHostedVoices";
+import { resetIfSettled } from "@/app/admin/resetIfSettled";
 
 import { ClientPicker } from "./ClientPicker";
 import { formatCacheShare } from "./cacheShare";
@@ -137,7 +138,7 @@ export function OwnModelCard() {
     if (enableFeedback.status === "success") setConfirming(false);
   }, [enableFeedback.status]);
   const openInstall = (client = "") => {
-    enable.reset();
+    resetIfSettled(enable);
     setTenantId(client);
     setConfirming(true);
   };
@@ -167,7 +168,7 @@ export function OwnModelCard() {
         type="button"
         className={step === next ? PRIMARY_BUTTON_SM : TEXT_ACTION}
         onClick={() => {
-          developer.reset();
+          resetIfSettled(developer);
           setConfirmingDeveloper(true);
         }}
       >

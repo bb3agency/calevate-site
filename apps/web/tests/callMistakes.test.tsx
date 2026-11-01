@@ -13,7 +13,7 @@ import {
   type PlatformMistake,
 } from "@/lib/api/callMistakes";
 
-import { problem, renderAdminPage, renderClientPage, type Routes } from "./harness";
+import { problem, renderAdminPage, renderClientPage, stillLoading, type Routes } from "./harness";
 
 /**
  * Mistakes on real calls (D-949). The client card must word each state as ours to fix and
@@ -178,6 +178,26 @@ describe("Ops > Call mistakes", () => {
     expect(sent?.path).toBe(mistakeFixedPath("wrong_language"));
     expect(JSON.parse(sent!.body!)).toEqual({ note: "Reply-language rule tightened." });
     await waitFor(() => expect(calls.filter((c) => c.path === PLATFORM_MISTAKES_PATH).length).toBeGreaterThan(reads));
+  });
+
+  it("sends one note however often Enter is pressed while it is out", async () => {
+    const { calls } = renderAdminPage(
+      <CallMistakesPage />,
+      adminRoutes({ [`POST ${mistakeFixedPath("said_again")}`]: stillLoading() }),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Mark fixed: Said the same line again" }));
+    const dialog = screen.getByRole("dialog");
+    const note = within(dialog).getByLabelText("What changed");
+    fireEvent.change(note, { target: { value: "Rephrase rule added." } });
+    // The form has no submit button inside it, so Enter submits it directly.
+    fireEvent.submit(note.closest("form")!);
+    await waitFor(() =>
+      expect(within(dialog).getByRole("button", { name: "Mark fixed" }).getAttribute("aria-busy")).toBe("true"),
+    );
+    fireEvent.submit(note.closest("form")!);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Mark fixed" }));
+    await new Promise((settle) => setTimeout(settle, 50));
+    expect(calls.filter((c) => c.method === "POST")).toHaveLength(1);
   });
 
   it("shows the API's refusal and keeps the dialog open", async () => {

@@ -8,6 +8,7 @@ import openapi from "@/lib/api/openapi.json";
 import { useAssistantRequests, type AssistantRequest } from "@/lib/copilot/launcher";
 
 import { renderAdminRoute } from "./adminRoute";
+import { stillLoading } from "./harness";
 
 /**
  * The auto-healer screen in plain words (founder, 11 Oct 2026: the rows read
@@ -284,6 +285,34 @@ describe("auto-healer screen in plain words", () => {
     await settle();
     const post = calls.find((c) => c.method === "POST" && c.path.endsWith("/resolve"));
     expect(post?.headers["X-Confirm-Action"]).toBe(`resolve_heal_incident:${MONEY}`);
+  });
+
+  it("holds every other re-check, with its reason, while one is out", async () => {
+    const webhooks = INCIDENTS[2]!;
+    const second = incident({
+      ...webhooks,
+      id: "019f1000-0000-7000-8000-0000000000w2",
+      ref: "000000w2",
+      kind: { ...webhooks.kind, title: "Some numbers could not be checked" },
+    });
+    const { calls } = await renderAdminRoute(
+      <OpsHealerPage />,
+      routes({
+        "/v1/ops/healer/incidents?days=7&limit=50": { items: [...INCIDENTS, second] },
+        [`POST /v1/ops/healer/incidents/${webhooks.id}/retry`]: stillLoading(),
+      }),
+    );
+    await settle();
+    const first = within(row(webhooks.kind.title)).getByRole("button", { name: "Check again now" });
+    fireEvent.click(first);
+    await settle();
+    expect(first.getAttribute("aria-busy")).toBe("true");
+    const other = within(row("Some numbers could not be checked")).getByRole("button", { name: "Check again now" });
+    expect(other.getAttribute("aria-disabled")).toBe("true");
+    expect(row("Some numbers could not be checked").textContent).toContain("Waiting for the other check to start.");
+    fireEvent.click(other);
+    await settle();
+    expect(calls.filter((c) => c.method === "POST")).toHaveLength(1);
   });
 
   it("hands Pip each open problem by its ref, prefilled and not sent", async () => {

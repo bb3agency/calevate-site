@@ -9,6 +9,8 @@ import { WriteFailure } from "@/app/admin/writeFailure";
 import { useAdminAccess } from "@/app/admin/access";
 import { useEndTrial, type TrialOutcome } from "@/lib/api/trials";
 
+import { resetIfSettled } from "@/app/admin/resetIfSettled";
+
 import { Field, describedBy } from "./fields";
 
 /**
@@ -50,7 +52,7 @@ export function EndTrialForm({
   const [draft, setDraft] = useState<EndDraft>(NO_END);
   const set = (key: keyof EndDraft, value: string) => {
     setDraft((prev) => ({ ...prev, [key]: value }) as EndDraft);
-    end.reset();
+    resetIfSettled(end);
   };
   const reason = draft.reason.trim();
   const ready = write.allowed && draft.outcome !== "" && reason.length >= 3;

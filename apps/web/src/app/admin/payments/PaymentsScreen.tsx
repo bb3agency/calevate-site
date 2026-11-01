@@ -40,6 +40,7 @@ import {
   useRecentPayments,
   useRunReconciliation,
 } from "@/lib/api/adminPayments";
+import { resetIfSettled } from "@/app/admin/resetIfSettled";
 
 /**
  * `payment_admin_routes._EVIDENCE_TYPES`, `_EVIDENCE_MAX_BYTES` and `EVIDENCE_MAX_FILES`:
@@ -466,7 +467,7 @@ function DisputeRow({ dispute, canAct }: { dispute: Dispute; canAct: boolean }) 
           status={acceptFeedback.status}
           error={accept.error}
           onCancel={() => {
-            accept.reset();
+            resetIfSettled(accept);
             setAccepting(false);
           }}
           onConfirm={() => acceptFeedback.run(dispute.dispute_id)}

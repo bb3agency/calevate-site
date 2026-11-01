@@ -29,6 +29,7 @@ import {
 } from "@/lib/api/kyc";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
+import { resetIfSettled } from "@/app/admin/resetIfSettled";
 
 import { initialDraft } from "./kycDraft";
 
@@ -63,7 +64,7 @@ export function KycRecordForm({
 
   const set = <K extends keyof KycRecordIn>(key: K, value: KycRecordIn[K]) => {
     setDraft((prev) => ({ ...prev, [key]: value }));
-    save.reset();
+    resetIfSettled(save);
   };
 
   /*
@@ -162,7 +163,7 @@ export function KycRecordForm({
       status: next,
       rejection_reason: next === "rejected" ? prev.rejection_reason : null,
     }));
-    save.reset();
+    resetIfSettled(save);
   };
 
   const blocked = recordBlockReason(draft);

@@ -37,7 +37,8 @@ import { KeyRound, LogOut, Mail, ShieldCheck } from "lucide-react";
 
 import { AuthProblemNotice } from "@/components/authn/fields";
 import { OtpInput } from "@/components/interior/otp-input";
-import { MODAL_PANEL, MODAL_SCRIM, PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/components/ui";
+import { ActionButton } from "@/components/arc/feedback";
+import { MODAL_PANEL, MODAL_SCRIM, SECONDARY_BUTTON } from "@/components/ui";
 import {
   ADMIN_SIGN_IN_PATH,
   adminAuthn,
@@ -271,15 +272,10 @@ export function StepUpPrompt({ realm = "admin" }: { realm?: "admin" | "client" }
 
           <form className="space-y-3" onSubmit={submit} noValidate>
             {sentAt === null ? (
-              <button
-                type="button"
-                className={PRIMARY_BUTTON}
-                disabled={sending}
-                onClick={send}
-              >
+              <ActionButton status={sending ? "pending" : "idle"} pendingLabel="Sending…" onClick={send}>
                 <Mail aria-hidden className="h-4 w-4" />
-                {sending ? "Sending…" : "Email me a code"}
-              </button>
+                Email me a code
+              </ActionButton>
             ) : (
               <>
                 {/* The address is not printed back, for the reason `SignInForm` gives:
@@ -296,24 +292,23 @@ export function StepUpPrompt({ realm = "admin" }: { realm?: "admin" | "client" }
                   readOnly={checking}
                 />
                 <div className="flex flex-wrap gap-2">
-                  <button
+                  <ActionButton
                     type="submit"
-                    className={PRIMARY_BUTTON}
-                    disabled={checking || code.length !== OTP_LENGTH}
+                    status={checking ? "pending" : "idle"}
+                    disabled={code.length !== OTP_LENGTH}
                   >
                     <KeyRound aria-hidden className="h-4 w-4" />
-                    {/* One name throughout, so the control is not renamed under focus while the code is
-                        checked; the boxes go read-only meanwhile. */}
                     Confirm
-                  </button>
-                  <button
-                    type="button"
-                    className={SECONDARY_BUTTON}
-                    disabled={sending || cooldown > 0}
+                  </ActionButton>
+                  <ActionButton
+                    variant="secondary"
+                    status={sending ? "pending" : "idle"}
+                    pendingLabel="Sending…"
+                    disabled={cooldown > 0}
                     onClick={send}
                   >
                     {cooldown > 0 ? `Send a new code in ${cooldown}s` : "Send a new code"}
-                  </button>
+                  </ActionButton>
                 </div>
               </>
             )}

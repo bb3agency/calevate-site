@@ -80,11 +80,12 @@ describe("the teach box", () => {
 
     // A rule belongs to one agent: with two, nothing is saved until one is chosen.
     const save = screen.getByRole("button", { name: "Save 1 fact and 1 rule" }) as HTMLButtonElement;
-    expect(save.disabled).toBe(true);
+    expect(save.getAttribute("aria-disabled")).toBe("true");
+    expect(screen.getByText("Choose which agent takes the rules.")).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Which agent are the rules for?"), {
       target: { value: "agent-2" },
     });
-    expect(save.disabled).toBe(false);
+    expect(save.getAttribute("aria-disabled")).toBeNull();
     fireEvent.click(save);
 
     await waitFor(() =>

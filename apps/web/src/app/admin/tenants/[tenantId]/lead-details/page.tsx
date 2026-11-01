@@ -21,6 +21,7 @@ import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 import { useAdminLeadSuggestions } from "@/lib/api/leadSuggestions";
 import { examplesFor } from "@/lib/verticalExamples";
+import { resetIfSettled } from "@/app/admin/resetIfSettled";
 
 /**
  * One client's lead details, for an operator (founder decision 15): the same screen the
@@ -131,7 +132,7 @@ function ReplaceAll({
             onChange={(event) => {
               const next = BUSINESS_TYPES.find((option) => option.value === event.target.value);
               if (next) setType(next.value);
-              replace.reset();
+              resetIfSettled(replace);
             }}
           >
             {offered.map((option) => (

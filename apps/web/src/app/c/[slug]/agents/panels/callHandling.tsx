@@ -98,6 +98,10 @@ export function AgentCallHandlingRows({ agentId }: { agentId: string }) {
   };
   const rowStatus = (which: Row) => (row === which ? feedback.status : "idle");
   const failed = (which: Row) => (row === which ? save.error : null);
+  // One write serves every row: while one row saves, the others wait rather than start a
+  // second save that would take over the first one's answer.
+  const waiting = (which: Row) =>
+    save.isPending && row !== which ? "Waiting for your other change to save." : null;
 
   return (
     <div className="space-y-2">
@@ -120,6 +124,7 @@ export function AgentCallHandlingRows({ agentId }: { agentId: string }) {
           maxMs={data.bounds.turn_silence_max_ms}
           canChange={write.allowed}
           status={rowStatus("pause")}
+          waitingFor={waiting("pause")}
           error={failed("pause")}
           scope={offer("pause", calevate.pause)}
           onSave={(next, done, scope) => send("pause", { turn_silence_ms: next }, done, scope)}
@@ -132,6 +137,7 @@ export function AgentCallHandlingRows({ agentId }: { agentId: string }) {
           inheritLabel={labels.hangUp}
           canChange={write.allowed}
           status={rowStatus("hang-up")}
+          waitingFor={waiting("hang-up")}
           error={failed("hang-up")}
           scope={offer("hang-up", calevate.hangUp)}
           onSave={(next, done, scope) => send("hang-up", { end_call_on_finish: next }, done, scope)}
@@ -141,6 +147,7 @@ export function AgentCallHandlingRows({ agentId }: { agentId: string }) {
           waitMs={openingWaitMs(data)}
           canChange={write.allowed}
           status={rowStatus("opening")}
+          waitingFor={waiting("opening")}
           error={failed("opening")}
           onSave={(next, done) => send("opening", { opening_waits_for_caller: next }, done, "agent")}
         />
@@ -156,6 +163,7 @@ export function AgentCallHandlingRows({ agentId }: { agentId: string }) {
             stepMs={data.bounds.opening_wait_step_ms}
             canChange={write.allowed}
             status={rowStatus("opening-wait")}
+            waitingFor={waiting("opening-wait")}
             error={failed("opening-wait")}
             scope={offer("opening-wait", calevate.openingWait)}
             onSave={(next, done, scope) => send("opening-wait", { opening_wait_ms: next }, done, scope)}
@@ -188,6 +196,7 @@ export function AgentCallHandlingRows({ agentId }: { agentId: string }) {
           seedMs={data.bounds.platform_reask_after_ms}
           canChange={write.allowed}
           status={rowStatus("reask")}
+          waitingFor={waiting("reask")}
           error={failed("reask")}
           scope={offer("reask", calevate.reask)}
           onSave={(next, done, scope) => send("reask", { reask_after_ms: next }, done, scope)}

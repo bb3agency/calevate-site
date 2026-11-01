@@ -22,6 +22,7 @@ import {
   useTenantInvitations,
 } from "@/lib/api/admin";
 import { ApiProblem } from "@/lib/api/client";
+import { resetIfSettled } from "@/app/admin/resetIfSettled";
 
 import { refusalReason } from "@/app/admin/new/shared";
 
@@ -204,7 +205,11 @@ export function OwnerInvitePanel({ created }: { created: { id: string; slug: str
                       variant="secondary-sm"
                       status={resendStatus(row.id)}
                       successLabel="Sent"
-                      disabled={resend.isPending && resend.variables?.invitationId !== row.id}
+                      waitingFor={
+                        resend.isPending && resend.variables?.invitationId !== row.id
+                          ? "Waiting for the other invite to send."
+                          : null
+                      }
                       onClick={() => resendFeedback.run({ tenantId: created.id, invitationId: row.id })}
                     >
                       Send this invite again
@@ -213,7 +218,11 @@ export function OwnerInvitePanel({ created }: { created: { id: string; slug: str
                       variant="secondary-sm"
                       status={revokeStatus(row.id)}
                       successLabel="Cancelled"
-                      disabled={revoke.isPending && revoke.variables?.invitationId !== row.id}
+                      waitingFor={
+                        revoke.isPending && revoke.variables?.invitationId !== row.id
+                          ? "Waiting for the other cancellation to finish."
+                          : null
+                      }
                       onClick={() => revokeFeedback.run({ tenantId: created.id, invitationId: row.id })}
                     >
                       Cancel this invite
@@ -257,7 +266,7 @@ export function OwnerInvitePanel({ created }: { created: { id: string; slug: str
                         // The row is gone, so the handle must go with it: a second click
                         // would 404 and read as the cancel having failed.
                         setMinted(null);
-                        invite.reset();
+                        resetIfSettled(invite);
                       },
                     },
                   );

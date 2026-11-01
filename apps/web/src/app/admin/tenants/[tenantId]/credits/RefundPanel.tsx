@@ -22,6 +22,8 @@ import {
   type RefundResult,
 } from "@/lib/api/refunds";
 
+import { resetIfSettled } from "@/app/admin/resetIfSettled";
+
 import { Field, describedBy } from "./fields";
 
 /**
@@ -176,7 +178,7 @@ export function RefundPanel({
               // it, or a refund is issued against one payment under a word typed for
               // another — which is precisely the mistake the re-keying exists to catch.
               setConfirm("");
-              refund.reset();
+              resetIfSettled(refund);
             }}
             aria-describedby={describedBy("refund-payment", false)}
             className={FIELD}
@@ -209,7 +211,7 @@ export function RefundPanel({
             disabled={!write.allowed || payment === null}
             onChange={(event) => {
               setAmountInr(event.target.value);
-              refund.reset();
+              resetIfSettled(refund);
             }}
             aria-describedby={describedBy("refund-amount", false)}
             className={FIELD}
@@ -230,7 +232,7 @@ export function RefundPanel({
             disabled={!write.allowed || payment === null}
             onChange={(event) => {
               setReason(event.target.value);
-              refund.reset();
+              resetIfSettled(refund);
             }}
             aria-describedby={describedBy("refund-reason", false)}
             className={FIELD}

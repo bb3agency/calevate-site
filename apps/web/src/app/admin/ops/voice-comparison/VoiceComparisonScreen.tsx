@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Download, LoaderCircle, Pause, Play } from "lucide-react";
 
-import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { ActionButton, useActionFeedback, useAsyncAction } from "@/components/arc/feedback";
 import {
   Card,
   FIELD,
@@ -105,7 +105,7 @@ function SetupCard({ enabled }: { enabled: boolean }) {
             status={setUpFeedback.status}
             pendingLabel="Setting up…"
             successLabel="Set up"
-            disabled={!data.sarvam_key_stored}
+            waitingFor={data.sarvam_key_stored ? null : "Store the Sarvam key first."}
             onClick={() => setUpFeedback.run()}
           >
             Set up Sarvam voices
@@ -300,7 +300,12 @@ function NewRoundForm({
             status={startFeedback.status}
             pendingLabel="Starting…"
             successLabel="Started"
-            disabled={!canStart}
+            waitingFor={
+              canStart || tooMany
+                ? null
+                : "Choose a voice on each side and at least one sentence."
+            }
+            disabled={tooMany}
           >
             Start the round
           </ActionButton>
@@ -565,7 +570,7 @@ function PairCard({
         status={rateFeedback.status}
         pendingLabel="Saving…"
         successLabel="Saved"
-        disabled={!complete}
+        waitingFor={complete ? null : "Score both voices and choose one first."}
         onClick={() => {
           if (a === null || b === null || preference === null) return;
           rate.mutate(
@@ -671,7 +676,7 @@ function RoundPanel({
             status={finishFeedback.status}
             pendingLabel="Finishing…"
             successLabel="Finished"
-            disabled={data.rated < data.pairs}
+            waitingFor={data.rated < data.pairs ? "Rate every pair first." : null}
             onClick={() => finishFeedback.run()}
           >
             Finish and show providers
@@ -690,7 +695,7 @@ function score(value: number | null | undefined): string {
 
 function Reveal({ round }: { round: ComparisonRound }) {
   const summary = useComparisonSummary(round.id, true);
-  const [downloadError, setDownloadError] = useState<unknown>(null);
+  const download = useAsyncAction(() => downloadRoundCsv(round.id), { errorDisplay: "inline" });
   const data = summary.data;
   if (summary.error) {
     return (
@@ -750,18 +755,17 @@ function Reveal({ round }: { round: ComparisonRound }) {
         </table>
       </ScrollRegion>
       <p className="text-ink-muted">{data.cost_note}</p>
-      {downloadError ? <ProblemNotice error={downloadError} /> : null}
-      <button
-        type="button"
-        className={SECONDARY_BUTTON}
-        onClick={() => {
-          setDownloadError(null);
-          downloadRoundCsv(round.id).catch(setDownloadError);
-        }}
+      {download.error ? <ProblemNotice error={download.error} /> : null}
+      <ActionButton
+        variant="secondary"
+        status={download.status}
+        pendingLabel="Downloading…"
+        successLabel="Downloaded"
+        onClick={() => download.run()}
       >
         <Download aria-hidden className="h-4 w-4" />
         Download CSV
-      </button>
+      </ActionButton>
     </div>
   );
 }

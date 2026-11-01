@@ -12,7 +12,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { createContext, useContext, useState, type ReactNode } from "react";
 
-import { SECONDARY_BUTTON } from "@/components/ui";
+import { ActionButton } from "@/components/arc/feedback";
 import { AuthProblemNotice } from "@/components/authn/fields";
 import { readSignInOptions, startGoogleSignIn, type SignInOptions } from "@/lib/authn/clientAuthn";
 
@@ -90,10 +90,11 @@ export function GoogleSignIn({
 
   return (
     <div className="space-y-4">
-      <button
-        type="button"
-        className={`${SECONDARY_BUTTON} w-full justify-center py-2.5 text-ink`}
-        disabled={pending}
+      <ActionButton
+        variant="secondary"
+        className="w-full py-2.5 text-ink"
+        status={pending ? "pending" : "idle"}
+        pendingLabel="Opening Google…"
         onClick={async () => {
           setPending(true);
           setError(null);
@@ -106,8 +107,8 @@ export function GoogleSignIn({
         }}
       >
         <GoogleMark />
-        {pending ? "Opening Google…" : label}
-      </button>
+        {label}
+      </ActionButton>
       <AuthProblemNotice error={error} />
       {divider && (
         <div className="flex items-center gap-3 text-xs text-ink-faint" role="separator">

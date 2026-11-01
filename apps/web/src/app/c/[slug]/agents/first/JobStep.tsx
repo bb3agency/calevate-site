@@ -73,7 +73,7 @@ export function JobStep({
           <ArrowRight aria-hidden className="h-4 w-4" />
         </>
       }
-      disabled={jobs.length === 0}
+      waitingFor={jobs.length === 0 ? "Pick at least one job." : null}
       status={saveFeedback.status}
       onSubmit={() => {
         if (jobs.length === 0) return;

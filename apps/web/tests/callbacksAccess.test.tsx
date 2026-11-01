@@ -1,11 +1,11 @@
-import { fireEvent, screen } from "@testing-library/react";
+import { act, fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import CallbacksPage from "@/app/c/[slug]/callbacks/page";
 import type { ScheduledCallback } from "@/lib/api/callbacks";
 import type { Me } from "@/lib/api/client";
 
-import { renderClientPage } from "./harness";
+import { renderClientPage, stillLoading } from "./harness";
 
 /**
  * Who may call a promised call-back off.
@@ -53,6 +53,22 @@ describe("calling off a call-back", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Call off" }));
     expect(await screen.findByText("Call this off?")).toBeTruthy();
+  });
+
+  it("holds Move on that call-back while it is being called off", async () => {
+    await renderClientPage(<CallbacksPage />, {
+      "/v1/me": OWNER,
+      [LIST]: [WAITING],
+      [`DELETE /v1/callbacks/${WAITING.id}`]: stillLoading(),
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Call off" }));
+    await act(async () => {
+      fireEvent.click(await screen.findByRole("button", { name: "Do not ring them" }));
+    });
+    const move = (await screen.findByRole("button", { name: "Move" })) as HTMLButtonElement;
+    expect(move.disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "Calling off…" })).toBeTruthy();
   });
 
   it("is not offered to staff, and the screen says why instead", async () => {

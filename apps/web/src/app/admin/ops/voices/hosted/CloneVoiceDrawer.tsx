@@ -117,7 +117,7 @@ export function CloneVoiceDrawer({ onClose }: { onClose: () => void }) {
         className="space-y-5"
         onSubmit={(event) => {
           event.preventDefault();
-          if (!complete || sample === null) return;
+          if (!complete || sample === null || clone.isPending) return;
           clone.mutate({
             sample,
             name: name.trim(),

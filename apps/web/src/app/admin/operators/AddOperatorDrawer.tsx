@@ -22,6 +22,7 @@ import {
 } from "@/lib/api/adminOperators";
 import { lookup } from "@/lib/lookup";
 import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
+import { resetIfSettled } from "@/app/admin/resetIfSettled";
 
 /**
  * Add an account, and mail its setup link. No password is chosen, generated or shown: the
@@ -120,7 +121,7 @@ export function AddOperatorDrawer({
             onChange={(event) => {
               setRole(event.target.value as AdminRole);
               setTyped("");
-              add.reset();
+              resetIfSettled(add);
             }}
             aria-label="Tier for the new admin"
             className={FIELD}
@@ -182,7 +183,7 @@ export function AddOperatorDrawer({
           value={typed}
           onChange={(next) => {
             setTyped(next);
-            add.reset();
+            resetIfSettled(add);
           }}
         />
 

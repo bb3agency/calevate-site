@@ -23,6 +23,8 @@ import {
   type useRecordAdjustment,
 } from "@/lib/api/credits";
 
+import { resetIfSettled } from "@/app/admin/resetIfSettled";
+
 import { Field, describedBy } from "./fields";
 import { LotReceipt } from "./lots";
 
@@ -81,7 +83,7 @@ export function CorrectionForm({
   const set = (key: keyof Correction, value: string) => {
     setDraft((prev) => ({ ...prev, [key]: value }));
     // The last result described a correction that is no longer the one in the form.
-    correct.reset();
+    resetIfSettled(correct);
   };
 
   const options = correctableEntries(wallet.entries);

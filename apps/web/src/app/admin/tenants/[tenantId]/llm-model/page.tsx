@@ -42,6 +42,7 @@ import { compareRates, rateDifference } from "@/lib/llmRates";
 
 import { useAdminAccess } from "@/app/admin/access";
 import { WriteFailure } from "@/app/admin/writeFailure";
+import { resetIfSettled } from "@/app/admin/resetIfSettled";
 
 /**
  * WHICH LANGUAGE MODEL THIS CLIENT'S AGENTS THINK WITH — the operator's half of the
@@ -489,7 +490,7 @@ function ChoiceForm({
     // string — carrying the old one over would let a phrase typed for one model confirm
     // a change to another.
     setTyped("");
-    set.reset();
+    resetIfSettled(set);
   };
 
   return (
@@ -634,7 +635,7 @@ function ChoiceForm({
           disabled={!write.allowed || confirmation === null}
           onChange={(next) => {
             setTyped(next);
-            set.reset();
+            resetIfSettled(set);
           }}
           hint={
             <span className="flex items-start gap-1">

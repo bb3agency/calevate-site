@@ -83,6 +83,12 @@ export function CampaignHeaderActions({
     setStatus.variables === action ? setStatusFeedback.status : "idle";
   const duplicateStatus = (withUnreached: boolean) =>
     Boolean(duplicate.variables?.with_unreached) === withUnreached ? duplicateFeedback.status : "idle";
+  // Either copy in flight holds the other (two presses would make two drafts), and a made
+  // copy holds both while the page moves to it (not once this screen shows the copy itself).
+  // The pressed one keeps its own busy face.
+  const copyHeld = (withUnreached: boolean) =>
+    (duplicate.isSuccess && duplicate.data.id !== campaignId) ||
+    (duplicate.isPending && duplicateStatus(withUnreached) !== "pending");
   const copy = (withUnreached: boolean) =>
     duplicate.mutate({ with_unreached: withUnreached }, { onSuccess: (made) => onCopied(made.id) });
 
@@ -130,7 +136,7 @@ export function CampaignHeaderActions({
       icon: <RotateCcw className="h-3.5 w-3.5" />,
       status: duplicateStatus(true),
       successLabel: "Copied",
-      disabled: !canWrite,
+      disabled: !canWrite || copyHeld(true),
       hint: ownerOnly,
       onSelect: () => copy(true),
     });
@@ -149,7 +155,7 @@ export function CampaignHeaderActions({
     label: "Duplicate",
     status: duplicateStatus(false),
     successLabel: "Copied",
-    disabled: !canWrite,
+    disabled: !canWrite || copyHeld(false),
     hint: ownerOnly,
     onSelect: () => copy(false),
   });

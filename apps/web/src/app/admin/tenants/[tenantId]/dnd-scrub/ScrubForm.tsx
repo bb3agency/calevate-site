@@ -26,6 +26,7 @@ import {
   type useRecordPreferenceScrub,
 } from "@/lib/api/preferenceScrub";
 import type { CampaignSummary } from "@/lib/api/campaigns";
+import { resetIfSettled } from "@/app/admin/resetIfSettled";
 
 /**
  * Filing a provider's scrub run against one campaign.
@@ -61,7 +62,7 @@ export function ScrubForm({
 
   const set = <K extends keyof ScrubDraft>(key: K, value: ScrubDraft[K]) => {
     setDraft((prev) => ({ ...prev, [key]: value }));
-    record.reset();
+    resetIfSettled(record);
   };
 
   const instant = istInputToInstant(draft.scrubbedAtInput);

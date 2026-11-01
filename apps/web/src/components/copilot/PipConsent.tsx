@@ -102,7 +102,12 @@ function OwnerConsent({ session, consent }: { session: Session; consent: PipCons
         </label>
       </div>
 
-      <ActionButton type="submit" status={turnOnFeedback.status} disabled={!agreed} successLabel="Turned on">
+      <ActionButton
+        type="submit"
+        status={turnOnFeedback.status}
+        waitingFor={agreed ? null : "Tick the box above first."}
+        successLabel="Turned on"
+      >
         Turn on {ASSISTANT_NAME}
       </ActionButton>
 

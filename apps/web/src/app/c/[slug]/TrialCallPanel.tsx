@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { PhoneOutgoing } from "lucide-react";
 
 import { ActionButton, useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
@@ -22,7 +22,14 @@ import { RowLink } from "@/components/console/checklist";
 import { canTestCall, isDeleted } from "@/lib/agentState";
 import { useAgentLifecycle, useAgents } from "@/lib/api/agents";
 import { useClientRealm } from "@/lib/api/session";
-import { usePlaceTrialCall, useRecentTestCalls, type TrialPanel } from "@/lib/api/trialCalls";
+import {
+  testCallIsLive,
+  testCallPollMs,
+  usePlaceTrialCall,
+  useRecentTestCalls,
+  useTestCall,
+  type TrialPanel,
+} from "@/lib/api/trialCalls";
 
 import { EarlierTestCalls, TestCallFollow } from "./TestCallStatus";
 import { HOME, TRIAL } from "./setup/_ui/copy";
@@ -59,6 +66,53 @@ export function TrialCallPanel({ slug, trial }: { slug: string; trial: TrialPane
       newAgentHref={href(`/c/${slug}/agents/first`)}
     />
   );
+}
+
+/**
+ * Why "Make a test call" cannot be pressed yet, in one short line, or null. Exported for the
+ * test. `canCall` false is said by the trial's own lines above the form, so not again here.
+ */
+export function callWait({
+  onCall,
+  agentsLoading,
+  number,
+  canCall,
+}: {
+  onCall: boolean;
+  agentsLoading: boolean;
+  number: string;
+  canCall: boolean;
+}): string | null {
+  if (!canCall) return null;
+  if (onCall) return "Wait for this call to end";
+  if (agentsLoading) return "Waiting for your agents to load";
+  if (number.trim() === "") return "Type a number to call";
+  return null;
+}
+
+/**
+ * Hands its child whether the followed test call is still ringing or talking. It reads the
+ * same query the follow card polls, so it adds no request. Only while that card still polls:
+ * a call the engine never closed stops holding the button when the follow window ends, so
+ * the button cannot stay grey forever.
+ */
+function LiveCallGate({ callId, children }: { callId: string | null; children: (onCall: boolean) => ReactNode }) {
+  if (callId === null) return <>{children(false)}</>;
+  return <FollowedCallGate callId={callId}>{children}</FollowedCallGate>;
+}
+
+function FollowedCallGate({ callId, children }: { callId: string; children: (onCall: boolean) => ReactNode }) {
+  const { session } = useClientRealm();
+  const call = useTestCall(session, callId).data;
+  const live = call !== undefined && testCallIsLive(call);
+  // Re-read the clock while live: the follow window can end between two polls.
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (!live) return undefined;
+    const timer = window.setInterval(() => tick((n) => n + 1), 5_000);
+    return () => window.clearInterval(timer);
+  }, [live]);
+  return <>{children(live && call !== undefined && testCallPollMs(call) !== false)}</>;
 }
 
 /** A status chip: a fact at a glance, never a sentence (the card's days and calls today). */
@@ -258,16 +312,27 @@ export function TrialCallCard({
               className={`${FIELD_INLINE} mt-1 w-full font-mono sm:w-72`}
             />
           </label>
-          <ActionButton
-            type="submit"
-            disabled={!ready}
-            status={callStatus}
-            pendingLabel={prepare.isPending ? "Getting it ready" : "Calling"}
-            successLabel="Calling"
-          >
-            <PhoneOutgoing aria-hidden className="h-4 w-4" />
-            Make a test call
-          </ActionButton>
+          <LiveCallGate callId={followedId}>
+            {(onCall) => {
+              const wait = callWait({ onCall, agentsLoading: agents.isPending, number, canCall: trial.can_call });
+              return (
+                <div className="flex flex-col gap-1">
+                  <ActionButton
+                    type="submit"
+                    // What `callWait` does not name is said by the lines above the form.
+                    disabled={wait === null && !ready}
+                    waitingFor={wait}
+                    status={callStatus}
+                    pendingLabel={prepare.isPending ? "Getting it ready" : "Calling"}
+                    successLabel="Calling"
+                  >
+                    <PhoneOutgoing aria-hidden className="h-4 w-4" />
+                    Make a test call
+                  </ActionButton>
+                </div>
+              );
+            }}
+          </LiveCallGate>
           <div className="basis-full">
             <DefaultCheckbox
               label={TRIAL.ownNumber}

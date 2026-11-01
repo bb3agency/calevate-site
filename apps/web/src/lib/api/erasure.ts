@@ -59,8 +59,13 @@ export function useTenantErasures(
   return useQuery({
     queryKey: ["admin", "tenant-erasure", tenantId],
     queryFn: () => apiRequest<TenantErasure[]>(session, erasurePath(tenantId)),
+    // An erasure runs in the background; read again until none is pending.
+    refetchInterval: (query) =>
+      query.state.data?.some((erasure) => erasure.status === "pending") ? ERASURE_POLL_MS : false,
   });
 }
+
+const ERASURE_POLL_MS = 10_000;
 
 export function useEraseTenant(session: Session, tenantId: string) {
   const client = useQueryClient();

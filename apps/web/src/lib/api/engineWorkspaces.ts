@@ -94,8 +94,16 @@ export function useTenantWorkspace(tenantId: string) {
     queryKey: tenantKey(tenantId),
     queryFn: () => apiRequest<TenantWorkspace>(adminSession(), WORKSPACE_PATHS.tenant(tenantId)),
     enabled: Boolean(tenantId),
+    // Set-up and offboarding run in the background; read again until they settle, so the
+    // status and the buttons that wait on it move without a reload.
+    refetchInterval: (query) =>
+      query.state.data?.status === "pending" || query.state.data?.status === "offboarding"
+        ? WORKSPACE_BUSY_POLL_MS
+        : false,
   });
 }
+
+const WORKSPACE_BUSY_POLL_MS = 5_000;
 
 /** Every number-shaped read on the tenant's screen moves when a workspace action lands. */
 function useInvalidateTenant(tenantId: string) {

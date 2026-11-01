@@ -34,6 +34,7 @@ export function StepScreen({
   status,
   successLabel = "Saved",
   disabled = false,
+  waitingFor = null,
   onBack,
   aside,
   eyebrow,
@@ -49,6 +50,8 @@ export function StepScreen({
   /** One past-tense word for the primary action's success face. */
   successLabel?: string;
   disabled?: boolean;
+  /** Why the primary action must wait (a file still being read), shown under it; null when ready. */
+  waitingFor?: ReactNode;
   onBack?: () => void;
   /** A second way on, beside the primary action ("Skip the rest and build"). */
   aside?: ReactNode;
@@ -63,7 +66,7 @@ export function StepScreen({
   const shown: FeedbackStatus = status ?? (pending ? "pending" : "idle");
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (shown !== "pending" && !disabled) onSubmit?.();
+    if (shown !== "pending" && !disabled && waitingFor === null) onSubmit?.();
   };
 
   return (
@@ -94,6 +97,7 @@ export function StepScreen({
                 status={shown}
                 successLabel={successLabel}
                 disabled={disabled}
+                waitingFor={waitingFor}
                 className="w-full lg:w-auto"
               >
                 {primary}

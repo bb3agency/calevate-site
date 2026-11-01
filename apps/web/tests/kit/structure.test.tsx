@@ -121,6 +121,29 @@ describe("ConfirmDialog's confirm button carries the action's state", () => {
     expect((screen.getByRole("button", { name: "Cancel" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it("ignores Escape while the confirmed write is in flight, and honours it after", () => {
+    const onCancel = vi.fn();
+    const dialog = (status: "idle" | "pending") => (
+      <ConfirmDialog
+        title="Remove Venkat Rao?"
+        confirmLabel="Remove"
+        pendingLabel="Removing…"
+        status={status}
+        error={null}
+        onCancel={onCancel}
+        onConfirm={() => undefined}
+      >
+        <p>He will not be called again.</p>
+      </ConfirmDialog>
+    );
+    const { rerender } = render(dialog("pending"));
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    expect(onCancel).not.toHaveBeenCalled();
+    rerender(dialog("idle"));
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
   it("still honours the old pending flag", () => {
     renderWith("idle", true);
     expect(screen.getByRole("button", { name: "Remove" }).getAttribute("data-status")).toBe("pending");

@@ -125,7 +125,12 @@ export function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: stri
                     className="ml-auto"
                     status={setDlt.variables?.numberId === number.id ? setDltFeedback.status : "idle"}
                     successLabel="Marked"
-                    disabled={(setDlt.isPending && setDlt.variables?.numberId !== number.id) || !write.allowed}
+                    disabled={!write.allowed}
+                    waitingFor={
+                      setDlt.isPending && setDlt.variables?.numberId !== number.id
+                        ? "Waiting for the other number to save."
+                        : null
+                    }
                     onClick={() => setDltFeedback.run({ numberId: number.id, dltStatus: "registered" })}
                   >
                     Mark registered
@@ -169,9 +174,11 @@ export function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: stri
                         setStatus.variables?.templateId === template.id ? setStatusFeedback.status : "idle"
                       }
                       successLabel="Recorded"
-                      disabled={
-                        (setStatus.isPending && setStatus.variables?.templateId !== template.id) ||
-                        !write.allowed
+                      disabled={!write.allowed}
+                      waitingFor={
+                        setStatus.isPending && setStatus.variables?.templateId !== template.id
+                          ? "Waiting for the other template to save."
+                          : null
                       }
                       onClick={() => setStatusFeedback.run({ templateId: template.id, status: "approved" })}
                     >

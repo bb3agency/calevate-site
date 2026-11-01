@@ -42,6 +42,7 @@ import {
   validateDraft,
   type AnnouncementDraft,
 } from "./announcementDraft";
+import { resetIfSettled } from "@/app/admin/resetIfSettled";
 
 const STATE: Record<AdminAnnouncement["state"], { label: string; tone: NoticeTone }> = {
   showing: { label: "Showing now", tone: "ok" },
@@ -104,8 +105,8 @@ export function AnnouncementsScreen() {
 
   const open = (next: Editing) => {
     const start = next.mode === "edit" ? draftFrom(next.row) : EMPTY_DRAFT;
-    create.reset();
-    update.reset();
+    resetIfSettled(create);
+    resetIfSettled(update);
     setOriginal(start);
     setDraft(start);
     setTried(false);
@@ -198,7 +199,7 @@ export function AnnouncementsScreen() {
                 canWrite={write.allowed}
                 onEdit={() => open({ mode: "edit", row })}
                 onEnd={() => {
-                  end.reset();
+                  resetIfSettled(end);
                   setEnding(row);
                 }}
               />

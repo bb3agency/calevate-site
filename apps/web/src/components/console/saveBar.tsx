@@ -30,6 +30,7 @@ export function SaveBar({
   note,
   disabled = false,
   title,
+  waitingFor = null,
 }: {
   /** The consequence, as the button says it ("Use this voice", "Save model"). */
   label: string;
@@ -41,6 +42,8 @@ export function SaveBar({
   note?: ReactNode;
   disabled?: boolean;
   title?: string;
+  /** Another save it shares a write with is running: held, with this reason. */
+  waitingFor?: ReactNode;
 }) {
   const shown: FeedbackStatus = status ?? (saving ? "pending" : "idle");
   const busy = shown === "pending";
@@ -55,6 +58,7 @@ export function SaveBar({
           successLabel="Saved"
           disabled={disabled}
           title={title}
+          waitingFor={waitingFor}
           className="flex-1 sm:flex-none"
         >
           {label}

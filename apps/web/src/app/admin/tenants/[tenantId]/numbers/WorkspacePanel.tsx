@@ -48,6 +48,7 @@ import {
 import { SEARCH_DIGITS_MAX, newRequestKey, searchDigits } from "@/lib/api/ownNumbers";
 import type { components } from "@/lib/api/schema";
 import { lookup } from "@/lib/lookup";
+import { resetIfSettled } from "@/app/admin/resetIfSettled";
 
 import { firstPeriodPhrase } from "./firstPeriod";
 
@@ -221,7 +222,7 @@ function WorkspaceBody({
           className={TEXT_ACTION_DANGER}
           disabled={!canWrite || offboard.isPending}
           onClick={() => {
-            offboard.reset();
+            resetIfSettled(offboard);
             setOffboarding(true);
           }}
         >
@@ -394,9 +395,15 @@ function AdminBuyNumber({
             onChange={(event) => setPattern(searchDigits(event.target.value))}
           />
         </label>
-        <button type="submit" className={SECONDARY_BUTTON_SM} disabled={!city || available.isFetching}>
+        <ActionButton
+          type="submit"
+          variant="secondary-sm"
+          status={search !== null && available.isFetching ? "pending" : "idle"}
+          pendingLabel="Finding…"
+          waitingFor={city ? null : "Choose a city first."}
+        >
           Find numbers
-        </button>
+        </ActionButton>
       </form>
       {available.error && (
         <ProblemNotice error={available.error} onRetry={() => void available.refetch()} />
@@ -418,20 +425,20 @@ function AdminBuyNumber({
                     Client pays {offer.client_inr_per_month ? formatINRExact(offer.client_inr_per_month) : "—"}
                     {" · "}our cost {offer.vendor_inr_per_month ? formatINRExact(offer.vendor_inr_per_month) : "—"} a month
                   </span>
-                  <button
-                    type="button"
-                    className={SECONDARY_BUTTON_SM}
+                  <ActionButton
+                    variant="secondary-sm"
                     disabled={!canWrite}
                     aria-label={`Buy ${formatPhone(offer.e164)}`}
+                    waitingFor={purchase.isPending ? "Waiting for the other purchase to finish." : null}
                     onClick={() => {
-                      purchase.reset();
+                      resetIfSettled(purchase);
                       setAgentId(NO_AGENT);
                       setRequestKey(newRequestKey());
                       setChosen(offer);
                     }}
                   >
                     Buy
-                  </button>
+                  </ActionButton>
                 </li>
               ))}
             </ul>
@@ -455,7 +462,10 @@ function AdminBuyNumber({
           pendingLabel="Buying…"
           status={purchaseFeedback.status}
           error={purchase.error}
-          onCancel={() => setChosen(null)}
+          // Escape reaches here too; a purchase in flight keeps its dialog until it answers.
+          onCancel={() => {
+            if (!purchase.isPending) setChosen(null);
+          }}
           onConfirm={() =>
             purchase.mutate(
               {
@@ -483,6 +493,7 @@ function AdminBuyNumber({
             <select
               className={FIELD_INLINE}
               value={agentId}
+              disabled={purchase.isPending}
               onChange={(event) => {
                 setAgentId(event.target.value);
                 setRequestKey(newRequestKey());

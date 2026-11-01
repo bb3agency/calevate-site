@@ -78,6 +78,7 @@ export function ModelBandControl({ model }: { model: EngineCatalogueModel }) {
           <button
             type="button"
             className={TEXT_ACTION}
+            disabled={record.isPending}
             onClick={() => setConfirmPaid(false)}
           >
             Cancel

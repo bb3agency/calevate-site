@@ -29,6 +29,7 @@ import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 
 import { StatusPill } from "@/components/admin/kit";
+import { resetIfSettled } from "@/app/admin/resetIfSettled";
 import { ErasurePanel } from "./ErasurePanel";
 
 /**
@@ -357,7 +358,7 @@ function CloseForm({
             disabled={!write.allowed}
             onChange={(event) => {
               setReason(event.target.value);
-              close.reset();
+              resetIfSettled(close);
             }}
             className={FIELD}
           />
@@ -373,7 +374,7 @@ function CloseForm({
           value={typed}
           onChange={(value) => {
             setTyped(value);
-            close.reset();
+            resetIfSettled(close);
           }}
           disabled={!write.allowed}
         />

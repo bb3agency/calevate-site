@@ -14,7 +14,8 @@
 import { useState, type FormEvent } from "react";
 
 import { AskAssistant } from "@/components/copilot/AskAssistant";
-import { FIELD, FIELD_LABEL, RestrictionNote, SECONDARY_BUTTON } from "@/components/ui";
+import { ActionButton } from "@/components/arc/feedback";
+import { FIELD, FIELD_LABEL, RestrictionNote } from "@/components/ui";
 import { PipMark } from "@/components/illustration/pip";
 import { useActAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
@@ -39,17 +40,21 @@ export const wholeRequestFor = (agentName: string) =>
 export const STEPS_REQUEST = "Turn this agent's hand-written script into steps.";
 
 /** Steps only: a hand-written script's one move is under the script (`HandWritten`). */
-export function PipAsk() {
+export function PipAsk({ drafting = false }: { drafting?: boolean } = {}) {
   const session = useClientSession();
   // Asking Pip spends the account's AI allowance, which a view-as operator may not.
   const write = useActAccess(session, "org:manage", "billing.ai_assist", `ask ${ASSISTANT_NAME} to change this script`);
+  // One suggestion at a time: the server refuses a second ask while one is being written
+  // (`script_proposal_in_progress`). The builder's suggestion read polls, so this lifts by
+  // itself, and a draft stuck past the server's limit reads as failed and lifts it too.
+  const asking = write.allowed && !drafting;
   const [change, setChange] = useState("");
   const eg = useVerticalExamples();
   const ideas = IDEAS.includes(eg.scriptChangeIdea) ? IDEAS : [...IDEAS, eg.scriptChangeIdea];
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (change.trim()) openAssistant({ prompt: changeRequest(change.trim()) });
+    if (asking && change.trim()) openAssistant({ prompt: changeRequest(change.trim()) });
   };
 
   return (
@@ -74,16 +79,21 @@ export function PipAsk() {
           placeholder={eg.scriptChange}
           onChange={(e) => setChange(e.target.value)}
         />
-        <button type="submit" className={SECONDARY_BUTTON} disabled={!write.allowed || change.trim().length === 0}>
+        <ActionButton
+          type="submit"
+          variant="secondary"
+          disabled={!write.allowed || (!drafting && change.trim().length === 0)}
+          waitingFor={write.allowed && drafting ? `Wait for ${ASSISTANT_NAME} to finish this suggestion` : null}
+        >
           Let {ASSISTANT_NAME} do it
-        </button>
+        </ActionButton>
       </form>
       <div className="space-y-1.5">
         <p className="text-meta text-ink-muted">Or tap one:</p>
         <ul className="flex flex-wrap gap-1.5" aria-label="Ideas">
           {ideas.map((idea) => (
             <li key={idea}>
-              <AskAssistant variant="chip" prompt={changeRequest(idea)} label={idea} disabled={!write.allowed} />
+              <AskAssistant variant="chip" prompt={changeRequest(idea)} label={idea} disabled={!asking} />
             </li>
           ))}
         </ul>
@@ -91,7 +101,7 @@ export function PipAsk() {
       <p className="text-meta text-ink-muted">
         Uses your AI allowance. You check every change first.
       </p>
-      <AskAssistant label={`Let ${ASSISTANT_NAME} draft the whole script`} prompt={WHOLE_REQUEST} disabled={!write.allowed} />
+      <AskAssistant label={`Let ${ASSISTANT_NAME} draft the whole script`} prompt={WHOLE_REQUEST} disabled={!asking} />
     </section>
   );
 }

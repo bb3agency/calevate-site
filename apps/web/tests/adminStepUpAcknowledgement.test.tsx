@@ -132,6 +132,7 @@ describe("proving a second factor acknowledges itself", () => {
     expect(screen.getByRole("alert").textContent).toContain(
       "Nothing was changed",
     );
-    expect(screen.queryByRole("status")).toBeNull();
+    // The prompt's buttons each keep an empty polite region for their own outcome.
+    expect(screen.queryAllByRole("status").filter((node) => node.textContent?.trim())).toEqual([]);
   });
 });

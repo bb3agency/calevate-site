@@ -25,6 +25,8 @@ import {
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
 
+import { resetIfSettled } from "@/app/admin/resetIfSettled";
+
 import { Field, describedBy } from "./fields";
 import { LotReceipt } from "./lots";
 
@@ -83,7 +85,7 @@ export function RecordForm({
   const set = (key: keyof Draft, value: string) => {
     setDraft((prev) => ({ ...prev, [key]: value }));
     // The last result described a request that is no longer the one in the form.
-    save.reset();
+    resetIfSettled(save);
   };
 
   /*

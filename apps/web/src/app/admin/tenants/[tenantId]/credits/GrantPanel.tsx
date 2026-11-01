@@ -25,6 +25,8 @@ import {
   type GrantResult,
 } from "@/lib/api/credits";
 
+import { resetIfSettled } from "@/app/admin/resetIfSettled";
+
 import { Field, describedBy } from "./fields";
 
 /**
@@ -180,7 +182,7 @@ export function GrantPanel({
               // and the header the API checks carries the amount, so it would be refused
               // anyway, with a message about ceremony instead of about the typo.
               setConfirm("");
-              grant.reset();
+              resetIfSettled(grant);
             }}
             aria-describedby={describedBy("grant-amount", amountProblem !== null)}
             className={FIELD}
@@ -201,7 +203,7 @@ export function GrantPanel({
             disabled={!write.allowed}
             onChange={(event) => {
               setReason(event.target.value);
-              grant.reset();
+              resetIfSettled(grant);
             }}
             aria-describedby={describedBy("grant-reason", false)}
             className={FIELD}

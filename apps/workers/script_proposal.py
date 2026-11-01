@@ -3,7 +3,8 @@
 `agents/script_proposals.request_proposal` records the request and queues this job; the job
 writes the proposal with `script_assist.draft_script` — the same call, prompt, repair and
 ladder the Script page's own helper used — meters it, and stores it for review. It never
-touches the draft and never puts anything live.
+touches the draft and never puts anything live. An opening line the model wrote that breaks
+the opening rule is repaired by the opening writer before it is stored (`opening_line`, D-957).
 
 A job rather than a call inside Pip's answer: the draft is two model legs at most, which does
 not belong inside the action's database transaction (D-748's reason for the improve job) nor
@@ -22,7 +23,7 @@ from dataclasses import replace
 from typing import Any, Final
 from uuid import UUID
 
-from calevate_shared.call_script import unplaced_lines
+from calevate_shared.call_script import CallScript, unplaced_lines
 from sqlalchemy import text
 
 from apps.api.agents import script_proposals
@@ -35,7 +36,14 @@ from apps.api.db.session import tenant_session
 from apps.api.first_run.documents import document_words, read_documents
 from apps.api.kb.service import knowledge_agents
 from apps.workers.first_run import documents_block
-from apps.workers.script_assist import CONVERT_INSTRUCTION, ScriptBrief, ScriptDraft, draft_script
+from apps.workers.opening_line import opening_problems, write_opening
+from apps.workers.script_assist import (
+    CONVERT_INSTRUCTION,
+    JsonAnswer,
+    ScriptBrief,
+    ScriptDraft,
+    draft_script,
+)
 
 log = get_logger(__name__)
 
@@ -145,6 +153,49 @@ async def _draft(
     )
 
 
+async def _opening_repaired(
+    tenant_id: UUID, agent_id: UUID, proposal: script_proposals.ScriptProposal, script: CallScript
+) -> tuple[CallScript, JsonAnswer[str] | ProblemError | None]:
+    """The proposal's script with an opening line the model wrote that breaks the opening rule
+    repaired by the opening writer, as onboarding's is (`first_run._write_greeting`, D-957),
+    and what the repair spent. A conversion keeps the owner's sentences, and a line the owner
+    already had or asked for in their own words is theirs: neither is judged. A repair that
+    gives no line leaves the proposal as drafted, for the owner to review."""
+    line = script.opening_line.strip()
+    owners = " ".join([proposal.request or "", *proposal.answers.values()])
+    if (
+        proposal.mode == "steps"
+        or not line
+        or line == proposal.base_script.opening_line.strip()
+        or line in owners
+    ):
+        return script, None
+    async with tenant_session(tenant_id) as session:
+        context = await script_proposals.brief_for(session, tenant_id, agent_id)
+        tenant_leg = await account_assist_leg(session)
+        quota = await read_ai_quota(session, tenant_id=tenant_id)
+    problems = opening_problems(
+        line,
+        context.language,
+        names=(context.business_name, context.agent_name),
+        introduced=context.introduced,
+    )
+    if not problems:
+        return script, None
+    try:
+        answer = await write_opening(
+            replace(context, answers=tuple(proposal.answers.items())),
+            line=line,
+            problems=problems,
+            tenant_leg=tenant_leg,
+            quota_exhausted=quota.at_ceiling or quota.platform_paused,
+        )
+    except ProblemError as refused:
+        log.info("script_proposal_opening_unrepaired", extra={"reason": refused.code})
+        return script, refused
+    return script.model_copy(update={"opening_line": answer.value}), answer
+
+
 async def _fail(tenant_id: UUID, agent_id: UUID, proposal_id: UUID, note: str) -> None:
     async with tenant_session(tenant_id) as session:
         await script_proposals.store_failed(
@@ -188,6 +239,7 @@ async def draft_script_proposal(ctx: dict[str, Any], payload: dict[str, Any]) ->
         await _fail(tenant_id, agent_id, proposal_id, script_proposals.FAILED_NOTE)
         return "failed"
 
+    script, opening_spent = await _opening_repaired(tenant_id, agent_id, proposal, draft.script)
     unplaced = (
         unplaced_lines(proposal.base_script.raw_override or "", draft.script)
         if proposal.mode == "steps"
@@ -201,21 +253,30 @@ async def draft_script_proposal(ctx: dict[str, Any], payload: dict[str, Any]) ->
             session,
             agent_id=agent_id,
             proposal_id=proposal_id,
-            script=draft.script,
+            script=script,
             unplaced=unplaced,
             disclosure=draft.capability.disclosure,
         )
-        await crm_assist.meter_earlier(
-            session, tenant_id=tenant_id, earlier=draft.earlier, feature=feature
-        )
-        await crm_assist.meter_assist(
-            session,
-            tenant_id=tenant_id,
-            ref=new_assist_ref(),
-            result=draft,
-            model=draft.model,
-            feature=feature,
-        )
+        spends: list[ScriptDraft | JsonAnswer[str] | ProblemError | None] = [draft, opening_spent]
+        for spent in spends:
+            if spent is None:
+                continue
+            if isinstance(spent, ProblemError):
+                await crm_assist.meter_refusal(
+                    session, tenant_id=tenant_id, refusal=spent, feature=feature
+                )
+                continue
+            await crm_assist.meter_earlier(
+                session, tenant_id=tenant_id, earlier=spent.earlier, feature=feature
+            )
+            await crm_assist.meter_assist(
+                session,
+                tenant_id=tenant_id,
+                ref=new_assist_ref(),
+                result=spent,
+                model=spent.model,
+                feature=feature,
+            )
     log.info(
         "script_proposal_written",
         extra={"agent_id": str(agent_id), "mode": proposal.mode, "stored": stored},

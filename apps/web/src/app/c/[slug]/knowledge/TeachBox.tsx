@@ -287,7 +287,10 @@ function Review({
           status={saveFeedback.status}
           pendingLabel="Saving…"
           successLabel="Saved"
-          disabled={kept.length === 0 || needsAgent || discard.isPending}
+          disabled={discard.isPending}
+          waitingFor={
+            kept.length === 0 ? "Keep at least one item." : needsAgent ? "Choose which agent takes the rules." : null
+          }
           onClick={() =>
             save.mutate(
               {

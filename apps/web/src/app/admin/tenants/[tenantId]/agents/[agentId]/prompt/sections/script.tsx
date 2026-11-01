@@ -26,6 +26,7 @@ import {
   type PromptVersion,
 } from "@/lib/api/prompts";
 import type { PendingState } from "@/lib/api/publishing";
+import { resetIfSettled } from "@/app/admin/resetIfSettled";
 
 /**
  * Whether a saved version waits for Apply, as the server decides it: only an agent that is
@@ -204,7 +205,7 @@ export function ScriptSection({
                     type="button"
                     disabled={rollback.isPending || !write.allowed}
                     onClick={() => {
-                      rollback.reset();
+                      resetIfSettled(rollback);
                       setConfirming(entry);
                     }}
                     className={`ml-auto ${SECONDARY_BUTTON_SM}`}

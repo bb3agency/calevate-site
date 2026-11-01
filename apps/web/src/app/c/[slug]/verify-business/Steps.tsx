@@ -406,8 +406,11 @@ function DetailsForm({ session, record, access }: { session: Session; record: Ky
         <ActionButton
           type="submit"
           status={saveFeedback.status}
-          disabled={!access.allowed || !ready}
+          disabled={!access.allowed}
           title={access.reason ?? undefined}
+          waitingFor={
+            !access.allowed || ready ? null : gstinBad && gstin !== "" ? "Check the GSTIN above." : "Fill in each field above."
+          }
           className={PHONE_WIDE}
           pendingLabel="Saving…"
           successLabel="Saved"
@@ -675,7 +678,18 @@ function ManualPath({ session, record, access }: { session: Session; record: Kyc
       {showProblem && <FieldMessage id={panErrorId}>{numberProblem}</FieldMessage>}
       <ActionButton
         status={submitFeedback.status}
-        disabled={!access.write.allowed || !owner || !number || Boolean(numberProblem)}
+        disabled={!access.write.allowed}
+        waitingFor={
+          !access.write.allowed
+            ? null
+            : !owner
+              ? "Add the PAN card file first."
+              : !number
+                ? "Enter the PAN."
+                : numberProblem
+                  ? "Check the PAN above."
+                  : null
+        }
         onClick={() => submitFeedback.run({ owner_id_type: "pan", owner_id_number: number.trim().toUpperCase() })}
         className={PHONE_WIDE}
         pendingLabel="Sending…"
@@ -727,8 +741,9 @@ function DigiLockerPath({ session, record, access }: { session: Session; record:
       <ActionButton
         // Success hands the page to DigiLocker, so the tick reads as the redirect starting.
         status={startFeedback.status}
-        disabled={!access.allowed || !record.entity_type}
+        disabled={!access.allowed}
         title={access.reason ?? undefined}
+        waitingFor={access.allowed && !record.entity_type ? "Save your business details first." : null}
         className={PHONE_WIDE}
         pendingLabel="Opening DigiLocker…"
         successLabel="Opening DigiLocker…"
@@ -785,7 +800,8 @@ function PledgeBody({ session, pledge, access }: { session: Session; pledge: Out
           </label>
           <ActionButton
             status={acceptFeedback.status}
-            disabled={!access.allowed || !read}
+            disabled={!access.allowed}
+            waitingFor={access.allowed && !read ? "Tick the box above first." : null}
             onClick={() => acceptFeedback.run(pledge)}
             className={PHONE_WIDE}
             pendingLabel="Accepting…"

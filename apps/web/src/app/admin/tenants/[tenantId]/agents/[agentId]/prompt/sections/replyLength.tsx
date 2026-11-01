@@ -45,6 +45,11 @@ export function ReplyLengthPanel({
   const data = held.data;
   const disabled = !write.allowed;
   const inherited = data.max_reply_tokens == null;
+  const saveFace = save.variables?.max_reply_tokens !== null ? saveFeedback.status : "idle";
+  const inheritFace = save.variables?.max_reply_tokens === null ? saveFeedback.status : "idle";
+  // The two buttons share one write; the one not carrying it waits rather than racing it.
+  const waitingFor = (face: typeof saveFace) =>
+    save.isPending && face !== "pending" ? "Waiting for the other change to save." : null;
   const submit = (value: number | null) => {
     setSaved(false);
     save.mutate({ max_reply_tokens: value }, { onSuccess: () => setSaved(true) });
@@ -89,18 +94,20 @@ export function ReplyLengthPanel({
         <ActionButton
           type="submit"
           variant="primary-sm"
-          status={save.variables?.max_reply_tokens !== null ? saveFeedback.status : "idle"}
+          status={saveFace}
           pendingLabel="Saving…"
           successLabel="Saved"
           disabled={disabled}
+          waitingFor={waitingFor(saveFace)}
         >
           Save
         </ActionButton>
         {!inherited && (
           <ActionButton
             variant="secondary-sm"
-            status={save.variables?.max_reply_tokens === null ? saveFeedback.status : "idle"}
+            status={inheritFace}
             disabled={disabled}
+            waitingFor={waitingFor(inheritFace)}
             onClick={() => submit(null)}
           >
             Use the platform setting

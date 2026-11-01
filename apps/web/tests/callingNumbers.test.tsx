@@ -88,10 +88,11 @@ describe("the calling numbers card", () => {
     // Two rented numbers, ticked, and the authorisation, not ticked.
     expect(boxes.filter((box) => (box as HTMLInputElement).checked)).toHaveLength(2);
     const confirm = screen.getByRole("button", { name: "Confirm numbers" });
-    expect(confirm.matches(":disabled")).toBe(true);
+    expect(confirm.getAttribute("aria-disabled")).toBe("true");
+    expect(screen.getByText("Tick the statement above first.")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("checkbox", { name: /On behalf of this business/ }));
-    await waitFor(() => expect(confirm.matches(":disabled")).toBe(false));
+    await waitFor(() => expect(confirm.getAttribute("aria-disabled")).toBeNull());
     fireEvent.click(confirm);
 
     await waitFor(() => expect(calls.some((call) => call.method === "POST")).toBe(true));

@@ -19,7 +19,7 @@ import {
 import { useClientSession } from "@/lib/api/session";
 import { BUSINESS_TYPES } from "@/lib/businessTypes";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
-import { languageLabel } from "@/lib/firstAgent";
+import { briefWaitingFor, languageLabel } from "@/lib/firstAgent";
 import { lookup } from "@/lib/lookup";
 import { examplesFor } from "@/lib/verticalExamples";
 import { useVerticalExamples } from "@/lib/useVerticalExamples";
@@ -71,6 +71,9 @@ export function BriefStep({
   const box = useRef<HTMLTextAreaElement>(null);
   const [brief, setBrief] = useState<string | null>(run.brief);
   const [undo, setUndo] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  const [hearing, setHearing] = useState(false);
+  const waitingFor = briefWaitingFor({ documents: run.documents, sending, hearing });
   const text = brief ?? examples.scriptBrief;
   const language = run.language_primary ?? "te-IN";
 
@@ -97,6 +100,7 @@ export function BriefStep({
         </>
       }
       status={saveFeedback.status}
+      waitingFor={waitingFor}
       onSubmit={() => save.mutate({ brief: text.trim() }, { onSuccess: onDone })}
       aside={
         pipOff === null ? (
@@ -148,9 +152,10 @@ export function BriefStep({
         piecesLeft={run.recordings_left}
         onHeard={(words) => setBrief((current) => [(current ?? "").trim(), words].filter(Boolean).join("\n"))}
         onTypeInstead={() => box.current?.focus()}
+        onBusy={setHearing}
       />
 
-      <BriefDocuments run={run} />
+      <BriefDocuments run={run} onBusy={setSending} />
 
       <div>
         <h3 className="text-heading text-ink">Start from another example</h3>
@@ -184,11 +189,14 @@ function SpokenBrief({
   piecesLeft,
   onHeard,
   onTypeInstead,
+  onBusy,
 }: {
   language: string;
   piecesLeft: number;
   onHeard: (words: string) => void;
   onTypeInstead: () => void;
+  /** Whether a piece is still being turned into words, for the step's Continue. */
+  onBusy: (busy: boolean) => void;
 }) {
   const session = useClientSession();
   const record = useRecordBrief(session);
@@ -207,6 +215,7 @@ function SpokenBrief({
   }, [heard.data, onHeard]);
 
   const busy = record.isPending || isRecordingBusy(status);
+  useEffect(() => onBusy(busy), [busy, onBusy]);
   return (
     <div className="rounded-card border border-line p-4">
       <p className="text-heading text-ink">Or say it</p>

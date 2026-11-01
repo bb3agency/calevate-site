@@ -14,7 +14,8 @@
  * Also here: the "full instructions" drawer, the exact text the calling system reads.
  */
 
-import { PRIMARY_BUTTON, formatCount, formatIST, type NoticeTone } from "@/components/ui";
+import { ActionButton } from "@/components/arc/feedback";
+import { formatCount, formatIST, type NoticeTone } from "@/components/ui";
 import { UsageMeter } from "@/components/arc/usage-meter";
 import { Drawer } from "@/components/console/drawer";
 import { RowMenu, type RowMenuItem } from "@/components/arc/menu";
@@ -92,6 +93,7 @@ export function ScriptToolbar({
   const warn = save.kind === "held" || save.kind === "conflict" || save.kind === "failed";
   const tooLong = room !== null && room.used > room.limit;
   const showRoom = room !== null && room.used >= room.limit * ROOM_SHOWN_FROM;
+  const blocked = publishBlock({ save, tooLong });
   return (
     <StickyPageBar>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -104,30 +106,38 @@ export function ScriptToolbar({
         {showRoom && room && <RoomLeft used={room.used} limit={room.limit} />}
         <div className="ml-auto flex items-center gap-2">
           {unpublished && (
-            <button
-              type="button"
-              className={`${PRIMARY_BUTTON} max-sm:flex-1`}
-              disabled={
-                !canWrite || publishing || save.kind === "held" || save.kind === "conflict" || tooLong
-              }
-              title={
-                writeReason ??
-                (save.kind === "held"
-                  ? "Finish the marked parts first."
-                  : tooLong
-                    ? "Shorten the script first."
-                    : undefined)
-              }
-              onClick={onPublish}
-            >
-              {publishing ? "Putting it live…" : "Put it live"}
-            </button>
+            // A column, so the waiting reason sits under the button rather than beside it.
+            <div className="flex flex-col items-end gap-1 max-sm:flex-1 max-sm:items-stretch">
+              <ActionButton
+                status={publishing ? "pending" : "idle"}
+                pendingLabel="Putting it live…"
+                disabled={!canWrite}
+                title={writeReason ?? undefined}
+                waitingFor={canWrite ? blocked : null}
+                onClick={onPublish}
+              >
+                Put it live
+              </ActionButton>
+            </div>
           )}
           {menu.length > 0 && <RowMenu label="this script" items={menu} />}
         </div>
       </div>
     </StickyPageBar>
   );
+}
+
+/**
+ * Why "Put it live" is greyed out, in the words shown under it, or null when it may be
+ * pressed. A save still on its way would race the publish's version check, so the button
+ * waits for it and comes back when the save line says "Draft saved".
+ */
+export function publishBlock({ save, tooLong }: { save: SaveState; tooLong: boolean }): string | null {
+  if (save.kind === "saving") return "Waiting for your draft to save";
+  if (save.kind === "held") return "Finish the marked parts first.";
+  if (save.kind === "conflict") return "Choose which draft to keep first.";
+  if (tooLong) return "Shorten the script first.";
+  return null;
 }
 
 /** The room-left meter shows from this share of the limit; below it there is nothing to act on. */

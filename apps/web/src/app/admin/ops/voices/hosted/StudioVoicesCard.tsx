@@ -22,6 +22,7 @@ import {
   useStudioVoices,
   type StudioVoices,
 } from "@/lib/api/opsHostedVoices";
+import { resetIfSettled } from "@/app/admin/resetIfSettled";
 
 // Each step lands on the panel or key it names (`configHref`).
 const KEYS_HREF = configHref("credentials", { credential: "cartesia_api_key" });
@@ -100,7 +101,7 @@ export function StudioVoicesCard() {
   }, [enableFeedback.status]);
 
   const openEnable = (withClient: boolean, client = "") => {
-    enable.reset();
+    resetIfSettled(enable);
     setAskClient(withClient);
     setTenantId(client);
     setConfirming("enable");

@@ -20,8 +20,11 @@
      step says so;
    - **greeting**: an opening line that fits the first-agent rule (under 120 characters,
      ending with a question, no textbook word, every word in the language's own letters but
-     the business's and the agent's names) and the engine's ceiling, else the starter's
-     reviewed line for its language. Where the AI notice will introduce the agent (D-865),
+     the business's and the agent's names) and the engine's ceiling. A drafted line that
+     breaks the rule is sent back to the model once with its problems, and a ready-made
+     script's line is replaced by one written for the business (`opening_line`, D-957); only
+     when neither gives a line that fits is it the starter's reviewed line for its language,
+     with the reason recorded on the step. Where the AI notice will introduce the agent (D-865),
      the script and the line are written for after the introduction: no greeting and no
      names; when the notice then cannot be switched on, the greeting is chosen again without;
    - **notice**: the AI notice switched on (D-864): in Telugu and Hindi it introduces the
@@ -43,20 +46,13 @@ import json
 import re
 import time
 from collections.abc import Sequence
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import Any, Final
 from uuid import UUID
 
 import httpx
 from calevate_shared.call_script import CallScript
 from calevate_shared.engine import introduces_itself
-from calevate_shared.spoken_guard import (
-    introduced_opening_problem,
-    latin_words,
-    names_used,
-    opens_with_greeting,
-    textbook_problem,
-)
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -82,6 +78,7 @@ from apps.api.billing.models import ASSIST_FEATURE_FIRST_RUN
 from apps.api.compliance.audit import write_audit
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
+from apps.api.core.queue import WORKER_JOB_TIMEOUT_S
 from apps.api.crm import assist as crm_assist
 from apps.api.db.session import tenant_session
 from apps.api.first_run.documents import Document, document_words, read_documents
@@ -115,8 +112,22 @@ from apps.api.first_run.service import (
     store_questions,
 )
 from apps.api.tenancy.business_profile import Profile, load_profile
+from apps.workers.extraction import TenantModelLeg
+from apps.workers.opening_line import (
+    OPENING_MAX_CHARS,
+    OPENING_WRITER_BUDGET_S,
+    opening_problems,
+    opening_rules,
+    write_opening,
+)
 from apps.workers.redaction import redact
-from apps.workers.script_assist import JsonAnswer, ScriptDraft, ask_json, draft_script
+from apps.workers.script_assist import (
+    JsonAnswer,
+    ScriptBrief,
+    ScriptDraft,
+    ask_json,
+    draft_script,
+)
 from apps.workers.speech_to_text import meter_clip, transcribe
 from apps.workers.storage import delete_objects, read_kb_object
 
@@ -126,8 +137,14 @@ log = get_logger(__name__)
 ASSIST_FEATURE_FIRST_RUN_VOICE: Final = "first_run_voice"
 
 #: The first-agent greeting rule, the one D-854's card and Pip's guide use
-#: (`copilot/screen_guides.FIRST_GREETING_MAX_CHARS`).
-GREETING_MAX_CHARS: Final = 120
+#: (`copilot/screen_guides.FIRST_GREETING_MAX_CHARS`), and the script writer's opening rule.
+GREETING_MAX_CHARS: Final = OPENING_MAX_CHARS
+
+#: How far into the build, in seconds from its start, the opening writer may still be started.
+#: It can take a whole ladder (`OPENING_WRITER_BUDGET_S`), and the notice step after it
+#: republishes through the engine, so a minute is kept under `job_timeout` for that; past this
+#: point the starter's line is used rather than having arq cancel the build mid-write.
+OPENING_WRITER_LATEST_S: Final = WORKER_JOB_TIMEOUT_S - OPENING_WRITER_BUDGET_S - 60.0
 
 #: The switch the notice step turns on (`agents.ai_disclosure_enabled`).
 AI_NOTICE: Final = "ai_disclosure_enabled"
@@ -548,21 +565,9 @@ def greeting_fits(
     with no textbook word callers do not say, and every word in the language's own letters
     apart from `names` (D-861, D-864). Said after the agent's introduction (`introduced`),
     it neither greets nor says `names`; without one, it greets or says who is calling, so a
-    line written for after an introduction is not kept once the introduction is off (D-865)."""
-    clean = line.strip()
-    placed = (
-        introduced_opening_problem("opening_line", clean, names=names) is None
-        if introduced
-        else opens_with_greeting(clean) or bool(names_used(clean, names))
-    )
-    return (
-        bool(clean)
-        and len(clean) <= GREETING_MAX_CHARS
-        and clean.endswith("?")
-        and textbook_problem("opening_line", clean, language) is None
-        and not latin_words(clean, language, names=names)
-        and placed
-    )
+    line written for after an introduction is not kept once the introduction is off (D-865).
+    The rule is `opening_line.opening_problems`, which also writes what a repair is told."""
+    return not opening_problems(line, language, names=names, introduced=introduced)
 
 
 def _jobs(run: Any) -> tuple[StarterJob, ...]:
@@ -607,6 +612,17 @@ async def _create(
     return agent_id, voiced
 
 
+@dataclass(frozen=True, slots=True)
+class _Writer:
+    """What the script was written from, kept for the opening writer: the business, the
+    owner's words and documents, and the account's model and allowance as the build read
+    them. Read once, because reading the documents again could wait `DOCUMENT_WAIT_S`."""
+
+    brief: ScriptBrief
+    tenant_leg: TenantModelLeg | None
+    braked: bool
+
+
 async def _write_script(
     tenant_id: UUID,
     agent_id: UUID,
@@ -615,14 +631,16 @@ async def _write_script(
     name: str,
     introduced: bool,
     created_by: UUID | None,
-) -> tuple[dict[str, Any], str | None]:
+) -> tuple[dict[str, Any], str | None, _Writer | None]:
     """The script from the brief and the owner's documents, applied as the agent's version;
     the ready-made one when there is too little to read or no model gives a usable answer.
-    Returns (step state, disclosure). The step state names the documents left out (D-918)."""
+    Returns (step state, disclosure, what it was written from; None when there was too
+    little to write from). The step state names the documents left out (D-918)."""
     brief = (run.brief or "").strip()
     documents, used = await owner_documents(tenant_id, run.id)
     draft: ScriptDraft | None = None
     spent: ScriptDraft | ProblemError | None = None
+    writer: _Writer | None = None
     if len(brief) >= MIN_BRIEF_CHARS or documents:
         async with tenant_session(tenant_id) as session:
             context = await brief_for(session, tenant_id, agent_id)
@@ -639,8 +657,7 @@ async def _write_script(
             + f"{what_it_does}\n"
             + (f"The owner's answers to follow-up questions:\n{answers}\n" if answers else "")
             + f"The agent's name is {name}; it gives this name when it introduces itself or is "
-            "asked. Keep the opening line under "
-            f"{GREETING_MAX_CHARS} characters, ending with a question to the person."
+            "asked."
             + (
                 " It answers calls and places them, so write both openings (D-920): "
                 "opening_line for a call it answers and outbound_opening_line for a call it "
@@ -650,9 +667,25 @@ async def _write_script(
                 else ""
             )
         )
+        writer = _Writer(
+            replace(context, description=description, introduced=introduced), tenant_leg, braked
+        )
+        # The opening's rules go to the script writer only: the opening writer states them
+        # itself, for the form it is asked for, which changes when the notice cannot be said.
+        opening_ask = (
+            "The opening_line is about THIS business: it names what callers of this business "
+            "usually want, from the owner's words, documents and answers above, as one short "
+            "question in the call language, never a line any business could use. Rules for "
+            "opening_line, each checked:\n"
+            + opening_rules(
+                str(run.language_primary),
+                names=(context.business_name, name),
+                introduced=introduced,
+            )
+        )
         try:
             draft = await draft_script(
-                replace(context, description=description, introduced=introduced),
+                replace(writer.brief, description=f"{description}\n{opening_ask}"),
                 tenant_leg=tenant_leg,
                 quota_exhausted=braked,
             )
@@ -678,7 +711,7 @@ async def _write_script(
                 notes="Written from your own words",
                 created_by=created_by,
             )
-            return {"state": "done", **used}, draft.capability.disclosure
+            return {"state": "done", **used}, draft.capability.disclosure, writer
         current: CallScript = (await load_agent_script(session, agent_id)).script
         await rewrite_script(
             session,
@@ -691,7 +724,56 @@ async def _write_script(
             created_by=created_by,
         )
     # Nothing was written from the documents, so none counts as used.
-    return {"state": "ready_made", "documents_used": 0, "left_out": used["left_out"]}, None
+    return (
+        {"state": "ready_made", "documents_used": 0, "left_out": used["left_out"]},
+        None,
+        writer,
+    )
+
+
+async def _written_opening(
+    tenant_id: UUID,
+    agent_id: UUID,
+    writer: _Writer,
+    *,
+    line: str,
+    problems: Sequence[str],
+    introduced: bool,
+    created_by: UUID | None,
+) -> str | None:
+    """Apply the opening line the opening writer gives for this business. None once applied;
+    else why not: the writer's refusal code, or the engine's when it refuses the line. The
+    spend is metered either way, in the transaction that applies the line."""
+    spent: JsonAnswer[str] | ProblemError
+    try:
+        spent = await write_opening(
+            replace(writer.brief, introduced=introduced),
+            line=line,
+            problems=problems,
+            tenant_leg=writer.tenant_leg,
+            quota_exhausted=writer.braked,
+        )
+    except ProblemError as refused:
+        spent = refused
+    async with tenant_session(tenant_id) as session:
+        await _meter(session, tenant_id, spent)
+        if isinstance(spent, ProblemError):
+            log.info("first_run_opening_unwritten", extra={"reason": spent.code})
+            return spent.code
+        try:
+            async with session.begin_nested():
+                # The engine's own ceiling is checked here too (D-846).
+                await replace_opening_line(
+                    session,
+                    tenant_id=tenant_id,
+                    agent_id=agent_id,
+                    opening_line=spent.value,
+                    created_by=created_by,
+                )
+        except ProblemError as refused:
+            log.info("first_run_opening_refused", extra={"reason": refused.code})
+            return refused.code
+    return None
 
 
 async def _write_greeting(
@@ -702,9 +784,14 @@ async def _write_greeting(
     name: str,
     introduced: bool,
     created_by: UUID | None,
+    writer: _Writer | None,
+    started: float,
 ) -> dict[str, Any]:
-    """Keep the written greeting when it fits the rule, else the starter's reviewed line;
-    with `introduced`, the forms said after the agent's introduction (D-865)."""
+    """The opening line, in this order (D-957): the drafted one when it fits the rule
+    (`done`); else one the opening writer gives for this business, repairing the drafted line
+    with its problems (`repaired`) or replacing a ready-made script's line (`written`); else
+    the starter's reviewed line (`ready_made`, with `reason`). With `introduced`, the forms
+    said after the agent's introduction (D-865)."""
     language = str(run.language_primary)
     async with tenant_session(tenant_id) as session:
         current = (await load_agent_script(session, agent_id)).script.opening_line.strip()
@@ -719,28 +806,44 @@ async def _write_greeting(
             vertical, _jobs(run), business=str(business[0]), language=language, introduced=form
         )
 
-    other_form = starter_line_for(not introduced).strip()
-    if current != other_form and greeting_fits(
-        current, language, names=names, introduced=introduced
-    ):
+    # A starter's line, in either form, is the ready-made script's, never one written from
+    # the owner's words, so it is replaced when a line can be written.
+    drafted = current not in {starter_line_for(form).strip() for form in (True, False)}
+    problems = opening_problems(current, language, names=names, introduced=introduced)
+    if drafted and not problems:
         return {"state": "done"}
+    if writer is None:
+        reason = "nothing_to_write_from"
+    elif time.monotonic() - started > OPENING_WRITER_LATEST_S:
+        reason = "no_time"
+    else:
+        unwritten = await _written_opening(
+            tenant_id,
+            agent_id,
+            writer,
+            line=current if drafted else "",
+            problems=problems if drafted else (),
+            introduced=introduced,
+            created_by=created_by,
+        )
+        if unwritten is None:
+            return {"state": "repaired" if drafted else "written"}
+        reason = unwritten
     starter_line = starter_line_for(introduced)
-    if starter_line.strip() == current:
-        return {"state": "kept"}
-    try:
-        async with tenant_session(tenant_id) as session:
-            # The engine's own ceiling is checked here too (D-846).
-            await replace_opening_line(
-                session,
-                tenant_id=tenant_id,
-                agent_id=agent_id,
-                opening_line=starter_line,
-                created_by=created_by,
-            )
-    except ProblemError as refused:
-        log.info("first_run_greeting_kept", extra={"reason": refused.code})
-        return {"state": "kept"}
-    return {"state": "ready_made"}
+    if starter_line.strip() != current:
+        try:
+            async with tenant_session(tenant_id) as session:
+                await replace_opening_line(
+                    session,
+                    tenant_id=tenant_id,
+                    agent_id=agent_id,
+                    opening_line=starter_line,
+                    created_by=created_by,
+                )
+        except ProblemError as refused:
+            log.info("first_run_greeting_kept", extra={"reason": refused.code})
+            return {"state": "kept", "reason": refused.code}
+    return {"state": "ready_made", "reason": reason}
 
 
 async def _ai_notice_on_file(tenant_id: UUID, agent_id: UUID) -> tuple[str, bool]:
@@ -836,6 +939,7 @@ async def build_first_agent(ctx: dict[str, Any], payload: dict[str, Any]) -> str
             ).first()
     if run is None:
         return "not_pending"
+    started = time.monotonic()
     try:
         language = str(run.language_primary)
         agent_id: UUID
@@ -867,13 +971,20 @@ async def build_first_agent(ctx: dict[str, Any], payload: dict[str, Any]) -> str
         if not await _tick(tenant_id, run_id, build, "voice", voice_state):
             return "replaced"
         introduced = await _will_introduce(tenant_id, agent_id, language)
-        script_state, disclosure = await _write_script(
+        script_state, disclosure, writer = await _write_script(
             tenant_id, agent_id, run, name=name, introduced=introduced, created_by=created_by
         )
         if not await _tick(tenant_id, run_id, build, "script", script_state):
             return "replaced"
         greeting_state = await _write_greeting(
-            tenant_id, agent_id, run, name=name, introduced=introduced, created_by=created_by
+            tenant_id,
+            agent_id,
+            run,
+            name=name,
+            introduced=introduced,
+            created_by=created_by,
+            writer=writer,
+            started=started,
         )
         if not await _tick(tenant_id, run_id, build, "greeting", greeting_state):
             return "replaced"
@@ -882,7 +993,14 @@ async def build_first_agent(ctx: dict[str, Any], payload: dict[str, Any]) -> str
             # Written for after an introduction that is not said (no room for it): the
             # opening greets and says who calls again.
             greeting_state = await _write_greeting(
-                tenant_id, agent_id, run, name=name, introduced=False, created_by=created_by
+                tenant_id,
+                agent_id,
+                run,
+                name=name,
+                introduced=False,
+                created_by=created_by,
+                writer=writer,
+                started=started,
             )
             if not await _tick(tenant_id, run_id, build, "greeting", greeting_state):
                 return "replaced"

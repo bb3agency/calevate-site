@@ -25,6 +25,7 @@ import {
   useWorkspaceMove,
   useWorkspaceRelease,
 } from "@/lib/api/engineWorkspaces";
+import { resetIfSettled } from "@/app/admin/resetIfSettled";
 
 export function EngineNumberActions({
   tenantId,
@@ -63,7 +64,7 @@ export function EngineNumberActions({
           className={TEXT_ACTION}
           disabled={!canWrite}
           onClick={() => {
-            move.reset();
+            resetIfSettled(move);
             setConfirming("move");
           }}
         >
@@ -75,7 +76,7 @@ export function EngineNumberActions({
         className={TEXT_ACTION_DANGER}
         disabled={!canWrite}
         onClick={() => {
-          release.reset();
+          resetIfSettled(release);
           setConfirming("release");
         }}
       >
@@ -86,7 +87,7 @@ export function EngineNumberActions({
         className={TEXT_ACTION}
         disabled={!canWrite}
         onClick={() => {
-          forget.reset();
+          resetIfSettled(forget);
           setConfirming("forget");
         }}
       >

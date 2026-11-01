@@ -33,6 +33,7 @@ import {
 } from "@/lib/api/opsDnc";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
+import { resetIfSettled } from "@/app/admin/resetIfSettled";
 
 import { ReleaseConfirm, SuppressForm } from "./dncDrawers";
 
@@ -147,7 +148,7 @@ export function DncScreen() {
 
   const openRelease = (id: string) => {
     // The mutation is shared by every row; a refusal for one number must not greet the next.
-    release.reset();
+    resetIfSettled(release);
     setReleasingId(id);
   };
   const columns = useMemo(

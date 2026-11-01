@@ -20,6 +20,8 @@ import {
   type useRecordRestatement,
 } from "@/lib/api/credits";
 
+import { resetIfSettled } from "@/app/admin/resetIfSettled";
+
 import { Field, describedBy } from "./fields";
 import { LotRestatementReceipt } from "./lots";
 
@@ -74,7 +76,7 @@ export function RestatementForm({
   }));
   const set = (key: keyof Restatement, value: string) => {
     setDraft((prev) => ({ ...prev, [key]: value }));
-    restate.reset();
+    resetIfSettled(restate);
   };
 
   const payment = wallet.payments.find((p) => p.payment_ref === draft.paymentRef) ?? null;

@@ -25,10 +25,13 @@ export function HandWritten({
   script,
   readOnly,
   onChange,
+  drafting = false,
 }: {
   script: CallScript;
   readOnly: boolean;
   onChange: (text: string) => void;
+  /** A suggestion is being written; the server refuses another until it is done. */
+  drafting?: boolean;
 }) {
   const session = useClientSession();
   const write = useActAccess(session, "org:manage", "billing.ai_assist", `ask ${ASSISTANT_NAME} to turn this into steps`);
@@ -66,10 +69,12 @@ export function HandWritten({
           label={`Let ${ASSISTANT_NAME} turn it into steps`}
           prompt={STEPS_REQUEST}
           size="md"
-          disabled={!write.allowed || readOnly || text.trim().length < 10}
+          disabled={!write.allowed || readOnly || drafting || text.trim().length < 10}
         />
         <p className="text-meta text-ink-muted">
-          You check each step first. Uses your AI allowance.
+          {drafting
+            ? `Wait for ${ASSISTANT_NAME} to finish this suggestion`
+            : "You check each step first. Uses your AI allowance."}
         </p>
       </div>
     </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check, FileText, LoaderCircle, RotateCcw, TriangleAlert, X } from "lucide-react";
 
 import { useActionFeedback } from "@/components/arc/feedback";
@@ -26,10 +26,19 @@ import { ACCEPT_ATTRIBUTE, MAX_UPLOAD_MB, READ_KINDS_LINE } from "../../knowledg
  * read, read (and whether the agents use it on calls), or not readable, with "Try another
  * file" in place.
  */
-export function BriefDocuments({ run }: { run: FirstRun }) {
+export function BriefDocuments({
+  run,
+  onBusy,
+}: {
+  run: FirstRun;
+  /** Whether a file is being sent or taken off, for the step's Continue. */
+  onBusy?: (busy: boolean) => void;
+}) {
   const session = useClientSession();
   const add = useAddDocument(session);
   const remove = useRemoveDocument(session);
+  const busy = add.isPending || remove.isPending;
+  useEffect(() => onBusy?.(busy), [busy, onBusy]);
   // The progress bar and the row are the success; a refusal is drawn above the control.
   useActionFeedback(add, { errorDisplay: "inline" });
   useActionFeedback(remove, { errorDisplay: "inline" });
@@ -130,7 +139,12 @@ function DocumentRow({
         </p>
         {failed && document.detail ? <Why label="Details">{document.detail}</Why> : null}
         {failed ? (
-          <button type="button" className={`${TEXT_ACTION} mt-1`} disabled={busy} onClick={onTryAnother}>
+          <button
+            type="button"
+            className={`${TEXT_ACTION} mt-1 aria-disabled:cursor-progress`}
+            aria-disabled={busy || undefined}
+            onClick={() => (busy ? undefined : onTryAnother())}
+          >
             <RotateCcw aria-hidden className="h-3.5 w-3.5" />
             Try another file
           </button>
@@ -138,12 +152,13 @@ function DocumentRow({
       </div>
       <button
         type="button"
-        onClick={onRemove}
-        disabled={busy}
-        aria-label={`Don't use ${document.name}`}
-        className="press grid h-8 w-8 shrink-0 place-items-center rounded-md text-ink-muted hover:bg-ink/[0.04] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:h-11 touch:w-11"
+        onClick={() => (busy ? undefined : onRemove())}
+        aria-disabled={busy || undefined}
+        aria-label={`Remove ${document.name}`}
+        className="press inline-flex min-h-8 shrink-0 items-center gap-1 rounded-md px-2 text-meta font-medium text-ink-muted hover:bg-ink/[0.04] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand aria-disabled:cursor-progress aria-disabled:text-ink-faint touch:min-h-11"
       >
-        <X aria-hidden className="h-4 w-4" />
+        <X aria-hidden className="h-3.5 w-3.5" />
+        Remove
       </button>
     </li>
   );

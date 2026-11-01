@@ -15,6 +15,7 @@ import {
 } from "@/lib/api/admin";
 import { ROLE_COPY } from "@/lib/api/members";
 import { lookup } from "@/lib/lookup";
+import { resetIfSettled } from "@/app/admin/resetIfSettled";
 
 const EMAIL_SHAPE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
@@ -91,7 +92,7 @@ export function InviteRow({
                 disabled: busy || !write.allowed,
                 hint: write.allowed ? undefined : (write.reason ?? undefined),
                 onSelect: () => {
-                  resend.reset();
+                  resetIfSettled(resend);
                   setCorrecting(true);
                 },
               },
@@ -137,7 +138,7 @@ export function InviteRow({
               maxLength={254}
               onChange={(event) => {
                 setEmail(event.target.value);
-                resend.reset();
+                resetIfSettled(resend);
               }}
               className={FIELD}
             />
@@ -153,7 +154,7 @@ export function InviteRow({
               value={attestation}
               onChange={(event) => {
                 setAttestation(event.target.value);
-                resend.reset();
+                resetIfSettled(resend);
               }}
               className={FIELD}
             />

@@ -7,7 +7,7 @@ import { Archive, Check, Copy, Download, RotateCcw, Trash2 } from "lucide-react"
 import { WriteFailure } from "@/app/admin/writeFailure";
 import { SavedNote, StatusPill, sentenceCase } from "@/components/admin/kit";
 import { DatePicker } from "@/components/arc/calendar";
-import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { ActionButton, useActionFeedback, useAsyncAction } from "@/components/arc/feedback";
 import { formatDateShort, isISODate } from "@/components/arc/ist-dates";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { Drawer } from "@/components/console/drawer";
@@ -49,6 +49,8 @@ import {
 } from "@/lib/api/opsHostedVoices";
 import { OPS_PREVIEW_PATH } from "@/lib/api/voicePreview";
 import { lookup } from "@/lib/lookup";
+
+import { resetIfSettled } from "@/app/admin/resetIfSettled";
 
 import { archiveBlocked, switchBlocked, tierText, usedBy } from "./HostedVoiceList";
 import { accentOf } from "./voiceFilters";
@@ -207,6 +209,10 @@ function OfferSection({ voice }: { voice: HostedVoice }) {
   // Said before the click, like `blocked`: the agents are listed under "Agents on this voice".
   const archiveRefusal = archiveBlocked(voice);
   const archiveHintId = useId();
+  // The switch and Archive share one write; opening the archive dialog mid-switch would
+  // show the switch's outcome as the archive's.
+  const archiveWhy =
+    archiveRefusal ?? (setState.isPending ? "Waiting for the switch to save." : null);
   const state = lookup(HOSTED_STATE, voice.state);
   // Enabled but not on the picker: the API says why in its own fields.
   const enabledNotOffered = voice.state === "enabled" && !voice.offered;
@@ -256,19 +262,19 @@ function OfferSection({ voice }: { voice: HostedVoice }) {
                 <button
                   type="button"
                   className={SECONDARY_BUTTON_SM}
-                  disabled={archiveRefusal !== null}
-                  aria-describedby={archiveRefusal ? archiveHintId : undefined}
+                  disabled={archiveWhy !== null}
+                  aria-describedby={archiveWhy ? archiveHintId : undefined}
                   onClick={() => {
-                    setState.reset();
+                    resetIfSettled(setState);
                     setArchiving(true);
                   }}
                 >
                   <Archive aria-hidden className="h-4 w-4" />
                   Archive
                 </button>
-                {archiveRefusal && (
+                {archiveWhy && (
                   <p id={archiveHintId} className="text-meta text-ink-muted">
-                    {archiveRefusal}
+                    {archiveWhy}
                   </p>
                 )}
               </>
@@ -330,7 +336,7 @@ function NameSection({ voice }: { voice: HostedVoice }) {
                 type="button"
                 className={TEXT_ACTION}
                 onClick={() => {
-                  save.reset();
+                  resetIfSettled(save);
                   setDraft(voice.display_label ?? "");
                   setEditing(true);
                 }}
@@ -472,6 +478,9 @@ function CloneSection({ voice }: { voice: HostedVoice }) {
   }, [markFeedback.status]);
   const [recording, setRecording] = useState(false);
   const consent = voice.clone_consent;
+  const download = useAsyncAction(() => downloadConsentDocument(voice.voice_id, voice.label), {
+    errorTitle: "The signed document did not download",
+  });
 
   return (
     <section>
@@ -488,7 +497,7 @@ function CloneSection({ voice }: { voice: HostedVoice }) {
           else if (on) setRecording(true);
           else if (recording && !voice.person_clone) setRecording(false);
           else {
-            mark.reset();
+            resetIfSettled(mark);
             setUnmarking(true);
           }
         }}
@@ -516,14 +525,16 @@ function CloneSection({ voice }: { voice: HostedVoice }) {
                   value={consent.has_document ? "Stored, sealed" : "None uploaded"}
                   action={
                     consent.has_document ? (
-                      <button
-                        type="button"
-                        className={TEXT_ACTION}
-                        onClick={() => void downloadConsentDocument(voice.voice_id, voice.label).catch(() => undefined)}
+                      <ActionButton
+                        variant="secondary-sm"
+                        status={download.status}
+                        pendingLabel="Downloading…"
+                        successLabel="Downloaded"
+                        onClick={() => download.run()}
                       >
                         <Download aria-hidden className="h-4 w-4" />
                         Download
-                      </button>
+                      </ActionButton>
                     ) : undefined
                   }
                 />

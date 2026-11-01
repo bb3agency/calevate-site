@@ -89,7 +89,11 @@ export function ConfirmDialog({
     <ModalDialog
       title={title}
       description={children}
-      onClose={onCancel}
+      // Escape and swipe-to-dismiss are refused while the confirmed write is in flight, as
+      // Cancel is: closing mid-write hides the answer and invites the action twice.
+      onClose={() => {
+        if (shown !== "pending") onCancel();
+      }}
       actions={
         <>
           <button type="button" className={SECONDARY_BUTTON} onClick={onCancel} disabled={shown === "pending"}>

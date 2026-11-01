@@ -60,8 +60,11 @@ export function KnowledgeQueue({ tenantId, slug }: { tenantId: string; slug: str
     decide.variables?.sourceId === sourceId && decide.variables.decision === decision
       ? decideFeedback.status
       : "idle";
-  const otherBusy = (sourceId: string) =>
-    decide.isPending && decide.variables?.sourceId !== sourceId;
+  // Every other decision waits while one is in flight, the same row's other verdict too.
+  const waitingFor = (sourceId: string, decision: string) =>
+    decide.isPending && statusFor(sourceId, decision) !== "pending"
+      ? "Waiting for the other decision to save."
+      : null;
 
   return (
     <>
@@ -130,7 +133,8 @@ export function KnowledgeQueue({ tenantId, slug }: { tenantId: string; slug: str
                         variant="secondary-sm"
                         status={statusFor(source.id, "approve")}
                         successLabel="Approved"
-                        disabled={otherBusy(source.id) || !kbWrite.allowed}
+                        disabled={!kbWrite.allowed}
+                        waitingFor={waitingFor(source.id, "approve")}
                         onClick={() => decideFeedback.run({ sourceId: source.id, decision: "approve" })}
                       >
                         Approve
@@ -185,9 +189,8 @@ export function KnowledgeQueue({ tenantId, slug }: { tenantId: string; slug: str
                           status={statusFor(source.id, "reject")}
                           pendingLabel="Rejecting…"
                           successLabel="Rejected"
-                          disabled={
-                            otherBusy(source.id) || !kbWrite.allowed || rejectReason.trim().length < 3
-                          }
+                          disabled={!kbWrite.allowed || rejectReason.trim().length < 3}
+                          waitingFor={waitingFor(source.id, "reject")}
                         >
                           Reject this document
                         </ActionButton>

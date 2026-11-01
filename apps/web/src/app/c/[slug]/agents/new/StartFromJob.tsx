@@ -168,7 +168,8 @@ function StarterPreviewStep({
 
   const submit = () => {
     setTried(true);
-    if (!write.allowed || !preview || nameProblem || create.isPending) return;
+    // A created agent is on its way to its own page: a second press would make a second one.
+    if (!write.allowed || !preview || nameProblem || create.isPending || create.isSuccess) return;
     create.mutate(
       {
         name: trimmed,
@@ -295,7 +296,7 @@ function StarterPreviewStep({
             <ActionButton
               type="submit"
               status={createFeedback.status}
-              disabled={!write.allowed}
+              disabled={!write.allowed || create.isSuccess}
               pendingLabel="Creating…"
               successLabel="Created"
             >

@@ -121,7 +121,8 @@ describe("the owner turns Pip on", () => {
     for (const name of ["Privacy Policy", "Data Processing Addendum", "Sub-processors", "Terms of Service"]) {
       expect(screen.getByRole("link", { name })).toBeTruthy();
     }
-    expect((screen.getByRole("button", { name: "Turn on Pip" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "Turn on Pip" }).getAttribute("aria-disabled")).toBe("true");
+    expect(screen.getByText("Tick the box above first.")).toBeTruthy();
     await expectNoA11yViolations(container, "Pip consent step for the owner");
   });
 
@@ -132,7 +133,7 @@ describe("the owner turns Pip on", () => {
     const tick = await screen.findByRole("checkbox", { name: /turning Pip on for everyone/ });
     fireEvent.click(tick);
     const button = screen.getByRole("button", { name: "Turn on Pip" }) as HTMLButtonElement;
-    expect(button.disabled).toBe(false);
+    expect(button.getAttribute("aria-disabled")).toBeNull();
     await act(async () => {
       fireEvent.click(button);
     });

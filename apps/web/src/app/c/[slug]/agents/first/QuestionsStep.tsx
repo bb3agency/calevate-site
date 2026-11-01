@@ -3,7 +3,7 @@
 import { useId, useState } from "react";
 import { ArrowRight, Clock, MapPin, Plus, RotateCw, SkipForward, Sparkles, X } from "lucide-react";
 
-import { useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
+import { ActionButton, useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
 import { TEXT_ACTION } from "@/components/console/section";
 import {
   FIELD,
@@ -106,15 +106,17 @@ export function QuestionsStep({
         status={status}
         onSubmit={() => go(kept)}
         aside={
-          <button
-            type="button"
-            className={TEXT_ACTION}
-            disabled={pending}
+          <ActionButton
+            variant="text"
+            status={retryFeedback.status}
+            pendingLabel="Trying…"
+            successLabel="Asked again"
+            disabled={pending && !retry.isPending}
             onClick={() => retryFeedback.run({ brief: run.brief ?? "" })}
           >
             <RotateCw aria-hidden className="h-4 w-4" />
-            {retry.isPending ? "Trying…" : "Try again"}
-          </button>
+            Try again
+          </ActionButton>
         }
       >
         <Errors errors={[retry.error, answer.error, build.error]} />
@@ -137,10 +139,10 @@ export function QuestionsStep({
         onSubmit={() => go(kept)}
         aside={
           writing ? (
-            <button type="button" className={TEXT_ACTION} disabled={pending} onClick={() => go(kept)}>
+            <ActionButton variant="text" status={status} pendingLabel="Starting…" onClick={() => go(kept)}>
               <SkipForward aria-hidden className="h-4 w-4" />
-              {pending ? "Starting…" : "Skip the questions and build"}
-            </button>
+              Skip the questions and build
+            </ActionButton>
           ) : null
         }
       >

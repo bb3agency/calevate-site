@@ -159,6 +159,8 @@ export function ImprovementReview({
   };
   const keep = useAsyncAction((goLive: boolean) => keepChain(goLive), { errorDisplay: "inline" });
   const saving = keep.status === "pending";
+  // The fixes are applied to the script read above; a failed read shows its own retry below.
+  const scriptLoading = !working && !loaded.isError;
   const startKeep = (goLive: boolean) => {
     if (saving) return;
     setPressed(goLive ? "live" : "draft");
@@ -252,14 +254,15 @@ export function ImprovementReview({
       {saveDraft.error && <ProblemNotice error={saveDraft.error} />}
       {publish.error && <ProblemNotice error={publish.error} />}
       {settle.error && <ProblemNotice error={settle.error} />}
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-start gap-2">
         {!nothing && (
           <ActionButton
             variant="primary-sm"
             status={pressed === "draft" ? keep.status : "idle"}
             pendingLabel="Saving…"
             successLabel="Kept"
-            disabled={keptCount === 0 || factMissingAnswer || !working || (saving && pressed !== "draft")}
+            disabled={keptCount === 0 || factMissingAnswer || (!working && loaded.isError) || (saving && pressed !== "draft")}
+            waitingFor={scriptLoading ? "Waiting for your script to load" : null}
             title={factMissingAnswer ? "Type the answer for each fact you keep" : undefined}
             onClick={() => startKeep(false)}
           >
@@ -278,10 +281,14 @@ export function ImprovementReview({
             Keep and put live
           </ActionButton>
         )}
-        <button type="button" className={SECONDARY_BUTTON_SM} onClick={onClose}>
+        {/* Closing mid-keep would hide where the fixes went; it waits for the answer. */}
+        <button type="button" className={SECONDARY_BUTTON_SM} disabled={saving} onClick={onClose}>
           Not now
         </button>
       </div>
+      {!nothing && !working && loaded.isError && (
+        <ProblemNotice error={loaded.error} onRetry={() => void loaded.refetch()} />
+      )}
       {factMissingAnswer && (
         <p className="text-meta text-ink-muted">Type the answer for each fact you keep, or untick it.</p>
       )}

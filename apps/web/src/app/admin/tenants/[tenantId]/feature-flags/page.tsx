@@ -35,6 +35,7 @@ import { noFill } from "@/lib/copilot/types";
 import { useAdminAccess } from "@/app/admin/access";
 import { Term } from "@/lib/glossary";
 import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
+import { resetIfSettled } from "@/app/admin/resetIfSettled";
 
 import { StatusPill, SavedNote } from "@/components/admin/kit";
 
@@ -345,7 +346,7 @@ function FlagRow({
           value={positionKey(position)}
           onChange={(next) => {
             setPosition(POSITIONS.find((option) => positionKey(option.value) === next)?.value ?? null);
-            set.reset();
+            resetIfSettled(set);
           }}
           options={POSITIONS.map((option) => ({
             value: positionKey(option.value),
@@ -368,7 +369,7 @@ function FlagRow({
               disabled={!write.allowed}
               onChange={(event) => {
                 setReason(event.target.value);
-                set.reset();
+                resetIfSettled(set);
               }}
               placeholder="e.g. Beta trial, ticket 4471"
               className={FIELD}
@@ -381,6 +382,11 @@ function FlagRow({
             status={set.variables?.flag === flag.flag ? setStatus : "idle"}
             successLabel="Saved"
             disabled={blocked !== null || !write.allowed}
+            // One write at a time: the cards share one mutation, and a second save would
+            // take the screen's answer away from the first.
+            waitingFor={
+              set.isPending && set.variables?.flag !== flag.flag ? "Waiting for the other flag to save." : null
+            }
           >
             Save this flag
           </ActionButton>

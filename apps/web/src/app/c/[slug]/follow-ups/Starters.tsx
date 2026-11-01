@@ -95,7 +95,8 @@ export function Starters({
               <li key={starter.key}>
                 <button
                   type="button"
-                  disabled={feedback.status === "pending"}
+                  // Made and on its way to its own page: another press would make a second one.
+                  disabled={feedback.status === "pending" || create.isSuccess}
                   onClick={() => choose(starter)}
                   aria-label={`Use ready-made: ${starter.name}`}
                   className="press flex h-full w-full items-start gap-3 rounded-lg border border-line px-3 py-2.5 text-left transition-colors duration-(--duration-fast) hover:bg-ink/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-60 touch:min-h-11"

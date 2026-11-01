@@ -17,6 +17,7 @@ import { Section, TEXT_ACTION } from "@/components/console/section";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
 import { ProblemNotice, Skeleton } from "@/components/ui";
 import { callsAtOnce, useCallLines, useSetCallLines } from "@/lib/api/callLines";
+import { resetIfSettled } from "@/app/admin/resetIfSettled";
 
 export function CallLinesPanel({ tenantId, canWrite }: { tenantId: string; canWrite: boolean }) {
   const state = useCallLines(tenantId);
@@ -60,7 +61,7 @@ export function CallLinesPanel({ tenantId, canWrite }: { tenantId: string; canWr
                     className={TEXT_ACTION}
                     onClick={() => {
                       setValue(data.call_lines_chosen);
-                      save.reset();
+                      resetIfSettled(save);
                       setEditing(true);
                     }}
                   >
@@ -99,7 +100,7 @@ export function CallLinesPanel({ tenantId, canWrite }: { tenantId: string; canWr
                   className={TEXT_ACTION}
                   onClick={() => {
                     // A refusal belongs to the attempt it answered, not to the next one.
-                    save.reset();
+                    resetIfSettled(save);
                     setEditing(false);
                   }}
                 >

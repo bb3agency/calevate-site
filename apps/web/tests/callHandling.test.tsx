@@ -17,7 +17,7 @@ import {
   VOICE_SOURCES_PLATFORM,
 } from "./fixtures/sharedReads";
 import { renderAdminRoute, routeParams } from "./adminRoute";
-import { problem, renderClientPage } from "./harness";
+import { problem, renderClientPage, stillLoading } from "./harness";
 
 vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(""),
@@ -198,6 +198,36 @@ describe("one agent's call handling", () => {
     expect(JSON.parse(calls.find((c) => c.method === "PATCH")?.body ?? "{}")).toEqual({
       turn_silence_ms: 3000,
     });
+  });
+
+  it("holds another row's save while one save is in flight, saying why", async () => {
+    const { calls } = await renderClientPage(<AgentCallHandlingRows agentId="agent-1" />, {
+      "/v1/me": OWNER,
+      [ORG_PATH]: organization(),
+      [AGENT_PATH]: agent({ turn_silence_ms: null, turn_silence_source: "organization" }),
+      [`PATCH ${AGENT_PATH}`]: stillLoading(),
+    });
+    const changes = await screen.findAllByRole("button", { name: "Change" });
+    // Open both editors, then save the hang-up row, whose answer never comes back.
+    await act(async () => {
+      fireEvent.click(changes[0]!);
+      fireEvent.click(changes[1]!);
+    });
+    await toggle("Use the Calevate default: On");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("switch", { name: /^Hang up when the agent has finished/ }));
+    });
+    await press("Save");
+    await waitFor(() => expect(calls.filter((c) => c.method === "PATCH")).toHaveLength(1));
+
+    await toggle(/^Use the setting your agents share/);
+    const pauseSave = await screen.findByRole("button", { name: /Save pause/ });
+    expect(pauseSave.getAttribute("aria-disabled")).toBe("true");
+    expect(screen.getByText("Waiting for your other change to save.")).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(pauseSave);
+    });
+    expect(calls.filter((c) => c.method === "PATCH")).toHaveLength(1);
   });
 
   it("switches the hang-up off for this agent alone", async () => {

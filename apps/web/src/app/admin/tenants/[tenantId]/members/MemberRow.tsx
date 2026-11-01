@@ -24,6 +24,7 @@ import {
   type TenantMemberRole,
 } from "@/lib/api/tenantMembers";
 import { lookup } from "@/lib/lookup";
+import { resetIfSettled } from "@/app/admin/resetIfSettled";
 
 /**
  * One person who can sign in: who they are, what they hold, and the two things an operator
@@ -120,7 +121,7 @@ export function MemberRow({
             title={lookup(ROLE_COPY, member.role)?.can}
             className={`${FIELD_INLINE} max-sm:flex-1`}
             onChange={(event) => {
-              setRole.reset();
+              resetIfSettled(setRole);
               setRole.mutate({
                 userId: member.user_id,
                 role: event.target.value as TenantMemberRole,
@@ -141,7 +142,7 @@ export function MemberRow({
             onClick={() => {
               setRemoving(true);
               setTyped("");
-              remove.reset();
+              resetIfSettled(remove);
             }}
           >
             <UserMinus aria-hidden className="h-4 w-4" />

@@ -41,6 +41,7 @@ import {
   type TenantNumberCost,
 } from "@/lib/api/numbers";
 import { useWorkspaceForget } from "@/lib/api/engineWorkspaces";
+import { resetIfSettled } from "@/app/admin/resetIfSettled";
 
 import { StatusPill } from "@/components/admin/kit";
 
@@ -117,7 +118,7 @@ export function NumberRow({
                   tone: "danger",
                   icon: <FileX aria-hidden className="h-4 w-4" />,
                   onSelect: () => {
-                    forget.reset();
+                    resetIfSettled(forget);
                     setForgetting(true);
                   },
                 },

@@ -18,6 +18,7 @@ import { WriteFailure } from "@/app/admin/writeFailure";
 import type { useAdminAccess } from "@/app/admin/access";
 import { adminSession } from "@/lib/api/admin";
 import { erasureConfirmation, useEraseTenant, useTenantErasures } from "@/lib/api/erasure";
+import { resetIfSettled } from "@/app/admin/resetIfSettled";
 
 /**
  * The offboarding trigger (SURFACES §1, the last step of FLOWS §9), and the certificate it
@@ -151,7 +152,7 @@ export function ErasurePanel({
             disabled={!access.allowed}
             onChange={(event) => {
               setReason(event.target.value);
-              erase.reset();
+              resetIfSettled(erase);
             }}
             className={FIELD}
           />
@@ -172,7 +173,7 @@ export function ErasurePanel({
             spellCheck={false}
             onChange={(event) => {
               setTyped(event.target.value);
-              erase.reset();
+              resetIfSettled(erase);
             }}
             className={`${FIELD} font-mono`}
           />

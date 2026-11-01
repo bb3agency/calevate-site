@@ -248,6 +248,8 @@ export function CallbacksScreen() {
           <div className="grid grid-cols-2 gap-2 max-sm:pt-1 sm:flex sm:justify-end">
             <button
               type="button"
+              // Not while this call-back is being called off: there may be nothing left to move.
+              disabled={cancel.isPending && cancel.variables === row.id}
               onClick={() => {
                 move.reset();
                 setMoving({ ids: [row.id], one: row });

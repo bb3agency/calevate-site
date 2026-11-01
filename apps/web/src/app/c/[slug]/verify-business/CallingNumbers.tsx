@@ -250,7 +250,16 @@ function DeclarationForm({
       <div className="space-y-2">
         <ActionButton
           status={feedback.status}
-          disabled={!access.allowed || !confirmed || ticked.length === 0}
+          disabled={!access.allowed}
+          waitingFor={
+            !access.allowed
+              ? null
+              : ticked.length === 0
+                ? "Tick at least one number."
+                : !confirmed
+                  ? "Tick the statement above first."
+                  : null
+          }
           onClick={() =>
             feedback.run({
               numbers: ticked,

@@ -165,7 +165,19 @@ function CallYou({
   const allTicked = outstanding.every((key) => ticked.has(key));
   const busy = acceptAgreement.isPending || acceptPledge.isPending || prepare.isPending || place.isPending;
   const loading = readiness.isPending || pledge.isPending;
-  const ready = !loading && allTicked && number.trim().length >= 8 && !busy && (docs.length === 0 || canAccept);
+  const waitingFor = busy
+    ? null
+    : loading
+      ? "Checking what is left to agree."
+      : docs.length > 0 && !canAccept
+        ? viewing
+          ? FIRST.viewOnly
+          : "Only the account's owner can accept its agreements."
+        : number.trim().length < 8
+          ? "Enter your mobile number."
+          : !allTicked
+            ? "Tick each box above."
+            : null;
   const failure = acceptAgreement.error ?? acceptPledge.error ?? prepare.error ?? place.error;
 
   const dial = (skip: string | null = null) => {
@@ -267,7 +279,7 @@ function CallYou({
         )
       }
       pending={busy}
-      disabled={!ready}
+      waitingFor={waitingFor}
       onSubmit={() => void ring().catch(() => undefined)}
     >
       {blocked ? (

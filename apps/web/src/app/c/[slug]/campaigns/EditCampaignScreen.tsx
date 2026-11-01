@@ -99,7 +99,8 @@ export function EditCampaignScreen({ slug, campaignId }: { slug: string; campaig
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <ActionButton
             title={write.allowed ? undefined : (write.reason ?? undefined)}
-            disabled={!write.allowed}
+            // The copy exists once this succeeds and the page is moving to it.
+            disabled={!write.allowed || (duplicate.isSuccess && duplicate.data.id !== campaignId)}
             status={duplicateFeedback.status}
             pendingLabel="Copying"
             successLabel="Copied"
