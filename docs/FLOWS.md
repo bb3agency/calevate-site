@@ -760,6 +760,13 @@ ported per client wish.
   `agents_contacts_and_workspace_deletion_requested`. Still manual: a contact lookup that
   fails for good, and releasing numbers, which stays with the closure and its hold. On an
   engine without deletion the written request stays.
+- **A completed tenant erasure releases the account's web address (D-954).** In the same
+  UPDATE that sets `deleted_at`, the slug becomes `erased-` plus all 32 hex characters
+  of the org id, so the old `/c/<slug>` can be given to a new account (the admin wizard or
+  signup). The org row and everything else on it stay, because the ledgers reference it. The
+  certificate's `organizations` action names the address it released. The old address no
+  longer reaches the erased account: it is 404 until a new account takes it, and then it is
+  that account's. No new account may take a slug starting `erased-`.
 
 ## 10. Number Provisioning & DLT Roles (reference)
 

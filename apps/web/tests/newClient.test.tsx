@@ -102,6 +102,38 @@ describe("creating the account", () => {
     ).toBe(false);
   });
 
+  it("puts a taken web address on the Web address field, with the server's suggestion", async () => {
+    renderAdminPage(<NewClientPage />, {
+      [TENANTS]: problem(409, {
+        type: "https://calevate.tech/problems/slug_taken",
+        title: "That web address is taken",
+        detail: "Another account already uses /c/sunrise-clinic.",
+        remediation: "Choose another web address, for example 'sunrise-clinic-2'.",
+        fields: [{ field: "slug", rule: "unique", message: "Taken. Choose another web address." }],
+      }),
+      [UNFINISHED]: [],
+    });
+
+    fillName();
+    fireEvent.click(screen.getByRole("button", { name: "Create and invite" }));
+
+    await screen.findByText("Choose another web address, for example 'sunrise-clinic-2'.");
+    const input = document.getElementById("new-client-slug") as HTMLInputElement;
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+    const described = (input.getAttribute("aria-describedby") ?? "")
+      .split(" ")
+      .map((id) => document.getElementById(id)?.textContent ?? "")
+      .join(" ");
+    expect(described).toContain("Taken. Choose another web address.");
+    // Said once, at the field; not the generic "reload the page" advice.
+    expect(document.body.textContent?.split("Taken. Choose another web address.").length).toBe(2);
+    expect(document.body.textContent).not.toContain("Reload the page");
+
+    // Once the operator changes the address, the refusal is about text no longer on screen.
+    fireEvent.change(input, { target: { value: "sunrise-clinic-2" } });
+    await waitFor(() => expect(input.getAttribute("aria-invalid")).toBeNull());
+  });
+
   it("names the account from the server's slug, not from what was typed", async () => {
     const { container } = renderAdminPage(<NewClientPage />, {
       [TENANTS]: CREATED,

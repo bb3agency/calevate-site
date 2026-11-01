@@ -402,6 +402,47 @@ async def test_after_the_erasure_every_reader_of_the_column_refuses_the_tenant()
 
 
 @pytest.mark.anyio
+async def test_the_erasure_releases_the_web_address_for_a_new_account() -> None:
+    """D-954: the founder erased a client and could not create it again at the same
+    address. The erased row keeps its id for the ledgers and gives up its slug."""
+    tenant_id, _, slug = await _tenant()
+    await _churn(tenant_id)
+    token = await _admin()
+    filed = await _post(token, tenant_id, confirm=_confirm(tenant_id))
+    request_id = filed.json()["request_id"]
+    await _run_worker(tenant_id, request_id)
+
+    async with tenant_session(tenant_id) as session:
+        tombstone = (
+            await session.execute(
+                text("SELECT slug FROM organizations WHERE id = :tid"), {"tid": tenant_id}
+            )
+        ).scalar_one()
+    assert tombstone == f"erased-{tenant_id.hex}"
+
+    async with _client() as http:
+        again = await http.post(
+            "/v1/admin/tenants",
+            headers={"Authorization": f"Bearer {token}", "X-Confirm-Action": "create_tenant"},
+            json={
+                "name": "Offboarding Clinic",
+                "slug": slug,
+                "vertical_template": "clinic",
+                "owner": {"email": f"owner-{uuid.uuid4().hex[:8]}@clinic.example"},
+            },
+        )
+        certificate = await http.get(
+            f"{BASE.format(tenant_id=tenant_id)}/{request_id}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert again.status_code == 201, again.text
+    assert again.json()["slug"] == slug
+    assert UUID(again.json()["id"]) != tenant_id
+    # The certificate still names the address the erased account held.
+    assert f"/c/{slug} is released" in certificate.json()["proof"]["actions"]["organizations"]
+
+
+@pytest.mark.anyio
 async def test_erasing_twice_is_refused_by_name() -> None:
     """`deleted_at` is set once and never cleared, so a second ask is not a retry."""
     tenant_id, _, _ = await _tenant()

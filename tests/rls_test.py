@@ -168,6 +168,45 @@ async def test_organization_slug_is_immutable() -> None:
             )
 
 
+_TOMBSTONE = "'erased-' || replace(id::text, '-', '')"
+
+
+async def test_only_an_erased_organization_may_release_its_slug_to_its_tombstone() -> None:
+    """D-954: the one permitted slug change is erasure's rename of an erased row."""
+    org = await _make_org("Tenant G2")
+    # A live row may not take its tombstone.
+    with pytest.raises(DBAPIError, match="immutable"):
+        async with tenant_session(org) as s:
+            await s.execute(
+                text(f"UPDATE organizations SET slug = {_TOMBSTONE} WHERE id = :id"), {"id": org}
+            )
+    async with tenant_session(org) as s:
+        await s.execute(
+            text("UPDATE organizations SET status = 'churned' WHERE id = :id"), {"id": org}
+        )
+    # An erased row may not take any other slug, in the erasing UPDATE or after it.
+    with pytest.raises(DBAPIError, match="immutable"):
+        async with tenant_session(org) as s:
+            await s.execute(
+                text(
+                    "UPDATE organizations SET deleted_at = now(), slug = 'erased-other' "
+                    "WHERE id = :id"
+                ),
+                {"id": org},
+            )
+    async with tenant_session(org) as s:
+        await s.execute(
+            text(
+                f"UPDATE organizations SET deleted_at = now(), slug = {_TOMBSTONE} WHERE id = :id"
+            ),
+            {"id": org},
+        )
+        slug = (
+            await s.execute(text("SELECT slug FROM organizations WHERE id = :id"), {"id": org})
+        ).scalar_one()
+    assert slug == f"erased-{org.hex}"
+
+
 # --- app.user_id (migration 8c31d0f4ab27) ------------------------------------
 # The second GUC exists so authentication can answer "which tenants may this user
 # enter?" before a tenant is chosen. These tests pin down that it widens READS by

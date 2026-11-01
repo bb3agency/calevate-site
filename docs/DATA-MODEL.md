@@ -23,6 +23,9 @@ CREATE POLICY tenant_isolation ON t
 
 ```
 organizations(id, name, slug UNIQUE CHECK (slug ~ '^[a-z0-9-]{3,40}$') IMMUTABLE-by-trigger,
+    -- except one change: a completed tenant erasure renames it to
+    -- 'erased-' || replace(id::text, '-', '') in the UPDATE that sets deleted_at,
+    -- releasing the address (D-954, migration c4e9a2d71f58). New slugs may not start `erased-`.
   status ENUM[prospect,onboarding,active,suspended,churned], vertical_template TEXT,
     -- born `onboarding`; moves to `active` by itself once an owner has joined and the
     -- business profile has no go-live blockers (`tenancy/onboarding`, D-695), on the

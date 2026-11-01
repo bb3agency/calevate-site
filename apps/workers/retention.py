@@ -3441,9 +3441,20 @@ ORDER BY created_at, id LIMIT :batch
 # `erase_after = NULL` discharges the closure's deadline in the same write:
 # `ck_organizations_deleted_implies_no_deadline` refuses an erased account that still has
 # one, so a closed account erased before or on its date failed here and rolled back.
+#
+# The slug is released in the same write (D-954): renamed to `erased-` plus all 32
+# hex of the id, so the web address can be given to a new account while the row stays for
+# the ledgers that reference it. `organizations_slug_immutable` permits exactly this
+# rename on an erased row and nothing else; `admin.service.assert_slug_available` refuses
+# the prefix to every new account. The old slug comes back through the self-join because
+# RETURNING sees only the new row; the certificate names the address it released.
 _MARK_ERASED_SQL = """
-UPDATE organizations SET deleted_at = now(), erase_after = NULL, updated_at = now()
-WHERE id = :tid AND deleted_at IS NULL AND status = 'churned'
+UPDATE organizations o
+SET deleted_at = now(), erase_after = NULL, updated_at = now(),
+    slug = 'erased-' || replace(o.id::text, '-', '')
+FROM organizations was
+WHERE o.id = :tid AND was.id = o.id AND o.deleted_at IS NULL AND o.status = 'churned'
+RETURNING was.slug
 """
 
 # THE ERASED ACCOUNT MUST STOP COLLECTING (D-189).
@@ -3987,8 +3998,8 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         withdrawn = await session.execute(text(_WITHDRAW_ROUTES_SQL), {"tid": tenant_id})
         counts["engine_routes_withdrawn"] = int(rowcount_of(withdrawn) or 0)
 
-        marked = await session.execute(text(_MARK_ERASED_SQL), {"tid": tenant_id})
-        if int(rowcount_of(marked) or 0) != 1:
+        marked = (await session.execute(text(_MARK_ERASED_SQL), {"tid": tenant_id})).all()
+        if len(marked) != 1:
             # The precondition the API checked has changed underneath us, or the
             # invariant is broken. Either way the certificate must not be written: a
             # proof that says "this organisation is erased" over a row that is not is
@@ -4013,7 +4024,10 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
                 HOLD_UNTIL_KEY: held_until.isoformat() if held_until is not None else None,
             },
             "actions": {
-                "organizations": "marked deleted; no membership resolves and no dial is permitted",
+                "organizations": (
+                    "marked deleted; no membership resolves and no dial is permitted; "
+                    f"its web address /c/{marked[0][0]} is released for a new account"
+                ),
                 "engine_agent_routes": (
                     f"{counts['engine_routes_withdrawn']} voice-platform routing entr(ies) "
                     "withdrawn, so no further call reaching this account's agents is "

@@ -636,6 +636,19 @@ async def test_a_reserved_slug_is_refused_at_the_write_not_only_in_the_form() ->
     assert response.json()["type"].endswith("/slug_reserved")
 
 
+async def test_the_erased_prefix_is_refused_in_the_wizard() -> None:
+    """`erased-…` is what erasure renames a released slug to (D-954); a new account
+    holding one would collide with a later erasure's rename."""
+    token = await _make_admin("operator")
+
+    response = await _create_tenant(token, name="Erased Foods", slug="erased-foods")
+
+    assert response.status_code == 409, response.text
+    body = response.json()
+    assert body["type"].endswith("/slug_reserved")
+    assert [f["field"] for f in body["fields"]] == ["slug"]
+
+
 # ============================================================================
 # 5. Re-running the wizard: after success, and twice at once
 # ============================================================================
@@ -653,7 +666,11 @@ async def test_re_running_the_wizard_on_a_created_account_does_not_make_a_second
 
     assert first.status_code == 201, first.text
     assert second.status_code == 409, second.text
-    assert second.json()["type"].endswith("/slug_taken")
+    refusal = second.json()
+    assert refusal["type"].endswith("/slug_taken")
+    # Named against the field, with a free address to try instead of "reload the page".
+    assert [f["field"] for f in refusal["fields"]] == ["slug"]
+    assert f"'{slug}-2'" in refusal["remediation"]
     assert await _org_count(slug=slug) == 1
 
 

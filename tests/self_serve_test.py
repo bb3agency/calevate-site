@@ -232,6 +232,19 @@ async def test_a_reserved_slug_is_refused() -> None:
     assert response.json()["type"].endswith("/slug_reserved")
 
 
+async def test_the_erased_prefix_is_refused_at_signup() -> None:
+    token, _ = await _signed_up_user()
+    async with _client() as http:
+        response = await http.post(
+            "/v1/auth/signup",
+            headers=_headers(token),
+            json=_signup_body(slug=f"erased-{uuid.uuid4().hex[:12]}"),
+        )
+    assert response.status_code == 409, response.text
+    assert response.json()["type"].endswith("/slug_reserved")
+    assert [f["field"] for f in response.json()["fields"]] == ["slug"]
+
+
 async def test_a_duplicate_slug_is_refused() -> None:
     first_token, _ = await _signed_up_user()
     second_token, _ = await _signed_up_user()

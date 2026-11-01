@@ -50,6 +50,9 @@ from apps.api.tenancy.onboarding import complete_onboarding_if_finished
 log = get_logger(__name__)
 
 SLUG_RE = re.compile(r"^[a-z0-9-]{3,40}$")
+#: What an erased account's slug is renamed to start with (`workers/retention.
+#: _MARK_ERASED_SQL`); no new account may take one.
+ERASED_SLUG_PREFIX: Final = "erased-"
 INVITE_TTL = timedelta(hours=72)
 
 
@@ -164,15 +167,31 @@ async def assert_slug_available(session: AsyncSession, slug: str) -> None:
             detail="A slug is 3-40 characters of lowercase letters, numbers and hyphens.",
             fields=[{"field": "slug", "rule": "pattern", "message": "a-z, 0-9 and - only"}],
         )
+    # The prefix is code rather than a `reserved_slugs` row because that table matches
+    # whole slugs: erasure renames a released slug to `erased-<32 hex of the id>` (D-954),
+    # and a new account holding one would collide with the next erasure's rename.
     reserved = (
-        await session.execute(
-            text("SELECT 1 FROM reserved_slugs WHERE slug = :slug"), {"slug": slug}
-        )
-    ).first()
+        slug.startswith(ERASED_SLUG_PREFIX)
+        or (
+            await session.execute(
+                text("SELECT 1 FROM reserved_slugs WHERE slug = :slug"), {"slug": slug}
+            )
+        ).first()
+        is not None
+    )
     if reserved:
-        raise ProblemError.conflict(
-            "slug_reserved",
-            "That name is reserved by the platform.",
+        raise ProblemError(
+            kind="conflict",
+            code="slug_reserved",
+            title="We could not complete that",
+            detail="That name is reserved by the platform.",
+            fields=[
+                {
+                    "field": "slug",
+                    "rule": "reserved",
+                    "message": "Reserved. Choose another web address.",
+                }
+            ],
             remediation="Pick a different business name or slug.",
         )
     taken = (
@@ -181,7 +200,51 @@ async def assert_slug_available(session: AsyncSession, slug: str) -> None:
         )
     ).first()
     if taken:
-        raise ProblemError.conflict("slug_taken", "That slug is already in use.")
+        raise await slug_taken(session, slug)
+
+
+async def slug_taken(session: AsyncSession, slug: str) -> ProblemError:
+    """The refusal for a slug another account holds, named against the field with a free
+    alternative. The generic 409 advice ("reload and try again") cannot help here: the
+    holder is a live or closed-but-not-yet-erased account, and the same name is refused on
+    every retry until that account is erased (D-954)."""
+    suggestion = await _free_slug_like(session, slug)
+    return ProblemError(
+        kind="conflict",
+        code="slug_taken",
+        title="That web address is taken",
+        detail=f"Another account already uses /c/{slug}.",
+        fields=[
+            {
+                "field": "slug",
+                "rule": "unique",
+                "message": "Taken. Choose another web address.",
+            }
+        ],
+        remediation=(
+            f"Choose another web address, for example '{suggestion}'."
+            if suggestion
+            else "Choose another web address."
+        ),
+        status=409,
+    )
+
+
+async def _free_slug_like(session: AsyncSession, slug: str) -> str | None:
+    """`slug-2` .. `slug-9`, the first no account or reservation holds, or None."""
+    candidates = [f"{slug[:37]}-{n}" for n in range(2, 10)]
+    used = set(
+        (
+            await session.execute(
+                text(
+                    "SELECT slug FROM organizations WHERE slug = ANY(:c) "
+                    "UNION SELECT slug FROM reserved_slugs WHERE slug = ANY(:c)"
+                ),
+                {"c": candidates},
+            )
+        ).scalars()
+    )
+    return next((c for c in candidates if c not in used), None)
 
 
 #: RE-EXPORTED, NOT RESTATED (D-521). The value moved to `tenancy/models.py` beside
@@ -279,8 +342,8 @@ async def create_organization(
                     text("SELECT 1 FROM organizations WHERE slug = :slug"), {"slug": slug}
                 )
             ).first()
-        if taken:
-            raise ProblemError.conflict("slug_taken", "That slug is already in use.") from exc
+            if taken:
+                raise await slug_taken(probe, slug) from exc
         raise
 
     log.info(

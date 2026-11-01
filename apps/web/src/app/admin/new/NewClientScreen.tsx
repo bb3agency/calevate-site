@@ -12,6 +12,7 @@ import { ADMIN_PAGE } from "@/components/admin/kit";
 import { Section } from "@/components/console/section";
 import { FIELD, FIELD_HINT, FIELD_LABEL, MonoValue, NoticeBox, ProblemNotice } from "@/components/ui";
 import { useCreateTenant, type CreateOrgIn } from "@/lib/api/admin";
+import { ApiProblem } from "@/lib/api/client";
 import { previewSlug, slugIsDerivable } from "@/lib/api/signup";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
@@ -19,6 +20,8 @@ import { examplesFor } from "@/lib/verticalExamples";
 
 import { NextSteps } from "./NextSteps";
 import { VERTICALS, refusalReason, type OwnerDetails } from "./shared";
+
+const SLUG_REFUSAL_ID = "new-client-slug-refusal";
 
 /**
  * New client: the operator enters the minimum (D-695) — the business's name and web
@@ -43,6 +46,13 @@ export function NewClientScreen() {
   const derivedSlug = slug || previewSlug(name);
   // A name with no ASCII cannot become a web address: ask for one before the POST.
   const mustChooseSlug = name.trim().length > 0 && !slugIsDerivable(derivedSlug);
+  // The server's refusal of the web address (taken, reserved), drawn at the field while the
+  // address it refused is still the one on screen. Ours first: it is about the current text.
+  const slugRefusal =
+    createTenant.error instanceof ApiProblem && createTenant.variables?.slug === (derivedSlug || null)
+      ? createTenant.error.fields?.find((f) => f.field === "slug")?.message
+      : undefined;
+  const slugRefusalShown = slugRefusal !== undefined && !valid.message("slug");
   const ownerField = (key: keyof OwnerDetails) => (value: string) =>
     setOwner((was) => ({ ...was, [key]: value }));
 
@@ -160,7 +170,12 @@ export function NewClientScreen() {
             <label className="block max-w-sm">
               <span className={FIELD_LABEL}>Web address</span>
               <input
-                {...valid.field("slug", "Choose the web address for this client.")}
+                {...valid.field(
+                  "slug",
+                  "Choose the web address for this client.",
+                  slugRefusalShown ? SLUG_REFUSAL_ID : undefined,
+                )}
+                {...(slugRefusalShown ? { "aria-invalid": true as const } : {})}
                 id="new-client-slug"
                 required={mustChooseSlug}
                 minLength={mustChooseSlug ? 3 : undefined}
@@ -169,7 +184,8 @@ export function NewClientScreen() {
                 placeholder={previewSlug(name) || examplesFor(vertical).orgSlug}
                 className={`${FIELD} font-mono`}
               />
-              {valid.error("slug")}
+              {valid.error("slug") ??
+                (slugRefusalShown && <FieldMessage id={SLUG_REFUSAL_ID}>{slugRefusal}</FieldMessage>)}
               <span className={FIELD_HINT}>
                 In every link the client uses; it cannot be changed later.{" "}
                 {mustChooseSlug ? (
@@ -267,7 +283,9 @@ export function NewClientScreen() {
             </fieldset>
             </Section>
 
-            {createTenant.error && <ProblemNotice error={createTenant.error} />}
+            {createTenant.error && (
+              <ProblemNotice error={createTenant.error} shownAtField={slugRefusalShown ? ["slug"] : []} />
+            )}
             <div className="flex flex-col items-end gap-2 border-t border-line pt-6">
             <ActionButton
               type="submit"

@@ -873,12 +873,16 @@ const REFERENCE_KINDS = new Set(["dependency", "transient", "internal"]);
 export function ProblemNotice({
   error,
   onRetry,
+  shownAtField = [],
 }: {
   error: unknown;
   onRetry?: () => void;
+  /** Field names whose message the screen draws beside its control, so it is not said twice. */
+  shownAtField?: readonly string[];
 }) {
   if (!error) return null;
   const problem = error instanceof ApiProblem ? error : null;
+  const listed = problem?.fields?.filter((f) => !shownAtField.includes(f.field)) ?? [];
   // A blank `detail` is the ABSENCE of a sentence, and `ApiProblem` now hands one back as
   // `"We could not finish that."` rather than as `""` — but a plain `Error` thrown by a
   // screen ("This preview could not be loaded.") reaches here too, and an empty message on
@@ -921,11 +925,11 @@ export function ProblemNotice({
           Try again in a moment. If it keeps happening, contact us.
         </p>
       )}
-      {problem?.fields?.length ? (
+      {listed.length ? (
         /* The noun is the server's `label` or nothing: `f.field` is a wire path, and
            printing it put our schema's word in front of the person's own. */
         <ul className="mt-1 list-inside list-disc text-ink-muted">
-          {problem.fields.map((f) => (
+          {listed.map((f) => (
             <li key={f.field} className="break-words">
               {f.label ? <span className="break-words font-medium text-ink">{f.label}: </span> : null}
               {f.message}
