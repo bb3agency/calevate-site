@@ -227,8 +227,12 @@ def test_a_guided_call_with_step_by_step_lists_fits_with_margin() -> None:
 #: D-959 (2 Nov 2026) RAISED both by 116 (7,429/6,554): the founder's Rytu Khata call ended
 #: reply after reply with "anything else?" while the caller was mid-task, and no sentence said
 #: when it belongs, so the bullet saying so (and what ends a turn mid-task) is new text.
-PER_CALL_MAX = 7_430
-PER_CALL_ONE_LANGUAGE_MAX = 6_555
+#: D-961 (2 Nov 2026) RAISED both by 14 (7,443/6,568): on the founder's Rytu Khata call the agent
+#: promised a call back and asked a name on a question its knowledge answered, so "answer what
+#: your knowledge holds; being an AI is no reason not to" is new text, the name is asked after
+#: the first answer, and the "one kg" and "crores" illustrations went (D-915: neutral).
+PER_CALL_MAX = 7_444
+PER_CALL_ONE_LANGUAGE_MAX = 6_569
 
 
 def _platform_only(languages_extra: list[str]) -> AgentConfig:

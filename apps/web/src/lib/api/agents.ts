@@ -38,6 +38,7 @@ import {
 } from "@tanstack/react-query";
 
 import { attentionKey } from "./attention";
+import { callHandlingKeys } from "./callHandling";
 import { apiRequest, type AgentSummary, type Session } from "./client";
 import { publishingKeys } from "./publishing";
 import type { components } from "./schema";
@@ -195,6 +196,8 @@ export function useSetCallerScreen(
       Promise.all([
         client.invalidateQueries({ queryKey: agentKeys.all(session.orgSlug) }),
         client.invalidateQueries({ queryKey: agentKeys.one(session.orgSlug, agentId) }),
+        // Switching on may give the agent the patient silence settings (`patient_settings`).
+        client.invalidateQueries({ queryKey: callHandlingKeys.agent(session.orgSlug, agentId) }),
       ]),
   });
 }

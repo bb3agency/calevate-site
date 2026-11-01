@@ -54,13 +54,12 @@ from calevate_shared.call_script import (
     STAGE_TITLE_MAX,
     CallScript,
     ConversationStage,
-    ExampleLine,
     Objection,
     SpeakingStyle,
     StageBranch,
 )
 from calevate_shared.languages import get_language
-from calevate_shared.spoken_style import example_exchange, native_reviewed, opening_in
+from calevate_shared.spoken_style import opening_in
 from scripts.seed import CUSTOM_EXTRACTION_FIELDS, VERTICAL_TEMPLATES
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -75,7 +74,7 @@ from apps.api.agents.script_builder import (
     save_agent_script,
     save_draft,
 )
-from apps.api.agents.trade_playbooks import is_playbook_line, playbook_for
+from apps.api.agents.trade_playbooks import playbook_for
 from apps.api.agents.write_guard import archived_refusal
 from apps.api.core.errors import ProblemError
 from apps.api.tenancy.business_copy import read_state as read_business_copy
@@ -306,8 +305,6 @@ class StarterStep:
     title: str
     instruction: str
     exit_when: str = ""
-    #: How the step sounds, per language (D-856, `trade_playbooks`).
-    say: Mapping[str, str] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -315,8 +312,8 @@ class Starter:
     """One vertical and job starter, before the business's name is filled in.
 
     Written in the script v2 sections (`calevate_shared.call_script`). Instructions are in
-    English; the example call is in the agent's language, from `spoken_style.json`, and is
-    marked for a native speaker's review. What the agent does when it cannot help, the
+    English; the words a caller hears are written for the business (D-962), never kept
+    here. What the agent does when it cannot help, the
     hand-over, call backs and do-not-call requests are the platform's rules
     (`engine.compose_engine_prompt`), true to what the account can do, so no starter
     repeats them.
@@ -346,8 +343,9 @@ class Starter:
         return template.replace("{business}", business)
 
     def call_script(self, *, business: str, language: str = STARTER_LANGUAGE) -> CallScript:
-        """The structured script the agent is created with. Validated by `CallScript`."""
-        example = example_exchange(language, self.vertical)
+        """The structured script the agent is created with. Validated by `CallScript`. It
+        carries no example call: one written for every business of a type is a line any
+        business could use (D-962); the script writer writes the business's own."""
         return CallScript(
             schema_version=SCRIPT_SCHEMA_VERSION,
             business_line=self.business_line.replace("{business}", business)[:200],
@@ -358,18 +356,15 @@ class Starter:
             style=SpeakingStyle(
                 tone="Warm, calm and brief, like a helpful person at the front desk."
             ),
-            stages=self.sections(language),
+            stages=self.sections(),
             objections=[Objection(objection=o, response=r) for o, r in self.objections],
             ending=self.ending,
-            example_exchange=[ExampleLine(speaker=t.speaker, text=t.text) for t in example],
-            # Reviewed once the founder publishes this language as reviewed (D-744).
-            example_needs_review=bool(example) and not native_reviewed(language),
         )
 
-    def sections(self, language: str = STARTER_LANGUAGE) -> list[ConversationStage]:
+    def sections(self) -> list[ConversationStage]:
         """The steps as script sections, ids `s1`..`sN` in call order. A step's "done
-        when" becomes the branch that moves on: to the next section, or the end. Each step
-        sounds like its plan's line in `language`, where the plan has one."""
+        when" becomes the branch that moves on: to the next section, or the end. No step has
+        an example line: those are written for the business (`with_example_lines`, D-962)."""
         out: list[ConversationStage] = []
         for i, step in enumerate(self.steps, 1):
             target = f"s{i + 1}" if i < len(self.steps) else END_OF_CALL
@@ -379,15 +374,13 @@ class Starter:
                     id=f"s{i}",
                     name=step.title,
                     instruction=step.instruction,
-                    sounds_like=(step.say or {}).get(language, ""),
                     branches=branches,
                 )
             )
         return out
 
     def authored_text(self) -> str:
-        """Every English sentence this starter writes, for the wording tests. The example
-        call is data reviewed separately (`spoken_style.json`)."""
+        """Every English sentence this starter writes, for the wording tests."""
         parts = [
             self.name_suggestion,
             self.opening_line,
@@ -407,6 +400,15 @@ _ENDING: Final = (
     "have it, say goodbye and end the call."
 )
 
+#: Why a calling starter rings, with no claim about the person (D-961): a starter holds for
+#: every business of its type and knows nothing of who is on the list, so what the person did
+#: (enquired, asked, showed interest) is said only from the call's own data, THIS CALL's
+#: `REASON_LINE` and `DETAILS_LINE` (D-905), which START OF THE CALL tells the agent.
+_CALLING_PURPOSE: Final = (
+    "the reason THIS CALL gives, if it gives one; else that {business} is calling to see "
+    "whether it can help."
+)
+
 #: The outbound starter's one per-call value, in its LAST section. The engine caches the
 #: prompt up to the first value it fills per call (VENDOR-STATED, ThinnestAI email of 18 Oct
 #: 2026), so a `{{lead_name}}` in the second step left every stage, objection and
@@ -419,7 +421,7 @@ _CALL_LEADS_ENDING: Final = (
 def _planned_steps(vertical: str, job: StarterJob, trade: Trade) -> tuple[StarterStep, ...]:
     """The starter's steps from the trade's plan (D-856, `trade_playbooks`)."""
     return tuple(
-        StarterStep(step.title, step.instruction, step.exit_when, step.say)
+        StarterStep(step.title, step.instruction, step.exit_when)
         for step in playbook_for(vertical, job, trade).steps
     )
 
@@ -456,17 +458,12 @@ def _call_leads(vertical: str, trade: Trade) -> Starter:
             "for a quick chat?"
         ),
         business_line="{business}",
-        identity=(
-            "You call people who showed interest in {business}, to follow up. You are polite, "
-            "brief and never pushy."
-        ),
+        identity="You place calls for {business}. You are polite, brief and never pushy.",
         goal=(
-            f"Find out whether they are still interested and, if they are, arrange "
+            f"Find out whether they are interested and, if they are, arrange "
             f"{trade.booking}. Take no for an answer."
         ),
-        outbound_purpose=(
-            "You are following up on their interest in {business} to see if you can help."
-        ),
+        outbound_purpose=_CALLING_PURPOSE,
         steps=_planned_steps(vertical, "call_leads", trade),
         objections=playbook_for(vertical, "call_leads", trade).objections,
         ending=_CALL_LEADS_ENDING,
@@ -490,12 +487,10 @@ def _call_new_leads(vertical: str, trade: Trade) -> Starter:
             "still fresh. You are polite, brief and never pushy."
         ),
         goal=(
-            f"Help with the enquiry they just made and, if they are interested, arrange "
+            f"Help with what they need and, if they are interested, arrange "
             f"{trade.booking}. Take no for an answer."
         ),
-        outbound_purpose=(
-            "They just made an enquiry with {business}, and you are calling to help with it."
-        ),
+        outbound_purpose=_CALLING_PURPOSE,
         steps=_planned_steps(vertical, "call_new_leads", trade),
         objections=playbook_for(vertical, "call_new_leads", trade).objections,
         ending=_CALL_LEADS_ENDING,
@@ -553,11 +548,8 @@ _GOAL_LEAD: Final[Mapping[str, str]] = {
 #: and a person who enquired minutes ago get the same steps, and only the needs step differs
 #: (`trade_playbooks._call_new_leads`), so that step learns the difference rather than the
 #: script carrying two near-identical blocks past `MAX_SCRIPT_STAGES`.
-_JUST_ENQUIRED: Final = "If they made their enquiry only minutes ago, thank them for it first. "
+_JUST_ENQUIRED: Final = "If THIS CALL names an enquiry they just made, thank them for it first. "
 _NEEDS_STEP: Final = 2
-_BOTH_CALLING_PURPOSE: Final = (
-    "They showed interest in {business}, just now or earlier, and you are calling to help."
-)
 
 
 def _block(script: CallScript, direction: str) -> list[ConversationStage]:
@@ -631,12 +623,7 @@ def starter_script(
                 stages[_NEEDS_STEP] = ConversationStage.model_validate(
                     {**needs.model_dump(), "instruction": _JUST_ENQUIRED + needs.instruction}
                 )
-            base = base.model_copy(
-                update={
-                    "stages": stages,
-                    "outbound_purpose": _BOTH_CALLING_PURPOSE.replace("{business}", business),
-                }
-            )
+            base = base.model_copy(update={"stages": stages})
         parts.append(("outbound", base))
     if len(parts) == 1:
         # Both calling jobs and no answering one: one block, needing no headings.
@@ -690,18 +677,12 @@ async def apply_starter(
     )
     validate_fields(fields)
     await write_schema(session, agent_id=agent_id, fields=fields)
-    script = starter_script(vertical_template, jobs, business=business, language=language)
-    stored = await read_business_copy(session)
-    # The business's lines are written per job's step shape; a several-job script's blocks
-    # match none of them, so it keeps the plans' own lines.
-    if (
-        len(jobs) == 1
-        and stored is not None
-        and stored.copy is not None
-        and stored.language == language
-    ):
-        lines = getattr(stored.copy.starter_lines, LINES_OF_JOB[jobs[0]])
-        script = with_example_lines(script, lines)
+    script = await _with_business_lines(
+        session,
+        starter_script(vertical_template, jobs, business=business, language=language),
+        jobs,
+        language,
+    )
     saved = await save_agent_script(
         session,
         tenant_id=tenant_id,
@@ -713,23 +694,43 @@ async def apply_starter(
     return saved.version
 
 
+def _line_sets(jobs: Sequence[StarterJob]) -> tuple[LineSet, ...]:
+    """The business copy's line sets in the order `starter_script` lays out its blocks: the
+    answering block first, then one calling block whichever calling jobs it does."""
+    sets: list[LineSet] = []
+    for job in jobs:
+        if LINES_OF_JOB[job] not in sets:
+            sets.append(LINES_OF_JOB[job])
+    return tuple(sets)
+
+
+async def _with_business_lines(
+    session: AsyncSession, script: CallScript, jobs: Sequence[StarterJob], language: str
+) -> CallScript:
+    """`script` with the account's AI-written example line on each step (D-827, D-962): the
+    lines of each block's step shape, block after block. With no business copy in this
+    language the steps keep no line at all: a ready-made script never carries a line we wrote
+    for every business, and the agent words the step from its instruction."""
+    stored = await read_business_copy(session)
+    if stored is None or stored.copy is None or stored.language != language:
+        return script
+    sets = stored.copy.starter_lines
+    lines = [line for line_set in _line_sets(jobs) for line in getattr(sets, line_set)]
+    return with_example_lines(script, lines)
+
+
 def with_example_lines(script: CallScript, lines: Sequence[str]) -> CallScript:
     """The starter with the business's AI-written example line on each step (D-827).
 
-    Only a NEW agent's script gets them, and only into an "example line" that is empty or
-    still the trade plan's own: nothing a person wrote is there to replace. A line that
-    would push its step past the engine's step limit is left out, and lines written for a
-    different number of steps are not used at all. A starter that carries them no longer
-    matches the bare catalogue, so `replace_unedited_starter` treats it as edited and leaves
-    it alone, which is the safe side of that comparison."""
+    Only a NEW agent's script gets them, and only into an "example line" that is empty:
+    nothing a person wrote is there to replace. A line that would push its step past the
+    engine's step limit is left out, and lines written for a different number of steps are
+    not used at all."""
     if len(lines) != len(script.stages):
         return script
     stages: list[ConversationStage] = []
     for stage, line in zip(script.stages, lines, strict=True):
-        # A plan's own line (D-856) gives way to the business's: both are ours, not a person's.
-        if (stage.sounds_like.strip() and not is_playbook_line(stage.sounds_like)) or not (
-            line.strip()
-        ):
+        if stage.sounds_like.strip() or not line.strip():
             stages.append(stage)
             continue
         try:
@@ -750,21 +751,37 @@ JOBS_OF_DIRECTION: Final[Mapping[str, tuple[StarterJob, ...]]] = {
 }
 
 
+#: What a ready-made script's words are, as opposed to its structure: written for the business
+#: (D-962), so two scripts of one starter differ here and are still the same starter.
+_SPOKEN_FIELDS: Final = (
+    "opening_line",
+    "outbound_opening_line",
+    "example_exchange",
+    "example_needs_review",
+)
+
+
 def _canonical(script: CallScript) -> dict[str, Any]:
     # Quick facts move to the business's pinned facts at every save, so a stored script
     # never carries them; compared without them.
-    return script.model_copy(update={"faqs": []}).model_dump(mode="json")
+    data = script.model_copy(update={"faqs": []}).model_dump(mode="json")
+    for field in _SPOKEN_FIELDS:
+        data.pop(field, None)
+    for stage in data["stages"]:
+        stage["sounds_like"] = ""
+    return data
 
 
 def starter_vertical_of(
     stored: Mapping[str, Any], *, job: StarterJob, business: str, language: str
 ) -> str | None:
-    """The business type whose starter wrote `stored`, if nobody has changed it since.
+    """The business type whose starter wrote `stored`, if nobody has changed its structure.
 
-    Recognised by content rather than by a version note, because the script's structure is
-    what the owner edits and a recompile (`recompile_collect`) writes new versions without
-    touching it. A starter written under an earlier business name, an earlier catalogue
-    wording or another language does not match, and is treated as edited.
+    Recognised by structure rather than by a version note, because the structure is what the
+    owner edits and a recompile (`recompile_collect`) writes new versions without touching
+    it. The spoken words (openings, example lines, example call) are written for the business
+    and are not compared (D-962). A starter written under an earlier business name or an
+    earlier catalogue wording does not match, and is treated as edited.
     """
     try:
         script = _canonical(CallScript.model_validate(stored))
@@ -824,11 +841,21 @@ async def replace_unedited_starter(
     target = vertical_of(str(row[4]))
     if written_for == target:
         return None
+    held = CallScript.model_validate(row[2])
+    # The new type's structure, with the openings the agent already has (written for this
+    # business, not for its old type) and the business's example lines for the new steps.
+    script = CATALOGUE[(target, job)].call_script(business=business, language=language)
+    script = script.model_copy(
+        update={
+            "opening_line": held.opening_line,
+            "outbound_opening_line": held.outbound_opening_line,
+        }
+    )
     return await rewrite_script(
         session,
         tenant_id=tenant_id,
         agent_id=agent_id,
-        script=CATALOGUE[(target, job)].call_script(business=business, language=language),
+        script=await _with_business_lines(session, script, (job,), language),
         notes=f"Ready-made starter: {JOB_LABEL[job]} (business type changed)",
     )
 

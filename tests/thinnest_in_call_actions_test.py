@@ -27,6 +27,8 @@ from zoneinfo import ZoneInfo
 import httpx
 import pytest
 from apps.api.agents.test_window import open_window
+from apps.api.callbacks import service as callbacks_service
+from apps.api.compliance.trial_access import TRIAL_CALLBACK_SAY
 from apps.api.core.envelope import envelope_from_row
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
@@ -50,15 +52,17 @@ from apps.api.reliability.engine_actions import (
     retire_agent_actions,
 )
 from apps.api.worker import engine_actions as action_route
+from apps.api.worker import in_call_tools
 from apps.api.worker.engine_actions import (
     NOT_MATCHED_SAY,
     TEST_CHAT_ANSWERS,
+    TEST_CHAT_CALLBACK_STATUS,
     TEST_CHAT_HEADER,
     TEST_CHAT_OPT_OUT_STATUS,
     UNAVAILABLE_SAY,
     is_test_chat,
 )
-from apps.api.worker.in_call_tools import OPTOUT_DONE_SAY
+from apps.api.worker.in_call_tools import CALLBACK_NOT_BOOKABLE_SAY, OPTOUT_DONE_SAY
 from sqlalchemy import text
 from tests.smoke_pipeline_test import _seed_tenant
 
@@ -621,11 +625,6 @@ async def _writes(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> tuple[int, int, 
     ("tool", "body", "status"),
     [
         ("opt-out", {"reason": "stop calling"}, TEST_CHAT_OPT_OUT_STATUS),
-        (
-            "callback",
-            {"callback_date": "2026-10-13", "callback_time": "11:00", "confirmed": "yes"},
-            "booked_in_test",
-        ),
         ("callback-cancel", {}, "cancelled_in_test"),
         ("handoff", {"reason": "wants a person"}, "handover_in_test"),
     ],
@@ -658,6 +657,40 @@ async def test_a_marked_test_chat_answers_success_and_writes_nothing(
     assert named.json()["status"] == status
     assert await _writes(tenant_id, agent_id) == before
     assert not any(p.startswith("/calls") for _m, p, _b in vendor.requests[asked:])
+
+
+async def test_a_test_chat_call_back_answers_as_the_real_tool_would_and_writes_nothing(
+    vendor: FakeThinnest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A test chat's call-back goes through the real tool's read-back and refusals: an
+    unconfirmed time is read back, a confirmed one is `booked_in_test` with the time, and a
+    free-trial account is refused exactly as on a call.
+
+    FAILS IF: a test chat answers "booked" before the time was read back and confirmed, or
+    tells a trial account's agent it is booked, or writes a call-back."""
+    tenant_id, agent_id, ref, secret = await _published(vendor)
+    before = await _writes(tenant_id, agent_id)
+    day = (datetime.now(UTC).astimezone(IST) + timedelta(days=2)).date().isoformat()
+    ask = {"callback_date": day, "callback_time": "11:00"}
+
+    unconfirmed = (await _post_test_chat("callback", ref, secret, ask)).json()
+    assert unconfirmed["status"] == "needs_confirmation"
+    assert unconfirmed["booked_for"] and unconfirmed["booked_for"] in unconfirmed["say"]
+
+    confirmed = (await _post_test_chat("callback", ref, secret, {**ask, "confirmed": "yes"})).json()
+    assert confirmed == {
+        "status": TEST_CHAT_CALLBACK_STATUS,
+        "say": f"Tell the caller that is booked: {unconfirmed['booked_for']}.",
+        "booked_for": unconfirmed["booked_for"],
+    }
+
+    async def _on_trial(*_a: Any, **_k: Any) -> object:
+        return object()
+
+    monkeypatch.setattr(in_call_tools, "restricting_trial", _on_trial)
+    trial = (await _post_test_chat("callback", ref, secret, {**ask, "confirmed": "yes"})).json()
+    assert trial == {"status": "not_booked", "say": TRIAL_CALLBACK_SAY}
+    assert await _writes(tenant_id, agent_id) == before
 
 
 async def test_a_marked_opt_out_that_names_a_live_call_is_recorded(vendor: FakeThinnest) -> None:
@@ -838,6 +871,33 @@ async def test_a_callback_the_backup_model_asks_for_again_is_booked_once(
             )
         ).scalar_one()
     assert booked == 1
+
+
+async def test_a_time_that_could_not_be_saved_promises_no_follow_up(
+    vendor: FakeThinnest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When the booking loses to what is already on file, nothing reaches a person, so the
+    agent is told not to promise that anyone will confirm.
+
+    FAILS IF: the answer tells the agent a person will follow up."""
+    _t, _a, ref, secret = await _published(vendor)
+    vendor_call, row = _live(ref, phone="919876511131")
+    vendor.live.append(row)
+
+    async def _lost(*_a: Any, **_k: Any) -> None:
+        return None
+
+    monkeypatch.setattr(callbacks_service, "book", _lost)
+    day = (datetime.now(UTC).astimezone(IST) + timedelta(days=2)).date().isoformat()
+    answer = await _post(
+        "callback",
+        ref,
+        secret,
+        {"callback_date": day, "callback_time": "11:00", "confirmed": "yes"},
+        call_id=vendor_call,
+    )
+    assert answer.json() == {"status": "not_booked", "say": CALLBACK_NOT_BOOKABLE_SAY}
+    assert "a person will" not in CALLBACK_NOT_BOOKABLE_SAY
 
 
 async def test_cancel_with_nothing_booked_says_so(vendor: FakeThinnest) -> None:

@@ -483,22 +483,39 @@ async def recompile_collect(
     )
 
 
-async def refresh_example_lines(
+@dataclass(frozen=True, slots=True)
+class ClearedLines:
+    #: The script version written, or None when the current script held none of the lines.
+    version: int | None
+    #: How many steps lost their line in the current script and in the autosaved draft.
+    script_steps: int
+    draft_steps: int
+
+
+def _cleared(script: CallScript, lines: frozenset[str]) -> tuple[CallScript, int]:
+    stages = [
+        stage.model_copy(update={"sounds_like": ""})
+        if stage.sounds_like.strip() in lines
+        else stage
+        for stage in script.stages
+    ]
+    count = sum(1 for old, new in zip(script.stages, stages, strict=True) if old is not new)
+    return script.model_copy(update={"stages": stages}), count
+
+
+async def clear_example_lines(
     session: AsyncSession,
     *,
     tenant_id: UUID,
     agent_id: UUID,
-    replacements: dict[str, str],
-    only_stages: frozenset[int] | None = None,
-    notes: str = "Example lines updated: open questions for amounts, the next days for visits",
-) -> int | None:
-    """Put a better example line on each step still holding the one it replaces, word for
-    word (D-888). A line anybody changed is not an old line and is left alone; the rest of
-    the script is kept. Through `rewrite_script`, so a live agent is republished and a staged
-    edit carries the change with it. Returns the new version, or None when nothing matched.
-
-    `only_stages` limits the change to those step positions: a migration that recorded the
-    exact steps it changed undoes those and no step that merely holds the same words."""
+    lines: frozenset[str],
+    notes: str,
+) -> ClearedLines:
+    """Empty the example line of every step still holding one of `lines` word for word, in
+    the current script and in the autosaved draft (D-962). A line anybody changed is not one
+    of `lines` and is left alone; the rest of the script is kept. The script goes through
+    `rewrite_script`, so a live agent is republished and a staged edit carries the change; the
+    draft is a compare-and-set autosave, so an owner typing in it at that moment keeps theirs."""
     row = (
         await session.execute(
             text(
@@ -510,24 +527,25 @@ async def refresh_example_lines(
         )
     ).first()
     if row is None or not isinstance(row[0], dict):
-        return None
-    script = CallScript.model_validate(row[0])
-    stages = [
-        stage.model_copy(update={"sounds_like": replacements[stage.sounds_like.strip()]})
-        if stage.sounds_like.strip() in replacements
-        and (only_stages is None or index in only_stages)
-        else stage
-        for index, stage in enumerate(script.stages)
-    ]
-    if stages == list(script.stages):
-        return None
-    return await rewrite_script(
-        session,
-        tenant_id=tenant_id,
-        agent_id=agent_id,
-        script=script.model_copy(update={"stages": stages}),
-        notes=notes,
+        return ClearedLines(version=None, script_steps=0, draft_steps=0)
+    script, script_steps = _cleared(CallScript.model_validate(row[0]), lines)
+    version = (
+        await rewrite_script(
+            session, tenant_id=tenant_id, agent_id=agent_id, script=script, notes=notes
+        )
+        if script_steps
+        else None
     )
+    draft_steps = 0
+    draft = await read_draft(session, agent_id)
+    if draft is not None:
+        cleared, draft_steps = _cleared(draft.script, lines)
+        if draft_steps:
+            try:
+                await save_draft(session, agent_id, cleared, base_saved_at=draft.saved_at)
+            except ProblemError:
+                draft_steps = 0
+    return ClearedLines(version=version, script_steps=script_steps, draft_steps=draft_steps)
 
 
 async def rewrite_script(
@@ -828,6 +846,7 @@ async def replace_opening_line(
 
 __all__ = [
     "MAX_VERSIONS_PAGE",
+    "ClearedLines",
     "Draft",
     "LoadedScript",
     "Preview",
@@ -837,13 +856,13 @@ __all__ = [
     "assert_agent_visible",
     "call_backs_available",
     "clear_draft",
+    "clear_example_lines",
     "collect_fields",
     "compiled_preview",
     "list_versions",
     "load_agent_script",
     "read_draft",
     "recompile_collect",
-    "refresh_example_lines",
     "replace_opening_line",
     "restore_into_draft",
     "rewrite_script",

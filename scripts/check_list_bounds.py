@@ -147,7 +147,7 @@ _FOLLOW_UP_RUN = BoundedByConstruction(
 
 #: Call mistakes (D-949): one row per lesson kind, never per call.
 _CALL_MISTAKES = BoundedByConstruction(
-    by="one item per lesson kind, at most `len(agents/call_mistakes.LESSONS)` (nine)."
+    by="one item per lesson kind, at most `len(agents/call_mistakes.LESSONS)`."
 )
 
 #: Every list-shaped route that legitimately has no `limit`, keyed `"METHOD /path"`.
@@ -976,6 +976,13 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
         by="one suggestion: two `CallScript`s under the `call_script` ceilings, and "
         "`unplaced`, lines of one hand-written script (`raw_override`, at most 20,000 "
         "characters; only lines of three words or more are listed)."
+    ),
+    "POST /v1/agents/{agent_id}/script/opening-line/after-introduction": BoundedByConstruction(
+        by="the same one suggestion as `GET .../script/proposal`, queued rather than read."
+    ),
+    "PATCH /v1/agents/{agent_id}/caller-screen": BoundedByConstruction(
+        by="`patient_settings` names call settings of the fixed preset in "
+        "`agents/patient_caller.py`, never a caller's row count."
     ),
     "POST /v1/agents/{agent_id}/script/versions/{version}/restore": BoundedByConstruction(
         by="one version copied into the draft: a `CallScript` under the same "

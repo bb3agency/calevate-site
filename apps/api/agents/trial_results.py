@@ -85,6 +85,9 @@ PLATFORM_RULE_TESTS: Final = frozenset(
         "specimen_partial_number",
         "specimen_goodbye_mid_question",
         "specimen_asks_to_repeat",
+        # HOW TO SPEAK's "anything else?" rule (D-959) and the platform's silence nudge.
+        "specimen_ok_mid_steps",
+        "specimen_silent",
     }
 )
 

@@ -12,7 +12,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 
 import pytest
-from apps.api.agents import prompt_size, publishing, roster
+from apps.api.agents import patient_caller, prompt_size, publishing, roster
 from apps.api.agents.service import _load_agent, _to_config
 from apps.api.agents.turn_checks import caller_says_done, claims_done, conversation_problems
 from apps.api.core.errors import ProblemError
@@ -203,7 +203,13 @@ async def test_the_owner_switches_it_over_http_and_the_flip_is_audited() -> None
         )
         read = await http.get(f"/v1/agents/{agent_id}", headers=headers)
     assert flipped.status_code == 200, flipped.text
-    assert flipped.json() == {"agent_id": str(agent_id), "enabled": True, "engine_synced": False}
+    body = flipped.json()
+    assert (body["agent_id"], body["enabled"], body["engine_synced"]) == (
+        str(agent_id),
+        True,
+        False,
+    )
+    assert {"nudge_after_seconds", "end_after_silence_seconds"} <= set(body["patient_settings"])
     assert read.json()["caller_has_screen"] is True
     async with tenant_session(tenant_id) as session:
         actions = (
@@ -212,6 +218,49 @@ async def test_the_owner_switches_it_over_http_and_the_flip_is_audited() -> None
             )
         ).scalars()
         assert "agent.caller_has_screen_enabled" in set(actions)
+
+
+async def test_switching_on_gives_callers_time_where_the_owner_kept_the_default() -> None:
+    """Rytu Khata, 2 Nov 2026: the default "are you still there?" at 8 s and hang-up at 20 s
+    ended the call while the farmer looked for the app. A value the owner chose stays."""
+    tenant_id, agent_id = await _tenant()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE agents SET nudge_count = 2 WHERE id = :a"), {"a": agent_id}
+        )
+        await session.execute(text("UPDATE organizations SET default_reask_after_ms = 3000"))
+    on = await publishing.set_caller_has_screen(
+        tenant_id=tenant_id, agent_id=agent_id, enabled=True
+    )
+    assert set(on.patient_settings) == {
+        "nudge_after_seconds",
+        "nudge_phrase",
+        "end_after_silence_seconds",
+        patient_caller.CALL_CAP_FIELD,
+    }
+    async with tenant_session(tenant_id) as session:
+        row = (
+            await session.execute(
+                text(
+                    "SELECT nudge_after_seconds, nudge_count, nudge_phrase, "
+                    "end_after_silence_seconds, reask_after_ms, max_call_duration_s "
+                    "FROM agents WHERE id = :a"
+                ),
+                {"a": agent_id},
+            )
+        ).one()
+    assert tuple(row) == (
+        patient_caller.NUDGE_AFTER_S,
+        2,
+        patient_caller.NUDGE_PHRASES["te-IN"],
+        patient_caller.END_AFTER_SILENCE_S,
+        None,
+        patient_caller.preset_call_cap_s(),
+    )
+    off = await publishing.set_caller_has_screen(
+        tenant_id=tenant_id, agent_id=agent_id, enabled=False
+    )
+    assert off.patient_settings == ()
 
 
 def _drift_when_held_as_sent(engine: ThinnestEngine, cfg: AgentConfig) -> list[str]:

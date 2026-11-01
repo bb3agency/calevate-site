@@ -23,8 +23,12 @@ platform holds the hang-up to so the last question gets an answer window (same p
 The phrase is the one setting with words. "Can you see it?" is written for each language an
 agent can be stored in, the agent's main language picks it, and it is set only on an agent
 whose callers follow along on a screen (D-906); any other agent keeps the platform's own
-"are you still there?" in the caller's language (D-915). The owner may change it like any
-other setting.
+"are you still there?" in the caller's language (D-915). The platform holds one question per
+agent (`voice.nudgePhrase`), so an agent that also answers in other languages asks it in its
+main language whatever the caller speaks. The owner may change it like any other setting.
+
+Switching "caller follows along on a screen" on applies the preset to every setting the
+owner has left at Calevate's default (`apply_where_default`); the button applies it to all.
 """
 
 from __future__ import annotations
@@ -158,12 +162,12 @@ async def apply_patient_caller(
     row = (await session.execute(text(_AGENT + " FOR UPDATE"), {"aid": agent_id})).first()
     if row is None:
         raise ProblemError.not_found("Agent")
-    language, own_cap, status, ref = str(row[0]), row[1], row[2], row[3]
+    own_cap, status, ref = row[1], row[2], row[3]
     state, moved = await call_handling.set_agent_call_handling(
         session,
         tenant_id=tenant_id,
         agent_id=agent_id,
-        changes=preset_changes(language, caller_has_screen=bool(row[4])),
+        changes=preset_changes(str(row[0]), caller_has_screen=bool(row[4])),
     )
     before = effective_call_cap(own_cap)
     after = max(before, preset_call_cap_s())
@@ -192,7 +196,54 @@ async def apply_patient_caller(
     )
 
 
+#: The longest call's name among the settings `apply_where_default` answers.
+CALL_CAP_FIELD: Final = "max_call_duration_s"
+
+
+async def apply_where_default(
+    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID
+) -> tuple[str, ...]:
+    """The preset on the call settings this agent still takes from Calevate, as the
+    caller-has-screen switch is turned on, in the caller's transaction. A setting the owner
+    chose, on this agent or for every agent, is kept; so is a longest call of their own.
+
+    The standard settings hang up on a caller who is looking for a screen: on the Rytu
+    Khata call of 2 Nov 2026 the farmer was asked "are you still there?" at 8 s and the call
+    ended at 20 s of quiet while they looked for the app. The caller's republish puts the
+    values on the line, so the longest call is written without a live apply of its own.
+    Answers the settings that moved, `CALL_CAP_FIELD` among them when the cap was raised."""
+    row = (await session.execute(text(_AGENT + " FOR UPDATE"), {"aid": agent_id})).first()
+    if row is None:
+        raise ProblemError.not_found("Agent")
+    state = await call_handling.read_agent_call_handling(session, agent_id)
+    resolved = state.resolved
+    changes = {
+        field: value
+        for field, value in preset_changes(str(row[0]), caller_has_screen=True).items()
+        if resolved.sources[field] == "platform" and getattr(resolved.values, field) != value
+    }
+    moved: tuple[str, ...] = ()
+    if changes:
+        _state, moved = await call_handling.set_agent_call_handling(
+            session, tenant_id=tenant_id, agent_id=agent_id, changes=changes
+        )
+    if row[1] is None and preset_call_cap_s() > effective_call_cap(None):
+        await session.execute(
+            text(
+                "UPDATE agents SET max_call_duration_s = :cap, updated_at = now() WHERE id = :aid"
+            ),
+            {"cap": preset_call_cap_s(), "aid": agent_id},
+        )
+        moved = (*moved, CALL_CAP_FIELD)
+    log.info(
+        "agent_patient_caller_defaults_applied",
+        extra={"agent_id": str(agent_id), "changed": list(moved)},
+    )
+    return moved
+
+
 __all__ = [
+    "CALL_CAP_FIELD",
     "CALL_CAP_S",
     "END_AFTER_SILENCE_S",
     "NUDGE_AFTER_S",
@@ -202,6 +253,7 @@ __all__ = [
     "PatientCaller",
     "PatientCallerApplied",
     "apply_patient_caller",
+    "apply_where_default",
     "is_applied",
     "nudge_phrase_for",
     "preset_call_cap_s",

@@ -4865,9 +4865,9 @@ const ADMIN_SCREENS: Screen[] = [
       "/v1/ops/call-mistakes": {
         window_days: 30,
         items: [
-          { kind: "said_again", label: "Said the same line again", calls_7d: 4, calls_30d: 9, accounts_30d: 3, calls_since_fix: 2, last_seen_at: "2026-08-13T04:30:00Z", fixed_at: "2026-08-10T04:30:00Z", fix_note: "Rephrase rule added.", state: "back" },
-          { kind: "wrong_language", label: "Answered in a different language from the caller", calls_7d: 1, calls_30d: 2, accounts_30d: 1, calls_since_fix: 0, last_seen_at: "2026-08-12T04:30:00Z", fixed_at: null, fix_note: null, state: "fixing" },
-          { kind: "opened_again", label: "Greeted the caller again in the middle of the call", calls_7d: 0, calls_30d: 1, accounts_30d: 1, calls_since_fix: 0, last_seen_at: "2026-08-01T04:30:00Z", fixed_at: "2026-08-05T04:30:00Z", fix_note: "Greet once.", state: "fixed" },
+          { kind: "said_again", label: "Said the same line again", calls_7d: 4, calls_30d: 9, accounts_30d: 3, calls_since_fix: 2, last_seen_at: "2026-08-13T04:30:00Z", fixed_at: "2026-08-10T04:30:00Z", fix_note: "Rephrase rule added.", fixed_by: null, state: "back" },
+          { kind: "wrong_language", label: "Answered in a different language from the caller", calls_7d: 1, calls_30d: 2, accounts_30d: 1, calls_since_fix: 0, last_seen_at: "2026-08-12T04:30:00Z", fixed_at: null, fix_note: null, fixed_by: null, state: "fixing" },
+          { kind: "opened_again", label: "Greeted the caller again in the middle of the call", calls_7d: 0, calls_30d: 1, accounts_30d: 1, calls_since_fix: 0, last_seen_at: "2026-08-01T04:30:00Z", fixed_at: "2026-08-05T04:30:00Z", fix_note: "Greet once.", fixed_by: null, state: "fixed" },
         ],
       },
     },

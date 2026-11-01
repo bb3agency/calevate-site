@@ -39,17 +39,15 @@ from calevate_shared.call_script import (
     MAX_STAGE_COLLECT,
     PROCEDURE_STEP_MAX,
     PROCEDURE_WAIT_MAX,
-    SCRIPT_SCHEMA_VERSION,
     SOUNDS_LIKE_MAX,
     SPECIAL_TARGETS,
     STAGE_DETAIL_MAX,
     STAGE_TITLE_MAX,
     STANDARD_VARIABLES,
     CallScript,
-    ExampleLine,
     upgrade_to_v2,
 )
-from calevate_shared.spoken_style import example_exchange, native_reviewed, style_for
+from calevate_shared.spoken_style import style_for
 from fastapi import APIRouter, Depends, Path, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
@@ -280,24 +278,9 @@ _STANDARD_KEYS = frozenset(key for key, _ in STANDARD_VARIABLES)
 async def get_script(agent_id: UUID, session: Session, _: ScriptReader) -> ScriptOut:
     loaded = await script_builder.load_agent_script(session, agent_id)
     context = await _context(session, agent_id)
+    # No example call is seeded: one written for every business of a type is not this
+    # business's (D-962); the script writer writes the business's own.
     script = upgrade_to_v2(loaded.script)
-    if (
-        (loaded.version is None or loaded.script.schema_version == 1)
-        and not script.is_raw
-        and not script.example_exchange
-        and (seed := example_exchange(context.language, context.business_type))
-    ):
-        # A new or older-format script opens with the example call for its language and
-        # business type, marked for review; nothing is stored until the owner saves. A
-        # current-format script the owner emptied is left empty.
-        script = script.model_copy(
-            update={
-                "schema_version": SCRIPT_SCHEMA_VERSION,
-                "example_exchange": [ExampleLine(speaker=t.speaker, text=t.text) for t in seed],
-                # Unreviewed until the founder publishes this language as reviewed (D-744).
-                "example_needs_review": not native_reviewed(context.language),
-            }
-        )
     draft = await script_builder.read_draft(session, agent_id)
     return ScriptOut(
         script=script,
@@ -1313,8 +1296,9 @@ class ScriptProposalOut(BaseModel):
     id: UUID
     #: `change` (one change), `whole` (the whole script from the owner's answers), `steps` (a
     #: hand-written script turned into steps) or `knowledge` (what files added to the
-    #: knowledge tell callers, worked into the current script, D-923).
-    mode: Literal["change", "whole", "steps", "knowledge"]
+    #: knowledge tell callers, worked into the current script, D-923) or `opening` (the
+    #: opening line written to follow the agent's introduction, D-865).
+    mode: Literal["change", "whole", "steps", "knowledge", "opening"]
     #: The files a `knowledge` suggestion was written from, by name.
     documents: list[str]
     #: `drafting` until it is written (poll), then `ready`, or `failed` with `note`.
@@ -1351,23 +1335,53 @@ async def get_script_proposal(
     agent_id: UUID, session: Session, _: ScriptReader
 ) -> PendingProposalOut:
     found = await script_proposals.read_proposal(session, agent_id)
-    if found is None:
-        return PendingProposalOut(proposal=None)
-    return PendingProposalOut(
-        proposal=ScriptProposalOut(
-            id=found.id,
-            mode=found.mode,
-            documents=found.document_names,
-            status=found.status,
-            request=found.request,
-            base_script=found.base_script,
-            script=found.script,
-            unplaced=found.unplaced,
-            disclosure=found.disclosure,
-            note=found.note,
-            requested_at=found.requested_at,
-        )
+    return PendingProposalOut(proposal=None if found is None else _proposal_out(found))
+
+
+def _proposal_out(found: script_proposals.ScriptProposal) -> ScriptProposalOut:
+    return ScriptProposalOut(
+        id=found.id,
+        mode=found.mode,
+        documents=found.document_names,
+        status=found.status,
+        request=found.request,
+        base_script=found.base_script,
+        script=found.script,
+        unplaced=found.unplaced,
+        disclosure=found.disclosure,
+        note=found.note,
+        requested_at=found.requested_at,
     )
+
+
+@router.post(
+    "/opening-line/after-introduction",
+    response_model=ScriptProposalOut,
+    status_code=202,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Ask for the opening line written to follow the agent's own introduction",
+    description=(
+        "The repair offered when switching the AI notice on is refused with "
+        "`opening_introduces_agent` (D-865): the notice says who is calling, so the opening "
+        "line must not. Queues a suggestion that writes the opening line again without a "
+        "greeting or the agent's or business's name; poll `GET .../proposal` until it is "
+        "`ready`. Nothing reaches a caller until the line is put live."
+    ),
+)
+async def request_opening_after_introduction(
+    agent_id: UUID, session: Session, principal: ScriptWriter
+) -> ScriptProposalOut:
+    assert principal.tenant_id is not None
+    # Spends the dashboard AI allowance like any suggestion Pip writes.
+    assert_view_as_may(principal, "billing.ai_assist")
+    await require_ai_assist(session, tenant_id=principal.tenant_id)
+    proposal = await script_proposals.request_opening_proposal(
+        session,
+        tenant_id=principal.tenant_id,
+        agent_id=agent_id,
+        requested_by=principal.user_id,
+    )
+    return _proposal_out(proposal)
 
 
 @router.delete(

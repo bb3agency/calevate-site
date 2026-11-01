@@ -173,9 +173,7 @@ async def caller_lookup(
                 session, tenant_id=tid, caller_e164=number, engine_call_id=lookup.call_id
             )
             if verdict.test_id is None and not verdict.caller_hidden:
-                return await caller_variables(
-                    session, tenant_id=tid, agent_id=aid, phone_e164=number
-                )
+                return await caller_variables(session, agent_id=aid, phone_e164=number)
         if verdict.test_id is not None:
             await queue_early_hang_up(tid, verdict.test_id)
             return {}

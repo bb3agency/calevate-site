@@ -331,7 +331,7 @@ def test_calling_plans_say_one_true_fact_then_offer_two_exact_times() -> None:
         answering = playbook_for(trade, "answer_calls", starters.TRADES[trade])
         assert VALUE_STEP_TITLE not in [step.title for step in answering.steps]
     assert set(JOB_SHAPES) >= {"call_leads", "call_new_leads"}
-    guide = playbook_guidance("real_estate", "outbound", "te-IN")
+    guide = playbook_guidance("real_estate", "outbound")
     assert VALUE_STEP_TITLE in guide and "possession date" in guide
 
 

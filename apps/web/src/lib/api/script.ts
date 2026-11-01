@@ -570,6 +570,25 @@ export function useClearProposal(
   });
 }
 
+/**
+ * Ask for the opening line written to follow the agent's own introduction (D-865): the
+ * repair for switching the AI notice on over an opening that already says who is calling.
+ * The answer is an `opening` suggestion, polled through `useScriptProposal`.
+ */
+export function useRequestOpeningAfterIntroduction(
+  session: Session,
+  agentId: string,
+): UseMutationResult<ScriptProposal, Error, void> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiRequest<ScriptProposal>(session, `${base(agentId)}/opening-line/after-introduction`, {
+        method: "POST",
+      }),
+    onSuccess: () => client.invalidateQueries({ queryKey: proposalKey(session.orgSlug, agentId) }),
+  });
+}
+
 // --- test conversations that improve the agent (D-724) ----------------------------------
 
 export type TestVerdict = "passed" | "needs_fix" | "failed" | "unjudged";

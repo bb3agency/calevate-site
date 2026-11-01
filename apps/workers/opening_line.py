@@ -62,13 +62,14 @@ OPENING_WRITER_INSTRUCTION: Final = (
     "that answers calls names what callers of this business usually want, taken from the "
     "owner's description, documents, answers and facts in the brief, and asks about it as "
     "one short question, so the caller hears at once they reached the right place; an agent "
-    "that only places calls says why it is calling and asks one short question. Never a "
-    "line any business could use, never a list of products, an offer, a discount or a "
-    "figure the owner's facts do not give, and nothing about being an AI or recording (the "
-    "platform says those). Write it in the call language as people say it on the phone, "
-    "following the spoken-style guide in the brief. The brief ends with the rules the line "
-    "is checked against; a line that breaks one is not used. Return ONLY JSON: "
-    '{"opening_line": "..."}.'
+    "that only places calls says which business is calling and what about, and asks one "
+    "short question. Never a line any business could use, never a list of products, an "
+    "offer, a discount or a figure the owner's facts do not give, never that the person "
+    "enquired, asked or showed interest (only the call's own data may say that), and nothing "
+    "about being an AI or recording (the platform says those). Write it in the call "
+    "language as people say it on the phone, following the spoken-style guide in the "
+    "brief. The brief ends with the rules the line is checked against; a line that breaks "
+    'one is not used. Return ONLY JSON: {"opening_line": "..."}.'
 )
 
 _FORMAT: Final[dict[str, object]] = {
@@ -164,7 +165,8 @@ def _writer_problems(
 #: write the answering kind of line.
 PLACED_TASK: Final = (
     "This opening_line is the one the agent says on a call it PLACES: it rang the person, so "
-    "it says why it is calling and asks one short question. "
+    "it says which business is calling and what about, never that the person enquired or "
+    "asked, and asks one short question. "
 )
 
 

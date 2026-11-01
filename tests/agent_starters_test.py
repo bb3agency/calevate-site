@@ -104,8 +104,9 @@ def test_every_starter_compiles_and_keeps_the_platform_floor(key: tuple[str, str
     body = compile_call_script(script)
     assert "[OPENING]\nHello" in body and "Acme Traders" in body
     assert "[IDENTITY]" in body and "[CONVERSATION]" in body and "[GOAL]" in body
-    # The example call is in the agent's language and waits for a native speaker.
-    assert "[EXAMPLE CALL]" in body and script.example_needs_review
+    # No example call or example line written for every business of the type (D-962).
+    assert "[EXAMPLE CALL]" not in body and not script.example_exchange
+    assert all(not stage.sounds_like for stage in script.stages)
     # What to do when the agent cannot help is the platform's, true to the account.
     assert "call back" not in body.lower() and "call-back" not in body.lower()
     assert "{business}" not in body

@@ -201,14 +201,15 @@ async def test_the_vendors_own_test_runs_nothing(
     assert ran == []
 
 
-async def test_a_test_chat_answers_success_and_reaches_nothing(
+async def test_a_test_chat_answers_without_a_result_and_reaches_nothing(
     vendor: FakeThinnest, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """F6 (12 Oct 2026): a client action called from ThinnestAI's test chat (`X-Test-Chat:
-    true`, no call id) answers success and runs nothing, queues nothing and writes no call
-    row, also when a live call is named beside the marker.
+    true`, no call id) runs nothing, queues nothing and writes no call row, also when a live
+    call is named beside the marker, and tells the agent there is no result to use.
 
-    FAILS IF: a test chat reaches the client's systems or answers `no_call`."""
+    FAILS IF: a test chat reaches the client's systems, answers `no_call`, or answers "done"
+    with nothing behind it, which invites the agent to invent a result."""
     tenant_id, agent_id, ref, secret = await _published(vendor)
     await _add_tool(tenant_id, agent_id, "look_up_order")
     ran: list[Any] = []
@@ -233,6 +234,9 @@ async def test_a_test_chat_answers_success_and_reaches_nothing(
         assert response.status_code == 200
         assert response.json() == {"status": TEST_CHAT_CLIENT_STATUS, "say": TEST_CHAT_CLIENT_SAY}
     assert ran == []
+    # With nothing run there is no result, and the agent is told not to invent one.
+    assert "no result" in TEST_CHAT_CLIENT_SAY.lower()
+    assert "done" not in TEST_CHAT_CLIENT_STATUS
     async with tenant_session(tenant_id) as session:
         rows = (
             await session.execute(

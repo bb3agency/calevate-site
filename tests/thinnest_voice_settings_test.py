@@ -194,6 +194,20 @@ def test_the_defaults_leave_the_wording_and_fillers_to_the_platform() -> None:
     assert (voice["ambience"], voice["ambienceVolume"]) == (None, 0.15)
 
 
+async def test_a_screen_agent_drops_short_words_said_over_it_and_reads_back_in_step() -> None:
+    """A caller following steps on a screen says "OK" over the agent; kept, each one became a
+    new turn (Rytu Khata call, 2 Nov 2026)."""
+    assert _held(_cfg())["voice"]["holdShortSpeech"] is True
+    screen = _cfg(caller_has_screen=True)
+    held = _held(screen)
+    assert held["voice"]["holdShortSpeech"] is False
+    assert await _settings_engine(screen, held, []).settings_drift(AGENT, screen) == []
+    held["voice"]["holdShortSpeech"] = True
+    assert await _settings_engine(screen, held, []).settings_drift(AGENT, screen) == [
+        "interruptions"
+    ]
+
+
 def test_every_setting_the_adapter_compares_has_one_of_our_labels() -> None:
     assert set(_SETTING_KEYS) <= AGENT_SETTING_LABELS
     for label in _SETTING_KEYS:

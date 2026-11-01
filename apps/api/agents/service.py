@@ -97,6 +97,7 @@ from calevate_shared.call_script import (
     call_backs_withheld,
     native_steps,
     opening_line_of,
+    outbound_opening_of,
     substitute_variables,
     without_outline,
 )
@@ -848,6 +849,20 @@ def _model_legs(agent: AgentRow, *, engine: VoiceEngine) -> dict[str, Any]:
     return legs
 
 
+def platform_filler_lines(languages: Sequence[str]) -> tuple[str, ...]:
+    """Our filler lines for an agent speaking `languages`, at most `FILLER_LINES_MAX`, taken
+    in turn from each language rather than the first languages' lines first: the engine says
+    only the lines written in the caller's script, so a cut that kept the main language's
+    lines alone would leave a caller in another language the engine's English one."""
+    per_language = [thinking_lines((tag,)) for tag in languages]
+    lines: list[str] = []
+    for turn in range(max((len(own) for own in per_language), default=0)):
+        for own in per_language:
+            if turn < len(own) and own[turn] not in lines and len(lines) < FILLER_LINES_MAX:
+                lines.append(own[turn])
+    return tuple(lines)
+
+
 def _call_settings_fields(agent: AgentRow, *, languages: Sequence[str]) -> dict[str, Any]:
     """The `AgentConfig` fields of the call settings, resolved agent -> account -> Calevate
     (`agents/call_handling`). The sentinels a client chooses become the config's own: never
@@ -873,7 +888,7 @@ def _call_settings_fields(agent: AgentRow, *, languages: Sequence[str]) -> dict[
         "nudge_count": v.nudge_count,
         "nudge_phrase": v.nudge_phrase or None,
         "end_after_silence_seconds": v.end_after_silence_seconds,
-        "filler_lines": v.filler_lines or thinking_lines(languages)[:FILLER_LINES_MAX],
+        "filler_lines": v.filler_lines or platform_filler_lines(languages),
         "ambience": None if v.ambience == "off" else v.ambience,
         "ambience_volume_pct": v.ambience_volume_pct,
         # None while the console has no wait: the field is then never sent (D-901).
@@ -1177,12 +1192,13 @@ async def _publish_business_facts(
     reclaim: bool,
     script: str | None,
     variant_id: UUID | None = None,
+    test_copy: bool = False,
 ) -> None:
     """Push the script's [T0 FACTS] block as the vendor agent's facts document, on an engine
     that keeps facts out of the prompt, and the client's published knowledge
-    (`agents/engine_facts.py`); `variant_id` names the experiment arm `ref` speaks. A failure
-    fails the publish, with `reclaim` deleting a vendor agent this publish created, for
-    `_reclaim_orphan`'s reason."""
+    (`agents/engine_facts.py`); `variant_id` names the experiment arm `ref` speaks, and
+    `test_copy` says `ref` is the agent's test copy. A failure fails the publish, with
+    `reclaim` deleting a vendor agent this publish created, for `_reclaim_orphan`'s reason."""
     try:
         await sync_business_facts(
             session,
@@ -1191,6 +1207,7 @@ async def _publish_business_facts(
             ref=ref,
             facts=block_of(script),
             variant_id=variant_id,
+            test_copy=test_copy,
         )
     except Exception:
         if reclaim:
@@ -2404,30 +2421,41 @@ async def _after_workspace_move(
     """The agent now answers from its client's own workspace under a new vendor id. In the
     publish's transaction, before its knowledge converges:
 
-    * the claims on the OLD agent's knowledge copies go — those copies are deleted with the
-      old agent (`DELETE /agents/{id}` "takes the agent's knowledge with it", agents.md:82) —
-      so the D-689 catch-up this publish runs attaches every live source to the new one. An
-      experiment arm's claims are its own vendor agent's and go when that arm moves
-      (`publish_variant`);
+    * the claims on the OLD agent's knowledge copies leave the agent, so the D-689 catch-up
+      this publish runs attaches every live source to the new one. Kept as the test copy
+      (below), the old agent keeps its copies and they become the copy's claims (D-964);
+      otherwise they go — those copies are deleted with the old agent (`DELETE /agents/{id}`
+      "takes the agent's knowledge with it", agents.md:82). An experiment arm's claims are
+      its own vendor agent's and go when that arm moves (`publish_variant`);
     * the old agent's deletion is owed through the outbox, so it runs only after this
       transaction commits. Its route stays active until then, so a late delivery for a call
       it took before the move still verifies; the retire job switches it off.
     """
-    await session.execute(
-        text(
-            "DELETE FROM engine_kb_routes WHERE agent_id = :aid AND tenant_id = :tid "
-            "AND variant_id IS NULL"
-        ),
-        {"aid": agent_id, "tid": tenant_id},
-    )
     log.warning("engine_agent_moved_to_client_workspace", extra={"agent_id": str(agent_id)})
+    params = {"aid": agent_id, "tid": tenant_id}
     if scope_of(old_ref) is None and not await _has_any_number(session, agent_id=agent_id):
         # FOUNDER OPTION A (D-859): the developer-workspace copy stays, so the owner's test
         # calls can ring through the shared trial line until the client has its own number;
         # its route stays active so those calls report back. The hourly sweep retires it
-        # once the client has a number or it sits unused (`workers/agent_moves`).
+        # once the client has a number or it sits unused (`workers/agent_moves`). Recorded
+        # first, so a copy it replaces has released its claims before these become the
+        # copy's. `updated_at` is left alone: it orders which digest is a source's newest.
         await _record_test_copy(session, None, tenant_id=tenant_id, agent_id=agent_id, ref=old_ref)
+        await session.execute(
+            text(
+                "UPDATE engine_kb_routes SET test_copy = true WHERE agent_id = :aid "
+                "AND tenant_id = :tid AND variant_id IS NULL AND NOT test_copy"
+            ),
+            params,
+        )
         return
+    await session.execute(
+        text(
+            "DELETE FROM engine_kb_routes WHERE agent_id = :aid AND tenant_id = :tid "
+            "AND variant_id IS NULL AND NOT test_copy"
+        ),
+        params,
+    )
     await retire_engine_agent(session, tenant_id=tenant_id, agent_id=agent_id, ref=old_ref)
 
 
@@ -2473,6 +2501,20 @@ async def test_copy_ref(session: AsyncSession, agent_id: UUID) -> str | None:
     return None if value is None else str(value)
 
 
+async def _copy_needs_replacing(
+    session: AsyncSession, engine: VoiceEngine, *, agent_id: UUID, ref: str
+) -> bool:
+    """Does the test copy `ref` hold knowledge none of our claims names? See
+    `kb.service.copy_holds_unrecorded_knowledge`."""
+    # Imported here: `kb.service` imports `agents.t0`, which imports this module.
+    from apps.api.kb.service import copy_holds_unrecorded_knowledge
+
+    replace = await copy_holds_unrecorded_knowledge(session, engine, agent_id=agent_id, ref=ref)
+    if replace:
+        log.warning("agent_test_copy_replaced_unrecorded", extra={"agent_id": str(agent_id)})
+    return replace
+
+
 def _vendor_says_gone(exc: BaseException) -> bool:
     """The vendor no longer holds the agent written to (a 404, or our not-found)."""
     if isinstance(exc, EngineRejectedError):
@@ -2489,8 +2531,14 @@ async def _record_test_copy(
     ref: str,
 ) -> None:
     """Record `ref` as the agent's test copy, with its active route; a copy it held under
-    another handle is retired. `engine` names the route's engine (the active one if None)."""
+    another handle is retired, and its knowledge claims released (they belong to the vendor
+    agent being deleted). `engine` names the route's engine (the active one if None)."""
+    # Imported here: `kb.service` imports `agents.t0`, which imports this module.
+    from apps.api.kb.service import release_test_copy_claims
+
     previous = await test_copy_ref(session, agent_id)
+    if previous is not None and previous != ref:
+        await release_test_copy_claims(session, tenant_id=tenant_id, agent_id=agent_id)
     await session.execute(
         text(
             "INSERT INTO agent_test_copies (id, tenant_id, agent_id, engine_agent_ref) "
@@ -2596,6 +2644,68 @@ async def _hold_tenant_knowledge(session: AsyncSession, *, tenant_id: UUID) -> N
     )
 
 
+async def write_ai_line(
+    session: AsyncSession, *, agent_id: UUID, old: str, fresh: str, recording: str
+) -> None:
+    """Replace the agent's AI sentence `old` with `fresh`. The legacy bundle follows only
+    where it is still the default bundle of the two sentences."""
+    # Imported here: `compliance.disclosure` reaches this module through `optout` and ingest.
+    from apps.api.compliance.disclosure import bundled_disclosure_line
+
+    await session.execute(
+        text(
+            "UPDATE agents SET ai_disclosure_line = :line, "
+            "disclosure_line = CASE WHEN disclosure_line = :old_bundle THEN :bundle "
+            "ELSE disclosure_line END, updated_at = now() "
+            "WHERE id = :aid AND deleted_at IS NULL"
+        ),
+        {
+            "aid": agent_id,
+            "line": fresh,
+            "old_bundle": bundled_disclosure_line(
+                ai_disclosure_line=old, recording_notice_line=recording
+            ),
+            "bundle": bundled_disclosure_line(
+                ai_disclosure_line=fresh, recording_notice_line=recording
+            ),
+        },
+    )
+
+
+async def _ai_line_as_taught(session: AsyncSession, agent: AgentRow) -> AgentRow:
+    """`agent` with its default AI sentence saying the names as the script being published
+    teaches them, written to the row first (`disclosure.taught_ai_disclosure`). A publish is
+    the one door every script change reaches the line through, so the sentence follows a
+    newly taught name there."""
+    # Imported here: both reach this module (`voice_pick` through the voice catalogue,
+    # `compliance.disclosure` through `optout` and ingest).
+    from apps.api.agents.voice_pick import voice_gender
+    from apps.api.compliance.disclosure import taught_ai_disclosure
+
+    old = str(agent["ai_disclosure_line"])
+    fresh = taught_ai_disclosure(
+        old,
+        language=str(agent["language_primary"]),
+        business=str(agent.get("business_name") or ""),
+        name=str(agent["name"]),
+        gender=await voice_gender(session, agent["engine_voice_id"]),
+        body=agent["prompt"],
+    )
+    if fresh is None:
+        return agent
+    await write_ai_line(
+        session,
+        agent_id=UUID(str(agent["id"])),
+        old=old,
+        fresh=fresh,
+        recording=str(agent["recording_notice_line"]),
+    )
+    log.info("agent_ai_line_taught_names", extra={"agent_id": str(agent["id"])})
+    taught = agent.copy()
+    taught["ai_disclosure_line"] = fresh
+    return taught
+
+
 async def publish_agent(
     session: AsyncSession,
     *,
@@ -2615,9 +2725,10 @@ async def publish_agent(
     agent's TEST COPY in our developer workspace instead (`agent_test_copies`), made again if
     it is gone: the engine agent a paying client's test call rings through on the shared trial
     line before the client has a number. The agent's own row, numbers, status and arms are not
-    touched; the copy gets its route, results webhook, facts document and in-call actions.
-    Knowledge documents are converged on the agent's own engine agent only
-    (`engine_facts.sync_business_facts`), so the copy keeps those it held when it moved.
+    touched; the copy gets its route, results webhook, facts document, in-call actions and
+    the client's published knowledge as its own claimed copies (D-964), so a test call
+    answers as the agent does. A copy holding knowledge no claim names (kept by a move
+    before D-964) is replaced by a new one.
 
     The routing row is written HERE, in the same transaction as `engine_agent_ref`,
     because the alternative — writing it from a webhook handler on first sight — means
@@ -2831,6 +2942,7 @@ async def publish_agent(
         )
     # A staged language (D-855) reaches a caller only once clients may choose it.
     refuse_unoffered_language(str(agent["language_primary"]), tenant_id=tenant_id)
+    agent = await _ai_line_as_taught(session, agent)
     config = _to_config(tenant_id, agent, engine=engine, handoff=handoff)
     # The ACTIONS feature: attach this agent's during-call tools to the config the adapter
     # renders, so publish is where a tool change reaches live calls (the "Apply to live
@@ -2876,6 +2988,13 @@ async def publish_agent(
     moved_from: str | None = None
     if isinstance(existing_ref, str) and _moves_workspace(existing_ref, config):
         moved_from, existing_ref = existing_ref, None
+    if (
+        onto_test_copy
+        and existing_ref
+        and await _copy_needs_replacing(session, engine, agent_id=agent_id, ref=existing_ref)
+    ):
+        # Made afresh below; `_record_test_copy` retires the old one.
+        existing_ref = None
     created = not (isinstance(existing_ref, str) and existing_ref)
     if isinstance(existing_ref, str) and existing_ref:
         try:
@@ -2943,7 +3062,13 @@ async def publish_agent(
                 own_model=config.engine_own_model,
             )
             await _publish_business_facts(
-                engine, session, agent_id=agent_id, ref=ref, reclaim=False, script=agent["prompt"]
+                engine,
+                session,
+                agent_id=agent_id,
+                ref=ref,
+                reclaim=False,
+                script=agent["prompt"],
+                test_copy=True,
             )
             await _ensure_in_call_actions(
                 engine, session, agent_id=agent_id, ref=ref, reclaim=False
@@ -3902,8 +4027,13 @@ def dial_first_words(
             return named
     if agent["direction"] == "both":
         posture = posture_of(agent)
+        body = str(agent.get("prompt") or "")
+        if not outbound_opening_of(body):
+            # The last resort (D-963): the language's line naming only the business. A "both"
+            # agent is built with its own placed-call opening, so this is a gap to close.
+            log.warning("placed_call_opening_ready_made", extra={"agent_id": str(agent.get("id"))})
         return placed_call_first_words(
-            body=str(agent.get("prompt") or ""),
+            body=body,
             notices=compose_opening_line(posture, call_is_recorded=call_is_recorded),
             ai_notice=spoken_ai_notice(posture),
             language=str(agent["language_primary"]),

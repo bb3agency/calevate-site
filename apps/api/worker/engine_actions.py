@@ -37,7 +37,9 @@ A TEST CHAT writes nothing. Every action request from ThinnestAI's test chat car
 `X-Test-Chat: true` and no `X-Call-Id` (ThinnestAI email of 12 Oct 2026, VENDOR-STATED), so a
 marked request is answered as the action succeeding, with a `*_in_test` status, and nothing
 is written: no DNC entry, no call-back, no cancellation, no hand-over and no client action
-(founder decision F6, 12 Oct 2026). The marker wins over a call id, because writing nothing is
+(founder decision F6, 12 Oct 2026). A call-back is first put through the real tool's
+refusals and read-back, and a client action answers that it has no result, so a test never
+hears a success a real call would not. The marker wins over a call id, because writing nothing is
 the safe reading of a request that says it is a test, with one exception: an opt-out that
 names a call is acted on as a real one. Dropping a real caller's do-not-call request is the
 failure that cannot be undone (a wrongly added number is restored from the DNC screen), and a
@@ -72,6 +74,7 @@ from calevate_shared.worker_api import (
     MAX_TOOL_TEXT,
     CallbackBookIn,
     CallbackCancelIn,
+    CallbackToolOut,
     CallerIdentityIn,
     HandoffToolIn,
     OptOutToolIn,
@@ -117,6 +120,8 @@ from apps.api.worker.in_call_tools import (
     CallLocator,
     ToolCall,
     book_callback_for,
+    callback_before_booking,
+    callback_booked_say,
     cancel_callback_for,
     record_opt_out_for,
     refuse_wrong_engine,
@@ -149,10 +154,11 @@ TEST_CHAT_OPT_OUT_STATUS: Final = "recorded_in_test"
 TEST_CHAT_HEADER: Final = "X-Test-Chat"
 
 #: Per platform tool, the answer a test chat gets: what the tool's success tells the agent,
-#: so the owner hears what a caller would, and a status that says nothing was written.
+#: so the owner hears what a caller would, and a status that says nothing was written. The
+#: call-back is not here: it answers through `in_call_tools.callback_before_booking`, so a
+#: test hears the trial refusal and the read-back a real call would.
 TEST_CHAT_ANSWERS: Final[dict[str, tuple[str, str]]] = {
     OPT_OUT: (TEST_CHAT_OPT_OUT_STATUS, OPTOUT_DONE_SAY),
-    CALLBACK: ("booked_in_test", "Tell the caller that is booked for the time they agreed."),
     CALLBACK_CANCEL: ("cancelled_in_test", "Tell the caller we will not ring them back."),
     HANDOFF: (
         "handover_in_test",
@@ -160,9 +166,16 @@ TEST_CHAT_ANSWERS: Final[dict[str, tuple[str, str]]] = {
         "call this is where the caller would be passed to the team.",
     ),
 }
-#: A client's own action in a test chat (F6): it reaches none of the client's systems.
-TEST_CHAT_CLIENT_STATUS: Final = "done_in_test"
-TEST_CHAT_CLIENT_SAY: Final = "Done. Use the answer to reply to the caller."
+#: The call-back's status in a test chat once it would have been booked.
+TEST_CHAT_CALLBACK_STATUS: Final = "booked_in_test"
+#: A client's own action in a test chat (F6): it reaches none of the client's systems, so
+#: there is no result, and the agent is told so rather than invited to invent one.
+TEST_CHAT_CLIENT_STATUS: Final = "not_run_in_test"
+TEST_CHAT_CLIENT_SAY: Final = (
+    "This is a test, so the business's system was not reached and there is NO result. Do "
+    "NOT make up an answer or say it is done. Tell the person testing that on a real call "
+    "the answer from the business's system would be used here."
+)
 
 
 def is_test_chat(header: str | None) -> bool:
@@ -248,6 +261,17 @@ def _clip(value: str | None, limit: int) -> str | None:
 def _yes(value: str | None) -> bool:
     """The narrow parse of `confirmed`: yes or true only."""
     return (value or "").strip().lower() in {"yes", "true"}
+
+
+def _callback_request(args: dict[str, str], caller: CallerIdentityIn) -> CallbackBookIn:
+    return CallbackBookIn(
+        callback_date=_clip(args.get("callback_date"), MAX_IDENTIFIER),
+        callback_time=_clip(args.get("callback_time"), MAX_IDENTIFIER),
+        confirmed=_yes(args.get("confirmed")),
+        note=_clip(args.get("note"), MAX_TOOL_TEXT),
+        language=_clip(args.get("language"), 8),
+        caller=caller,
+    )
 
 
 #: The header the platform adds to every action call naming the workspace it came from
@@ -486,6 +510,15 @@ async def engine_action(
         # Before the call is resolved and before `once_per_call`: a test chat names no call,
         # so there is nothing to key the once-per-call guard on and nothing to write.
         log.info("engine_action_test_chat", extra=ids)
+        if tool == CALLBACK:
+            checked = await callback_before_booking(
+                route.tenant_id, _callback_request(args, CallerIdentityIn())
+            )
+            if isinstance(checked, CallbackToolOut):
+                return _answer(checked.status, checked.say, booked_for=checked.booked_for)
+            return _answer(
+                TEST_CHAT_CALLBACK_STATUS, callback_booked_say(checked), booked_for=checked.spoken
+            )
         status, say = TEST_CHAT_ANSWERS[tool]
         return _answer(status, say)
 
@@ -547,14 +580,7 @@ async def engine_action(
                 booked = await book_callback_for(
                     route.tenant_id,
                     live.engine_call_id,
-                    CallbackBookIn(
-                        callback_date=_clip(args.get("callback_date"), MAX_IDENTIFIER),
-                        callback_time=_clip(args.get("callback_time"), MAX_IDENTIFIER),
-                        confirmed=_yes(args.get("confirmed")),
-                        note=_clip(args.get("note"), MAX_TOOL_TEXT),
-                        language=language,
-                        caller=caller,
-                    ),
+                    _callback_request(args, caller),
                     locate=locate,
                 )
                 return _body(booked.status, booked.say, booked_for=booked.booked_for)
@@ -686,6 +712,7 @@ __all__ = [
     "NOT_MATCHED_SAY",
     "NO_CALL_SAY",
     "TEST_CHAT_ANSWERS",
+    "TEST_CHAT_CALLBACK_STATUS",
     "TEST_CHAT_CLIENT_SAY",
     "TEST_CHAT_CLIENT_STATUS",
     "TEST_CHAT_HEADER",

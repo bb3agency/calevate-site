@@ -137,6 +137,17 @@ DATA_ONLY_REPAIRS: dict[str, str] = {
         "Settings no longer declares since D-868; no DDL, the DELETE is a no-op once done, "
         "and earlier code reads a missing row as the switch's default"
     ),
+    "c8e4a1f7b2d5": (
+        "queued the retired refresh_example_lines job (D-888); since D-962 it does nothing "
+        "either way, because that job no longer exists and a queued message would name a job "
+        "no worker runs. No DDL; e962a4c1d7b3 takes every plan line off live agents"
+    ),
+    "e962a4c1d7b3": (
+        "queues strip_retired_example_lines per account (D-962): no DDL beyond the RLS "
+        "bracket; the job's predicate (a step still holding a retired line word for word) is "
+        "false once done, and putting a line back would re-ship the line the founder retired. "
+        "Each cleared line stays in the agent's previous script version, restorable there"
+    ),
 }
 
 #: What a schema change looks like in a migration's source. A revision claiming to be a

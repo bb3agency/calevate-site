@@ -4,8 +4,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import pytest
 from apps.api.agents.call_mistakes import LESSONS, mistakes_in
-from apps.api.agents.turn_checks import SOUND_KINDS, offers_more
+from apps.api.agents.test_conversations import (
+    AgentBrief,
+    RuleContext,
+    Turn,
+    hard_check,
+    probe_scenario,
+)
+from apps.api.agents.turn_checks import JOB_KINDS, SOUND_KINDS, conversation_problems, offers_more
 
 AREA = "అవునండి, శ్రీ ఎస్టేట్స్ నుంచి కాల్ చేస్తున్నాను. మీరు ఏ ఏరియాలో ప్రాపర్టీ చూస్తున్నారు?"
 
@@ -142,3 +150,104 @@ def test_anything_else_once_a_topic_is_done_is_no_mistake() -> None:
 def test_every_lesson_has_words_an_owner_reads() -> None:
     for lesson in LESSONS.values():
         assert lesson.label and lesson.instead
+
+
+# --- an earlier enquiry or call claimed when none is on file (2 Nov 2026) ----------------
+
+
+def test_an_invented_earlier_enquiry_counts_only_when_nobody_was_on_file() -> None:
+    """Turn 3 of the Sri Estates call says the person enquired before. That is a mistake
+    when the business had nothing on file for them, and fine when it did; when the call
+    could not say, it is not judged."""
+    assert mistakes_in(SRI_ESTATES, language="te-IN", prior_contact=False)["false_history"] == 3
+    assert "false_history" not in mistakes_in(SRI_ESTATES, language="te-IN", prior_contact=True)
+    assert "false_history" not in mistakes_in(SRI_ESTATES, language="te-IN")
+    assert "false_history" in JOB_KINDS
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "You enquired with us last week about the app.",
+        "Last time we spoke you wanted the Telugu version.",
+        "Earlier you asked about the price, so I am calling back.",
+        "మీరు ఇంతకు ముందు మా దగ్గర ఎంక్వైరీ చేశారు కదా అండి?",
+        "పోయిన సారి మీరు యాప్ గురించి అడిగారు.",
+        "आपने पहले हमसे पूछताछ की थी।",
+        "पिछली बार आपने app के बारे में पूछा था।",
+    ],
+)
+def test_a_claimed_earlier_contact_is_false_history(reply: str) -> None:
+    found = conversation_problems([Turn("Hello.", reply)], prior_contact=False)
+    assert "false_history" in [p.kind for p in found]
+
+
+@pytest.mark.parametrize(
+    ("said", "reply", "known"),
+    [
+        # Asking is not claiming.
+        ("Hello.", "Have you enquired with us before?", ""),
+        ("Hello.", "మీరు ఇంతకు ముందు ఎంక్వైరీ చేశారా?", ""),
+        ("Hello.", "क्या आपने पहले पूछताछ की थी?", ""),
+        # The caller said it first.
+        ("I enquired last week.", "Yes, you enquired about the two bedroom flat.", ""),
+        # The owner's script says its callers enquired.
+        ("Hello.", "You enquired about our flats.", "We call people who enquired online."),
+        # "Earlier you asked" after the caller asked something on this call.
+        ("Are you open on Sunday?", "Earlier you asked about Sunday: yes, ten to two.", ""),
+        # "Last time" that is not about an earlier contact.
+        ("Hello.", "This is the last time I will ask, is now a good time?", ""),
+    ],
+)
+def test_contact_asked_about_or_backed_is_not_false_history(
+    said: str, reply: str, known: str
+) -> None:
+    found = conversation_problems([Turn(said, reply)], prior_contact=False, known=known)
+    assert "false_history" not in [p.kind for p in found]
+
+
+def test_a_practice_conversation_fails_on_an_invented_earlier_enquiry() -> None:
+    verdict = hard_check(
+        probe_scenario("ai", "en-IN"),
+        [Turn("Hello.", "You enquired with us last week. I am an AI assistant.")],
+    )
+    assert verdict.verdict == "failed" and verdict.fix == "platform"
+    assert "no earlier enquiry or call" in (verdict.reason or "")
+
+
+def test_practice_judges_a_reply_against_the_agents_opening() -> None:
+    """The test chat does not say the opening, so a reply asking its question again is only
+    seen when the opening is passed in (D-912)."""
+    turns = [
+        Turn("Yes.", "Great, I am calling about your cleaning."),
+        Turn("Okay.", "So, can we talk now?"),
+    ]
+    opening = "Hello, this is Asha from Sunrise Dental. Can we talk now?"
+    scenario = probe_scenario("ai", "en-IN")
+    without = hard_check(scenario, turns)
+    assert "opened_again" not in {p.kind for p in without.sounds}
+    judged = hard_check(scenario, turns, rules=RuleContext(opening=opening))
+    assert "opened_again" in {p.kind for p in judged.sounds}
+
+
+def test_a_both_agent_is_judged_against_both_of_its_openings() -> None:
+    brief = AgentBrief(
+        business_name="Sunrise Dental",
+        business_type="custom",
+        direction="both",
+        language="en-IN",
+        register="",
+        word_swaps=(),
+        steps=(),
+        opening_line="Thanks for calling Sunrise Dental. How can I help?",
+        ending="",
+        objections=(),
+        pinned_facts=(),
+        knowledge_titles=(),
+        lead_fields=(),
+        hand_over="off",
+        call_backs=False,
+        call_is_recorded=True,
+        placed_opening="Hello, this is Sunrise Dental. Can we talk now?",
+    )
+    assert brief.rules().opening == f"{brief.opening_line} {brief.placed_opening}"

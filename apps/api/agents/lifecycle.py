@@ -84,6 +84,7 @@ from apps.api.agents.service import (
     refuse_call_cap_out_of_range,
     retire_in_call_actions,
     route_inbound_numbers,
+    write_ai_line,
 )
 from apps.api.agents.starters import JobChoice, apply_starter, direction_for, starter_jobs
 from apps.api.agents.voice_pick import voice_gender
@@ -700,10 +701,12 @@ async def _rewrite_notices(
     change with the language. A sentence an experiment promoted is replaced too, because
     it was written in the old language.
     """
-    business, name, voice_id = (
+    business, name, voice_id, body = (
         await session.execute(
             text(
-                "SELECT o.name, a.name, a.engine_voice_id FROM agents a "
+                "SELECT o.name, a.name, a.engine_voice_id, "
+                "(SELECT pv.body FROM prompt_versions pv "
+                "WHERE pv.id = COALESCE(a.live_prompt_id, a.system_prompt_id)) FROM agents a "
                 "JOIN organizations o ON o.id = a.tenant_id WHERE a.id = :aid AND o.id = :tid"
             ),
             {"tid": tenant_id, "aid": agent_id},
@@ -714,6 +717,7 @@ async def _rewrite_notices(
         business=str(business),
         name=str(name),
         gender=await voice_gender(session, voice_id),
+        body=None if body is None else str(body),
     )
     recording_line = recording_notice_for(language=language)
     await session.execute(
@@ -753,7 +757,9 @@ async def _rerender_ai_line(
         await session.execute(
             text(
                 "SELECT a.ai_disclosure_line, a.recording_notice_line, "
-                "a.language_primary, a.name, a.engine_voice_id, o.name FROM agents a "
+                "a.language_primary, a.name, a.engine_voice_id, o.name, "
+                "(SELECT pv.body FROM prompt_versions pv "
+                "WHERE pv.id = COALESCE(a.live_prompt_id, a.system_prompt_id)) FROM agents a "
                 "JOIN organizations o ON o.id = a.tenant_id WHERE a.id = :aid AND o.id = :tid"
             ),
             {"aid": agent_id, "tid": tenant_id},
@@ -767,29 +773,18 @@ async def _rerender_ai_line(
         row[4],
         str(row[5]),
     )
-    if not is_default_ai_disclosure(line, language=language, business=business, name=old_name):
+    body = None if row[6] is None else str(row[6])
+    if not is_default_ai_disclosure(
+        line, language=language, business=business, name=old_name, body=body
+    ):
         return
     gender = await voice_gender(session, voice)
-    fresh = ai_disclosure_for(language=language, business=business, name=name, gender=gender)
+    fresh = ai_disclosure_for(
+        language=language, business=business, name=name, gender=gender, body=body
+    )
     if fresh == line.strip():
         return
-    old_bundle = bundled_disclosure_line(ai_disclosure_line=line, recording_notice_line=recording)
-    await session.execute(
-        text(
-            "UPDATE agents SET ai_disclosure_line = :line, "
-            "disclosure_line = CASE WHEN disclosure_line = :old_bundle THEN :bundle "
-            "ELSE disclosure_line END, updated_at = now() "
-            "WHERE id = :aid AND deleted_at IS NULL"
-        ),
-        {
-            "aid": agent_id,
-            "line": fresh,
-            "old_bundle": old_bundle,
-            "bundle": bundled_disclosure_line(
-                ai_disclosure_line=fresh, recording_notice_line=recording
-            ),
-        },
-    )
+    await write_ai_line(session, agent_id=agent_id, old=line, fresh=fresh, recording=recording)
     log.info(
         "agent_ai_line_rerendered",
         extra={

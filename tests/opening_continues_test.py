@@ -105,8 +105,9 @@ def test_what_the_section_costs() -> None:
     start = _start(_cfg("both"))
     spoken = compose_first_utterance(_cfg("both"))
     print(f"START OF THE CALL: {len(start)} chars, of which the quoted opening {len(spoken)}")
-    # 498 before D-958, which named a hello said back and the business name again (+40).
-    assert len(start) - len(spoken) < 540
+    # 498 before D-958, which named a hello said back and the business name again (+40); D-961
+    # added the rule that a claim about the person needs THIS CALL (+77).
+    assert len(start) - len(spoken) < 620
 
 
 # --- the turn check -----------------------------------------------------------------------

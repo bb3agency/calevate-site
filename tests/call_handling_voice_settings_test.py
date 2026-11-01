@@ -412,3 +412,19 @@ def test_the_platform_filler_lines_follow_the_agents_languages_and_the_clients_w
     assert lines(("One moment",), ("te-IN",)) == ("One moment",)
     # English has no line of ours: the engine keeps its own English filler.
     assert lines(None, ("en-IN",)) == ()
+
+
+def test_the_cap_on_filler_lines_leaves_every_language_its_share(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The engine says only the lines in the caller's script, so a cut that kept the main
+    language's lines alone would leave a caller in the other language none of ours."""
+    from apps.api.agents import service
+    from apps.api.agents.models import FILLER_LINES_MAX
+
+    own = {"te-IN": tuple(f"te{i}" for i in range(9)), "hi-IN": ("hi0", "hi1")}
+    monkeypatch.setattr(service, "thinking_lines", lambda tags: own.get(tags[0], ()))
+    lines = service.platform_filler_lines(("te-IN", "hi-IN"))
+    assert len(lines) == FILLER_LINES_MAX
+    assert {"hi0", "hi1"} <= set(lines)
+    assert lines[:4] == ("te0", "hi0", "te1", "hi1")

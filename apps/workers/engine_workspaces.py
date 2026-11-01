@@ -57,6 +57,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.core.settings import get_settings
+from apps.api.db.result import rowcount_of
 from apps.api.db.session import admin_session, tenant_session
 from apps.api.engine import get_engine
 from apps.api.engine.catalogue import HostsVoices
@@ -66,6 +67,7 @@ from apps.api.engine.thinnest_numbers import thinnest_numbers
 from apps.api.engine.thinnest_workspace import in_workspace
 from apps.api.engine.vendor_http import EngineRejectedError
 from apps.api.go_live.moves import queue_agent_move
+from apps.api.kb.service import release_test_copy_claims
 from apps.api.reliability.engine_webhooks import retire_agent_webhook
 from apps.api.reliability.service import enqueue_outbox
 from apps.api.tenancy.call_lines import queue_call_lines_sync, read_call_lines
@@ -726,10 +728,13 @@ async def retire_moved_engine_agent(ctx: dict[str, Any], payload: dict[str, Any]
             ),
             {"engine": engine.name, "ref": old_ref},
         )
-        # A retired test copy (D-859, option A) is gone; the next test call makes another.
-        await session.execute(
+        # A retired test copy (D-859, option A) is gone, and its knowledge with it (D-964);
+        # the next test call makes another, given every live source again.
+        retired_copy = await session.execute(
             text("DELETE FROM agent_test_copies WHERE engine_agent_ref = :ref"), {"ref": old_ref}
         )
+        if rowcount_of(retired_copy):
+            await release_test_copy_claims(session, tenant_id=tenant_id, agent_id=agent_id)
     log.info("engine_agent_retired_after_move", extra={"agent_id": str(agent_id)})
     return "retired"
 

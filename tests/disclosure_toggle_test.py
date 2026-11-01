@@ -58,6 +58,7 @@ from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine, reset_engine_cache
 from apps.api.engine.fake import DEFAULT_FAKE_CAPABILITIES, FakeEngine
+from calevate_shared.call_script import CallScript, compile_call_script
 from calevate_shared.engine import (
     TRUTHFUL_ANSWER_DIRECTIVE,
     TRUTHFUL_ANSWER_MARKER,
@@ -595,6 +596,28 @@ async def test_an_unpublished_agent_records_the_posture_without_an_engine_hop() 
     assert result.changed == ("ai_disclosure_enabled", "recording_notice_enabled")
     assert result.engine_synced is False
     assert (await _posture(tenant_id, agent_id))[:2] == (False, False)
+
+
+async def test_the_introduction_is_refused_over_an_opening_that_says_who_is_calling() -> None:
+    """D-865: the Telugu AI notice introduces the agent, so an opening written while it was
+    off ("this is Sunrise Clinic") would be heard after it, saying it twice. Nothing is
+    written; the repair is the opening suggestion."""
+    tenant_id, agent_id = await _tenant(notices_on=False)
+    opening = "నమస్కారం అండి, Sunrise Clinic నుండి మాట్లాడుతున్నాము. ఏమి కావాలి?"
+    await _with_script(
+        tenant_id,
+        agent_id,
+        compile_call_script(CallScript(opening_line=opening), collect=[]),
+    )
+    with pytest.raises(ProblemError) as caught:
+        await publishing.set_disclosure_posture(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            ai_disclosure_enabled=True,
+            recording_notice_enabled=None,
+        )
+    assert caught.value.code == publishing.OPENING_INTRODUCES_CODE
+    assert (await _posture(tenant_id, agent_id))[0] is False
 
 
 async def test_a_deleted_agent_is_not_found_rather_than_silently_toggled() -> None:

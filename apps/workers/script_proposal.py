@@ -35,6 +35,7 @@ from apps.api.crm import assist as crm_assist
 from apps.api.db.session import tenant_session
 from apps.api.first_run.documents import document_words, read_documents
 from apps.api.kb.service import knowledge_agents
+from apps.workers.extraction import TenantModelLeg
 from apps.workers.first_run import documents_block
 from apps.workers.opening_line import opening_problems, write_opening
 from apps.workers.script_assist import (
@@ -102,6 +103,37 @@ async def _documents(tenant_id: UUID, proposal: script_proposals.ScriptProposal)
     return documents_block(words)
 
 
+async def _introduced_opening(
+    context: ScriptBrief,
+    base: CallScript,
+    tenant_leg: TenantModelLeg | None,
+    *,
+    quota_exhausted: bool,
+) -> ScriptDraft:
+    """`base` with its opening line written again to be said after the agent's own
+    introduction (D-865): no greeting, no name of the agent or the business. Asked when the AI
+    notice, which introduces the agent, is switched on over an opening that already does
+    (`publishing.OPENING_INTRODUCES_CODE`). The notice is still off while this is written, so
+    the brief is told it introduces."""
+    brief = replace(context, introduced=True)
+    line = base.opening_line.strip()
+    names = (brief.business_name, brief.agent_name)
+    answer = await write_opening(
+        brief,
+        line=line,
+        problems=opening_problems(line, brief.language, names=names, introduced=True),
+        tenant_leg=tenant_leg,
+        quota_exhausted=quota_exhausted,
+    )
+    return ScriptDraft(
+        script=base.model_copy(update={"opening_line": answer.value}),
+        capability=answer.capability,
+        usage=answer.usage,
+        model=answer.model,
+        earlier=answer.earlier,
+    )
+
+
 async def _draft(
     tenant_id: UUID, agent_id: UUID, proposal: script_proposals.ScriptProposal
 ) -> ScriptDraft:
@@ -111,6 +143,8 @@ async def _draft(
         quota = await read_ai_quota(session, tenant_id=tenant_id)
     exhausted = quota.at_ceiling or quota.platform_paused
     base = proposal.base_script
+    if proposal.mode == script_proposals.OPENING_MODE:
+        return await _introduced_opening(context, base, tenant_leg, quota_exhausted=exhausted)
     if proposal.mode == "steps":
         # The brief the conversion has always used: the hand-written text and the three
         # facts that decide its register, nothing else.
@@ -167,7 +201,7 @@ async def _opening_repaired(
     owner's sentences, and a line the owner already had or asked for in their own words is
     theirs: neither is judged. A repair that gives no line leaves the proposal as drafted, for
     the owner to review."""
-    if proposal.mode == "steps":
+    if proposal.mode in ("steps", script_proposals.OPENING_MODE):
         return script, []
     owners = " ".join([proposal.request or "", *proposal.answers.values()])
     judged = [

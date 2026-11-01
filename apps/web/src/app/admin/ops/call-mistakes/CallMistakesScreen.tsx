@@ -133,7 +133,12 @@ export function CallMistakesScreen() {
         row.fix_note ? (
           <span className="[overflow-wrap:anywhere]">
             {row.fix_note}
-            {row.fixed_at ? <span className="block text-meta text-ink-muted">{formatIST(row.fixed_at)}</span> : null}
+            {row.fixed_at ? (
+              <span className="block text-meta text-ink-muted">
+                {formatIST(row.fixed_at)}
+                {row.fixed_by ? ` · ${row.fixed_by}` : null}
+              </span>
+            ) : null}
           </span>
         ) : (
           <span className="text-ink-muted">—</span>

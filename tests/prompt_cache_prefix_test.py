@@ -26,15 +26,15 @@ def _outbound_prompt() -> str:
     return compose_engine_prompt(_config(_starter("call_leads"), "call_leads", pinned=True))
 
 
-def test_the_outbound_starter_keeps_its_facts_and_example_before_the_lead_name() -> None:
+def test_the_outbound_starter_keeps_its_facts_and_steps_before_the_lead_name() -> None:
     prompt = _outbound_prompt()
     first = prompt.index("{{")
     prefix = prompt[:first]
     assert QUICK_FACTS_LEAD in prefix
-    assert "[EXAMPLE CALL]" in prefix
+    assert "[GOAL]" in prefix
     # What follows the value inside the script is the ending section alone.
     script_tail = prompt[first:].split("--- END CLIENT SCRIPT ---")[0]
-    assert "[EXAMPLE CALL]" not in script_tail and QUICK_FACTS_LEAD not in script_tail
+    assert "[GOAL]" not in script_tail and QUICK_FACTS_LEAD not in script_tail
 
 
 def test_the_prefix_is_the_same_for_two_callers() -> None:
@@ -79,4 +79,4 @@ def test_a_stored_body_gets_its_pinned_facts_back_before_the_value() -> None:
     assert spliced.index(QUICK_FACTS_LEAD) < spliced.index("{{lead_name}}")
     assert "Old fact" not in spliced
     compiled = without_outline(compile_call_script(_starter("call_leads"), collect=COLLECT))
-    assert compiled.index("[EXAMPLE CALL]") < compiled.index("{{lead_name}}")
+    assert compiled.index("[GOAL]") < compiled.index("{{lead_name}}")

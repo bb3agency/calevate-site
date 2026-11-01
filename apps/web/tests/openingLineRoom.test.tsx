@@ -8,7 +8,7 @@ import { EMPTY_SCRIPT } from "@/lib/api/script";
 import type { Agent } from "@/lib/api/agents";
 import { useAssistantRequests, type AssistantRequest } from "@/lib/copilot/launcher";
 
-import { problem, renderClientPage, type ApiCall } from "./harness";
+import { noContent, problem, renderClientPage, type ApiCall } from "./harness";
 
 /*
  * D-846: what an agent says first is the notices switched on and then its opening line, and
@@ -180,5 +180,62 @@ describe("the opening line's room (D-846)", () => {
       { ai_disclosure_enabled: true },
       { ai_disclosure_enabled: true },
     ]);
+  });
+
+  it("refused because the opening already says who is calling, it rewrites the line and switches on (D-865)", async () => {
+    const introduces = problem(409, {
+      type: "https://calevate.tech/problems/opening_introduces_agent",
+      title: "The opening line already says who is calling",
+      detail: "With this on, your agent says who it is before the opening line, so callers would hear it twice.",
+      remediation: "Rewrite the opening line without the names, then switch this on again.",
+      kind: "conflict",
+      retryable: false,
+    });
+    const proposal = (status: "drafting" | "ready") => ({
+      id: "p1",
+      mode: "opening",
+      documents: [],
+      status,
+      request: null,
+      base_script: { ...EMPTY_SCRIPT, opening_line: "Namaskaram, Raghava Organics nundi." },
+      script: status === "ready" ? { ...EMPTY_SCRIPT, opening_line: "Emi kavali andi?" } : null,
+      unplaced: [],
+      disclosure: null,
+      note: null,
+      requested_at: "2026-11-02T10:00:00Z",
+    });
+    let tries = 0;
+    const { calls } = await renderClientPage(
+      <OpeningNotices agent={agent({ script_opening_line: "Namaskaram, Raghava Organics nundi." })} />,
+      {
+        "/v1/me": OWNER,
+        "PATCH /v1/agents/agent-1/disclosure": () =>
+          tries++ === 0
+            ? introduces
+            : {
+                agent_id: "agent-1",
+                ai_disclosure_enabled: true,
+                recording_notice_enabled: false,
+                opening_line: "Idi Raghava Organics AI assistant.",
+                engine_synced: true,
+                changed: ["ai_disclosure_enabled"],
+              },
+        "POST /v1/agents/agent-1/script/opening-line/after-introduction": proposal("drafting"),
+        "/v1/agents/agent-1/script/proposal": { proposal: proposal("ready") },
+        "PUT /v1/agents/agent-1/script/opening-line": { opening_line: "Emi kavali andi?", version: 8 },
+        "DELETE /v1/agents/agent-1/script/proposal/p1": noContent(),
+      },
+    );
+    const aiSwitch = screen.getByRole("switch", { name: /Say it is an AI assistant/ }) as HTMLInputElement;
+    await waitFor(() => expect(aiSwitch.disabled).toBe(false));
+    fireEvent.click(aiSwitch);
+    fireEvent.click(await screen.findByRole("button", { name: "Rewrite it for me" }));
+    await waitFor(() =>
+      expect((screen.getByLabelText("Opening line") as HTMLTextAreaElement).value).toBe("Emi kavali andi?"),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Save and switch on" }));
+    await waitFor(() => expect(tries).toBe(2));
+    const put = calls.find((c: ApiCall) => c.method === "PUT");
+    expect(JSON.parse(put?.body ?? "{}")).toEqual({ opening_line: "Emi kavali andi?", when: "answers" });
   });
 });

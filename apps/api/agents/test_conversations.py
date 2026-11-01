@@ -74,6 +74,7 @@ from uuid import UUID
 
 from calevate_shared.call_script import upgrade_to_v2
 from calevate_shared.calling_window import ist_wall_clock
+from calevate_shared.engine import placed_call_line
 from calevate_shared.spoken_style import style_for
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -548,13 +549,16 @@ def speech_problems(
     known: str = "",
     manifest: CapabilityManifest | None = None,
     today: date | None = None,
+    opening: str = "",
+    prior_contact: bool | None = None,
 ) -> list[TurnProblem]:
     """The shape problems in a conversation's replies (`agents/turn_checks`), each kind
     once, in the order they first appear. Each reply is judged against the caller line it
     answered, which decides whether a longer reply was asked for. `memory_notice` is the
     sentence a closing goodbye must carry (D-865), empty where none is owed. `known` is the
     agent's script and facts (D-888). `manifest` and `today` judge promises and weekdays
-    (D-945)."""
+    (D-945). `opening` is what the agent opens a call with, whose question a reply must not
+    ask again (D-912), and `prior_contact` whether the caller had contact before."""
     seen: set[str] = set()
     out: list[TurnProblem] = []
     for turn in turns:
@@ -567,7 +571,13 @@ def speech_problems(
     out += [
         p
         for p in conversation_problems(
-            turns, memory_notice=memory_notice, known=known, manifest=manifest, today=today
+            turns,
+            memory_notice=memory_notice,
+            known=known,
+            manifest=manifest,
+            today=today,
+            opening=opening,
+            prior_contact=prior_contact,
         )
         if p.kind not in seen
     ]
@@ -602,6 +612,10 @@ class RuleContext:
     manifest: CapabilityManifest | None = None
     #: The IST date of the run, against which a stated weekday is checked (D-945).
     today: date | None = None
+    #: What the agent opens a call with (both openings for an agent that answers and places
+    #: calls), so a reply asking its question again is caught (D-912). The test chat does
+    #: not say it, so it is not one of the turns.
+    opening: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -791,6 +805,10 @@ def hard_check(
         known=rules.known,
         manifest=rules.manifest,
         today=rules.today,
+        opening=rules.opening,
+        # A practice caller is new to the business, so any earlier enquiry or call the agent
+        # mentions is invented unless its script or facts say callers enquired.
+        prior_contact=False,
     )
     if scenario.probe == "person":
         # The test chat's sandbox switches off anything that would ring a person and "says
@@ -993,9 +1011,13 @@ class AgentBrief:
     #: The caller follows the agent's steps on a screen (D-906), so naming what is on it is
     #: right rather than a mention of something the caller cannot see.
     caller_has_screen: bool = False
+    #: The line a "both" agent opens the calls it places with (`engine.placed_call_line`);
+    #: empty for an agent of one direction, whose `opening_line` is its only opening.
+    placed_opening: str = ""
 
     def rules(self, *, agreements_waiting: bool = False) -> RuleContext:
         return RuleContext(
+            opening=" ".join(line for line in (self.opening_line, self.placed_opening) if line),
             hand_over=self.hand_over,
             hand_over_reason=self.hand_over_reason,
             call_backs=self.call_backs,
@@ -1125,8 +1147,13 @@ async def load_brief(session: AsyncSession, agent_id: UUID) -> AgentBrief:
                 "SELECT a.direction, a.language_primary, a.handoff_enabled, a.business_hours, "
                 "a.tenant_id, o.name, o.vertical_template, a.handoff_trigger, "
                 "CASE WHEN a.caller_memory_enabled THEN a.caller_memory_notice_line "
-                "ELSE '' END, a.caller_has_screen FROM agents a "
+                "ELSE '' END, a.caller_has_screen, "
+                # The applied script's compiled body and the spoken AI sentence, for the
+                # opening a "both" agent places calls with (`engine.placed_call_line`).
+                "pv.body, CASE WHEN a.ai_disclosure_enabled THEN a.ai_disclosure_line "
+                "ELSE '' END FROM agents a "
                 "JOIN organizations o ON o.id = a.tenant_id "
+                "LEFT JOIN prompt_versions pv ON pv.id = a.live_prompt_id "
                 "WHERE a.id = :aid AND a.deleted_at IS NULL"
             ),
             {"aid": agent_id},
@@ -1191,6 +1218,16 @@ async def load_brief(session: AsyncSession, agent_id: UUID) -> AgentBrief:
         real_calls=await count_real_calls(session, agent_id),
         memory_notice=str(row[8] or "").strip(),
         caller_has_screen=bool(row[9]),
+        placed_opening=(
+            placed_call_line(
+                body=row[10],
+                language=language,
+                business=str(row[5] or ""),
+                ai_notice=str(row[11] or ""),
+            )[:300]
+            if row[0] == "both"
+            else ""
+        ),
         actions=tuple(
             (tool.kind, (tool.description or tool.name)[:160])
             for tool in await action_service.in_call_tools(session, agent_id=agent_id)

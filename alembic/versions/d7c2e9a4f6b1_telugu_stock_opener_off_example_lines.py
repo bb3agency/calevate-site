@@ -14,18 +14,15 @@ A step changes only where its line is still the old plan line word for word (aft
 as the worker compares); a line the owner edited is never touched.
 
 * The autosaved draft (`agents.script_draft`) reaches no call, so it is changed here, in SQL.
-* The current script (`prompt_versions.structured_script` behind `agents.system_prompt_id`) is
-  immutable history and a live agent must be republished, so it is changed by the existing
-  `refresh_example_lines` job (`apps/workers/example_line_refresh.py`), one outbox message per
-  account, which writes a new version and republishes a live agent through
-  `script_builder.rewrite_script`. An agent with an unpublished script edit gets the change on
-  that edit, which reaches callers when the owner puts it live.
+* The current script (`prompt_versions.structured_script` behind `agents.system_prompt_id`)
+  was changed by the `refresh_example_lines` job, one outbox message per account. Since D-962
+  (2 Nov 2026) the plans hold no spoken lines, that job is retired and migration
+  `e962a4c1d7b3` takes every plan line off live agents, so this revision no longer queues it in
+  either direction (a queued message would name a job no worker runs).
 
-Every step changed or queued is recorded in `script_line_changes` (agent, draft or script,
-position, old and new line). DOWNGRADE restores the opener on exactly those steps: the drafts
-here where the step still holds the new line, the scripts by queueing the inverse job limited to
-the recorded positions (`stages`); then the record table goes. Nothing is rewritten in place
-in a prompt version: every version stays as it was heard.
+Every step found is recorded in `script_line_changes` (agent, draft or script, position, old
+and new line). DOWNGRADE restores the opener on the recorded draft steps still holding the new
+line; then the record table goes. Nothing is rewritten in place in a prompt version.
 """
 
 import json
@@ -49,12 +46,6 @@ _GUC = "NULLIF(current_setting('app.tenant_id', true), '')"
 _OWN_TENANT = f"(tenant_id = ({_GUC})::uuid)"
 
 #: FROZEN COPIES, not imports: a migration keeps meaning what it meant on the day it ran.
-#: `tests/telugu_stock_opener_test.py` holds them equal to the shipped plan.
-#: `apps/workers/example_line_refresh.JOB_NAME`.
-JOB = "refresh_example_lines"
-NOTES = 'Example lines updated: the stock "సరే అండి," taken off (D-894)'
-UNDO_NOTES = 'Example lines restored: the stock "సరే అండి," put back'
-
 #: (the old line, the new one), Telugu only: the close, then each trade's first question.
 REPLACEMENTS: tuple[tuple[str, str], ...] = (
     (
@@ -130,27 +121,6 @@ def _rewrite_drafts(*, column: str, expect: str) -> int | None:
     )
 
 
-def _queue(*, forward: bool) -> int | None:
-    """One `refresh_example_lines` message per account with a recorded script step, carrying
-    the pairs, the recorded positions per agent and the version note."""
-    pairs = REPLACEMENTS if forward else tuple((new, old) for old, new in REPLACEMENTS)
-    return execute_data_statement(
-        sa.text(
-            "INSERT INTO outbox_messages (id, job, payload, status, attempt_count, "
-            "created_at, updated_at) SELECT gen_random_uuid(), :job, jsonb_build_object("
-            "'tenant_id', s.tenant_id::text, 'replacements', CAST(:pairs AS jsonb), "
-            "'notes', CAST(:notes AS text), 'stages', s.stages), 'pending', 0, now(), now() "
-            "FROM (SELECT g.tenant_id, jsonb_object_agg(g.agent_id::text, g.idx) AS stages "
-            "FROM (SELECT tenant_id, agent_id, jsonb_agg(stage_index ORDER BY stage_index) AS idx "
-            f"FROM {TABLE} WHERE target = 'script' GROUP BY tenant_id, agent_id) g "
-            "GROUP BY g.tenant_id) s"
-        ).bindparams(
-            job=JOB, pairs=_pairs_json(pairs), notes=NOTES if forward else UNDO_NOTES
-        ),
-        note="Queued the example-line job for accounts with a recorded script step.",
-    )
-
-
 def _create_table() -> None:
     op.create_table(
         TABLE,
@@ -207,13 +177,7 @@ def upgrade() -> None:
     drafts = _record("draft", _DRAFT_SOURCE, "a.script_draft")
     scripts = _record("script", _SCRIPT_SOURCE, "pv.structured_script")
     _rewrite_drafts(column="after_text", expect="before_text")
-    queued = _queue(forward=True)
-    log.info(
-        "stock Telugu opener: %s draft step(s), %s script step(s), %s account(s) queued",
-        drafts,
-        scripts,
-        queued,
-    )
+    log.info("stock Telugu opener: %s draft step(s), %s script step(s)", drafts, scripts)
     op.execute(f"ALTER TABLE {TABLE} FORCE ROW LEVEL SECURITY")
     op.execute("ALTER TABLE prompt_versions FORCE ROW LEVEL SECURITY")
     op.execute("ALTER TABLE agents FORCE ROW LEVEL SECURITY")
@@ -224,7 +188,6 @@ def downgrade() -> None:
     op.execute("ALTER TABLE agents NO FORCE ROW LEVEL SECURITY")
     op.execute(f"ALTER TABLE {TABLE} NO FORCE ROW LEVEL SECURITY")
     _rewrite_drafts(column="before_text", expect="after_text")
-    _queue(forward=False)
     op.execute(f"ALTER TABLE {TABLE} FORCE ROW LEVEL SECURITY")
     op.execute("ALTER TABLE agents FORCE ROW LEVEL SECURITY")
     op.drop_index(op.f("ix_script_line_changes_tenant_id"), table_name=TABLE)

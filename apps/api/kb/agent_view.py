@@ -70,7 +70,7 @@ SELECT r.source_id, r.engine_kb_ref, s.name, s.is_active, coalesce(u.source_kind
 FROM engine_kb_routes r
 JOIN kb_sources s ON s.id = r.source_id
 LEFT JOIN kb_uploads u ON u.source_id = s.id
-WHERE s.tenant_id = :tid AND r.agent_id = :aid AND r.variant_id IS NULL
+WHERE s.tenant_id = :tid AND r.agent_id = :aid AND r.variant_id IS NULL AND NOT r.test_copy
 ORDER BY s.name, r.source_id
 LIMIT :cap
 """
@@ -84,6 +84,7 @@ WHERE s.tenant_id = :tid AND s.is_active = true
   AND NOT EXISTS (
     SELECT 1 FROM engine_kb_routes r
     WHERE r.source_id = s.id AND r.agent_id = :aid AND r.variant_id IS NULL
+      AND NOT r.test_copy
   )
 ORDER BY s.name, s.id
 LIMIT :cap

@@ -19,7 +19,7 @@ from typing import Any
 import pytest
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
-from apps.api.agents import lifecycle
+from apps.api.agents import lifecycle, publishing, service
 from apps.api.agents.engine_limits import OPENING_TOO_LONG, refuse_over_engine_limits
 from apps.api.agents.starters import starter_opening
 from apps.api.agents.test_conversations import Turn
@@ -35,6 +35,7 @@ from apps.api.compliance.disclosure import (
     caller_memory_notice_for,
     is_default_ai_disclosure,
     recording_notice_for,
+    taught_ai_disclosure,
 )
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
@@ -42,7 +43,7 @@ from apps.api.db.session import tenant_session
 from apps.api.engine.fake import DICTATED_SPEECH_CAPABILITIES, FakeEngine
 from apps.workers.first_run import greeting_fits
 from apps.workers.script_assist import INTRODUCED_OPENING_NOTE, ScriptBrief, language_problems
-from calevate_shared.call_script import CallScript, compile_call_script
+from calevate_shared.call_script import PRONOUNCE_LEAD, CallScript, compile_call_script
 from calevate_shared.engine import (
     AgentConfig,
     AgentSnapshot,
@@ -135,6 +136,99 @@ def test_a_default_sentence_is_recognised_in_either_gender_and_an_edited_one_is_
         "मैं Sri Estates की एआई सहायक हूँ।", language="hi-IN", business=BUSINESS, name=NAME
     )
     assert not is_default_ai_disclosure(TE_AI, language="te-IN", business=BUSINESS, name="Ravi")
+
+
+TAUGHT_BUSINESS = "శ్రీ ఎస్టేట్స్"
+TAUGHT_NAME = "అంజలి"
+
+
+def _taught_body(business: str = BUSINESS, name: str = NAME) -> str:
+    return (
+        f'{PRONOUNCE_LEAD}{business} as "{TAUGHT_BUSINESS}"; {name} as "{TAUGHT_NAME}"\n'
+        "[TASK FLOW]\nHelp them."
+    )
+
+
+def test_the_sentence_says_the_names_as_the_owner_taught_them() -> None:
+    """Sri Estates call, 30 Oct 2026: the voice said the stored Latin name where the owner had
+    taught its Telugu form. The taught form is written into the stored sentence, so the
+    read-back and `disclosure_spoken` still find the stored sentence verbatim."""
+    body = _taught_body()
+    taught = ai_disclosure_for(language="te-IN", business=BUSINESS, name=NAME, body=body)
+    assert taught == f"నేను {TAUGHT_BUSINESS} నుండి {TAUGHT_NAME}ని, ఏఐ అసిస్టెంట్‌ని మాట్లాడుతున్నాను అండి."
+    for line in (TE_AI, taught):
+        assert is_default_ai_disclosure(
+            line, language="te-IN", business=BUSINESS, name=NAME, body=body
+        )
+    assert (
+        taught_ai_disclosure(
+            TE_AI, language="te-IN", business=BUSINESS, name=NAME, gender=None, body=body
+        )
+        == taught
+    )
+    assert (
+        taught_ai_disclosure(
+            taught, language="te-IN", business=BUSINESS, name=NAME, gender=None, body=body
+        )
+        is None
+    )
+    owners = "ఇది మా ఏఐ అసిస్టెంట్."
+    assert (
+        taught_ai_disclosure(
+            owners, language="te-IN", business=BUSINESS, name=NAME, gender=None, body=body
+        )
+        is None
+    )
+
+
+async def test_a_publish_writes_the_taught_names_into_the_stored_sentence() -> None:
+    tenant_id, agent_id, business = await _agent("te-IN")
+    name = str((await _lines(tenant_id, agent_id)).name)
+    body = _taught_body(business, name)
+    async with tenant_session(tenant_id) as session:
+        agent = (await service._load_agent(session, tenant_id, agent_id)).copy()
+        agent["prompt"] = body
+        published = await service._ai_line_as_taught(session, agent)
+    row = await _lines(tenant_id, agent_id)
+    wanted = ai_disclosure_for(language="te-IN", business=business, name=name, body=body)
+    assert TAUGHT_BUSINESS in wanted and business not in wanted
+    assert row.ai_disclosure_line == published["ai_disclosure_line"] == wanted
+    assert row.disclosure_line == f"{wanted} {row.recording_notice_line}"
+
+
+@pytest.mark.parametrize(
+    ("opening", "refused"),
+    [
+        (f"నమస్కారం అండి, నేను {BUSINESS} నుండి మాట్లాడుతున్నాను. ఎలా సహాయం చేయగలను?", True),
+        (f"నమస్కారం అండి, {TAUGHT_BUSINESS} కి కాల్ చేసినందుకు ధన్యవాదాలు. ఏమి కావాలి?", True),
+        ("నమస్కారం అండి, ఏ ఇల్లు చూస్తున్నారు?", False),
+    ],
+)
+def test_switching_the_introduction_on_over_an_opening_that_names_the_caller_is_refused(
+    opening: str, refused: bool
+) -> None:
+    """An opening written while the notice was off had to say who is calling; with the notice
+    on, the notice says it first. A greeting alone is dropped by the composer, not refused."""
+    body = _taught_body() + "\n" + compile_call_script(CallScript(opening_line=opening), collect=[])
+
+    def check() -> None:
+        publishing._refuse_introduction_twice(
+            ai_line=TE_AI, language="te-IN", body=body, names=(NAME, BUSINESS)
+        )
+
+    if not refused:
+        check()
+        return
+    with pytest.raises(ProblemError) as caught:
+        check()
+    assert caught.value.code == publishing.OPENING_INTRODUCES_CODE
+    # English has no introduction (D-865), so nothing is said twice.
+    publishing._refuse_introduction_twice(
+        ai_line="This is the AI assistant for Sri Estates.",
+        language="en-IN",
+        body=body,
+        names=(NAME, BUSINESS),
+    )
 
 
 # --- the first turn --------------------------------------------------------------------

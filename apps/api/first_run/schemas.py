@@ -76,8 +76,9 @@ class DocumentIn(Strict):
 class BuildStepOut(Strict):
     step: Literal["voice", "script", "greeting", "notice"]
     #: `waiting` until the worker reaches it; then `done`, `ready_made` (the ready-made
-    #: version was kept), on the greeting step `repaired` (the drafted line was sent back and
-    #: fixed) or `written` (written for the business in place of the ready-made one, D-957),
+    #: structure was kept), on the greeting step `repaired` (the drafted line was sent back and
+    #: fixed), `written` (written for the business in place of the ready-made one, D-957) or
+    #: `unwritten` (none could be written; no ready-made line is put in its place, D-963),
     #: `kept` (what it had stays), `none` (no voice could be chosen),
     #: `missing`, and on the notice step `off` (the owner switched the AI notice off) or
     #: `no_room` (the greeting leaves no room for it within the engine's limit).

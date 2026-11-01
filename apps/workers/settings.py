@@ -184,7 +184,6 @@ from apps.workers.engine_workspaces import (
     sweep_engine_workspaces,
     sync_engine_call_lines,
 )
-from apps.workers.example_line_refresh import refresh_example_lines
 from apps.workers.extraction_reread import (
     REREAD_SWEEP_MINUTES,
     reread_call_extraction,
@@ -327,6 +326,7 @@ from apps.workers.retention import (
     execute_tenant_erasure,
     prune_reliability_tables,
 )
+from apps.workers.retired_line_strip import strip_retired_example_lines
 from apps.workers.script_proposal import draft_script_proposal, suggest_scripts_from_document
 from apps.workers.studio_voice_key import (
     push_studio_voice_key,
@@ -418,9 +418,9 @@ FUNCTIONS: list[Any] = [
         # A standard field's improved wording onto agents still carrying the old one word
         # for word (D-881), from the outbox (migration b3d7e2a9c461).
         refresh_field_reason,
-        # A ready-made script's better example lines onto agents still carrying the old
-        # ones word for word (D-888), from the outbox (migration c8e4a1f7b2d5).
-        refresh_example_lines,
+        # The trade plans' retired example lines off agents still carrying them word for
+        # word (D-962), from the outbox (migration e962a4c1d7b3).
+        strip_retired_example_lines,
         # Test conversations against the agent and the auto-improve proposal that follows
         # a run with failures (D-724), from the outbox (`agents/test_conversations`).
         improve_agent_test_run,

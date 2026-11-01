@@ -2957,7 +2957,7 @@ VOICE_STYLE_GUIDANCE: Final = (
     'never for counts or amounts, not even as examples. A bare "OK"? Ask one thing, '
     "reworded. Never re-ask what they said or repeat a sentence.\n"
     "- Say only your own part, never the caller's. Half an answer? Offer your reading as a "
-    'question with a way out ("one kg, or more?"); never finish it for them.\n'
+    "question with a way out; never finish it for them.\n"
     "- Unsure or not interested? Offer once, then close politely.\n"
     "- Talked over? Stop, answer, go on shorter. Too fast or hard to follow? Sorry once, "
     "no promise, go on where you were, shorter.\n"
@@ -2970,8 +2970,7 @@ VOICE_STYLE_GUIDANCE: Final = (
     '- Under ten digits of a mobile? Ask for the rest ("six more digits?"); never read back, '
     "confirm, act or end on part of one.\n"
     "- Read back what you heard and wait for a yes, a mobile a few digits at a time; an "
-    'amount that could be a range or a decimal ("one two crores") as which one ("one to two '
-    'crores?").\n'
+    "amount that could be a range or a decimal as which one.\n"
     f"{_REGISTER_BULLET}"
     "- Unclear? Ask again, reworded; never pick for them. Asked to repeat? Say it shorter.\n"
     "- Never narrate a search or a wait.\n"
@@ -3255,7 +3254,10 @@ CALL_NUMBER_RULE: Final = (
 #: All three Sri Estates calls of 25 Oct 2026 ended with the name "Not mentioned" (D-888).
 #: Reads `NAME_LINE`, so a caller we know is never asked, and comes after the client script so
 #: a script that lists the name among its details cannot ask a known caller again.
-NAME_RULE: Final = "- No name in THIS CALL? Ask theirs, early and once."
+#: "After answering what they first asked" (D-961): on the founder's call of 2 Nov 2026 the
+#: agent asked for the caller's name and promised a call back before answering a question its
+#: knowledge held; "early" had put the name ahead of the help.
+NAME_RULE: Final = "- No name in THIS CALL? Ask it once, after your first answer."
 
 #: Reads `TODAY_LINE` (D-888). On 25 Oct 2026, a Sunday evening, an agent offered "this
 #: weekend, Saturday or Sunday" and repeated a caller's "tomorrow, Thursday" when tomorrow
@@ -3514,7 +3516,11 @@ def _when_you_cannot_help_section(cfg: AgentConfig) -> str:
         # business name back four times was never "unclear" to the model, which answered it
         # as "who is calling?" and asked its script's question again each time. After the
         # script, so a script step cannot send the agent back to the same question.
-        f'- No answer after searching ("the team will share that"), or no clear reply twice: '
+        # "Answer from your knowledge first" (D-961): on the founder's call of 2 Nov 2026 the
+        # agent said the team would call to explain and asked for a name, on a question its
+        # knowledge answered, and being an AI was given as the reason.
+        "- Answer what your knowledge holds; being an AI is no reason not to. "
+        'No answer after searching ("the team will share that"), or no clear reply twice: '
         f"say so, then {follow_up}.\n"
         f"{person}\n"
         # The do-not-call tool is the voice platform's own, always attached and not
@@ -4608,6 +4614,17 @@ OPENING_CONTINUES_RULE: Final = (
 )
 
 
+#: What an agent that places calls may say about the person and why it rings (D-961, founder,
+#: 2 Nov 2026): a Rytu Khata agent told a farmer "you enquired with us earlier, do you still
+#: want it?" from a ready-made line, with nothing on the call saying he had. The call's own
+#: data is THIS CALL's reason and list details (D-905, `REASON_LINE`, `DETAILS_LINE`); a
+#: campaign dial with neither carries no claim, so the agent says who it is and what it calls
+#: about, and nothing about what the person did.
+CALL_REASON_RULE: Final = (
+    " Never say they enquired, asked or showed interest unless THIS CALL says so."
+)
+
+
 #: For an agent that only answers calls: on a free-trial test call it rings its owner, and the
 #: engine speaks a calling-you line from the dial (`CallContext.opening`) in place of the
 #: [OPENING] line (D-858). Without this the model, told its [OPENING] line was said, greeted
@@ -4638,6 +4655,7 @@ def _start_of_call_section(cfg: AgentConfig) -> str:
     still gets both answers: the truthful-answer block binds last.
     """
     first_words = neutralise_markers(compose_first_utterance(cfg))
+    reason = CALL_REASON_RULE if places_calls(cfg) else ""
     placed = compose_placed_call_first_words(cfg)
     if placed is not None:
         # A "both" agent's two first turns differ (D-920): quoting only the answering one
@@ -4646,7 +4664,7 @@ def _start_of_call_section(cfg: AgentConfig) -> str:
         answered = f'on a call you answer, "{first_words}"; ' if first_words else ""
         return (
             f"{START_OF_CALL_HEADER}\nAlready said for you as your first turn: {answered}on a "
-            f'call you place, "{neutralise_markers(placed)}".{OPENING_CONTINUES_RULE}'
+            f'call you place, "{neutralise_markers(placed)}".{OPENING_CONTINUES_RULE}{reason}'
         )
     if not first_words:
         return ""
@@ -4654,7 +4672,7 @@ def _start_of_call_section(cfg: AgentConfig) -> str:
     test_call = TEST_CALL_OPENING_RULE if cfg.direction == "inbound" and has_opening else ""
     return (
         f'{START_OF_CALL_HEADER}\nAlready said for you as your first turn: "{first_words}".'
-        f"{test_call}{OPENING_CONTINUES_RULE}"
+        f"{test_call}{OPENING_CONTINUES_RULE}{reason}"
     )
 
 
@@ -6668,6 +6686,7 @@ __all__ = [
     "CALLER_MEMORY_VARIABLE",
     "CALL_INSTRUCTIONS",
     "CALL_NUMBER_RULE",
+    "CALL_REASON_RULE",
     "CALL_VARIABLE_VALUE_MAX",
     "CANNOT_HELP_HEADER",
     "CLIENT_SCRIPT_CLOSE",

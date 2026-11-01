@@ -125,6 +125,7 @@ function row(over: Partial<PlatformMistake> = {}): PlatformMistake {
     last_seen_at: "2026-10-25T10:00:00Z",
     fixed_at: null,
     fix_note: null,
+    fixed_by: null,
     state: "fixing",
     ...over,
   };

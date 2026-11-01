@@ -131,7 +131,7 @@ def test_the_name_said_back_is_answered_once() -> None:
 def test_no_clear_reply_twice_ends_on_what_the_account_allows_after_the_script() -> None:
     trial = compose_engine_prompt(_anjali())
     rule = (
-        '- No answer after searching ("the team will share that"), or no clear reply twice: '
+        'No answer after searching ("the team will share that"), or no clear reply twice: '
         "say so, then say the business will get back to them. Never offer or book a call back."
     )
     assert rule in trial

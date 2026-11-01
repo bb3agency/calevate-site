@@ -329,6 +329,13 @@ describe("the pieces and where an owner resumes", () => {
     expect(rowStateOf({ ...waiting, state: "ready_made" }, false, false)).toBe("done");
     expect(rowStateOf({ ...waiting, step: "voice", state: "none" }, false, false)).toBe("warn");
     expect(rowStateOf({ ...waiting, step: "notice", state: "no_room" }, false, false)).toBe("warn");
+    expect(rowStateOf({ ...waiting, step: "greeting", state: "unwritten" }, false, false)).toBe("warn");
+  });
+
+  it("says when no opening could be written, never offering a ready-made one (D-963)", () => {
+    const greeting = { step: "greeting" as const, label: null, not_female: false, documents_used: 0 };
+    expect(metaOf({ ...greeting, state: "unwritten" })).toBe("Not written yet. Write how it opens before its first call.");
+    expect(metaOf({ ...greeting, state: "written" })).toBe("Short, and ends on a question");
   });
 
   it("says the AI notice is said after the greeting, or why it is not (D-864)", () => {

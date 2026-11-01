@@ -695,7 +695,15 @@ async def test_several_jobs_build_one_agent_with_a_block_per_direction(
     tenant_id = await _tenant()
     await _ready_to_build(tenant_id, "Flats", jobs=("call_leads", "answer_calls", "call_new_leads"))
     run = await _run(tenant_id)
+    from apps.api.core.errors import ProblemError
+
+    async def no_model(*_args: Any, **_kwargs: Any) -> None:
+        raise ProblemError.business_rule("assist_unavailable", "No model.")
+
     monkeypatch.setattr(worker, "pick_voice", _no_voice)
+    monkeypatch.setattr(worker, "draft_script", no_model)
+    monkeypatch.setattr(worker, "write_opening", no_model)
+    monkeypatch.setattr(worker.crm_assist, "meter_refusal", _no_meter)
     assert (
         await worker.build_first_agent(
             {}, {"tenant_id": str(tenant_id), "run_id": str(run.id), "build": 1}
@@ -721,8 +729,10 @@ async def test_several_jobs_build_one_agent_with_a_block_per_direction(
     ]
     assert script.stages[4].otherwise == "end", "an incoming call never runs on into calling"
     assert script.stages[0].name.startswith("Incoming call: ")
-    assert "enquiry only minutes ago" in script.stages[7].instruction
-    assert script.opening_line.startswith("Hello, thank you for calling")
+    assert "If THIS CALL names an enquiry they just made" in script.stages[7].instruction
+    # No model wrote it an opening here, and no ready-made line is put in its place (D-963).
+    assert script.opening_line == ""
+    assert after.build_steps["greeting"]["state"] == "unwritten"
     assert script.ending.endswith("{{lead_name}}"), "the per-call value stays last (D-816)"
 
 
@@ -823,22 +833,30 @@ async def test_the_build_writes_the_script_from_the_brief_and_names_the_agent(
     assert script.opening_line == "Hello, Madhav Homes. Are you looking for a flat or a villa?"
 
 
-async def test_a_short_brief_keeps_the_ready_made_script_and_still_names_it(
+async def test_a_short_brief_is_still_written_for_the_business_and_named(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """D-962: the ready-made steps carry no words, so even "Flats" gets a script written from
+    the business's name, type and profile; without a model the structure stays, named."""
+    from apps.api.core.errors import ProblemError
+
     tenant_id = await _tenant()
     await _ready_to_build(tenant_id, "Flats")
     run = await _run(tenant_id)
+    asked: list[Any] = []
 
-    async def never(*_args: Any, **_kwargs: Any) -> None:
-        raise AssertionError("no model for a short brief")
+    async def refused(brief: Any, **_kwargs: Any) -> None:
+        asked.append(brief)
+        raise ProblemError.business_rule("assist_unavailable", "No model.")
 
     monkeypatch.setattr(worker, "pick_voice", _no_voice)
-    monkeypatch.setattr(worker, "draft_script", never)
+    monkeypatch.setattr(worker, "draft_script", refused)
+    monkeypatch.setattr(worker.crm_assist, "meter_refusal", _no_meter)
     await worker.build_first_agent(
         {}, {"tenant_id": str(tenant_id), "run_id": str(run.id), "build": 1}
     )
     after = await _run(tenant_id)
+    assert len(asked) == 1 and asked[0].business_name
     assert after.build_steps["script"]["state"] == "ready_made"
     async with tenant_session(tenant_id) as session:
         from apps.api.agents.script_builder import load_agent_script

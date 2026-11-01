@@ -338,8 +338,8 @@ RING_SECONDS: Final = 30
 SURFACE_NAMES: Final[dict[str, str]] = {"web": "website call button", "whatsapp": "WhatsApp"}
 #: How an agent takes turns and fills pauses, the same on every agent (founder decisions F3,
 #: F4, F10, 12 Oct 2026; greeting, filler delay and re-ask, founder 20 Oct 2026, D-835): sent
-#: on every publish, so a console change reads as drift and is repaired. Short words over the
-#: agent are kept and answered, no acknowledgement before every reply, and no end phrases,
+#: on every publish, so a console change reads as drift and is repaired. No acknowledgement
+#: before every reply, and no end phrases,
 #: because the vendor matches them anywhere in what the caller says and a short one could end
 #: a call mid-sentence. How many words interrupt is the console's (`interrupt_words`).
 #: The greeting plays to the end on a phone call (`greetingUninterruptible`, replacing F3's
@@ -354,7 +354,6 @@ SURFACE_NAMES: Final[dict[str, str]] = {"web": "website call button", "whatsapp"
 #: 200-5000, `thinkingRepeatMs` 1000-10000, `interruptWords` 1-6, `endPhrases` up to 12
 #: (snapshots/2026-10-19/pages/api-reference/agents/update-agent.md:1390-1399).
 PLATFORM_VOICE_VALUES: Final[dict[str, Any]] = {
-    "holdShortSpeech": True,
     "neverInterrupt": False,
     "greetingUninterruptible": True,
     "thinkingAtTurnEnd": False,
@@ -2484,6 +2483,13 @@ class ThinnestEngine:
             )
             if sends_our_call_rules(cfg)
             else None,
+            # Words too short to interrupt, said over the agent: kept and answered when it
+            # stops (`true`, the vendor default), or dropped (`false`), update-agent.md:1654-
+            # 1660, 29 Oct 2026 snapshot. A caller following steps on a screen says "OK" while
+            # the agent walks them through, and kept, each "OK" becomes a new turn the agent
+            # answers (Rytu Khata call, 2 Nov 2026); anyone else's short words are still
+            # answered.
+            "holdShortSpeech": not cfg.caller_has_screen,
             **PLATFORM_VOICE_VALUES,
         }
         if cfg.engine_voice_id and cfg.engine_byok_voice_id:

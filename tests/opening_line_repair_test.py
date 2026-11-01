@@ -159,9 +159,11 @@ async def test_a_drafted_opening_with_one_english_word_is_repaired_and_kept(
     assert len(spent) == 2 and spent[1].value == REPAIRED
 
 
-async def test_after_the_writer_refuses_the_starter_is_used_with_the_reason(
+async def test_after_the_writer_refuses_no_ready_made_line_is_put_in(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """D-963: the drafted line, the business's own, stays and the step says why; the
+    starter's line for every business of the type is never put in its place."""
     tenant_id, run = await _ready()
     calls: list[str] = []
 
@@ -177,14 +179,40 @@ async def test_after_the_writer_refuses_the_starter_is_used_with_the_reason(
     after, line = await _build(tenant_id, run)
 
     assert after.build_steps["greeting"] == {
-        "state": "ready_made",
+        "state": "unwritten",
         "reason": "assist_answer_unusable",
     }
-    assert line == starter_opening(
-        TRADE, ("answer_calls",), business=BUSINESS, language="te-IN", introduced=True
-    )
-    assert calls == ["asked"], "bounded: one writer call, then the starter"
+    ready_made = {
+        starter_opening(
+            TRADE, ("answer_calls",), business=BUSINESS, language="te-IN", introduced=form
+        )
+        for form in (True, False)
+    }
+    assert line == SLIPPED and line not in ready_made
+    assert calls == ["asked"], "bounded: one writer call"
     assert isinstance(spent[-1], ProblemError), "the refusal is metered too"
+
+
+async def test_a_ready_made_line_comes_off_when_none_can_be_written(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id, run = await _ready()
+
+    async def refuse(_brief: Any, **_kwargs: Any) -> None:
+        raise ProblemError.business_rule("assist_answer_unusable", "Not cleanly.")
+
+    monkeypatch.setattr(worker, "pick_voice", _no_voice)
+    monkeypatch.setattr(worker, "draft_script", refuse)
+    monkeypatch.setattr(worker, "write_opening", refuse)
+    _spends(monkeypatch)
+
+    after, line = await _build(tenant_id, run)
+
+    assert after.build_steps["greeting"] == {
+        "state": "unwritten",
+        "reason": "assist_answer_unusable",
+    }
+    assert line == ""
 
 
 async def test_a_ready_made_scripts_line_is_replaced_by_one_written_for_the_business(
@@ -229,7 +257,7 @@ async def test_with_no_time_left_the_writer_is_not_started(
 
     after, _line = await _build(tenant_id, run)
 
-    assert after.build_steps["greeting"] == {"state": "ready_made", "reason": "no_time"}
+    assert after.build_steps["greeting"] == {"state": "unwritten", "reason": "no_time"}
 
 
 #: The placed-call opening of the founder's call of 2 Nov 2026 after the introduction: "can we
@@ -266,7 +294,33 @@ async def test_a_both_agents_placed_opening_with_english_letters_is_repaired(
     assert any(getattr(s, "value", None) == PLACED_REPAIRED for s in spent), "metered"
 
 
-async def test_an_unrepaired_placed_opening_is_cleared_for_the_reviewed_line(
+async def test_a_both_agent_with_no_placed_opening_gets_one_written(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D-963: the placed-call opening is required, so a script without one gets one written
+    for the business rather than the language's line naming only the business."""
+    tenant_id, run = await _ready(jobs=("answer_calls", "call_new_leads"))
+    asked: list[dict[str, Any]] = []
+
+    async def write(brief: ScriptBrief, **kwargs: Any) -> SimpleNamespace:
+        asked.append(kwargs)
+        return _answer(PLACED_REPAIRED if kwargs.get("placed") else REPAIRED)
+
+    monkeypatch.setattr(worker, "pick_voice", _no_voice)
+    monkeypatch.setattr(worker, "draft_script", _drafted(REPAIRED))
+    monkeypatch.setattr(worker, "write_opening", write)
+    _spends(monkeypatch)
+
+    after, _line = await _build(tenant_id, run)
+
+    assert after.build_steps["placed_opening"] == {"state": "written"}
+    assert [(kw["line"], tuple(kw["problems"])) for kw in asked if kw.get("placed")] == [("", ())]
+    async with tenant_session(tenant_id) as session:
+        script = (await load_agent_script(session, after.agent_id)).script
+    assert script.outbound_opening_line == PLACED_REPAIRED
+
+
+async def test_an_unrepaired_placed_opening_is_cleared_and_said_unwritten(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     tenant_id, run = await _ready(jobs=("answer_calls", "call_new_leads"))
@@ -284,7 +338,7 @@ async def test_an_unrepaired_placed_opening_is_cleared_for_the_reviewed_line(
     after, _line = await _build(tenant_id, run)
 
     assert after.build_steps["placed_opening"] == {
-        "state": "ready_made",
+        "state": "unwritten",
         "reason": "assist_answer_unusable",
     }
     async with tenant_session(tenant_id) as session:

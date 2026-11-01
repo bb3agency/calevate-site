@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import itertools
 import uuid
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -21,11 +22,18 @@ from apps.api.agents.publishing import set_disclosure_posture
 from apps.api.agents.service import _load_agent, trial_call_first_words
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.disclosure import ai_disclosure_for
+from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session
 from apps.api.first_run import service as first_run
 from apps.workers import first_run as worker
 from calevate_shared.spoken_guard import opens_with_greeting
 from sqlalchemy import text
+
+#: The opening writer's lines for this business, after the introduction and said first.
+INTRODUCED = "ఏ ఏరియా లో ఫ్లాట్ చూస్తున్నారు అండి?"
+GREETING = "నమస్కారం అండి, Sri Estates నుంచి, ఏ ఏరియా లో ఫ్లాట్ చూస్తున్నారు?"
+PLACED_INTRODUCED = "మా కొత్త ఫ్లాట్స్ గురించి కాల్ చేశాను అండి, ఇప్పుడు మాట్లాడొచ్చా?"
+PLACED_GREETING = "నమస్కారం అండి, Sri Estates నుంచి కాల్ చేశాను, ఇప్పుడు మాట్లాడొచ్చా?"
 
 JOBS = ("answer_calls", "call_new_leads", "call_leads")
 #: Every mix the job step allows, in the owner's order as given.
@@ -59,10 +67,29 @@ async def _build(
                 language_primary="te-IN",
                 languages_extra=[],
             )
-            # Too short for the script writer: the ready-made starter, no model needed.
             await first_run.save_brief(session, tenant_id=tenant_id, brief="Flats")
         await first_run.request_build(session, tenant_id=tenant_id, user_id=None)
         run = (await session.execute(text("SELECT id FROM first_runs"))).one()
+
+    # No script from the model (the ready-made structure stays); the opening writer gives the
+    # line for the form it is asked for (D-963: never a ready-made one).
+    async def no_script(*_args: Any, **_kwargs: Any) -> None:
+        raise ProblemError.business_rule("assist_unavailable", "No model.")
+
+    async def opening(brief: Any, **kwargs: Any) -> SimpleNamespace:
+        placed = kwargs.get("placed")
+        if brief.introduced:
+            line = PLACED_INTRODUCED if placed else INTRODUCED
+        else:
+            line = PLACED_GREETING if placed else GREETING
+        return SimpleNamespace(value=line, capability=None, earlier=(), model=None)
+
+    async def no_meter(*_args: Any, **_kwargs: Any) -> None:
+        return None
+
+    monkeypatch.setattr(worker, "draft_script", no_script)
+    monkeypatch.setattr(worker, "write_opening", opening)
+    monkeypatch.setattr(worker, "_meter", no_meter)
     monkeypatch.setattr(worker, "pick_voice", _no_voice)
     payload = {"tenant_id": str(tenant_id), "run_id": str(run.id), "build": build}
     assert await worker.build_first_agent({}, payload) == "built"
@@ -98,12 +125,11 @@ async def test_the_first_agent_introduces_itself_then_says_its_opening_line(
     # The salutation, the introduction, then the opening line, in one turn (D-865); the
     # opening line neither greets again nor repeats who is calling.
     opening = agent.script_opening_line.strip()
-    assert agent.first_words == f"నమస్కారం అండి, {notice} {opening}"
+    assert opening == INTRODUCED, "written for the business, never the ready-made line"
+    assert agent.first_words.startswith(f"నమస్కారం అండి, {notice}")
+    assert agent.first_words.endswith(opening)
     assert not opens_with_greeting(opening)
     assert "Anjali" not in opening
-    # A call it places says why after the introduction (D-945): the founder's own "we are
-    # calling from Sri Estates", while no written reason clause exists for Telugu.
-    assert "Sri Estates" not in opening or opening.startswith("మేము Sri Estates నుండి కాల్ చేస్తున్నాము.")
     assert agent.greeting_budget is None or len(agent.first_words) <= agent.greeting_budget.limit
     assert audited == ["system"]
 

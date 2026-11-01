@@ -19,11 +19,20 @@ import { AskAssistant } from "@/components/copilot/AskAssistant";
 import { FIELD, FIELD_LABEL, ProblemNotice } from "@/components/ui";
 import type { Agent } from "@/lib/api/agents";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
-import { useReplaceOpeningLine } from "@/lib/api/script";
+import {
+  useClearProposal,
+  useReplaceOpeningLine,
+  useRequestOpeningAfterIntroduction,
+  useScriptProposal,
+} from "@/lib/api/script";
 import { useClientSession } from "@/lib/api/session";
 
 /** The problem code for a notice switch refused because the opening line leaves no room. */
 export const NOTICE_NEEDS_ROOM = "opening_line_too_long_for_notice";
+
+/** The problem code for the AI notice refused because the opening line already says who is
+ *  calling, which the notice now says (D-865). */
+export const OPENING_INTRODUCES = "opening_introduces_agent";
 
 export function problemCode(error: unknown): string | null {
   if (!error || typeof error !== "object") return null;
@@ -125,6 +134,99 @@ export function OpeningLineFix({
           prompt={`Shorten the opening line of ${agent.name} to at most ${room} characters, in the same language, keeping what it says.`}
           label={`Ask ${ASSISTANT_NAME} to shorten it`}
         />
+      </div>
+      <p className="text-xs text-ink-muted">
+        Goes live at once. The rest of the script stays.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Shown in place of the AI notice refused because the opening line already says who is
+ * calling (`OPENING_INTRODUCES`): the refusal, the opening line in a box, one button that has
+ * it rewritten without the names (an `opening` suggestion, written in the background), and a
+ * Save that puts the line live and switches the notice on again.
+ */
+export function IntroducedOpeningFix({
+  agent,
+  error,
+  retry,
+  retrying,
+}: {
+  agent: Agent;
+  error: unknown;
+  /** Switch the AI notice on again, once the new line is live. */
+  retry: () => void;
+  retrying: boolean;
+}) {
+  const session = useClientSession();
+  const rewrite = useRequestOpeningAfterIntroduction(session, agent.id);
+  const rewriteFeedback = useActionFeedback(rewrite, { errorDisplay: "inline" });
+  const suggestion = useScriptProposal(session, agent.id);
+  const clear = useClearProposal(session, agent.id);
+  useActionFeedback(clear, { errorDisplay: "inline" });
+  const replace = useReplaceOpeningLine(session, agent.id);
+  const replaceFeedback = useActionFeedback(replace, { errorDisplay: "inline" });
+  const [line, setLine] = useState(agent.script_opening_line);
+  const [filledFrom, setFilledFrom] = useState<string | null>(null);
+
+  // Only the suggestion this box asked for, never an older one waiting on the Script tab.
+  const asked = rewrite.data?.id ?? null;
+  const mine = suggestion.data && suggestion.data.id === asked ? suggestion.data : null;
+  const written = mine?.status === "ready" ? (mine.script?.opening_line ?? null) : null;
+  if (mine && written !== null && filledFrom !== mine.id) {
+    setFilledFrom(mine.id);
+    setLine(written);
+  }
+  const writing = rewrite.isPending || mine?.status === "drafting";
+  const busy = replace.isPending || retrying;
+  const status: FeedbackStatus = busy ? "pending" : replaceFeedback.status === "error" ? "error" : "idle";
+  const save = () =>
+    replace.mutate(line, {
+      onSuccess: () => {
+        if (mine) clear.mutate(mine.id);
+        retry();
+      },
+    });
+
+  return (
+    <div className="mt-4 space-y-3">
+      <ProblemNotice error={replace.error ?? rewrite.error ?? clear.error ?? error} />
+      {mine?.status === "failed" && mine.note && <p className="text-sm text-warn">{mine.note}</p>}
+      {mine?.disclosure && <p className="text-xs text-ink-muted">{mine.disclosure}</p>}
+      <div>
+        <label className={FIELD_LABEL} htmlFor={`opening-intro-${agent.id}`}>
+          Opening line
+        </label>
+        <textarea
+          id={`opening-intro-${agent.id}`}
+          className={FIELD}
+          rows={3}
+          value={line}
+          disabled={writing}
+          onChange={(event) => setLine(event.target.value)}
+        />
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <ActionButton
+          variant="secondary-sm"
+          status={writing ? "pending" : rewriteFeedback.status === "error" ? "error" : "idle"}
+          pendingLabel="Rewriting…"
+          disabled={busy}
+          onClick={() => rewrite.mutate()}
+        >
+          Rewrite it for me
+        </ActionButton>
+        <ActionButton
+          variant="primary-sm"
+          status={status}
+          pendingLabel="Saving…"
+          disabled={writing || spokenLength(line) === 0}
+          onClick={save}
+        >
+          Save and switch on
+        </ActionButton>
       </div>
       <p className="text-xs text-ink-muted">
         Goes live at once. The rest of the script stays.

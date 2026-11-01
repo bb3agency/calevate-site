@@ -33,6 +33,8 @@ _DEFAULT: Final = "_default"
 BUSINESS_SLOT: Final = "{business}."
 #: Said in its place when the account has no name on file.
 _NO_BUSINESS_NAME: Final = "Hello"
+#: A caller turn with no words: what a silent line gives the agent.
+SILENCE: Final = "..."
 
 
 @dataclass(frozen=True, slots=True)
@@ -389,6 +391,64 @@ CLASSES: Final[tuple[SpecimenClass, ...]] = (
             "the team getting back to them) and closes politely."
         ),
     ),
+    # The Rytu Khata call of 2 Nov 2026: practice callers were kinder than the real one. A
+    # "no" to the opening, a bare "OK" in the middle of a step-by-step walk-through, and a
+    # caller who says nothing.
+    SpecimenClass(
+        key="specimen_busy_at_opening",
+        title="Says no, busy right now",
+        turns={
+            _DEFAULT: _turns(
+                {
+                    "te-IN": "లేదు అండి, ఇప్పుడు busy గా ఉన్నాను.",
+                    "hi-IN": "नहीं जी, अभी busy हूँ।",
+                    "en-IN": "No, I'm busy right now.",
+                },
+            ),
+        },
+        expect=(
+            "Accepts it at once: offers a call back at a time that suits them if it can, or "
+            "says the team will try another time, and closes in a line or two. Never asks its "
+            "opening question again and never starts its pitch."
+        ),
+    ),
+    SpecimenClass(
+        key="specimen_ok_mid_steps",
+        title="Says OK between steps",
+        turns={
+            _DEFAULT: _turns(
+                {
+                    "te-IN": "ఎలా మొదలుపెట్టాలి? ఒక్కొక్క step చెప్పండి.",
+                    "hi-IN": "शुरू कैसे करूँ? एक-एक step बताइए।",
+                    "en-IN": "How do I get started? Tell me step by step.",
+                },
+                {"te-IN": "సరే.", "hi-IN": "ठीक है।", "en-IN": "OK."},
+                {"te-IN": "సరే.", "hi-IN": "ठीक है।", "en-IN": "OK."},
+            ),
+        },
+        expect=(
+            "Gives one step at a time and waits. Takes a bare OK as that step done and gives "
+            "the next one; never repeats a step, never asks whether they need anything else "
+            "while steps remain, and never closes the call midway."
+        ),
+    ),
+    SpecimenClass(
+        key="specimen_silent",
+        title="Stays silent on the line",
+        turns={
+            # The test chat cannot let twenty seconds pass, so a turn with no words stands in
+            # for each silence.
+            _DEFAULT: _turns(
+                {"te-IN": SILENCE, "hi-IN": SILENCE, "en-IN": SILENCE},
+                {"te-IN": SILENCE, "hi-IN": SILENCE, "en-IN": SILENCE},
+            ),
+        },
+        expect=(
+            "Checks once, briefly, whether the caller is still there. If there is still "
+            "nothing, says it will let them go and that they can call back, and closes. Never "
+            "repeats its question or its pitch into the silence."
+        ),
+    ),
 )
 
 
@@ -442,6 +502,7 @@ __all__ = [
     "BUSINESS_SLOT",
     "CLASSES",
     "PER_RUN",
+    "SILENCE",
     "SpecimenClass",
     "all_specimen_scenarios",
     "scenario_of",

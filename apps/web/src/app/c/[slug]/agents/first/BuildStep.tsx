@@ -64,7 +64,7 @@ export function metaOf(step: FirstRunBuildStep): string | undefined {
     const files = step.documents_used ?? 0;
     return files > 0 ? `Written from what you said and ${files} ${files === 1 ? "file" : "files"}` : "Written from what you said";
   }
-  if (step.step === "greeting" && step.state === "ready_made") return "The tried and tested greeting for its language";
+  if (step.step === "greeting" && step.state === "unwritten") return "Not written yet. Write how it opens before its first call.";
   if (step.step === "greeting") return "Short, and ends on a question";
   if (step.step === "notice") {
     if (step.state === "done") return "Said right after its greeting on every call";
@@ -77,7 +77,7 @@ export function metaOf(step: FirstRunBuildStep): string | undefined {
 /** A step's state on the stage. The worker works on one step at a time, in order, so the
  *  first one still waiting while the build runs is the one being worked on. */
 export function rowStateOf(step: FirstRunBuildStep, working: boolean, failed: boolean): RowState {
-  if (step.state === "none" || step.state === "no_room") return "warn";
+  if (step.state === "none" || step.state === "no_room" || step.state === "unwritten") return "warn";
   if (step.state !== "waiting") return "done";
   if (working) return failed ? "failed" : "working";
   return "waiting";

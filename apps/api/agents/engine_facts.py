@@ -80,6 +80,7 @@ async def sync_business_facts(
     ref: str,
     facts: str | None,
     variant_id: UUID | None = None,
+    test_copy: bool = False,
 ) -> None:
     """Make the vendor agent `ref` hold what our tables say it should know.
 
@@ -89,9 +90,10 @@ async def sync_business_facts(
     * on an engine that keeps facts out of the prompt, the facts document — the intake half
       of `facts` only (`t0_block.facts_without_knowledge`; see the module docstring);
     * on an engine with a knowledge base, the tenant's published knowledge
-      (`kb/service.converge_agent_knowledge`), on the agent's own vendor agent or on the
-      running experiment arm `variant_id` names: an arm carries the client's knowledge like
-      every other agent of the client (D-689, D-806).
+      (`kb/service.converge_agent_knowledge`), on the agent's own vendor agent, on the
+      running experiment arm `variant_id` names, or on its test copy (`test_copy`): an arm
+      and a copy carry the client's knowledge like every other agent of the client (D-689,
+      D-806, D-964).
 
     A no-op on an engine with neither.
     """
@@ -115,9 +117,15 @@ async def sync_business_facts(
         await _sync_facts_document(
             session, engine, agent_id=agent_id, ref=ref, facts=facts_without_knowledge(facts)
         )
-    if holds_kb and (variant_id is not None or owner[1] == ref):
+    if holds_kb and (variant_id is not None or test_copy or owner[1] == ref):
         await converge_agent_knowledge(
-            session, engine, tenant_id=tenant_id, agent_id=agent_id, ref=ref, variant_id=variant_id
+            session,
+            engine,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            ref=ref,
+            variant_id=variant_id,
+            test_copy=test_copy,
         )
 
 
@@ -190,19 +198,32 @@ async def _sync_facts_document(
 
 
 async def recorded_facts_handles(
-    session: AsyncSession, *, agent_id: UUID, variant_id: UUID | None = None
+    session: AsyncSession,
+    *,
+    agent_id: UUID,
+    variant_id: UUID | None = None,
+    test_copy: bool = False,
 ) -> set[str]:
-    """The facts document recorded for the agent's own vendor agent, or for its experiment
-    arm `variant_id`, for the KB reconciliation's "what do we believe is attached". Joined
-    through `agents` or `prompt_experiment_variants`, both FORCE-RLS'd, so an untenanted read
-    answers empty as `kb/service._ROUTE_JOIN` does."""
-    holder = (
-        "JOIN agents a ON a.id = r.agent_id AND a.engine_agent_ref = r.engine_agent_ref "
-        "WHERE r.agent_id = :aid"
-        if variant_id is None
-        else "JOIN prompt_experiment_variants v ON v.engine_agent_ref = r.engine_agent_ref "
-        "WHERE r.agent_id = :aid AND v.id = :vid"
-    )
+    """The facts document recorded for the agent's own vendor agent, for its experiment
+    arm `variant_id`, or for its test copy, for the KB reconciliation's "what do we believe
+    is attached". Joined through `agents`, `prompt_experiment_variants` or
+    `agent_test_copies`, all FORCE-RLS'd, so an untenanted read answers empty as
+    `kb/service._ROUTE_JOIN` does."""
+    if test_copy:
+        holder = (
+            "JOIN agent_test_copies c ON c.agent_id = r.agent_id "
+            "AND c.engine_agent_ref = r.engine_agent_ref WHERE r.agent_id = :aid"
+        )
+    elif variant_id is None:
+        holder = (
+            "JOIN agents a ON a.id = r.agent_id AND a.engine_agent_ref = r.engine_agent_ref "
+            "WHERE r.agent_id = :aid"
+        )
+    else:
+        holder = (
+            "JOIN prompt_experiment_variants v ON v.engine_agent_ref = r.engine_agent_ref "
+            "WHERE r.agent_id = :aid AND v.id = :vid"
+        )
     rows = (
         await session.execute(
             text(

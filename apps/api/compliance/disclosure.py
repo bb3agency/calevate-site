@@ -83,6 +83,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Final, Literal
 
+from calevate_shared.engine import said_as_taught
 from calevate_shared.languages import get_language
 
 from apps.api.compliance.optout import SpokenTurn, normalize_utterance
@@ -99,6 +100,7 @@ __all__ = [
     "disclosure_spoken",
     "is_default_ai_disclosure",
     "recording_notice_for",
+    "taught_ai_disclosure",
     "truthful_answer_promise",
 ]
 
@@ -167,11 +169,11 @@ DEFAULT_LANGUAGE = get_language("english_india").bcp47
 #: TELUGU AND HINDI INTRODUCE THE AGENT (D-865, founder, 23 Oct 2026, the founder's own
 #: wording): "I am {name} from {business}, an AI assistant, speaking". Said after the
 #: salutation and BEFORE the opening line, which then says only why the call is made
-#: (`engine.join_first_words`). `{name}` and `{business}` are the stored names, in English
-#: letters until spoken names exist (D-861's open item). Hindi's verb follows the voice's
-#: gender (`HINDI_PROGRESSIVE`). Both lines NEED NATIVE-SPEAKER REVIEW. The other languages
-#: keep a sentence without the agent's name and D-861's order (the opening line first); the
-#: founder has worded no introduction for them.
+#: (`engine.join_first_words`). `{name}` and `{business}` are the names as the owner taught
+#: the voice in the script's pronunciation line, else as stored (`ai_disclosure_for`).
+#: Hindi's verb follows the voice's gender (`HINDI_PROGRESSIVE`). Both lines NEED
+#: NATIVE-SPEAKER REVIEW. The other languages keep a sentence without the agent's name and
+#: D-861's order (the opening line first); the founder has worded no introduction for them.
 AI_DISCLOSURE_TEMPLATES: dict[str, str] = {
     # The ‌ (zero-width non-joiner) keeps "ట్" and "ని" apart as the founder wrote them.
     "te-IN": "నేను {business} నుండి {name}ని, ఏఐ అసిస్టెంట్‌ని మాట్లాడుతున్నాను అండి.",
@@ -276,22 +278,61 @@ def _rendered(
 
 
 def ai_disclosure_for(
-    *, language: str, business: str, name: str, gender: VoiceGender | None = None
+    *,
+    language: str,
+    business: str,
+    name: str,
+    gender: VoiceGender | None = None,
+    body: str | None = None,
 ) -> str:
     """The AI sentence a NEW agent starts with, for an agent called `name` whose voice is of
-    `gender` (None: not known). Always non-empty."""
+    `gender` (None: not known). Always non-empty.
+
+    With `body` (the agent's script), each name is said as the owner taught the voice in the
+    script's pronunciation line (`calevate_shared.engine.said_as_taught`). The taught form is
+    written INTO the stored sentence rather than swapped in when it is sent: the publish
+    read-back and `disclosure_spoken` both look for the stored sentence verbatim."""
+    if body:
+        name = said_as_taught(name, body=body, business="")
+        business = said_as_taught(business, body=body, business="")
     return _rendered(AI_DISCLOSURE_TEMPLATES, language, business, name=name, gender=gender)
 
 
-def is_default_ai_disclosure(line: str, *, language: str, business: str, name: str) -> bool:
-    """Is `line` the default AI sentence for this agent, in either voice gender? Such a line
-    is ours to re-render when the agent's name, voice or language changes; any other line was
-    written by a person and is left alone."""
+def is_default_ai_disclosure(
+    line: str, *, language: str, business: str, name: str, body: str | None = None
+) -> bool:
+    """Is `line` the default AI sentence for this agent, in either voice gender, with the
+    names as written or as taught in `body`? Such a line is ours to re-render when the
+    agent's name, voice, language or taught names change; any other line was written by a
+    person and is left alone."""
     clean = line.strip()
     return any(
-        clean == ai_disclosure_for(language=language, business=business, name=name, gender=g)
+        clean
+        == ai_disclosure_for(language=language, business=business, name=name, gender=g, body=b)
         for g in (None, "female", "male")
+        for b in (None, body)
     )
+
+
+def taught_ai_disclosure(
+    line: str,
+    *,
+    language: str,
+    business: str,
+    name: str,
+    gender: VoiceGender | None,
+    body: str | None,
+) -> str | None:
+    """The default AI sentence `line` rendered again with the names taught in `body` and the
+    voice's `gender`, or None when `line` is a person's own or already says that."""
+    if not is_default_ai_disclosure(
+        line, language=language, business=business, name=name, body=body
+    ):
+        return None
+    fresh = ai_disclosure_for(
+        language=language, business=business, name=name, gender=gender, body=body
+    )
+    return None if fresh == line.strip() else fresh
 
 
 def recording_notice_for(*, language: str) -> str:

@@ -1532,6 +1532,11 @@ async def _run_post_call_stages(
                 snapshot.transcript,
                 language=languages[0] if languages else "",
                 unheard=likely_cut_off(snapshot.transcript),
+                prior_contact=await _prior_contact(
+                    tenant_id,
+                    call_id,
+                    _party_e164(snapshot.from_e164 if direction == "inbound" else snapshot.to_e164),
+                ),
             )
             await call_mistakes.record_call_mistakes(
                 tenant_id=tenant_id,
@@ -2375,6 +2380,35 @@ async def load_moments_brief(tenant_id: UUID, agent_id: UUID) -> MomentsBrief:
         agent_goal=goal,
         script_steps=[name for name in names if name][:_BRIEF_MAX_STEPS],
     )
+
+
+async def _prior_contact(tenant_id: UUID, call_id: UUID, party_e164: str | None) -> bool | None:
+    """Did the business have this person on file before this call? None when the call
+    names nobody we can look up, which leaves `false_history` unjudged.
+
+    A campaign dial is prior contact by the no-cold-calls pledge (D-692). Otherwise a lead
+    for the number that this call did not create is: an enquiry form, a portal lead or an
+    earlier real call. A lead from a free-trial test call is not, unless the agent keeps
+    caller memory, which recalls test calls too. Read before this call's lead upsert."""
+    if not party_e164:
+        return None
+    async with tenant_session(tenant_id) as session:
+        row = (
+            await session.execute(
+                text(
+                    "SELECT c.caller_id_hidden, c.campaign_id IS NOT NULL OR EXISTS ("
+                    "  SELECT 1 FROM leads l WHERE l.phone_e164 = :phone "
+                    "  AND l.first_call_id IS DISTINCT FROM c.id "
+                    "  AND (l.source <> 'test_call' OR a.caller_memory_enabled)) "
+                    "FROM calls c JOIN agents a ON a.id = c.agent_id WHERE c.id = :cid"
+                ),
+                {"cid": call_id, "phone": party_e164},
+            )
+        ).first()
+    # A hidden caller id shows the business's own number, which says nothing about them.
+    if row is None or row[0]:
+        return None
+    return bool(row[1])
 
 
 async def _agent_languages(tenant_id: UUID, agent_id: UUID) -> tuple[str, ...]:

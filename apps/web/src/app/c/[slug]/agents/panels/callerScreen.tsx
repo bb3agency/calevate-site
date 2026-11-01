@@ -25,6 +25,11 @@ export function CallerScreen({ agent }: { agent: Agent }) {
         For callers using your app or website.
       </p>
       {setScreen.error != null && <ProblemNotice error={setScreen.error} />}
+      {(setScreen.data?.patient_settings?.length ?? 0) > 0 && (
+        <p role="status" className="mt-3 text-sm text-ink">
+          Callers now get more time to answer.
+        </p>
+      )}
       <div className="mt-4">
         <ToggleSwitch
           label="Guide callers through their screen"

@@ -126,27 +126,64 @@ async def test_a_real_call_is_checked_and_the_owner_sees_what_went_wrong(
                 {"c": call_id},
             )
         ).all()
-    assert [tuple(r) for r in rows] == [("said_again", 9), ("asked_again", 11)]
+    # Nothing was on file for the number, so turn 3's "you enquired before" is invented.
+    assert [tuple(r) for r in rows] == [
+        ("false_history", 3),
+        ("said_again", 9),
+        ("asked_again", 11),
+    ]
 
     headers = await _org_headers(tenant_id)
     async with _client() as http:
         detail = (await http.get(f"/v1/calls/{call_id}", headers=headers)).json()
         listed = await http.get(f"/v1/agents/{agent_id}/call-mistakes", headers=headers)
         missing = await http.get(f"/v1/agents/{uuid7()}/call-mistakes", headers=headers)
-    assert [m["kind"] for m in detail["mistakes"]] == ["said_again", "asked_again"]
-    assert detail["mistakes"][0]["label"] == call_mistakes.LESSONS["said_again"].label
+    assert [m["kind"] for m in detail["mistakes"]] == ["false_history", "said_again", "asked_again"]
+    assert detail["mistakes"][1]["label"] == call_mistakes.LESSONS["said_again"].label
     assert listed.status_code == 200, listed.text
     body = listed.json()
     assert body["window_days"] == call_mistakes.WINDOW_DAYS
     # `platform_mistake_fixes` is platform state another test may already have written, so
     # the state is whichever the fixes on record make it; the next test drives each one.
     assert {(m["kind"], m["calls"]) for m in body["items"]} == {
+        ("false_history", 1),
         ("said_again", 1),
         ("asked_again", 1),
     }
     assert {m["state"] for m in body["items"]} <= {"fixing", "fixed", "back"}
     assert body["items"][0]["last_call_id"] == str(call_id)
     assert missing.status_code == 404
+
+
+async def test_an_earlier_enquiry_is_no_mistake_when_the_number_was_on_file(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A lead for the number that came before the call (here a form enquiry) is prior
+    contact, so "you enquired before" is the agent saying what is true."""
+    tenant_id, agent_id = await _tenant()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO leads (id, tenant_id, agent_id, phone_e164, source, status, data, "
+                "schema_version, call_count, is_repeat_caller, created_at, updated_at) VALUES "
+                "(:id, :t, :a, '+919876500001', 'webhook', 'new', '{}'::jsonb, 1, 0, false, "
+                "now(), now())"
+            ),
+            {"id": uuid7(), "t": tenant_id, "a": agent_id},
+        )
+    call_id = await _real_call(tenant_id, agent_id, monkeypatch)
+    async with tenant_session(tenant_id) as session:
+        kinds = (
+            (
+                await session.execute(
+                    text("SELECT kind FROM call_mistakes WHERE call_id = :c"), {"c": call_id}
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert "false_history" not in kinds
+    assert {"said_again", "asked_again"} <= set(kinds)
 
 
 async def test_a_fixed_mistake_that_comes_back_is_raised(
@@ -223,6 +260,7 @@ async def test_a_fixed_mistake_that_comes_back_is_raised(
     row = next(m for m in board["items"] if m["kind"] == "said_again")
     assert row["state"] == "back"
     assert row["fix_note"] == "HOW TO SPEAK reworded"
+    assert row["fixed_by"] == "Ops Mistakes"
     assert row["calls_since_fix"] >= 1 and row["accounts_30d"] >= 1
     assert {m["kind"] for m in board["items"]} == set(call_mistakes.LESSONS)
 

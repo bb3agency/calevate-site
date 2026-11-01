@@ -31,7 +31,13 @@ import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
 import { Term } from "@/lib/glossary";
 
-import { NOTICE_NEEDS_ROOM, OpeningLineFix, problemCode } from "./openingLineFix";
+import {
+  IntroducedOpeningFix,
+  NOTICE_NEEDS_ROOM,
+  OPENING_INTRODUCES,
+  OpeningLineFix,
+  problemCode,
+} from "./openingLineFix";
 
 /**
  * The server's truthful-answer promise split at its first sentence: the guarantee, shown
@@ -108,6 +114,8 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
         : budget.opening_room_with_recording_notice
       : undefined;
   const needsRoom = problemCode(setDisclosure.error) === NOTICE_NEEDS_ROOM && room !== undefined;
+  const introducedTwice =
+    problemCode(setDisclosure.error) === OPENING_INTRODUCES && lastOn?.ai_disclosure_enabled === true;
 
   return (
     <section aria-labelledby="opening-notices-heading" className="max-w-3xl">
@@ -121,7 +129,17 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
         <span>{promise.lead}</span>
       </p>
 
-      {setDisclosure.error && !needsRoom && <ProblemNotice error={setDisclosure.error} />}
+      {setDisclosure.error && !needsRoom && !introducedTwice && (
+        <ProblemNotice error={setDisclosure.error} />
+      )}
+      {introducedTwice && lastOn && (
+        <IntroducedOpeningFix
+          agent={agent}
+          error={setDisclosure.error}
+          retrying={setDisclosure.isPending}
+          retry={() => setDisclosure.mutate(lastOn)}
+        />
+      )}
       {needsRoom && lastOn && (
         <OpeningLineFix
           agent={agent}

@@ -35,7 +35,7 @@ from datetime import UTC, datetime
 from typing import Final
 from uuid import UUID
 
-from calevate_shared.calling_window import SlotRefusal, resolve_slot
+from calevate_shared.calling_window import Slot, SlotRefusal, resolve_slot
 from calevate_shared.worker_api import (
     CallbackBookIn,
     CallbackCancelIn,
@@ -238,27 +238,34 @@ _CALLBACK_REASK_LOCKED_SAY = (
     "offer a call-back again on this call. Tell them they are welcome to call the business "
     "whenever suits them."
 )
+CALLBACK_NOT_BOOKABLE_RULE: Final = "not_bookable_now"
+CALLBACK_NOT_BOOKABLE_SAY: Final = (
+    "That time was NOT saved. Do NOT tell the caller it is booked, and do NOT promise that "
+    "anyone will call or confirm. Tell them you were unable to save that time and that any "
+    "call-back they have already agreed to still stands."
+)
 
 
-async def book_callback_for(
-    tenant_id: UUID, engine_call_id: str, request: CallbackBookIn, *, locate: CallLocator
-) -> CallbackToolOut:
-    """ "Ring me back Tuesday at four.", booked inside the request.
+async def callback_before_booking(
+    tenant_id: UUID, request: CallbackBookIn
+) -> CallbackToolOut | Slot:
+    """Every answer a call-back gets before anything is written, else the slot to book.
 
-    `engine_call_id` is the engine's handle for the conversation, which keys the promise
-    (`source_execution_id`) so two bookings in one conversation resolve against each other.
-
-    THE REFUSAL HAS TO REACH THE CALLER WHILE THEY ARE STILL ON THE PHONE, which is why
-    `resolve_slot` runs first and why an unbookable time is a 200 with `not_booked`. A time
-    outside 09:00-21:00 IST is unlawful to dial (TCCCPR; SEC-COMP §3).
-
-    CONFIRM-BEFORE-COMMIT IS A SERVER-SIDE CONTROL, NOT A LINE IN A PROMPT. We cannot see
-    the conversation in which the model resolved "Tuesday at four", so the tool refuses to
-    book without `confirmed` and hands back the unambiguous spoken form to read out.
+    The test chat answers through this too (`worker/engine_actions`), so an owner testing
+    the agent hears the trial refusal and the read-back a caller would, never a bare
+    "booked".
 
     A FREE-TRIAL ACCOUNT BOOKS NOTHING (founder decision 1): nothing can ring a caller back
     until the account pays, so the agent is told to say the business will follow up rather
     than promise a call that would never come. Asked first, before the time is parsed.
+
+    THE REFUSAL HAS TO REACH THE CALLER WHILE THEY ARE STILL ON THE PHONE, which is why
+    `resolve_slot` runs before any write and why an unbookable time is a 200 with
+    `not_booked`. A time outside 09:00-21:00 IST is unlawful to dial (TCCCPR; SEC-COMP §3).
+
+    CONFIRM-BEFORE-COMMIT IS A SERVER-SIDE CONTROL, NOT A LINE IN A PROMPT. We cannot see
+    the conversation in which the model resolved "Tuesday at four", so the tool refuses to
+    book without `confirmed` and hands back the unambiguous spoken form to read out.
     """
     async with tenant_session(tenant_id) as session:
         on_trial = await restricting_trial(session, tenant_id=tenant_id) is not None
@@ -285,6 +292,27 @@ async def book_callback_for(
                 "for it and start again."
             ),
         )
+    return slot
+
+
+def callback_booked_say(slot: Slot) -> str:
+    """What the agent is told once the call-back for `slot` is booked."""
+    return f"Tell the caller that is booked: {slot.spoken}."
+
+
+async def book_callback_for(
+    tenant_id: UUID, engine_call_id: str, request: CallbackBookIn, *, locate: CallLocator
+) -> CallbackToolOut:
+    """ "Ring me back Tuesday at four.", booked inside the request once
+    `callback_before_booking` has passed it.
+
+    `engine_call_id` is the engine's handle for the conversation, which keys the promise
+    (`source_execution_id`) so two bookings in one conversation resolve against each other.
+    """
+    checked = await callback_before_booking(tenant_id, request)
+    if isinstance(checked, CallbackToolOut):
+        return checked
+    slot = checked
 
     async with tenant_session(tenant_id) as session:
         call = await locate(session)
@@ -345,19 +373,14 @@ async def book_callback_for(
         # `callbacks.book` answers `None` when a LATER booking from the same conversation is
         # already on file, and when the promise has been claimed, cancelled or settled since.
         # One sentence is true of both: the time the caller just gave was not saved, and
-        # anything they had already agreed still stands.
+        # anything they had already agreed still stands. Nothing reaches a person from
+        # here, so the agent is told not to promise that anyone will follow up.
         log.info(
             "worker_tool_callback_not_bookable",
             extra={"tenant_id": str(tenant_id), "call_id": str(call.id)},
         )
         return CallbackToolOut(
-            status="not_booked",
-            reason="not_bookable_now",
-            say=(
-                "That time was NOT saved. Do NOT tell the caller it is booked. Tell them "
-                "you were unable to save that time, that any call-back they have already "
-                "agreed to still stands, and that a person will confirm with them."
-            ),
+            status="not_booked", reason=CALLBACK_NOT_BOOKABLE_RULE, say=CALLBACK_NOT_BOOKABLE_SAY
         )
     log.info(
         "worker_tool_callback_booked",
@@ -367,11 +390,7 @@ async def book_callback_for(
             "callback_id": str(booked[0]),
         },
     )
-    return CallbackToolOut(
-        status="booked",
-        booked_for=slot.spoken,
-        say=f"Tell the caller that is booked: {slot.spoken}.",
-    )
+    return CallbackToolOut(status="booked", booked_for=slot.spoken, say=callback_booked_say(slot))
 
 
 # --- call-back: cancel -------------------------------------------------------------------
@@ -469,11 +488,15 @@ async def request_handoff_unplaced(
 
 
 __all__ = [
+    "CALLBACK_NOT_BOOKABLE_RULE",
+    "CALLBACK_NOT_BOOKABLE_SAY",
     "ENGINE_CANNOT_TRANSFER",
     "OPTOUT_DONE_SAY",
     "CallLocator",
     "ToolCall",
     "book_callback_for",
+    "callback_before_booking",
+    "callback_booked_say",
     "cancel_callback_for",
     "record_opt_out_for",
     "refuse_wrong_engine",

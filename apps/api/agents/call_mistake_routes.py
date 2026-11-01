@@ -71,6 +71,7 @@ class PlatformMistakeOut(Strict):
     last_seen_at: datetime | None
     fixed_at: datetime | None
     fix_note: str | None
+    fixed_by: str | None
     state: MistakeState
 
 
@@ -143,6 +144,7 @@ async def list_platform_mistakes(session: AdminSession, _: Operator) -> Platform
                 last_seen_at=m.last_seen_at,
                 fixed_at=m.fixed_at,
                 fix_note=m.fix_note,
+                fixed_by=m.fixed_by,
                 state=m.state,
             )
             for m in found

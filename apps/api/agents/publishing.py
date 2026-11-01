@@ -91,7 +91,10 @@ from calevate_shared.engine import (
     DisclosurePosture,
     VoiceEngine,
     compose_opening_line,
+    introduces_itself,
+    said_as_taught,
 )
+from calevate_shared.spoken_guard import introduced_opening_problem, without_greeting
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -99,6 +102,7 @@ from apps.api.agents.engine_limits import refuse_notice_without_room
 from apps.api.agents.hosted_voices import parse_hosted_voice_id, source_rate_key
 from apps.api.agents.live_apply import queue_live_apply
 from apps.api.agents.models import is_published
+from apps.api.agents.patient_caller import apply_where_default
 from apps.api.agents.service import (
     effective_call_cap,
     publish_agent,
@@ -1362,6 +1366,40 @@ def _refuse_notices_without_room(
     )
 
 
+#: The refusal to switch the AI notice on over an opening line that already says who is
+#: calling; its repair is `script_routes.request_opening_after_introduction`.
+OPENING_INTRODUCES_CODE: Final = "opening_introduces_agent"
+
+
+def _refuse_introduction_twice(
+    *, ai_line: str, language: str, body: str | None, names: tuple[str, str]
+) -> None:
+    """Refuse switching on an AI notice that introduces the agent (D-865) while the opening
+    line also says the agent's or the business's name: the caller would hear who is calling
+    twice. An opening written while the notice was off had to say it (`spoken_guard.
+    unintroduced_opening_problem`). A greeting alone is not refused: the composer drops a
+    greeting at the start of an opening said after the introduction (`join_first_words`)."""
+    if not introduces_itself(ai_notice=ai_line, language=language):
+        return
+    opening = without_greeting(opening_line_of(body))
+    if not opening:
+        return
+    taught = tuple(said_as_taught(name, body=body, business="") for name in names)
+    if introduced_opening_problem("opening_line", opening, names=(*names, *taught)) is None:
+        return
+    raise ProblemError(
+        kind="conflict",
+        code=OPENING_INTRODUCES_CODE,
+        title="The opening line already says who is calling",
+        detail=(
+            "With this on, your agent says who it is before the opening line, so callers "
+            "would hear it twice."
+        ),
+        remediation="Rewrite the opening line without the names, then switch this on again.",
+        status=409,
+    )
+
+
 async def set_disclosure_posture(
     *,
     tenant_id: UUID,
@@ -1414,7 +1452,8 @@ async def set_disclosure_posture(
                     # dropped the memory sentence would republish an agent that still
                     # remembers callers and has stopped saying so.
                     "caller_memory_notice_line, caller_memory_enabled, "
-                    f"a.direction, {_APPLIED_BODY_SQL}, a.language_primary "
+                    f"a.direction, {_APPLIED_BODY_SQL}, a.language_primary, a.name, "
+                    "(SELECT o.name FROM organizations o WHERE o.id = a.tenant_id) "
                     "FROM agents a WHERE a.id = :aid AND a.deleted_at IS NULL FOR UPDATE OF a"
                 ),
                 {"aid": agent_id},
@@ -1451,6 +1490,13 @@ async def set_disclosure_posture(
             language=str(row[10]),
             turned_on=tuple(field for field in changed if wanted[field]),
         )
+        if "ai_disclosure_enabled" in changed and wanted["ai_disclosure_enabled"]:
+            _refuse_introduction_twice(
+                ai_line=posture.ai_disclosure_line,
+                language=str(row[10]),
+                body=row[9],
+                names=(str(row[11] or ""), str(row[12] or "")),
+            )
         on_engine = is_published(row[4], row[5])
         if changed:
             await session.execute(
@@ -1505,6 +1551,9 @@ class CallerScreenResult:
     engine_synced: bool
     #: The switch was already where it was asked to be: nothing written, nothing audited.
     unchanged: bool
+    #: The call settings switching on gave the "Give callers time" values, because the owner
+    #: had left them at Calevate's default (`patient_caller.apply_where_default`).
+    patient_settings: tuple[str, ...] = ()
 
 
 async def set_caller_has_screen(
@@ -1515,6 +1564,9 @@ async def set_caller_has_screen(
     The ordering is `set_disclosure_posture`'s: the column, then the republish in the same
     transaction, so a voice-platform refusal rolls the column back and the screen never says
     the agent guides a screen it does not. Idempotent for the same reason as that one.
+
+    Switching on also gives the agent the patient silence settings wherever the owner kept
+    Calevate's default, before the republish, so they reach the line together.
     """
     async with tenant_session(tenant_id) as session:
         row = (
@@ -1530,6 +1582,7 @@ async def set_caller_has_screen(
             raise ProblemError.not_found("Agent")
         unchanged = bool(row[0]) == enabled
         on_engine = is_published(row[1], row[2])
+        patient: tuple[str, ...] = ()
         if not unchanged:
             await session.execute(
                 text(
@@ -1538,6 +1591,8 @@ async def set_caller_has_screen(
                 ),
                 {"on": enabled, "aid": agent_id},
             )
+            if enabled:
+                patient = await apply_where_default(session, tenant_id=tenant_id, agent_id=agent_id)
             if on_engine:
                 await publish_agent(
                     session, tenant_id=tenant_id, agent_id=agent_id, take_calls=False
@@ -1548,7 +1603,11 @@ async def set_caller_has_screen(
         extra={"agent_id": str(agent_id), "enabled": enabled, "engine_synced": synced},
     )
     return CallerScreenResult(
-        agent_id=agent_id, enabled=enabled, engine_synced=synced, unchanged=unchanged
+        agent_id=agent_id,
+        enabled=enabled,
+        engine_synced=synced,
+        unchanged=unchanged,
+        patient_settings=patient,
     )
 
 

@@ -15,18 +15,21 @@
      here or has no woman's voice (`agents/voice_pick`), for the agent named "Anjali"
      (`first_run/names`);
    - **script**: the agent created from its job's ready-made script, then the script written
-     from the brief by the script writer (`script_assist.draft_script`) and applied at once
-     as its first version. Without a usable answer the ready-made script stays, and the
-     step says so;
+     by the script writer (`script_assist.draft_script`) from the brief, the documents and,
+     however short the brief, the business's name, type and profile, and applied at once as
+     its first version. Without a usable answer the ready-made script's structure stays,
+     with no spoken words of its own (D-962), and the step says so;
    - **greeting**: an opening line that fits the first-agent rule (under 120 characters,
      ending with a question, no textbook word, every word in the language's own letters but
      the business's and the agent's names) and the engine's ceiling. A drafted line that
      breaks the rule is sent back to the model once with its problems, and a ready-made
-     script's line is replaced by one written for the business (`opening_line`, D-957); only
-     when neither gives a line that fits is it the starter's reviewed line for its language,
-     with the reason recorded on the step. Where the AI notice will introduce the agent (D-865),
-     the script and the line are written for after the introduction: no greeting and no
-     names; when the notice then cannot be switched on, the greeting is chosen again without;
+     script's line is replaced by one written for the business (`opening_line`, D-957); when
+     neither gives a line that fits, no ready-made line is put in its place (D-963) and the
+     step reads `unwritten` with the reason. A "both" agent's opening for the calls it places
+     is written the same way (not one of the screen's steps). Where the AI notice will
+     introduce the agent (D-865), the script and the line are written for after the
+     introduction: no greeting and no names; when the notice then cannot be switched on,
+     the greeting is chosen again without;
    - **notice**: the AI notice switched on (D-864): in Telugu and Hindi it introduces the
      agent before the opening line (D-865), elsewhere it follows it; unless the owner
      switched it off for this agent or the greeting leaves no room.
@@ -86,7 +89,6 @@ from apps.api.first_run.models import (
     DOCUMENT_CHARS,
     MAX_QUESTIONS,
     MAX_RECORDING_WORDS,
-    MIN_BRIEF_CHARS,
 )
 from apps.api.first_run.names import FIRST_AGENT_NAME, identity_with_name
 from apps.api.first_run.questions import (
@@ -631,74 +633,73 @@ async def _write_script(
     name: str,
     introduced: bool,
     created_by: UUID | None,
-) -> tuple[dict[str, Any], str | None, _Writer | None]:
+) -> tuple[dict[str, Any], str | None, _Writer]:
     """The script from the brief and the owner's documents, applied as the agent's version;
-    the ready-made one when there is too little to read or no model gives a usable answer.
-    Returns (step state, disclosure, what it was written from; None when there was too
-    little to write from). The step state names the documents left out (D-918)."""
+    the ready-made one only when no model gives a usable answer. A short brief and no
+    documents still get a script written for the business from what the account holds, its
+    name, type and profile (`brief_for`): the ready-made script's steps carry no words of
+    their own (D-962). Returns (step state, disclosure, what it was written from). The step
+    state names the documents left out (D-918)."""
     brief = (run.brief or "").strip()
     documents, used = await owner_documents(tenant_id, run.id)
     draft: ScriptDraft | None = None
-    spent: ScriptDraft | ProblemError | None = None
-    writer: _Writer | None = None
-    if len(brief) >= MIN_BRIEF_CHARS or documents:
-        async with tenant_session(tenant_id) as session:
-            context = await brief_for(session, tenant_id, agent_id)
-            tenant_leg = await account_assist_leg(session)
-            braked = await platform_brake_tripped(session)
-        jobs = _jobs(run)
-        what_it_does = " ".join(_JOB_CONTEXT[job] for job in jobs)
-        if len(jobs) > 1:
-            what_it_does += f" {_SEVERAL_JOBS}"
-        answers = answers_for_script(run.answers or [])
-        description = (
-            (f"{brief}\n" if brief else "")
-            + (f"{documents}\n" if documents else "")
-            + f"{what_it_does}\n"
-            + (f"The owner's answers to follow-up questions:\n{answers}\n" if answers else "")
-            + f"The agent's name is {name}; it gives this name when it introduces itself or is "
-            "asked."
-            + (
-                " It answers calls and places them, so write both openings (D-920): "
-                "opening_line for a call it answers and outbound_opening_line for a call it "
-                "places, saying why it is calling, each under "
-                f"{GREETING_MAX_CHARS} characters and ending with a question."
-                if direction_of_jobs(jobs) == "both"
-                else ""
-            )
+    spent: ScriptDraft | ProblemError
+    async with tenant_session(tenant_id) as session:
+        context = await brief_for(session, tenant_id, agent_id)
+        tenant_leg = await account_assist_leg(session)
+        braked = await platform_brake_tripped(session)
+    jobs = _jobs(run)
+    what_it_does = " ".join(_JOB_CONTEXT[job] for job in jobs)
+    if len(jobs) > 1:
+        what_it_does += f" {_SEVERAL_JOBS}"
+    answers = answers_for_script(run.answers or [])
+    description = (
+        (f"{brief}\n" if brief else "")
+        + (f"{documents}\n" if documents else "")
+        + f"{what_it_does}\n"
+        + (f"The owner's answers to follow-up questions:\n{answers}\n" if answers else "")
+        + f"The agent's name is {name}; it gives this name when it introduces itself or is "
+        "asked."
+        + (
+            " It answers calls and places them, so write both openings (D-920): "
+            "opening_line for a call it answers and outbound_opening_line for a call it "
+            "places, saying which business is calling and what about, each under "
+            f"{GREETING_MAX_CHARS} characters and ending with a question."
+            if direction_of_jobs(jobs) == "both"
+            else ""
         )
-        writer = _Writer(
-            replace(context, description=description, introduced=introduced), tenant_leg, braked
+    )
+    writer = _Writer(
+        replace(context, description=description, introduced=introduced), tenant_leg, braked
+    )
+    # The opening's rules go to the script writer only: the opening writer states them
+    # itself, for the form it is asked for, which changes when the notice cannot be said.
+    opening_ask = (
+        "The opening_line is about THIS business: it names what callers of this business "
+        "usually want, from the owner's words, documents and answers above, as one short "
+        "question in the call language, never a line any business could use. Rules for "
+        "opening_line, each checked:\n"
+        + opening_rules(
+            str(run.language_primary),
+            names=(context.business_name, name),
+            introduced=introduced,
         )
-        # The opening's rules go to the script writer only: the opening writer states them
-        # itself, for the form it is asked for, which changes when the notice cannot be said.
-        opening_ask = (
-            "The opening_line is about THIS business: it names what callers of this business "
-            "usually want, from the owner's words, documents and answers above, as one short "
-            "question in the call language, never a line any business could use. Rules for "
-            "opening_line, each checked:\n"
-            + opening_rules(
-                str(run.language_primary),
-                names=(context.business_name, name),
-                introduced=introduced,
-            )
+    )
+    try:
+        draft = await draft_script(
+            replace(writer.brief, description=f"{description}\n{opening_ask}"),
+            tenant_leg=tenant_leg,
+            quota_exhausted=braked,
         )
-        try:
-            draft = await draft_script(
-                replace(writer.brief, description=f"{description}\n{opening_ask}"),
-                tenant_leg=tenant_leg,
-                quota_exhausted=braked,
-            )
-        except ProblemError as refused:
-            log.info("first_run_script_ready_made", extra={"reason": refused.code})
-            spent = refused
-        else:
-            spent = draft
+    except ProblemError as refused:
+        log.info("first_run_script_ready_made", extra={"reason": refused.code})
+        spent = refused
+    else:
+        spent = draft
     async with tenant_session(tenant_id) as session:
         # Charged beside the script it paid for, for the reason `write_first_run_questions`
         # gives.
-        if spent is not None:
-            await _meter(session, tenant_id, spent)
+        await _meter(session, tenant_id, spent)
         if draft is not None:
             script = draft.script.model_copy(
                 update={"identity": identity_with_name(draft.script.identity, name)}
@@ -784,14 +785,17 @@ async def _write_greeting(
     name: str,
     introduced: bool,
     created_by: UUID | None,
-    writer: _Writer | None,
+    writer: _Writer,
     started: float,
 ) -> dict[str, Any]:
     """The opening line, in this order (D-957): the drafted one when it fits the rule
     (`done`); else one the opening writer gives for this business, repairing the drafted line
     with its problems (`repaired`) or replacing a ready-made script's line (`written`); else
-    the starter's reviewed line (`ready_made`, with `reason`). With `introduced`, the forms
-    said after the agent's introduction (D-865)."""
+    `unwritten`, with `reason`. A ready-made line is never put in, and one the script still
+    holds comes off (D-963): it is the same for every business of a type, so the owner is
+    shown that no line was written rather than given one any business could use. A drafted
+    line the writer could not repair stays: it is this business's, and the build says why.
+    With `introduced`, the forms said after the agent's introduction (D-865)."""
     language = str(run.language_primary)
     async with tenant_session(tenant_id) as session:
         current = (await load_agent_script(session, agent_id)).script.opening_line.strip()
@@ -806,15 +810,14 @@ async def _write_greeting(
             vertical, _jobs(run), business=str(business[0]), language=language, introduced=form
         )
 
-    # A starter's line, in either form, is the ready-made script's, never one written from
-    # the owner's words, so it is replaced when a line can be written.
-    drafted = current not in {starter_line_for(form).strip() for form in (True, False)}
+    # A starter's line, in either form, is the ready-made script's, never one written for this
+    # business, so it is replaced when a line can be written and taken off when not.
+    ready_made = {starter_line_for(form).strip() for form in (True, False)}
+    drafted = bool(current) and current not in ready_made
     problems = opening_problems(current, language, names=names, introduced=introduced)
     if drafted and not problems:
         return {"state": "done"}
-    if writer is None:
-        reason = "nothing_to_write_from"
-    elif time.monotonic() - started > OPENING_WRITER_LATEST_S:
+    if time.monotonic() - started > OPENING_WRITER_LATEST_S:
         reason = "no_time"
     else:
         unwritten = await _written_opening(
@@ -829,21 +832,21 @@ async def _write_greeting(
         if unwritten is None:
             return {"state": "repaired" if drafted else "written"}
         reason = unwritten
-    starter_line = starter_line_for(introduced)
-    if starter_line.strip() != current:
+    if current in ready_made:
         try:
             async with tenant_session(tenant_id) as session:
                 await replace_opening_line(
                     session,
                     tenant_id=tenant_id,
                     agent_id=agent_id,
-                    opening_line=starter_line,
+                    opening_line="",
                     created_by=created_by,
                 )
         except ProblemError as refused:
             log.info("first_run_greeting_kept", extra={"reason": refused.code})
             return {"state": "kept", "reason": refused.code}
-    return {"state": "ready_made", "reason": reason}
+    log.warning("first_run_greeting_unwritten", extra={"reason": reason})
+    return {"state": "unwritten", "reason": reason}
 
 
 async def _write_placed_opening(
@@ -854,32 +857,30 @@ async def _write_placed_opening(
     name: str,
     introduced: bool,
     created_by: UUID | None,
-    writer: _Writer | None,
+    writer: _Writer,
     started: float,
 ) -> dict[str, Any]:
-    """A "both" agent's opening on the calls it places (D-920), held to the answering
-    opening's rules and repaired the same way (D-957, D-959): kept when it fits (`done`),
-    repaired by the opening writer (`repaired`), else cleared (`ready_made`, with `reason`),
-    so the call opens with the reviewed line for the language
-    (`calevate_shared.engine.placed_call_line`). None written is `none`, for the same reason.
-    A Telugu placed opening with "matladadaniki ok" in English letters went out on the
-    founder's call of 2 Nov 2026."""
+    """A "both" agent's opening on the calls it places (D-920), required and held to the
+    answering opening's rules (D-957, D-959, D-963): kept when it fits (`done`), repaired
+    (`repaired`) or, when the script has none, written for this business (`written`) by the
+    opening writer; else cleared (`unwritten`, with `reason`), and the dial then names only
+    the business and asks if now suits (`calevate_shared.engine.placed_call_line`, logged by
+    `agents.service.dial_first_words`). A Telugu placed opening with "matladadaniki ok" in
+    English letters went out on the founder's call of 2 Nov 2026."""
     language = str(run.language_primary)
     async with tenant_session(tenant_id) as session:
         current = (await load_agent_script(session, agent_id)).script.outbound_opening_line
         business = (await session.execute(text("SELECT name FROM organizations LIMIT 1"))).one()
     line = current.strip()
-    if not line:
-        return {"state": "none"}
-    problems = opening_problems(
-        line, language, names=(str(business[0]), name), introduced=introduced
+    problems = (
+        opening_problems(line, language, names=(str(business[0]), name), introduced=introduced)
+        if line
+        else []
     )
-    if not problems:
+    if line and not problems:
         return {"state": "done"}
     reason: str | None
-    if writer is None:
-        reason = "nothing_to_write_from"
-    elif time.monotonic() - started > OPENING_WRITER_LATEST_S:
+    if time.monotonic() - started > OPENING_WRITER_LATEST_S:
         reason = "no_time"
     else:
         spent: JsonAnswer[str] | ProblemError
@@ -901,9 +902,12 @@ async def _write_placed_opening(
             assert not isinstance(spent, ProblemError)
             reason = await _replace_placed(tenant_id, agent_id, spent.value, created_by)
             if reason is None:
-                return {"state": "repaired"}
+                return {"state": "repaired" if line else "written"}
+    log.warning("first_run_placed_opening_unwritten", extra={"reason": reason})
+    if not line:
+        return {"state": "unwritten", "reason": reason}
     cleared = await _replace_placed(tenant_id, agent_id, "", created_by)
-    return {"state": "ready_made" if cleared is None else "kept", "reason": reason}
+    return {"state": "unwritten" if cleared is None else "kept", "reason": reason}
 
 
 async def _replace_placed(

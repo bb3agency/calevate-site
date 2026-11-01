@@ -21,7 +21,8 @@ Only kinds the checks read without the agent's script, facts or tools are counte
 call. The rest need context a real call does not hand us here (`invented_source` needs the
 facts, `unconfirmed_action` the actions) or read digits that a real transcript's spelled-out
 numbers make unreliable, and a false mistake shown to an owner costs more trust than a
-missed one.
+missed one. `false_history` is the one kind read with the call's own data: whether the
+business had the person on file before the call, which the pipeline reads and hands in.
 """
 
 from __future__ import annotations
@@ -95,6 +96,10 @@ LESSONS: Final[dict[str, Lesson]] = {
     "offered_more_too_soon": Lesson(
         "Kept asking “anything else?” before the caller was done",
         "Ask once a topic is finished; while helping step by step, give the next step.",
+    ),
+    "false_history": Lesson(
+        "Said the caller had enquired or spoken to you before, when they had not",
+        "Say why you are calling without claiming an earlier enquiry or call.",
     ),
 }
 assert set(LESSONS) <= set(turn_checks.SOUND_KINDS | turn_checks.JOB_KINDS)
@@ -190,12 +195,18 @@ def _replies(
 
 
 def mistakes_in(
-    turns: Sequence[SpokenTurn], *, language: str, unheard: Iterable[int] = ()
+    turns: Sequence[SpokenTurn],
+    *,
+    language: str,
+    unheard: Iterable[int] = (),
+    prior_contact: bool | None = None,
 ) -> dict[str, int]:
     """Each lesson kind this call shows, with the agent turn it first appears on.
 
     A reply's own problems are read reply by reply; what only the conversation shows is
-    read on each growing prefix, so the first reply that makes it true is the one named."""
+    read on each growing prefix, so the first reply that makes it true is the one named.
+    `prior_contact` is whether the business had this person on file before the call
+    (`workers/pipeline._prior_contact`); None leaves `false_history` unjudged."""
     opening, replies, cut_first = _replies(turns, frozenset(unheard))
     found: dict[str, int] = {}
     if cut_first is not None and turn_checks.opened_again(cut_first.exchange.reply):
@@ -205,7 +216,7 @@ def mistakes_in(
             item.exchange.reply, caller_said=item.exchange.said, language=language
         )
         whole = turn_checks.conversation_problems(
-            [r.exchange for r in replies[:n]], opening=opening
+            [r.exchange for r in replies[:n]], opening=opening, prior_contact=prior_contact
         )
         for problem in (*own, *whole):
             if problem.kind in LESSONS:
@@ -370,6 +381,8 @@ class PlatformMistake:
     last_seen_at: datetime | None
     fixed_at: datetime | None
     fix_note: str | None
+    #: The operator's display name; None when no fix is recorded or the operator has no name.
+    fixed_by: str | None
     state: State
 
 
@@ -384,12 +397,13 @@ async def platform_mistakes(
     # across every client for the whole window, and only nine numbers per kind leave it.
     # A call holds a kind at most once (unique on tenant, call, kind), so rows are calls.
     fixes = {
-        str(kind): (at, note)
-        for kind, at, note in (
+        str(kind): (at, note, by)
+        for kind, at, note, by in (
             await session.execute(
                 text(
-                    "SELECT DISTINCT ON (kind) kind, fixed_at, note FROM platform_mistake_fixes "
-                    "ORDER BY kind, fixed_at DESC"
+                    "SELECT DISTINCT ON (f.kind) f.kind, f.fixed_at, f.note, a.name "
+                    "FROM platform_mistake_fixes f JOIN admin_users a ON a.id = f.fixed_by "
+                    "ORDER BY f.kind, f.fixed_at DESC"
                 )
             )
         ).all()
@@ -416,7 +430,7 @@ async def platform_mistakes(
     }
     out = []
     for kind, lesson in LESSONS.items():
-        fixed_at, note = fixes.get(kind, (None, None))
+        fixed_at, note, fixed_by = fixes.get(kind, (None, None, None))
         row = counts.get(kind)
         last_seen = row.last_seen if row else None
         out.append(
@@ -430,6 +444,7 @@ async def platform_mistakes(
                 last_seen_at=last_seen,
                 fixed_at=fixed_at,
                 fix_note=note,
+                fixed_by=fixed_by,
                 state=_state(fixed_at, last_seen),
             )
         )

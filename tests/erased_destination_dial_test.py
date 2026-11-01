@@ -85,7 +85,7 @@ async def test_a_contact_whose_retention_ran_out_mid_call_is_never_dialled_again
 async def test_the_gate_refuses_the_erasure_placeholder_as_a_destination() -> None:
     """Whatever path reads a destination off an anonymised row, the gate is the one place
     every dial passes, and the placeholder starts `+91`, so the India freeze admits it."""
-    tenant_id, agent_id = await _consent_tenant("erased-dest")
+    tenant_id, agent_id = await _consent_tenant("placeholder-dest")
     decision = await _gate(tenant_id, agent_id, f"{ANONYMIZED_PREFIX}754bf537bcc7")
     assert decision.allowed is False
     assert decision.rule == DESTINATION_ERASED_RULE

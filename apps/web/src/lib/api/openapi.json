@@ -11958,6 +11958,13 @@
           "engine_synced": {
             "title": "Engine Synced",
             "type": "boolean"
+          },
+          "patient_settings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Patient Settings",
+            "type": "array"
           }
         },
         "required": [
@@ -41232,6 +41239,17 @@
             ],
             "title": "Fixed At"
           },
+          "fixed_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fixed By"
+          },
           "kind": {
             "title": "Kind",
             "type": "string"
@@ -41272,6 +41290,7 @@
           "last_seen_at",
           "fixed_at",
           "fix_note",
+          "fixed_by",
           "state"
         ],
         "title": "PlatformMistakeOut",
@@ -48315,7 +48334,8 @@
               "change",
               "whole",
               "steps",
-              "knowledge"
+              "knowledge",
+              "opening"
             ],
             "title": "Mode",
             "type": "string"
@@ -75467,7 +75487,7 @@
     },
     "/v1/agents/{agent_id}/caller-screen": {
       "patch": {
-        "description": "For an agent that walks callers through an app or a website while they hold the phone: on, it may name what is on their screen, gives one step at a time and waits until they say it is done, says a step again more shortly when they could not do it, and spells a web address letter by letter. Off for every agent unless switched on.\n\nApplies immediately: a live agent is re-published to the voice platform in the same transaction, and if that push fails nothing is saved.",
+        "description": "For an agent that walks callers through an app or a website while they hold the phone: on, it may name what is on their screen, gives one step at a time and waits until they say it is done, says a step again more shortly when they could not do it, and spells a web address letter by letter. Off for every agent unless switched on.\n\nSwitching on also gives the agent the \"Give callers time\" silence settings and longest call wherever they are still the default (`patient_settings` names them).\n\nApplies immediately: a live agent is re-published to the voice platform in the same transaction, and if that push fails nothing is saved.",
         "operationId": "set_caller_screen_route_v1_agents__agent_id__caller_screen_patch",
         "parameters": [
           {
@@ -76538,6 +76558,47 @@
           }
         },
         "summary": "Replace an opening line in the script callers hear, and put it live",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/agents/{agent_id}/script/opening-line/after-introduction": {
+      "post": {
+        "description": "The repair offered when switching the AI notice on is refused with `opening_introduces_agent` (D-865): the notice says who is calling, so the opening line must not. Queues a suggestion that writes the opening line again without a greeting or the agent's or business's name; poll `GET .../proposal` until it is `ready`. Nothing reaches a caller until the line is put live.",
+        "operationId": "request_opening_after_introduction_v1_agents__agent_id__script_opening_line_after_introduction_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScriptProposalOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Ask for the opening line written to follow the agent's own introduction",
         "tags": [
           "agents"
         ],

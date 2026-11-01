@@ -80,6 +80,7 @@ from calevate_shared.spoken_guard import (
 from pydantic import ValidationError
 
 from apps.api.agents.call_rules import OPENING_LINE_RULE, said_line_problem, writer_rules
+from apps.api.agents.retired_lines import retired_line_problem
 from apps.api.agents.script_lint import (
     CapabilityManifest,
     LintContext,
@@ -310,6 +311,9 @@ def language_problems(
                 introduced_opening_problem(path, text, names=names)
                 if path in _OPENING_PATHS and introduced and not owners
                 else None,
+                # A line the plans used to teach every business (D-962): the model may have
+                # seen one before, and it is never this business's own.
+                None if owners else retired_line_problem(path, text),
             )
             if problem
         ]
@@ -1299,7 +1303,7 @@ async def draft_script(
         converting = instruction == CONVERT_INSTRUCTION
         if not converting:
             # D-856: a new script starts from the trade's step plan, the starters' skeleton.
-            plan = playbook_guidance(full.business_type, full.direction, full.language)
+            plan = playbook_guidance(full.business_type, full.direction)
             description = f"{description}\n{plan}"
         parse = partial(
             drafted_script,

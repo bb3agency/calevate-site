@@ -4044,6 +4044,8 @@ export interface paths {
          * Say whether callers follow this agent's steps on a screen of their own (D-906)
          * @description For an agent that walks callers through an app or a website while they hold the phone: on, it may name what is on their screen, gives one step at a time and waits until they say it is done, says a step again more shortly when they could not do it, and spells a web address letter by letter. Off for every agent unless switched on.
          *
+         *     Switching on also gives the agent the "Give callers time" silence settings and longest call wherever they are still the default (`patient_settings` names them).
+         *
          *     Applies immediately: a live agent is re-published to the voice platform in the same transaction, and if that push fails nothing is saved.
          */
         patch: operations["set_caller_screen_route_v1_agents__agent_id__caller_screen_patch"];
@@ -4451,6 +4453,26 @@ export interface paths {
          */
         put: operations["replace_opening_line_v1_agents__agent_id__script_opening_line_put"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/script/opening-line/after-introduction": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask for the opening line written to follow the agent's own introduction
+         * @description The repair offered when switching the AI notice on is refused with `opening_introduces_agent` (D-865): the notice says who is calling, so the opening line must not. Queues a suggestion that writes the opening line again without a greeting or the agent's or business's name; poll `GET .../proposal` until it is `ready`. Nothing reaches a caller until the line is put live.
+         */
+        post: operations["request_opening_after_introduction_v1_agents__agent_id__script_opening_line_after_introduction_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -17809,6 +17831,8 @@ export interface components {
             enabled: boolean;
             /** Engine Synced */
             engine_synced: boolean;
+            /** Patient Settings */
+            patient_settings?: string[];
         };
         /**
          * CallingHoursIn
@@ -28732,6 +28756,8 @@ export interface components {
             fix_note: string | null;
             /** Fixed At */
             fixed_at: string | null;
+            /** Fixed By */
+            fixed_by: string | null;
             /** Kind */
             kind: string;
             /** Label */
@@ -31429,7 +31455,7 @@ export interface components {
              * Mode
              * @enum {string}
              */
-            mode: "change" | "whole" | "steps" | "knowledge";
+            mode: "change" | "whole" | "steps" | "knowledge" | "opening";
             /** Note */
             note: string | null;
             /** Request */
@@ -45255,6 +45281,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OpeningLineOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    request_opening_after_introduction_v1_agents__agent_id__script_opening_line_after_introduction_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScriptProposalOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

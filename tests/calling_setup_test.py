@@ -355,16 +355,14 @@ def test_cleaning_keeps_letters_and_drops_numbers_and_emails() -> None:
     assert caller_lookup.clean_name("Asha  Menon 98765") == "Asha Menon"
     assert caller_lookup.clean_name("రాఘవ") == "రాఘవ"
     assert caller_lookup.clean_name("12345") is None
-    cleaned = caller_lookup.clean_text("chilli, call 98765 43210 or a@b.com", 80)
-    assert cleaned is not None and "98765" not in cleaned and "@" not in cleaned
     many = {f"k{i}": "x" * 200 for i in range(30)}
     bounded = caller_lookup.bounded(many)
     assert len(bounded) == caller_lookup.MAX_VALUES
     assert all(len(v) == caller_lookup.MAX_VALUE_CHARS for v in bounded.values())
-    assert caller_lookup.spoken_when(ist(11, 16)) == "Sun 11 Oct, 4:00 PM"
 
 
-async def test_variables_carry_name_and_interest_and_history_only_with_memory() -> None:
+async def test_variables_are_the_callers_name_and_nothing_else_of_the_lead() -> None:
+    """Only values a `{{key}}` can use are sent: the platform fills nothing else."""
     tenant_id, agent_id = await _tenant()
     phone = "+919811122233"
     await _lead(
@@ -377,42 +375,21 @@ async def test_variables_carry_name_and_interest_and_history_only_with_memory() 
     )
     async with tenant_session(tenant_id) as session:
         await session.execute(
-            text("UPDATE agents SET caller_memory_enabled = false WHERE id = :a"), {"a": agent_id}
-        )
-        plain = await caller_lookup.caller_variables(
-            session, tenant_id=tenant_id, agent_id=agent_id, phone_e164=phone
-        )
-    assert plain["name"] == "Ravi Kumar" and plain["first_name"] == "Ravi"
-    assert plain["product_interest"].startswith("Red chilli")
-    assert plain["caller_known"] == "yes" and plain["callback_allowed"] == "yes"
-    assert not set(plain) & caller_lookup.MEMORY_KEYS
-    assert phone not in json.dumps(plain) and "9811122233" not in json.dumps(plain)
-    async with tenant_session(tenant_id) as session:
-        await session.execute(
             text("UPDATE agents SET caller_memory_enabled = true WHERE id = :a"), {"a": agent_id}
         )
         await session.execute(ACCEPT_CALLER_MEMORY_STATEMENT, {"tid": tenant_id})
-        await session.execute(
-            text(
-                "INSERT INTO dnc_list (id, tenant_id, phone_e164, scope, source, created_at) "
-                "VALUES (:id, :t, :p, 'tenant', 'manual', now())"
-            ),
-            {"id": uuid.uuid4(), "t": tenant_id, "p": phone},
-        )
-        remembered = await caller_lookup.caller_variables(
-            session, tenant_id=tenant_id, agent_id=agent_id, phone_e164=phone
-        )
-    assert remembered["preferred_language"] == "Telugu"
-    assert remembered["callback_allowed"] == "no"
+        values = await caller_lookup.caller_variables(session, agent_id=agent_id, phone_e164=phone)
+    assert values == {"name": "Ravi Kumar", "lead_name": "Ravi Kumar", "first_name": "Ravi"}
+    assert phone not in json.dumps(values) and "9811122233" not in json.dumps(values)
 
 
-async def test_an_unknown_caller_gets_nothing_personal() -> None:
+async def test_an_unknown_caller_gets_nothing() -> None:
     tenant_id, agent_id = await _tenant()
     async with tenant_session(tenant_id) as session:
         values = await caller_lookup.caller_variables(
-            session, tenant_id=tenant_id, agent_id=agent_id, phone_e164="+919000000001"
+            session, agent_id=agent_id, phone_e164="+919000000001"
         )
-    assert values == {"caller_known": "no", "callback_allowed": "yes"}
+    assert values == {}
 
 
 def _signed(body: bytes, secret: str, *, at: datetime | None = None) -> dict[str, str]:

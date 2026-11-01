@@ -61,7 +61,12 @@ PROPOSAL_MODES: Final[tuple[ProposalMode, ...]] = get_args(ProposalMode)
 #: in, made by us when a document goes live after onboarding, never asked of Pip. So it is a
 #: stored mode and not a `ProposalMode` a request can name.
 KNOWLEDGE_MODE: Final = "knowledge"
-StoredMode = Literal["change", "whole", "steps", "knowledge"]
+#: `opening` (D-865): the opening line written again to be said after the agent's own
+#: introduction, asked from the refusal to switch the AI notice on over an opening that
+#: already says who is calling (`publishing.OPENING_INTRODUCES_CODE`). A stored mode for
+#: `knowledge`'s reason.
+OPENING_MODE: Final = "opening"
+StoredMode = Literal["change", "whole", "steps", "knowledge", "opening"]
 
 ProposalStatus = Literal["drafting", "ready", "failed"]
 
@@ -181,6 +186,43 @@ async def request_proposal(
 
     It replaces any proposal still waiting for review; one still being drafted is refused,
     so two requests cannot race to write the same review."""
+    return await _request(
+        session,
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        mode=mode,
+        change=change,
+        answers=answers,
+        requested_by=requested_by,
+    )
+
+
+async def request_opening_proposal(
+    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID, requested_by: UUID | None
+) -> ScriptProposal:
+    """Ask for the opening line written to follow the agent's introduction (`OPENING_MODE`),
+    as `request_proposal` asks for any other."""
+    return await _request(
+        session,
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        mode=OPENING_MODE,
+        change=None,
+        answers={},
+        requested_by=requested_by,
+    )
+
+
+async def _request(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    agent_id: UUID,
+    mode: StoredMode,
+    change: str | None,
+    answers: dict[str, str],
+    requested_by: UUID | None,
+) -> ScriptProposal:
     await session.execute(
         text("SELECT 1 FROM agents WHERE id = :aid AND deleted_at IS NULL FOR UPDATE"),
         {"aid": agent_id},
@@ -208,7 +250,7 @@ async def request_proposal(
         if mode == "whole"
         else {},
         "base_script": base.model_dump(mode="json"),
-        "requested_by": str(requested_by),
+        "requested_by": None if requested_by is None else str(requested_by),
         "requested_at": now.isoformat(),
     }
     await session.execute(
@@ -428,6 +470,7 @@ __all__ = [
     "MAX_CHANGE_CHARS",
     "MAX_KNOWLEDGE_DOCUMENTS",
     "MIN_REQUEST_CHARS",
+    "OPENING_MODE",
     "PROPOSAL_JOB",
     "PROPOSAL_MODES",
     "STALE_NOTE",
@@ -440,6 +483,7 @@ __all__ = [
     "queue_document_suggestions",
     "read_proposal",
     "request_knowledge_proposal",
+    "request_opening_proposal",
     "request_proposal",
     "request_text",
     "store_failed",

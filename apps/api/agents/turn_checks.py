@@ -96,6 +96,9 @@ Kind = Literal[
     # D-959 (the Rytu Khata call of 2 Nov 2026): "anything else?" reply after reply while the
     # caller was still in the middle of a task.
     "offered_more_too_soon",
+    # The Rytu Khata call of 2 Nov 2026: "you enquired with us before" to someone with no
+    # earlier enquiry or call on file.
+    "false_history",
 ]
 
 #: How a reply SOUNDS (D-828): the words, numbers, punctuation, length and language of a
@@ -157,6 +160,7 @@ JOB_KINDS: Final = frozenset(
         "goodbye_while_asking",
         "false_recall",
         "invented_source",
+        "false_history",
         "unbacked_promise",
         "wrong_weekday",
         # A fail, not a sound note like `asked_again` (D-947): on the call of 30 Oct 2026 the
@@ -1395,6 +1399,62 @@ def _invented_source(reply: str, known: str) -> str | None:
     return None
 
 
+#: The agent telling the caller about contact before this call: an enquiry they made, a
+#: previous call or conversation, "last time". Detection words, not speech (D-915).
+_CLAIMS_HISTORY: Final = re.compile(
+    r"\byou(?: had| have)? (?:enquired|inquired|made an? (?:enquiry|inquiry)"
+    r"|sent (?:us )?an? (?:enquiry|inquiry)|filled (?:in |out )?(?:our|the|a) form"
+    r"|contacted us|called us (?:before|earlier|last))\b"
+    r"|\blast time,? (?:you|we)\b|\bwhen (?:we|you) (?:last )?spoke\b"
+    r"|\bwe(?:'ve| have)? spoken before\b|\bwe spoke (?:before|earlier|last)\b"
+    r"|\b(?:our|your) (?:previous|last|earlier) (?:call|conversation|chat|enquiry|inquiry)\b"
+    r"|(?:ఎంక్వ\S*|enquiry|inquiry)\s+(?:చేశారు|చేసారు|ఇచ్చారు|పెట్టారు)"
+    r"|పోయిన\s*సారి|గత\s*సారి|లాస్ట్\s*టైమ్"
+    r"|(?:ఇంతకు\s*ముందు|ఇంతకుముందు|గతంలో)\s+(?:\S+\s+){0,4}?"
+    r"(?:మాట్లాడారు|మాట్లాడాం|మాట్లాడాము|కాల్\s+చేశారు|call\s+చేశారు|సంప్రదించారు)"
+    r"|(?:पूछताछ|इंक्वायरी|इन्क्वायरी|enquiry|inquiry)\s+की\s+थी|पिछली\s+बार"
+    r"|पहले\s+(?:\S+\s+){0,3}?(?:बात\s+(?:की|हुई)\s+थी|(?:call|कॉल)\s+किया\s+था|संपर्क\s+किया\s+था)",
+    re.IGNORECASE,
+)
+#: "Earlier you asked": on a call where the caller has asked something, that may be this
+#: call, so it counts only before the caller has asked anything.
+_ASKED_EARLIER: Final = re.compile(
+    r"\b(?:earlier|before|previously),? you asked\b|\byou (?:had )?asked (?:us )?(?:earlier|before"
+    r"|previously)\b"
+    r"|(?:ఇంతకు\s*ముందు|ఇంతకుముందు|గతంలో)\s+(?:\S+\s+){0,4}?అడిగారు"
+    r"|आपने\s+पहले\s+(?:\S+\s+){0,3}?पूछा",
+    re.IGNORECASE,
+)
+#: A sentence that asks about contact before rather than claiming it ("did you enquire?").
+_ASKS_ABOUT_IT: Final = re.compile(r"^\W*(?:have|did|had|has)\s+you\b|^\W*क्या\s", re.IGNORECASE)
+#: An enquiry named in the agent's script or facts: the owner may be saying its callers did
+#: enquire, so a claim of it is the owner's word rather than invented.
+_ENQUIRY_WORDS: Final = re.compile(r"enquir|inquir|ఎంక్వ|पूछताछ|इंक्वायरी|इन्क्वायरी", re.IGNORECASE)
+#: Words in the caller's own lines that say there was contact before ("I called last week",
+#: "I already enquired"). Broader than the script's, because a caller line is short and
+#: about this person, and a false mistake costs more than a missed one.
+_CALLER_HISTORY: Final = re.compile(
+    r"enquir|inquir|last time|before|earlier|already|previous"
+    r"|ఎంక్వ|ఇంతకు\s*ముందు|ఇంతకుముందు|పోయిన\s*సారి|ముందే|గతంలో"
+    r"|पहले|पिछली|पूछताछ|इंक्वायरी|इन्क्वायरी",
+    re.IGNORECASE,
+)
+
+
+def _false_history(reply: str, *, caller_asked: bool) -> str | None:
+    """The sentence of `reply` that tells the caller about an enquiry, call or conversation
+    before this one, or None. `caller_asked`: the caller has asked something on this call,
+    so "earlier you asked" may mean this call and is left alone."""
+    for sentence in sentences(reply):
+        if _ASKS_ABOUT_IT.search(sentence):
+            continue
+        if _CLAIMS_HISTORY.search(sentence) or (
+            not caller_asked and _ASKED_EARLIER.search(sentence)
+        ):
+            return sentence
+    return None
+
+
 # --- D-945: who-then-ask, a known name asked again, promises, weekdays --------------------
 
 #: The caller asking who is calling or why.
@@ -1538,6 +1598,7 @@ def conversation_problems(
     opening: str = "",
     manifest: CapabilityManifest | None = None,
     today: date | None = None,
+    prior_contact: bool | None = None,
 ) -> list[TurnProblem]:
     """The problems only a whole conversation shows, each kind once, in order.
 
@@ -1549,6 +1610,8 @@ def conversation_problems(
     call's greeting, against which every later reply is judged for asking it again (D-912).
     `manifest` is what the agent can do, against which a promise is judged, and `today` the
     IST date a stated weekday is checked against (D-945); either None skips its check.
+    `prior_contact` is whether this person had an enquiry or a call with the business before
+    this one; only False judges a reply that claims they did, and None skips it.
     """
     opening_questions = [s for s in sentences(opening) if _is_question(s)]
     offered: set[int] = set()
@@ -1561,6 +1624,10 @@ def conversation_problems(
     said_before = ""
     caller_lines = ""
     searched = False
+    caller_asked = False
+    history_backed = prior_contact is not False or bool(
+        _CLAIMS_HISTORY.search(known) or _ENQUIRY_WORDS.search(known)
+    )
     name_given = False
     offers: list[bool] = []  # one per spoken reply: did it ask "anything else?"
     for exchange in exchanges:
@@ -1642,6 +1709,19 @@ def conversation_problems(
                     f"It named a website or listing to the caller, {_quoted(invented)}, that "
                     "neither the caller nor its facts mentioned. It says only what its facts "
                     "or the caller said.",
+                ),
+            )
+        caller_asked = caller_asked or bool(_CALLER_ASKS.search(said))
+        history_backed = history_backed or bool(_CALLER_HISTORY.search(said))
+        history = None if history_backed else _false_history(reply, caller_asked=caller_asked)
+        if history:
+            found.setdefault(
+                "false_history",
+                TurnProblem(
+                    "false_history",
+                    f"It told the caller {_quoted(history)}, but there is no earlier enquiry "
+                    "or call from them on file. It never says a caller enquired or spoke to "
+                    "the business before unless the call's details say so.",
                 ),
             )
         stacked = _stacked_after_who(said, reply)
