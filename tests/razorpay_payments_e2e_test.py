@@ -572,6 +572,48 @@ async def test_the_dispute_webhook_resolves_the_tenant_and_alarms(
         assert await dispute_hold_active(session, tenant_id=tenant_id)
 
 
+async def test_a_dispute_whose_notes_name_another_account_lands_on_the_order_account() -> None:
+    payer, victim = await _tenant(), await _tenant()
+    await _fund(victim, _id("pay"), "1000.00")
+    order_id, payment_id = _id("order"), _id("pay")
+    async with tenant_session(payer) as session:
+        await record_route(
+            session,
+            tenant_id=payer,
+            object_id=order_id,
+            kind="order",
+            purpose="topup",
+            amount_inr=Decimal("500.00"),
+        )
+    body = _payment(
+        payment_id=payment_id,
+        order_id=order_id,
+        amount=50000,
+        notes={payments.NOTES_TENANT_KEY: str(victim)},
+        event="payment.dispute.created",
+    )
+    body["payload"]["dispute"] = {
+        "entity": {
+            "id": f"disp_{payment_id}",
+            "payment_id": payment_id,
+            "amount": 50000,
+            "currency": "INR",
+            "status": "open",
+            "phase": "chargeback",
+            "respond_by": 1890000000,
+        }
+    }
+    raw, headers = _sign(body)
+    async with _client() as http:
+        response = await http.post("/hooks/v1/razorpay", content=raw, headers=headers)
+    assert response.json()["status"] == "dispute", response.text
+    async with tenant_session(victim) as session:
+        assert not await dispute_hold_active(session, tenant_id=victim)
+        assert (await get_balance(session, tenant_id=victim)).amount_inr == Decimal("1000.00")
+    async with tenant_session(payer) as session:
+        assert await dispute_hold_active(session, tenant_id=payer)
+
+
 # --- mandates and auto-recharge ------------------------------------------------------
 
 
