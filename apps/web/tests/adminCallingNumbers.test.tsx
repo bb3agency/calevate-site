@@ -64,6 +64,58 @@ describe("the calling numbers board", () => {
     expect(sent.filed_on).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
+  it("after a partial filing, sends only the numbers still unfiled and clears the reference", async () => {
+    const both = board({
+      clients: [
+        {
+          ...board().clients[0],
+          numbers: [
+            { number: "+919848022338", filed_on: null, filing_reference: null },
+            { number: "+914049001234", filed_on: null, filing_reference: null },
+          ],
+          unfiled: 2,
+        },
+      ],
+    });
+    const afterFirst = board({
+      clients: [
+        {
+          ...board().clients[0],
+          numbers: [
+            { number: "+919848022338", filed_on: null, filing_reference: null },
+            { number: "+914049001234", filed_on: "2026-11-01", filing_reference: "ACK-1" },
+          ],
+          unfiled: 1,
+        },
+      ],
+    });
+    let filed = false;
+    const { calls } = renderAdminPage(<CallingNumbersPage />, {
+      "/v1/admin/me": { ...ADMIN, permissions: ["org:read", "admin:tenants"] },
+      [FILING_BOARD_PATH]: () => (filed ? afterFirst : both),
+      [`POST ${markFiledPath(TENANT)}`]: () => {
+        filed = true;
+        return afterFirst.clients[0];
+      },
+    });
+    const first = await screen.findByRole("checkbox", { name: /98480/ });
+    await waitFor(() => expect(first.matches(":disabled")).toBe(false));
+    fireEvent.click(first);
+    fireEvent.change(screen.getByLabelText("Reference"), { target: { value: "ACK-1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Mark filed" }));
+    await waitFor(() => expect(screen.queryAllByRole("checkbox")).toHaveLength(1));
+    expect((screen.getByLabelText("Reference") as HTMLInputElement).value).toBe("");
+
+    fireEvent.change(screen.getByLabelText("Reference"), { target: { value: "ACK-2" } });
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Mark filed" }).matches(":disabled")).toBe(false),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Mark filed" }));
+    await waitFor(() => expect(calls.filter((call) => call.method === "POST")).toHaveLength(2));
+    const second = JSON.parse(calls.filter((call) => call.method === "POST")[1]?.body ?? "{}");
+    expect(second.numbers).toEqual(["+919848022338"]);
+  });
+
   it("is read-only to an operator without admin:tenants", async () => {
     const { calls } = renderAdminPage(<CallingNumbersPage />, {
       "/v1/admin/me": { ...ADMIN, permissions: ["org:read"] },

@@ -360,6 +360,11 @@ function ClipButton({ trialId, side }: { trialId: string; side: "a" | "b" }) {
       setRequested(true);
       return;
     }
+    // A failed load leaves the element with no source, so play() would reject silently.
+    if (clip.error) {
+      void clip.refetch();
+      return;
+    }
     if (!element) return;
     if (element.paused) {
       if (playing && playing !== element) playing.pause();
@@ -389,7 +394,9 @@ function ClipButton({ trialId, side }: { trialId: string; side: "a" | "b" }) {
         {name}
       </button>
       {clip.error && (
-        <span className="text-xs text-danger">Could not load {name}.</span>
+        <span className="text-xs text-danger" role="alert">
+          Could not load {name}. Press it to try again.
+        </span>
       )}
       {/* eslint-disable-next-line jsx-a11y/media-has-caption -- The clip exists to be HEARD:
           how the voice sounds is a sensory experience no caption carries (WCAG 1.2.1's
@@ -646,7 +653,14 @@ function Reveal({ round }: { round: ComparisonRound }) {
   const summary = useComparisonSummary(round.id, true);
   const [downloadError, setDownloadError] = useState<unknown>(null);
   const data = summary.data;
-  if (summary.error) return <ProblemNotice error={summary.error} />;
+  if (summary.error) {
+    return (
+      <ProblemNotice
+        error={summary.error}
+        onRetry={() => void summary.refetch()}
+      />
+    );
+  }
   if (!data) return <Skeleton rows={4} label="Loading the results" />;
   return (
     <div className="space-y-6 text-sm">

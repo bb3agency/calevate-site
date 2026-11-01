@@ -19,6 +19,7 @@ import {
   NoticeBox,
   PRIMARY_BUTTON,
   ProblemNotice,
+  SECONDARY_BUTTON,
   Skeleton,
   formatDuration,
   formatIST,
@@ -423,6 +424,18 @@ function Results({
   // The API answers offsets up to QUEUE_MAX_OFFSET; past that the filters narrow it.
   const reachable = Math.min(data.total, QUEUE_MAX_OFFSET + QUEUE_PAGE_SIZE);
   const pages = Math.max(1, Math.ceil(reachable / QUEUE_PAGE_SIZE));
+
+  // A page past the end: a stale link, or reviews elsewhere shrank a "Waiting" view.
+  if (data.items.length === 0) {
+    return (
+      <div className="space-y-3">
+        <p className="text-body text-ink">This page is past the end of the list.</p>
+        <button type="button" className={SECONDARY_BUTTON} onClick={() => update({ page: 1 })}>
+          Go to the first page
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">

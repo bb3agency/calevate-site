@@ -226,6 +226,11 @@ export function useRateTrial(
               }
             : round,
       );
+      // The rounds list shows each round's rated count.
+      return client.invalidateQueries({
+        queryKey: voiceComparisonKeys.rounds,
+        exact: true,
+      });
     },
   });
 }
