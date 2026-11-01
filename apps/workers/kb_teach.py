@@ -30,6 +30,7 @@ from apps.api.agents.assist_leg import account_assist_leg
 from apps.api.billing.ai_quota import new_assist_ref, read_ai_quota
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
+from apps.api.core.queue import job_try
 from apps.api.crm import assist as crm_assist
 from apps.api.db.session import tenant_session
 from apps.api.teach.models import MAX_FACT_CHARS, MAX_RULE_CHARS, MAX_TEACH_WORDS
@@ -243,7 +244,7 @@ async def run_kb_teaching(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     arq never runs two attempts of one job id at once. Without it the row stayed there for
     ever and the teach box showed it as being sorted.
     """
-    retry = int(ctx.get("job_try", 1) or 1) > 1
+    retry = job_try(ctx) > 1
     tenant_id = UUID(str(payload["tenant_id"]))
     teaching_id = UUID(str(payload["teaching_id"]))
     async with tenant_session(tenant_id) as session:

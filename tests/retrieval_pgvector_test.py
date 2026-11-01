@@ -244,18 +244,24 @@ async def test_the_epoch_moves_when_the_sweep_lands_a_vector() -> None:
     assert before != after
 
 
-async def test_the_selector_falls_back_to_t0_when_the_store_is_named_but_unconfigured(
+async def test_the_store_without_an_embedding_leg_answers_from_keywords(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`retrieval_provider = pgvector` with no embedding deployment is a CONTRADICTION between
-    two settings, and it degrades to a working T0 rather than serving an empty dense arm."""
+    """`retrieval_provider = pgvector` with no embedding deployment still searches every
+    approved chunk by keyword, rather than hiding them all behind T0."""
     monkeypatch.setattr(retrieval_service, "embedding_leg", lambda: None)
-    monkeypatch.setattr(retrieval_service, "embedding_price_is_billable", lambda: True)
-    tenant_id, _ = await _tenant_with_published_agent()
+    monkeypatch.setattr(embedding_module, "embedding_leg", lambda: None)
+    tenant_id, _ = await _corpus()
     async with tenant_session(tenant_id) as session:
         settings = retrieval_service.get_settings()
         monkeypatch.setattr(settings, "retrieval_provider", "pgvector")
-        assert retrieval_service.get_retriever(session).name == "compiled-facts"
+        retriever = retrieval_service.get_retriever(session)
+        assert retriever.name != "compiled-facts"
+        result = await retriever.retrieve(
+            RetrievalRequest(tenant_id=tenant_id, question="valet parking", tier="t3")
+        )
+    assert result.served_tier == "t3"
+    assert [p.text for p in result.passages] == ["Valet parking is free for patients."]
 
 
 async def test_the_composite_answers_t0_from_the_block_and_t3_from_the_store(

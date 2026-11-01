@@ -150,7 +150,7 @@ async def record_engine_failure(engine: str, *, kind: FailureKind) -> None:
         # log; neither may propagate into the caller's error, which is about the vendor.
         log.warning(
             "engine_health_unrecordable",
-            extra={"engine": engine, "kind": kind, "reason": type(exc).__name__},
+            extra={"engine": engine, "kind": kind, "error": type(exc).__name__},
         )
         return
 

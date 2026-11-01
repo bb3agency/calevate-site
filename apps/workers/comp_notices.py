@@ -36,6 +36,7 @@ from apps.api.billing.service import get_balance, to_paise
 from apps.api.core.alerting import alert
 from apps.api.core.brand import PRODUCT
 from apps.api.core.logging import get_logger
+from apps.api.core.queue import job_try
 from apps.api.core.rbac import SUPERADMIN_ROLE
 from apps.api.core.transport import EmailPurpose, get_transport
 from apps.api.db.session import admin_session, tenant_session, untenanted_session
@@ -187,7 +188,7 @@ def _retry(attempt: int, *, tenant_id: UUID, leg: str) -> NoReturn:
 
 
 async def notify_comp(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
-    attempt = int(ctx.get("job_try", 1) or 1)
+    attempt = job_try(ctx)
     tenant_id = UUID(str(payload["tenant_id"]))
     kind = str(payload["kind"])
     amount = Decimal(str(payload["amount_inr"])) if payload.get("amount_inr") else None

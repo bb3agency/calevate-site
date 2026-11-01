@@ -52,7 +52,7 @@ from apps.api.core.alerting import alert
 from apps.api.core.envelope import open_fields
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
@@ -257,7 +257,7 @@ async def erase_tenant_at_engine(ctx: dict[str, Any], payload: dict[str, Any]) -
     if task.status not in ("open", "requested"):
         return "already_settled"
     task_id = UUID(str(task.id))
-    attempt = int(ctx.get("job_try", 1))
+    attempt = job_try(ctx)
 
     if task.vendor_reference == ENGINE_ERASURE_OWED and "subjects" in payload:
         try:

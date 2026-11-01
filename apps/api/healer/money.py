@@ -351,7 +351,7 @@ async def gather(
             unreadable += 1
             log.warning(
                 "healer_money_evidence_unreadable",
-                extra={"tenant_id": str(tenant_id), "reason": type(exc).__name__},
+                extra={"tenant_id": str(tenant_id), "error": type(exc).__name__},
             )
             continue
         calls.extend(found)

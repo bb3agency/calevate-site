@@ -15,7 +15,7 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.script_builder import assert_agent_visible
@@ -28,6 +28,7 @@ from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
+from apps.api.core.schemas import Strict
 from apps.api.db.base import uuid7
 from apps.api.kb.curation import goes_live_without_review, requires_kb_curation
 from apps.api.teach import facts as fact_store
@@ -47,10 +48,6 @@ from apps.api.teach.models import (
 router = APIRouter(tags=["teach"])
 
 Session = Annotated[AsyncSession, Depends(db)]
-
-
-class Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 # --- what it knows -----------------------------------------------------------------

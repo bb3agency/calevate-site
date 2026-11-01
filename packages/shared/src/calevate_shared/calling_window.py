@@ -33,11 +33,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, time, timedelta
+from typing import Final
+from zoneinfo import ZoneInfo
 
-#: India Standard Time as a fixed offset. India has no DST, so an offset is exact and a
-#: `ZoneInfo` would be a second spelling that agrees with it — the repo's own convention
-#: (`compliance.service.ist_now`, `campaigns.scheduling.first_dial_not_before`).
-IST = timedelta(hours=5, minutes=30)
+#: India Standard Time, the zone everything shown, scheduled or bucketed into a day is in
+#: (D-709). THE one Python spelling: `billing.plans.IST` and every other module import this
+#: object. Convert an aware instant with `astimezone(IST)` and build a wall-clock instant
+#: with `tzinfo=IST`; never add a fixed offset to a UTC value, which yields a datetime whose
+#: wall clock and tzinfo disagree and compares wrongly against a real instant. Defined here
+#: rather than in `apps/api` because `packages/shared` and `apps/voice-runtime` may not
+#: import a business module (hard rule 3). The zone file comes from the image's `tzdata`
+#: (`Dockerfile`); on Windows from the `tzdata` wheel.
+IST: Final = ZoneInfo("Asia/Kolkata")
 
 #: The platform calling window, IST wall clock (TRAI/TCCCPR; SEC-COMP §3). Half-open.
 DEFAULT_WINDOW = (time(9, 0), time(21, 0))
@@ -63,13 +70,8 @@ MAX_AHEAD = timedelta(days=30)
 
 
 def ist_wall_clock(moment: datetime) -> datetime:
-    """`moment` as IST wall-clock time, still carrying UTC's tzinfo.
-
-    The repo's convention (`+ IST`, compared naively, shifted back) rather than a
-    localization: see `IST`. Callers use `.time()` and `.date()` off the result and never
-    its offset, which is why the tzinfo is deliberately not rewritten.
-    """
-    return moment.astimezone(UTC) + IST
+    """`moment` as an aware IST datetime: same instant, India's wall clock."""
+    return moment.astimezone(IST)
 
 
 def within_window(moment_ist: datetime, window: tuple[time, time] = DEFAULT_WINDOW) -> bool:
@@ -216,8 +218,8 @@ def resolve_slot(
             ),
         )
 
-    at_ist = datetime.combine(day, clock, tzinfo=UTC)
-    at_utc = at_ist - IST
+    at_ist = datetime.combine(day, clock, tzinfo=IST)
+    at_utc = at_ist.astimezone(UTC)
     now_utc = now.astimezone(UTC)
 
     if at_utc < now_utc + MIN_LEAD:
@@ -238,7 +240,9 @@ def resolve_slot(
         )
     if not within_window(at_ist, window):
         opens_ist = next_window_opening(at_ist, window)
-        alternative = Slot(at_utc=opens_ist - IST, at_ist=opens_ist, spoken=_spoken(opens_ist))
+        alternative = Slot(
+            at_utc=opens_ist.astimezone(UTC), at_ist=opens_ist, spoken=_spoken(opens_ist)
+        )
         start, end = window
         return SlotRefusal(
             code="outside_calling_hours",

@@ -34,17 +34,14 @@ from calevate_shared.events import (
     ObjectionKind,
 )
 from calevate_shared.extraction import OutcomeTag
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from apps.api.agents.trial_panel import TrialPanelOut
+from apps.api.core.schemas import Strict
 
 LeadStatus = Literal["new", "contacted", "interested", "hot", "won", "lost"]
 #: How a lead came to us. Stable machine words; plain labels are the screen's job.
 LeadSource = Literal["inbound_call", "webhook", "campaign", "manual", "test_call", "outbound_call"]
-
-
-class Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 class TranscriptTurnOut(Strict):
@@ -1453,7 +1450,7 @@ class AttentionOut(Strict):
     items: list[AttentionItemOut]
 
 
-class UsageTrialOut(BaseModel):
+class UsageTrialOut(Strict):
     """Whether this client's calling is on us, and until when (D-536).
 
     The CLIENT's view of a trial. It carries no cost figure of any kind — what this trial
@@ -1461,8 +1458,6 @@ class UsageTrialOut(BaseModel):
     (`billing/trial_routes.TrialStatusOut.cost_to_us_inr`); what the client is being given
     is `trial_absorbed_inr` beside this block, at their own rate.
     """
-
-    model_config = ConfigDict(extra="forbid")
 
     active: bool
     #: Whole days left, rounded UP, or null once it is over. Four hours left reads "1 day":

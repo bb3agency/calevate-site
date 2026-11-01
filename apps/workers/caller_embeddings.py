@@ -93,7 +93,7 @@ from apps.api.billing.platform_ai import record_platform_ai_usage
 from apps.api.core import provider_health
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 
 # `lead_chunks` IS IMPORTED FOR ITS REGISTRATION SIDE EFFECT AND FOR NOTHING ELSE.
 # `registered_projections()` is empty until the modules that call `register_projection`
@@ -569,7 +569,7 @@ async def embed_caller_chunks(ctx: dict[str, Any]) -> str:
         async with untenanted_session() as session:
             spend = await read_platform_ai_spend(session)
     except Exception as failure:
-        attempt = int(ctx.get("job_try", 1))
+        attempt = job_try(ctx)
         if attempt < WORKER_MAX_TRIES:
             raise Retry(defer=jittered_delay_s(attempt * 30)) from failure
         alert(

@@ -3,7 +3,8 @@
 The founder: "I want it to be reaching the agent as soon as it is added without waiting for
 anyone's approval at all." Driven through the route, the outbox promise, the publish job and
 the sweep, because each half passes on its own and the feature is the seam between them.
-What must NOT change is asserted beside it: an operator's flow still waits for an admin, and
+What must NOT change is asserted beside it: an operator's submission still waits for an
+admin's approval (which then publishes it with no second step, D-951), and
 an older version never overwrites a newer one because a queue ran them out of order.
 """
 
@@ -300,16 +301,18 @@ async def test_one_item_that_raises_does_not_stop_the_rest_of_the_sweep(
             )
 
 
-async def test_the_sweep_leaves_an_admins_approve_then_publish_flow_alone(
+async def test_the_sweep_publishes_an_admin_approved_source_that_never_went_live(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An admin-approved source waits for the admin's own Publish, exactly as before D-658:
-    the approver is not a member of the account, so the sweep's arm does not name it."""
+    """Approved means live whoever approved it (D-951). A source an admin approved before
+    the approval queued its publish (the approve-then-publish flow this replaced) has no
+    job behind it, and the sweep publishes it with no human step."""
     tenant_id, agent_id = await _tenant_with_published_agent()
     tenant_id, agent_id = uuid.UUID(str(tenant_id)), uuid.UUID(str(agent_id))
     async with tenant_session(tenant_id) as session:
         seeded = await service.submit_source(session, tenant_id=tenant_id, name="Seeded", body=BODY)
         assert seeded["status"] == "pending_approval"
+        # The service call, not the route: the row as the old two-step flow left it.
         assert await service.approve_source(
             session, source_id=seeded["id"], approved_by=uuid.uuid4()
         )
@@ -317,13 +320,64 @@ async def test_the_sweep_leaves_an_admins_approve_then_publish_flow_alone(
             text("UPDATE kb_sources SET updated_at = now() - interval '2 hours' WHERE id = :s"),
             {"s": seeded["id"]},
         )
-    assert await _publish_jobs(seeded["id"]) == 0, "an operator's submission promised a publish"
+    assert await _publish_jobs(seeded["id"]) == 0
 
     async def _only_this_tenant() -> list[uuid.UUID]:
         return [tenant_id]
 
     monkeypatch.setattr(kb_gloss, "tenants_holding_knowledge", _only_this_tenant)
-    assert await kb_ingest._unpublished_typed_sources(datetime.now(UTC)) == []
+    _quiet_fleet_wide_arms(monkeypatch)
+    assert await kb_ingest._unpublished_typed_sources(datetime.now(UTC)) == [
+        (tenant_id, uuid.UUID(str(seeded["id"])))
+    ]
+    outcome = await kb_ingest.sweep_kb_uploads({})
+    assert "typed=1" in outcome
+    assert (await _source(tenant_id, seeded["id"])).is_active is True
+
+
+async def test_the_sweep_redrives_an_admin_approved_upload_that_never_went_live(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An approved upload is the stalled arm's, not the typed arm's: it sits at `received`
+    until it is live, and the re-drive's `ingest_kb_source` publishes an approved version
+    whoever approved it."""
+    tenant_id, _agent_id = await _tenant_with_published_agent()
+    tenant_id = uuid.UUID(str(tenant_id))
+    async with tenant_session(tenant_id) as session:
+        link = await uploads.create_link(
+            session,
+            tenant_id=tenant_id,
+            name="Price list",
+            url="https://example.com/prices",
+            submitted_by=None,
+            auto_approve=False,
+        )
+        assert await service.approve_source(
+            session, source_id=link["source_id"], approved_by=uuid.uuid4()
+        )
+        await session.execute(
+            text(
+                "UPDATE kb_uploads SET ingest_status = 'received', "
+                "updated_at = timestamptz '2000-01-01 00:00:00+00' WHERE id = :u"
+            ),
+            {"u": link["id"]},
+        )
+
+    async def _no_tenants() -> list[uuid.UUID]:
+        return []
+
+    monkeypatch.setattr(kb_gloss, "tenants_holding_knowledge", _no_tenants)
+    redriven = _quiet_fleet_wide_arms(monkeypatch)
+    try:
+        await kb_ingest.sweep_kb_uploads({})
+        assert str(link["source_id"]) in redriven
+    finally:
+        # Out of the retryable set, so no later sweep on this database leads with it.
+        async with tenant_session(tenant_id) as session:
+            await session.execute(
+                text("UPDATE kb_uploads SET ingest_status = 'error' WHERE id = :u"),
+                {"u": link["id"]},
+            )
 
 
 async def test_an_account_members_photo_goes_live_without_a_confirmation(

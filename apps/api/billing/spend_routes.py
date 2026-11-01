@@ -37,7 +37,6 @@ from typing import Annotated, Literal, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
-from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -66,6 +65,7 @@ from apps.api.core.deps import admin_db, db
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
+from apps.api.core.schemas import Strict
 from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
 from apps.api.ops.model_pricing import (
@@ -162,12 +162,6 @@ _CHARS_PER_KCHAR = Decimal("1000")
 #: `money_rounding_mode_test` exists to make impossible, so the mode is named rather than
 #: inherited.
 _WHOLE_CHAR = Decimal("1")
-
-
-class Strict(BaseModel):
-    """`extra="forbid"` — the response model IS the output whitelist (BACKEND-PATTERNS §3)."""
-
-    model_config = ConfigDict(extra="forbid")
 
 
 # --------------------------------------------------------------- the CLIENT's half

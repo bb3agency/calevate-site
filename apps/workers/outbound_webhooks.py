@@ -59,7 +59,7 @@ from calevate_shared.backoff import ladder_delay_s
 
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import enqueue, job_id_for
+from apps.api.core.queue import enqueue, job_id_for, job_try
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.integrations import service
@@ -256,10 +256,10 @@ async def deliver_outbound_webhook(ctx: dict[str, Any], payload: dict[str, Any])
     # Retries reuse the delivery id so the forensic row is one row per delivery, not
     # one per attempt — and so a receiver deduplicating on it sees a retry as a retry.
     delivery_id = UUID(str(payload["delivery_id"])) if payload.get("delivery_id") else uuid7()
-    job_try = int(ctx.get("job_try", 1))
+    arq_try = job_try(ctx)
     # A scheduled retry or a "Send again" (`retry_outbound_deliveries`) names its attempt;
     # the outbox's own run, and arq's retries of a Sheets append, count with arq.
-    attempt = int(payload.get("attempt") or 1) + job_try - 1
+    attempt = int(payload.get("attempt") or 1) + arq_try - 1
     # The outbox message holding this body, recorded so a later retry can re-read it.
     # None for a sweep-run attempt, whose row already names it.
     message_id = outbox_message_id(JOB_NAME, ctx.get("job_id"))
@@ -435,11 +435,11 @@ async def deliver_outbound_webhook(ctx: dict[str, Any], payload: dict[str, Any])
     if scheduled:
         assert next_attempt_at is not None
         return f"retry {attempt + 1} at {next_attempt_at.isoformat()}"
-    if transient and _kind_of(endpoint) != service.WEBHOOK_KIND and job_try < service.MAX_ATTEMPTS:
+    if transient and _kind_of(endpoint) != service.WEBHOOK_KIND and arq_try < service.MAX_ATTEMPTS:
         # The one exception type arq treats as "not finished". The delivery row is
         # already committed — the session closed above — so the retry starts from a
         # recorded attempt, not from nothing.
-        raise Retry(defer=ladder_delay_s(RETRY_BACKOFF_S, job_try))
+        raise Retry(defer=ladder_delay_s(RETRY_BACKOFF_S, arq_try))
 
     # Give up loudly, whether the budget ran out or the endpoint rejected the request
     # outright. The client's integration is broken and someone has to know; a silent

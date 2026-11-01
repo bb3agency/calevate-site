@@ -627,7 +627,7 @@ async def admin_purchase(
                 extra={
                     "tenant_id": str(tenant_id),
                     "number_id": str(bought.number_id),
-                    "reason": type(exc).__name__,
+                    "error": type(exc).__name__,
                 },
             )
     return AdminPurchasedOut(

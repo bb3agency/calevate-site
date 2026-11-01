@@ -265,7 +265,7 @@ class ResendTransport:
                 extra={
                     "transport": self.name,
                     "recipient_domain": _domain(to),
-                    "reason": type(exc).__name__,
+                    "error": type(exc).__name__,
                 },
             )
             return False
@@ -440,7 +440,7 @@ class SmtpTransport:
                 extra={
                     "transport": self.name,
                     "recipient_domain": _domain(to),
-                    "reason": type(exc).__name__,
+                    "error": type(exc).__name__,
                 },
             )
             return False

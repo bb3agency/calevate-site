@@ -15,7 +15,7 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,6 +26,7 @@ from apps.api.core.context import Principal
 from apps.api.core.deps import admin_db, db, global_db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
+from apps.api.core.schemas import Strict
 
 router = APIRouter(tags=["agents"])
 ops_router = APIRouter(prefix="/v1/ops/call-mistakes", tags=["ops"])
@@ -38,10 +39,6 @@ AgentReader = Annotated[Principal, Depends(requires("agents:read"))]
 Operator = Annotated[Principal, Depends(requires("ops:manage", realm="admin"))]
 
 MistakeState = Literal["fixing", "fixed", "back"]
-
-
-class Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 class AgentMistakeOut(Strict):

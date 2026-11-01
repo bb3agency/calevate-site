@@ -88,7 +88,7 @@ from sqlalchemy import text
 
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.db.session import admin_session, tenant_session
 from apps.workers.fleet_walk import WalkBudget, resumed_walk
 
@@ -264,7 +264,7 @@ async def sweep_topup_settlement(ctx: dict[str, Any]) -> str:
     Returns a small JSON summary (arq stores it), so "the sweep ran and found nothing"
     is answerable without reading a day of logs.
     """
-    attempt = int(ctx.get("job_try", 1) or 1)
+    attempt = job_try(ctx)
     now = datetime.now(UTC)
     async with admin_session() as directory:
         rows = (await directory.execute(text(_DIRECTORY))).all()

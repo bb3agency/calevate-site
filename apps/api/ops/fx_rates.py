@@ -325,7 +325,7 @@ async def record_check(check: FxCheck) -> None:
     try:
         await asyncio.wait_for(get_redis().set(LAST_CHECK_KEY, payload), timeout=_CHECK_BUDGET_S)
     except Exception as exc:
-        log.warning("fx_check_record_failed", extra={"reason": type(exc).__name__})
+        log.warning("fx_check_record_failed", extra={"error": type(exc).__name__})
 
 
 async def last_check() -> FxCheck | None:
@@ -333,7 +333,7 @@ async def last_check() -> FxCheck | None:
     try:
         raw = await asyncio.wait_for(get_redis().get(LAST_CHECK_KEY), timeout=_CHECK_BUDGET_S)
     except Exception as exc:
-        log.warning("fx_check_read_failed", extra={"reason": type(exc).__name__})
+        log.warning("fx_check_read_failed", extra={"error": type(exc).__name__})
         return None
     if not raw:
         return None
@@ -348,7 +348,7 @@ async def last_check() -> FxCheck | None:
             degraded_alarmed_on=date.fromisoformat(alarmed_on) if alarmed_on else None,
         )
     except (ValueError, KeyError, TypeError) as exc:
-        log.warning("fx_check_unreadable", extra={"reason": type(exc).__name__})
+        log.warning("fx_check_unreadable", extra={"error": type(exc).__name__})
         return None
 
 
@@ -376,7 +376,7 @@ async def refresh_fx_snapshot() -> FxQuote | None:
         async with untenanted_session() as session:
             observation = await latest_observation(session)
     except Exception as exc:
-        log.error("fx_snapshot_refresh_failed", extra={"reason": type(exc).__name__})
+        log.error("fx_snapshot_refresh_failed", extra={"error": type(exc).__name__})
         return None
 
     if observation is None:

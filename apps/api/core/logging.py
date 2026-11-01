@@ -33,8 +33,8 @@ import sys
 from collections.abc import Mapping
 from datetime import datetime
 from typing import Any
-from zoneinfo import ZoneInfo
 
+from calevate_shared.calling_window import IST
 from calevate_shared.carrier import CALLBACK_SECRET_PARAM
 
 from apps.api.core.context import correlation_id_var
@@ -354,7 +354,7 @@ def safe_extra(fields: Mapping[str, Any]) -> dict[str, Any]:
 #: time), with the offset printed so a line is never ambiguous. Named here rather than left
 #: to `logging.Formatter.formatTime`, which uses the PROCESS's local zone: that made the
 #: stamp a property of whichever `TZ` the container happened to start with.
-LOG_TIMEZONE = ZoneInfo("Asia/Kolkata")
+LOG_TIMEZONE = IST
 
 
 class JsonFormatter(logging.Formatter):

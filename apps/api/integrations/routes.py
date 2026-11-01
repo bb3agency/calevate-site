@@ -34,7 +34,7 @@ from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query, Request
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl
+from pydantic import Field, HttpUrl
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -45,6 +45,7 @@ from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
+from apps.api.core.schemas import Strict
 from apps.api.core.stepup import ClientActionCode, client_confirmation
 from apps.api.db.base import uuid7
 from apps.api.integrations import leadsquared as lsq
@@ -105,10 +106,6 @@ def assert_recording_ready_has_its_opt_in(payload: CreateEndpointIn) -> None:
     service.assert_recording_ready_opt_in(
         events=list(payload.events), include_recording_url=payload.include_recording_url
     )
-
-
-class Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 class EndpointOptionsOut(Strict):

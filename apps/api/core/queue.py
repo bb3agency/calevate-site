@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+from collections.abc import Mapping
 from typing import Any, Final
 
 from arq import create_pool
@@ -42,6 +43,17 @@ _pool_lock = asyncio.Lock()
 # 'delivery exhausted' alert could never fire. A client's broken integration went
 # silently stale, which is exactly the failure the alert exists to catch.
 WORKER_MAX_TRIES = 3
+
+
+def job_try(ctx: Mapping[str, Any]) -> int:
+    """Which attempt of this job arq is running, counting from 1.
+
+    arq sets `ctx["job_try"]`; a job called directly (a test, a sweep that awaits another
+    job's function, `healer.reconcile_engine_webhooks({"job_try": 1})`) may pass no key or
+    None, and both read as the first attempt so a retry ladder never indexes from 0.
+    """
+    return int(ctx.get("job_try") or 1)
+
 
 #: How long arq lets one job run before cancelling it. Both worker classes use it, and
 #: `/healthz/ready` derives the bulk queue's staleness threshold from it.
@@ -165,6 +177,7 @@ __all__ = [
     "enqueue_pool_settings",
     "get_queue",
     "job_id_for",
+    "job_try",
     "queue_for",
     "redis_settings",
 ]

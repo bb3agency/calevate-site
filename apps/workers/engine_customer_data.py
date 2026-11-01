@@ -47,7 +47,7 @@ from apps.api.core.alerting import alert
 from apps.api.core.envelope import open_fields, seal_to_fields
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.db.session import tenant_session
 from apps.api.engine.thinnest_customer_data import CallContentDeletion, thinnest_customer_data
 from apps.api.engine.thinnest_workspace import is_developer_workspace
@@ -121,7 +121,7 @@ async def push_engine_dnc(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
         for phone in phones:
             await client.add_do_not_call(workspace, phone)
     except Exception as exc:
-        _retry_if_worth_it(exc, int(ctx.get("job_try", 1)))
+        _retry_if_worth_it(exc, job_try(ctx))
         alert(
             "WORKER_TERMINAL",
             "engine_dnc_push_failed",
@@ -176,7 +176,7 @@ async def remove_engine_dnc(ctx: dict[str, Any], payload: dict[str, Any]) -> str
             return "suppressed_again"
         await thinnest_customer_data().remove_do_not_call(workspace, phone)
     except Exception as exc:
-        _retry_if_worth_it(exc, int(ctx.get("job_try", 1)))
+        _retry_if_worth_it(exc, job_try(ctx))
         alert(
             "WORKER_TERMINAL",
             "engine_dnc_remove_failed",
@@ -276,7 +276,7 @@ async def erase_engine_contact(ctx: dict[str, Any], payload: dict[str, Any]) -> 
                         session, task_id=task_id, progress={contact_id: pending}
                     )
     except Exception as exc:
-        _retry_if_worth_it(exc, int(ctx.get("job_try", 1)))
+        _retry_if_worth_it(exc, job_try(ctx))
         alert(
             "WORKER_TERMINAL",
             "engine_contact_erasure_failed",
@@ -406,7 +406,7 @@ async def delete_engine_call_content(ctx: dict[str, Any], payload: dict[str, Any
         tally["deleted" if answer.outcome == "deleted" else "gone"] += 1
         await _record_deletion(tenant_id, UUID(str(call_id)), answer)
     confirmed = await _settle_tasks(tenant_id, asked)
-    attempt = int(ctx.get("job_try", 1))
+    attempt = job_try(ctx)
     if failure is not None:
         # A refusal of ours to fix (a key that is not a full key) is not retried.
         if not (isinstance(failure, ProblemError) and failure.kind == "business_rule"):

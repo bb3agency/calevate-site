@@ -30,10 +30,11 @@ from uuid import UUID
 
 from calevate_shared.call_script import SOUNDS_LIKE_MAX, STAGE_TITLE_MAX
 from calevate_shared.spoken_guard import textbook_problem
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import ConfigDict, Field, StringConstraints
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.core.schemas import Strict
 from apps.api.reliability.service import enqueue_outbox
 
 #: The ARQ job (`apps/workers/business_copy.generate_business_copy`).
@@ -91,8 +92,10 @@ StepName = Annotated[
 ]
 
 
-class _Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+class _Strict(Strict):
+    # This module's models are also frozen; the shared base carries only the forbid, and
+    # pydantic merges this config onto it.
+    model_config = ConfigDict(frozen=True)
 
 
 class Placeholders(_Strict):
@@ -202,7 +205,7 @@ CLINIC_WORDS: Final = re.compile(
 #: Providers a client never reads about (D-679): the voice platform, the voices, the carriers
 #: and the language models.
 VENDOR_WORDS: Final = re.compile(
-    r"\b(?:sarvam|cartesia|saaras|sonic|plivo|thinnest(?:ai)?|bolna|exotel|vobiz|gemini|"
+    r"\b(?:sarvam|cartesia|saaras|sonic|plivo|thinnest(?:ai)?|bolna|exotel|gemini|"
     r"google|openai|chatgpt|gpt|azure|microsoft|anthropic|claude|elevenlabs|deepgram)\b",
     re.IGNORECASE,
 )

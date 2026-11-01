@@ -190,7 +190,8 @@ async def test_naming_the_store_without_configuring_it_serves_postgres_instead(
     monkeypatch.setattr(retrieval_service, "embedding_leg", lambda: None)
 
     async with tenant_session(tenant_id) as session:
-        assert retrieval_service.get_retriever(session).name == "compiled-facts"
+        # The Postgres store, keyword-only here (no embedding leg), behind the composite.
+        assert retrieval_service.get_retriever(session).name == "knowledge"
 
 
 async def test_the_default_provider_is_unchanged_by_adding_this_one() -> None:

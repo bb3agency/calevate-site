@@ -39,7 +39,7 @@ from apps.api.actions.models import INVOCATION_SOURCES
 from apps.api.compliance.audit import write_audit
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 
@@ -108,7 +108,7 @@ async def record_action_invocation(ctx: dict[str, Any], payload: dict[str, Any])
     module docstring says why a plain raise was the whole failure."""
     tenant_id = UUID(str(payload["tenant_id"]))
     tool_id = str(payload["tool_id"])
-    attempt = int(ctx.get("job_try", 1) or 1)
+    attempt = job_try(ctx)
     try:
         async with tenant_session(tenant_id) as session:
             await write_audit(

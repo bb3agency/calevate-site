@@ -32,7 +32,7 @@ from scripts.seed import DEFAULT_RETENTION_POLICIES
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine.thinnest_customer_data import thinnest_customer_data
 from apps.api.tenancy.engine_retention import (
@@ -153,7 +153,7 @@ async def sync_engine_retention(ctx: dict[str, Any], payload: dict[str, Any]) ->
         state = await read_workspace_state(session, tenant_id)
     if not state.active or state.workspace_id is None or not is_own_workspace(state.workspace_id):
         return "no_workspace"
-    attempt = int(ctx.get("job_try", 1))
+    attempt = job_try(ctx)
     try:
         return await _client_leg(tenant_id, state.workspace_id, repair=False)
     except Exception as exc:

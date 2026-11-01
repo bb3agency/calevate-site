@@ -22,7 +22,9 @@ from datetime import time
 from typing import Annotated, Any, Final, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
+from pydantic import Field, TypeAdapter, ValidationError
+
+from apps.api.core.schemas import Strict as _Strict
 
 MAX_STEPS: Final = 30
 MAX_SOURCES: Final = 50
@@ -52,10 +54,6 @@ Target = StepId | None
 
 LeadStatus = Literal["new", "contacted", "interested", "hot", "won", "lost"]
 SettableStatus = Literal["contacted", "interested", "hot", "won", "lost"]
-
-
-class _Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 # --- triggers -------------------------------------------------------------------------

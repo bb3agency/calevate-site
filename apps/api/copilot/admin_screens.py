@@ -145,7 +145,7 @@ ADMIN_SCREENS: Final[tuple[AdminScreen, ...]] = (
         "/admin/ops/reply-times",
         "Voice response time",
         "Platform",
-        "Waits for an answer, by client, agent, voice, day and turn detection.",
+        "Answer waits by client, agent, voice and day.",
         "ops:manage",
     ),
     AdminScreen(
@@ -163,10 +163,17 @@ ADMIN_SCREENS: Final[tuple[AdminScreen, ...]] = (
         "ops:manage",
     ),
     AdminScreen(
+        "/admin/ops/call-mistakes",
+        "Call mistakes",
+        "Platform",
+        "Mistakes agents made on real calls.",
+        "ops:manage",
+    ),
+    AdminScreen(
         "/admin/ops/whatsapp",
         "Clients' WhatsApp",
         "Platform",
-        "Meta's weekly onboarding limit, the Meta set-up, webhooks and each client's numbers.",
+        "Meta limits, set-up, webhooks and client numbers.",
         "admin:tenants",
     ),
     AdminScreen(

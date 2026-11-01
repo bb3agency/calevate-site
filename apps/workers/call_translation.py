@@ -50,7 +50,7 @@ from apps.api.billing.models import (
 from apps.api.billing.rates import llm_price_is_billable
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import WORKER_MAX_TRIES, enqueue, job_id_for
+from apps.api.core.queue import WORKER_MAX_TRIES, enqueue, job_id_for, job_try
 from apps.api.core.redis import get_redis
 from apps.api.core.settings import get_settings
 from apps.api.db.session import admin_session, tenant_session
@@ -431,7 +431,7 @@ async def translate_call_job(ctx: dict[str, Any], payload: dict[str, Any]) -> st
         log.warning("call_translation_unknown_payer", extra={"call_id": str(call_id)})
         return "refused"
 
-    attempt = int(ctx.get("job_try", 1) or 1)
+    attempt = job_try(ctx)
     if payer == "platform" and attempt == 1:
         claimed = await get_redis().set(
             _ATTEMPTED_KEY.format(call_id=call_id), "1", nx=True, ex=_ATTEMPTED_TTL_S
@@ -457,7 +457,7 @@ async def translate_call_job(ctx: dict[str, Any], payload: dict[str, Any]) -> st
     except Exception as exc:
         log.warning(
             "call_translation_failed",
-            extra={"call_id": str(call_id), "reason": type(exc).__name__, "attempt": attempt},
+            extra={"call_id": str(call_id), "error": type(exc).__name__, "attempt": attempt},
         )
         if attempt < WORKER_MAX_TRIES:
             raise Retry(defer=ladder_delay_s(RETRY_BACKOFF_S, attempt)) from exc

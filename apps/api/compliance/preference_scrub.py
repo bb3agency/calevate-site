@@ -86,10 +86,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID
 
+from calevate_shared.calling_window import IST
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.compliance.service import IST
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
@@ -135,7 +135,7 @@ def national_dnd_scrub_expired_reason(scrubbed_at: datetime) -> str:
     operator reading "expired" cannot tell a scrub run an hour after midnight from one
     run three weeks ago.
     """
-    day = (scrubbed_at.astimezone(UTC) + IST).strftime("%d %b %Y")
+    day = scrubbed_at.astimezone(IST).strftime("%d %b %Y")
     return (
         f"The national DND scrub for this list was run on {day} IST, and a scrub is "
         "valid only until the end of the day it was run — preference registrations "
@@ -164,12 +164,11 @@ def scrub_expiry(scrubbed_at: datetime) -> datetime:
 
     Stored rather than derived at read time, because the rule belongs to the ARTEFACT:
     a run recorded today keeps the expiry that applied when it was produced even if we
-    later learn a provider grants longer. Computed with the same `+ IST` shift
-    `compliance.service.ist_now` uses, so there is one spelling of the conversion.
+    later learn a provider grants longer.
     """
-    ist_wall = scrubbed_at.astimezone(UTC) + IST
+    ist_wall = scrubbed_at.astimezone(IST)
     end_of_day = ist_wall.replace(hour=23, minute=59, second=59, microsecond=999999)
-    return (end_of_day - IST).replace(tzinfo=UTC)
+    return end_of_day.astimezone(UTC)
 
 
 @dataclass(frozen=True, slots=True)

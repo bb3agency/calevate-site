@@ -254,7 +254,7 @@ def enquiry_instant(raw: Any) -> datetime | None:
     except ValueError:
         return None
     if parsed.tzinfo is None:
-        return (parsed - IST).replace(tzinfo=UTC)
+        return parsed.replace(tzinfo=IST).astimezone(UTC)
     return parsed.astimezone(UTC)
 
 

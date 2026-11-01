@@ -28,7 +28,16 @@ from calevate_shared.config import Settings
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.core.envelope import Envelope, KekRing, kek_ring, last_four, rewrap, seal, unseal
+from apps.api.core.envelope import (
+    Envelope,
+    KekRing,
+    envelope_from_row,
+    kek_ring,
+    last_four,
+    rewrap,
+    seal,
+    unseal,
+)
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.platform_config import applies_rule, is_secret_key
@@ -451,13 +460,8 @@ async def resolve_secrets(session: AsyncSession, *, ring: KekRing | None = None)
             or env_declares(name)
         ):
             continue
-        envelope = Envelope(
-            ciphertext=bytes(ciphertext),
-            nonce=bytes(nonce),
-            dek_wrapped=bytes(dek_wrapped),
-            dek_nonce=bytes(dek_nonce),
-            kek_id=int(kek_version),
-        )
+        envelope = envelope_from_row((ciphertext, nonce, dek_wrapped, dek_nonce, kek_version))
+        assert envelope is not None  # the five columns are NOT NULL
         try:
             values[name] = unseal(envelope, context=secret_context(name), ring=keys)
         except ProblemError:

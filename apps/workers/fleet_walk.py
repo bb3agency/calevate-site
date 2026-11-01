@@ -198,7 +198,7 @@ class WalkCursor:
         try:
             value = await get_redis().get(self._key)
         except Exception as exc:
-            log.warning("fleet_walk_cursor_unreadable", extra={"reason": type(exc).__name__})
+            log.warning("fleet_walk_cursor_unreadable", extra={"error": type(exc).__name__})
             return None
         return value if isinstance(value, str) and value else None
 
@@ -213,7 +213,7 @@ class WalkCursor:
         try:
             await get_redis().set(self._key, key, ex=CURSOR_TTL_S)
         except Exception as exc:
-            log.warning("fleet_walk_cursor_unwritable", extra={"reason": type(exc).__name__})
+            log.warning("fleet_walk_cursor_unwritable", extra={"error": type(exc).__name__})
 
 
 async def resumed_walk[T](

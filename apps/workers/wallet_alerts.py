@@ -69,6 +69,7 @@ from apps.api.billing.trials import trial_billing_active
 from apps.api.billing.wallet import TierMinutes, tier_minutes
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
+from apps.api.core.queue import job_try
 from apps.api.core.transport import EmailPurpose, get_transport
 from apps.api.db.session import tenant_session
 from apps.workers.auth_email import CONSOLE_BASE
@@ -203,7 +204,7 @@ async def notify_low_balance(ctx: dict[str, Any], payload: dict[str, Any]) -> st
     # earned it, and re-reading would let a top-up that landed in between produce a
     # warning quoting a balance nobody was ever at.
     balance_inr = Decimal(str(payload["balance_inr"]))
-    attempt = int(ctx.get("job_try", 1))
+    attempt = job_try(ctx)
 
     async with tenant_session(tenant_id) as session:
         tier = await plan_tier_of(session, tenant_id)

@@ -1,6 +1,6 @@
 """A dial's line count is platform-wide even inside a tenant session (D-697 follow-up).
 
-`carrier_lines_in_use()` and `dispatch_scan()` enumerate tenants from
+`dispatch_scan()` enumerates tenants from
 `engine_agent_routes`, whose policy shows every row only while `app.tenant_id` is unset.
 `agents.service._platform_scalar` clears the setting for the count and restores it.
 """

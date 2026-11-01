@@ -74,6 +74,7 @@ from apps.api.core.stepup import StepUpGate
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.db.transition import transition_status
 from apps.api.kb import service as kb_service
+from apps.api.kb import uploads as kb_uploads
 from apps.api.tenancy.signup import clean_business_name
 from apps.workers.account_closure import NOTICE_JOB, enqueue_notice_address_changed
 
@@ -1702,7 +1703,8 @@ class PublishOut(BaseModel):
     openapi_extra=permission_meta("agents:write"),
     summary="Approval gate (D-28: stays ours whichever RAG provider wins)",
     description=(
-        "Approve a submitted knowledge source. Idempotent: approving a source that is "
+        "Approve a submitted knowledge source; approving makes it live, with its publish "
+        "queued in the same transaction (D-951). Idempotent: approving a source that is "
         "already approved returns 200 and changes nothing — the first reviewer stays "
         "the recorded approver. 409 means the source is in another state (rejected, "
         "archived) and the response names it. 404 means this tenant has no source with "
@@ -1716,7 +1718,10 @@ async def approve_kb(
     request: Request,
     principal: Principal = Depends(requires("agents:write", realm="admin")),
 ) -> KbReviewOut:
-    """Approve, and audit ONLY a real approval.
+    """Approve, queue the publish, and audit ONLY a real approval.
+
+    Approved means live (D-951): the publish is queued in the approval's own transaction,
+    exactly as the client's own acceptance does (`kb.uploads.approve_and_publish`).
 
     A repeat is a success but not a second `kb.approved` row: the audit log answers
     "who let this text reach the agent, and when", and a row per button press makes
@@ -1724,8 +1729,8 @@ async def approve_kb(
     deactivate_endpoint` and `tenancy.members` make the same call for the same reason.
     """
     async with tenant_session(tenant_id) as scoped:
-        approved = await kb_service.approve_source(
-            scoped, source_id=source_id, approved_by=principal.user_id
+        approved = await kb_uploads.approve_and_publish(
+            scoped, tenant_id=tenant_id, source_id=source_id, approved_by=principal.user_id
         )
         if approved:
             await write_audit(
@@ -1784,7 +1789,11 @@ async def reject_kb(
     response_model=PublishOut,
     openapi_extra=permission_meta("agents:write"),
     summary="Push to the engine KB and make this the active version",
-    description="Rollback is republishing an earlier version (FLOWS §7).",
+    description=(
+        "Not a step after approval: approving already publishes (D-951). This is the "
+        "rollback door (republish an earlier version, FLOWS §7) and the repair door "
+        "`runbooks/kb-out-of-sync.md` re-runs after a refused publish."
+    ),
 )
 async def publish_kb(
     tenant_id: UUID,

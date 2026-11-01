@@ -61,7 +61,6 @@ from collections.abc import Mapping
 from contextlib import suppress
 from datetime import timedelta
 from typing import Any, Final
-from zoneinfo import ZoneInfo
 
 # Must run before arq creates its loop. Same policy as tests/conftest.py.
 if sys.platform == "win32":
@@ -70,6 +69,7 @@ if sys.platform == "win32":
 from arq import cron, func
 from arq.cron import CronJob
 from arq.worker import Function
+from calevate_shared.calling_window import IST
 
 from apps.api.core.alert_admission import close_admission
 from apps.api.core.alerting import alert
@@ -754,7 +754,7 @@ WALK_SHAPES: dict[str, WalkShape] = {}
 #: `tests/job_registration_test.py` compares the same fields it always did). Minute-only
 #: crons keep their numbers, which now count from the IST hour. The before/after table is
 #: D-709 in docs/ROADMAP.md.
-CRON_TIMEZONE: Final = ZoneInfo("Asia/Kolkata")
+CRON_TIMEZONE: Final = IST
 
 
 def _cron(coroutine: Any, *, walk: WalkShape, **kwargs: Any) -> CronJob:

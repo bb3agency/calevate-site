@@ -6,7 +6,9 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
+
+from apps.api.core.schemas import Strict
 
 LineKind = Literal["mobile", "landline", "office_system"]
 Carrier = Literal["airtel", "jio", "vi", "bsnl", "other"]
@@ -17,10 +19,6 @@ ConcurrencyFinding = Literal["both_arrived", "one_arrived", "not_tested"]
 TestStatus = Literal["placing", "ringing", "settled", "failed"]
 TestOutcome = Literal["arrived", "not_arrived", "answered_on_phone", "not_placed"]
 Evidence = Literal["carrier_own", "standards_body", "web_secondary"]
-
-
-class Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 class LineIn(Strict):

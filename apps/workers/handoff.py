@@ -19,7 +19,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID
 
-from calevate_shared.calling_window import IST, ist_wall_clock, next_window_opening
+from calevate_shared.calling_window import ist_wall_clock, next_window_opening
 from calevate_shared.engine import ExecutionSnapshot
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -175,10 +175,7 @@ async def _book_callback_for(
     if existing is not None:
         return False
     now = datetime.now(UTC)
-    # `next_window_opening` works in IST wall clock carrying UTC's tzinfo (the repo
-    # convention `ist_wall_clock` documents), so the result is shifted back to a real
-    # instant before it is stored (`timestamptz` holds instants, not wall clocks).
-    when = next_window_opening(ist_wall_clock(now)) - IST
+    when = next_window_opening(ist_wall_clock(now)).astimezone(UTC)
     agent_row = (
         await session.execute(
             text("SELECT agent_id FROM handoff_attempts WHERE id = :id"), {"id": attempt_id}

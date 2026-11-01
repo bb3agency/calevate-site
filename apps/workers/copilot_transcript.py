@@ -50,7 +50,7 @@ from sqlalchemy import text
 from apps.api.copilot import attachments, session_run, transcript
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.db.transition import _identifier
@@ -111,7 +111,7 @@ async def sweep_ended_conversations(ctx: dict[str, Any]) -> str:
                 .all()
             ]
     except Exception as failure:
-        attempt = int(ctx.get("job_try", 1))
+        attempt = job_try(ctx)
         if attempt < WORKER_MAX_TRIES:
             raise Retry(defer=jittered_delay_s(attempt * 30)) from failure
         alert(

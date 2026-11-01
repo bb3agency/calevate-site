@@ -114,8 +114,8 @@ import sys
 from collections.abc import Sequence
 from datetime import UTC, date, datetime
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
+from calevate_shared.calling_window import IST
 from calevate_shared.extraction import ExtractionField, ExtractionSchemaSpec
 
 #: The report's own vocabulary, in `shared` because three processes read it: this CLI
@@ -479,7 +479,7 @@ def main() -> int:
     parser.add_argument(
         "--as-of",
         type=lambda s: datetime.strptime(s, "%Y-%m-%d").replace(tzinfo=UTC).date(),
-        default=datetime.now(ZoneInfo("Asia/Kolkata")).date(),  # today in India (D-709)
+        default=datetime.now(IST).date(),  # today in India (D-709)
         help="the month-end this report covers (YYYY-MM-DD); explicit so a regeneration "
         "is byte-identical rather than differing by a timestamp",
     )

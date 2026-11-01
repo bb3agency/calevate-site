@@ -28,7 +28,7 @@ from sqlalchemy import text
 
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import WORKER_MAX_TRIES, enqueue, job_id_for
+from apps.api.core.queue import WORKER_MAX_TRIES, enqueue, job_id_for, job_try
 from apps.api.db.session import admin_session, tenant_session
 from apps.api.follow_ups import runner
 
@@ -118,7 +118,7 @@ async def follow_up_tick(ctx: dict[str, Any]) -> str:
 async def drive_follow_up_run(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     tenant_id = UUID(str(payload["tenant_id"]))
     run_id = UUID(str(payload["run_id"]))
-    attempt = int(ctx.get("job_try", 1) or 1)
+    attempt = job_try(ctx)
     try:
         taken = await runner.drive(tenant_id, run_id)
     except Exception as exc:

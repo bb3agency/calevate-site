@@ -220,7 +220,7 @@ async def refresh_pricing_snapshot() -> PricingSnapshot:
                 ]
             )
     except Exception as exc:
-        log.error("pricing_snapshot_refresh_failed", extra={"reason": type(exc).__name__})
+        log.error("pricing_snapshot_refresh_failed", extra={"error": type(exc).__name__})
         return _snapshot
 
     attestations: dict[str, LlmPriceAttestation] = {}
@@ -252,7 +252,7 @@ async def refresh_voice_catalogue_snapshot() -> None:
         async with untenanted_session() as session:
             await load_voice_catalogue(session)
     except Exception as exc:
-        log.error("voice_catalogue_snapshot_refresh_failed", extra={"reason": type(exc).__name__})
+        log.error("voice_catalogue_snapshot_refresh_failed", extra={"error": type(exc).__name__})
 
 
 def _read_attestations() -> Mapping[str, LlmPriceAttestation]:

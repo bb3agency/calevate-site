@@ -134,11 +134,12 @@ from datetime import UTC, datetime, time, timedelta
 from typing import Any
 from uuid import UUID
 
+from calevate_shared.calling_window import IST
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.campaigns.service import launch_campaign
-from apps.api.compliance.service import DEFAULT_WINDOW, IST
+from apps.api.compliance.service import DEFAULT_WINDOW
 from apps.api.core.alerting import alert, record_compliance_block
 from apps.api.core.errors import InvalidStatusTransitionError, ProblemError
 from apps.api.core.logging import get_logger
@@ -216,9 +217,7 @@ class Recurrence:
 
     `days` are ISO weekday numbers and `at` is an IST wall-clock time — deliberately not
     an instant, because "10am" is what the client meant and an instant would freeze one
-    particular Tuesday's 10am. India has no DST, so the fixed `IST` offset the rest of
-    this repo uses converts the two exactly; a `ZoneInfo` here would be a second spelling
-    of the same thing that agrees with the first (see `first_dial_not_before`).
+    particular Tuesday's 10am.
     """
 
     days: tuple[int, ...]
@@ -234,7 +233,7 @@ class Recurrence:
         month and year boundaries need no special case and a rule that names four
         weekdays is the same walk as one that names one.
         """
-        moment_ist = moment.astimezone(UTC) + IST
+        moment_ist = moment.astimezone(IST)
         # Eight days covers today plus a full week, so a non-empty `days` always matches:
         # the only way today's slot is missed is that its time has already passed, and
         # then the same weekday seven days later is in range.
@@ -247,7 +246,7 @@ class Recurrence:
             )
             if candidate_ist <= moment_ist:
                 continue
-            candidate = candidate_ist - IST
+            candidate = candidate_ist.astimezone(UTC)
             if self.until is not None and candidate > self.until:
                 return None
             return candidate
@@ -365,14 +364,11 @@ def first_dial_not_before(
 ) -> datetime:
     """When this campaign can place its first call, given a UTC start instant.
 
-    IST at the edge: the window is expressed in IST clock time, so the start is shifted
-    into IST, compared there, and shifted back. `+ IST` rather than a `ZoneInfo`
-    localization is the convention `compliance.service.ist_now` established — India has
-    no DST, so a fixed offset is exact, and one spelling of "IST" across the repo is
-    worth more than a second mechanism that agrees with it.
+    IST at the edge: the window is expressed in IST clock time, so the start is converted
+    into IST, compared there, and converted back to UTC.
     """
     window_start, window_end = _window_for(calling_hours)
-    start_ist = start_at.astimezone(UTC) + IST
+    start_ist = start_at.astimezone(IST)
     if start_ist.time() < window_start:
         opens_ist = start_ist.replace(
             hour=window_start.hour, minute=window_start.minute, second=0, microsecond=0
@@ -390,7 +386,7 @@ def first_dial_not_before(
         )
     else:
         return start_at.astimezone(UTC)
-    return opens_ist - IST
+    return opens_ist.astimezone(UTC)
 
 
 async def schedule_campaign(

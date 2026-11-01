@@ -72091,7 +72091,7 @@
     },
     "/v1/admin/tenants/{tenant_id}/kb/{source_id}/approve": {
       "post": {
-        "description": "Approve a submitted knowledge source. Idempotent: approving a source that is already approved returns 200 and changes nothing \u2014 the first reviewer stays the recorded approver. 409 means the source is in another state (rejected, archived) and the response names it. 404 means this tenant has no source with that id.",
+        "description": "Approve a submitted knowledge source; approving makes it live, with its publish queued in the same transaction (D-951). Idempotent: approving a source that is already approved returns 200 and changes nothing \u2014 the first reviewer stays the recorded approver. 409 means the source is in another state (rejected, archived) and the response names it. 404 means this tenant has no source with that id.",
         "operationId": "approve_kb_v1_admin_tenants__tenant_id__kb__source_id__approve_post",
         "parameters": [
           {
@@ -72142,7 +72142,7 @@
     },
     "/v1/admin/tenants/{tenant_id}/kb/{source_id}/publish": {
       "post": {
-        "description": "Rollback is republishing an earlier version (FLOWS \u00a77).",
+        "description": "Not a step after approval: approving already publishes (D-951). This is the rollback door (republish an earlier version, FLOWS \u00a77) and the repair door `runbooks/kb-out-of-sync.md` re-runs after a refused publish.",
         "operationId": "publish_kb_v1_admin_tenants__tenant_id__kb__source_id__publish_post",
         "parameters": [
           {

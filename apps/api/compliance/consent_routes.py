@@ -32,7 +32,7 @@ from typing import Annotated, Final, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance import consent
@@ -43,6 +43,7 @@ from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.rbac import permission_meta
+from apps.api.core.schemas import Strict
 
 router = APIRouter(prefix="/v1/compliance/messaging-consent", tags=["compliance"])
 # The VOICE leg, on its own path rather than as a `purpose` field on the router above.
@@ -82,10 +83,6 @@ ConsentStatus = Literal["granted", "declined", "withdrawn"]
 #: `declined` is here as well as `withdrawn` because a contact who refuses on the phone while
 #: a campaign is mid-tick is in exactly the position a withdrawal describes.
 _CONSENT_LOST: Final[frozenset[str]] = frozenset({"declined", "withdrawn"})
-
-
-class Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 class RecordConsentIn(Strict):

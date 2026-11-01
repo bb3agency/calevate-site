@@ -583,7 +583,7 @@ async def restate_minutes_without_fee(engine: str) -> int:
         except Exception as exc:
             log.warning(
                 "engine_fee_restatement_failed",
-                extra={"tenant_id": str(tenant_id), "reason": type(exc).__name__},
+                extra={"tenant_id": str(tenant_id), "error": type(exc).__name__},
             )
             continue
         if written:
@@ -736,7 +736,7 @@ async def correct_overstated_fees(engine: str) -> int:
         except Exception as exc:
             log.warning(
                 "engine_fee_correction_failed",
-                extra={"tenant_id": str(tenant_id), "reason": type(exc).__name__},
+                extra={"tenant_id": str(tenant_id), "error": type(exc).__name__},
             )
             continue
         if written:
@@ -761,7 +761,7 @@ async def _newly_mismatched(engine: str, call_ids: list[str]) -> list[str]:
         ]
         await redis.expire(key, _ALARMED_TTL_S)
     except Exception as exc:
-        log.warning("engine_charge_memory_unavailable", extra={"reason": type(exc).__name__})
+        log.warning("engine_charge_memory_unavailable", extra={"error": type(exc).__name__})
         return list(call_ids)
     return fresh
 
@@ -770,7 +770,7 @@ async def _forget_mismatches(engine: str) -> None:
     try:
         await get_redis().delete(_ALARMED_KEY.format(engine=engine))
     except Exception as exc:
-        log.warning("engine_charge_memory_unavailable", extra={"reason": type(exc).__name__})
+        log.warning("engine_charge_memory_unavailable", extra={"error": type(exc).__name__})
 
 
 # --- billing of calls this sweep settles -----------------------------------------------------
@@ -815,7 +815,7 @@ async def queue_billing_check(
     except Exception as exc:
         log.warning(
             "engine_billing_check_unqueued",
-            extra={"call_id": str(call_id), "reason": type(exc).__name__},
+            extra={"call_id": str(call_id), "error": type(exc).__name__},
         )
 
 
@@ -900,7 +900,7 @@ async def check_late_billing(engine: VoiceEngine, *, now: datetime | None = None
         redis = get_redis()
         pending = await cast("Awaitable[dict[str, str]]", redis.hgetall(key))
     except Exception as exc:
-        log.warning("engine_charge_memory_unavailable", extra={"reason": type(exc).__name__})
+        log.warning("engine_charge_memory_unavailable", extra={"error": type(exc).__name__})
         return 0
     if not pending:
         return 0
@@ -1020,7 +1020,7 @@ async def reconcile_engine_charges(ctx: dict[str, Any], *, now: datetime | None 
             # Ids and a class name only (hard rule 6): one row's failure is not the sweep's.
             log.warning(
                 "engine_charge_check_failed",
-                extra={"engine_call_id": charge.engine_call_id, "reason": type(exc).__name__},
+                extra={"engine_call_id": charge.engine_call_id, "error": type(exc).__name__},
             )
             tally.unreached += 1
     # After the comparison, which queued this run's late-settled calls.

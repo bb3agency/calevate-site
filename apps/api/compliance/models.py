@@ -147,7 +147,8 @@ CARRIER_APPLICATION_STATUSES = (
     "rejected",
     "expired",
 )
-# Historical values; dropped with the D-763 drop migration.
+# Historical values, mirroring the table's CHECK. `carrier` is NOT NULL, so a `vobiz` row has
+# no value to become; the value goes when the table does (D-950).
 CARRIER_APPLICATION_CARRIERS = ("plivo", "vobiz")
 CARRIER_APPLICATION_DOCUMENT_KINDS = (
     "gst_certificate",

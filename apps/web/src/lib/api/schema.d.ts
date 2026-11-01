@@ -2868,7 +2868,7 @@ export interface paths {
         put?: never;
         /**
          * Approval gate (D-28: stays ours whichever RAG provider wins)
-         * @description Approve a submitted knowledge source. Idempotent: approving a source that is already approved returns 200 and changes nothing — the first reviewer stays the recorded approver. 409 means the source is in another state (rejected, archived) and the response names it. 404 means this tenant has no source with that id.
+         * @description Approve a submitted knowledge source; approving makes it live, with its publish queued in the same transaction (D-951). Idempotent: approving a source that is already approved returns 200 and changes nothing — the first reviewer stays the recorded approver. 409 means the source is in another state (rejected, archived) and the response names it. 404 means this tenant has no source with that id.
          */
         post: operations["approve_kb_v1_admin_tenants__tenant_id__kb__source_id__approve_post"];
         delete?: never;
@@ -2888,7 +2888,7 @@ export interface paths {
         put?: never;
         /**
          * Push to the engine KB and make this the active version
-         * @description Rollback is republishing an earlier version (FLOWS §7).
+         * @description Not a step after approval: approving already publishes (D-951). This is the rollback door (republish an earlier version, FLOWS §7) and the repair door `runbooks/kb-out-of-sync.md` re-runs after a refused publish.
          */
         post: operations["publish_kb_v1_admin_tenants__tenant_id__kb__source_id__publish_post"];
         delete?: never;

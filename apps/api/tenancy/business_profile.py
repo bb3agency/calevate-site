@@ -20,13 +20,14 @@ from datetime import datetime
 from typing import Annotated, Any, Final, Literal
 from uuid import UUID
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, ValidationError
+from pydantic import AfterValidator, BaseModel, Field, ValidationError
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.handoff import india_handoff_number
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
+from apps.api.core.schemas import Strict as _Strict
 from apps.api.tenancy.models import PROFILE_STEPS
 
 log = get_logger(__name__)
@@ -46,10 +47,6 @@ MAX_FAQS: Final = 50
 MAX_STAFF: Final = 50
 MAX_CONTACTS: Final = 10
 MAX_LANGUAGES: Final = 6
-
-
-class _Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 class DayHours(_Strict):

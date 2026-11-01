@@ -20,7 +20,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents.test_conversations import readiness
+from apps.api.agents.test_conversations import TESTS_UNAVAILABLE, readiness
 from apps.api.agents.test_titles import MAX_TITLE_WORDS, short_title
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
@@ -338,7 +338,9 @@ async def request_run(session: AsyncSession, *, tenant_id: UUID, agent_id: UUID)
     """Queue every saved test of this agent for one run against the live agent."""
     ready = await readiness(session, agent_id)
     if not ready.available:
-        raise ProblemError.business_rule("agent_tests_unavailable", ready.reason or "")
+        raise ProblemError.business_rule(
+            "agent_tests_unavailable", ready.reason or TESTS_UNAVAILABLE
+        )
     await session.execute(
         text("SELECT 1 FROM agents WHERE id = :aid FOR UPDATE"), {"aid": agent_id}
     )

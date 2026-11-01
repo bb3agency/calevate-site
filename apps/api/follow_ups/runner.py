@@ -1088,13 +1088,12 @@ async def _decide(
 
 
 def _ist_date(moment: datetime) -> date:
-    return (moment.astimezone(UTC).replace(tzinfo=None) + IST).date()
+    return moment.astimezone(IST).date()
 
 
 def at_ist(day: date, clock: str) -> datetime:
     """`day` at `clock` (IST wall clock), as a UTC instant."""
-    wall = datetime.combine(day, d.clock(clock))
-    return (wall - IST).replace(tzinfo=UTC)
+    return datetime.combine(day, d.clock(clock), tzinfo=IST).astimezone(UTC)
 
 
 async def _lead_date(session: AsyncSession, lead_id: UUID | None, key: str) -> date | None:

@@ -1219,7 +1219,7 @@ export function useKbDecision(tenantId: string) {
       reason,
     }: {
       sourceId: string;
-      decision: "approve" | "reject" | "publish";
+      decision: "approve" | "reject";
       reason?: string;
     }) =>
       apiRequest<Record<string, unknown>>(

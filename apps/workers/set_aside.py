@@ -58,7 +58,7 @@ async def set_aside(sweep: str, item_ids: Iterable[str], *, for_: timedelta) -> 
             pipe.expire(key, seconds, gt=True)
             await pipe.execute()
     except Exception as exc:
-        log.warning("set_aside_unwritable", extra={"sweep": sweep, "reason": type(exc).__name__})
+        log.warning("set_aside_unwritable", extra={"sweep": sweep, "error": type(exc).__name__})
 
 
 async def set_aside_ids(sweep: str) -> list[str]:
@@ -70,7 +70,7 @@ async def set_aside_ids(sweep: str) -> list[str]:
             pipe.zrange(key, 0, -1)
             _removed, members = await pipe.execute()
     except Exception as exc:
-        log.warning("set_aside_unreadable", extra={"sweep": sweep, "reason": type(exc).__name__})
+        log.warning("set_aside_unreadable", extra={"sweep": sweep, "error": type(exc).__name__})
         return []
     return [str(member) for member in members]
 

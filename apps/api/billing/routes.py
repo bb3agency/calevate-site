@@ -41,7 +41,6 @@ from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.gst import GST_STATUS_SENTENCE, supplier_identity
@@ -50,6 +49,7 @@ from apps.api.core.auth import record_admin_tenant_read, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.rbac import permission_meta
+from apps.api.core.schemas import Strict
 from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
 
@@ -73,13 +73,6 @@ def _stringify(value: Any) -> Any:
     if isinstance(value, list):
         return [_stringify(v) for v in value]
     return value
-
-
-class Strict(BaseModel):
-    """`extra="forbid"` (the crm/schemas.py convention): the response model IS the
-    output whitelist, and an undeclared field cannot be serialized."""
-
-    model_config = ConfigDict(extra="forbid")
 
 
 class InvoiceSupplierOut(Strict):

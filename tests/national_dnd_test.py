@@ -49,13 +49,14 @@ from apps.api.compliance.national_dnd_routes import (
     preference_scrub_confirmation,
     release_globally_confirmation,
 )
-from apps.api.compliance.service import IST, check_dispatch
+from apps.api.compliance.service import check_dispatch
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import JsonFormatter
 from apps.api.core.rbac import iter_api_routes
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
+from calevate_shared.calling_window import IST
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
@@ -73,7 +74,7 @@ PROVIDER = "airtel-dlt"
 def _daytime(monkeypatch: pytest.MonkeyPatch) -> None:
     """Pin the dial gate's clock to 11:00 IST so `calling_hours` never stands in for the
     rule under test — a DNC assertion that passes at 22:00 proves nothing."""
-    fixed = datetime(2026, 8, 11, 5, 30, tzinfo=UTC) + IST
+    fixed = datetime(2026, 8, 11, 11, 0, tzinfo=IST)
     monkeypatch.setattr("apps.api.compliance.service.ist_now", lambda: fixed)
 
 
@@ -625,8 +626,9 @@ async def test_a_scrub_expires_at_the_end_of_its_ist_day_and_stops_a_running_cam
         recorded = await record_test_scrub(session, campaign_id, scrubbed_at=two_days_ago)
         expires_at = recorded.state.expires_at
         assert expires_at == preference_scrub.scrub_expiry(two_days_ago)
-        assert expires_at is not None and (expires_at + IST).strftime("%H:%M:%S") == "23:59:59"
-        assert (expires_at + IST).date() == (two_days_ago + IST).date()
+        assert expires_at is not None
+        assert expires_at.astimezone(IST).strftime("%H:%M:%S") == "23:59:59"
+        assert expires_at.astimezone(IST).date() == two_days_ago.astimezone(IST).date()
         assert recorded.state.is_current is False
 
         stale = await campaign_service.launch_blockers(

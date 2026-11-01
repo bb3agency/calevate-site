@@ -258,7 +258,7 @@ async def refresh_spoken_style() -> None:
                 return
             layer = await published_layer(session)
     except Exception as exc:
-        log.error("spoken_style_refresh_failed", extra={"reason": type(exc).__name__})
+        log.error("spoken_style_refresh_failed", extra={"error": type(exc).__name__})
         return
     install_published(layer)
     _installed = newest

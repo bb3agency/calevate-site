@@ -1,7 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   act,
-  fireEvent,
   render,
   screen,
   type RenderResult,
@@ -22,25 +21,16 @@ import {
 } from "./fixtures/sharedReads";
 
 /**
- * "Approved, awaiting publish" — §52's FIRST clause, on the one panel that had lost it.
+ * "Going live" — approved knowledge that is not live yet, in every state its read can be in.
  *
- * FLOWS §7 makes approve and publish two steps: approving moves a row to `approved` and
- * touches no engine, and publishing is what the caller actually hears. So an approved
- * source with nowhere to press is a client stuck on "Approved, not live yet" forever, and
- * this panel is the only place anyone can press it.
+ * Approved means live (D-951): approving queues the publish and the knowledge sweep
+ * retries one that did not take, so this panel has no button. It exists so an operator
+ * who approved a document can see it is on its way, rather than wondering where it went.
  *
- * The panel already refused to render an empty list over a FAILED read — that half was
- * fixed and is asserted in `adminTenantDetail.test.tsx`. The other half was still open
- * and is the same sentence drawn a third way:
- *
- *     {publishQueue.error ? refusal : awaitingPublish.length > 0 ? panel : null}
- *
- * `awaitingPublish` is `(publishQueue.data ?? []).filter(...)`, and that `?? []` cannot
- * tell "the request has not come back" from "the server says there are none". While the
- * read is IN FLIGHT the panel therefore rendered NOTHING — an operator's first paint of a
- * client's screen said "nothing is waiting to be published" about a question nobody had
- * answered yet. On a slow read, or a read that is slow because something is wrong, that is
- * the §52 defect in its most expensive direction: the operator closes the tab.
+ * `goingLive` is `(approvedQueue.data ?? []).filter(...)`, and that `?? []` cannot tell
+ * "the request has not come back" from "the server says there are none". While the read
+ * was IN FLIGHT the panel once rendered NOTHING, which said "nothing approved is waiting"
+ * about a question nobody had answered yet (§52).
  *
  * `surfaceStatesGuard.test.ts` cannot see it and says so — it deliberately leaves `?? []`
  * outside a JSX child alone, because whether the `[]` reaches a pixel is a question about
@@ -67,7 +57,7 @@ const NUMBERS_PATH = "/v1/campaigns/numbers";
 const TEMPLATES_PATH = "/v1/campaigns/templates";
 const CAPS_PATH = "/v1/billing/caps";
 
-const PANEL = "Approved, awaiting publish";
+const PANEL = "Going live";
 
 const OPERATOR: AdminMe = {
   realm: "admin",
@@ -224,8 +214,8 @@ async function renderWithPendingApprovedQueue(): Promise<RenderResult> {
   return renderScreen();
 }
 
-describe("the publish queue, in the three states a read can be in", () => {
-  it("does not say nothing is awaiting publish while it is still asking", async () => {
+describe("approved knowledge going live, in the three states a read can be in", () => {
+  it("does not say nothing is going live while it is still asking", async () => {
     const { container } = await renderWithPendingApprovedQueue();
 
     // The rest of the screen has loaded — this is a real paint, not a pre-mount snapshot.
@@ -233,15 +223,12 @@ describe("the publish queue, in the three states a read can be in", () => {
 
     expect(
       container.textContent,
-      "the panel vanished while its read was in flight, which reads as 'nothing is " +
-        "waiting to be published' — §52: loading is a skeleton",
+      "the panel vanished while its read was in flight, which reads as 'nothing " +
+        "approved is waiting' — §52: loading is a skeleton",
     ).toContain(PANEL);
-    // And it is a SKELETON, not a number, a state or an empty list: nothing claims a
-    // count, and no Publish button is offered over sources we have not seen.
+    // And it is a SKELETON, not a count or an empty list.
     expect(container.querySelector(".animate-pulse")).not.toBeNull();
-    expect(container.textContent).not.toContain(
-      "agents know these until they are published",
-    );
+    expect(container.textContent).not.toContain("Nothing to press");
   });
 
   it("refuses in words when the read failed", async () => {
@@ -259,92 +246,31 @@ describe("the publish queue, in the three states a read can be in", () => {
     expect(container.textContent).toContain(PANEL);
   });
 
-  it("stays silent only when the SERVER says there is nothing to publish", async () => {
+  it("stays silent only when the SERVER says nothing approved is waiting", async () => {
     const { container } = await renderHealthy();
 
     await screen.findByText("Nothing awaiting approval");
 
-    // The counterpart to both tests above. With a 200 and an empty list in hand there is
-    // genuinely no work, and drawing a panel for it would teach an operator to read past
-    // the one that means something. The approval card above already carries the sentence
-    // that explains what publishing is for.
+    // The counterpart to both tests above: with a 200 and an empty list in hand there is
+    // nothing on its way, and drawing a panel for it would teach an operator to read past
+    // the one that means something.
     expect(container.textContent).not.toContain(PANEL);
   });
 
-  it("offers Publish for an approved source the server did return", async () => {
+  it("shows an approved source as going live, with no Publish button", async () => {
+    // Approved means live (D-951): approving queued the publish, so there is nothing
+    // for an operator to press.
     const { container } = await renderHealthy({ [APPROVED_PATH]: [source()] });
 
     await screen.findByText("Clinic price list");
     expect(container.textContent).toContain(PANEL);
-    const publish = screen.getByRole("button", {
-      name: "Publish",
-    }) as HTMLButtonElement;
-    expect(
-      publish.disabled,
-      "the one control that makes an approved source live",
-    ).toBe(false);
+    expect(container.textContent).toContain("Nothing to press");
+    expect(screen.queryByRole("button", { name: "Publish" })).toBeNull();
   });
 
-  /**
-   * The last leg of `runbooks/kb-out-of-sync.md`, which only this screen can carry.
-   *
-   * `publish_source` produces TWO refusals that mean the same disease and take different
-   * cures (`kb_engine_ref_unknown` — withdraw one stale copy you identify by title; and
-   * `kb_engine_out_of_sync` — reconcile the whole agent), and the runbook's opening line
-   * is that the wrong cure leaves the client's agent quoting old prices. The tests in
-   * `tests/kb_flow_promises_test.py` prove the API hands over the right one. That is only
-   * half the promise: the advice has to reach the operator's eyes, and the button that
-   * produces it is here. `ProblemNotice` renders `remediation` under the detail, so what
-   * is asserted below is that the SPECIFIC sentence arrives — not merely that something
-   * red appeared.
-   */
-  it.each([
-    [
-      "kb_engine_ref_unknown",
-      "The live version cannot be withdrawn",
-      "Ask support to withdraw the stale copy on the voice platform first.",
-    ],
-    [
-      "kb_engine_out_of_sync",
-      "The voice platform holds knowledge we cannot account for",
-      "Ask support to reconcile this agent's knowledge on the voice platform.",
-    ],
-  ])(
-    "hands the operator %s's own cure, not the other one",
-    async (code, title, remediation) => {
-      const { container } = await renderHealthy({
-        [APPROVED_PATH]: [source()],
-        [`POST /v1/admin/tenants/${TENANT}/kb/${source().id}/publish`]: problem(
-          422,
-          {
-            type: `https://calevate.tech/problems/${code}`,
-            title,
-            detail: title,
-            kind: "business_rule",
-            retryable: false,
-            remediation,
-          },
-        ),
-      });
-
-      fireEvent.click(await screen.findByRole("button", { name: "Publish" }));
-
-      await screen.findByText(remediation);
-      // The two cures must not be interchangeable on screen either: an operator who reads
-      // "reconcile the agent" when the finding was a missing handle goes and deletes a
-      // document they matched by eye (runbook §A step 3).
-      const other =
-        code === "kb_engine_ref_unknown"
-          ? "reconcile"
-          : "withdraw the stale copy";
-      expect(container.textContent).not.toContain(other);
-    },
-  );
-
-  it("does not offer Publish for a source that is already live", async () => {
+  it("does not list a source that is already live", async () => {
     // `publish_source` leaves `status` at 'approved' and flips `is_active`, so a live
-    // source stays in this list. A second Publish button over it would re-attach a fresh
-    // engine copy of text the agent already has (kb/service.py: `attach_kb` is a CREATE).
+    // source stays in the approved list and must be filtered out of this panel.
     const { container } = await renderHealthy({
       [APPROVED_PATH]: [
         source({ is_active: true, published_at: "2026-08-14T10:00:00Z" }),

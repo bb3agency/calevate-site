@@ -76,11 +76,11 @@ from datetime import datetime
 from typing import Final
 from uuid import UUID
 
+from calevate_shared.calling_window import IST
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents.business_hours import BUSINESS_HOURS_TZ
 from apps.api.copilot.prompt import xml_attr
 from apps.api.copilot.screens import match_route, screens_closed_to, where_is
 from apps.api.core.loadshed import get_platform_status
@@ -421,7 +421,7 @@ async def read_live_state(session: AsyncSession, *, tenant_id: UUID) -> LiveStat
         )
 
     return LiveState(
-        now_ist=datetime.now(BUSINESS_HOURS_TZ),
+        now_ist=datetime.now(IST),
         counts=counts,
         blocker_rules=blockers,
         account=account,
@@ -581,7 +581,7 @@ async def live_state_block(tenant_id: UUID, viewer: Viewer | None = None) -> str
             return ""
         return render_live(
             LiveState(
-                now_ist=datetime.now(BUSINESS_HOURS_TZ),
+                now_ist=datetime.now(IST),
                 counts=None,
                 blocker_rules=None,
                 viewer=viewer,

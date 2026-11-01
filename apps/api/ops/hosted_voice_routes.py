@@ -58,7 +58,7 @@ from fastapi import (
     Response,
     UploadFile,
 )
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -132,6 +132,7 @@ from apps.api.core.disposition import attachment_disposition
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
+from apps.api.core.schemas import Strict
 from apps.api.core.stepup import StepUpGate
 from apps.api.db.session import admin_session, joined_tenant_session
 from apps.api.engine import get_engine
@@ -204,10 +205,6 @@ _CLONE_NOT_ON_PLAN: Final = (
 
 
 PreviewSource = Literal["vendor", "upload"]
-
-
-class Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 class CloneConsentOut(Strict):
@@ -1222,7 +1219,7 @@ async def _try_vendor_preview(session: AsyncSession, *, voice_id: str, url: str)
         data = await fetch_voice_preview(url)
         await _store_preview(session, voice_id=voice_id, data=data, source="vendor")
     except Exception as exc:
-        log.warning("voice_preview_fetch_failed", extra={"reason": type(exc).__name__})
+        log.warning("voice_preview_fetch_failed", extra={"error": type(exc).__name__})
         return False
     return True
 

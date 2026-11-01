@@ -110,7 +110,7 @@ from calevate_shared.backoff import jittered_delay_s
 
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
 from apps.api.kb.reconciliation import (
@@ -235,7 +235,7 @@ async def _observe_one(engine_name: str, candidate: KbDriftCandidate) -> _Observ
             extra={
                 "agent_id": str(candidate.agent_id),
                 "engine": engine_name,
-                "reason": type(exc).__name__,
+                "error": type(exc).__name__,
             },
         )
         return _Observation(candidate=candidate, attached=None, recorded=before)
@@ -453,9 +453,9 @@ async def sweep_kb_drift(ctx: dict[str, Any]) -> str:
     except Exception as exc:
         log.warning(
             "kb_drift_sweep_failed",
-            extra={"reason": exc.__class__.__name__, "attempt": ctx.get("job_try")},
+            extra={"error": exc.__class__.__name__, "attempt": job_try(ctx)},
         )
-        attempt = int(ctx.get("job_try", 1) or 1)
+        attempt = job_try(ctx)
         if attempt < WORKER_MAX_TRIES:
             # `defer` climbs with the attempt so a database that is restarting is not
             # hammered by three sweeps in ninety seconds — the ladder BACKEND-PATTERNS §4

@@ -67,7 +67,7 @@ from apps.api.campaigns.number_holds import (
 from apps.api.core.alerting import alert
 from apps.api.core.brand import PRODUCT
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.core.settings import get_settings
 from apps.api.core.transport import EmailPurpose, get_transport
 from apps.api.db.session import admin_session, tenant_session
@@ -228,7 +228,7 @@ async def settle_number_holds(ctx: dict[str, Any], payload: dict[str, Any]) -> s
     tenant_id = UUID(str(payload["tenant_id"]))
     if engine_number_provider() is None:
         return "not_applicable"
-    attempt = int(ctx.get("job_try", 1))
+    attempt = job_try(ctx)
     tally, failed = await settle_tenant(tenant_id)
     if failed:
         if attempt < WORKER_MAX_TRIES:
@@ -241,7 +241,7 @@ async def sweep_number_holds(ctx: dict[str, Any]) -> str:
     """Hourly. Every tenant's pass; one tenant failing costs nobody else theirs."""
     if engine_number_provider() is None:
         return "not_applicable"
-    attempt = int(ctx.get("job_try", 1))
+    attempt = job_try(ctx)
     async with admin_session() as directory:
         tenants = [UUID(str(t)) for t in (await directory.execute(text(_DIRECTORY))).scalars()]
     totals: Counter[str] = Counter()
@@ -376,7 +376,7 @@ async def notify_number_hold(ctx: dict[str, Any], payload: dict[str, Any]) -> st
             tenant_id=str(tenant_id),
         )
         return "unreadable"
-    attempt = int(ctx.get("job_try", 1))
+    attempt = job_try(ctx)
     async with tenant_session(tenant_id) as session:
         org = (
             await session.execute(

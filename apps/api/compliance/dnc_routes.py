@@ -30,7 +30,7 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance import dnc
@@ -39,6 +39,7 @@ from apps.api.core.auth import assert_view_as_may, client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.rbac import permission_meta
+from apps.api.core.schemas import Strict
 
 router = APIRouter(prefix="/v1/dnc", tags=["compliance"])
 
@@ -48,10 +49,6 @@ Session = Annotated[AsyncSession, Depends(db)]
 # `agents/prompt_routes.py`).
 Dispatcher = Annotated[Principal, Depends(requires("leads:dispatch"))]
 Reader = Annotated[Principal, Depends(requires("leads:read"))]
-
-
-class Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 class AddNumbersIn(Strict):

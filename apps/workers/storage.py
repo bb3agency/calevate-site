@@ -785,7 +785,7 @@ async def _put_document(
     try:
         await asyncio.to_thread(_put)
     except (BotoCoreError, ClientError) as exc:
-        log.warning(log_event, extra={"bytes": len(data), "reason": type(exc).__name__})
+        log.warning(log_event, extra={"bytes": len(data), "error": type(exc).__name__})
         raise StorageUnavailableError(refusal) from exc
     return key
 
@@ -813,7 +813,7 @@ async def read_kb_object(key: str) -> bytes | None:
         log.warning("kb_object_read_failed", extra={"reason": code or type(exc).__name__})
         raise StorageUnavailableError("Object storage is unavailable") from exc
     except BotoCoreError as exc:
-        log.warning("kb_object_read_failed", extra={"reason": type(exc).__name__})
+        log.warning("kb_object_read_failed", extra={"error": type(exc).__name__})
         raise StorageUnavailableError("Object storage is unavailable") from exc
 
 
@@ -1093,7 +1093,7 @@ async def store_delivery_body(
             extra={
                 "delivery_id": str(delivery_id),
                 "bytes": original_bytes,
-                "reason": type(exc).__name__,
+                "error": type(exc).__name__,
             },
         )
         return None
@@ -1361,7 +1361,7 @@ def presigned_url(
         # lifecycle before the credential. Never the key: it names one of the client's
         # calls (hard rule 6). `/healthz/ready` reports the same condition by name before
         # a request ever gets here.
-        log.warning("presign_failed", extra={"reason": type(exc).__name__})
+        log.warning("presign_failed", extra={"error": type(exc).__name__})
         return None
     return str(url)
 

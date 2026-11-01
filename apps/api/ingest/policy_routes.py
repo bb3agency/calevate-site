@@ -13,7 +13,7 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,6 +23,7 @@ from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.rbac import permission_meta
+from apps.api.core.schemas import Strict
 from apps.api.db.session import tenant_session
 from apps.api.ingest import lead_policy
 from apps.api.ingest.lead_policy import LeadCallPlan
@@ -44,10 +45,6 @@ ALWAYS_APPLIED: tuple[str, ...] = (
     "Every call passes the same compliance check as a campaign before it is placed.",
     "Your agent always says it is an AI and that the call is recorded when asked.",
 )
-
-
-class Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 class LeadCallingIn(Strict):

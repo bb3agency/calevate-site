@@ -30,7 +30,7 @@ from apps.api.actions.execution import CallFacts, caller_of_call, execute_action
 from apps.api.actions.service import actions_enabled, get_tool, list_tools
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.core.redis import get_redis
 from apps.api.db.session import tenant_session
 
@@ -63,7 +63,7 @@ async def run_client_action(ctx: dict[str, Any], payload: dict[str, Any]) -> str
     call_ref = str(payload.get("call_ref") or "")
     raw_args = payload.get("args")
     args: dict[str, Any] = dict(raw_args) if isinstance(raw_args, dict) else {}
-    attempt = int(ctx.get("job_try", 1) or 1)
+    attempt = job_try(ctx)
     ids = {"tenant_id": str(tenant_id), "tool_id": str(tool_id)}
     async with tenant_session(tenant_id) as session:
         tool = await get_tool(session, tool_id=tool_id)
@@ -111,7 +111,7 @@ async def run_after_call_actions(ctx: dict[str, Any], payload: dict[str, Any]) -
     thank-you message that went out is not sent again. A refusal is not retried."""
     tenant_id = UUID(str(payload["tenant_id"]))
     call_id = UUID(str(payload["call_id"]))
-    attempt = int(ctx.get("job_try", 1) or 1)
+    attempt = job_try(ctx)
     ran: list[str] = []
     retry_kinds: list[str] = []
     unmarked = False

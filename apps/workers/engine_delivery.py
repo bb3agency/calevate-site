@@ -188,7 +188,7 @@ async def execution_truth(
         except ProblemError as exc:
             log.info(
                 "engine_delivery_fetch_unavailable",
-                extra={"execution_id": execution_id, "reason": type(exc).__name__},
+                extra={"execution_id": execution_id, "error": type(exc).__name__},
             )
             return delivered
         return fetched if fetched.raw_status not in (None, UNSTATED_STATUS) else delivered

@@ -46,7 +46,7 @@ from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import Field, field_validator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -59,6 +59,7 @@ from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
+from apps.api.core.schemas import Strict
 from apps.api.db.ownership import assert_visible
 from apps.api.engine import get_engine
 
@@ -67,10 +68,6 @@ router = APIRouter(prefix="/v1/agents/{agent_id}/handoff", tags=["agents"])
 Session = Annotated[AsyncSession, Depends(db)]
 Reader = Annotated[Principal, Depends(requires("agents:read"))]
 Writer = Annotated[Principal, Depends(requires("org:manage"))]
-
-
-class Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 # EVERY WIRE MODEL HERE IS PREFIXED `Handoff`, AND THAT IS A CONTRACT CONSTRAINT RATHER

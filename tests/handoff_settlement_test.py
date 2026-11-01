@@ -117,7 +117,7 @@ async def test_a_handover_nobody_took_books_the_caller_a_call_back() -> None:
     assert row[6] == "scheduled"
     # THE LAWFUL-TIME RULE, asserted as the property rather than as a clock: whatever hour
     # this suite runs at, the promised instant is inside the calling window.
-    requested_ist = row[4].astimezone(UTC) + IST
+    requested_ist = row[4].astimezone(IST)
     start, end = DEFAULT_WINDOW
     assert start <= requested_ist.time() < end, (
         "a call-back was booked outside the calling window (TCCCPR; SEC-COMP §3)"

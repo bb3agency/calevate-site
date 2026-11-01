@@ -14,12 +14,12 @@ from typing import Annotated, Final
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text
 
 from apps.api.core.auth import requires
 from apps.api.core.context import Principal
 from apps.api.core.rbac import permission_meta
+from apps.api.core.schemas import Strict
 from apps.api.core.settings import get_settings
 from apps.api.db.session import admin_session, tenant_session
 from apps.api.whatsapp import accounts, signup
@@ -32,10 +32,6 @@ Operator = Annotated[Principal, Depends(requires("admin:tenants", realm="admin")
 #: walk: capping the directory instead hid every WhatsApp client whose name sorted after the
 #: first 200 accounts, with or without WhatsApp.
 MAX_CLIENTS: Final = 200
-
-
-class Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 class AdminWhatsAppAccountOut(Strict):

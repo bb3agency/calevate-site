@@ -57,7 +57,7 @@ from apps.api.campaigns.controls import resume_campaigns_after_credit
 from apps.api.compliance.service import credits_exhausted
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
 
@@ -118,7 +118,7 @@ async def apply_inbound_credit_state(ctx: dict[str, Any], payload: dict[str, Any
         )
         return "unsupported"
     if outcome.failed:
-        attempt = int(ctx.get("job_try", 1))
+        attempt = job_try(ctx)
         if attempt < WORKER_MAX_TRIES:
             raise Retry(defer=ladder_delay_s(RETRY_BACKOFF_S, attempt))
         log.error(

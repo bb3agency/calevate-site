@@ -40,7 +40,7 @@ from apps.api.agents.hosted_voices import STUDIO_VOICE_PROVIDER, own_voice_key_r
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
@@ -141,7 +141,7 @@ async def push_studio_voice_key_to_workspace(ctx: dict[str, Any], payload: dict[
     key = await _current_key()
     if not key:
         return "no_key"
-    attempt = int(ctx.get("job_try", 1))
+    attempt = job_try(ctx)
     try:
         with in_workspace(workspace):
             await engine.install_own_voice_key(

@@ -19,7 +19,6 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing import history
@@ -27,15 +26,12 @@ from apps.api.core.auth import requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.rbac import permission_meta
+from apps.api.core.schemas import Strict
 
 router = APIRouter(prefix="/v1/billing", tags=["billing"])
 
 Session = Annotated[AsyncSession, Depends(db)]
 BillingReader = Annotated[Principal, Depends(requires("billing:read"))]
-
-
-class Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 class StatementSummaryOut(Strict):

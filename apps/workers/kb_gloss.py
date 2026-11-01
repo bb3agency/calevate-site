@@ -98,7 +98,7 @@ from apps.api.billing.ai_quota import new_assist_ref, record_ai_assist_usage
 from apps.api.core import provider_health
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.crm.assist import ASSIST_FEATURE_KB_GLOSS
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.kb.gloss import GLOSS_NOT_NEEDED, GLOSS_PENDING, GLOSS_READY, needs_gloss
@@ -389,7 +389,7 @@ async def write_knowledge_glosses(ctx: dict[str, Any]) -> str:
     try:
         tenants = await tenants_holding_knowledge()
     except Exception as failure:
-        attempt = int(ctx.get("job_try", 1))
+        attempt = job_try(ctx)
         if attempt < WORKER_MAX_TRIES:
             raise Retry(defer=jittered_delay_s(attempt * 30)) from failure
         alert(

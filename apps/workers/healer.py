@@ -34,6 +34,7 @@ from apps.api.agents.engine_settings import check_agent_settings
 from apps.api.agents.publishing import engine_drift_for
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
+from apps.api.core.queue import job_try
 from apps.api.core.redis import get_redis
 from apps.api.core.settings import get_settings
 from apps.api.db.session import admin_session, tenant_session, untenanted_session
@@ -128,7 +129,7 @@ def healer_sweep(fn: Callable[..., Awaitable[str]]) -> Callable[..., Awaitable[s
                 playbook=playbook.key,
                 step="schedule",
                 outcome="failed",
-                attempt=int(ctx.get("job_try") or 1),
+                attempt=job_try(ctx),
                 detail=type(exc).__name__,
             )
             raise
@@ -136,7 +137,7 @@ def healer_sweep(fn: Callable[..., Awaitable[str]]) -> Callable[..., Awaitable[s
             playbook=playbook.key,
             step="schedule",
             outcome="ok",
-            attempt=int(ctx.get("job_try") or 1),
+            attempt=job_try(ctx),
             detail=str(result)[:200],
         )
         return result
@@ -219,7 +220,7 @@ async def score_agent_health(ctx: dict[str, Any]) -> str:
             tally["tenant_failed"] += 1
             log.warning(
                 "healer_score_failed",
-                extra={"tenant_id": str(tenant_id), "reason": type(exc).__name__},
+                extra={"tenant_id": str(tenant_id), "error": type(exc).__name__},
             )
             continue
         for verdict in verdicts:
@@ -315,7 +316,7 @@ async def platform_status() -> PlatformStatus | None:
     try:
         return await engine.platform_status()
     except Exception as exc:
-        log.warning("healer_platform_status_unreadable", extra={"reason": type(exc).__name__})
+        log.warning("healer_platform_status_unreadable", extra={"error": type(exc).__name__})
         return PlatformStatus(reachable=False)
 
 
@@ -419,7 +420,7 @@ async def run_healer(ctx: dict[str, Any]) -> str:
         except Exception as exc:
             tally[f"{step.__name__}_failed"] += 1
             log.warning(
-                "healer_step_failed", extra={"step": step.__name__, "reason": type(exc).__name__}
+                "healer_step_failed", extra={"step": step.__name__, "error": type(exc).__name__}
             )
             # The step's exception is swallowed so the other three still run, which also
             # keeps it from arq's terminal alerter: without this a step failing every
@@ -545,7 +546,7 @@ async def _money_review(incident: Incident) -> None:
     except Exception as exc:
         log.warning(
             "healer_money_evidence_failed",
-            extra={"incident_id": str(incident.id), "reason": type(exc).__name__},
+            extra={"incident_id": str(incident.id), "error": type(exc).__name__},
         )
         if incident.state == "open":
             await _escalate(
@@ -1093,7 +1094,7 @@ async def _engine_outage(incident: Incident) -> None:
                     failed += 1
                     log.warning(
                         "healer_outage_hold_failed",
-                        extra={"agent_id": str(agent_id), "reason": type(exc).__name__},
+                        extra={"agent_id": str(agent_id), "error": type(exc).__name__},
                     )
         if held or failed:
             await _record(
@@ -1259,7 +1260,7 @@ async def _deliver_client_notices(tally: Counter[str]) -> None:
             tally["notice_failed"] += 1
             log.warning(
                 "healer_notice_failed",
-                extra={"tenant_id": str(tenant_id), "reason": type(exc).__name__},
+                extra={"tenant_id": str(tenant_id), "error": type(exc).__name__},
             )
 
 

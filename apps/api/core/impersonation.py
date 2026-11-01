@@ -359,7 +359,7 @@ def verify_grant(raw: str | None, *, admin_id: UUID, tenant_id: UUID) -> Imperso
         # `PyJWTError`, not `InvalidTokenError`, for the reason `verify_token` records:
         # some PyJWT failures are siblings of InvalidTokenError rather than subclasses,
         # and one escaping here would be a 500 on an authorization path.
-        log.warning("impersonation_grant_rejected", extra={"reason": type(exc).__name__})
+        log.warning("impersonation_grant_rejected", extra={"error": type(exc).__name__})
         raise _refuse(
             "impersonation_grant_invalid",
             "View-as grant is not valid",

@@ -30,7 +30,7 @@ from apps.api.compliance.audit import write_audit
 from apps.api.core.alerting import alert
 from apps.api.core.console_links import CONSOLE_BASE
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.core.transport import EmailPurpose, get_transport
 from apps.api.crm.service import redacted_summary
 from apps.api.db.session import tenant_session
@@ -99,7 +99,7 @@ _ALERT_SQL: Final = (
 
 async def send_team_contact_code(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     """Mail a team address the code that proves it is reachable."""
-    attempt = int(ctx.get("job_try", 1) or 1)
+    attempt = job_try(ctx)
     tenant_id = UUID(str(payload["tenant_id"]))
     contact_id = UUID(str(payload["contact_id"]))
     code = str(payload.get("code", ""))
@@ -175,7 +175,7 @@ def compose_code(business: str, code: str) -> str:
 
 async def deliver_team_alert(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     """Tell the team about one caller, once."""
-    attempt = int(ctx.get("job_try", 1) or 1)
+    attempt = job_try(ctx)
     tenant_id = UUID(str(payload["tenant_id"]))
     alert_id = UUID(str(payload["alert_id"]))
     problem = str(payload.get("problem") or "")

@@ -14,7 +14,7 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance.audit import write_audit
@@ -23,6 +23,7 @@ from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
+from apps.api.core.schemas import Strict
 from apps.api.kb import service, store, uploads
 from apps.api.kb.curation import (
     goes_live_without_review,
@@ -36,10 +37,6 @@ from apps.api.kb.reading import queue_read
 router = APIRouter(prefix="/v1/kb", tags=["knowledge-base"])
 
 Session = Annotated[AsyncSession, Depends(db)]
-
-
-class Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 #: Knowledge belongs to the CLIENT and every agent answers from it (D-689), so a submission

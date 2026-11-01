@@ -211,7 +211,7 @@ def context_note(requested_at: datetime, note: str | None, *, source: str | None
     caller said, and on ThinnestAI it reaches the agent's instructions as a call variable.
     """
     note = redact(note).text if note else note
-    when = (requested_at.astimezone(UTC) + IST).strftime("%d %b at %H:%M")
+    when = requested_at.astimezone(IST).strftime("%d %b at %H:%M")
     if source is not None and source.startswith(CLIENT_SCHEDULE_PREFIX):
         opening = f"The business arranged this follow-up call for {when}."
         return f"{opening} What it is about: {note}" if note else opening

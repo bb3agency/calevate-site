@@ -25,7 +25,7 @@ from sqlalchemy import text
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import WORKER_MAX_TRIES, enqueue, job_id_for
+from apps.api.core.queue import WORKER_MAX_TRIES, enqueue, job_id_for, job_try
 from apps.api.db.session import tenant_session, untenanted_session, whatsapp_waba_session
 from apps.api.reliability.service import mark_inbox_failed, mark_inbox_processed
 from apps.api.whatsapp import accounts, graph, templates
@@ -176,7 +176,7 @@ async def ingest_whatsapp_event(ctx: dict[str, Any], payload: dict[str, Any]) ->
         return "malformed"
     event = event_from_payload(raw)
     inbox_id = payload.get("inbox_id")
-    attempt = int(ctx.get("job_try", 1) or 1)
+    attempt = job_try(ctx)
     try:
         resolved = await _resolve(event.waba_id)
         if resolved is None:

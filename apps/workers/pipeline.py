@@ -153,7 +153,7 @@ from apps.api.core.alerting import (
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.observability import set_span_attributes, span, tracing_enabled
-from apps.api.core.queue import WORKER_MAX_TRIES, enqueue, job_id_for
+from apps.api.core.queue import WORKER_MAX_TRIES, enqueue, job_id_for, job_try
 from apps.api.crm.outcomes import CallFacts, derive_outcome, hint_of
 from apps.api.crm.service import emit_lead_created, emit_lead_updated
 from apps.api.db.base import uuid7
@@ -523,7 +523,7 @@ async def ingest_engine_event(ctx: dict[str, Any], payload: dict[str, Any]) -> s
     """
     # arq's number, never ours: a `job_try` we injected could only confirm that an `if`
     # compares two integers correctly, not that the ladder above it exists.
-    attempt = int(ctx.get("job_try", 1))
+    attempt = job_try(ctx)
     # For the alert only, and only when the payload was too broken to parse. Ids.
     execution_hint = str(payload.get("execution_id") or "unknown")
     try:
@@ -907,7 +907,7 @@ async def run_post_call_pipeline(ctx: dict[str, Any], payload: dict[str, Any]) -
     policy, so no stage has to remember one and none of them can quietly opt out.
     """
     # arq's number, never ours — the same reason `ingest_engine_event` reads it here.
-    attempt = int(ctx.get("job_try", 1))
+    attempt = job_try(ctx)
     # For the alert only, and only when the payload was too broken to parse. Ids.
     call_hint = str(payload.get("call_id") or "unknown")
     execution_hint = str(payload.get("execution_id") or "unknown")

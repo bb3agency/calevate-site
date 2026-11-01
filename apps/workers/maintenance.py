@@ -80,7 +80,7 @@ from apps.api.core.alerting import alert
 from apps.api.core.brand import PRODUCT
 from apps.api.core.loadshed import LoadShedMode, get_platform_status, set_platform_status
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.core.transport import EmailPurpose, get_transport
 from apps.api.db.session import admin_session, tenant_session, untenanted_session
 from apps.api.engine import get_engine
@@ -297,15 +297,8 @@ def _maintenance_greeting(
 
 
 def _ist(instant: datetime) -> str:
-    """An instant in IST, as a person says it. UTC in the database, IST at the edge.
-
-    `calevate_shared.calling_window.IST` is a `timedelta`, not a `tzinfo` — the repo's
-    convention is to ADD it and read the result naively (`ist_now`, `as_ist`), because
-    India has no DST and a fixed offset needs no zone database in a module that imports
-    only the standard library. Followed here rather than reaching for `ZoneInfo`, which
-    would be a second spelling of the one offset this product cares about.
-    """
-    return (instant.astimezone(UTC) + IST).strftime("%H:%M on %d %b")
+    """An instant in IST, as a person says it. UTC in the database, IST at the edge."""
+    return instant.astimezone(IST).strftime("%H:%M on %d %b")
 
 
 def _restore_mode(stored: str | None) -> LoadShedMode:
@@ -851,7 +844,7 @@ async def notify_maintenance(ctx: dict[str, Any], payload: dict[str, Any]) -> st
     """
     tenant_id = UUID(str(payload["tenant_id"]))
     kind = str(payload["kind"])
-    attempt = int(ctx.get("job_try", 1))
+    attempt = job_try(ctx)
     if kind not in NOTICE_SUBJECTS:
         alert(
             "WORKER_TERMINAL",

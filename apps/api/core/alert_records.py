@@ -201,7 +201,7 @@ def record(
         # MAIL. A narrower catch would let an unanticipated exception escape into
         # `_drain`, where the notice is lost along with the send — the one outcome this
         # module exists to prevent.
-        log.warning("alert_record_failed", extra={"code": code, "reason": type(exc).__name__})
+        log.warning("alert_record_failed", extra={"code": code, "error": type(exc).__name__})
         return None
     if row is None:  # pragma: no cover - RETURNING always yields on a successful upsert
         return None
@@ -233,7 +233,7 @@ def mark_emailed(alert_id: str) -> None:
         with psycopg.connect(dsn, **_CONNECT_KWARGS) as conn:
             conn.execute(_MARK_EMAILED, {"id": alert_id})
     except Exception as exc:
-        log.warning("alert_mark_emailed_failed", extra={"reason": type(exc).__name__})
+        log.warning("alert_mark_emailed_failed", extra={"error": type(exc).__name__})
 
 
 _CLOSE_OPEN = """
@@ -277,7 +277,7 @@ def close_open(fingerprint: str) -> ClosedEpisode | None:
             row = cur.fetchone()
     except Exception as exc:
         # The sweep closes it an hour later instead; nothing is lost but promptness.
-        log.warning("alert_close_failed", extra={"reason": type(exc).__name__})
+        log.warning("alert_close_failed", extra={"error": type(exc).__name__})
         return None
     if row is None:
         return None
@@ -322,7 +322,7 @@ def forget_all() -> None:
         with psycopg.connect(dsn, **_CONNECT_KWARGS) as conn:
             conn.execute("DELETE FROM platform_alerts")
     except psycopg.Error as exc:  # pragma: no cover - no database, or no table yet
-        log.debug("alert_forget_all_skipped", extra={"reason": type(exc).__name__})
+        log.debug("alert_forget_all_skipped", extra={"error": type(exc).__name__})
         return
 
 

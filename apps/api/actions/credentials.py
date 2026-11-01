@@ -40,7 +40,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.actions.models import INTEGRATION_KINDS
-from apps.api.core.envelope import Envelope, last_four, seal, unseal
+from apps.api.core.envelope import envelope_from_row, last_four, seal, unseal
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
@@ -287,13 +287,8 @@ async def resolve_secret(
     ).first()
     if row is None:
         return None
-    env = Envelope(
-        ciphertext=bytes(row[0]),
-        nonce=bytes(row[1]),
-        dek_wrapped=bytes(row[2]),
-        dek_nonce=bytes(row[3]),
-        kek_id=int(row[4]),
-    )
+    env = envelope_from_row(tuple(row))
+    assert env is not None  # the five columns are NOT NULL
     return unseal(env, context=credential_context(tenant_id, credential_id))
 
 
@@ -329,13 +324,8 @@ async def resolve_credential(
     ).first()
     if row is None:
         return None
-    env = Envelope(
-        ciphertext=bytes(row[0]),
-        nonce=bytes(row[1]),
-        dek_wrapped=bytes(row[2]),
-        dek_nonce=bytes(row[3]),
-        kek_id=int(row[4]),
-    )
+    env = envelope_from_row(tuple(row[:5]))
+    assert env is not None  # the five columns are NOT NULL
     try:
         secret = unseal(env, context=credential_context(tenant_id, credential_id))
     except ProblemError as exc:

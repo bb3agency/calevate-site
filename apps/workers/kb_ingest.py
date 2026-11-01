@@ -455,9 +455,10 @@ async def ingest_kb_source(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
         if review_state not in ("approved", "archived"):
             # Waiting for a human (or rejected). Not an error and not a retry: the row sits
             # at `received`, the client's screen says what it is waiting for, and the
-            # confirm route enqueues this job again. `updated_at` is stamped because it is
-            # the sweep's stalled-row order (`_STALLED_SQL`): left as it was, the row heads
-            # every capped read and enough of them hold back every genuinely stalled upload.
+            # approval (the client's confirm or an admin's) enqueues this job again.
+            # `updated_at` is stamped because it is the sweep's stalled-row order
+            # (`_STALLED_SQL`): left as it was, the row heads every capped read and enough
+            # of them hold back every genuinely stalled upload.
             # `publish_kb_source` moves a refused typed source back the same way.
             await session.execute(
                 text("UPDATE kb_uploads SET updated_at = now() WHERE id = :id"),
@@ -519,15 +520,16 @@ async def ingest_kb_source(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
 
 
 async def publish_kb_source(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
-    """Publish ONE auto-approved typed submission (D-658). Returns a short outcome string.
+    """Publish ONE approved typed source. Returns a short outcome string.
 
-    Enqueued through the outbox by `kb/service.submit_source` in the submission's own
-    transaction, and re-driven by `sweep_kb_uploads` for one that has not gone live. An
-    upload never comes here: `ingest_kb_source` publishes those, after reading them.
+    Enqueued through the outbox in the approving transaction — `kb/service.submit_source`
+    for an auto-approval (D-658), `kb/uploads.approve_and_publish` for an admin's (D-951) —
+    and re-driven by `sweep_kb_uploads` for one that has not gone live. An upload never
+    comes here: `ingest_kb_source` publishes those, after reading them.
 
     A publish refusal is NOT raised for arq to retry, because none of them heals on a
-    retry seconds later: they need a person, who sees the source
-    "approved, not live" on both the client's screen and the operator's publish queue.
+    retry seconds later: the sweep tries again once it is stale, and the source reads
+    "approved, not live" on the client's screen and "Going live" on the operator's.
     Anything that is not a `ProblemError` is raised: the job fails, and `sweep_kb_uploads`
     re-drives the source, which arq would not (it retries only on `Retry`).
     """
@@ -680,20 +682,18 @@ LIMIT :limit
 """
 
 
-#: Typed sources an account member added that never went live (D-658): approved by
-#: the person who submitted it, that person a member of this account, never published,
-#: no upload behind it (`_STALLED_SQL` covers those), and no LATER version that has been
-#: approved. The membership test is what keeps an admin's approve-then-publish flow out of
-#: this arm: an operator's id is never in `memberships`.
+#: Typed sources approved and never live, whoever approved them: approved means live
+#: (D-951), so an account member's auto-approval (D-658) and an admin's approval are the same
+#: case here. Never published, no upload behind it, and no LATER version that has been
+#: approved. An approved upload is not this arm's: it sits at `received` or `processing`
+#: until it is live, and `_STALLED_SQL` re-drives those through `ingest_kb_source`, which
+#: publishes an approved version whoever approved it. An upload at `error` stays out of
+#: both, because its refusal needs a person (`UPLOAD_RETRYABLE`).
 _UNPUBLISHED_TYPED_SQL = """
 SELECT s.id
 FROM kb_sources s
 WHERE s.status = 'approved' AND s.published_at IS NULL AND NOT s.is_active
-  AND s.approved_by IS NOT NULL AND s.approved_by = s.submitted_by
   AND s.updated_at < :stale
-  AND EXISTS (
-    SELECT 1 FROM memberships m WHERE m.tenant_id = s.tenant_id AND m.user_id = s.submitted_by
-  )
   AND NOT EXISTS (SELECT 1 FROM kb_uploads u WHERE u.source_id = s.id)
   AND NOT EXISTS (
     SELECT 1 FROM kb_sources n
@@ -805,9 +805,9 @@ async def sweep_kb_uploads(ctx: dict[str, Any]) -> str:
             continue
         redriven += 1
 
-    # A typed source approved on submission whose publish was refused — usually because
-    # the agent was not published yet. Through the JOB, for the reason the re-drive above
-    # goes through `ingest_kb_source`.
+    # An approved typed source that is not live: its publish was refused or its job was
+    # lost. Through the JOB, for the reason the re-drive above goes through
+    # `ingest_kb_source`.
     published = 0
     for tenant_id, source_id in await _unpublished_typed_sources(now):
         try:
@@ -1180,7 +1180,7 @@ async def _fetch_page(url: str) -> bytes | None:
                         chunks.append(chunk)
                     return b"".join(chunks)
             except httpx.HTTPError as failure:
-                log.info("kb_link_fetch_failed", extra={"reason": type(failure).__name__})
+                log.info("kb_link_fetch_failed", extra={"error": type(failure).__name__})
                 return None
     log.info("kb_link_redirect_limit")
     return None

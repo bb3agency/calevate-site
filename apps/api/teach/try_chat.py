@@ -35,6 +35,8 @@ from apps.api.engine.test_chat import RunsTestChat
 
 MAX_MESSAGE_CHARS: Final = 1000
 
+CANNOT_CHAT: Final = "This agent cannot chat yet."
+
 COST_NOTE: Final = (
     "Replies here are not charged. Chatting is paused when this month's AI help is used up."
 )
@@ -67,7 +69,7 @@ async def send(
         )
     ready = await readiness(session, agent_id)
     if not ready.available:
-        raise ProblemError.business_rule("try_chat_unavailable", ready.reason or "")
+        raise ProblemError.business_rule("try_chat_unavailable", ready.reason or CANNOT_CHAT)
     await require_ai_assist(session, tenant_id=tenant_id)
     ref = (
         await session.execute(
@@ -76,7 +78,7 @@ async def send(
     ).scalar()
     engine = get_engine()
     if not isinstance(engine, RunsTestChat) or ref is None:
-        raise ProblemError.business_rule("try_chat_unavailable", "This agent cannot chat yet.")
+        raise ProblemError.business_rule("try_chat_unavailable", CANNOT_CHAT)
     turn = await send_test_message(
         engine,
         agent_id=agent_id,

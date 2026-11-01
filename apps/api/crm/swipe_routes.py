@@ -20,7 +20,6 @@ from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
-from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
 from apps.api.crm import swipe
 from apps.api.crm.lead_message import WHATSAPP_ROUTE, send_lead_whatsapp
@@ -31,6 +30,7 @@ from apps.api.reliability.service import (
     claim_idempotency,
     complete_idempotency,
     fail_idempotency,
+    require_idempotency_key,
     scope_key,
 )
 
@@ -45,17 +45,11 @@ SCHEDULE_ROUTE = "/v1/leads/{lead_id}/callbacks"
 
 
 def _require_key(request: Request, what: str) -> str:
-    key = request.headers.get("Idempotency-Key")
-    if not key:
-        raise ProblemError(
-            kind="validation",
-            status=400,
-            code="idempotency_key_required",
-            title=f"{what} needs an Idempotency-Key header",
-            detail="A repeat of the same attempt is answered rather than done twice.",
-            remediation="Send an `Idempotency-Key` header — one fresh value per attempt.",
-        )
-    return key
+    return require_idempotency_key(
+        request.headers.get("Idempotency-Key"),
+        title=f"{what} needs an Idempotency-Key header",
+        detail="A repeat of the same attempt is answered rather than done twice.",
+    )
 
 
 async def _claim(

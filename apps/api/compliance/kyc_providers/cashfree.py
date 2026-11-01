@@ -131,7 +131,7 @@ class CashfreeDigiLocker:
         try:
             return await client.request(method, path, headers=headers, **kwargs)
         except httpx.HTTPError as exc:
-            log.warning("kyc_provider_unreachable", extra={"reason": type(exc).__name__})
+            log.warning("kyc_provider_unreachable", extra={"error": type(exc).__name__})
             raise ProblemError(
                 kind="dependency",
                 code="verification_provider_unreachable",

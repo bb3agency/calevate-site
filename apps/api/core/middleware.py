@@ -34,7 +34,7 @@ from calevate_shared.client_address import client_ip
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from apps.api.core.alerting import alert
@@ -52,8 +52,8 @@ from apps.api.core.context import (
     principal_var,
 )
 from apps.api.core.errors import (
-    PROBLEM_CONTENT_TYPE,
     ProblemError,
+    problem_response,
     unhandled_problem_response,
 )
 from apps.api.core.loadshed import (
@@ -175,15 +175,6 @@ def _headers(scope: Scope) -> dict[str, str]:
     never-shed `/hooks` surface an engine calls. latin-1 cannot fail: every byte maps.
     """
     return {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers", [])}
-
-
-def _problem_response(exc: ProblemError, path: str) -> JSONResponse:
-    return JSONResponse(
-        status_code=exc.status,
-        content=exc.as_problem(path),
-        media_type=PROBLEM_CONTENT_TYPE,
-        headers=exc.headers,
-    )
 
 
 class SecurityHeadersMiddleware:
@@ -348,7 +339,7 @@ class BodyLimitMiddleware:
         max_bytes = body_limit_for(str(scope.get("method", "")), path, self.max_bytes)
         declared = _headers(scope).get("content-length")
         if declared and declared.isdigit() and int(declared) > max_bytes:
-            await _problem_response(_payload_too_large(max_bytes), path)(scope, receive, send)
+            await problem_response(_payload_too_large(max_bytes), path)(scope, receive, send)
             return
 
         seen = 0
@@ -376,7 +367,7 @@ class BodyLimitMiddleware:
         await self.app(scope, counting_receive, guarded_send)
         if over_limit and not responded:
             log.warning("payload_too_large", extra={"route": path, "bytes": seen})
-            await _problem_response(_payload_too_large(max_bytes), path)(scope, receive, send)
+            await problem_response(_payload_too_large(max_bytes), path)(scope, receive, send)
 
 
 #: A `\u0000` escape in JSON text, counted only when the backslash that opens it is not
@@ -475,7 +466,7 @@ class NulCharacterMiddleware:
     @staticmethod
     async def _refuse(scope: Scope, receive: Receive, send: Send, path: str, where: str) -> None:
         log.warning("nul_character_refused", extra={"route": path, "where": where})
-        await _problem_response(_nul_character(), path)(scope, receive, send)
+        await problem_response(_nul_character(), path)(scope, receive, send)
 
 
 def _replay(first: Message, receive: Receive) -> Receive:
@@ -535,7 +526,7 @@ class LoadShedMiddleware:
             return
         status = await get_platform_status()
         if is_shed(status, path=path, method=method):
-            await _problem_response(_shed_problem(status), path)(scope, receive, send)
+            await problem_response(_shed_problem(status), path)(scope, receive, send)
             return
         await self.app(scope, receive, send)
 
@@ -821,7 +812,7 @@ class RateLimitMiddleware:
                 "rate_limited",
                 extra={"route": path, "profile": profile.name, "reason": decision.reason},
             )
-            await _problem_response(too_many_requests(decision), path)(scope, receive, send)
+            await problem_response(too_many_requests(decision), path)(scope, receive, send)
             return
         await self.app(scope, receive, send)
 
@@ -885,7 +876,7 @@ class CookieCsrfMiddleware:
             path=path,
         )
         if refusal is not None:
-            await _problem_response(refusal, path)(scope, receive, send)
+            await problem_response(refusal, path)(scope, receive, send)
             return
         await self.app(scope, receive, send)
 

@@ -71,14 +71,11 @@ def get_retriever(session: AsyncSession) -> RetrievalProvider:
     branch here and a new module beside `pgvector.py` — no caller changes, because every
     caller holds a `RetrievalProvider` and nothing above this line knows a store exists.
 
-    **A MISCONFIGURED `pgvector` FALLS BACK RATHER THAN FAILING, and the fallback is loud.**
-    The store is useless without an embedding leg (no vector for the question, and nothing
-    filling the column either), so a deployment that names the provider without configuring
-    the credential would serve every t3 question out of an empty dense arm. Tolerant boot
-    (BACKEND-PATTERNS §2) says a deployment missing one credential runs everything else, so
-    it degrades to T0 — which is a strictly working system — and says so at ERROR, because
-    unlike a missing credential this is a CONTRADICTION between two settings an operator set
-    and only they can resolve it.
+    **`pgvector` WITHOUT AN EMBEDDING LEG RUNS KEYWORD-ONLY.** With no embedding deployment
+    (or no attested embedding price) there is no question vector and nothing fills the
+    `embedding` column, so the dense arm is empty; the sparse arm (`tsv`, written at publish
+    over each chunk and its English gloss) still ranks every approved chunk. That is
+    strictly more than T0 alone, so the store is served and the missing leg is a WARNING.
 
     **THE THIRD BRANCH IS THE ONE THE PORT WAS BUILT FOR** (TRD §6.3,
     14 Sep 2026). `supermemory` swaps the T3 MEMBER of the composite and nothing else: T0
@@ -111,15 +108,18 @@ def get_retriever(session: AsyncSession) -> RetrievalProvider:
     elif provider != PGVECTOR_PROVIDER:
         return CompiledFactsRetriever(session)
     if embedding_leg() is None or not embedding_price_is_billable():
-        log.error(
-            "retrieval_pgvector_unconfigured",
+        # Keyword-only rather than T0-only: the sparse arm needs no embedding (the `tsv` is
+        # written at publish), and `PgVectorRetriever` already skips the dense arm when no
+        # question vector can be bought. Falling back to T0 would hide every approved chunk
+        # outside the compiled facts from Pip on a deployment with no embedding deployment.
+        log.warning(
+            "retrieval_pgvector_keyword_only",
             # Which precondition failed, and never the credential itself.
             extra={
                 "leg": embedding_leg() is not None,
                 "priced": embedding_price_is_billable(),
             },
         )
-        return CompiledFactsRetriever(session)
     return KnowledgeRetriever(session, t3=_with_shadow(session, PgVectorRetriever(session)))
 
 

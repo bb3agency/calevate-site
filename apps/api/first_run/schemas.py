@@ -6,10 +6,11 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import Field, field_validator
 
 from apps.api.agents.languages import OfferedLanguage
 from apps.api.agents.starters import StarterJob
+from apps.api.core.schemas import Strict
 from apps.api.first_run.models import (
     MAX_ASKED,
     MAX_BRIEF_CHARS,
@@ -22,10 +23,6 @@ from apps.api.tenancy.business_profile import ServiceItem
 
 _HHMM = r"^(?:[01]\d|2[0-3]):[0-5]\d$"
 Day = Literal["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
-
-
-class Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 class QuestionOut(Strict):

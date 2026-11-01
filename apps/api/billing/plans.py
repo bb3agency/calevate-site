@@ -84,8 +84,8 @@ from __future__ import annotations
 import re
 from datetime import UTC, date, datetime, timedelta
 from uuid import UUID
-from zoneinfo import ZoneInfo
 
+from calevate_shared.calling_window import IST
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -94,32 +94,12 @@ from apps.api.core.logging import get_logger
 
 log = get_logger(__name__)
 
-# THE BILLING MONTH'S TIMEZONE, BY NAME AND NEVER BY A FIXED OFFSET.
-#
-# ⚠ **THIS WAS `timezone(timedelta(hours=5, minutes=30))`, AND ITS COMMENT DESCRIBED CODE
-# THAT NO LONGER EXISTED.** It read "the same +05:30 `billing.service._IST_MONTH` adds in
-# SQL" — but `_IST_MONTH` stopped adding an interval precisely because doing so was a
-# correctness bug (`billing/service.py` carries the three-timezone measurement); it is
-# `AT TIME ZONE 'Asia/Kolkata'`, a NAMED zone. So the two halves of "which billing month
-# is this instant in" — the SQL one that stamps `ai_quota`'s counter out of `RETURNING`,
-# and this one, which builds the window every money rollup filters on — were resolving the
-# same question through two different definitions of IST, and `ist_month_window` below
-# said in its own docstring that it did not ("built in IST and converted, never by adding
-# +05:30").
-#
-# They agree today and would stop agreeing the moment India adopted DST, in the direction
-# that costs: the zone follows a rule change and a hardcoded offset does not, so a call at
-# the boundary would be in one month according to the counter and another according to the
-# panel, the invoice and the cap. `agents/business_hours.py` already argues this for the
-# calling window in as many words ("IST — `Asia/Kolkata`, by name, never by a fixed
-# offset") and names billing months as a reason; this is that rule arriving on the module
-# that actually decides them. Nothing moves today — the offsets are identical — which is
-# what makes it safe to make the two spellings one.
-#
-# The literal rather than an import: `crm/performance.IST_ZONE` holds the same string, and
-# billing may not import crm (the layering runs the other way). `agents/business_hours.py`
-# spells it directly for the same reason.
-IST = ZoneInfo("Asia/Kolkata")
+# THE BILLING MONTH'S TIMEZONE, BY NAME AND NEVER BY A FIXED OFFSET: `IST` (imported above,
+# re-exported through `__all__`) is `calevate_shared.calling_window.IST`, the one Python
+# definition, so this window and the SQL side (`billing.service._IST_MONTH`, `AT TIME ZONE
+# 'Asia/Kolkata'`) both resolve the named zone. A fixed offset would stop agreeing with the
+# SQL the moment the zone's rules changed, putting a boundary call in one month for the
+# counter and another for the invoice.
 
 # The SQL literal for "now", for the callers that price the present. Named so a reader
 # of `CAPS_CTE` can see WHICH instant is being resolved at, rather than finding a bare

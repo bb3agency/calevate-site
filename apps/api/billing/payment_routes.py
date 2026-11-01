@@ -65,7 +65,7 @@ from typing import Annotated, Any, Final, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Request, Response
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin.service import tenant_exists
@@ -156,6 +156,7 @@ from apps.api.core.deps import global_db
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
+from apps.api.core.schemas import Strict
 from apps.api.core.settings import get_settings
 from apps.api.core.stepup import StepUpGate
 from apps.api.db.session import tenant_session
@@ -232,10 +233,6 @@ MAX_TOPUP_INR = Decimal("100000.00")
 # draining"; a private copy here made the TOP-UP ROUTE — the one place money enters the
 # wallet at all — invisible to that promise. Imported, so the gate on paying in and the
 # gate on drawing down cannot come to disagree about who is prepaid.
-
-
-class Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 class TopUpIntentIn(Strict):

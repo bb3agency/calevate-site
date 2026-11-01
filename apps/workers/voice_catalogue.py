@@ -46,7 +46,7 @@ from calevate_shared.backoff import jittered_delay_s
 from apps.api.agents.voice_sync import load_voice_catalogue, sync_voice_catalogue
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.db.session import untenanted_session
 from apps.api.engine import get_engine
 
@@ -87,7 +87,7 @@ async def refresh_voice_catalogue(ctx: dict[str, Any]) -> str:
     already alerted and already refused to apply it, and the previous catalogue is standing
     — asking the same question thirty seconds later gets the same answer.
     """
-    attempt = int(ctx.get("job_try", 1))
+    attempt = job_try(ctx)
     try:
         engine = get_engine()
         async with untenanted_session() as session:

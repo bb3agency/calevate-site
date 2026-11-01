@@ -55,7 +55,7 @@ from calevate_shared.engine import (
 
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.db.session import untenanted_session
 from apps.api.engine import get_engine
 from apps.api.engine.thinnest_workspace import in_workspace
@@ -185,9 +185,9 @@ async def sweep_kb_orphans(ctx: dict[str, Any]) -> str:
     except Exception as exc:
         log.warning(
             "kb_orphan_sweep_failed",
-            extra={"reason": exc.__class__.__name__, "attempt": ctx.get("job_try")},
+            extra={"error": exc.__class__.__name__, "attempt": job_try(ctx)},
         )
-        attempt = int(ctx.get("job_try", 1) or 1)
+        attempt = job_try(ctx)
         if attempt < WORKER_MAX_TRIES:
             raise Retry(defer=jittered_delay_s(30 * attempt)) from exc
         alert(

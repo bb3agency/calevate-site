@@ -72,6 +72,7 @@ from apps.api.kb.models import UPLOAD_RECEIVED, text_is_read
 from apps.api.kb.pdf_render import MAX_UPLOAD_BYTES
 from apps.api.kb.service import (
     approve_source,
+    enqueue_publish,
     insert_source_version,
     upload_reaches_agents,
     withdraw_source,
@@ -204,6 +205,35 @@ async def enqueue_ingest(
             "may_self_approve": may_self_approve,
         },
     )
+
+
+async def approve_and_publish(
+    session: AsyncSession, *, tenant_id: UUID, source_id: UUID, approved_by: UUID | None
+) -> bool:
+    """Approve one version and queue its publish in the same transaction: approved means
+    live, with no human publish step (D-951). True when THIS call approved it.
+
+    The publish is the one each kind already takes: an upload through `ingest_kb_source`
+    (which reads it first if its words are not read yet), typed text through
+    `publish_kb_source`. A repeat approval queues nothing, because the first one did, and
+    `sweep_kb_uploads` publishes any approved version whose job was lost.
+    """
+    if not await approve_source(session, source_id=source_id, approved_by=approved_by):
+        return False
+    is_upload = (
+        await session.execute(
+            text("SELECT EXISTS (SELECT 1 FROM kb_uploads WHERE source_id = :sid)"),
+            {"sid": source_id},
+        )
+    ).scalar()
+    if is_upload:
+        # Already approved above, so the job only publishes.
+        await enqueue_ingest(
+            session, tenant_id=tenant_id, source_id=source_id, may_self_approve=False
+        )
+    else:
+        await enqueue_publish(session, tenant_id=tenant_id, source_id=source_id)
+    return True
 
 
 def file_extension(filename: str) -> str:
@@ -762,11 +792,8 @@ async def confirm_upload(
             "We are still reading that document.",
             remediation="Give it a moment and refresh — you will see the text we read.",
         )
-    await approve_source(session, source_id=row["source_id"], approved_by=principal.user_id)
-    # Already approved by the statement above, so the job only publishes: False means it
-    # never approves anything on its own behalf on this path.
-    await enqueue_ingest(
-        session, tenant_id=tenant_id, source_id=row["source_id"], may_self_approve=False
+    await approve_and_publish(
+        session, tenant_id=tenant_id, source_id=row["source_id"], approved_by=principal.user_id
     )
     return await get_upload(session, upload_id)
 
@@ -826,6 +853,7 @@ __all__ = [
     "MAX_UPLOADS_PAGE",
     "MAX_UPLOAD_BYTES",
     "SUPPORTED_UPLOAD_KINDS",
+    "approve_and_publish",
     "assert_within_limit",
     "classify_upload",
     "confirm_upload",

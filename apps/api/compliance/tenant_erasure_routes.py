@@ -46,7 +46,7 @@ from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query, Request, Response
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
 
 from apps.api.admin.service import organization_on_record
 from apps.api.compliance import tenant_erasure
@@ -55,6 +55,7 @@ from apps.api.core.auth import client_request_ip, record_admin_tenant_read, requ
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta, role_has
+from apps.api.core.schemas import Strict
 from apps.api.core.stepup import StepUpGate
 from apps.api.db.session import tenant_session
 
@@ -73,10 +74,6 @@ Eraser = Annotated[Principal, Depends(requires("admin:tenants", realm="admin"))]
 # permission, and an operator who may not CAUSE an erasure should still be able to
 # CONFIRM one. The certificate carries counts and timestamps and no personal data.
 CertificateReader = Annotated[Principal, Depends(requires("org:read", realm="admin"))]
-
-
-class Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 class TenantErasureIn(Strict):

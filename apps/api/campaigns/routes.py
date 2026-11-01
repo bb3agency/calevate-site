@@ -22,7 +22,7 @@ from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import AwareDatetime, Field, StringConstraints
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,16 +33,13 @@ from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta, role_has
+from apps.api.core.schemas import Strict
 from apps.api.crm.schemas import LeadLensIn
 from apps.api.tenancy.engine_workspace import engine_has_workspaces, read_workspace_state
 
 router = APIRouter(prefix="/v1/campaigns", tags=["campaigns"])
 
 Session = Annotated[AsyncSession, Depends(db)]
-
-
-class Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 _HHMM = r"^(?:[01]\d|2[0-3]):[0-5]\d$"

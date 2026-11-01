@@ -16,8 +16,8 @@ table).
 No row means `DEFAULT_PLAN`, which is the behaviour before this existed: call at once, any
 day, inside the platform window, defer to the next opening, no retries, no machine check.
 
-TIME: IST wall clock, `calevate_shared.calling_window`'s convention (`IST` offset, India has
-no DST); instants in and out are UTC.
+TIME: compared on the IST wall clock (`calevate_shared.calling_window.IST`); instants in
+and out are UTC.
 """
 
 from __future__ import annotations
@@ -118,11 +118,12 @@ async def machine_detection_on(session: AsyncSession) -> bool:
 
 
 def _ist(moment: datetime) -> datetime:
-    return moment.astimezone(UTC).replace(tzinfo=None) + IST
+    return moment.astimezone(IST)
 
 
-def _utc(wall: datetime) -> datetime:
-    return (wall - IST).replace(tzinfo=UTC)
+def _utc(day: date, clock: time) -> datetime:
+    """`clock` on `day`, IST wall clock, as a UTC instant."""
+    return datetime.combine(day, clock, tzinfo=IST).astimezone(UTC)
 
 
 def _open_day(plan: LeadCallPlan, day: date) -> bool:
@@ -142,11 +143,11 @@ def next_opening(plan: LeadCallPlan, moment: datetime) -> datetime | None:
     wall = _ist(moment)
     day = wall.date()
     if wall.time() < plan.hours_start and _open_day(plan, day):
-        return _utc(datetime.combine(day, plan.hours_start))
+        return _utc(day, plan.hours_start)
     for offset in range(1, _SEARCH_DAYS):
         candidate = day + timedelta(days=offset)
         if _open_day(plan, candidate):
-            return _utc(datetime.combine(candidate, plan.hours_start))
+            return _utc(candidate, plan.hours_start)
     return None
 
 
@@ -156,7 +157,7 @@ def next_day_opening(plan: LeadCallPlan, moment: datetime) -> datetime | None:
     for offset in range(1, _SEARCH_DAYS):
         candidate = day + timedelta(days=offset)
         if _open_day(plan, candidate):
-            return _utc(datetime.combine(candidate, plan.hours_start))
+            return _utc(candidate, plan.hours_start)
     return None
 
 

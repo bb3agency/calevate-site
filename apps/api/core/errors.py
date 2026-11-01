@@ -530,12 +530,14 @@ def validation_fields(exc: Exception) -> list[dict[str, str]]:
     return humanise_validation_errors(errors, drop_source=False)
 
 
-def _problem_response(problem: dict[str, Any], headers: dict[str, str]) -> JSONResponse:
+def problem_response(exc: ProblemError, path: str) -> JSONResponse:
+    """The one problem+json renderer: the exception handlers here and the middlewares in
+    `core/middleware.py`, which answer before routing, both speak through it."""
     return JSONResponse(
-        status_code=int(problem["status"]),
-        content=problem,
+        status_code=exc.status,
+        content=exc.as_problem(path),
         media_type=PROBLEM_CONTENT_TYPE,
-        headers=headers,
+        headers=exc.headers,
     )
 
 
@@ -583,8 +585,9 @@ def unhandled_problem_response(path: str, exc: BaseException) -> JSONResponse:
             title="This is busy right now",
             detail="This is busy right now, so nothing was changed.",
             remediation="Try again in a moment.",
+            headers={"Retry-After": "5"},
         )
-        return _problem_response(busy.as_problem(path), {"Retry-After": "5"})
+        return problem_response(busy, path)
     # Full detail server-side (the logger redacts), generic body to the client.
     log.exception("unhandled_exception", extra={"path": path})
     # THE EXCEPTION TYPE IS PART OF THE ALERT'S IDENTITY, not a detail hanging off
@@ -616,7 +619,7 @@ def unhandled_problem_response(path: str, exc: BaseException) -> JSONResponse:
         title="Something went wrong at our end",
         detail="Something went wrong at our end. Our team has been told about it.",
     )
-    return _problem_response(problem.as_problem(path), {})
+    return problem_response(problem, path)
 
 
 def install_error_handlers(app: FastAPI) -> None:
@@ -626,7 +629,7 @@ def install_error_handlers(app: FastAPI) -> None:
     async def _problem(request: Request, exc: ProblemError) -> JSONResponse:
         if exc.status >= 500:
             alert(exc.failure_stage, exc.code, detail=exc.detail)
-        return _problem_response(exc.as_problem(request.url.path), exc.headers)
+        return problem_response(exc, request.url.path)
 
     @app.exception_handler(RequestValidationError)
     async def _validation(request: Request, exc: RequestValidationError) -> JSONResponse:
@@ -643,7 +646,7 @@ def install_error_handlers(app: FastAPI) -> None:
             detail=validation_summary(fields),
             fields=fields,
         )
-        return _problem_response(problem.as_problem(request.url.path), {})
+        return problem_response(problem, request.url.path)
 
     @app.exception_handler(StarletteHTTPException)
     async def _http(request: Request, exc: StarletteHTTPException) -> JSONResponse:
@@ -707,9 +710,9 @@ def install_error_handlers(app: FastAPI) -> None:
             detail=detail,
             status=exc.status_code,
             remediation=by_status_remediation.get(exc.status_code),
+            headers=dict(exc.headers or {}),
         )
-        headers = dict(exc.headers or {})
-        return _problem_response(problem.as_problem(request.url.path), headers)
+        return problem_response(problem, request.url.path)
 
     @app.exception_handler(Exception)
     async def _unhandled(request: Request, exc: Exception) -> JSONResponse:
@@ -740,5 +743,6 @@ __all__ = [
     "InvalidStatusTransitionError",
     "ProblemError",
     "install_error_handlers",
+    "problem_response",
     "unhandled_problem_response",
 ]

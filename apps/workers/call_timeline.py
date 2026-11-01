@@ -27,7 +27,7 @@ from sqlalchemy import text
 
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import WORKER_MAX_TRIES, enqueue, job_id_for
+from apps.api.core.queue import WORKER_MAX_TRIES, enqueue, job_id_for, job_try
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
 
@@ -88,7 +88,7 @@ def _retry_or_stop(attempt: int, outcome: str, call_id: UUID) -> str:
 
 
 async def fetch_call_timeline(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
-    attempt = int(ctx.get("job_try", 1))
+    attempt = job_try(ctx)
     tenant_id = UUID(str(payload["tenant_id"]))
     call_id = UUID(str(payload["call_id"]))
     execution_id = str(payload["execution_id"])

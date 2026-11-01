@@ -1320,12 +1320,9 @@ class PhoneNumber(PKMixin, TimestampMixin, Base):
     e164: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     series: Mapped[str] = mapped_column(String, nullable=False, server_default="standard")
     #: Who holds this number (`calevate_shared.carrier.NumberProvider`), or NULL when it is
-    #: held by none this platform dials through (migrations c8f5d1b74a30, a3d9e6f1c204).
+    #: held by none this platform dials through (migrations c8f5d1b74a30, b5e1d7c3a906).
     provider: Mapped[str | None] = mapped_column(Text)
     engine_number_ref: Mapped[str | None] = mapped_column(Text)
-    #: A carrier's id for what this number was attached to on our former carrier leg. No
-    #: longer written; kept until the column is dropped (hard rule 8).
-    carrier_binding_id: Mapped[str | None] = mapped_column(Text)
     dlt_status: Mapped[str] = mapped_column(String, nullable=False, server_default="pending")
     purpose: Mapped[str | None] = mapped_column(Text)
     #: Which legs this number was bought for (`NUMBER_DIRECTIONS`). Defaults to `inbound`

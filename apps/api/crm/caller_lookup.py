@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any, Final
 from uuid import UUID
 
@@ -84,7 +84,7 @@ def clean_text(raw: Any, limit: int) -> str | None:
 
 def spoken_when(at: datetime) -> str:
     """`Sat 11 Oct, 4:00 PM`, Indian time: what an agent can read to a caller."""
-    ist = at.astimezone(UTC) + IST
+    ist = at.astimezone(IST)
     hour = ist.strftime("%I").lstrip("0") or "12"
     return f"{ist.strftime('%a')} {ist.day} {ist.strftime('%b')}, {hour}:{ist.strftime('%M %p')}"
 

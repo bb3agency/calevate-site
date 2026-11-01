@@ -82,7 +82,7 @@ from typing import Annotated, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import publishing
@@ -99,6 +99,7 @@ from apps.api.core.deps import admin_db, db
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
+from apps.api.core.schemas import Strict
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import engine_capabilities
 
@@ -127,10 +128,6 @@ AdminSession = Annotated[AsyncSession, Depends(admin_db)]
 #: The CLIENT door's session — its own tenant's RLS scope, which is where its audit row
 #: belongs. The cap write itself opens a session of its own inside `publishing`.
 Session = Annotated[AsyncSession, Depends(db)]
-
-
-class Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 class LaneOut(Strict):

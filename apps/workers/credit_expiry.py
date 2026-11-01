@@ -40,6 +40,7 @@ from apps.api.billing.credit_expiry import (
 from apps.api.billing.display import display_inr
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
+from apps.api.core.queue import job_try
 from apps.api.core.transport import EmailPurpose, get_transport
 from apps.api.db.session import admin_session, tenant_session
 from apps.api.reliability.service import enqueue_outbox_once
@@ -166,7 +167,7 @@ async def notify_credit_lapsing(ctx: dict[str, Any], payload: dict[str, Any]) ->
     the promise is not announced."""
     tenant_id = UUID(str(payload["tenant_id"]))
     lot_id = UUID(str(payload["lot_id"]))
-    attempt = int(ctx.get("job_try", 1))
+    attempt = job_try(ctx)
     now = datetime.now(UTC)
     async with tenant_session(tenant_id) as session:
         lot = await credit_lots.read_lot(session, lot_id=lot_id)

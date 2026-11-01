@@ -54,6 +54,7 @@ from apps.api.billing.service import plan_tier_of
 from apps.api.billing.trials import TrialState, read_trial
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
+from apps.api.core.queue import job_try
 from apps.api.core.transport import EmailPurpose, get_transport
 from apps.api.db.session import admin_session, tenant_session
 from apps.workers.auth_email import CONSOLE_BASE
@@ -96,12 +97,9 @@ class Recipient:
 
 
 def ist_moment(instant: datetime) -> str:
-    """An instant as `10 Oct 2026, 10:58 pm IST`.
-
-    The repo's fixed-offset convention (`maintenance._ist`), with the zone named because
-    the reader may not be in India.
-    """
-    local = instant.astimezone(UTC) + IST
+    """An instant as `10 Oct 2026, 10:58 pm IST`, the zone named because the reader may
+    not be in India."""
+    local = instant.astimezone(IST)
     stamp = local.strftime("%d %b %Y, %I:%M %p")
     return f"{stamp[:-2]}{stamp[-2:].lower()} IST"
 
@@ -337,7 +335,7 @@ async def notify_trial_minutes_used(ctx: dict[str, Any], payload: dict[str, Any]
     keyed on the trial (`enqueue_outbox_once`), so it is promised once per trial."""
     tenant_id = UUID(str(payload["tenant_id"]))
     trial_id = UUID(str(payload["trial_id"]))
-    attempt = int(ctx.get("job_try", 1))
+    attempt = job_try(ctx)
     async with tenant_session(tenant_id) as session:
         trial = await read_trial(session, tenant_id=tenant_id)
         if trial is None or trial.id != trial_id:
@@ -386,7 +384,7 @@ async def notify_trial_started(ctx: dict[str, Any], payload: dict[str, Any]) -> 
     outbox, in the transaction that opened the trial."""
     tenant_id = UUID(str(payload["tenant_id"]))
     trial_id = UUID(str(payload["trial_id"]))
-    attempt = int(ctx.get("job_try", 1))
+    attempt = job_try(ctx)
     now = datetime.now(UTC)
 
     async with tenant_session(tenant_id) as session:

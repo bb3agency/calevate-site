@@ -38,7 +38,7 @@ from apps.api.compliance.optout import DETECTED_BY_ENGINE, OptOutSignal, record_
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
@@ -219,7 +219,7 @@ async def _abandon(payload: dict[str, Any], exc: Exception, attempt: int) -> NoR
 
 async def ingest_engine_opt_out(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     """File a `contact.opted_out` delivery on the hearing client's do-not-call list."""
-    attempt = int(ctx.get("job_try", 1))
+    attempt = job_try(ctx)
     try:
         outcome = await _record(payload)
     except Exception as exc:
@@ -294,7 +294,7 @@ async def ingest_engine_notice(ctx: dict[str, Any], payload: dict[str, Any]) -> 
     The lead itself is our own extraction's and the hand-over our own roster's, so nothing
     else consumes it.
     """
-    attempt = int(ctx.get("job_try", 1))
+    attempt = job_try(ctx)
     try:
         kind = await _notice(payload)
     except Exception as exc:
@@ -310,7 +310,7 @@ async def _abandon_notice(payload: dict[str, Any], exc: Exception, attempt: int)
         raise Retry(defer=ladder_delay_s(_RETRY_AFTER_S, attempt)) from exc
     log.warning(
         "engine_notice_abandoned",
-        extra={"reason": type(exc).__name__, "attempt": attempt},
+        extra={"error": type(exc).__name__, "attempt": attempt},
     )
     raise exc
 
@@ -495,7 +495,7 @@ async def _problem(payload: dict[str, Any]) -> str:
 
 async def ingest_engine_problem(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     """File one `call.problem` on its call, and alarm the kinds an operator must act on."""
-    attempt = int(ctx.get("job_try", 1))
+    attempt = job_try(ctx)
     try:
         kind = await _problem(payload)
     except Exception as exc:

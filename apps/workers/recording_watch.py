@@ -39,7 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import WORKER_MAX_TRIES, enqueue, job_id_for
+from apps.api.core.queue import WORKER_MAX_TRIES, enqueue, job_id_for, job_try
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
 from apps.workers.engine_delivery import post_call_truth
@@ -265,7 +265,7 @@ async def recopy_call_recording(ctx: dict[str, Any], payload: dict[str, Any]) ->
         target = await recopy_target(session, call_id)
     if target.refusal is not None:
         return target.refusal
-    attempt = int(ctx.get("job_try", 1))
+    attempt = job_try(ctx)
     try:
         snapshot = await post_call_truth(
             get_engine(),

@@ -46,7 +46,7 @@ from decimal import Decimal
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.caps import CapView, apply_client_caps, read_caps, read_spend_counters
@@ -58,6 +58,7 @@ from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
+from apps.api.core.schemas import Strict
 
 log = get_logger(__name__)
 
@@ -100,13 +101,6 @@ CapsWrite = Annotated[Principal, Depends(requires("org:manage", realm="client"))
 MAX_CLIENT_CAP_SPEND_INR = Decimal("1000000.00")
 # Minutes are whole. 100,000 minutes is ~70 days of continuous calling.
 MAX_CLIENT_CAP_MIN = 100_000
-
-
-class Strict(BaseModel):
-    """`extra="forbid"`: the response model IS the output whitelist, and a request with
-    a misspelled field is a refusal rather than a silently ignored intention."""
-
-    model_config = ConfigDict(extra="forbid")
 
 
 class CapsIn(Strict):

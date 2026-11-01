@@ -23,22 +23,18 @@ import {
 
 
 /**
- * The two knowledge queues an operator works on this client: what is waiting to be
- * approved, and what was approved and is not live yet.
+ * The knowledge an operator decides on for this client, and what is on its way live.
  *
- * One subject, one file. Approving does NOT push to the engine (`kb_service
- * .approve_source` only moves the status), so the second queue is not a variation on the
- * first — it is the other half of a job that otherwise stops silently halfway, and the
- * client's Knowledge screen sits on "Approved, not live yet" for ever.
+ * Approved means live (D-951): approving queues the publish, so there is no Publish
+ * button. What was approved and is not live yet is shown as "Going live" — its publish is
+ * queued, retrying, or picked up by the knowledge sweep — so an operator is not left
+ * wondering where an approved document went.
  */
 
 /**
- * Approved and NOT live — the publish queue, read once so the screen and the assistant
- * cannot disagree about its size.
- *
- * Publishing leaves `status` at 'approved' and flips `is_active`, so the live ones stay
- * in the same list; filtering them out here is what stops a second Publish button
- * appearing beside a source that is already live.
+ * Approved and NOT live, read once so the screen and the assistant cannot disagree about
+ * its size. Publishing leaves `status` at 'approved' and flips `is_active`, so the live
+ * ones stay in the same list and are filtered out here.
  */
 export function unpublishedSources(sources: readonly KbSource[]): KbSource[] {
   return sources.filter((source) => !source.is_active);
@@ -46,8 +42,8 @@ export function unpublishedSources(sources: readonly KbSource[]): KbSource[] {
 
 export function KnowledgeQueue({ tenantId, slug }: { tenantId: string; slug: string }) {
   const queue = useTenantKbQueue(slug);
-  const publishQueue = useTenantKbQueue(slug, "approved");
-  const awaitingPublish = unpublishedSources(publishQueue.data ?? []);
+  const approvedQueue = useTenantKbQueue(slug, "approved");
+  const goingLive = unpublishedSources(approvedQueue.data ?? []);
   const [selected, setSelected] = useState<string | null>(null);
   // Two-stage reject (ux-audit F-4): the quiet Reject reveals a confirmation bound to
   // ONE source, carrying a reason the OPERATOR writes — the old one-click reject sent a
@@ -73,7 +69,7 @@ export function KnowledgeQueue({ tenantId, slug }: { tenantId: string; slug: str
 
         <Section
           title="Knowledge awaiting approval"
-          info="This is the client's knowledge, shared by all its agents. Only knowledge an operator added, or a page an operator linked, waits here: what the client's own people add goes live on its own. Approving does not make a source live; Publish does."
+          info="This is the client's knowledge, shared by all its agents. Only knowledge an operator added, or a page an operator linked, waits here: what the client's own people add goes live on its own. Approving makes a source live for every agent."
         >
           <RestrictionNote reason={kbWrite.reason} />
           {queue.error ? (
@@ -238,63 +234,35 @@ export function KnowledgeQueue({ tenantId, slug }: { tenantId: string; slug: str
           )}
         </Section>
 
-        {/* Approve moves a source to `approved`; publishing is the separate step that
-            pushes it to the engine and makes it the live version (FLOWS §7). Both are
-            ours, so both need a button — an approved source with nowhere to press is
-            work that silently stops halfway.
-            The whole panel used to vanish on a failed read of the approved list, which is
-            the same silence as an empty one: a source stuck at "Approved, not live yet"
-            on the client's screen and nothing here to explain why.
-            §52's OTHER clause was still open here, and it is the same sentence drawn a
-            third way: while the approved list is IN FLIGHT, `awaitingPublish` is `[]` — the
-            `?? []` above cannot tell "not answered yet" from "the server says none" — so
-            the panel rendered `null` and an operator's first paint of this screen said
-            "nothing is waiting to be published" about a request that had not come back.
-            The §52 guard (apps/web/tests/surfaceStatesGuard.test.ts) deliberately does not
-            scan a `?? []` outside a JSX child, because whether it reaches a pixel is a
-            question about branch dominance; this was the branch that let it through.
-            Loading is a skeleton. An empty list, once the server has said so, is still
-            nothing — the approval card above already carries the sentence that explains
-            what publishing is for. */}
-        {publishQueue.isLoading ? (
-          <Section title="Approved, awaiting publish">
+        {/* What was approved and is not live yet. No button: approving queued the publish
+            and the knowledge sweep retries one that did not take (D-951).
+            §52: while the approved list is in flight, failed, or paused offline,
+            `goingLive` is `[]` — the `?? []` above cannot tell "not answered yet" from "the
+            server says none" — so each of those states is drawn rather than left as an
+            empty panel. Once the server has said there are none, there is nothing to show. */}
+        {approvedQueue.isLoading ? (
+          <Section title="Going live">
             <Skeleton rows={2} />
           </Section>
-        ) : publishQueue.error || !publishQueue.data ? (
-          /* `|| !publishQueue.data` closes the same hole one state further out. The comment
-             above names "in flight" and "failed"; a query TanStack has PAUSED because the
-             browser is offline is neither — `isLoading === false`, `error === null` — so
-             `awaitingPublish` was `[]` and the panel rendered `null`, which on this screen
-             reads as "nothing is waiting to be published". */
-          <Section title="Approved, awaiting publish">
+        ) : approvedQueue.error || !approvedQueue.data ? (
+          <Section title="Going live">
             <ProblemNotice
-              error={publishQueue.error ?? new Error("The publish queue did not load.")}
-              onRetry={() => publishQueue.refetch()}
+              error={approvedQueue.error ?? new Error("The approved knowledge did not load.")}
+              onRetry={() => approvedQueue.refetch()}
             />
           </Section>
-        ) : awaitingPublish.length > 0 ? (
-          <Section title="Approved, awaiting publish">
+        ) : goingLive.length > 0 ? (
+          <Section title="Going live">
             <p className="text-meta text-ink-muted">
-              None of the client&apos;s agents know these until they are published.
+              Approved. These reach every agent of this client on their own. Nothing to
+              press.
             </p>
-            <RestrictionNote reason={kbWrite.reason} />
             <ul className={`mt-3 ${HAIRLINE_LIST}`}>
-              {awaitingPublish.map((source) => (
+              {goingLive.map((source) => (
                 <li key={source.id} className="flex flex-wrap items-center gap-2 py-2.5 text-body sm:px-2">
                   <span className="font-medium text-ink">{source.name}</span>
                   <span className="text-meta text-ink-muted">
                     v{source.version} · {source.chunks} chunks
-                  </span>
-                  <span className="ml-auto">
-                    <ActionButton
-                      variant="secondary-sm"
-                      status={statusFor(source.id, "publish")}
-                      successLabel="Published"
-                      disabled={otherBusy(source.id) || !kbWrite.allowed}
-                      onClick={() => decideFeedback.run({ sourceId: source.id, decision: "publish" })}
-                    >
-                      Publish
-                    </ActionButton>
                   </span>
                 </li>
               ))}

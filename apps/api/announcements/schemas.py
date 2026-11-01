@@ -6,16 +6,13 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from apps.api.announcements.models import MAX_MESSAGE_CHARS, Audience, Tone
+from apps.api.core.schemas import Strict
 
 MAX_LINK_CHARS = 500
 MAX_LINK_LABEL_CHARS = 40
-
-
-class Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 def _link(value: str | None) -> str | None:

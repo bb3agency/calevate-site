@@ -1262,6 +1262,10 @@ class TestRun:
         )
 
 
+#: What a refused test says when `readiness` gave no sentence of its own.
+TESTS_UNAVAILABLE: Final = "This agent cannot be tested yet."
+
+
 @dataclass(frozen=True, slots=True)
 class TestReadiness:
     available: bool
@@ -1528,7 +1532,9 @@ async def request_run(
     """
     ready = await readiness(session, agent_id)
     if not ready.available:
-        raise ProblemError.business_rule("agent_tests_unavailable", ready.reason or "")
+        raise ProblemError.business_rule(
+            "agent_tests_unavailable", ready.reason or TESTS_UNAVAILABLE
+        )
     if retest_of is not None and practice_callers:
         raise ProblemError.business_rule(
             "agent_tests_practice_needs_new_set",

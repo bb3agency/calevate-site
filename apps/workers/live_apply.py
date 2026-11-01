@@ -49,7 +49,7 @@ from apps.api.agents.live_apply import (
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.core.platform_config import refresh
-from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
 from apps.api.ops.spoken_style_store import refresh_spoken_style
@@ -302,7 +302,7 @@ async def apply_live_agent(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     run_id = UUID(str(payload["run_id"]))
     tenant_id = UUID(str(payload["tenant_id"]))
     agent_id = UUID(str(payload["agent_id"]))
-    attempt = int(ctx.get("job_try", 1) or 1)
+    attempt = job_try(ctx)
     await refresh()
     try:
         outcome, _name = await converge_agent(tenant_id=tenant_id, agent_id=agent_id)

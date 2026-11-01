@@ -183,7 +183,7 @@ def test_a_missing_credential_is_reported_by_name_not_swallowed(
         assert storage.presigned_url("recordings/t/c.wav") is None
     records = [record for record in caplog.records if record.message == "presign_failed"]
     assert records, "presign failed without a log line an operator can act on"
-    assert getattr(records[0], "reason", None) == "NoCredentialsError"
+    assert getattr(records[0], "error", None) == "NoCredentialsError"
 
 
 def test_readiness_names_the_object_store_credentials_a_prod_deploy_lacks(

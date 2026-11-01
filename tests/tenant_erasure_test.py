@@ -913,8 +913,8 @@ async def test_a_former_own_runtime_tenant_erasure_completes_and_files_the_carri
         await session.execute(
             text(
                 "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, carrier_call_id, "
-                "carrier, direction, status, started_at, created_at, updated_at) "
-                "VALUES (:id, :t, :a, :e, :c, 'vobiz', 'inbound', 'completed', now(), now(), "
+                "direction, status, started_at, created_at, updated_at) "
+                "VALUES (:id, :t, :a, :e, :c, 'inbound', 'completed', now(), now(), "
                 "now())"
             ),
             {

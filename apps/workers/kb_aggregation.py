@@ -70,17 +70,16 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, time, timedelta
 from typing import Any
 from uuid import UUID
-from zoneinfo import ZoneInfo
 
 from arq import Retry
 from calevate_shared.backoff import jittered_delay_s
+from calevate_shared.calling_window import IST
 from sqlalchemy import text
 
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.core.transport import EmailPurpose, get_transport
-from apps.api.crm.performance import IST_ZONE
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.kb.insights import insights_for_agent, render_digest
 from apps.api.kb.patterns import CallContentLeakError
@@ -148,8 +147,6 @@ DIGEST_MINUTE = 22
 #: budget keeps the tick from being killed in the middle of a mailing.
 KB_DIGEST_MAX_AGENTS = 1_500
 
-_IST_TZ = ZoneInfo(IST_ZONE)
-
 #: Live agents, one row per agent however many vendor objects it has. `engine_agent_routes`
 #: is the deliberately-GLOBAL routing table (its own model says so), which is what makes a
 #: cross-tenant enumeration possible at all — `agents` is tenant-scoped and an untenanted
@@ -192,7 +189,7 @@ def closed_week(moment: datetime) -> tuple[datetime, datetime]:
     module rather than being computed a second way here).
     """
     this_monday = ist_week_start(moment)
-    until_local = datetime.combine(this_monday, time.min, tzinfo=_IST_TZ)
+    until_local = datetime.combine(this_monday, time.min, tzinfo=IST)
     return (until_local - timedelta(days=7)).astimezone(UTC), until_local.astimezone(UTC)
 
 
@@ -200,7 +197,7 @@ async def send_agent_knowledge_digests(ctx: dict[str, Any], *_: object) -> str:
     """The tick. Behind the retry ladder, because a tick that dies has no next chance
     for a week — `apply_retention`'s argument, on a weekly cadence rather than a nightly.
     """
-    attempt = int(ctx.get("job_try", 1))
+    attempt = job_try(ctx)
     try:
         return await _sweep(datetime.now(UTC))
     except Retry:
@@ -359,7 +356,7 @@ async def _digest_one(target: _Target, *, since: datetime, until: datetime) -> s
             extra={
                 "tenant_id": str(target.tenant_id),
                 "agent_id": str(target.agent_id),
-                "reason": type(exc).__name__,
+                "error": type(exc).__name__,
             },
         )
         return "failed"

@@ -110,7 +110,7 @@ from apps.api.compliance.caller_memory import (
 from apps.api.core import provider_health
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.core.settings import get_settings
 from apps.api.crm.assist import ASSIST_FEATURE_CALLER_MEMORY
 from apps.api.db.session import tenant_session
@@ -574,7 +574,7 @@ async def distil_caller_memories(ctx: dict[str, Any]) -> str:
     try:
         tenants = await tenants_with_caller_data()
     except Exception as failure:
-        attempt = int(ctx.get("job_try", 1))
+        attempt = job_try(ctx)
         if attempt < WORKER_MAX_TRIES:
             raise Retry(defer=jittered_delay_s(attempt * 30)) from failure
         alert(

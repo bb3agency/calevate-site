@@ -46,7 +46,7 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query, Request
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance import dnc, preference_scrub
@@ -55,6 +55,7 @@ from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import admin_db, global_db
 from apps.api.core.rbac import permission_meta
+from apps.api.core.schemas import Strict
 from apps.api.core.stepup import StepUpGate
 from apps.api.db.session import tenant_session
 
@@ -114,10 +115,6 @@ def preference_scrub_confirmation(campaign_id: UUID) -> str:
     replayable against another one whose list nobody scrubbed.
     """
     return f"record_preference_scrub:{campaign_id}"
-
-
-class Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 class GlobalSuppressIn(Strict):

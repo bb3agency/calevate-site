@@ -209,11 +209,28 @@ async def test_a_client_owner_cannot_approve_their_own_knowledge() -> None:
 # --- the happy path, and the audit row -----------------------------------------------
 
 
-async def test_approve_then_publish_returns_the_version_and_audits_both(
+async def _queued(source_id: uuid.UUID, job: str) -> int:
+    """Outbox promises of `job` for one source."""
+    async with untenanted_session() as session:
+        return int(
+            (
+                await session.execute(
+                    text(
+                        "SELECT count(*) FROM outbox_messages WHERE job = :job "
+                        "AND payload->>'source_id' = :sid"
+                    ),
+                    {"job": job, "sid": str(source_id)},
+                )
+            ).scalar_one()
+        )
+
+
+async def test_approve_queues_the_publish_and_the_publish_door_still_answers(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """The response model is READ, not merely counted: `PublishOut.version` is what the
-    console shows as "v1 is live", and an empty body would satisfy a status assertion."""
+    """Approved means live (D-951): the approval itself queues the publish, with no second
+    step. The publish route stays as the rollback and repair door, and its response model
+    is READ, not merely counted: an empty body would satisfy a status assertion."""
     tenant_id, agent_id = await _tenant_with_published_agent()
     source_id = await _submit(tenant_id, agent_id)
     token = await _make_admin()
@@ -224,6 +241,7 @@ async def test_approve_then_publish_returns_the_version_and_audits_both(
                 APPROVE.format(tenant_id=tenant_id, source_id=source_id),
                 headers=_admin_headers(token),
             )
+            assert await _queued(source_id, kb_service.PUBLISH_KB_SOURCE_JOB) == 1
             published = await http.post(
                 PUBLISH.format(tenant_id=tenant_id, source_id=source_id),
                 headers=_admin_headers(token),
@@ -243,10 +261,40 @@ async def test_approve_then_publish_returns_the_version_and_audits_both(
     assert _last_audit_summary(caplog).version == 1  # type: ignore[attr-defined]
 
 
-async def test_approving_twice_is_a_success_with_one_audit_row() -> None:
+async def test_approving_an_upload_queues_its_ingest_not_the_typed_publish() -> None:
+    """An upload is published by `ingest_kb_source`, which reads it first when needed; the
+    admin's approval takes that path, exactly as the client's own confirm does."""
+    from apps.api.kb import uploads
+
+    tenant_id, _agent_id = await _tenant_with_published_agent()
+    async with tenant_session(tenant_id) as session:
+        link = await uploads.create_link(
+            session,
+            tenant_id=tenant_id,
+            name="Price list",
+            url="https://example.com/prices",
+            submitted_by=None,
+            auto_approve=False,
+        )
+    source_id = uuid.UUID(str(link["source_id"]))
+    before = await _queued(source_id, uploads.INGEST_KB_SOURCE_JOB)
+    token = await _make_admin()
+    async with _client() as http:
+        approved = await http.post(
+            APPROVE.format(tenant_id=tenant_id, source_id=source_id),
+            headers=_admin_headers(token),
+        )
+    assert approved.status_code == 200, approved.text
+    assert await _queued(source_id, uploads.INGEST_KB_SOURCE_JOB) == before + 1
+    assert await _queued(source_id, kb_service.PUBLISH_KB_SOURCE_JOB) == 0
+    assert len(await _audit(tenant_id, "kb.approved")) == 1
+
+
+async def test_approving_twice_is_a_success_with_one_audit_row_and_one_publish() -> None:
     """`approve_kb`'s docstring says a repeat is 200 and NOT a second `kb.approved` row,
     because the ledger answers "who let this text reach the agent" and a row per button
-    press makes that harder. Nothing held it to that until now."""
+    press makes that harder. The publish is queued once too: a repeat approval of a source
+    already on its way live does nothing."""
     tenant_id, agent_id = await _tenant_with_published_agent()
     source_id = await _submit(tenant_id, agent_id)
     token = await _make_admin()
@@ -261,6 +309,7 @@ async def test_approving_twice_is_a_success_with_one_audit_row() -> None:
         )
     assert (first.status_code, second.status_code) == (200, 200), second.text
     assert len(await _audit(tenant_id, "kb.approved")) == 1
+    assert await _queued(source_id, kb_service.PUBLISH_KB_SOURCE_JOB) == 1
 
     # The first reviewer stays the recorded approver.
     async with tenant_session(tenant_id) as session:

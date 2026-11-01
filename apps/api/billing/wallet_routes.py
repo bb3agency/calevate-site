@@ -50,7 +50,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import Field, field_validator
 from sqlalchemy import text
 
 from apps.api.billing.credit_expiry import CREDIT_EXPIRY_LABEL, CREDIT_EXPIRY_META_KIND
@@ -97,6 +97,7 @@ from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
+from apps.api.core.schemas import Strict
 from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
 from apps.api.tenancy.models import LOW_BALANCE_ALERT_MAX_INR
@@ -114,10 +115,6 @@ WalletRead = Annotated[Principal, Depends(requires("wallet:read", realm="client"
 #: (`scripts/check_list_bounds.py`), and set to the same depth the operator's wallet shows
 #: (`credit_routes.MAX_LIMIT` territory) so a support call is not two different screens.
 MAX_LEDGER_LIMIT = 200
-
-
-class Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 class RunwayOut(Strict):

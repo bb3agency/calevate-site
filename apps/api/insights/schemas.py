@@ -12,14 +12,10 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from apps.api.core.schemas import Strict
 
 GapStatus = Literal["open", "taught", "dismissed"]
 GapSignal = Literal["dont_know", "deferred_channel", "unanswered_question"]
-
-
-class Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 class KnowledgeGapOut(Strict):

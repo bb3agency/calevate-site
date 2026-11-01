@@ -40,11 +40,11 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.call_outcomes import outcome_lead_move
-from apps.api.analytics.schemas import Strict
 from apps.api.billing.history import spend_series
 from apps.api.billing.plans import IST
 from apps.api.billing.rates import CLIENT_PULSE_SECONDS
 from apps.api.billing.service import to_paise
+from apps.api.core.schemas import Strict
 from apps.api.core.settings import get_settings
 from apps.api.crm.performance import CONNECTED_SQL, DIAL_ONLY_STATUSES
 from apps.api.ops.reply_times import P90_MIN_CALLS, median_or_none, p90_or_none

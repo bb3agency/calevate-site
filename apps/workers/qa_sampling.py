@@ -60,7 +60,7 @@ from sqlalchemy import text
 
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.db.session import admin_session, tenant_session
 from apps.api.quality.sampling import draw_week_sample, ist_week_start
 from apps.workers.fleet_walk import WalkBudget, resumed_walk
@@ -142,7 +142,7 @@ async def draw_qa_samples(ctx: dict[str, Any]) -> str:
     # `ctx` IS read now — `job_try` bounds the retry ladder at the bottom of this
     # function (P6.5). It used to be discarded on the first line, which is how the
     # unbounded `Retry` went unnoticed: nothing in the body could see which attempt it was.
-    attempt = int(ctx.get("job_try", 1) or 1)
+    attempt = job_try(ctx)
     weeks = closed_weeks(datetime.now(UTC))
     async with admin_session() as directory:
         rows = (await directory.execute(text(_DIRECTORY))).all()

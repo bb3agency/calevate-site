@@ -54,7 +54,7 @@ from apps.api.compliance.service import BIG_RED_SWITCH_REASON, BIG_RED_SWITCH_RU
 from apps.api.core.alerting import alert
 from apps.api.core.loadshed import get_platform_status
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
 from apps.workers.campaign_dispatch import settle_recalled_contact
@@ -222,7 +222,7 @@ async def _recall() -> str:
             # reports a number that reads smaller and healthier than the truth.
             log.warning(
                 "dial_recall_failed",
-                extra={"call_id": str(dial.call_id), "reason": exc.__class__.__name__},
+                extra={"call_id": str(dial.call_id), "error": exc.__class__.__name__},
             )
             unreachable.append(dial.call_id)
             continue
@@ -322,9 +322,9 @@ async def recall_queued_dials(ctx: dict[str, Any]) -> str:
     except Exception as exc:
         log.warning(
             "dial_recall_run_failed",
-            extra={"reason": exc.__class__.__name__, "attempt": ctx.get("job_try")},
+            extra={"error": exc.__class__.__name__, "attempt": job_try(ctx)},
         )
-        attempt = int(ctx.get("job_try", 1) or 1)
+        attempt = job_try(ctx)
         if attempt < WORKER_MAX_TRIES:
             # Climbing `defer`, BACKEND-PATTERNS §4's ladder — but a SHORT one, unlike the
             # violations sweep's 30s: every second of it is a dial the vendor may start

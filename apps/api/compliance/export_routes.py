@@ -68,7 +68,6 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance.audit import write_audit
@@ -78,6 +77,7 @@ from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.rbac import permission_meta
+from apps.api.core.schemas import Strict
 
 router = APIRouter(prefix="/v1/compliance/subject-export", tags=["compliance"])
 
@@ -86,10 +86,6 @@ Session = Annotated[AsyncSession, Depends(db)]
 # `export_routes.py`, not `routes.py`, so it sits outside the B008 per-file ignore in
 # pyproject — same situation, and same resolution, as `agents/prompt_routes.py`.
 SubjectExportReader = Annotated[Principal, Depends(requires("calls:read_raw"))]
-
-
-class Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 class SubjectExportIn(Strict):

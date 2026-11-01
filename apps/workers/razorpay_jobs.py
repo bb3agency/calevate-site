@@ -43,6 +43,7 @@ from apps.api.core.alerting import alert
 from apps.api.core.brand import PRODUCT
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
+from apps.api.core.queue import job_try
 from apps.api.core.transport import EmailPurpose, get_transport
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.workers.account_closure import account_recipients
@@ -247,7 +248,7 @@ async def send_payment_notice(ctx: dict[str, Any], payload: dict[str, Any]) -> s
         return "unknown_kind"
     if kind in _OWNER_KINDS:
         return await _send_dispute_notice(
-            attempt=int(ctx.get("job_try", 1)), tenant_id=tenant_id, kind=kind, payload=payload
+            attempt=job_try(ctx), tenant_id=tenant_id, kind=kind, payload=payload
         )
     async with tenant_session(tenant_id) as session:
         row = (
@@ -279,7 +280,7 @@ async def send_payment_notice(ctx: dict[str, Any], payload: dict[str, Any]) -> s
         )
     )
     if not delivered:
-        attempt = int(ctx.get("job_try", 1))
+        attempt = job_try(ctx)
         raise Retry(defer=ladder_delay_s(_RETRY_S, attempt))
     log.info("payment_notice_sent", extra={"tenant_id": str(tenant_id), "kind": kind})
     return "sent"

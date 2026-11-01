@@ -22,7 +22,7 @@ from calevate_shared.engine_scope import scope_of
 from sqlalchemy import text
 
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
 from apps.api.go_live.moves import agents_to_move, move_agent, queue_agent_move
@@ -46,7 +46,7 @@ async def move_agents_to_workspace(ctx: dict[str, Any], payload: dict[str, Any])
     workspace = str(payload["workspace_id"])
     if not engine_has_workspaces():
         return "not_applicable"
-    attempt = int(ctx.get("job_try", 1))
+    attempt = job_try(ctx)
     async with tenant_session(tenant_id) as session:
         state = await read_workspace_state(session, tenant_id)
         if not state.active or state.workspace_id != workspace:

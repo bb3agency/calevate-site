@@ -19,7 +19,7 @@ from decimal import Decimal
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query, Request
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import Field, field_validator
 from sqlalchemy import text
 
 from apps.api.billing.auto_recharge import (
@@ -35,16 +35,13 @@ from apps.api.billing.service import refuse_json_float, to_paise
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.rbac import permission_meta
+from apps.api.core.schemas import Strict as _Strict
 from apps.api.db.session import tenant_session
 
 router = APIRouter(prefix="/v1/billing/auto-recharge", tags=["billing"])
 
 Reader = Annotated[Principal, Depends(requires("billing:read", realm="client"))]
 Writer = Annotated[Principal, Depends(requires("org:manage", realm="client"))]
-
-
-class _Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 class AutoRechargeOut(_Strict):

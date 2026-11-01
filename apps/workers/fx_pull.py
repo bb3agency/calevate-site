@@ -208,15 +208,15 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Final, Literal
 from urllib.parse import urlencode
-from zoneinfo import ZoneInfo
 
 import httpx
 from arq import Retry
 from calevate_shared.backoff import ladder_delay_s
+from calevate_shared.calling_window import IST
 
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.db.session import untenanted_session
 from apps.api.ops.fx_rates import (
     BASE_CURRENCY,
@@ -233,13 +233,11 @@ from apps.api.ops.fx_rates import (
 
 log = get_logger(__name__)
 
-#: FBIL publishes for an Indian business day, so "today" for the request window and the
-#: future-date check is the IST date; the UTC date is still yesterday until 05:30 IST.
-_IST: Final = ZoneInfo("Asia/Kolkata")
-
 
 def ist_today() -> date:
-    return datetime.now(_IST).date()
+    """FBIL publishes for an Indian business day, so "today" for the request window and the
+    future-date check is the IST date; the UTC date is still yesterday until 05:30 IST."""
+    return datetime.now(IST).date()
 
 
 #: FBIL's own reference-rate endpoint, without the per-tick query string. THE TOP RUNG
@@ -907,7 +905,7 @@ async def _walk_ladder(now: datetime) -> LadderResult:
     last_error: FxPullError | None = None
     for rung in LADDER:
         try:
-            rate, as_of = await fetch_published_rate(rung, today=now.astimezone(_IST).date())
+            rate, as_of = await fetch_published_rate(rung, today=now.astimezone(IST).date())
         except FxPullError as exc:
             # The subclass is the sorting distinction: unreachable is availability, bare is
             # a changed contract. `exc.code` is the acting distinction — which of the two
@@ -935,7 +933,7 @@ async def _walk_ladder(now: datetime) -> LadderResult:
                     rate=rate,
                     as_of=as_of,
                     source=rung.source,
-                    source_url=rung.url_for(now.astimezone(_IST).date()),
+                    source_url=rung.url_for(now.astimezone(IST).date()),
                 )
         except ImplausibleRateError as exc:
             # NOT retried, and NOT descended past. The feed answered and we refused its
@@ -972,7 +970,7 @@ async def pull_fx_rate(ctx: dict[str, Any]) -> str:
     stored nothing" answerable without reading a day of logs — and "stored nothing" is
     the CORRECT and overwhelmingly common outcome, because the publication is daily.
     """
-    attempt = int(ctx.get("job_try", 1))
+    attempt = job_try(ctx)
     now = datetime.now(UTC)
     try:
         result = await _walk_ladder(now)
@@ -1055,7 +1053,7 @@ async def pull_fx_rate(ctx: dict[str, Any]) -> str:
         # rule 4 means none of those rows can be annotated afterwards. So an operator is
         # told at the moment it moves, rather than discovering it in a reconciliation.
         previous = await last_check()
-        today = now.astimezone(_IST).date()
+        today = now.astimezone(IST).date()
         degraded_alarmed_on = today
         if degraded_alarm_due(previous, serving_source=rung.source, today=today):
             _alert_source_degraded(rung, observation, preferred_reason, preferred_code, result)

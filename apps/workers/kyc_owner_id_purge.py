@@ -34,7 +34,7 @@ from apps.api.compliance.kyc_documents import (
 )
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.workers import storage
 
@@ -86,7 +86,7 @@ async def purge_due_kyc_documents() -> int:
         except Exception as exc:
             log.warning(
                 "kyc_document_purge_item_failed",
-                extra={"document_id": str(document_id), "reason": exc.__class__.__name__},
+                extra={"document_id": str(document_id), "error": exc.__class__.__name__},
             )
             failed += 1
             async with tenant_session(UUID(str(tenant_id))) as scoped:
@@ -125,10 +125,10 @@ async def sweep_abandoned_owner_ids(ctx: dict[str, Any]) -> str:
     try:
         purged = await purge_due_kyc_documents()
     except Exception as exc:
-        attempt = int(ctx.get("job_try", 1) or 1)
+        attempt = job_try(ctx)
         log.warning(
             "kyc_owner_id_purge_failed",
-            extra={"reason": exc.__class__.__name__, "attempt": attempt},
+            extra={"error": exc.__class__.__name__, "attempt": attempt},
         )
         if attempt < WORKER_MAX_TRIES:
             raise Retry(defer=jittered_delay_s(60 * attempt)) from exc

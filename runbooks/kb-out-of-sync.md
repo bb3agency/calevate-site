@@ -1,10 +1,13 @@
 # Runbook — publishing knowledge is refused: `kb_engine_out_of_sync`
 
-Symptom: an operator presses Publish on an approved knowledge source
+Symptom: an approved knowledge source does not go live. Approving publishes it with no
+human step (D-951), so the refusal arrives in the worker, not on a button: the log line
+`kb_auto_publish_refused` (typed text) or `kb_ingest_failed` (an upload, with the reason on
+its row) carries one of two business-rule codes, and the source sits under "Going live" on
+the operator's client screen. Running the publish by hand
 (`POST /v1/admin/tenants/{tenant_id}/kb/{source_id}/publish`, admin realm,
-`agents:write`) and gets one of two business-rule refusals instead of a new live version.
-The client is usually looking at it, because the thing they wanted published is a price
-list.
+`agents:write`) answers the same refusal with its remediation. The client is usually
+looking at it, because the thing they wanted published is a price list.
 
 **Both refusals mean the same disease and have different cures, and the wrong cure leaves
 the agent quoting the old prices.** Read the whole runbook before acting on either.
@@ -33,7 +36,7 @@ agent giving inconsistent answers, not an agent giving none, and the first quest
 which of the leftovers is the version the client approved.
 
 **A re-publish of unchanged content uploads nothing**, keyed on a SHA-256 of the rendered
-document stored beside the handle. So "just press Publish again" is safe in a way it was
+document stored beside the handle. So re-running the publish is safe in a way it was
 not before: it will not mint a second copy of text that is already attached.
 
 Ground rules: audited admin path for any production SQL (SECURITY-COMPLIANCE.md

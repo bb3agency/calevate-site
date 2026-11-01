@@ -10,11 +10,7 @@ from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
-
-
-class Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+from apps.api.core.schemas import Strict
 
 
 class RangeOut(Strict):

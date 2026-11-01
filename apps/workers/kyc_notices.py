@@ -27,6 +27,7 @@ from apps.api.compliance.kyc import read_kyc
 from apps.api.compliance.kyc_review import KYC_DECISION_NOTICE_JOB, waiting_reviews
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
+from apps.api.core.queue import job_try
 from apps.api.core.transport import EmailPurpose, get_transport
 from apps.api.db.session import admin_session, tenant_session
 from apps.workers.account_closure import account_recipients
@@ -109,7 +110,7 @@ async def notify_kyc_decision(ctx: dict[str, Any], payload: dict[str, Any]) -> s
     # Retried only when nobody got it: a retry after a partial send mails the addresses
     # that already have it a second time.
     if not delivered:
-        raise Retry(defer=ladder_delay_s(_RETRY_S, int(ctx.get("job_try", 1))))
+        raise Retry(defer=ladder_delay_s(_RETRY_S, job_try(ctx)))
     log.info(
         "kyc_decision_notice_sent",
         extra={"tenant_id": str(tenant_id), "decision": decision, "delivered": delivered},

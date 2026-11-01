@@ -43,7 +43,7 @@ from typing import Annotated, Final
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Request
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import Field, field_validator
 
 from apps.api.admin.service import tenant_exists
 from apps.api.billing.cost_breakdown import CostBreakdownOut
@@ -74,9 +74,10 @@ from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta, role_has
+from apps.api.core.schemas import Strict
 from apps.api.core.stepup import StepUpGate
 from apps.api.db.session import tenant_session
-from apps.api.reliability.service import enqueue_outbox_once
+from apps.api.reliability.service import enqueue_outbox_once, require_idempotency_key
 
 log = get_logger(__name__)
 
@@ -114,10 +115,6 @@ def start_trial_confirmation(tenant_id: UUID, days: int) -> str:
     what this act can cost — an operator who meant 14 and typed 140 has to key 140 twice.
     """
     return f"start_trial:{tenant_id}:{days}"
-
-
-class Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 class TrialStartIn(Strict):
@@ -495,15 +492,11 @@ async def smoke_trial_call(
 
     async with tenant_session(tenant_id) as scoped:
         await _assert_tenant_exists(tenant_id, scoped)
-    if not idempotency_key:
-        raise ProblemError(
-            kind="validation",
-            status=400,
-            code="idempotency_key_required",
-            title="A test call needs an Idempotency-Key header",
-            detail="Each test call rings a real phone, so every attempt names itself.",
-            remediation="Send an `Idempotency-Key` header — one fresh value per attempt.",
-        )
+    key = require_idempotency_key(
+        idempotency_key,
+        title="A test call needs an Idempotency-Key header",
+        detail="Each test call rings a real phone, so every attempt names itself.",
+    )
     async with tenant_session(tenant_id) as scoped:
         result = await place_trial_call(
             scoped,
@@ -511,7 +504,7 @@ async def smoke_trial_call(
             tenant_id=tenant_id,
             agent_id=payload.agent_id,
             number=payload.number,
-            idempotency_key=idempotency_key,
+            idempotency_key=key,
             ip=client_request_ip(request),
         )
     return TrialSmokeCallOut(

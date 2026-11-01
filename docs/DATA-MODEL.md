@@ -454,15 +454,13 @@ phone_numbers(id, tenant_id, agent_id, e164 UNIQUE, series ENUM[140,160,standard
   monthly_rental_usd NUMERIC(12,4), released_at TIMESTAMPTZ,
   direction ENUM[inbound,outbound,both] NOT NULL DEFAULT 'inbound',
   activated_at TIMESTAMPTZ, client_inr_per_month NUMERIC(12,2),
-  carrier_binding_id TEXT, rental_charged_from DATE)
+  rental_charged_from DATE)
   -- `direction`, `activated_at` and `client_inr_per_month` land with migration
   -- c9d41f7b2e08, the client's own browse/buy/assign flow.
   -- `provider` names who supplies the number: `ck_phone_numbers_provider_carrier` allows
-  -- NULL, 'vobiz', 'plivo' or 'thinnest' (migration a3d9e6f1c204). Every number on
-  -- ThinnestAI is 'thinnest'; 'vobiz' and 'plivo' are no longer written (D-763) and leave
-  -- the CHECK next release.
-  -- `carrier_binding_id` (migration d4a7b2c91e30, D-662): NO LONGER WRITTEN (D-763);
-  -- dropped next release. It held our own carrier's attachment id for the number.
+  -- NULL, 'plivo' or 'thinnest' (migration b5e1d7c3a906, D-950, which set any 'vobiz' to
+  -- NULL and dropped `carrier_binding_id`). Every number on ThinnestAI is 'thinnest';
+  -- 'plivo' is not written (`provision_number` records it as NULL).
   -- `rental_charged_from` (migration e8b14d6a2c57, D-665) is the first rental period the
   -- CLIENT is charged for. NULL = from the purchase (every new number); the migration
   -- stamped each existing client-priced number with its first renewal date after the deploy,
@@ -571,12 +569,8 @@ so history is preserved.
 ```
 calls(id, tenant_id, agent_id, engine_call_id UNIQUE, direction, from_e164, to_e164,
   status ENUM[queued,ringing,in_progress,completed,failed,no_answer,busy,voicemail],
-  carrier TEXT NULL CHECK (carrier IS NULL OR carrier IN ('vobiz','plivo')),
-                                       -- (D-663, migration f5c2a8e41d07, ck_calls_carrier_enum)
-                                       -- NO LONGER WRITTEN (D-763); dropped next release, with
-                                       -- INDEX ix_calls_carrier_live. Our own carrier's leg.
-  carrier_call_id TEXT NULL,           -- NO LONGER WRITTEN (D-763); dropped next release. Our
-                                       -- own carrier's call id. Still READ by both erasures,
+  carrier_call_id TEXT NULL,           -- NO LONGER WRITTEN (D-763). Our former carrier's
+                                       -- call id. Still READ by both erasures,
                                        -- which quote it on a `telephony` processor-erasure task
                                        -- for rows from test calls placed before D-763 (D-664).
                                        -- INDEX ix_calls_tenant_carrier_call_id (migration
@@ -585,16 +579,15 @@ calls(id, tenant_id, agent_id, engine_call_id UNIQUE, direction, from_e164, to_e
   transfer_recording_url TEXT NULL,    -- the transferred leg's recording (D-533, migration
                                        -- b8d1f04c73a9): OUR key, same bucket, retention and
                                        -- erasure as recording_url; NULL unless the call handed over.
-  carrier_recording_id TEXT NULL,      -- NO LONGER WRITTEN (D-763); dropped next release, with
-                                       -- CHECK ck_calls_carrier_recording_id_shape and INDEX
-                                       -- ix_calls_recording_uncopied. Our own carrier's recording
-                                       -- id (D-668); read by the erasures as carrier_call_id is.
-  recording_copied_at TIMESTAMPTZ NULL, carrier_recording_deleted_at TIMESTAMPTZ NULL,
-                                       -- (D-670, migration c5d82f1a9e47) NO LONGER WRITTEN
-                                       -- (D-763); dropped next release, with INDEX
-                                       -- ix_calls_carrier_recording_undeleted. A ThinnestAI
-                                       -- recording is copied by `engine/recording_source.py`
-                                       -- into `recording_url`.
+  carrier_recording_id TEXT NULL,      -- NO LONGER WRITTEN (D-763), with CHECK
+                                       -- ck_calls_carrier_recording_id_shape and INDEX
+                                       -- ix_calls_recording_uncopied. Our former carrier's
+                                       -- recording id (D-668); read by the erasures as
+                                       -- carrier_call_id is. A ThinnestAI recording is copied by
+                                       -- `engine/recording_source.py` into `recording_url`.
+                                       -- `carrier`, `recording_copied_at` and
+                                       -- `carrier_recording_deleted_at` were dropped with their
+                                       -- CHECK and indexes by migration b5e1d7c3a906 (D-950).
   disclosure_played BOOL, consent_recording ENUM[granted,declined,na],
   outcome_tag ENUM[call_back_booked,needs_you,answered,transferred,hung_up_early,missed],
                                        -- DERIVED from facts after extraction (crm/outcomes,
@@ -642,11 +635,10 @@ calls(id, tenant_id, agent_id, engine_call_id UNIQUE, direction, from_e164, to_e
 --   knowledge_state (migration e2a91c7f45b8; NO LONGER WRITTEN, D-763, dropped next
 --   release: our own engine reported whether its knowledge pack loaded) and crm_notified_at
 --   (migration e83b5d1a4c07: when the CRM fan-out was promised for this call).
--- FUNCTION carrier_lines_in_use(p_carrier, live_horizon, ring_horizon) → integer
---   (D-663, migration a6d3b9f52e18). NO LONGER CALLED (D-763); dropped next release. The dial
---   gate counts ThinnestAI's outbound lines with its own query under the same advisory lock
---   (`agents.service._hold_engine_line`, `engine/dial_lines.py`); the call row's status IS
---   the hold, so nothing has to release a line.
+-- The dial gate counts ThinnestAI's outbound lines with its own query under an advisory
+--   lock (`agents.service._hold_engine_line`, `engine/dial_lines.py`); the call row's status
+--   IS the hold, so nothing has to release a line. (The owned carrier's
+--   `carrier_lines_in_use` was dropped by migration b5e1d7c3a906, D-950.)
 -- FUNCTION queued_dial_scan — the big red switch's recall scan — reaches `ringing` dials as
 --   well as `queued` ones since migration b7e4c0a63f29 (D-663).
 -- calls.engine_quality JSONB (migration a5d1c7e93f28, D-736): the voice platform's per-call

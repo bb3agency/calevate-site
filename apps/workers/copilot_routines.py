@@ -29,7 +29,7 @@ from sqlalchemy import text
 from apps.api.copilot import routines
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.db.session import tenant_session, untenanted_session
 
 log = get_logger(__name__)
@@ -58,7 +58,7 @@ async def fire_due_routines(ctx: dict[str, Any]) -> str:
                 ).all()
             ]
     except Exception as failure:
-        attempt = int(ctx.get("job_try", 1))
+        attempt = job_try(ctx)
         if attempt < WORKER_MAX_TRIES:
             raise Retry(defer=jittered_delay_s(attempt * 5)) from failure
         alert(

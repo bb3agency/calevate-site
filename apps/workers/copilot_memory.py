@@ -65,7 +65,7 @@ from apps.api.copilot.memory import KIND_EPISODIC, KIND_SEMANTIC, redacted_conte
 from apps.api.core import provider_health
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.crm.assist import ASSIST_FEATURE_COPILOT_MEMORY
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
@@ -406,7 +406,7 @@ async def distil_copilot_memories(ctx: dict[str, Any]) -> str:
             ]
             brake = await platform_brake_tripped(session)
     except Exception as failure:
-        attempt = int(ctx.get("job_try", 1))
+        attempt = job_try(ctx)
         if attempt < WORKER_MAX_TRIES:
             raise Retry(defer=jittered_delay_s(attempt * 30)) from failure
         alert(

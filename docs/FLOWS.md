@@ -561,12 +561,18 @@ A document or link takes the same path through `ingest_kb_source`, read first; t
 model read off a photograph is no longer held for the owner's confirmation. A submission
 nobody in the account made — a view-as operator's, an intake seed, a NEW version the
 re-scrape sweep submits for a changed page an OPERATOR linked — lands `pending_approval`
-and waits for an admin (or, for an upload, the account's own confirm). A changed page a
+and waits for an admin (or, for an upload, the account's own confirm). **Approved means
+live (D-951): there is no human publish step.** Either approval queues the publish in its
+own transaction, the way that kind already publishes (`kb/uploads.approve_and_publish`:
+an upload through `ingest_kb_source`, typed text through `publish_kb_source`). A changed page a
 MEMBER linked is approved in the linker's name and published the same way ("the client
 linked the page, so its updates are theirs"). An automatic publish
 never overwrites a later approved version of the same name
-(`kb/service.publish_unless_superseded`); one refused because the agent is not yet
-published is re-driven by `sweep_kb_uploads`. Rollback = republish an earlier version (the archived row;
+(`kb/service.publish_unless_superseded`); an approved version that is not live, whoever
+approved it — its publish refused or its job lost — is re-driven by `sweep_kb_uploads`
+(the typed arm for text, the stalled-upload arm for an upload; an upload at `error` waits
+for a person). The admin publish route stays only as the rollback and repair door.
+Rollback = republish an earlier version (the archived row;
 eligibility is `approved_at IS NOT NULL`, never the current `status`, or the recovery
 path refuses the only rows it exists for).
 
@@ -622,7 +628,7 @@ still an outage.
 **A re-publish of unchanged content uploads nothing.** There is no update route on the
 engine's knowledge base, so `attach_kb` is a CREATE that mints a fresh handle every time
 and de-duplicates nothing. The publisher keys on a SHA-256 of the rendered document stored
-beside the handle, so a double-clicked Publish, a retry after a timeout and a rollback onto
+beside the handle, so a sweep re-drive, a retry after a timeout and a rollback onto
 the version already live cost nothing instead of stacking a second billed copy that the
 first handle could never name again.
 

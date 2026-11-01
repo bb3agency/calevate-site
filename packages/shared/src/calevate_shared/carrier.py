@@ -1,4 +1,4 @@
-"""Telephony names shared by the deployables: who holds a number, and the carriers of old rows.
+"""Telephony names shared by the deployables: who holds a number.
 
 The platform carries no telephony of its own: the engine places and answers every call on
 its own numbers (D-678). What remains here is the vocabulary rows and logs still use.
@@ -7,18 +7,12 @@ its own numbers (D-678). What remains here is the vocabulary rows and logs still
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Final, Literal, get_args
+from typing import Final, Literal
 
-#: `calls.carrier` values, from which its CHECK constraint is built. Historical values;
-#: dropped with the D-763 drop migration.
-CarrierName = Literal["vobiz", "plivo"]
-
-CARRIERS: Final[tuple[CarrierName, ...]] = get_args(CarrierName)
-
-#: Who holds a recorded calling number (`phone_numbers.provider`): an engine that rents and
-#: attaches numbers on its own account. `vobiz` and `plivo` are historical values; dropped
-#: with the D-763 drop migration.
-NumberProvider = Literal["vobiz", "plivo", "thinnest"]
+#: Who holds a recorded calling number (`phone_numbers.provider`), from which its CHECK
+#: constraint is built: an engine that rents and attaches numbers on its own account, or a
+#: client's own Plivo connection.
+NumberProvider = Literal["plivo", "thinnest"]
 
 #: The providers an operator may record a NEW number under: a client's own Plivo connection
 #: (Model B) or a number held on the engine.
@@ -36,9 +30,7 @@ CALLBACK_SECRET_PARAM: Final = "callback_key"
 
 __all__ = [
     "CALLBACK_SECRET_PARAM",
-    "CARRIERS",
     "ENGINE_NUMBER_PROVIDER",
-    "CarrierName",
     "NumberProvider",
     "RecordableNumberProvider",
 ]

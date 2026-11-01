@@ -2,7 +2,9 @@
 
     account member submits TEXT → chunk → approved on submission → outbox
     `publish_kb_source` → version bump → engine KB sync → T0 recompilation → live.
-    Anyone else's submission → `pending_approval` → admin approves → admin publishes.
+    Anyone else's submission → `pending_approval` → admin approves → published the same
+    way, queued by the approval (`kb.uploads.approve_and_publish`; approved means live,
+    D-951).
     Rollback = reactivate the prior version.
 
 "TEXT", and only text: `SUPPORTED_SUBMISSION_KINDS` below refuses a document or a URL by
@@ -395,6 +397,16 @@ async def insert_source_version(
     return source_id, version, status
 
 
+async def enqueue_publish(session: AsyncSession, *, tenant_id: UUID, source_id: UUID) -> None:
+    """Queue `publish_kb_source` for one approved typed version, in the caller's transaction
+    (outbox), so the approval and the promise to publish it commit or roll back together."""
+    await enqueue_outbox(
+        session,
+        job=PUBLISH_KB_SOURCE_JOB,
+        payload={"tenant_id": str(tenant_id), "source_id": str(source_id)},
+    )
+
+
 async def submit_source(
     session: AsyncSession,
     *,
@@ -475,11 +487,7 @@ async def submit_source(
             },
         )
     if status == "approved":
-        await enqueue_outbox(
-            session,
-            job=PUBLISH_KB_SOURCE_JOB,
-            payload={"tenant_id": str(tenant_id), "source_id": str(source_id)},
-        )
+        await enqueue_publish(session, tenant_id=tenant_id, source_id=source_id)
     return {
         "id": source_id,
         "version": version,
@@ -1088,7 +1096,7 @@ def _render_document(chunks: list[ApprovedChunk]) -> RenderedKnowledgePdf:
         # markers, byte ceilings and an internal invariant.
         log.error(
             "kb_render_refused",
-            extra={"reason": type(exc).__name__, "chunks": len(chunks)},
+            extra={"error": type(exc).__name__, "chunks": len(chunks)},
         )
         detail, remediation = _render_refusal_words(exc)
         raise ProblemError(
@@ -3033,6 +3041,7 @@ __all__ = [
     "chunk_text",
     "converge_agent_knowledge",
     "delivered_source_count",
+    "enqueue_publish",
     "knowledge_agents",
     "list_sources",
     "live_chunks",

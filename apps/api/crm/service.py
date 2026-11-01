@@ -15,10 +15,11 @@ import io
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any, Final, Literal, NamedTuple, get_args
 from uuid import UUID
 
+from calevate_shared.calling_window import IST
 from calevate_shared.cut_off import likely_cut_off_rows
 from calevate_shared.events import CallInsights, CallStatus, CallTimeline
 from calevate_shared.extraction import (
@@ -2193,7 +2194,7 @@ def _calls_csv(rows: Sequence[Any]) -> str:
     writer = csv.writer(buffer, quoting=csv.QUOTE_ALL)
     writer.writerow([_csv_value(h) for h in CALL_EXPORT_HEADER])
     for r in rows:
-        started = r[0].astimezone(_EXPORT_IST).strftime("%Y-%m-%d %H:%M") if r[0] else ""
+        started = r[0].astimezone(IST).strftime("%Y-%m-%d %H:%M") if r[0] else ""
         number = r[2] if r[1] == "inbound" else r[3]
         writer.writerow(
             [
@@ -2212,9 +2213,6 @@ def _calls_csv(rows: Sequence[Any]) -> str:
             ]
         )
     return buffer.getvalue()
-
-
-_EXPORT_IST = timezone(timedelta(hours=5, minutes=30))
 
 
 @dataclass(frozen=True, slots=True)
@@ -3129,9 +3127,7 @@ async def _refuse_when_call_back_booked(session: AsyncSession, call_id: UUID) ->
     if booked is None:
         return False
     due_at, cb_status, _reason = booked
-    when = (
-        due_at.astimezone(_EXPORT_IST).strftime("%d %b at %H:%M") if due_at else "the agreed time"
-    )
+    when = due_at.astimezone(IST).strftime("%d %b at %H:%M") if due_at else "the agreed time"
     if cb_status in ("scheduled", "dialing"):
         raise ProblemError.business_rule(
             "callback_already_booked",

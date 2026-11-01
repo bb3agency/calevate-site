@@ -81,7 +81,9 @@ def test_the_spoken_form_a_caller_hears_back_cannot_be_misread() -> None:
     assert slot.spoken == "Tuesday 8 September at 4:00 PM"
     # UTC in, IST out (repo convention). 16:00 IST is 10:30 UTC.
     assert slot.at_utc == datetime(2026, 9, 8, 10, 30, tzinfo=UTC)
-    assert slot.at_ist == slot.at_utc + IST
+    assert slot.at_ist == slot.at_utc
+    assert slot.at_ist.tzinfo is IST
+    assert (slot.at_ist.hour, slot.at_ist.minute) == (16, 0)
 
 
 def test_the_refusal_vocabulary_is_closed() -> None:

@@ -96,7 +96,7 @@ from apps.api.campaigns.provisioning import number_provisioning_capability
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.db.session import admin_session, tenant_session, untenanted_session
 from apps.api.engine import get_engine
 
@@ -224,7 +224,7 @@ async def meter_number_rentals(ctx: dict[str, Any]) -> str:
                 "number_rental_metering_failed",
                 extra={"number_id": str(number_id), "error": exc.__class__.__name__},
             )
-    attempt = int(ctx.get("job_try", 1))
+    attempt = job_try(ctx)
     if failed and attempt < WORKER_MAX_TRIES:
         # This cron runs once a month, so a transient failure is retried here or lost for
         # the month; the record is idempotent on (number, month), so a retry costs nothing.
@@ -371,7 +371,7 @@ async def renew_number_rentals(ctx: dict[str, Any]) -> str:
     one failure costs nobody else theirs. Failures retry the whole tick (free, by the key),
     then alarm.
     """
-    attempt = int(ctx.get("job_try", 1))
+    attempt = job_try(ctx)
     today = today_ist()
     async with admin_session() as directory:
         tenants = [UUID(str(t)) for t in (await directory.execute(text(_ALL_TENANTS))).scalars()]

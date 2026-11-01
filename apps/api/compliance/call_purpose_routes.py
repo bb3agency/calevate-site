@@ -15,7 +15,7 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance import promo_checks
@@ -24,6 +24,7 @@ from apps.api.core.auth import requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.rbac import permission_meta
+from apps.api.core.schemas import Strict
 
 router = APIRouter(prefix="/v1/compliance", tags=["compliance"])
 
@@ -35,10 +36,6 @@ CampaignReader = Annotated[Principal, Depends(requires("leads:read"))]
 #: is well under this, and the bound keeps a pasted novel from becoming a regex workload.
 MAX_PARTS = 60
 MAX_PART_CHARS = 20000
-
-
-class Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 class WordingIn(Strict):

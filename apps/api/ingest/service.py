@@ -40,7 +40,6 @@ from uuid import UUID
 
 from calevate_shared.calling_window import (
     DEFAULT_WINDOW,
-    IST,
     ist_wall_clock,
     next_window_opening,
     within_window,
@@ -656,7 +655,7 @@ async def ingest_lead(
     # It only ever narrows when a lawful call is placed; the gate above already decided
     # whether one may be, and runs again when a later call falls due. The gate's own clock,
     # so the plan and the gate cannot disagree about what time it is.
-    timing = when_to_call(plan, compliance_service.ist_now() - IST)
+    timing = when_to_call(plan, compliance_service.ist_now().astimezone(UTC))
     person_refusal = not decision.allowed and decision.rule not in WINDOW_REFUSALS
     if not person_refusal and timing.kind == "hold":
         await hold_lead(
@@ -691,7 +690,9 @@ async def ingest_lead(
         if window_rule is not None:
             # The gate's own clock, so the slot is computed from the instant it refused on,
             # then moved to the client's own next opening (never earlier).
-            due = await next_allowed_dial(window_rule, now=compliance_service.ist_now() - IST)
+            due = await next_allowed_dial(
+                window_rule, now=compliance_service.ist_now().astimezone(UTC)
+            )
             if timing.at is not None and timing.at > due:
                 due = timing.at
             due = align(plan, due) or due
@@ -766,7 +767,7 @@ async def ingest_lead(
         if refused.code == CALLING_HOURS_RULE:
             # The phone system refused the calling hours we sent (D-872): the dial reached
             # it after 21:00. Booked for the next opening as the gate's refusal is above.
-            due = retry_after_engine_hours_refusal(compliance_service.ist_now() - IST)
+            due = retry_after_engine_hours_refusal(compliance_service.ist_now().astimezone(UTC))
             due = align(plan, due) or due
             return await _defer_to_callback(
                 session,
@@ -843,7 +844,7 @@ async def next_allowed_dial(rule: str, *, now: datetime) -> datetime:
         earliest = ends_at if ends_at is not None and ends_at > now else now + RETRY_AFTER
     elif rule == BIG_RED_SWITCH_RULE:
         earliest = now + RETRY_AFTER
-    return next_window_opening(ist_wall_clock(earliest)) - IST
+    return next_window_opening(ist_wall_clock(earliest)).astimezone(UTC)
 
 
 def retry_after_engine_hours_refusal(now: datetime) -> datetime:
@@ -859,13 +860,13 @@ def retry_after_engine_hours_refusal(now: datetime) -> datetime:
     """
     wall = ist_wall_clock(now)
     if not within_window(wall):
-        return next_window_opening(wall) - IST
+        return next_window_opening(wall).astimezone(UTC)
     start, end = DEFAULT_WINDOW
     midpoint = (start.hour * 60 + start.minute + end.hour * 60 + end.minute) / 2
     if wall.hour * 60 + wall.minute < midpoint:
         return now
     closed = wall.replace(hour=end.hour, minute=end.minute, second=0, microsecond=0)
-    return next_window_opening(closed) - IST
+    return next_window_opening(closed).astimezone(UTC)
 
 
 async def _defer_to_callback(

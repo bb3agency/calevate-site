@@ -7,8 +7,9 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
 
+from apps.api.core.schemas import Strict as _Strict
 from apps.api.crm.schemas import LeadLensIn
 from apps.api.follow_ups import definition as d
 from apps.api.follow_ups.models import MAX_NAME_CHARS
@@ -23,10 +24,6 @@ StarterKey = Literal[
     "payment_reminder",
     "win_back",
 ]
-
-
-class _Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 # Every step in an answer also carries `summary`, one plain line the screen and Pip show.

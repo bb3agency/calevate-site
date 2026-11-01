@@ -86,6 +86,23 @@ def body_hash(payload: Any) -> str:
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
+def require_idempotency_key(key: str | None, *, title: str, detail: str) -> str:
+    """The `Idempotency-Key` a route that cannot be undone (a phone rung, a message sent,
+    money spent) requires rather than merely honours: an optional key dedupes only the
+    callers that remember to send one. Refused as 400 `idempotency_key_required`; the
+    route names its action in `title` and why a repeat matters in `detail`."""
+    if not key:
+        raise ProblemError(
+            kind="validation",
+            status=400,
+            code="idempotency_key_required",
+            title=title,
+            detail=detail,
+            remediation="Send an `Idempotency-Key` header — one fresh value per attempt.",
+        )
+    return key
+
+
 def scope_key(*, tenant_id: UUID | None, user_id: UUID | None) -> str:
     """HMAC fingerprint of tenant/user — RAW IDS ARE NEVER STORED in the idempotency
     table (§4). Two tenants sending the same Idempotency-Key stay independent.

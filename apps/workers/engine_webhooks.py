@@ -148,7 +148,7 @@ async def _stamp_visited(tenant_id: UUID, engine: str, ref: str) -> None:
     except Exception as exc:
         log.warning(
             "engine_webhook_visit_unstamped",
-            extra={"engine": engine, "tenant_id": str(tenant_id), "reason": type(exc).__name__},
+            extra={"engine": engine, "tenant_id": str(tenant_id), "error": type(exc).__name__},
         )
 
 
@@ -181,7 +181,7 @@ async def reconcile_engine_webhooks(ctx: dict[str, Any]) -> str:
                 extra={
                     "engine": engine,
                     "tenant_id": str(tenant_id),
-                    "reason": type(exc).__name__,
+                    "error": type(exc).__name__,
                     # A ProblemError's code says which refusal it was; the class name alone
                     # leaves an operator re-running the sweep by hand to find out.
                     "code": getattr(exc, "code", None),

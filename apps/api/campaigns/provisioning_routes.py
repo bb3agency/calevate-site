@@ -50,7 +50,6 @@ from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
-from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
@@ -59,6 +58,7 @@ from apps.api.reliability.service import (
     claim_idempotency,
     complete_idempotency,
     fail_idempotency,
+    require_idempotency_key,
     scope_key,
 )
 
@@ -361,20 +361,15 @@ async def purchase_number(
     tenant_id = principal.tenant_id
     _assert_supply_open()
 
-    idem_key = request.headers.get("Idempotency-Key")
-    if not idem_key:
-        raise ProblemError(
-            kind="validation",
-            status=400,
-            code="idempotency_key_required",
-            title="Buying a number needs an Idempotency-Key",
-            detail=(
-                "Buying a number spends money and starts a monthly rental, so every "
-                "attempt names itself and a repeat of the same attempt is answered "
-                "rather than bought again."
-            ),
-            remediation="Send an `Idempotency-Key` header — one fresh value per attempt.",
-        )
+    idem_key = require_idempotency_key(
+        request.headers.get("Idempotency-Key"),
+        title="Buying a number needs an Idempotency-Key",
+        detail=(
+            "Buying a number spends money and starts a monthly rental, so every "
+            "attempt names itself and a repeat of the same attempt is answered "
+            "rather than bought again."
+        ),
+    )
     async with tenant_session(tenant_id) as claim_session:
         claim = await claim_idempotency(
             claim_session,

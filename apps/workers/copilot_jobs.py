@@ -37,6 +37,7 @@ from apps.api.copilot.tools import ToolContext, Unmasked
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
+from apps.api.core.queue import job_try
 from apps.api.core.settings import get_settings
 from apps.api.crm.assist import ASSIST_FEATURE_COPILOT, meter_assist
 from apps.api.db.session import tenant_session
@@ -64,7 +65,7 @@ async def _finish(
 
 async def run_copilot_job(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     """Claim the job, run the tool loop under `service.job_limits`, record what happened."""
-    retry = int(ctx.get("job_try", 1) or 1) > 1
+    retry = job_try(ctx) > 1
     job_id = UUID(str(payload["job_id"]))
     tenant_id = UUID(str(payload["tenant_id"]))
 

@@ -65,3 +65,17 @@ async def test_a_view_as_session_may_not_spend_the_clients_allowance_on_a_run(
         await routes.run_test_cases(uuid.uuid4(), session=object(), principal=viewer)  # type: ignore[arg-type]
     assert refused.value.status == 403
     assert queued == []
+
+
+async def test_a_refused_run_always_says_why(monkeypatch: pytest.MonkeyPatch) -> None:
+    from apps.api.agents.test_conversations import TestReadiness
+    from apps.api.teach import test_cases
+
+    async def _unready(session: object, agent_id: uuid.UUID) -> TestReadiness:
+        return TestReadiness(available=False, reason=None, live_version=None)
+
+    monkeypatch.setattr(test_cases, "readiness", _unready)
+    with pytest.raises(ProblemError) as refused:
+        await test_cases.request_run(object(), tenant_id=uuid.uuid4(), agent_id=uuid.uuid4())  # type: ignore[arg-type]
+    assert refused.value.code == "agent_tests_unavailable"
+    assert refused.value.detail.strip()

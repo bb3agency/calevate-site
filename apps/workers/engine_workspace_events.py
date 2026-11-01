@@ -46,7 +46,7 @@ from sqlalchemy import text
 from apps.api.compliance.processor_erasure import record_contact_erased
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.core.redis import get_redis, release_lease
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
@@ -256,14 +256,14 @@ async def _abandon(payload: dict[str, Any], exc: Exception, attempt: int) -> NoR
         raise Retry(defer=ladder_delay_s(_RETRY_AFTER_S, attempt)) from exc
     log.warning(
         "engine_workspace_event_abandoned",
-        extra={"reason": type(exc).__name__, "attempt": attempt},
+        extra={"error": type(exc).__name__, "attempt": attempt},
     )
     raise exc
 
 
 async def ingest_engine_workspace_event(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     """Attribute one `contact.erased` or `byok.changed` to its client and act on it."""
-    attempt = int(ctx.get("job_try", 1))
+    attempt = job_try(ctx)
     try:
         event = _event_of(payload)
         whose = await _whose(payload, event)

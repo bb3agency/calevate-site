@@ -22,7 +22,6 @@ from decimal import Decimal
 from typing import Annotated, Final, Literal
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -42,15 +41,12 @@ from apps.api.core.auth import requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.rbac import permission_meta
+from apps.api.core.schemas import Strict
 
 router = APIRouter(prefix="/v1/billing", tags=["billing"])
 
 Session = Annotated[AsyncSession, Depends(db)]
 BillingReader = Annotated[Principal, Depends(requires("billing:read", realm="client"))]
-
-
-class Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 #: What each tier gives a client, in their words. Product copy, not a price: no rupee is

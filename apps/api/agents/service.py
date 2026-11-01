@@ -2716,7 +2716,7 @@ async def publish_agent(
             detail=(
                 f"{window.reason} Publishing an agent changes what it says to callers, so "
                 f"it has to wait until the window closes (about "
-                f"{window.ends_at.astimezone(UTC) + IST:%H:%M} IST). Nothing you have "
+                f"{window.ends_at.astimezone(IST):%H:%M} IST). Nothing you have "
                 "saved is lost — your changes are still here and will publish afterwards. "
                 "Your agents keep answering calls throughout."
             ),

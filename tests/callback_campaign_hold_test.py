@@ -35,7 +35,7 @@ OTHER = "+919812345691"
 @pytest.fixture(autouse=True)
 def _daytime(monkeypatch: pytest.MonkeyPatch) -> None:
     """11:00 IST for the dial gate, as `callback_dispatch_test` pins it."""
-    fixed = datetime(2026, 8, 11, 5, 30, tzinfo=UTC) + IST
+    fixed = datetime(2026, 8, 11, 11, 0, tzinfo=IST)
     monkeypatch.setattr("apps.api.compliance.service.ist_now", lambda: fixed)
     reset_engine_cache()
 
@@ -174,7 +174,7 @@ async def test_a_release_waits_for_the_campaigns_hours_and_its_grace_starts_ther
     campaign_id = await _campaign(
         tenant_id, agent_id, status="paused", hours={"start": "10:00", "end": "12:00"}
     )
-    resumed = datetime(2026, 8, 11, 13, 0, tzinfo=UTC) - IST  # 13:00 IST
+    resumed = datetime(2026, 8, 11, 13, 0, tzinfo=IST).astimezone(UTC)
     callback_id = await _book(
         tenant_id, agent_id, campaign_id=campaign_id, requested_at=resumed - timedelta(hours=4)
     )
@@ -189,7 +189,7 @@ async def test_a_release_waits_for_the_campaigns_hours_and_its_grace_starts_ther
         assert await callbacks.claim_due(session, now=resumed + timedelta(hours=2), limit=5) == []
         assert await callbacks.expire_stale(session, now=resumed + timedelta(hours=3)) == 0
     row = await _row(tenant_id, callback_id)
-    opens = datetime(2026, 8, 12, 10, 0, tzinfo=UTC) - IST
+    opens = datetime(2026, 8, 12, 10, 0, tzinfo=IST).astimezone(UTC)
     async with tenant_session(tenant_id) as session:
         grace_from = (
             await session.execute(

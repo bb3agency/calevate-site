@@ -14,7 +14,7 @@ from typing import Annotated, Any, Final, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,6 +24,7 @@ from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
+from apps.api.core.schemas import Strict
 from apps.api.whatsapp import accounts, signup, templates
 from apps.api.whatsapp.signup import CONNECTED_ACTION
 
@@ -36,10 +37,6 @@ PRICING_URL: Final = (
     "https://developers.facebook.com/documentation/business-messaging/whatsapp/pricing"
 )
 PAYMENT_METHOD_URL: Final = "https://business.facebook.com/wa/manage/home/"
-
-
-class Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 class WhatsAppSetupOut(Strict):

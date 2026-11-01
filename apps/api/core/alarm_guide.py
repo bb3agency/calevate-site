@@ -529,7 +529,7 @@ def _index() -> dict[str, IndexRow]:
         text = ALARM_INDEX.read_text(encoding="utf-8")
     except (OSError, ValueError) as exc:  # ValueError: a file that is not valid UTF-8
         # The mail still goes, without these two sections: an alarm must not wait on a doc.
-        log.warning("alarm_index_unreadable", extra={"reason": type(exc).__name__})
+        log.warning("alarm_index_unreadable", extra={"error": type(exc).__name__})
         return {}
     start = text.find(_ALARM_HEADING)
     section = text[start:] if start >= 0 else ""

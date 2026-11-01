@@ -38,6 +38,7 @@ from apps.api.integrations import leadsquared as lsq
 from apps.api.integrations import service as integrations_service
 from apps.api.main import app
 from apps.workers import leadsquared_sync
+from calevate_shared.calling_window import IST
 from sqlalchemy import text
 from tests.api_security_test import _make_tenant
 from tests.conftest import (
@@ -64,9 +65,7 @@ def _whole_second(instant: datetime) -> datetime:
 
 @pytest.fixture(autouse=True)
 def _daytime(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        "apps.api.compliance.service.ist_now", lambda: NOW + timedelta(hours=5, minutes=30)
-    )
+    monkeypatch.setattr("apps.api.compliance.service.ist_now", lambda: NOW.astimezone(IST))
 
 
 def _indiamart(

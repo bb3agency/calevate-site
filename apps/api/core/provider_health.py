@@ -158,7 +158,7 @@ async def note_failure(
     except Exception as failure:
         log.warning(
             "provider_health_unavailable",
-            extra={"leg": leg, "provider": provider, "reason": type(failure).__name__},
+            extra={"leg": leg, "provider": provider, "error": type(failure).__name__},
         )
         return
     if not degraded:
@@ -191,7 +191,7 @@ async def note_success(leg: AiLeg, provider: str) -> None:
     except Exception as failure:
         log.warning(
             "provider_health_unavailable",
-            extra={"leg": leg, "provider": provider, "reason": type(failure).__name__},
+            extra={"leg": leg, "provider": provider, "error": type(failure).__name__},
         )
         return
     if was_open:

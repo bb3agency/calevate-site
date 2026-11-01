@@ -220,7 +220,7 @@ from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query, Request
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -269,6 +269,7 @@ from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
+from apps.api.core.schemas import Strict
 from apps.api.core.stepup import StepUpGate
 from apps.api.db.session import tenant_session
 
@@ -305,10 +306,6 @@ _paise = to_paise
 #: A rupee amount of nothing, at the wire's own scale. A named constant rather than
 #: `Decimal("0.00")` at four call sites, so "no overdraft" and "no money" are one literal.
 _ZERO = _paise(Decimal("0"))
-
-
-class Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 class MoneyIn(Strict):

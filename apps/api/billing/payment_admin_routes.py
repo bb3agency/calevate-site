@@ -20,7 +20,6 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, Header, Query, Request, UploadFile
-from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text
 
 from apps.api.billing.disputes import dispute_tenant, list_disputes, record_operator_decision
@@ -41,6 +40,7 @@ from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
+from apps.api.core.schemas import Strict as _Strict
 from apps.api.core.settings import get_settings
 from apps.api.core.stepup import StepUpGate
 from apps.api.db.session import admin_session, tenant_session, untenanted_session
@@ -62,10 +62,6 @@ _PAYMENT_ALARM_PREFIXES = ("razorpay_", "topup_", "auto_recharge_", "payment_dis
 _EVIDENCE_TYPES = frozenset({"application/pdf", "image/jpeg", "image/png"})
 _EVIDENCE_MAX_BYTES = 5 * 1024 * 1024
 EVIDENCE_MAX_FILES = 5
-
-
-class _Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 class PaymentAlarmOut(_Strict):

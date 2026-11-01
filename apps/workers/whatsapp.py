@@ -177,7 +177,7 @@ from apps.api.compliance.service import check_dispatch
 from apps.api.compliance.whatsapp_optin import read_alert_optin
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
@@ -576,7 +576,7 @@ async def notify_hot_lead_whatsapp(ctx: dict[str, Any], payload: dict[str, Any])
     lead_id = UUID(str(payload["lead_id"]))
     call_id = UUID(str(payload["call_id"]))
     triggers: list[str] = list(payload.get("triggers") or [])
-    attempt = int(ctx.get("job_try", 1))
+    attempt = job_try(ctx)
     settings = get_settings()
 
     if not settings.whatsapp_enabled:
@@ -887,7 +887,7 @@ async def escalate_campaign_contact(ctx: dict[str, Any], payload: dict[str, Any]
     """
     tenant_id = UUID(str(payload["tenant_id"]))
     contact_id = UUID(str(payload["contact_id"]))
-    attempt = int(ctx.get("job_try", 1))
+    attempt = job_try(ctx)
     settings = get_settings()
 
     async with tenant_session(tenant_id) as session:

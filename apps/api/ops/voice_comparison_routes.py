@@ -26,7 +26,7 @@ from typing import Annotated, Any, Final, Literal, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query, Request, Response
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance.audit import write_audit
@@ -36,6 +36,7 @@ from apps.api.core.deps import global_db
 from apps.api.core.disposition import attachment_disposition
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
+from apps.api.core.schemas import Strict
 from apps.api.core.stepup import StepUpGate
 from apps.api.engine import get_engine
 from apps.api.engine.catalogue import HostsVoices
@@ -60,10 +61,6 @@ _AUDIO_RESPONSES: Final[dict[int | str, dict[str, Any]]] = {
 _CSV_RESPONSES: Final[dict[int | str, dict[str, Any]]] = {
     200: {"description": "Every pair.", "content": {"text/csv": {"schema": {"type": "string"}}}}
 }
-
-
-class Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 class VoiceComparisonSetupOut(Strict):

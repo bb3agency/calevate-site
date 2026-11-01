@@ -308,7 +308,7 @@ def admit(
         # converting into a lost alert. WARNING rather than ERROR because `alert()`
         # already logged the real problem at ERROR — this line is about the gate, not
         # about the thing being alerted.
-        log.warning("alert_admission_unavailable", extra={"reason": type(exc).__name__})
+        log.warning("alert_admission_unavailable", extra={"error": type(exc).__name__})
         return ADMIT_ON_FAILURE
 
     if not isinstance(reply, list) or len(reply) != 3:
@@ -347,7 +347,7 @@ def forget(*, service: str, fingerprint: str) -> None:
         client, _ = _connect()
         client.delete(f"{KEY_PREFIX}:sent:{service}:{fingerprint}")
     except Exception as exc:
-        log.warning("alert_admission_forget_failed", extra={"reason": type(exc).__name__})
+        log.warning("alert_admission_forget_failed", extra={"error": type(exc).__name__})
 
 
 def reset_admission(*, service: str) -> None:
@@ -369,7 +369,7 @@ def reset_admission(*, service: str) -> None:
         if doomed:
             client.delete(*doomed)
     except Exception as exc:  # pragma: no cover - a test seam must never fail a test
-        log.warning("alert_admission_reset_failed", extra={"reason": type(exc).__name__})
+        log.warning("alert_admission_reset_failed", extra={"error": type(exc).__name__})
 
 
 def close_admission() -> None:

@@ -55,7 +55,7 @@ from apps.api.campaigns.number_holds import open_holds
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.core.settings import get_settings
 from apps.api.db.session import admin_session, tenant_session
 from apps.api.engine import get_engine
@@ -277,7 +277,7 @@ async def provision_engine_workspace(ctx: dict[str, Any], payload: dict[str, Any
 async def _provision_failed(job_ctx: dict[str, Any], tenant_id: UUID, exc: Exception) -> None:
     code = exc.code if isinstance(exc, ProblemError) else type(exc).__name__
     await _set_state(tenant_id, status="failed", code=str(code)[:64], attempt=True)
-    _retry_or_give_up(exc, int(job_ctx.get("job_try", 1)))
+    _retry_or_give_up(exc, job_try(job_ctx))
     alert(
         "WORKER_TERMINAL",
         "engine_workspace_provisioning_failed",
@@ -353,11 +353,11 @@ async def submit_engine_business_details(ctx: dict[str, Any], payload: dict[str,
                 extra={"tenant_id": str(tenant_id), "reason": exc.code},
             )
             return exc.code
-        _retry_or_give_up(exc, int(ctx.get("job_try", 1)))
+        _retry_or_give_up(exc, job_try(ctx))
         _submit_failed(tenant_id, exc.code)
         raise
     except Exception as exc:
-        _retry_or_give_up(exc, int(ctx.get("job_try", 1)))
+        _retry_or_give_up(exc, job_try(ctx))
         _submit_failed(tenant_id, type(exc).__name__)
         raise
     return details.status
@@ -460,7 +460,7 @@ async def sync_engine_call_lines(ctx: dict[str, Any], payload: dict[str, Any]) -
     try:
         return await _call_lines_leg(tenant_id, state.workspace_id, repair=False)
     except Exception as exc:
-        _retry_or_give_up(exc, int(ctx.get("job_try", 1)))
+        _retry_or_give_up(exc, job_try(ctx))
         raise
 
 
@@ -631,7 +631,7 @@ async def offboard_engine_workspace(ctx: dict[str, Any], payload: dict[str, Any]
             deleted += 1
         await thinnest_customers().delete(workspace)
     except Exception as exc:
-        _retry_or_give_up(exc, int(ctx.get("job_try", 1)))
+        _retry_or_give_up(exc, job_try(ctx))
         alert(
             "WORKER_TERMINAL",
             "engine_workspace_offboarding_failed",
@@ -671,7 +671,7 @@ async def retire_moved_engine_agent(ctx: dict[str, Any], payload: dict[str, Any]
     agent_id = UUID(str(payload["agent_id"]))
     old_ref = str(payload["old_ref"])
     engine = get_engine()
-    attempt = int(ctx.get("job_try", 1))
+    attempt = job_try(ctx)
     try:
         if await thinnest_actions().has_live_call(old_ref):
             if attempt < WORKER_MAX_TRIES:

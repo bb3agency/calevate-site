@@ -21,7 +21,8 @@ Three facts make IST the correct and only defensible reading:
    renders its busiest-hours histogram `AT TIME ZONE 'Asia/Kolkata'`, and billing months
    are IST months. A second convention would put two different "days" on one dashboard.
 
-`ZoneInfo("Asia/Kolkata")` rather than `+05:30` for the same reason `IST_HOUR_SQL` uses
+The stored windows are read in `calevate_shared.calling_window.IST`, the named zone
+`Asia/Kolkata` rather than `+05:30`, for the same reason `IST_HOUR_SQL` uses
 the name: an offset is a fact about today, a zone is a fact about the calendar. India
 has not changed its offset since 1945, but a comparison written as arithmetic is one
 that silently encodes "the DB session is in UTC" — the exact bug this docstring exists
@@ -54,13 +55,10 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import datetime, time
 from typing import Any
-from zoneinfo import ZoneInfo
 
+from calevate_shared.calling_window import IST
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-
-# The zone the stored windows are written in. By NAME (see the module docstring).
-BUSINESS_HOURS_TZ = ZoneInfo("Asia/Kolkata")
 
 # `tenancy.business_profile.DAYS`' order, indexed the way `datetime.weekday()` counts:
 # Monday = 0. Duplicated rather than imported: this module is on the call pipeline's read
@@ -119,7 +117,7 @@ def is_after_hours(business_hours: Mapping[str, Any] | None, at: datetime) -> bo
     if not business_hours:
         return None
 
-    local = at.astimezone(BUSINESS_HOURS_TZ)
+    local = at.astimezone(IST)
     today_key = DAYS[local.weekday()]
     yesterday_key = DAYS[(local.weekday() - 1) % 7]
     clock = local.timetz().replace(tzinfo=None)
@@ -170,4 +168,4 @@ async def count_after_hours_calls(session: AsyncSession, *, since: datetime) -> 
     return sum(1 for (started_at,) in rows if is_after_hours(hours, started_at) is True)
 
 
-__all__ = ["BUSINESS_HOURS_TZ", "DAYS", "count_after_hours_calls", "is_after_hours"]
+__all__ = ["DAYS", "count_after_hours_calls", "is_after_hours"]

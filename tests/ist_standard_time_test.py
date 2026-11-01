@@ -16,9 +16,10 @@ from __future__ import annotations
 import json
 import logging
 import re
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
+import pytest
 from apps.api.billing.plans import IST, ist_billing_month
 from apps.api.billing.service import _IST_MONTH
 from apps.api.core.logging import LOG_TIMEZONE, JsonFormatter
@@ -27,6 +28,7 @@ from apps.api.db.session import APP_SESSION_TIMEZONE, migration_connect_args, un
 from apps.api.quality.sampling import _IST_WEEK_SQL
 from apps.workers.settings import CRON_TIMEZONE, WorkerSettings
 from arq.cron import next_cron
+from calevate_shared.calling_window import ist_wall_clock, next_window_opening, within_window
 from sqlalchemy import text
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -85,6 +87,44 @@ async def test_ist_calendar_sql_answers_the_same_under_either_server_default() -
 
 def test_the_python_billing_month_agrees_with_the_sql_one() -> None:
     assert ist_billing_month(BOUNDARY) == "2026-11"
+
+
+# --- the one Python spelling ----------------------------------------------------------
+
+
+def test_every_python_reader_of_ist_holds_the_shared_zone() -> None:
+    """One definition, `calevate_shared.calling_window.IST`; the role names are that object."""
+    from apps.api.compliance.service import ist_now
+    from calevate_shared.calling_window import IST as SHARED_IST
+
+    assert SHARED_IST.key == "Asia/Kolkata"
+    assert IST is SHARED_IST
+    assert LOG_TIMEZONE is SHARED_IST
+    assert CRON_TIMEZONE is SHARED_IST
+    assert ist_now().tzinfo is SHARED_IST
+
+
+@pytest.mark.parametrize(
+    ("utc", "ist_day", "opens_utc"),
+    [
+        # 23:59 IST on 31 Oct: outside the window, so the next opening is 09:00 IST on 1 Nov.
+        (datetime(2026, 10, 31, 18, 29, tzinfo=UTC), date(2026, 10, 31), (2026, 11, 1, 3, 30)),
+        # 00:01 IST on 1 Nov: the same UTC date as the row above, a different IST day, and
+        # the same next opening.
+        (datetime(2026, 10, 31, 18, 31, tzinfo=UTC), date(2026, 11, 1), (2026, 11, 1, 3, 30)),
+        # 09:00 IST exactly: inside the half-open window, so the opening is now.
+        (datetime(2026, 11, 1, 3, 30, tzinfo=UTC), date(2026, 11, 1), (2026, 11, 1, 3, 30)),
+    ],
+)
+def test_the_calling_window_reads_the_ist_day_not_the_utc_one(
+    utc: datetime, ist_day: date, opens_utc: tuple[int, int, int, int, int]
+) -> None:
+    wall = ist_wall_clock(utc)
+    assert wall == utc, "a conversion, never a shift: the instant is unchanged"
+    assert wall.date() == ist_day
+    opens = next_window_opening(wall).astimezone(UTC)
+    assert opens == datetime(*opens_utc, tzinfo=UTC)
+    assert within_window(ist_wall_clock(opens))
 
 
 # --- logs -----------------------------------------------------------------------------

@@ -15,7 +15,6 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
-from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance import rights_desk
@@ -26,6 +25,7 @@ from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.rbac import permission_meta
+from apps.api.core.schemas import Strict
 
 router = APIRouter(prefix="/v1/compliance/rights-requests", tags=["compliance"])
 
@@ -44,10 +44,6 @@ Outcome = Literal[
     "identity_not_confirmed",
     "not_held",
 ]
-
-
-class Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 class RightsRequestIn(Strict):

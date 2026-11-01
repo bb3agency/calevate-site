@@ -16,7 +16,6 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin.health import client_health
@@ -27,6 +26,7 @@ from apps.api.core.context import Principal
 from apps.api.core.deps import admin_db, db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import Permission, permission_meta
+from apps.api.core.schemas import Strict as _Strict
 
 router = APIRouter(prefix="/v1", tags=["copilot"])
 
@@ -38,10 +38,6 @@ BoardReader = Annotated[Principal, Depends(requires(_BOARD, realm="admin"))]
 # The notes are the account's, filtered by role, so reading them is an `org:read` like the
 # pinned cards: support viewing as the client sees what the client sees. Changing them is not.
 NotesReader = Annotated[Principal, Depends(requires(_BOARD))]
-
-
-class _Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 class CopilotNoteButtonOut(_Strict):

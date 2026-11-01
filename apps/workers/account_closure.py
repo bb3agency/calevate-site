@@ -56,7 +56,7 @@ from apps.api.core.alerting import alert
 from apps.api.core.brand import PRODUCT
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.core.settings import get_settings
 from apps.api.core.transport import EmailPurpose, _domain, get_transport
 from apps.api.db.session import admin_session, tenant_session
@@ -265,7 +265,7 @@ async def notify_account_closed(ctx: dict[str, Any], payload: dict[str, Any]) ->
 
     erase_on = payload.get("erase_on")
     reason = payload.get("reason")
-    attempt = int(ctx.get("job_try", 1))
+    attempt = job_try(ctx)
     subject = {
         NOTICE_CLOSED: SUBJECT_CLOSED,
         NOTICE_RESTORED: SUBJECT_RESTORED,

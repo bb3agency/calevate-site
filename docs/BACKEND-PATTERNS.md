@@ -64,7 +64,8 @@ internal), `retryable: bool`, `remediation`, `trace_id`, and validation failures
 - Every 5xx also fires the alert path with a `failure_stage` tag (§8).
 Correlation id: accept `X-Correlation-Id` else generate; echo on response; stamp into
 audit rows and, when an LLM-tracing pipeline exists, its traces (none does — D-49). Response models `extra="forbid"` everywhere —
-serialization is the whitelist the redaction-exposure guardrail checks.
+serialization is the whitelist the redaction-exposure guardrail checks. Request and response
+models extend `apps.api.core.schemas.Strict` rather than declaring the config again.
 
 ## 4. Idempotency + outbox + inbox (ADOPTED — the reliability triad)
 

@@ -83,6 +83,7 @@ from apps.api.crm.schemas import (
     SavedViewUpdateIn,
     UsagePanelOut,
 )
+from apps.api.reliability.service import require_idempotency_key
 
 router = APIRouter(prefix="/v1", tags=["crm"])
 
@@ -1579,19 +1580,14 @@ async def call_lead(
     # REQUIRED rather than honoured when present. An optional key dedupes only the callers
     # that remember to send one; every other caller's retry is a second phone ringing,
     # which nothing later can undo. Refused before the gate.
-    idem_key = request.headers.get("Idempotency-Key")
-    if not idem_key:
-        raise ProblemError(
-            kind="validation",
-            status=400,
-            code="idempotency_key_required",
-            title="Calling a lead needs an Idempotency-Key header",
-            detail=(
-                "Calling a lead rings a real phone, so every attempt names itself and a "
-                "repeat of the same attempt is answered rather than dialled again."
-            ),
-            remediation="Send an `Idempotency-Key` header — one fresh value per attempt.",
-        )
+    idem_key = require_idempotency_key(
+        request.headers.get("Idempotency-Key"),
+        title="Calling a lead needs an Idempotency-Key header",
+        detail=(
+            "Calling a lead rings a real phone, so every attempt names itself and a "
+            "repeat of the same attempt is answered rather than dialled again."
+        ),
+    )
     # The gate, the claim, the dial and the audit are `crm/lead_dial.place_lead_call`, which
     # the assistant's `call_place` action calls too — one implementation behind two doors.
     return await place_lead_call(

@@ -18,7 +18,7 @@ from calevate_shared.backoff import ladder_delay_s
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.core.settings import get_settings
 from apps.api.db.session import untenanted_session
 from apps.api.ops.secret_service import resolve_secrets
@@ -53,8 +53,8 @@ async def push_voice_comparison_key(ctx: dict[str, Any], payload: dict[str, Any]
         await install_sarvam_key(engine, workspace, key)
     except ProblemError as exc:
         permanent = exc.kind in ("validation", "business_rule")
-        if not permanent and int(ctx.get("job_try", 1)) < WORKER_MAX_TRIES:
-            raise Retry(defer=ladder_delay_s(_RETRY_AFTER_S, int(ctx.get("job_try", 1)))) from exc
+        if not permanent and job_try(ctx) < WORKER_MAX_TRIES:
+            raise Retry(defer=ladder_delay_s(_RETRY_AFTER_S, job_try(ctx))) from exc
         log.warning("voice_comparison_key_push_failed", extra={"reason": exc.code})
         alert(
             "CORE_LOGIC",

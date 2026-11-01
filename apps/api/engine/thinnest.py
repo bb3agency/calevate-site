@@ -3798,7 +3798,7 @@ class ThinnestEngine:
             except Exception as exc:
                 log.error(
                     "thinnest_kb_part_orphaned",
-                    extra={"kb_handle": handle, "reason": exc.__class__.__name__},
+                    extra={"kb_handle": handle, "error": exc.__class__.__name__},
                 )
 
     async def detach_kb(

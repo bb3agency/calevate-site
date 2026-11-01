@@ -248,7 +248,7 @@ async def probe_credential(key: str, candidate: str) -> ProbeResult:
         # nothing about whether the key is right, and reporting it as "rejected" would
         # send an operator to rotate a key that was fine.
         log.warning(
-            "secret_probe_unreachable", extra={"config_key": key, "reason": type(exc).__name__}
+            "secret_probe_unreachable", extra={"config_key": key, "error": type(exc).__name__}
         )
         return ProbeResult(
             outcome="unreachable",

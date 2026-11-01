@@ -22,7 +22,7 @@ from apps.api.compliance.consent import read_messaging_consent
 from apps.api.compliance.service import check_dispatch
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
@@ -285,7 +285,7 @@ async def send_save_number_message(ctx: dict[str, Any], payload: dict[str, Any])
             )
             return "sent"
         if result.retryable:
-            attempt = int(ctx.get("job_try", 1))
+            attempt = job_try(ctx)
             if attempt < WORKER_MAX_TRIES:
                 # arq retries only on `Retry` (arq 0.28); a plain exception would end the job
                 # here and the message would never go. The claim is released so the retry

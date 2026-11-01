@@ -28,7 +28,7 @@ from sqlalchemy import text
 from apps.api.billing.plans import IST
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.core.settings import get_settings
 from apps.api.core.transport import EmailPurpose, get_transport
 from apps.api.db.session import admin_session, tenant_session
@@ -139,7 +139,7 @@ async def send_one(tenant_id: UUID, *, day: date) -> str:
 async def send_owner_digests(ctx: dict[str, Any]) -> str:
     """Every opted-in account, one at a time; one failure is counted, never allowed to stop
     the rest."""
-    attempt = int(ctx.get("job_try", 1))
+    attempt = job_try(ctx)
     day = datetime.now(UTC).astimezone(IST).date()
     async with admin_session() as directory:
         tenants = [UUID(str(t)) for t in (await directory.execute(text(_OPTED_IN))).scalars()]

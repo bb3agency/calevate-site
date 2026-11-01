@@ -12,18 +12,17 @@ subscriber's complaint would timestamp as such.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, time, timedelta
+from datetime import datetime, time
 
 import pytest
 from apps.api.campaigns.service import campaign_window_open
 from apps.api.compliance.service import DEFAULT_WINDOW, within_calling_hours
-
-IST = timedelta(hours=5, minutes=30)
+from calevate_shared.calling_window import IST
 
 
 def _ist(hour: int, minute: int, second: int = 0, micro: int = 0) -> datetime:
-    """An instant already expressed in IST wall clock, the way `ist_now` returns one."""
-    return datetime(2026, 8, 18, hour, minute, second, micro, tzinfo=UTC)
+    """An IST instant, the way `ist_now` returns one."""
+    return datetime(2026, 8, 18, hour, minute, second, micro, tzinfo=IST)
 
 
 @pytest.mark.parametrize(

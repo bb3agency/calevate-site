@@ -15,7 +15,6 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance.audit import write_audit
@@ -23,6 +22,7 @@ from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.rbac import permission_meta
+from apps.api.core.schemas import Strict
 from apps.api.go_live import guide
 from apps.api.go_live.moves import MAX_LISTED_AGENTS, AgentMoveView
 
@@ -31,10 +31,6 @@ router = APIRouter(prefix="/v1/go-live", tags=["go-live"])
 Session = Annotated[AsyncSession, Depends(db)]
 Reader = Annotated[Principal, Depends(requires("org:read"))]
 Owner = Annotated[Principal, Depends(requires("org:manage"))]
-
-
-class Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 class AgentMoveOut(Strict):

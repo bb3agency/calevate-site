@@ -69,8 +69,8 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Literal
 from uuid import UUID
-from zoneinfo import ZoneInfo
 
+from calevate_shared.calling_window import IST
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -79,11 +79,6 @@ from apps.api.crm.performance import IST_ZONE
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.quality.models import QA_SAMPLE_RATE, QA_VERDICTS, Verdict
-
-#: The zone, from the one place that names it (`crm/performance.IST_ZONE`) — a second
-#: literal 'Asia/Kolkata' is not a duplicate string, it is a second answer to "which
-#: zone is IST" waiting to drift.
-_IST_TZ = ZoneInfo(IST_ZONE)
 
 #: The IST Monday a call belongs to. `date_trunc('week', ...)` is ISO — weeks start
 #: Monday — and the shift into IST is what makes it an Indian business week rather than
@@ -128,7 +123,7 @@ def ist_week_start(moment: datetime) -> date:
     membership and another deciding the label is how a week's sample ends up filed under
     the wrong week.
     """
-    local = moment.astimezone(_IST_TZ)
+    local = moment.astimezone(IST)
     return (local - timedelta(days=local.weekday())).date()
 
 

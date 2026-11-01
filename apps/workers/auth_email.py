@@ -64,7 +64,7 @@ from calevate_shared.backoff import ladder_delay_s
 from apps.api.core.alerting import alert
 from apps.api.core.console_links import CONSOLE_BASE
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.core.transport import EmailPurpose, _domain, get_transport
 from apps.workers.email_render import SUBJECTS as _SUBJECTS
 from apps.workers.email_render import render
@@ -114,7 +114,7 @@ async def deliver_auth_email(ctx: dict[str, Any], payload: dict[str, Any]) -> st
     asked. The job still holds no database session, deliberately: it must not need one,
     because the row it is acting on was already committed by the request that enqueued it.
     """
-    attempt = int(ctx.get("job_try", 1) or 1)
+    attempt = job_try(ctx)
     kind = str(payload.get("kind", ""))
     to = str(payload.get("to", ""))
     secret = str(payload.get("secret", ""))

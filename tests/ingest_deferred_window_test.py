@@ -31,19 +31,18 @@ from apps.api.follow_ups.runner import CALLBACK_PREFIX
 from apps.api.ingest import service as ingest_service
 from apps.api.ingest.routes import SECRET_HEADER
 from apps.api.ingest.service import next_allowed_dial
+from calevate_shared.calling_window import IST
 from sqlalchemy import text
 from tests.lead_ingest_test import SECRET, _client, _tenant_with_ingest
 
-IST = timedelta(hours=5, minutes=30)
-
 
 def _utc_at_ist(year: int, month: int, day: int, hour: int, minute: int = 0) -> datetime:
-    return datetime(year, month, day, hour, minute, tzinfo=UTC) - IST
+    return datetime(year, month, day, hour, minute, tzinfo=IST).astimezone(UTC)
 
 
 def _pin_gate_clock(monkeypatch: pytest.MonkeyPatch, utc: datetime) -> None:
     """The gate's clock, which ingest also computes the slot from."""
-    monkeypatch.setattr("apps.api.compliance.service.ist_now", lambda: utc + IST)
+    monkeypatch.setattr("apps.api.compliance.service.ist_now", lambda: utc.astimezone(IST))
 
 
 def _platform(monkeypatch: pytest.MonkeyPatch, status: loadshed.PlatformStatus) -> None:

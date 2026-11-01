@@ -59,7 +59,7 @@ from datetime import datetime
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance.audit import write_audit
@@ -69,6 +69,7 @@ from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.loadshed import get_platform_status
 from apps.api.core.rbac import permission_meta, role_has
+from apps.api.core.schemas import Strict
 from apps.api.legal import catalogue, readiness, statements
 from apps.api.legal import service as legal_service
 
@@ -93,10 +94,6 @@ Owner = Annotated[Principal, Depends(requires("org:manage", realm="client"))]
 DocumentState = Literal[
     "accepted", "never_accepted", "reacceptance_required", "changed", "not_required"
 ]
-
-
-class Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 class LegalDocumentOut(Strict):

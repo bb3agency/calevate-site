@@ -503,9 +503,9 @@ async def test_a_former_runtime_call_erases_and_opens_a_carrier_task_naming_its_
         await session.execute(
             text(
                 "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, carrier_call_id, "
-                " carrier, direction, status, from_e164, to_e164, started_at, created_at, "
+                " direction, status, from_e164, to_e164, started_at, created_at, "
                 " updated_at) "
-                "VALUES (:id, :t, :a, :e, :c, 'vobiz', 'inbound', 'completed', :p, :p, "
+                "VALUES (:id, :t, :a, :e, :c, 'inbound', 'completed', :p, :p, "
                 " now(), now(), now())"
             ),
             {

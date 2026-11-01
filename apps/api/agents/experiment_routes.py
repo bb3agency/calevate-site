@@ -53,7 +53,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import experiments
@@ -69,16 +69,13 @@ from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import admin_db
 from apps.api.core.rbac import permission_meta
+from apps.api.core.schemas import Strict
 
 router = APIRouter(tags=["agents"])
 
 ExperimentReader = Annotated[Principal, Depends(requires("agents:read"))]
 ExperimentWriter = Annotated[Principal, Depends(requires("agents:write", realm="admin"))]
 AdminSession = Annotated[AsyncSession, Depends(admin_db)]
-
-
-class Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 class MetricOut(Strict):

@@ -17,7 +17,7 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.test_call_reads import TestCallOut, read_test_call, recent_test_calls
@@ -27,8 +27,9 @@ from apps.api.agents.trial_panel import read_trial_panel as build_trial_panel
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
-from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
+from apps.api.core.schemas import Strict
+from apps.api.reliability.service import require_idempotency_key
 
 router = APIRouter(prefix="/v1/trial", tags=["billing"])
 
@@ -36,10 +37,6 @@ Session = Annotated[AsyncSession, Depends(db)]
 TrialReader = Annotated[Principal, Depends(requires("org:read"))]
 TrialCaller = Annotated[Principal, Depends(requires("leads:dispatch"))]
 CallReader = Annotated[Principal, Depends(requires("calls:read"))]
-
-
-class Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 class TrialCallIn(Strict):
@@ -89,16 +86,11 @@ async def create_trial_call(
     assert principal.tenant_id is not None
     # A test call rings a real phone, so a repeat of one attempt must be answered, not
     # dialled again: the key is required, as on the lead call route.
-    idem_key = request.headers.get("Idempotency-Key")
-    if not idem_key:
-        raise ProblemError(
-            kind="validation",
-            status=400,
-            code="idempotency_key_required",
-            title="A test call needs an Idempotency-Key header",
-            detail="Each test call rings a real phone, so every attempt names itself.",
-            remediation="Send an `Idempotency-Key` header — one fresh value per attempt.",
-        )
+    idem_key = require_idempotency_key(
+        request.headers.get("Idempotency-Key"),
+        title="A test call needs an Idempotency-Key header",
+        detail="Each test call rings a real phone, so every attempt names itself.",
+    )
     if payload.number_is_mine:
         await attest_own_number(
             principal=principal, number=payload.number, ip=client_request_ip(request)

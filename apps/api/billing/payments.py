@@ -745,7 +745,7 @@ class RazorpayOrders:
             # the same wire headers.
             return await client.post(path, json=payload, auth=self._auth, headers=headers)
         except httpx.HTTPError as exc:
-            log.warning("razorpay_request_unreachable", extra={"reason": type(exc).__name__})
+            log.warning("razorpay_request_unreachable", extra={"error": type(exc).__name__})
             raise ProblemError(
                 kind="dependency",
                 code="payment_provider_unreachable",

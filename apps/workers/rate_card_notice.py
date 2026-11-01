@@ -55,10 +55,10 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any, Final
 from uuid import UUID
-from zoneinfo import ZoneInfo
 
 from arq import Retry
 from calevate_shared.backoff import ladder_delay_s
+from calevate_shared.calling_window import IST
 from sqlalchemy import text
 
 from apps.api.billing.credit_packs import PACK_CATALOGUE
@@ -69,8 +69,8 @@ from apps.api.billing.service import plan_tier_of
 from apps.api.core.alerting import alert
 from apps.api.core.brand import PRODUCT
 from apps.api.core.logging import get_logger
+from apps.api.core.queue import job_try
 from apps.api.core.transport import EmailPurpose, _domain, get_transport
-from apps.api.crm.performance import IST_ZONE
 from apps.api.db.session import admin_session, tenant_session, untenanted_session
 from apps.api.reliability.service import enqueue_outbox_once
 from apps.workers.auth_email import CONSOLE_BASE
@@ -102,8 +102,6 @@ RETRY_BACKOFF_S: tuple[float, ...] = (60.0, 300.0)
 SUBJECT: Final = f"Your {PRODUCT} calling rates are changing"
 HEADING: Final = "New calling rates from {date}"
 PREHEADER: Final = "Credit you have already bought is not affected."
-
-_IST_TZ = ZoneInfo(IST_ZONE)
 
 #: Every live tenant that has a wallet, with the address of record. Ordered by id so a
 #: budget that truncates truncates the same way twice and an operator comparing two ticks
@@ -186,7 +184,7 @@ def _starts_on(effective_from: datetime) -> str:
     """The date a client reads: IST, spelled out. UTC in the DB, IST at the edge — and an
     email is an edge. A client in Hyderabad reading "14 October" must not be told "13
     October" because the instant was rendered in the server's zone."""
-    return effective_from.astimezone(_IST_TZ).strftime("%-d %B %Y")
+    return effective_from.astimezone(IST).strftime("%-d %B %Y")
 
 
 def _aware(value: str) -> datetime:
@@ -258,7 +256,7 @@ async def notify_rate_card_change(ctx: dict[str, Any], payload: dict[str, Any]) 
     """
     tenant_id = UUID(str(payload["tenant_id"]))
     effective_from = _aware(str(payload["effective_from"]))
-    attempt = int(ctx.get("job_try", 1))
+    attempt = job_try(ctx)
 
     async with tenant_session(tenant_id) as session:
         if await plan_tier_of(session, tenant_id) not in PREPAID_TIERS:

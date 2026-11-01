@@ -32,7 +32,7 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Request
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import Field, field_validator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -52,6 +52,7 @@ from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
+from apps.api.core.schemas import Strict as _Strict
 from apps.api.core.stepup import StepUpGate
 from apps.api.db.session import tenant_session
 
@@ -63,10 +64,6 @@ CompWrite = Annotated[Principal, Depends(requires("billing:comp", realm="admin")
 PaidRead = Annotated[Principal, Depends(requires("billing:read", realm="admin"))]
 
 TrialState = Literal["running", "ended", "none"]
-
-
-class _Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 class PaidStatusOut(_Strict):

@@ -127,7 +127,7 @@ async def _announce_clear(row: Any) -> bool:
             html=message.html,
         )
     except Exception as exc:  # pragma: no cover - transport failures are logged, not raised
-        log.warning("alert_clear_notice_failed", extra={"reason": type(exc).__name__})
+        log.warning("alert_clear_notice_failed", extra={"error": type(exc).__name__})
         return False
 
 

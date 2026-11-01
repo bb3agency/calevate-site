@@ -35,7 +35,7 @@ import json
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any, Final
 from urllib.parse import urlencode
@@ -102,8 +102,6 @@ SEND_DEADLINE_S: Final = 3 * REQUEST_TIMEOUT_S
 MAX_ANSWER_CHARS: Final = 4000
 #: How many free slots a calendar check offers.
 FREE_SLOTS_OFFERED: Final = 3
-
-_IST = timezone(IST)
 
 
 @dataclass(frozen=True, slots=True)
@@ -691,7 +689,7 @@ def _rfc3339(value: Any) -> datetime | None:
         parsed = datetime.fromisoformat(_stringify(value).strip())
     except ValueError:
         return None
-    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=_IST)
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=IST)
 
 
 def _busy(body: Any, calendar_id: str) -> list[tuple[datetime, datetime]] | None:
@@ -714,7 +712,7 @@ _WEEKDAYS: Final = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Sat
 def within_booking_hours(config: CalendarConfig, start: datetime, end: datetime) -> bool:
     """Does `start` to `end` sit inside the business's booking hours and days, in India time?
     A booking that runs past midnight is never inside them."""
-    local_start, local_end = start.astimezone(_IST), end.astimezone(_IST)
+    local_start, local_end = start.astimezone(IST), end.astimezone(IST)
     if config.open_days is not None and local_start.isoweekday() not in config.open_days:
         return False
     if config.opens is None or config.closes is None:
@@ -762,7 +760,7 @@ def free_slots(
 
 def spoken_time(at: datetime) -> str:
     """`Tuesday 14 October, 4:00 PM` in India time — read aloud exactly as written."""
-    local = at.astimezone(_IST)
+    local = at.astimezone(IST)
     hour = local.strftime("%I").lstrip("0") or "12"
     day = f"{local.strftime('%A')} {local.day} {local.strftime('%B')}"
     return f"{day}, {hour}:{local.strftime('%M %p')}"
@@ -836,7 +834,7 @@ async def _run_calendar(
                 "available": bool(slots) and slots[0] == start_at,
                 "booking_hours": booking_hours_text(config),
                 "free_slots": [
-                    {"start": s.astimezone(_IST).isoformat(), "say": spoken_time(s)} for s in slots
+                    {"start": s.astimezone(IST).isoformat(), "say": spoken_time(s)} for s in slots
                 ],
             },
             status="checked",

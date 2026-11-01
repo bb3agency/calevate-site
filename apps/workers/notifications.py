@@ -54,7 +54,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.core.transport import EmailPurpose, get_transport
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
@@ -94,7 +94,7 @@ async def notify_hot_lead(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     lead_id = UUID(str(payload["lead_id"]))
     call_id = UUID(str(payload["call_id"]))
     triggers: list[str] = list(payload.get("triggers") or [])
-    attempt = int(ctx.get("job_try", 1))
+    attempt = job_try(ctx)
 
     async with tenant_session(tenant_id) as session:
         if await _already_delivered(session, lead_id=lead_id, call_id=call_id):

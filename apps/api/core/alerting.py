@@ -223,7 +223,7 @@ def alert(
     try:
         _dispatch(stage, code, severity, detail, ids, episode)
     except Exception as exc:
-        log.error("alert_dispatch_failed", extra={"code": code, "reason": type(exc).__name__})
+        log.error("alert_dispatch_failed", extra={"code": code, "error": type(exc).__name__})
 
 
 # --- Delivery -----------------------------------------------------------------
@@ -425,7 +425,7 @@ def resolve_alert(stage: FailureStage, code: str, *, episode: str | None = None)
             )
         )
     except Exception as exc:
-        log.error("alert_resolve_failed", extra={"code": code, "reason": type(exc).__name__})
+        log.error("alert_resolve_failed", extra={"code": code, "error": type(exc).__name__})
 
 
 def _warn_unconfigured_once() -> None:
@@ -606,7 +606,7 @@ def _drain() -> None:
         except Exception as exc:
             log.error(
                 "alert_delivery_crashed",
-                extra={"code": code, "reason": type(exc).__name__},
+                extra={"code": code, "error": type(exc).__name__},
             )
         finally:
             _queue.task_done()
@@ -764,7 +764,7 @@ def _deliver(notice: AlertNotice, outcome: RecordOutcome | None = None) -> bool:
             # the page itself, so a mail that cannot be designed goes out as bare facts.
             log.error(
                 "alert_compose_failed",
-                extra={"code": notice.code, "reason": type(exc).__name__},
+                extra={"code": notice.code, "error": type(exc).__name__},
             )
             message = _bare(notice)
         for attempt in (1, 2):

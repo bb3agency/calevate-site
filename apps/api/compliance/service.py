@@ -63,7 +63,7 @@ from uuid import UUID
 
 from calevate_shared.calling_window import CALLING_HOURS_RULE as _CALLING_HOURS_RULE
 from calevate_shared.calling_window import DEFAULT_WINDOW as _DEFAULT_WINDOW
-from calevate_shared.calling_window import IST as _IST
+from calevate_shared.calling_window import IST
 from sqlalchemy import Row, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -112,18 +112,11 @@ from apps.api.legal.service import agreements_blocker
 
 log = get_logger(__name__)
 
-# IST. The DB stores UTC (conventions); the RULE is expressed in the caller's time,
-# so the conversion happens here and nowhere else.
-# IMPORTED, NOT DEFINED. Both constants used to live here, and both are needed by
-# `apps/voice-runtime`'s in-call callback tool — which may not import this module at all
-# (hard rule 3; `tests/voice_runtime_import_surface_test.py` boots the service and reads
-# `sys.modules`). The choice was one definition in a place both deployables can reach, or
-# two spellings of a legal boundary, on the one constant in this repo where a disagreement
-# means ringing a household at 04:00. They live in `calevate_shared.calling_window`, which
-# imports nothing but the standard library; every reader of `compliance.service.IST` and
-# `.DEFAULT_WINDOW` keeps working unchanged, and this module remains the name they are
-# imported BY.
-IST = _IST
+# IMPORTED, NOT DEFINED. The window is needed by `apps/voice-runtime`'s in-call callback
+# tool, which may not import this module (hard rule 3;
+# `tests/voice_runtime_import_surface_test.py` boots the service and reads `sys.modules`),
+# so it lives in `calevate_shared.calling_window` with `IST`; one definition both
+# deployables reach, rather than two spellings of a legal boundary.
 DEFAULT_WINDOW = _DEFAULT_WINDOW
 
 # The client-facing wording of the two tenant-level refusals, shared with the campaign
@@ -317,7 +310,7 @@ class DispatchDecision:
 
 
 def ist_now() -> datetime:
-    return datetime.now(UTC) + IST
+    return datetime.now(IST)
 
 
 def within_calling_hours(
@@ -1273,7 +1266,6 @@ __all__ = [
     "DESTINATION_NOT_INDIA_REASON",
     "DIAL_REFUSING_CONSENT_STATUSES",
     "INDIA_E164_PREFIX",
-    "IST",
     "MAINTENANCE_DRAIN_REASON",
     "MAINTENANCE_DRAIN_RULE",
     "NO_CREDITS_REASON",

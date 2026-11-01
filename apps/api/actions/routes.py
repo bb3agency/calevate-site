@@ -25,7 +25,7 @@ from uuid import UUID
 
 import httpx
 from fastapi import APIRouter, Depends, Header, Query, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -48,6 +48,7 @@ from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
+from apps.api.core.schemas import Strict
 from apps.api.core.settings import get_settings
 from apps.api.core.stepup import ClientActionCode, client_confirmation
 from apps.api.db.base import uuid7
@@ -66,10 +67,6 @@ ConfirmAction = Annotated[str | None, Header(alias="X-Confirm-Action")]
 
 #: How many runs the per-action call log shows.
 INVOCATION_LOG_LIMIT = 50
-
-
-class Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 # ============================================================= credentials ====

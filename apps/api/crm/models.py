@@ -10,7 +10,6 @@ from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
-from calevate_shared.carrier import CARRIERS
 from calevate_shared.events import NOT_PLACED_REASONS, CallDirection, CallStatus, Speaker
 from calevate_shared.extraction import (
     LEGACY_OUTCOME_TAGS,
@@ -149,7 +148,6 @@ class Call(PKMixin, TimestampMixin, Base):
             f"knowledge_state IS NULL OR knowledge_state IN {tuple(sorted(KNOWLEDGE_STATES))!r}",
             name="knowledge_state_enum",
         ),
-        CheckConstraint(f"carrier IS NULL OR carrier IN {CARRIERS!r}", name="carrier_enum"),
         # An opaque carrier id and never a bare digit run (hard rule 6), the rule
         # `processor_erasure_tasks.vendor_refs` keeps (migration b3e9c4a71f20, D-668).
         CheckConstraint(
@@ -183,17 +181,6 @@ class Call(PKMixin, TimestampMixin, Base):
             "tenant_id",
             "created_at",
             postgresql_where=text("carrier_recording_id IS NOT NULL AND recording_url IS NULL"),
-        ),
-        # Copied recordings whose carrier copy is not yet deleted: the one-day expiry
-        # sweep's worklist (migration c5d82f1a9e47).
-        Index(
-            "ix_calls_carrier_recording_undeleted",
-            "tenant_id",
-            "created_at",
-            postgresql_where=text(
-                "carrier_recording_id IS NOT NULL AND recording_url IS NOT NULL "
-                "AND carrier_recording_deleted_at IS NULL"
-            ),
         ),
         # Calls whose content deletion at the voice platform is queued and not yet settled:
         # the backstop's worklist (`workers/engine_customer_data`, migration e4b7d2a9c160).
@@ -293,9 +280,6 @@ class Call(PKMixin, TimestampMixin, Base):
     #: destroying the only handle on a copy we are obliged to have erased is the failure
     #: `recording_erasure_holds` exists to prevent.
     carrier_call_id: Mapped[str | None] = mapped_column(Text)
-    #: The former carrier that held this call's leg (migration f5c2a8e41d07). No longer
-    #: written; kept for historical rows until the column is dropped (hard rule 8).
-    carrier: Mapped[str | None] = mapped_column(Text)
     direction: Mapped[str] = mapped_column(String, nullable=False)
     from_e164: Mapped[str | None] = mapped_column(Text)
     to_e164: Mapped[str | None] = mapped_column(Text)
@@ -313,10 +297,6 @@ class Call(PKMixin, TimestampMixin, Base):
     #: Our former carrier's id for its recording of this call (D-668), quoted at the carrier by
     #: an erasure. No longer written. Never a URL; `recording_url` is our copy.
     carrier_recording_id: Mapped[str | None] = mapped_column(Text)
-    #: When our copy of the carrier's recording was stored, and when the carrier confirmed
-    #: its own copy deleted, one day later (migration c5d82f1a9e47).
-    recording_copied_at: Mapped[datetime | None]
-    carrier_recording_deleted_at: Mapped[datetime | None]
     #: The voice platform's copy of this call's content (recording, transcript, summary,
     #: collected fields): when we queued its deletion, when the platform said it was
     #: deleted, and how many recording files it still retries (migration e4b7d2a9c160).
