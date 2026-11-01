@@ -20,6 +20,10 @@ KEEP_DAYS=${PREDEPLOY_DUMP_KEEP_DAYS:-14}
   echo "prune-predeploy-dumps: KEEP_LAST and KEEP_DAYS must be whole numbers" >&2
   exit 2
 }
+# Base 10 explicitly: bash reads a leading zero as octal, and `08` is then an arithmetic
+# error that `((...))` reports and carries on past, so the keep-newest guard would vanish.
+KEEP_LAST=$(( 10#$KEEP_LAST ))
+KEEP_DAYS=$(( 10#$KEEP_DAYS ))
 
 cutoff=$(( $(date +%s) - KEEP_DAYS * 86400 ))
 deleted=0
