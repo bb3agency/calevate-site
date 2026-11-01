@@ -138,9 +138,9 @@ the docs do not settle and a live account has not yet shown:
   `billing/cost_attestations.py`). An unattested fee leaves the minute unpriced and alarms
   `engine_minute_rate_unattested`; the hourly charges sweep compares each call's `costMicro`
   with the attested rate (BRD A-6).
-- **Knowledge files**: a PDF or a link reaches ThinnestAI as its file or as nothing while
-  `kb_send_extracted_files` is off; how ThinnestAI reads an uploaded file is the open
-  question of D-868 (replies §31).
+- **Knowledge files**: a PDF reaches ThinnestAI as the words we read (scans by our Gemini
+  reader, metered) and a link as its address, which ThinnestAI fetches (D-868, built 1 Nov 2026);
+  ThinnestAI takes no file over its API and reads no scan (snapshots/2026-10-29).
 
 ---
 

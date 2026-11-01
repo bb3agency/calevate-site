@@ -35,8 +35,8 @@ import {
  *    Only the SIZE is checked in the browser: the API refuses `.doc` with a remediation
  *    naming the fix (Save as .docx), which a generic refusal here would hide.
  * 2. **What reaches the agents is said before a file is chosen**, and a PDF is said apart
- *    (`PDF_NOTE`): its words are read for the owner and Pip, and whether the agents use
- *    them is the server's answer per item (`reaches_agents`, D-893 L8), so the note
+ *    (`PDF_NOTE`): its words are read, scanned pages too, and whether the agents use
+ *    them is the server's answer per item (`reaches_agents`, D-868), so the note
  *    promises nothing the row may later deny.
  * 3. **Progress is real bytes, not a spinner.** 20 MB over a phone uplink is minutes of
  *    apparent silence, and a form that looks frozen gets pressed twice — the same price
@@ -54,7 +54,7 @@ export function AddFile({ allowed }: { allowed: boolean }) {
     successToast: (sent) => `${sent.name} received`,
     successDescription: (sent) =>
       sent.source_kind === "pdf"
-        ? "Reading it now. Its row shows if agents use it."
+        ? "Reading every page now. See the list below."
         : "Reading it now. See the list below.",
   });
 
@@ -131,8 +131,8 @@ export function AddFile({ allowed }: { allowed: boolean }) {
 
 /**
  * THE LINK HALF OF THE ADD AREA. A link is stored, its one page read and checked for
- * changes; whether the agents use its words is said on its row (`reaches_agents`, D-893
- * L8). So `LINK_NOTE` promises only the reading, and the button says "Save", not "Add to
+ * changes, and sent to the agents as its address (D-868); a page they cannot read says
+ * why on its row. The button says "Save", not "Add to
  * your agents".
  */
 export function AddLink({ allowed, reason }: { allowed: boolean; reason: string | null }) {
@@ -141,7 +141,7 @@ export function AddLink({ allowed, reason }: { allowed: boolean; reason: string 
   const linkFeedback = useActionFeedback(link, {
     errorDisplay: "inline",
     successToast: "Link saved",
-    successDescription: "Agents can't read web pages yet.",
+    successDescription: "Your agents get the page in a minute.",
   });
   const urlInputId = useId();
   const [url, setUrl] = useState("");

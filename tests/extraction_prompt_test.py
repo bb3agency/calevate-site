@@ -33,9 +33,11 @@ reject CORRECT answers on this product and where the real gate for it lives.
 from __future__ import annotations
 
 import pytest
+from calevate_shared.business_outcomes import STARTING_OUTCOMES
 from calevate_shared.extraction import (
     ExtractionField,
     ExtractionSchemaSpec,
+    MomentsBrief,
     build_extraction_prompt,
     validate_extraction,
 )
@@ -136,6 +138,37 @@ def test_the_prompt_says_a_denial_is_not_a_confirmation() -> None:
     then rings someone who said no — the harm the do-not-call machinery exists to
     prevent."""
     _requires("ledu", "vaddu", "denial", "false", "never true")
+
+
+def test_a_yes_no_field_nobody_asked_about_is_null_not_false() -> None:
+    """Founder's trial call, 30 Oct 2026: "Site visit: No" on a call where a visit never came
+    up. The field said "true ONLY if the caller agreed", which a model read as "false
+    otherwise"; the schema already allows null."""
+    _requires(
+        "(true, false or null)",
+        "false only when the caller said no to that thing",
+        "never came to it, it is null, not false",
+    )
+    assert "true/false fields are true or false" not in _prompt()
+
+
+def test_a_captured_detail_moment_needs_the_value_and_the_callers_line() -> None:
+    """The same call showed "Location captured" under the agent's question while Location
+    was "Not mentioned". `moments.field_backed` enforces it; the prompt asks for it."""
+    prompt = build_extraction_prompt(SPEC, TRANSCRIPT, moments=MomentsBrief()).lower()
+    assert "only for a field your answer above holds a value for" in prompt
+    assert "caller's line that gave it" in prompt
+
+
+def test_an_unclear_call_has_no_business_outcome() -> None:
+    """The same call read "Wrong lead" though the caller said "Yes" to still looking and
+    then only repeated the company name."""
+    prompt = build_extraction_prompt(SPEC, TRANSCRIPT, outcomes=STARTING_OUTCOMES).lower()
+    assert "a caller who gave no clear answer" in prompt
+    assert "is null, never the nearest line" in prompt
+    assert "is the wrong person or has the\n  wrong number needs the caller to have said so" in (
+        prompt
+    )
 
 
 def test_the_prompt_says_an_absent_value_is_null_and_must_not_be_guessed() -> None:

@@ -22,6 +22,7 @@ import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 import { StatusPill, sentenceCase } from "@/components/admin/kit";
 import { AGENT_STATUS_TONE } from "../../../statePill";
 import { CallCapPanel } from "./sections/callCap";
+import { AgentKnowledgePanel } from "./sections/knowledge";
 import { CallHandlingPanel } from "./sections/callHandling";
 import { ReplyLengthPanel } from "./sections/replyLength";
 import { ExperimentPanel } from "./sections/experiment";
@@ -68,6 +69,7 @@ const SECTIONS_BASE: SettingsSection[] = [
   { id: "live", label: "Live" },
   { id: "script", label: "Script" },
   { id: "told", label: "What it is told" },
+  { id: "knowledge", label: "Knowledge" },
   { id: "voice", label: "Voice" },
   { id: "model", label: "Model" },
   { id: "limits", label: "Call handling" },
@@ -227,6 +229,8 @@ export function AgentPromptScreen({ tenantId, agentId }: { tenantId: string; age
               );
             case "told":
               return <PromptLayersPanel tenantId={tenantId} agentId={agentId} />;
+            case "knowledge":
+              return <AgentKnowledgePanel tenantId={tenantId} agentId={agentId} write={write} />;
             case "voice":
               return (
                 <VoicePanel

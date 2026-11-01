@@ -2259,3 +2259,75 @@ from 1 Nov; 4-9 are capacity and the 29 Oct release (D-940).
 >
 > Thanks,
 > Umesh
+
+## 41. Ashutosh's replies to §40, received 30 Oct 2026 (09:35, 09:51 and 17:17 IST)
+
+§40 was SENT by the founder on 30 Oct 2026 at 01:24 IST as drafted (item 6 asked for 50/100
+concurrent calls and 5 agents per customer workspace). Three replies, founder-relayed
+1 Nov 2026. **Evidence class: VENDOR-STATED** until a docs snapshot or the API confirms each
+point; nothing here reaches money or a wire value without that.
+
+> **TRAI and caller name** — Sent you queries to the operator.
+> **Limits** — Already increased for your account.
+> **Knowledge and voices** — PDF and links: just prompt the agent and it will fetch them.
+> Own-key voice (llm_voice / voice): you can check on the settings/byok page, Sarvam is
+> supported.
+> **Call insights** — Yes, it can be switched on per agent at no extra charge. Yes, insights
+> also work with your BYOK.
+> **Timer v2** — It uses batch STT and a decider model for turn detection (still in beta).
+> Enable it on your agent and let us know your feedback.
+> **WhatsApp calling** — Yes, an agent answers a WhatsApp voice call over SIP (Meta's Calling
+> API), so a customer can call a business on WhatsApp and reach the attached agent.
+>
+> (09:51) If you expect your client to run 20+ concurrent calls, please let us know in
+> advance so that we can provision high throughput to your account.
+>
+> (17:17) Regarding the latest TRAI guidelines on A2P declaration, this process is not yet
+> live. We are currently working with our telco partners to understand the exact
+> procedures and requirements.
+
+| §40 item | Answer | What it closes / what is ours |
+| - | - | - |
+| 1-3 TRAI Sender, filing route, CNAP name | Queried with the operator; **A2P declaration process not yet live** at the telcos | Nothing closes. D-941 v2 stands: the client confirms + authorises, Calevate files once a route exists (ops list, Mark filed). Ask again before 17 Nov. |
+| 4-5 1601 series, ₹0.05/min A2P charge | Not answered | Still open |
+| 6 Limits | "Already increased" — figures not stated | New limits UNKNOWN until read from the API/console; give 20+ concurrent notice per client |
+| 7 PDFs and links on calls | "Just prompt the agent and it will fetch them" | UNVERIFIED mechanism — check docs before changing D-868 |
+| 8 Own-key voices | Sarvam supported (settings/byok) | Enables the blind Telugu TTS test (Cartesia vs Bulbul) |
+| 9 Call insights | Per-agent switch, no extra charge, works on own model | Whether the switch is in the API (Update Agent) is UNVERIFIED — check docs |
+| 10 Timer v2 | Beta; batch STT + decider model | Founder test call, then decide the platform default |
+| 11 WhatsApp calling | Yes, SIP to the attached agent | How (SIP address per agent, Meta set-up) UNVERIFIED — check docs |
+| 12 DPA and sub-processors | Not answered | Still open (gate T-5) |
+
+## 42. Follow-up to §41 (DRAFTED 1 Nov 2026)
+
+Checked §41 against the live API (`https://app.thinnest.ai/openapi.json`, read 1 Nov 2026) and the
+29 Oct docs snapshot: no Update Agent field switches Call insights on; no field reports our
+concurrency or per-workspace agent limits; WhatsApp calling (`whatsapp/calls.md`) is switched
+on under Connect WhatsApp in the console, and WhatsApp is connected only in the console. Our
+clients' WhatsApp numbers are connected through our own Meta Tech Provider set-up (D-784).
+
+> Subject: Re: TRAI, limits and your 29 Oct release — a few follow-ups
+>
+> Hi Ashutosh,
+>
+> Thanks for the quick answers. A few follow-ups:
+>
+> 1. **Call insights through the API.** We create and manage every client's agents only
+>    through the API, in their customer workspaces. Is there (or can there be) an Update
+>    Agent field to switch Call insights on? The API spec we read today has none.
+> 2. **Our new limits.** What are they now: concurrent calls for the account, and agents per
+>    customer workspace? Noted on 20+ concurrent — we will tell you per client before it
+>    happens.
+> 3. **WhatsApp calling on a number connected elsewhere.** Our clients connect their own
+>    WhatsApp numbers through our Meta Tech Provider app, not in your console. Can such a
+>    number's calls reach an agent — for example a SIP address per agent that we point
+>    Meta's Calling API to — and is there an API for it?
+> 4. **A2P declaration.** Understood that it is not live yet. Please tell us as soon as the
+>    telcos publish the process, and whether you or Plivo will file for numbers rented in our
+>    customer workspaces.
+> 5. Still open from the last mail: caller name display (which name shows on a client's
+>    number), 1601-series numbers, the ₹0.05/min automated-call charge, and the signed DPA
+>    with your sub-processor list.
+>
+> Thanks,
+> Umesh

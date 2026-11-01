@@ -1,13 +1,12 @@
-"""A client's PDF or linked page, read into a copy of its words that we keep (D-893 L8).
+"""A client's PDF or linked page, read into a copy of its words that we keep (D-893 L8, D-868).
 
-The voice platform is handed a PDF as its file and a link as nothing at all (its knowledge
-API takes `text` or `url`, and refuses a PDF by `url`: `docs/vendor/thinnest-replies-
-2026-10-12.md` §30 q4), so before this module the words of either existed nowhere on our
-side. Now they are stored where every other upload's text is stored — `kb_documents`, through
-`kb.service.store_read_copy` — so the client's reader, Pip's find, open and search, and the
-retrieval projection see a PDF as they see a Word file. Whether the AGENTS get those words is
-a separate decision, the console switch `kb_send_extracted_files`
-(`kb.service.extracted_text_reaches_agents`); reading never changes what they receive.
+The voice platform's knowledge API takes a web page `url` or pasted `text`; files are console
+uploads, and its own PDF reading has no OCR (snapshots/2026-10-29/pages/api-reference/
+knowledge/add-knowledge-document.md:7; pages/agent/knowledge.md:39-53). So a PDF's words are
+read HERE and are what its agents are sent, while a link is sent as its address and the
+platform fetches it. Both copies are stored where every other upload's text is —
+`kb_documents`, through `kb.service.store_read_copy` — so the client's reader, Pip's find,
+open and search, and the retrieval projection see a PDF as they see a Word file.
 
 ═══ HOW A PDF IS READ ═══
 
@@ -31,8 +30,9 @@ styles and markup dropped, block elements turned into paragraph breaks.
 ═══ WHAT IS NEVER DONE ═══
 
 No document text reaches a log (hard rule 6): ids, counts and codes only. A failure lands on
-the row as `read_state = 'failed'` with a sentence the client can act on, and never blocks the
-publish: the file or the address still goes to the platform as it always did.
+the row as `read_state = 'failed'` with a sentence the client can act on. It never blocks a
+link's publish, which goes as its address; a PDF with no words is withheld from the agents
+(`kb.service._withheld_from_engine`) until "Read it again" finds some.
 """
 
 from __future__ import annotations
@@ -45,8 +45,6 @@ from html.parser import HTMLParser
 from typing import Any, Final
 from uuid import UUID
 
-from arq import Retry
-from calevate_shared.backoff import jittered_delay_s
 from calevate_shared.document_ingest import (
     MAX_IMAGE_BYTES,
     MAX_OCR_IMAGES,
@@ -59,17 +57,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import enqueue, job_id_for
 from apps.api.db.session import tenant_session
 from apps.api.kb import service as kb_service
 from apps.api.kb.models import READ_COPY_KINDS, READ_FAILED, READ_READING, READ_READY
-from apps.workers.fleet_walk import WalkBudget
 
 log = get_logger(__name__)
-
-#: This module's own job, named again for the continuation it enqueues: `check_job_wiring`
-#: reads an enqueued name only as a literal or a constant of the enqueuing module.
-REDELIVERY_JOB: Final = "redeliver_extracted_knowledge"
 
 #: The most pages of one PDF we read. A price list or a menu is a few pages; past this a
 #: document is a book, and the copy would be a cost nobody asked for.
@@ -254,23 +246,45 @@ async def _mark(
     )
 
 
+@dataclass(slots=True)
+class ScanReading:
+    """What the Gemini reader made of a PDF's scanned pages."""
+
+    pages: list[tuple[int, str]] = field(default_factory=list)
+    #: Scanned pages not read: unreadable, refused, past `MAX_OCR_PAGES`, or no reader.
+    missed: int = 0
+    #: The reader is switched off on this deployment (no key, or its price not attested),
+    #: so no scanned page was read at all. The client is told, and "Read it again" retries.
+    unavailable: bool = False
+
+
+#: Said when a PDF has scanned pages and the reader is off: the truth, no vendor named.
+OCR_OFF_DETAIL: Final = (
+    "Some pages are pictures of text, and we cannot read pictures right now. Try "
+    '"Read it again" later, or send those pages typed.'
+)
+
+
 async def _read_scans(
     session: AsyncSession, *, tenant_id: UUID, scans: list[tuple[int, bytes, str]]
-) -> tuple[list[tuple[int, str]], int]:
-    """Read scanned pages with the Gemini reader, metering each call. Returns the pages
-    read and how many could not be (unreadable, refused, or past `MAX_OCR_PAGES`)."""
+) -> ScanReading:
+    """Read scanned pages with the Gemini reader, metering each call to the client's AI
+    usage (`kb_ingest._meter_ocr`, priced by `billing/rates.llm_inr_per_ktok`, which refuses
+    an unattested model, so the reader is `unavailable` rather than unbilled)."""
     from apps.workers.document_ocr import OcrImage, PaidOcrUnusableError, ocr_images
     from apps.workers.kb_ingest import _meter_ocr
 
-    read: list[tuple[int, str]] = []
-    missed = max(0, len(scans) - MAX_OCR_PAGES)
+    reading = ScanReading(missed=max(0, len(scans) - MAX_OCR_PAGES))
+    read = reading.pages
     for number, data, mime in scans[:MAX_OCR_PAGES]:
         try:
             extracted = await ocr_images([OcrImage(data=data, mime_type=mime, position=number)])
         except OcrUnavailableError as unavailable:
             # No reader on this deployment: an operator's fix, so stop asking per page.
             log.error("kb_read_ocr_unavailable", extra={"reason": unavailable.reason})
-            return read, missed + len(scans[:MAX_OCR_PAGES]) - len(read)
+            reading.missed += len(scans[:MAX_OCR_PAGES]) - len(read)
+            reading.unavailable = True
+            return reading
         except DocumentRefusedError as refused:
             if isinstance(refused, PaidOcrUnusableError):
                 await _meter_ocr(
@@ -283,7 +297,7 @@ async def _read_scans(
                     usage_incomplete=refused.usage_incomplete,
                 )
             log.info("kb_read_scan_refused", extra={"page": number, "code": refused.code})
-            missed += 1
+            reading.missed += 1
             continue
         if extracted.model is not None:
             await _meter_ocr(
@@ -296,7 +310,7 @@ async def _read_scans(
                 usage_incomplete=extracted.usage_incomplete,
             )
         read.append((number, extracted.text))
-    return read, missed
+    return reading
 
 
 def _partial_detail(*, read: int, total: int) -> str | None:
@@ -345,17 +359,21 @@ async def read_saved_copy(
         except UnreadablePdfError as unreadable:
             await _mark(session, upload_id, READ_FAILED, detail=unreadable.detail)
             return "failed"
-        scanned, _ = await _read_scans(session, tenant_id=tenant_id, scans=reading.scans)
+        scanned = await _read_scans(session, tenant_id=tenant_id, scans=reading.scans)
         sections: list[tuple[int | None, str]] = [
-            (number, words) for number, words in sorted([*reading.pages, *scanned])
+            (number, words) for number, words in sorted([*reading.pages, *scanned.pages])
         ]
         pages = reading.page_count
         detail = _partial_detail(read=len(sections), total=reading.examined)
         if reading.examined < pages:
             detail = f"We read the first {reading.examined} pages of {pages}."
+        if scanned.unavailable:
+            detail = OCR_OFF_DETAIL
         empty = (
-            "There are no words we could read in this PDF. If it is a scan, send the pages "
-            "as photos."
+            OCR_OFF_DETAIL
+            if scanned.unavailable
+            else "There are no words we could read in this PDF. If it is a scan, send the "
+            "pages as photos."
         )
     else:
         from apps.workers.kb_ingest import fetch_page, page_digest
@@ -401,7 +419,7 @@ async def read_saved_copy(
 
 
 async def read_kb_upload(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
-    """Read one saved PDF or link into its copy, and re-send it while the switch is on.
+    """Read one saved PDF or link into its copy, and re-send a live one to the agents.
 
     Enqueued by `kb.reading.queue_read`: "Read it again" on the reader, and
     `scripts/read_saved_files.py` for uploads saved before their words were read. A new
@@ -420,130 +438,25 @@ async def read_kb_upload(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
                 text("SELECT is_active FROM kb_sources WHERE id = :sid"), {"sid": source_id}
             )
         ).scalar()
-    if outcome == "read" and live and kb_service.extracted_text_reaches_agents():
-        # Its own transaction: a publish takes the knowledge lock and makes vendor calls,
-        # and a slow vendor must not roll back a paid reading.
+    if outcome == "read" and live:
+        # A PDF's new words go to its agents; a link's publish identity is its address and
+        # the page we first read, so the re-upload guard makes this a no-op for one. Its
+        # own transaction: a publish takes the knowledge lock and makes vendor calls, and a
+        # slow vendor must not roll back a paid reading.
         async with tenant_session(tenant_id) as session:
             await kb_service.publish_source(session, tenant_id=tenant_id, source_id=source_id)
         return "read:sent"
     return outcome
 
 
-_LIVE_COPIES_SQL = """
-SELECT s.id FROM kb_sources s JOIN kb_uploads u ON u.source_id = s.id
-WHERE s.tenant_id = :tid AND s.is_active = true AND u.source_kind = ANY(:kinds)
-ORDER BY s.id
-"""
-
-
-class RedeliveryIncompleteError(RuntimeError):
-    """Some live PDFs or links could not be re-sent; every other one was."""
-
-
-def _redelivery_key(tenant_id: UUID, source_id: UUID) -> str:
-    """One source's place in the redelivery order: tenant, then source, as text."""
-    return f"{tenant_id}:{source_id}"
-
-
-async def _continue_redelivery(after: str, attempt: int) -> None:
-    """Queue the rest of the redelivery, starting after `after`, as a job of its own."""
-    try:
-        await enqueue(
-            REDELIVERY_JOB,
-            {"after": after},
-            job_id=job_id_for(REDELIVERY_JOB, "after", after),
-        )
-    except Exception as exc:
-        # The retry re-walks from this run's own start; sources already re-sent are
-        # skipped by `publish_source`'s digest guard, so nothing is sent twice.
-        raise Retry(defer=jittered_delay_s(30.0 * attempt)) from exc
-
-
-async def redeliver_extracted_knowledge(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
-    """Re-send every live PDF and link of every client after `kb_send_extracted_files`
-    changes (`kb.reading.queue_redelivery`).
-
-    `publish_source` on the live version: its digest now includes or leaves out the read
-    words (`kb.service._with_sent_text`), so the re-upload guard sends the new copy, takes
-    the old one down, and recompiles every agent's facts block. One transaction per source,
-    so one vendor refusal neither rolls back nor stops the rest; the run raises at the end
-    so what did not go is a failed job, not a quiet one.
-
-    Each source is a vendor upload plus a recompile of every agent, so the whole fleet does
-    not fit one `job_timeout`: a run stops at its `WalkBudget` and queues the rest as a
-    continuation (`payload["after"]`, the last source it reached, in tenant-then-source
-    order). Cancelled at the timeout instead, the fleet's tail was never re-sent, and the
-    run held one of the worker's few slots for all five minutes.
-    """
-    from apps.workers.kb_gloss import tenants_holding_knowledge
-
-    after = str(payload.get("after") or "")
-    after_tenant = after.partition(":")[0]
-    attempt = int(ctx.get("job_try", 1))
-    budget = WalkBudget()
-    reached = after
-    sent = 0
-    failures: list[str] = []
-    for tenant_id in sorted(await tenants_holding_knowledge(), key=str):
-        if str(tenant_id) < after_tenant:
-            continue
-        async with tenant_session(tenant_id) as session:
-            source_ids = sorted(
-                (
-                    UUID(str(sid))
-                    for sid in (
-                        await session.execute(
-                            text(_LIVE_COPIES_SQL),
-                            {"tid": tenant_id, "kinds": list(READ_COPY_KINDS)},
-                        )
-                    ).scalars()
-                ),
-                key=str,
-            )
-        for source_id in source_ids:
-            key = _redelivery_key(tenant_id, source_id)
-            if key <= after:
-                continue
-            if budget.spent():
-                await _continue_redelivery(reached, attempt)
-                log.info(
-                    "kb_redelivery_continued",
-                    extra={"sources": sent, "failed": len(failures)},
-                )
-                if failures:
-                    raise RedeliveryIncompleteError(
-                        f"{len(failures)} source(s) failed: {failures[:5]}"
-                    )
-                return f"sent={sent} continued"
-            reached = key
-            try:
-                async with tenant_session(tenant_id) as session:
-                    await kb_service.publish_source(
-                        session, tenant_id=tenant_id, source_id=source_id
-                    )
-            except Exception as exc:
-                failures.append(f"{source_id}:{type(exc).__name__}")
-                log.error(
-                    "kb_redelivery_item_failed",
-                    extra={"source_id": str(source_id), "error": type(exc).__name__},
-                )
-                continue
-            sent += 1
-    log.info("kb_redelivered", extra={"sources": sent, "failed": len(failures)})
-    if failures:
-        raise RedeliveryIncompleteError(f"{len(failures)} source(s) failed: {failures[:5]}")
-    return f"sent={sent}"
-
-
 __all__ = [
     "MAX_OCR_PAGES",
     "MAX_PDF_PAGES",
     "PdfReading",
-    "RedeliveryIncompleteError",
+    "ScanReading",
     "UnreadablePdfError",
     "page_text",
     "read_kb_upload",
     "read_pdf",
     "read_saved_copy",
-    "redeliver_extracted_knowledge",
 ]

@@ -175,15 +175,15 @@ def test_a_clarification_stops_after_two_tries_at_what_the_account_allows() -> N
     Not asking it the same way twice is ThinnestAI's own speaking rule (D-824)."""
     body = compile_call_script(V2)
     paying = compose_engine_prompt(_cfg(body))
-    assert "Unclear? Ask again; never pick for them." in paying
-    assert "or still unclear after two tries: say so, then offer a call back" in paying
+    assert "Unclear? Ask again, reworded; never pick for them." in paying
+    assert "or no clear reply twice: say so, then offer a call back" in paying
     trial = compose_engine_prompt(_cfg(body, callbacks_offered=False))
     assert (
-        "or still unclear after two tries: say so, then say the business will get back to "
+        "or no clear reply twice: say so, then say the business will get back to "
         "them. Never offer or book a call back"
     ) in trial
     # After the client script, so a script cannot undo it.
-    assert trial.index(CLIENT_SCRIPT_CLOSE) < trial.index("still unclear after two tries")
+    assert trial.index(CLIENT_SCRIPT_CLOSE) < trial.index("or no clear reply twice")
 
 
 def test_the_prompt_opens_on_who_the_agent_is_and_its_job() -> None:

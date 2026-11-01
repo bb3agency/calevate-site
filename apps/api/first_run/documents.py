@@ -49,7 +49,7 @@ class Document:
     #: The knowledge pipeline's own sentence when it could not be read, for the owner.
     detail: str | None
     #: Whether its words reach the agents on calls today (`upload_reaches_agents`). False for
-    #: a PDF while `kb_send_extracted_files` is off: its words still shape the script.
+    #: a PDF whose words could not be read.
     reaches_agents: bool
 
 

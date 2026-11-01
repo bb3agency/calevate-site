@@ -332,7 +332,6 @@ _UNSWEPT: dict[str, int] = {
     "apps/api/compliance/consent.py": 1,
     "apps/api/crm/routes.py": 1,
     "apps/api/crm/service.py": 1,
-    "apps/api/ingest/routes.py": 3,
     "apps/api/ingest/service.py": 2,
     "apps/api/integrations/egress_guard.py": 1,
     "apps/api/ops/config_routes.py": 1,

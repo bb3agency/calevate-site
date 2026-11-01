@@ -222,6 +222,8 @@ def test_a_guided_call_with_step_by_step_lists_fits_with_margin() -> None:
 #: D-921 (28 Oct 2026) RAISED both by 20: the voice pauses only at a mark, so a comma every few
 #: words, "?" on every question and a full stop on the rest (the founder heard a call as
 #: unpunctuated).
+#: D-947 (30 Oct 2026) left both where they were (7,313/6,438, each 1 under): "no clear reply
+#: twice" in place of "still unclear after two tries" pays for "Unclear? Ask again, reworded".
 PER_CALL_MAX = 7_314
 PER_CALL_ONE_LANGUAGE_MAX = 6_439
 

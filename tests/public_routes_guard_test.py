@@ -198,8 +198,16 @@ class TestWiring:
         subscription handshake, answered only when the verify token matches. POST is
         checked against `X-Hub-Signature-256` over the raw bytes before parsing, takes no
         tenant id (the worker resolves the account from the WABA id we recorded at connection,
-        under that account's own RLS GUC), and only queues the event."""
-        assert len(exempt) <= 53, sorted(exempt)
+        under that account's own RLS GUC), and only queues the event.
+
+        RAISED 53 -> 54 for `POST /hooks/v1/ingest/push/{webhook_id}` (D-942), the lead
+        push from IndiaMART, the property portals and LeadSquared. It is the twin of
+        `POST /hooks/v1/ingest/{webhook_id}` for senders that post to a URL and cannot add a
+        header: the same per-source secret, read from the `token` query parameter (or the
+        header), compared in constant time by the same `verify_ingest_secret` before the
+        body is read. It takes no tenant id (the source row names the account) and refuses
+        a source that is not a push source."""
+        assert len(exempt) <= 54, sorted(exempt)
 
 
 # --- detection ----------------------------------------------------------------

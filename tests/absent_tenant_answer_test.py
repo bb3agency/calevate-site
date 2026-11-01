@@ -89,6 +89,16 @@ BODIES: dict[str, dict[str, Any] | None] = {
         "experiment_id": str(uuid.uuid4())
     },
     "PATCH /v1/admin/tenants/{tenant_id}/agents/{agent_id}/call-cap": {"max_call_duration_s": 300},
+    # What one agent holds on the voice platform, and removing a document we did not send
+    # (D-868).
+    "GET /v1/admin/tenants/{tenant_id}/agents/{agent_id}/knowledge": None,
+    "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/knowledge/remove": {"handle": "census"},
+    # Marking a client's calling numbers filed (D-941).
+    "POST /v1/admin/tenants/{tenant_id}/calling-number-filings": {
+        "numbers": ["+919800000000"],
+        "filed_on": "2026-10-30",
+        "filing_reference": "CENSUS-1",
+    },
     # The pause before replying and the hang-up (D-751).
     "GET /v1/admin/tenants/{tenant_id}/agents/{agent_id}/call-handling": None,
     "PATCH /v1/admin/tenants/{tenant_id}/agents/{agent_id}/call-handling": {

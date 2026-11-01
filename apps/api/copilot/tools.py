@@ -1090,10 +1090,10 @@ _MAX_NAMED_SOURCES: Final = 5
 def _sources_agents_do_not_use(
     sources: Sequence[Mapping[str, Any]], undelivered: set[UUID]
 ) -> list[str]:
-    """The names of LIVE sources whose words the agents do not get: a PDF or a link while
-    `kb_send_extracted_files` is off, or one whose words could not be read (D-893 L8,
-    `kb/store.undelivered_source_ids`). Their words ARE on file and `search_knowledge`
-    with scope `everything` finds them; the agents' own answer cannot use them."""
+    """The names of LIVE sources whose words the agents do not get: a PDF whose words could
+    not be read, or a link the platform refused (D-868, `kb/store.undelivered_source_ids`).
+    What we read of them IS on file and `search_knowledge` with scope `everything` finds it;
+    the agents' own answer cannot use it."""
     return [
         str(source["name"])[:80]
         for source in sources

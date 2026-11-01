@@ -340,6 +340,11 @@ async def test_the_key_is_read_from_the_store_and_falls_back_to_settings(
             "studio-voice-key",
         ),
         (secret_routes.OWN_MODEL_SECRET, secret_routes.PUSH_OWN_MODEL_KEY_JOB, "own-model-key"),
+        (
+            secret_routes.COMPARISON_VOICE_SECRET,
+            secret_routes.PUSH_COMPARISON_VOICE_KEY_JOB,
+            "comparison-voice-key",
+        ),
     ],
 )
 async def test_saving_a_key_the_voice_platform_holds_enqueues_one_push_per_version(

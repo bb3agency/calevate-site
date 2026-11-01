@@ -226,10 +226,23 @@ async def test_egress_guard_blocks_a_private_custom_api_url(
 
 
 @pytest.mark.asyncio
-async def test_whatsapp_send_blocked_when_not_opted_in(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    ("refused_recently", "expected"), [(False, "not_opted_in"), (True, "reask_locked")]
+)
+async def test_whatsapp_send_blocked_when_not_opted_in(
+    monkeypatch: pytest.MonkeyPatch, refused_recently: bool, expected: str
+) -> None:
+    """With no consent on file, a no inside the D-943 re-ask window is reported apart from a
+    plain no-consent, because the agent must then not ask at all."""
+    from datetime import UTC, datetime
+
+    async def _locked(session: Any, **_: Any) -> datetime | None:
+        return datetime.now(UTC) if refused_recently else None
+
     monkeypatch.setattr(execution, "resolve_credential", _fake_secret("KEY"))
     monkeypatch.setattr(whatsapp, "check_dispatch", _fake_allowed_dispatch())
     monkeypatch.setattr(whatsapp, "read_messaging_consent", _fake_consent(messageable=False))
+    monkeypatch.setattr(whatsapp, "reask_locked_until", _locked)
     tool = _loaded(
         kind="whatsapp",
         provider="aisensy",
@@ -253,7 +266,7 @@ async def test_whatsapp_send_blocked_when_not_opted_in(monkeypatch: pytest.Monke
             client=client,
             audit=False,
         )
-    assert result.status == "not_opted_in"
+    assert result.status == expected
     assert result.ok is False
     assert sent is False  # the send never went out
 

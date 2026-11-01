@@ -328,6 +328,9 @@ PUSH_STUDIO_VOICE_KEY_JOB = "push_studio_voice_key"
 #: The credential agents on our own model answer with (D-764), and its rotation job.
 OWN_MODEL_SECRET = "gemini_api_key"
 PUSH_OWN_MODEL_KEY_JOB = "push_own_model_key"
+#: The Sarvam voice key the voice comparison speaks on (D-946), and its rotation job.
+COMPARISON_VOICE_SECRET = "sarvam_voice_api_key"
+PUSH_COMPARISON_VOICE_KEY_JOB = "push_voice_comparison_key"
 
 
 @router.put(
@@ -420,6 +423,14 @@ async def set_secret_route(
             job=PUSH_OWN_MODEL_KEY_JOB,
             payload={"version": record.version},
             dedupe_key=f"own-model-key:{record.version}",
+        )
+    if key == COMPARISON_VOICE_SECRET:
+        # The voice-comparison workspace holds its own copy (`ops/voice_comparison`).
+        await enqueue_outbox_once(
+            session,
+            job=PUSH_COMPARISON_VOICE_KEY_JOB,
+            payload={"version": record.version},
+            dedupe_key=f"comparison-voice-key:{record.version}",
         )
     tasks.add_task(propagate)
     # Which LLM legs hold a key decides which models are offered; refresh it here rather
