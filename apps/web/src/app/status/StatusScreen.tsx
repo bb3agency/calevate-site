@@ -2,7 +2,7 @@
 
 import { CircleCheck, CircleAlert, CircleX } from "lucide-react";
 
-import { formatIST } from "@/components/ui";
+import { formatIST, SECONDARY_BUTTON } from "@/components/ui";
 import {
   COMPONENT_STATE_WORDS,
   usePublicStatus,
@@ -41,12 +41,25 @@ export function StatusScreen() {
           {status.isLoading
             ? "Checking…"
             : !data
-              ? "We could not load the current status. Please try again in a minute."
+              ? "We could not load the current status."
               : allWell
                 ? "Everything is working normally."
                 : "Some parts of the service have problems. Details below."}
         </p>
       </header>
+
+      {/* Always offered, whatever the server says about `retryable`: this is a public
+          read with nothing to repeat by accident, and the page also re-reads every minute. */}
+      {!data && status.isError && (
+        <button
+          type="button"
+          onClick={() => void status.refetch()}
+          disabled={status.isFetching}
+          className={SECONDARY_BUTTON}
+        >
+          {status.isFetching ? "Checking…" : "Try again"}
+        </button>
+      )}
 
       {data && (
         <section aria-labelledby="status-components" className="space-y-3">

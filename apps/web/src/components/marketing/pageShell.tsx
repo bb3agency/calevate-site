@@ -28,6 +28,8 @@ import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 
 import { BrandLockup } from "@/components/brand";
+import { SkipLink } from "@/components/ui";
+import { MAIN_CONTENT_ID } from "@/lib/mainContent";
 import { LEGAL_DOCUMENTS } from "@/lib/legal";
 
 import { SmoothScroll } from "./motion";
@@ -300,8 +302,12 @@ export function MarketingPage({ children }: { children: ReactNode }) {
     // `publicLanding.test.tsx` both require.
     <SmoothScroll>
       <div data-marketing-root className="bg-app text-ink">
+        {/* At `xl` the header puts ten links ahead of the content on every page. */}
+        <SkipLink />
         <SiteHeader />
-        <main>{children}</main>
+        <main id={MAIN_CONTENT_ID} tabIndex={-1} className="focus:outline-none">
+          {children}
+        </main>
         <MarketingFooter />
       </div>
     </SmoothScroll>

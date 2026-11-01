@@ -361,6 +361,28 @@ export const UNSWEPT_SCREENS: Record<string, string> = {
     "CLOSED BY: nothing — this entry is correct for as long as the file renders no " +
     "markup, and the day it renders any it must move into SCREENS instead."
   ),
+  ...Object.fromEntries(
+    [
+      "(auth)/auth/sign-in/layout.tsx",
+      "(auth)/auth/forgot-password/layout.tsx",
+      "(auth)/auth/reset-password/layout.tsx",
+      "(auth)/auth/accept-invitation/layout.tsx",
+      "(auth)/auth/account/layout.tsx",
+      "(auth)/auth/google/callback/layout.tsx",
+      "(auth)/auth/admin/layout.tsx",
+      "(auth)/auth/admin/sign-in/layout.tsx",
+      "(auth)/auth/admin/forgot-password/layout.tsx",
+      "(auth)/auth/admin/reset-password/layout.tsx",
+      "(auth)/auth/admin/bootstrap/layout.tsx",
+      "oauth/callback/[provider]/layout.tsx",
+    ].map((file) => [
+      file,
+      "a metadata-only layout: it carries the page title for a client page that cannot " +
+        "export metadata and returns `{children}` unchanged, so there is no subtree for " +
+        "axe to scan. The page it wraps is swept. CLOSED BY: nothing while it renders " +
+        "no markup.",
+    ]),
+  ),
   "layout.tsx": (
     "the ROOT layout renders `<html lang=\"en\">` and `<body>`, which React Testing " +
     "Library cannot mount into a container div — there is no subtree for axe to scan. " +

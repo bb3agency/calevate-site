@@ -4,6 +4,8 @@
  * module is a client reference rather than its value.
  */
 
+import { resolvePlaceholders } from "@/lib/legal/placeholders";
+
 /**
  * Does THIS deployment open accounts online? Answered at build time, on purpose.
  *
@@ -35,7 +37,11 @@
 export const SIGNUP_OPEN = process.env.NEXT_PUBLIC_SELF_SERVE_SIGNUP_ENABLED === "true";
 
 /**
- * Who to talk to when the online door is shut. Optional: unset renders the sentence
- * without a link rather than inventing an address that would bounce.
+ * Who to talk to when the online door is shut. The env value overrides; unset (the shipped
+ * default) falls back to the published support mailbox in the legal placeholder registry,
+ * the address the legal pages already give for account questions. An empty fallback left
+ * the closed signup panel saying "Talk to us" with no way to do it — the end of the only
+ * acquisition funnel.
  */
-export const SIGNUP_CONTACT_EMAIL = process.env.NEXT_PUBLIC_SIGNUP_CONTACT_EMAIL ?? "";
+export const SIGNUP_CONTACT_EMAIL =
+  process.env.NEXT_PUBLIC_SIGNUP_CONTACT_EMAIL || resolvePlaceholders("{{SUPPORT_EMAIL}}");

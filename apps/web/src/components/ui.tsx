@@ -20,6 +20,7 @@ import { InfoTip } from "@/components/console/infoTip";
 import { NOTICE_DOT, StatusPill } from "@/components/console/statusPill";
 import { TEXT_ACTION } from "@/components/console/section";
 
+import { MAIN_CONTENT_ID } from "@/lib/mainContent";
 import { ApiProblem } from "@/lib/api/client";
 
 /**
@@ -1287,14 +1288,7 @@ export function ScrollRegion({
   );
 }
 
-/**
- * The `id` both shells put on their `<main>`, and the target of `SkipLink`.
- *
- * A constant rather than a literal in three files because a skip link whose target `id`
- * was renamed is a skip link that silently does nothing — the anchor still renders, still
- * takes focus, and goes nowhere.
- */
-export const MAIN_CONTENT_ID = "main-content";
+export { MAIN_CONTENT_ID };
 
 /**
  * THE CONTENT RAIL — the one width both consoles lay their content out on.
