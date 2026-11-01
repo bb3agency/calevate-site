@@ -387,6 +387,33 @@ def assert_within_limit(byte_size: int) -> None:
         )
 
 
+async def _refuse_live_duplicate(session: AsyncSession, *, tenant_id: UUID, digest: str) -> None:
+    """Refuse a file byte-identical to one already live in this account.
+
+    A second live copy adds nothing an agent can say and doubles every passage it holds in
+    retrieval, crowding other answers out of the top few. Only LIVE copies count: the same
+    file sent again after a rejection, or while the first is still being read, is allowed
+    through, so this never blocks a client's way out of an earlier failure.
+    """
+    existing = (
+        await session.execute(
+            text(
+                "SELECT s.name FROM kb_uploads u JOIN kb_sources s ON s.id = u.source_id "
+                "WHERE u.tenant_id = :tid AND u.original_sha256 = :sha AND s.is_active "
+                "LIMIT 1"
+            ),
+            {"tid": tenant_id, "sha": digest},
+        )
+    ).scalar()
+    if existing is None:
+        return
+    raise ProblemError.conflict(
+        "kb_upload_duplicate",
+        f"This exact file is already live as “{existing}”.",
+        remediation="Your agents already use it. To change it, upload the edited file.",
+    )
+
+
 async def create_upload(
     session: AsyncSession,
     *,
@@ -429,6 +456,8 @@ async def create_upload(
     if kind == "pdf":
         assert_pdf_signature(data)
     source_name = safe_name(given=name, fallback=filename)
+    digest = hashlib.sha256(data).hexdigest()
+    await _refuse_live_duplicate(session, tenant_id=tenant_id, digest=digest)
 
     upload_id = uuid7()
     # Deferred import: boto3 is heavy and this module is on the API's request path
@@ -464,7 +493,6 @@ async def create_upload(
         submitted_by=submitted_by,
         auto_approve=auto_approve and native,
     )
-    digest = hashlib.sha256(data).hexdigest()
     # A PDF IS the document the engine will be handed, so both slots point at one object
     # and nothing re-renders it: what a reviewer opens is what an agent answers from.
     # Every other kind is read into TEXT by the conversion lane and then chunked, so

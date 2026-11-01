@@ -91,6 +91,7 @@ from apps.api.kb.models import (
 from apps.api.kb.uploads import enqueue_ingest
 from apps.workers.document_ocr import OcrImage, PaidOcrUnusableError, ocr_images
 from apps.workers.document_text import extract_document
+from apps.workers.fleet_walk import WalkCursor
 from apps.workers.storage import read_kb_object
 
 log = get_logger(__name__)
@@ -529,7 +530,10 @@ async def publish_kb_source(ctx: dict[str, Any], payload: dict[str, Any]) -> str
 
     A publish refusal is NOT raised for arq to retry, because none of them heals on a
     retry seconds later: the sweep tries again once it is stale, and the source reads
-    "approved, not live" on the client's screen and "Going live" on the operator's.
+    "approved, not live" on the client's screen and "Going live" on the operator's —
+    counted, so one that never goes live alarms. A refusal of the wording itself
+    (`kb_service.PUBLISH_REFUSALS_NEEDING_AN_EDIT`) is not re-driven: the version is
+    closed as rejected with the refusal as its reason.
     Anything that is not a `ProblemError` is raised: the job fails, and `sweep_kb_uploads`
     re-drives the source, which arq would not (it retries only on `Retry`).
     """
@@ -541,6 +545,23 @@ async def publish_kb_source(ctx: dict[str, Any], payload: dict[str, Any]) -> str
                 session, tenant_id=tenant_id, source_id=source_id
             )
     except ProblemError as refusal:
+        log.warning(
+            "kb_auto_publish_refused",
+            extra={"source_id": str(source_id), "code": refusal.code},
+        )
+        if refusal.code in kb_service.PUBLISH_REFUSALS_NEEDING_AN_EDIT:
+            reason = f"{refusal.detail} {refusal.remediation or ''}".strip()
+            try:
+                async with tenant_session(tenant_id) as session:
+                    await kb_service.refuse_at_publish(session, source_id=source_id, reason=reason)
+                return f"refused:{refusal.code}"
+            except ProblemError as moved:
+                # A newer state won the race (made live, archived, rejected by a person):
+                # it is not this job's to overwrite. Fall through to the ordinary re-drive.
+                log.info(
+                    "kb_auto_publish_refusal_unrecorded",
+                    extra={"source_id": str(source_id), "code": moved.code},
+                )
         # Moves the row to the back of the sweep's queue, so a source that keeps being
         # refused cannot take every slot of every tick.
         async with tenant_session(tenant_id) as session:
@@ -548,11 +569,16 @@ async def publish_kb_source(ctx: dict[str, Any], payload: dict[str, Any]) -> str
                 text("UPDATE kb_sources SET updated_at = now() WHERE id = :sid"),
                 {"sid": source_id},
             )
-        log.warning(
-            "kb_auto_publish_refused",
-            extra={"source_id": str(source_id), "code": refusal.code},
+        await _count_retryable_failure(
+            tenant_id,
+            source_id,
+            code=refusal.code,
+            stuck="an approved typed knowledge source has been refused at publish {n} times "
+            "running (last {code}); it stays 'approved, not live' and the sweep keeps "
+            "re-driving it",
         )
         return f"failed:{refusal.code}"
+    await _clear_failures(source_id)
     if version is None:
         log.info("kb_auto_publish_superseded", extra={"source_id": str(source_id)})
         return "superseded"
@@ -598,10 +624,18 @@ def _failure_key(upload_id: UUID) -> str:
     return f"kb_ingest:failures:{upload_id}"
 
 
-async def _count_retryable_failure(tenant_id: UUID, upload_id: UUID, *, code: str) -> None:
+async def _count_retryable_failure(
+    tenant_id: UUID,
+    upload_id: UUID,
+    *,
+    code: str,
+    stuck: str = "a knowledge upload has failed to publish {n} times running (last {code}); "
+    "it stays 'processing' and the sweep keeps re-driving it",
+) -> None:
     """Count a retryable failure in Redis (no column holds attempts), and alarm once the row
     has failed `STUCK_AFTER_FAILURES` times running. Best effort: an unreadable Redis is
-    logged and the row is re-driven as before."""
+    logged and the row is re-driven as before. `upload_id` is the row counted: an upload,
+    or a typed source (which has none) with its own `stuck` sentence."""
     key = _failure_key(upload_id)
     try:
         redis = get_redis()
@@ -614,10 +648,7 @@ async def _count_retryable_failure(tenant_id: UUID, upload_id: UUID, *, code: st
         alert(
             "WORKER_TERMINAL",
             "kb_ingest_stuck",
-            detail=(
-                f"a knowledge upload has failed to publish {failures} times running "
-                f"(last {code}); it stays 'processing' and the sweep keeps re-driving it"
-            ),
+            detail=stuck.format(n=failures, code=code),
             episode=str(upload_id),
             tenant_id=str(tenant_id),
             upload_id=str(upload_id),
@@ -710,15 +741,19 @@ async def _unpublished_typed_sources(now: datetime) -> list[tuple[UUID, UUID]]:
 
     Per tenant, because `kb_sources` is FORCE-RLS'd and answers an untenanted session with
     nothing; the tenant list is `kb_gloss.tenants_holding_knowledge`, the index every
-    knowledge sweep already walks.
+    knowledge sweep already walks. Walked from where the last tick's cap stopped
+    (`fleet_walk.WalkCursor`), so a few tenants with many stuck sources cannot take every
+    slot of every tick while the tenants after them wait.
     """
     from apps.workers.kb_gloss import tenants_holding_knowledge
 
     found: list[tuple[UUID, UUID]] = []
-    for tenant_id in await tenants_holding_knowledge():
+    cursor = WalkCursor("kb_unpublished_typed")
+    for tenant_id in await cursor.order(await tenants_holding_knowledge()):
         remaining = MAX_RETRIES_PER_TICK - len(found)
         if remaining <= 0:
             break
+        await cursor.reached(tenant_id)
         async with tenant_session(tenant_id) as session:
             rows = (
                 await session.execute(

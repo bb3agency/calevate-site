@@ -36,7 +36,7 @@ retrievable — the single-vector-per-document failure the chunking literature e
 So: **a window of consecutive turns, capped at `MAX_CHUNK_CHARS`** — the same cap
 `kb/service.chunk_text` packs prose to, IMPORTED rather than re-typed. Two chunkers with two
 copies of one number is the drift CLAUDE.md calls a defect even when both copies agree, and
-the number is a property of the thing both feed: one `text-embedding-3-small` vector at
+the number is a property of the thing both feed: one `EMBEDDING_MODEL` vector at
 `EMBEDDING_DIMS`, holding one idea. The cap is what makes a window "a topic", and the
 boundary rule below is what makes it "an exchange".
 

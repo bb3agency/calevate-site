@@ -111,7 +111,7 @@ def get_retriever(session: AsyncSession) -> RetrievalProvider:
         # Keyword-only rather than T0-only: the sparse arm needs no embedding (the `tsv` is
         # written at publish), and `PgVectorRetriever` already skips the dense arm when no
         # question vector can be bought. Falling back to T0 would hide every approved chunk
-        # outside the compiled facts from Pip on a deployment with no embedding deployment.
+        # outside the compiled facts from Pip on a deployment that cannot embed.
         log.warning(
             "retrieval_pgvector_keyword_only",
             # Which precondition failed, and never the credential itself.

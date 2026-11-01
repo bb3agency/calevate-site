@@ -345,8 +345,8 @@ async def test_the_switch_turns_the_comparison_on_and_off_between_two_requests(
     settings = retrieval_service.get_settings()
     monkeypatch.setattr(settings, "retrieval_provider", "pgvector")
     # The two preconditions the pgvector arm is built behind. Faked at the selector's own
-    # symbols rather than through `Settings`, because `embedding_leg` reads the Azure
-    # credential triple and `tests/conftest._no_ambient_credentials` strips it — this file
+    # symbols rather than through `Settings`, because `embedding_leg` needs the Gemini
+    # key and the Google data-use attestation — this file
     # is about the SWITCH, and the store's own configuration is `retrieval_pgvector_test`'s.
     monkeypatch.setattr(retrieval_service, "embedding_leg", lambda: _CONFIGURED_LEG)
     monkeypatch.setattr(retrieval_service, "embedding_price_is_billable", lambda: True)
@@ -380,8 +380,8 @@ async def test_naming_the_store_that_is_already_serving_compares_nothing(
     monkeypatch.setattr(settings, "retrieval_shadow_arm", "pgvector")
     monkeypatch.setattr(settings, "retrieval_shadow_tenant_ids", str(tenant_id))
     # The two preconditions the pgvector arm is built behind. Faked at the selector's own
-    # symbols rather than through `Settings`, because `embedding_leg` reads the Azure
-    # credential triple and `tests/conftest._no_ambient_credentials` strips it — this file
+    # symbols rather than through `Settings`, because `embedding_leg` needs the Gemini
+    # key and the Google data-use attestation — this file
     # is about the SWITCH, and the store's own configuration is `retrieval_pgvector_test`'s.
     monkeypatch.setattr(retrieval_service, "embedding_leg", lambda: _CONFIGURED_LEG)
     monkeypatch.setattr(retrieval_service, "embedding_price_is_billable", lambda: True)

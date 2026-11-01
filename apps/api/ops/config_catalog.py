@@ -673,12 +673,6 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "Which model the deployment above was made from. Prices the leg; move it with the "
         "deployment.",
     ),
-    "azure_openai_embedding_deployment": _m(
-        "language-models",
-        "azure",
-        "Azure embedding deployment",
-        "The deployment that serves embeddings for knowledge search.",
-    ),
     # ---- speech ----------------------------------------------------------------------
     "sarvam_stt_model": _m(
         "speech",

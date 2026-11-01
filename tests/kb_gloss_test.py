@@ -491,3 +491,36 @@ async def test_a_chunk_the_provider_refuses_is_set_aside_and_the_rest_are_glosse
             text("UPDATE kb_documents SET gloss_state = :s WHERE gloss_state = :p"),
             {"s": GLOSS_NOT_NEEDED, "p": GLOSS_PENDING},
         )
+
+
+async def test_a_chunk_refused_again_and_again_is_closed_out_so_it_can_be_embedded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A `pending` chunk is never embedded, so one the provider always refuses must leave
+    `pending` eventually or it stays out of the dense arm for ever."""
+    import httpx
+
+    tenant_id, _, _bodies = await _tenant_with_pending_chunks(TELUGU_BODY)
+
+    async def _always_refuses(leg: Any, messages: Any, **kwargs: Any) -> _FakeOutcome:
+        request = httpx.Request("POST", "https://provider.test/chat/completions")
+        raise httpx.HTTPStatusError(
+            "refused", request=request, response=httpx.Response(400, request=request)
+        )
+
+    async def _nothing_set_aside(_sweep: str) -> list[str]:
+        return []
+
+    async def _one() -> list[uuid.UUID]:
+        return [tenant_id]
+
+    monkeypatch.setattr(kb_gloss.chat, "complete", _always_refuses)
+    monkeypatch.setattr(kb_gloss, "azure_credentials", lambda: ("res", "key", "deployment-abc"))
+    monkeypatch.setattr(kb_gloss, "set_aside_ids", _nothing_set_aside)
+    monkeypatch.setattr(kb_gloss, "tenants_holding_knowledge", _one)
+
+    for _ in range(kb_gloss.MAX_GLOSS_REFUSALS - 1):
+        await kb_gloss.write_knowledge_glosses({"job_try": 1})
+    assert [s[0] for s in await _states(tenant_id)] == [GLOSS_PENDING]
+    await kb_gloss.write_knowledge_glosses({"job_try": 1})
+    assert [s[:2] for s in await _states(tenant_id)] == [(GLOSS_NOT_NEEDED, None)]

@@ -3,8 +3,8 @@
 Ranked by what each failure costs, worst first:
 
 1. **Nothing is billable until an operator attests.** The encoder catalogue carries a
-   figure whose evidence is `verified=False` — OpenAI's price page was never read from this
-   deployment — so hard rule 7 must keep it out of `unit_cost_paid`. A regression here
+   figure whose evidence is `verified=False` — a vendor page no run here can re-check — so
+   hard rule 7 must keep it out of `unit_cost_paid`. A regression here
    spends a vendor credential on every upload and records an invented cost against it, on
    an append-only ledger.
 2. **The attestation is INPUT-ONLY at the type level.** An embedding request returns a
@@ -66,7 +66,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 from tests.model_pricing_test import _purge_table
 
-DASHBOARD_ENCODER = "text-embedding-3-small"
+DASHBOARD_ENCODER = "gemini-embedding-2"
 #: A test-only encoder whose identifier carries the one interior slash the route accepts
 #: (a vendor-prefixed `models/<name>`), installed by `slashed_encoder`. No shipped entry has
 #: that shape today, and the route's `:path` handling is the generic capability under test.
@@ -169,8 +169,8 @@ def test_no_encoder_is_in_the_conversational_catalogue() -> None:
 def test_no_encoder_is_billable_from_the_catalogue_alone() -> None:
     """THE DEFAULT STATE OF EVERY DEPLOYMENT, and the one this whole seam is built around.
 
-    The catalogue figure is `verified=False`: the OpenAI price page was never read from this
-    container. So it may not reach `unit_cost_paid`, the leg is a no-op, and the encoder is
+    The catalogue figure is `verified=False`, as every Gemini price here is. So it may not
+    reach `unit_cost_paid`, the leg is a no-op, and the encoder is
     not switched on.
     """
     install_llm_price_attestations(None)
@@ -215,9 +215,8 @@ def test_a_verified_catalogue_figure_would_bill_without_an_attestation(
     """GROUND 2, EXERCISED — the arm no shipped entry reaches today.
 
     `llm_price_is_billable` has exactly two grounds and the encoder catalogue is held to
-    both, not to a looser one. No entry is `verified=True` today (OpenAI's price page was
-    never read here), so this substitutes a catalogue whose
-    evidence IS a first-hand vendor reading and checks that the arm behaves like its
+    both, not to a looser one. No entry is `verified=True` today, so this substitutes a
+    catalogue whose evidence IS a first-hand vendor reading and checks that the arm behaves like its
     conversational twin: billable with nothing attested, priced on input, zero on output.
 
     It is asserted rather than left unreachable because the day somebody CAN read a vendor

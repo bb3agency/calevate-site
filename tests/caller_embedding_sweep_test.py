@@ -23,10 +23,12 @@ from apps.api.billing.rates import LlmPriceAttestation, install_llm_price_attest
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.retrieval.caller_projections import CallerProjection, ChunkKey, ProjectedChunk
 from apps.api.retrieval.embedding import EMBEDDING_DIMS, EMBEDDING_MODEL
-from apps.workers import caller_embeddings, chat
-from apps.workers.chat import ChatLeg, EmbeddingOutcome, TokenUsage
+from apps.workers import caller_embeddings, gemini_native
+from apps.workers.chat import ChatLeg, TokenUsage
+from apps.workers.gemini_native import EmbeddingOutcome
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+from tests.conftest import turn_pip_on_for_tests
 from tests.kb_workflow_test import _tenant_with_published_agent
 
 _LEG = ChatLeg(
@@ -94,6 +96,51 @@ async def _platform_rows() -> int:
         )
 
 
+async def test_an_account_whose_owner_has_not_turned_pip_on_sends_nothing_to_the_provider(
+    monkeypatch: pytest.MonkeyPatch, priced: Any
+) -> None:
+    """FAILS IF: a caller's words reach the embedding provider before the owner turned Pip on
+    (the published sub-processor promise). Discovery still writes the keyword rows, which
+    stay `pending` and are embedded once the owner turns Pip on."""
+    tenant_id, agent_id = await _tenant_with_published_agent()
+    tenant_id = uuid.UUID(str(tenant_id))
+    scope, subjects = _stub_scope(uuid.UUID(str(agent_id)))
+
+    async def _only_this_tenant() -> list[uuid.UUID]:
+        return [tenant_id]
+
+    monkeypatch.setattr(caller_embeddings, "registered_projections", lambda: (scope,))
+    monkeypatch.setattr(caller_embeddings, "tenants_with_caller_data", _only_this_tenant)
+    monkeypatch.setattr(caller_embeddings, "embedding_leg", lambda: _LEG)
+    calls: list[int] = []
+
+    async def _counting(leg: ChatLeg, inputs: Sequence[str], **_: Any) -> EmbeddingOutcome:
+        calls.append(len(inputs))
+        return EmbeddingOutcome(
+            vectors=tuple(tuple(0.0 for _ in range(EMBEDDING_DIMS)) for _ in inputs),
+            usage=TokenUsage(11 * len(inputs), 0),
+        )
+
+    monkeypatch.setattr(gemini_native, "embed", _counting)
+    await caller_embeddings.embed_caller_chunks({})
+    assert calls == []
+    async with tenant_session(tenant_id) as session:
+        pending = (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM caller_chunks "
+                    "WHERE subject_id = ANY(:ids) AND embed_state = 'pending'"
+                ),
+                {"ids": subjects},
+            )
+        ).scalar_one()
+    assert int(pending) == len(subjects)
+
+    await turn_pip_on_for_tests(tenant_id)
+    await caller_embeddings.embed_caller_chunks({})
+    assert sum(calls) == len(subjects)
+
+
 async def test_a_later_batch_failing_does_not_unrecord_a_batch_already_paid_for(
     monkeypatch: pytest.MonkeyPatch, priced: Any
 ) -> None:
@@ -103,6 +150,7 @@ async def test_a_later_batch_failing_does_not_unrecord_a_batch_already_paid_for(
     the next tick."""
     tenant_id, agent_id = await _tenant_with_published_agent()
     tenant_id = uuid.UUID(str(tenant_id))
+    await turn_pip_on_for_tests(tenant_id)
     scope, subjects = _stub_scope(uuid.UUID(str(agent_id)))
 
     async def _only_this_tenant() -> list[uuid.UUID]:
@@ -123,7 +171,7 @@ async def test_a_later_batch_failing_does_not_unrecord_a_batch_already_paid_for(
             usage=TokenUsage(11 * len(inputs), 0),
         )
 
-    monkeypatch.setattr(chat, "embed", _second_fails)
+    monkeypatch.setattr(gemini_native, "embed", _second_fails)
     before = await _platform_rows()
 
     await caller_embeddings.embed_caller_chunks({})
@@ -155,6 +203,7 @@ async def test_a_chunk_the_provider_refuses_does_not_hold_back_its_batch(
     staying `pending` at the head of every claim."""
     tenant_id, agent_id = await _tenant_with_published_agent()
     tenant_id = uuid.UUID(str(tenant_id))
+    await turn_pip_on_for_tests(tenant_id)
     scope, subjects = _stub_scope(uuid.UUID(str(agent_id)))
 
     async def _only_this_tenant() -> list[uuid.UUID]:
@@ -177,7 +226,7 @@ async def test_a_chunk_the_provider_refuses_does_not_hold_back_its_batch(
             usage=TokenUsage(11 * len(inputs), 0),
         )
 
-    monkeypatch.setattr(chat, "embed", _refuses_one)
+    monkeypatch.setattr(gemini_native, "embed", _refuses_one)
     await caller_embeddings.embed_caller_chunks({})
     await caller_embeddings.embed_caller_chunks({})
 

@@ -35,7 +35,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import math
 import weakref
 from collections.abc import AsyncIterator, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
@@ -940,105 +939,6 @@ async def stream(
     )
 
 
-@dataclass(frozen=True, slots=True)
-class EmbeddingOutcome:
-    """One `POST /embeddings` turn: the vectors, in request order, and what it cost.
-
-    `usage is None` means the provider did not tell us, never that it was free — the rule
-    `ChatOutcome` states and `crm/assist.py::meter_assist` enforces.
-
-    THE VENDOR'S USAGE BLOCK HERE HAS NO OUTPUT HALF, and that is a fact rather than an
-    omission: `CreateEmbeddingResponse.usage` carries `prompt_tokens` and `total_tokens`
-    and nothing else (VERIFIED-VENDOR-SPEC: `openai/openai-openapi` `openapi.yaml` @
-    `master`, lines 34395-34400, fetched 1 September 2026). So the `TokenUsage` this
-    returns always has `output_tokens=0`, which is the truth about an embedding rather than
-    a default — and it is why the `ai_assist_ktok_out` row a caller writes is always qty 0.
-    """
-
-    vectors: tuple[tuple[float, ...], ...]
-    usage: TokenUsage | None = None
-
-
-async def embed(
-    leg: ChatLeg,
-    inputs: Sequence[str],
-    *,
-    dimensions: int,
-    timeout_s: float,
-    client: httpx.AsyncClient | None = None,
-) -> EmbeddingOutcome:
-    """Vectors for `inputs`, in the SAME ORDER. RAISES `httpx.HTTPStatusError` on non-2xx.
-
-    IN THIS MODULE AND NOT IN A SECOND CLIENT, because everything that made `complete`
-    worth consolidating is true again here: the credential header is per-DIALECT and got
-    that wrong once already (`_AUTH_HEADER`), the endpoint is built elsewhere and arrives
-    addressed, and `usage` may be absent. A separate `httpx.post` for embeddings would be
-    the fourth copy of the four facts this file exists to hold once.
-
-    **THE ORDER IS RE-ESTABLISHED FROM `index`, NEVER ASSUMED FROM THE ARRAY.** The
-    vendor's `Embedding` object carries its own `index` field, and a caller that zips the
-    response array against its inputs is trusting an ordering the schema does not promise.
-    Getting that wrong stores each chunk's neighbour's vector — a corpus that retrieves
-    confidently and wrongly, with no error anywhere. Sorting by `index` costs nothing and
-    makes the failure unrepresentable.
-
-    `dimensions` is SENT rather than left to the model's default: the width is ours to
-    choose (see `retrieval/embedding.EMBEDDING_DIMS`) and a request that names it cannot
-    silently return a width the column will not hold.
-
-    `follow_redirects=False` and the client-ownership rule are `complete`'s, verbatim and
-    for its reasons.
-    """
-    http = client or pooled_client()
-    response = await http.post(
-        leg.url,
-        headers=_headers(leg),
-        json={"model": leg.wire_model, "input": list(inputs), "dimensions": dimensions},
-        timeout=timeout_s,
-    )
-    response.raise_for_status()
-    body = _json_body(response)
-    if not isinstance(body, dict):  # pragma: no cover - a provider that is not this API
-        return EmbeddingOutcome(vectors=())
-    rows = body.get("data")
-    if not isinstance(rows, list):
-        # The provider answered 2xx with a shape this API does not have. Empty rather than
-        # an exception, for `_message_of`'s reason: the caller decides what an empty answer
-        # means, and here it means "nothing was stored and the chunk stays pending".
-        return EmbeddingOutcome(vectors=(), usage=usage_from_body(body))
-    by_index: dict[int, tuple[float, ...]] = {}
-    for position, row in enumerate(rows):
-        if not isinstance(row, dict):  # pragma: no cover - defensive on a vendor shape
-            continue
-        values = row.get("embedding")
-        if not isinstance(values, list):  # pragma: no cover - defensive on a vendor shape
-            continue
-        index = row.get("index")
-        # The first answer for an index stands; a repeat is not a second input's vector.
-        by_index.setdefault(index if isinstance(index, int) else position, _vector(values))
-    # ONLY THE GAPLESS PREFIX 0, 1, 2, ... IS RETURNED. Callers pair `vectors[i]` with
-    # `inputs[i]` and refuse whatever is past the end as a short answer, so a response that
-    # skipped index 1 must stop at 1: compacting it would hand input 1 the vector of input 2.
-    vectors: list[tuple[float, ...]] = []
-    while len(vectors) < len(inputs) and len(vectors) in by_index:
-        vector = by_index[len(vectors)]
-        if not all(math.isfinite(v) for v in vector):
-            # pgvector refuses NaN and infinity, and the statement error would roll back
-            # the whole batch for every tick to re-buy; stopping here lets the caller
-            # refuse this input and everything after it instead.
-            break
-        vectors.append(vector)
-    return EmbeddingOutcome(vectors=tuple(vectors), usage=usage_from_body(body))
-
-
-def _vector(values: list[Any]) -> tuple[float, ...]:
-    """The embedding as floats; a non-number makes it empty, which callers refuse by width."""
-    try:
-        return tuple(float(v) for v in values)
-    except (TypeError, ValueError):
-        return ()
-
-
 __all__ = [
     "CHUNK_OBJECT",
     "STREAM_OPTIONS",
@@ -1046,13 +946,11 @@ __all__ = [
     "ChatLeg",
     "ChatMessage",
     "ChatOutcome",
-    "EmbeddingOutcome",
     "ReasoningEffort",
     "StreamEvent",
     "TokenUsage",
     "ToolCall",
     "complete",
-    "embed",
     "pooled_client",
     "provider_of",
     "refused_this_input",

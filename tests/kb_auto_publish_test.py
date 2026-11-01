@@ -224,6 +224,76 @@ async def test_a_refused_automatic_publish_goes_live_on_the_next_sweep(
     assert (await _source(tenant_id, created["id"])).is_active is True
 
 
+async def test_a_publish_refused_on_the_wording_is_closed_with_its_reason_not_redriven(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Rendering is a pure function of the approved chunks, so this refusal repeats on every
+    re-drive; the version is closed as rejected with a reason the client's attention list
+    shows, and the sweep stops picking it up."""
+    tenant_id, agent_id = await _tenant_with_published_agent()
+    tenant_id, agent_id = uuid.UUID(str(tenant_id)), uuid.UUID(str(agent_id))
+    owner = await _member(tenant_id)
+    created = await _member_submission(tenant_id, agent_id, owner)
+
+    async def _refuse(*_args: Any, **_kwargs: Any) -> int:
+        raise ProblemError(
+            kind="business_rule",
+            code="kb_render_refused",
+            title="This knowledge cannot be published as it stands",
+            detail="Some characters cannot be read out.",
+            remediation="Remove those characters.",
+        )
+
+    monkeypatch.setattr(service, "publish_source", _refuse)
+    assert await _publish(tenant_id, created["id"]) == "refused:kb_render_refused"
+    async with tenant_session(tenant_id) as session:
+        status, reason = (
+            await session.execute(
+                text("SELECT status, rejection_reason FROM kb_sources WHERE id = :s"),
+                {"s": created["id"]},
+            )
+        ).one()
+        await session.execute(
+            text("UPDATE kb_sources SET updated_at = now() - interval '2 hours' WHERE id = :s"),
+            {"s": created["id"]},
+        )
+    assert status == "rejected"
+    assert reason == "Some characters cannot be read out. Remove those characters."
+
+    async def _only_this_tenant() -> list[uuid.UUID]:
+        return [tenant_id]
+
+    monkeypatch.setattr(kb_gloss, "tenants_holding_knowledge", _only_this_tenant)
+    assert await kb_ingest._unpublished_typed_sources(datetime.now(UTC)) == []
+
+
+async def test_the_typed_arm_starts_where_the_last_capped_tick_stopped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With the per-tick cap spent on the first tenant every time, the second tenant's
+    approved source was never reached."""
+    stale: list[tuple[uuid.UUID, uuid.UUID]] = []
+    for _ in range(2):
+        tenant_id, agent_id = await _tenant_with_published_agent()
+        tenant_id, agent_id = uuid.UUID(str(tenant_id)), uuid.UUID(str(agent_id))
+        created = await _member_submission(tenant_id, agent_id, await _member(tenant_id))
+        async with tenant_session(tenant_id) as session:
+            await session.execute(
+                text("UPDATE kb_sources SET updated_at = now() - interval '2 hours' WHERE id = :s"),
+                {"s": created["id"]},
+            )
+        stale.append((tenant_id, uuid.UUID(str(created["id"]))))
+
+    async def _these_tenants() -> list[uuid.UUID]:
+        return [tenant for tenant, _ in stale]
+
+    monkeypatch.setattr(kb_gloss, "tenants_holding_knowledge", _these_tenants)
+    monkeypatch.setattr(kb_ingest, "MAX_RETRIES_PER_TICK", 1)
+    first = await kb_ingest._unpublished_typed_sources(datetime.now(UTC))
+    second = await kb_ingest._unpublished_typed_sources(datetime.now(UTC))
+    assert sorted([*first, *second]) == sorted(stale)
+
+
 def _quiet_fleet_wide_arms(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     """Replace the sweep's re-drive and link-recheck arms with recorders."""
     seen: list[str] = []

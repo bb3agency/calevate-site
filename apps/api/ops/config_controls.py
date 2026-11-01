@@ -69,7 +69,6 @@ FREE_TEXT: Final[dict[str, str]] = {
     "thinnest_action_source_ips": "a list of network addresses ThinnestAI tells us it calls from",
     "azure_openai_resource": "the resource name chosen in the Azure portal",
     "azure_openai_deployment": "a deployment id chosen in the Azure portal",
-    "azure_openai_embedding_deployment": "a deployment id chosen in the Azure portal",
     "supermemory_embedding_model": "whatever model the self-hosted install was set up with",
     "razorpay_key_id": "a key id issued in the Razorpay dashboard",
     "gst_supplier_legal_name": "our legal name, printed verbatim",

@@ -110,7 +110,8 @@ MODEL_CALLS: Final[Mapping[str, ModelCall]] = MappingProxyType(
         "call_language": ModelCall("standard", "Sarvam, not Gemini: no Flex tier to ask for"),
         "embeddings": ModelCall(
             "standard",
-            "an OpenAI-shaped embedding leg, not Gemini, and Flex lists no embedding model",
+            "Flex lists no embedding model "
+            "(ai.google.dev/gemini-api/docs/flex-inference, updated 2026-10-13)",
         ),
     }
 )

@@ -4,7 +4,7 @@
 tenancy, and it drives the REAL statement against the REAL table — a mocked SQL layer would
 prove nothing about a query whose whole subject is what Postgres does with two indexes.
 
-The provider is faked at ONE seam: `apps/workers/chat.embed`, the wire call. Everything
+The provider is faked at ONE seam: `apps/workers/gemini_native.embed`, the wire call. Everything
 below it — the price gate, the metering, the vector's trip into `vector(1536)` and back out
 through `<=>` — runs for real, because those are the parts that break.
 """
@@ -27,10 +27,12 @@ from apps.api.retrieval import service as retrieval_service
 from apps.api.retrieval.embedding import EMBEDDING_DIMS, EMBEDDING_MODEL
 from apps.api.retrieval.pgvector import PgVectorRetriever
 from apps.api.retrieval.tiered import KnowledgeRetriever
-from apps.workers import chat
-from apps.workers.chat import ChatLeg, EmbeddingOutcome, TokenUsage
+from apps.workers import gemini_native
+from apps.workers.chat import ChatLeg, TokenUsage
+from apps.workers.gemini_native import EmbeddingOutcome
 from calevate_shared.retrieval import RetrievalRequest
 from sqlalchemy import text
+from tests.conftest import turn_pip_on_for_tests
 from tests.kb_workflow_test import _tenant_with_published_agent
 
 _LEG = ChatLeg(
@@ -87,9 +89,12 @@ async def _published(tenant_id: Any, agent_id: Any, name: str, body: str) -> uui
     return uuid.UUID(str(submitted["id"]))
 
 
-async def _corpus() -> tuple[uuid.UUID, uuid.UUID]:
-    """Two published sources, each embedded at its own orthogonal coordinate."""
+async def _corpus(*, pip_on: bool = True) -> tuple[uuid.UUID, uuid.UUID]:
+    """Two published sources, each embedded at its own orthogonal coordinate, in an account
+    whose owner turned Pip on unless `pip_on` is False."""
     tenant_id, agent_id = await _tenant_with_published_agent()
+    if pip_on:
+        await turn_pip_on_for_tests(uuid.UUID(str(tenant_id)))
     await _published(tenant_id, agent_id, "Fees", "A consultation costs 500 rupees.")
     await _published(tenant_id, agent_id, "Parking", "Valet parking is free for patients.")
     async with tenant_session(tenant_id) as session:
@@ -144,7 +149,7 @@ async def test_the_dense_arm_ranks_the_chunk_its_vector_points_at(
     tenant_id, _ = await _corpus()
     # Seed 1 is the SECOND row by content order — "Valet parking…" sorts after "A
     # consultation…", so this is the parking chunk's own coordinate.
-    monkeypatch.setattr(chat, "embed", _fake_embed(_unit_vector(1)))
+    monkeypatch.setattr(gemini_native, "embed", _fake_embed(_unit_vector(1)))
     # Patched on `embedding` and not on `pgvector`: `embed_query_vector` is the one
     # implementation of hard rule 7's pre-flight and reads `embedding_leg` from its own
     # module, so patching an importer would leave the real leg in the path.
@@ -163,13 +168,88 @@ async def test_the_dense_arm_ranks_the_chunk_its_vector_points_at(
     assert result.passages[0].provenance.source_id is not None
 
 
+async def test_the_question_is_embedded_as_a_query(
+    monkeypatch: pytest.MonkeyPatch, attested_embedding_price: Any
+) -> None:
+    """FAILS IF: the question is embedded with the document prefix, or at another width."""
+    tenant_id, _ = await _corpus()
+    asked: list[dict[str, Any]] = []
+    fake = _fake_embed(_unit_vector(1))
+
+    async def _recording(leg: ChatLeg, inputs: Sequence[str], **kwargs: Any) -> EmbeddingOutcome:
+        asked.append(kwargs)
+        return await fake(leg, inputs, **kwargs)
+
+    monkeypatch.setattr(gemini_native, "embed", _recording)
+    monkeypatch.setattr(embedding_module, "embedding_leg", lambda: _LEG)
+    async with tenant_session(tenant_id) as session:
+        await PgVectorRetriever(session).retrieve(
+            RetrievalRequest(tenant_id=tenant_id, question="where do I leave the car", tier="t3")
+        )
+    assert [(a["task"], a["dimensions"]) for a in asked] == [("query", EMBEDDING_DIMS)]
+
+
+async def test_a_question_is_not_embedded_before_the_owner_turns_pip_on(
+    monkeypatch: pytest.MonkeyPatch, attested_embedding_price: Any
+) -> None:
+    """FAILS IF: a question typed in an account without Pip consent reaches the embedding
+    provider. The search still answers, from the keyword arm."""
+    tenant_id, _ = await _corpus(pip_on=False)
+    asked: list[int] = []
+    fake = _fake_embed(_unit_vector(0))
+
+    async def _recording(leg: ChatLeg, inputs: Sequence[str], **kwargs: Any) -> EmbeddingOutcome:
+        asked.append(len(inputs))
+        return await fake(leg, inputs, **kwargs)
+
+    monkeypatch.setattr(gemini_native, "embed", _recording)
+    monkeypatch.setattr(embedding_module, "embedding_leg", lambda: _LEG)
+    request = RetrievalRequest(
+        tenant_id=tenant_id, question="what does a consultation cost", tier="t3"
+    )
+    async with tenant_session(tenant_id) as session:
+        result = await PgVectorRetriever(session).retrieve(request)
+    assert asked == []
+    assert "consultation" in result.passages[0].text
+
+    await turn_pip_on_for_tests(tenant_id)
+    async with tenant_session(tenant_id) as session:
+        await PgVectorRetriever(session).retrieve(request)
+    assert asked == [1]
+
+
+async def test_a_vector_from_another_model_is_not_ranked_by_the_dense_arm(
+    monkeypatch: pytest.MonkeyPatch, attested_embedding_price: Any
+) -> None:
+    """While the sweep re-embeds after a model change, a stored vector from the old model is
+    not compared with the new model's question vector.
+
+    FAILS IF: the dense arm reads `embedding` without `embed_model = EMBEDDING_MODEL` — the
+    parking chunk, word-disjoint from the question, would still win on its stale vector.
+    """
+    tenant_id, _ = await _corpus()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE kb_chunks SET embed_model = :m WHERE tenant_id = :t"),
+            {"m": "text-embedding-3-small", "t": tenant_id},
+        )
+    monkeypatch.setattr(gemini_native, "embed", _fake_embed(_unit_vector(1)))
+    monkeypatch.setattr(embedding_module, "embedding_leg", lambda: _LEG)
+
+    async with tenant_session(tenant_id) as session:
+        result = await PgVectorRetriever(session).retrieve(
+            RetrievalRequest(tenant_id=tenant_id, question="where do I leave the car", tier="t3")
+        )
+    assert all("parking" not in p.text.lower() for p in result.passages)
+
+
 async def test_the_question_embedding_is_metered_against_the_tenant(
     monkeypatch: pytest.MonkeyPatch, attested_embedding_price: Any
 ) -> None:
     """Hard rule 7: the search's own model call reaches `usage_events` under its own feature
     name, with an output quantity of zero because an embedding has no output tokens."""
     tenant_id, _ = await _corpus()
-    monkeypatch.setattr(chat, "embed", _fake_embed(_unit_vector(0)))
+    monkeypatch.setattr(gemini_native, "embed", _fake_embed(_unit_vector(0)))
     monkeypatch.setattr(embedding_module, "embedding_leg", lambda: _LEG)
 
     async with tenant_session(tenant_id) as session:
@@ -205,7 +285,7 @@ async def test_an_unpriced_model_is_never_bought_and_the_sparse_arm_still_answer
         raise AssertionError("an unpriced embedding must never reach the provider")
 
     tenant_id, _ = await _corpus()
-    monkeypatch.setattr(chat, "embed", _explode)
+    monkeypatch.setattr(gemini_native, "embed", _explode)
     monkeypatch.setattr(embedding_module, "embedding_leg", lambda: _LEG)
 
     async with tenant_session(tenant_id) as session:
@@ -275,7 +355,7 @@ async def test_the_composite_answers_t0_from_the_block_and_t3_from_the_store(
     wrong question — so this asserts the two tiers land in two different providers.
     """
     tenant_id, _ = await _corpus()
-    monkeypatch.setattr(chat, "embed", _fake_embed(_unit_vector(1)))
+    monkeypatch.setattr(gemini_native, "embed", _fake_embed(_unit_vector(1)))
     monkeypatch.setattr(embedding_module, "embedding_leg", lambda: _LEG)
 
     async with tenant_session(tenant_id) as session:

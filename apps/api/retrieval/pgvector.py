@@ -106,6 +106,8 @@ from apps.api.kb.models import EMBED_READY
 from apps.api.retrieval.capabilities import require_tier
 from apps.api.retrieval.embedding import (
     ASSIST_FEATURE_KB_SEARCH,
+    EMBEDDING_DIMS,
+    EMBEDDING_MODEL,
     embed_query_vector,
     vector_literal,
 )
@@ -153,9 +155,14 @@ TS_CONFIG: Final = "english"
 #:
 #: The scope is the TENANT and nothing narrower: knowledge is the client's and every agent
 #: answers from all of it (D-689), so `RetrievalRequest.agent_id` does not narrow this tier.
+#:
+#: The dense arm reads only vectors made by the model that made the question vector, at its
+#: width (`embed_model = :model AND embed_dim = :dim`): while the sweep re-embeds after a
+#: model change, an old model's vector beside a new one gives a cosine distance with no
+#: meaning. Those chunks answer from the sparse arm until their new vector lands.
 _SEARCH_SQL: Final = f"""
 WITH scope AS (
-  SELECT c.id, c.document_id, c.source_id, c.embedding, c.tsv
+  SELECT c.id, c.document_id, c.source_id, c.embedding, c.embed_model, c.embed_dim, c.tsv
   FROM kb_chunks c
   WHERE c.tenant_id = :tid
     AND c.is_active
@@ -164,12 +171,18 @@ dense AS (
   SELECT id, row_number() OVER (ORDER BY embedding <=> CAST(:qvec AS vector)) AS rnk
   FROM scope
   WHERE CAST(:qvec AS vector) IS NOT NULL AND embedding IS NOT NULL
+    AND embed_model = :model AND embed_dim = :dim
   ORDER BY embedding <=> CAST(:qvec AS vector)
   LIMIT {_ARM_DEPTH}
 ),
 sparse AS (
   SELECT id, row_number() OVER (ORDER BY ts_rank_cd(tsv, q) DESC, id) AS rnk
-  FROM scope, plainto_tsquery('{TS_CONFIG}', :question) q
+  -- ANY of the question's lexemes matches (`&` turned into `|`, as `kb/store.py` does) and
+  -- `ts_rank_cd` orders by how many and how close: AND found nothing for a natural
+  -- question carrying one word the chunk does not.
+  FROM scope,
+       CAST(NULLIF(replace(CAST(plainto_tsquery('{TS_CONFIG}', :question) AS text), '&', '|'),
+                   '') AS tsquery) q
   WHERE tsv @@ q
   ORDER BY ts_rank_cd(tsv, q) DESC, id
   LIMIT {_ARM_DEPTH}
@@ -296,6 +309,8 @@ class PgVectorRetriever:
                     # `embedding.vector_literal`, spelled once for every adapter that
                     # passes a question vector into a `text()` statement.
                     "qvec": vector_literal(vector),
+                    "model": EMBEDDING_MODEL,
+                    "dim": EMBEDDING_DIMS,
                     "k": request.k,
                 },
             )

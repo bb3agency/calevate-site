@@ -1039,12 +1039,17 @@ def _deleted_footer(deleted: Sequence[AgentOut]) -> str:
 
 
 #: How many passages ONE `search_knowledge` call may put in front of the model, and how
-#: much of each. Four passages of at most ~400 characters is a bounded, quotable answer;
-#: more is a wall the model paraphrases badly, on a corpus that is at most a few dozen
-#: compiled lines to begin with. This is the tool's `cap` for `_listing`, NOT `MAX_ROWS` —
-#: the retrieval port counts passages, not rows.
+#: much of each. Four passages is a bounded, quotable answer; more is a wall the model
+#: paraphrases badly. Each passage is shown WHOLE — the chunker's ceiling, stub-tail fold
+#: included (`kb.service.chunk_text`) — because a cut chunk drops exactly the price or the
+#: time at its end. This is the tool's `cap` for `_listing`, NOT `MAX_ROWS` — the retrieval
+#: port counts passages, not rows.
 MAX_PASSAGES: Final = 4
-MAX_PASSAGE_CHARS: Final = 400
+MAX_PASSAGE_CHARS: Final = kb_service.MAX_CHUNK_CHARS + kb_service.MIN_CHUNK_CHARS + 2
+#: How many passages `search_knowledge` asks the port for before dropping the ones the
+#: agents do not deliver (D-893 L8): asking for only the shown number let a few
+#: undelivered link or PDF passages crowd out every deliverable one.
+_KNOWLEDGE_WIDE_K: Final = 20
 
 #: What the model is told when the account has nothing on file for the question. Phrased so
 #: the model reports it rather than inventing around it — TRD §6's T4 behaviour, which is a
@@ -1181,10 +1186,11 @@ async def _search_knowledge(
     # sentence — the refusal belongs where the guard is, and duplicating it here would be a
     # second answer to one question.
     assert context.tenant_id is not None
-    # ONE MORE THAN WE WILL SHOW, so a truncation is a fact rather than a guess: `_listing`
-    # reports "there may be more" exactly when the page came back full.
+    # Wide, then narrowed below to ONE MORE THAN WE WILL SHOW of the deliverable ones, so a
+    # truncation is a fact rather than a guess: `_listing` reports "there may be more"
+    # exactly when the page came back full.
     decision, result = await look_up(
-        session, tenant_id=context.tenant_id, question=question, k=MAX_PASSAGES + 1
+        session, tenant_id=context.tenant_id, question=question, k=_KNOWLEDGE_WIDE_K
     )
     if result.is_empty():
         # THE DEGRADATION IS DISCLOSED ON AN EMPTY ANSWER TOO, and it was not. `_DEGRADED_NOTE`
@@ -1201,7 +1207,9 @@ async def _search_knowledge(
     # A searched passage from a PDF or a link the agents do not get is not something they
     # tell callers (D-893 L8): it is left out here and named, never passed off as an answer.
     undelivered = await undelivered_source_ids(session) if result.served_tier == "t3" else set()
-    used = [p for p in result.passages if p.provenance.source_id not in undelivered]
+    used = [p for p in result.passages if p.provenance.source_id not in undelivered][
+        : MAX_PASSAGES + 1
+    ]
     if not used:
         empty = await _nothing_published(session)
         return f"{_DEGRADED_NOTE}\n{empty}" if result.unmet_capability is not None else empty

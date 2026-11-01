@@ -109,6 +109,7 @@ from apps.workers.extraction import azure_credentials
 from apps.workers.set_aside import (
     REFUSED_INPUT_SET_ASIDE,
     RefusalStreak,
+    count_refusal,
     set_aside,
     set_aside_ids,
 )
@@ -199,6 +200,13 @@ _CLAIM_SQL: Final = (
 
 #: The `set_aside` name for chunks the provider refused to translate.
 _SET_ASIDE_SWEEP: Final = "kb_gloss"
+
+#: Refusals of one chunk after which it is closed out with no gloss. A `pending` chunk is
+#: never embedded (`kb_embeddings._CLAIM_SQL` waits for the gloss), so a chunk the provider
+#: always refuses would otherwise stay out of the dense arm for ever. Closed out as
+#: `not_needed` — the gloss is a retrieval key and the chunk is still searchable by its own
+#: words — rather than as a new state, which the `gloss_state_enum` CHECK does not allow.
+MAX_GLOSS_REFUSALS: Final = 3
 
 _MARK_SQL: Final = (
     "UPDATE kb_documents SET gloss = :gloss, gloss_model = :model, gloss_state = :state, "
@@ -461,11 +469,30 @@ async def write_knowledge_glosses(ctx: dict[str, Any]) -> str:
                             )
                             if not chat.refused_this_input(failure):
                                 break
-                            # A refusal of THIS text is asked again only after a while, so
-                            # it cannot head every claim and starve the chunks behind it.
-                            await set_aside(
-                                _SET_ASIDE_SWEEP, [str(row[0])], for_=REFUSED_INPUT_SET_ASIDE
-                            )
+                            refused_times = await count_refusal(_SET_ASIDE_SWEEP, str(row[0]))
+                            if refused_times >= MAX_GLOSS_REFUSALS:
+                                await session.execute(
+                                    text(_MARK_SQL),
+                                    {
+                                        "id": row[0],
+                                        "gloss": None,
+                                        "model": None,
+                                        "state": GLOSS_NOT_NEEDED,
+                                    },
+                                )
+                                log.warning(
+                                    "kb_gloss_given_up",
+                                    extra={"tenant_id": str(tenant_id), "chunk_id": str(row[0])},
+                                )
+                            else:
+                                # A refusal of THIS text is asked again only after a while,
+                                # so it cannot head every claim and starve the chunks
+                                # behind it.
+                                await set_aside(
+                                    _SET_ASIDE_SWEEP,
+                                    [str(row[0])],
+                                    for_=REFUSED_INPUT_SET_ASIDE,
+                                )
                             if refusals.refused():
                                 break
                             continue
@@ -516,6 +543,7 @@ __all__ = [
     "MAX_CHUNKS_PER_TENANT",
     "MAX_CHUNKS_PER_TICK",
     "MAX_GLOSS_CHARS",
+    "MAX_GLOSS_REFUSALS",
     "MAX_REKEY_ROWS_PER_TENANT",
     "tenants_holding_knowledge",
     "write_knowledge_glosses",

@@ -134,6 +134,32 @@ def test_pypdf_reads_the_text_pages_and_hands_the_scans_to_the_reader() -> None:
     assert [number for number, _data, _mime in reading.scans] == [3]
 
 
+def test_a_scan_with_a_scanner_footer_is_still_read_as_a_scan() -> None:
+    """A phone scanner stamps a one-line text footer on the page image; that footer used to
+    count as the page's words and the scan itself was never read."""
+    pdf = FPDF()
+    pdf.set_auto_page_break(False)
+    pdf.add_page()
+    pdf.image(io.BytesIO(_png()), x=10, y=10, w=120)
+    pdf.set_font("helvetica", size=8)
+    pdf.set_y(-20)
+    pdf.cell(0, 8, "Scanned by a scanner app  1")
+    reading = kb_read.read_pdf(bytes(pdf.output()))
+    assert reading.pages == []
+    assert [number for number, _data, _mime in reading.scans] == [1]
+
+
+def test_a_thin_page_with_no_image_keeps_its_words() -> None:
+    reading = kb_read.read_pdf(_pdf("Page 2"))
+    assert [words for _, words in reading.pages] == ["Page 2"]
+
+
+def test_unmapped_glyphs_are_not_a_text_layer() -> None:
+    assert kb_read._is_text_layer(PRICE_PAGE)
+    assert not kb_read._is_text_layer(" " * 20)
+    assert not kb_read._is_text_layer("Rs ���� " * 10)
+
+
 def test_a_pdf_that_outruns_its_time_stops_at_the_next_page(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

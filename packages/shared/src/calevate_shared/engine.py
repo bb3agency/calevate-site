@@ -1853,35 +1853,34 @@ class EmbeddingModelSpec:
             raise ValueError(f"{self.model!r} declares a non-positive width")
 
 
-#: The OpenAI embedding leg's figure. REPORTED — this repository has read no vendor page for
-#: it (`platform.openai.com` is egress-blocked, measured 1 Sep 2026 by
-#: `retrieval/embedding.py`), so it is carried as a pre-fill with its class stated and has no
-#: path to a bill.
-_OPENAI_EMBEDDING_PRICE_EVIDENCE: Final = Evidence(
-    source="REPORTED — no vendor page for this figure has been read from this container",
-    read_on=date(2026, 9, 15),
+#: The Gemini encoder's figure: $0.20 per 1M text input tokens, paid tier, standard (batch
+#: $0.10; free tier "Used to improve our products: Yes", paid "No").
+_GEMINI_EMBEDDING_PRICE_EVIDENCE: Final = Evidence(
+    source="ai.google.dev/gemini-api/docs/pricing (page updated 2026-10-30 UTC)",
+    read_on=date(2026, 11, 1),
     verified=False,
     note=(
-        "A pre-fill for the operator's form and nothing else. The attestation is the only "
-        "evidence this repository bills from."
+        "VENDOR-PUBLISHED, paid tier, standard, text input, gemini-embedding-2. NOT "
+        "`verified=True`, as for every Gemini figure here, so it reaches unit_cost_paid only "
+        "through an operator attestation."
     ),
 )
 
 #: THE ENCODER CATALOGUE: every encoder whose price gates a surface, listed so an operator
-#: opening the pricing panel sees each one. Today that is the dashboard/CRM encoder,
-#: `retrieval/embedding.EMBEDDING_MODEL`, filling `kb_chunks.embedding` for the console's
-#: own semantic search (D-502).
+#: opening the pricing panel sees each one. Today that is the one dashboard/CRM encoder,
+#: `retrieval/embedding.EMBEDDING_MODEL`, filling `kb_chunks.embedding` and
+#: `caller_chunks.embedding` for the console's own semantic search (D-502, D-952).
 #:
 #: ⚠ **NOTHING HERE IS BILLABLE FROM THIS TABLE.** Every entry carries `verified=False`, so
 #: `llm_price_is_billable` is False until an operator attests, and the leg is a no-op that
 #: says so in one log line until then.
 EMBEDDING_MODELS: Final[dict[str, EmbeddingModelSpec]] = {
-    "text-embedding-3-small": EmbeddingModelSpec(
-        model="text-embedding-3-small",
-        provider="azure_openai",
+    "gemini-embedding-2": EmbeddingModelSpec(
+        model="gemini-embedding-2",
+        provider="google",
         price=EmbeddingPrice(
-            input_usd_per_mtok=Decimal("0.02"),
-            evidence=_OPENAI_EMBEDDING_PRICE_EVIDENCE,
+            input_usd_per_mtok=Decimal("0.20"),
+            evidence=_GEMINI_EMBEDDING_PRICE_EVIDENCE,
         ),
         dimensions=1536,
         used_for=(

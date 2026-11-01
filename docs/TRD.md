@@ -304,8 +304,8 @@ Models (per-agent config, BYOK):
   Dispatch is held to the console-managed `thinnest_max_concurrent_calls`
   (`engine/dial_lines.py`). The recording is ThinnestAI's `recording.url`, copied into our
   object store (`engine/recording_source.py`).
-- Embeddings: `text-embedding-3-small` on the existing Azure OpenAI resource (D-502, §6),
-  for the dashboard and CRM stores only. The model and width are recorded per chunk
+- Embeddings: `gemini-embedding-2` at 1,536 dimensions on our existing Google key (D-952, §6;
+  `docs/evidence/gemini-embeddings-2026-11-01.md`), for the dashboard and CRM stores only. The model and width are recorded per chunk
   (`kb_chunks.embed_model` / `embed_dim`), so a model change is a re-embed sweep, never a
   crisis.
 
@@ -1012,16 +1012,24 @@ adopted as D-502 on 1 Sep 2026):
   `kb_chunks` holds the CLIENT'S OWN knowledge and `caller_chunks` holds a data
   principal's words, which is why only the second carries `subject_ref`, a
   `retention_category` per row and an explicit erasure arm. Hybrid: a dense arm fused with a `tsvector` arm by
-  Reciprocal Rank Fusion, behind FORCEd RLS. Embeddings come from `text-embedding-3-small`
-  on the EXISTING Azure OpenAI resource in East US 2 — **no new sub-processor**.
+  Reciprocal Rank Fusion, behind FORCEd RLS. Embeddings come from `gemini-embedding-2`
+  (D-952) through Gemini's native `batchEmbedContents` on our existing Google key —
+  **no new sub-processor** — only while the Google data-use attestation is recorded, and only
+  for accounts whose owner turned Pip on (`retrieval/embedding.tenant_allows_embedding`;
+  others search by keyword).
+  Passages are embedded with the document prefix and the source's name as title, questions
+  with the query prefix. One encoder, never a chain: two models' vectors are not comparable
+  in one column, so the dense arm reads only rows whose `embed_model`/`embed_dim` match the
+  question's, and the sweeps re-embed every other row.
 * **This is not "we operate vector infrastructure".** It adds no deployable, no backup unit,
   no restore drill, no region and no vendor — it adds an extension to a database this repo
   already runs. What is still refused is a separate vector service, self-hosted or managed.
 * **The exit stays cheap, by construction and by the founder's condition.** Retrieval is
   behind `calevate_shared.retrieval.RetrievalProvider`; a managed vendor is one adapter
   module plus one branch in `retrieval/service.get_retriever`, with no caller touched.
-  Vectors are stored at full precision and `text-embedding-3-small` is truncatable to 512
-  or 768 dimensions without re-embedding, so an export is not a re-ingest.
+  Vectors are stored at full precision; Google states `gemini-embedding-2` serves 128 to
+  3,072 dimensions and normalises truncated ones itself, so a narrower width is a
+  re-request rather than a different model.
 
 ### 6.1 Memory horizons (three; do not conflate them with RAG)
 
@@ -2293,7 +2301,7 @@ base (D-689), and caller lookups at call start read our own tables. Our embeddin
 
 - **Knowledge projection**, once per document version at publish: `kb_chunks` is embedded by
   `workers/kb_embeddings.py` with `retrieval/embedding.EMBEDDING_MODEL`
-  (`text-embedding-3-small` on the existing Azure OpenAI resource, §6). A 50-page knowledge
+  (`gemini-embedding-2` on our Google key, §6, D-952). A 50-page knowledge
   base is roughly 25,000 tokens (ESTIMATE).
 - **Dashboard and CRM search**, one query embedding per search that reaches the dense arm.
 - **Caller memory buys no embedding.** Its write, `workers/caller_memory_distil.py`, is an

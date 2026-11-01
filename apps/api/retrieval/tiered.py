@@ -28,6 +28,8 @@ cannot leave a promise behind here.
 
 from __future__ import annotations
 
+from typing import Final
+
 from calevate_shared.retrieval import (
     RetrievalCapabilities,
     RetrievalProvider,
@@ -60,6 +62,18 @@ def _union(*members: RetrievalCapabilities) -> RetrievalCapabilities:
         deletion_proof=all(m.deletion_proof for m in members),
         max_k=min(m.max_k for m in members),
     )
+
+
+#: The share of a question's content words T0's best line must carry for T0 to answer
+#: alone (`compiled_facts.score_line`, in [0, 1]). Below it — "how much is the mutton
+#: biryani family pack" matching only a line that says "biryani" — the store is asked too.
+WEAK_T0_SCORE: Final = 0.5
+
+
+def _weak(compiled: RetrievalResult) -> bool:
+    """T0 found nothing, or nothing that carries half of what was asked."""
+    best = max((p.score or 0.0 for p in compiled.passages), default=0.0)
+    return best < WEAK_T0_SCORE
 
 
 class KnowledgeRetriever:
@@ -111,11 +125,54 @@ class KnowledgeRetriever:
         if missing is not None and not request.allow_degrade:
             require_tier(request.tier, provider=self)
         result = await self._member(request).retrieve(request)
+        if request.tier == "t0" and _weak(result):
+            return await self._fill_from_store(request, result)
         # `unmet_capability` is re-derived from the UNION rather than passed through: a
         # member that degraded because IT could not serve the tier has not degraded the
         # composite if the other member could have. Here the dispatch already sent the
         # request to the member that owns the tier, so the union's answer is the true one.
         return result.model_copy(update={"provider": self.name, "unmet_capability": missing})
+
+    async def _fill_from_store(
+        self, request: RetrievalRequest, compiled: RetrievalResult
+    ) -> RetrievalResult:
+        """T0's lines first, then the store's best passages, when T0's answer is weak.
+
+        T0 holds only what fits `agents/t0.KNOWLEDGE_CHAR_BUDGET` and skips a source whole
+        when it does not fit, so a price list or a timetable longer than the budget is
+        absent from it even though it is approved and live. Routing a price or hours
+        question to T0 alone therefore answered "nothing on file" for a fact the client
+        gave us. T0 still leads — it is what the agent speaks from — and a t0 question T0
+        answers well (`WEAK_T0_SCORE`) never touches the store and stays served as t0.
+
+        `served_tier` becomes t3 when a store passage is used, so a caller that treats
+        searched passages differently (`copilot/tools._search_knowledge`'s undelivered
+        filter) still sees them as searched, and `unmet_capability` is the store's gap for
+        the same reason. The cache key needs no change: `knowledge_epoch` already joins
+        both members' stamps.
+        """
+        searched = await self._t3.retrieve(request.model_copy(update={"tier": "t3"}))
+        seen = {p.text for p in compiled.passages}
+        extra = [p for p in searched.passages if p.text not in seen]
+        if not extra:
+            return compiled.model_copy(
+                update={
+                    "provider": self.name,
+                    "unmet_capability": self.capabilities.serves(request.tier),
+                }
+            )
+        # A weak T0 page can still be full; the store keeps at least half of it.
+        store_slots = max(request.k - len(compiled.passages), (request.k + 1) // 2)
+        kept = compiled.passages[: request.k - min(len(extra), store_slots)]
+        fused = (*kept, *extra)[: request.k]
+        return compiled.model_copy(
+            update={
+                "passages": fused,
+                "served_tier": "t3",
+                "provider": self.name,
+                "unmet_capability": self.capabilities.serves("t3"),
+            }
+        )
 
     async def knowledge_epoch(self, request: RetrievalRequest) -> str:
         """BOTH members' stamps, joined.

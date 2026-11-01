@@ -14,7 +14,8 @@ pypdf, page by page: `PdfReader(stream)`, `reader.pages`, `page.extract_text()`;
 `reader.is_encrypted` and `reader.decrypt("")` for a PDF locked with an empty owner password
 (pypdf docs "Extract Text", "Encryption and Decryption" and `PageObject`, pypdf.readthedocs.io
 stable, read 26 Oct 2026; the installed version is 6.16.2 per `uv.lock`). pypdf "will never be
-able to extract text from images", so a page with no text layer is a scan: its largest image
+able to extract text from images", so a page with no text layer, or one too thin or garbled to
+be the page's words (`_is_text_layer`), is a scan when it carries an image: its largest image
 (`page.images`, each an `ImageFile` with `.name` and `.data`) is read by our Gemini reader
 through `document_ocr.ocr_images`, one page per call, and each call is metered to the
 client's AI usage in this transaction exactly as a photograph is (`kb_ingest._meter_ocr`).
@@ -142,15 +143,36 @@ def read_pdf(data: bytes) -> PdfReading:
         except Exception as exc:
             log.info("kb_read_page_failed", extra={"page": number, "error": type(exc).__name__})
             words = ""
-        if words:
+        if words and _is_text_layer(words):
             reading.pages.append((number, words))
             continue
         scan = _largest_image(page)
-        if scan is None:
-            reading.blank += 1
-        else:
+        if scan is not None:
             reading.scans.append((number, *scan))
+        elif words:
+            # Thin or garbled, but nothing better on the page: keep what pypdf found.
+            reading.pages.append((number, words))
+        else:
+            reading.blank += 1
     return reading
+
+
+#: A page whose text layer is shorter than this (non-whitespace characters) is read as a
+#: scan when it carries an image: a phone scanner's "Scanned by …" footer or a page number
+#: is a text layer, and treating it as the page's words left the scan itself unread.
+MIN_TEXT_LAYER_CHARS: Final = 40
+#: The share of replacement or private-use characters past which a text layer is a font
+#: pypdf could not map (common with legacy Indic fonts) rather than words.
+MAX_UNMAPPED_SHARE: Final = 0.05
+
+
+def _is_text_layer(words: str) -> bool:
+    """Whether pypdf's text is the page's words, rather than a footer or unmapped glyphs."""
+    dense = "".join(words.split())
+    if len(dense) < MIN_TEXT_LAYER_CHARS:
+        return False
+    unmapped = sum(1 for ch in dense if ch == "�" or 0xE000 <= ord(ch) <= 0xF8FF)
+    return unmapped <= len(dense) * MAX_UNMAPPED_SHARE
 
 
 def _largest_image(page: Any) -> tuple[bytes, str] | None:

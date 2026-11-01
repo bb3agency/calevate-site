@@ -336,6 +336,26 @@ async def test_publishing_an_uploaded_pdf_sends_the_clients_own_bytes(
     )
 
 
+async def test_the_same_file_again_while_it_is_live_is_refused_naming_the_live_one(
+    s3: FakeS3,
+) -> None:
+    tenant_id, agent_id = await _tenant_with_published_agent()
+    pending = await _upload_pdf(tenant_id, agent_id, name="Rate card", auto_approve=True)
+    # Not live yet: sending it again is allowed (a retry after a failure must get through).
+    await _upload_pdf(tenant_id, agent_id, name="Rate card copy", auto_approve=False)
+    async with tenant_session(tenant_id) as session:
+        await service.publish_source(
+            session, tenant_id=tenant_id, source_id=uuid.UUID(str(pending["source_id"]))
+        )
+
+    with pytest.raises(ProblemError) as refused:
+        await _upload_pdf(tenant_id, agent_id, name="Rate card again")
+    assert refused.value.code == "kb_upload_duplicate"
+    assert "Rate card" in refused.value.detail
+    # A different file is still welcome.
+    await _upload_pdf(tenant_id, agent_id, name="Other", data=PDF + b"%extra\n")
+
+
 async def test_publishing_a_link_sends_the_address_and_no_document(
     s3: FakeS3,
 ) -> None:

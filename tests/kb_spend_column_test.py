@@ -222,7 +222,7 @@ def test_an_input_only_attestation_can_price_an_upload() -> None:
     attested INPUT-ONLY, an embedding's rows carry a real `unit_cost_paid` on the input leg
     and an exact zero on the output leg — which is the truth about an embedding rather than
     a default."""
-    encoder = "text-embedding-3-small"
+    encoder = "gemini-embedding-2"
     try:
         install_llm_price_attestations(
             lambda: {

@@ -74,7 +74,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.core.logging import get_logger
 from apps.api.retrieval.caller_projections import TS_CONFIG
-from apps.api.retrieval.embedding import embed_query_vector, vector_literal
+from apps.api.retrieval.embedding import (
+    EMBEDDING_DIMS,
+    EMBEDDING_MODEL,
+    embed_query_vector,
+    vector_literal,
+)
 from apps.api.retrieval.models import SUBJECT_KINDS
 
 log = get_logger(__name__)
@@ -142,10 +147,14 @@ class CallerHit:
 #: itself and what reaches Postgres is a syntax error. The cast is required rather than
 #: decorative: an untyped placeholder inside `IS NULL` gives the planner nothing to infer
 #: from and it refuses the statement outright.
+#:
+#: `embed_model = :model AND embed_dim = :dim` in the dense arm is `pgvector._SEARCH_SQL`'s
+#: guard: a vector from another model is not comparable with the question's and is read by
+#: the sparse arm only.
 _SEARCH_SQL: Final = f"""
 WITH scope AS (
   SELECT c.id, c.subject_kind, c.subject_id, c.idx, c.call_id, c.agent_id,
-         c.first_turn_idx, c.last_turn_idx, c.embedding, c.tsv
+         c.first_turn_idx, c.last_turn_idx, c.embedding, c.embed_model, c.embed_dim, c.tsv
   FROM caller_chunks c
   WHERE c.tenant_id = :tid
     AND c.scrubbed_at IS NULL
@@ -156,12 +165,16 @@ dense AS (
   SELECT id, row_number() OVER (ORDER BY embedding <=> CAST(:qvec AS vector)) AS rnk
   FROM scope
   WHERE CAST(:qvec AS vector) IS NOT NULL AND embedding IS NOT NULL
+    AND embed_model = :model AND embed_dim = :dim
   ORDER BY embedding <=> CAST(:qvec AS vector)
   LIMIT {_ARM_DEPTH}
 ),
 sparse AS (
   SELECT id, row_number() OVER (ORDER BY ts_rank_cd(tsv, q) DESC, id) AS rnk
-  FROM scope, plainto_tsquery('{TS_CONFIG}', :question) q
+  -- ANY lexeme matches, as `pgvector._SEARCH_SQL` and `kb/store.py` do.
+  FROM scope,
+       CAST(NULLIF(replace(CAST(plainto_tsquery('{TS_CONFIG}', :question) AS text), '&', '|'),
+                   '') AS tsquery) q
   WHERE tsv @@ q
   ORDER BY ts_rank_cd(tsv, q) DESC, id
   LIMIT {_ARM_DEPTH}
@@ -234,6 +247,8 @@ async def search_caller_chunks(
                 "aid": agent_id,
                 "question": question,
                 "qvec": vector_literal(vector),
+                "model": EMBEDDING_MODEL,
+                "dim": EMBEDDING_DIMS,
                 "k": k,
             },
         )

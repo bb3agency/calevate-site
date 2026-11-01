@@ -75,6 +75,32 @@ async def set_aside_ids(sweep: str) -> list[str]:
     return [str(member) for member in members]
 
 
+_REFUSALS_KEY: Final = "calevate:refusals:{sweep}"
+
+#: How long one item's refusal count is remembered. Longer than several set-aside periods,
+#: so the count reaches a sweep's limit; bounded so a key nobody touches again goes away.
+REFUSAL_COUNT_KEPT: Final = timedelta(days=7)
+
+
+async def count_refusal(sweep: str, item_id: str) -> int:
+    """Record one more provider refusal of `item_id` and answer the total so far.
+
+    For a sweep whose item waits on the answer — a refused item must eventually be closed
+    out rather than set aside for ever. 0 when Redis cannot say: the caller then keeps
+    setting the item aside, which delays it and closes nothing out on a guess.
+    """
+    key = _REFUSALS_KEY.format(sweep=sweep)
+    try:
+        async with get_redis().pipeline(transaction=True) as pipe:
+            pipe.hincrby(key, item_id, 1)
+            pipe.expire(key, int(REFUSAL_COUNT_KEPT.total_seconds()))
+            count, _ = await pipe.execute()
+    except Exception as exc:
+        log.warning("refusal_count_unwritable", extra={"sweep": sweep, "error": type(exc).__name__})
+        return 0
+    return int(count)
+
+
 class RefusalStreak:
     """Counts a tenant's provider refusals in a row within one tick (`REFUSALS_IN_A_ROW_STOP`)."""
 
@@ -94,8 +120,10 @@ class RefusalStreak:
 
 __all__ = [
     "REFUSALS_IN_A_ROW_STOP",
+    "REFUSAL_COUNT_KEPT",
     "REFUSED_INPUT_SET_ASIDE",
     "RefusalStreak",
+    "count_refusal",
     "set_aside",
     "set_aside_ids",
 ]

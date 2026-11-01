@@ -7,23 +7,24 @@ vector written at one width and searched at another is not an error Postgres rep
 is `ERROR: different vector dimensions` on the lucky path and a silently wrong ranking on
 the unlucky one — so the width has one author.
 
-THE MODEL AND THE WIDTH, VERIFIED AT SOURCE. `text-embedding-3-small` is one of the three
-identifiers the vendor's own OpenAPI enumerates for `POST /embeddings`, and the same schema
-carries the `dimensions` request field: *"The number of dimensions the resulting output
-embeddings should have. Only supported in `text-embedding-3` and later models."*
-(VERIFIED-VENDOR-SPEC: `openai/openai-openapi` `openapi.yaml` @ `master`, `CreateEmbedding
-Request`, lines 34336-34358, fetched from `raw.githubusercontent.com` on 1 September 2026.)
+THE MODEL AND THE WIDTH (D-952, founder 1 Nov 2026: "use gemini for embeddings").
+`gemini-embedding-2` on our own Google key, the key the dashboard AI's Gemini leg uses. Read
+from Google's pages on 1 Nov 2026: listed Stable, "No shutdown date announced", where
+`gemini-embedding-001` shuts down 14 May 2028 with this as its replacement
+(ai.google.dev/gemini-api/docs/deprecations, updated 2026-10-22); 8,192 input tokens; 128 to
+3,072 output dimensions with 768, 1536 and 3072 recommended; and it "auto-normalizes truncated
+dimensions (e.g., 768, 1536)", so the caller does not normalise
+(ai.google.dev/gemini-api/docs/embeddings and .../models/gemini-embedding-2, both updated
+2026-10-29). Google states "over 100 languages" and names neither Telugu nor Hindi: Telugu
+support is UNKNOWN from the vendor, and `docs/evidence/telugu-embedding-quality.md` is where a
+measurement belongs.
 
-**THAT FIELD IS WHY `EMBEDDING_DIMS` IS SENT RATHER THAN ASSUMED, AND IT IS ALSO THE EXIT
-CLAUSE.** This repository has not read a vendor page stating the model's NATIVE width, and
-`platform.openai.com` and `azure.microsoft.com` are both egress-blocked from this container
-(measured 1 Sep 2026), so "1536 is the default" would be a claim with no source behind it
-(hard rule 11). Instead the request NAMES the width it wants and `check_width` refuses
-anything else, so the number in the column type is the number we asked for rather than a
-number we believed. The same field is what makes a later narrowing free: these models are
-Matryoshka-style, so 512 or 768 is a re-request, not a re-embedding — the property that
-keeps a move to a managed vendor cheap, since the vendor is handed whatever width we choose
-at export time.
+ONE PROVIDER, NOT A CHAIN. Vectors from two models are not comparable in one column, so a
+second encoder "as a fallback" would corrupt the index it fell back into.
+
+`EMBEDDING_DIMS` IS SENT RATHER THAN ASSUMED. The model's default is 3,072; the request names
+1,536 (`outputDimensionality`) and `check_width` refuses anything else, so the number in the
+column type is the number we asked for.
 
 WHAT THIS MODULE DOES NOT DECIDE: whether a client may search (that is
 `retrieval/service.get_retriever`), what a chunk is (`kb/service.chunk_text`), and what a
@@ -36,30 +37,29 @@ from typing import Final
 from uuid import UUID
 
 import httpx
+from calevate_shared.engine import EMBEDDING_MODELS, google_native_base_url
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.llm_models import client_content_data_use_reason
 from apps.api.billing.ai_quota import new_assist_ref, record_ai_assist_usage
 from apps.api.billing.rates import llm_price_is_billable
+from apps.api.copilot.consent import read_consent
 from apps.api.core import provider_health
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
-from apps.workers import chat
+from apps.workers import chat, gemini_native
 from apps.workers.chat import ChatLeg
-from apps.workers.extraction import azure_credentials
 
 log = get_logger(__name__)
 
-#: The model, spelled as the wire spells it. Metered under this name — never under the
-#: Azure DEPLOYMENT id, which is an operator's free choice and which
-#: `billing/rates.llm_inr_per_ktok` publishes no price for (the D-410/D-417 distinction
-#: `workers/kb_gloss.py` already makes on the chat leg).
-EMBEDDING_MODEL: Final = "text-embedding-3-small"
+#: The model, spelled as the wire spells it and as the price is attested and metered.
+EMBEDDING_MODEL: Final = "gemini-embedding-2"
 
-#: The width every vector in `kb_chunks.embedding` has, sent as the request's `dimensions`
-#: and re-checked on the way back. 1536 because it is the width the column was built at and
-#: the width the bake-off's plan analysis transfers to; the value is OURS, requested
-#: explicitly, not a vendor default this repository has read.
+#: The width every vector in `kb_chunks.embedding` and `caller_chunks.embedding` has, sent as
+#: `outputDimensionality` and re-checked on the way back. 1536 because it is the width the
+#: columns were built at and one of the three widths Google recommends for this model, so
+#: moving to Gemini needed no migration.
 #:
 #: Under pgvector's own limit for an HNSW index on `vector` (2,000 dimensions) with room to
 #: spare, which is what lets the index exist at all at this width.
@@ -125,11 +125,10 @@ ASSIST_FEATURE_LEAD_SEARCH: Final = "lead_search_embedding"
 #: hung copilot turn.
 EMBED_TIMEOUT_S: Final = 20.0
 
-#: The most texts one request carries. The vendor's own schema bounds `input` at 2,048
-#: array items (`openapi.yaml`, `CreateEmbeddingRequest`, read 1 Sep 2026); this is far
-#: below it because the thing being bounded here is not the vendor's limit but OUR blast
-#: radius — one failed request re-does at most this many chunks on the next tick, and one
-#: request's tokens are one `usage_events` row.
+#: The most texts one `batchEmbedContents` request carries. Google's reference states no
+#: maximum (ai.google.dev/api/embeddings, updated 2026-10-26), so the vendor's limit is
+#: UNKNOWN here; what this bounds is OUR blast radius — one failed request re-does at most
+#: this many chunks on the next tick, and one request's tokens are one `usage_events` row.
 EMBED_BATCH: Final = 32
 
 
@@ -147,10 +146,9 @@ def embedding_price_is_billable() -> bool:
     `billing/rates.llm_price_is_billable` is asked rather than a second rule written here:
     it is total, never raises, and already encodes the only two grounds this repository
     accepts (an operator attested it, or the catalogue figure was read from the vendor).
-    Neither ground is met for this model by any constant in this tree — no embedding price
-    has been read from a vendor page here, and none is invented — so today this is True only
-    once an operator has entered the figure from their own Azure invoice
-    (`ops/model_pricing.set_model_price`).
+    The catalogue's Gemini figure is filed `verified=False` like every Gemini price here, so
+    this is True only once an operator has attested the price in the ops console
+    (`ops/model_pricing.attest_embedding_price`).
     """
     return llm_price_is_billable(EMBEDDING_MODEL)
 
@@ -158,39 +156,48 @@ def embedding_price_is_billable() -> bool:
 def embedding_leg() -> ChatLeg | None:
     """Where an embedding request goes, or None when this deployment cannot make one.
 
-    THE SAME RESOURCE, REGION AND CREDENTIAL AS EVERY OTHER LANGUAGE CALL (D-410/D-449), so
-    this adds NO sub-processor: `extraction.azure_credentials()` is the one reader of the
-    three Azure credential fields and `calevate_shared.engine.azure_openai_base_url` is the
-    one endpoint builder `scripts/check_model_residency.py` grants the host literal to.
+    Gemini's native `batchEmbedContents` on `gemini_api_key`, the key and the vendor the
+    dashboard AI already uses (D-899/D-834), so this adds no sub-processor. The URL is
+    derived from `google_native_base_url()`, the builder `scripts/check_model_residency.py`
+    grants the host literal to.
 
-    **THE DEPLOYMENT IS ITS OWN FIELD AND CANNOT BE THE CHAT ONE.** On Azure a model is
-    served under a deployment id an operator chose, and an embedding model is a different
-    deployment from a chat model however they are named — posting `text-embedding-3-small`
-    input to the chat deployment is a 400 at best. So `azure_openai_embedding_deployment`
-    is read here and the chat deployment returned by `azure_credentials()` is deliberately
-    discarded.
+    **IT ASKS THE GOOGLE DATA-USE ATTESTATION FIRST.** What is embedded is a client's own
+    knowledge, their calls and their leads, sent to Google outside a call — the question
+    `llm_models.client_content_data_use_reason` exists to answer, and the one the OCR leg
+    asks for the same reason. Google's paid tier does not use prompts or responses to improve
+    its products and its free tier does (ai.google.dev/gemini-api/terms, updated 2026-04-28);
+    the attestation is the operator's record of which tier our project is on.
 
-    Returns None rather than raising for `azure_credentials`' reason: a deployment with no
-    embedding deployment configured runs every other queue and every other tier, and this is
-    a configuration state an operator already sees rather than an incident.
+    Returns None rather than raising: a deployment that cannot embed runs every other queue,
+    and search answers from its keyword arm.
     """
-    credentials = azure_credentials()
-    if credentials is None:
+    provider = EMBEDDING_MODELS[EMBEDDING_MODEL].provider
+    if client_content_data_use_reason(provider) is not None:
         return None
-    resource, api_key, _chat_deployment = credentials
-    deployment = (get_settings().azure_openai_embedding_deployment or "").strip()
-    if not deployment:
+    api_key = get_settings().gemini_api_key
+    if not api_key:
         return None
-    # Imported here rather than at module scope only so the residency check's one-builder
-    # rule reads at the call site; there is no cycle to avoid.
-    from calevate_shared.engine import azure_openai_base_url
-
     return ChatLeg(
-        url=f"{azure_openai_base_url(resource)}/embeddings",
+        url=f"{google_native_base_url()}/models/{EMBEDDING_MODEL}:batchEmbedContents",
         api_key=api_key,
-        wire_model=deployment,
-        dialect="openai",
+        wire_model=EMBEDDING_MODEL,
+        dialect="google",
     )
+
+
+async def tenant_allows_embedding(session: AsyncSession, *, tenant_id: UUID) -> bool:
+    """May this account's content be sent to the embedding provider?
+
+    Only once its owner has turned Pip on (`copilot/consent`, D-788): the sub-processor and
+    privacy pages promise that nothing from an account reaches the language-model providers
+    before that, and an embedding sends the account's knowledge, calls and leads to one.
+    The same answer whoever is asking, the admin console included — its Pip has no consent
+    of its own, but the data is still the client's. A refused account's rows stay `pending`
+    and are embedded by the first sweep after the owner turns Pip on.
+
+    `session` must be scoped to `tenant_id` (RLS on `copilot_consents`).
+    """
+    return (await read_consent(session, tenant_id=tenant_id)).unmasked
 
 
 async def embed_query_vector(
@@ -228,10 +235,17 @@ async def embed_query_vector(
     if leg is None:
         log.info("query_embedding_no_provider", extra={"feature": feature})
         return None
+    if not await tenant_allows_embedding(session, tenant_id=tenant_id):
+        log.info("query_embedding_no_consent", extra={"feature": feature})
+        return None
     try:
         async with provider_health.watch("embeddings", chat.provider_of(leg), model=leg.wire_model):
-            outcome = await chat.embed(
-                leg, [question], dimensions=EMBEDDING_DIMS, timeout_s=EMBED_TIMEOUT_S
+            outcome = await gemini_native.embed(
+                leg,
+                [question],
+                task="query",
+                dimensions=EMBEDDING_DIMS,
+                timeout_s=EMBED_TIMEOUT_S,
             )
     except (httpx.HTTPError, TimeoutError) as failure:
         log.warning(
@@ -242,7 +256,7 @@ async def embed_query_vector(
 
     # METERED WHETHER OR NOT THE VECTOR IS USABLE. We paid for the turn; a refused width is
     # our problem, not a discount. `tokens_out=0` is the truth about an embedding rather
-    # than a default — the vendor's `usage` block has no output half at all.
+    # than a default — `usageMetadata` counts prompt tokens only.
     if outcome.usage is not None:
         await record_ai_assist_usage(
             session,
@@ -330,5 +344,6 @@ __all__ = [
     "embedding_leg",
     "embedding_price_is_billable",
     "stored_vector_width",
+    "tenant_allows_embedding",
     "vector_literal",
 ]

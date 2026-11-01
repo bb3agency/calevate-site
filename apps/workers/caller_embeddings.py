@@ -120,9 +120,10 @@ from apps.api.retrieval.embedding import (
     embedding_leg,
     embedding_price_is_billable,
     stored_vector_width,
+    tenant_allows_embedding,
 )
 from apps.api.retrieval.models import EMBED_READY, EMBED_REFUSED
-from apps.workers import chat
+from apps.workers import chat, gemini_native
 from apps.workers.set_aside import (
     REFUSED_INPUT_SET_ASIDE,
     RefusalStreak,
@@ -302,9 +303,10 @@ async def _embed_claimed(
         return 0
 
     async with provider_health.watch("embeddings", chat.provider_of(leg), model=leg.wire_model):
-        outcome = await chat.embed(
+        outcome = await gemini_native.embed(
             leg,
             [bodies[key] for key in live],
+            task="document",
             dimensions=EMBEDDING_DIMS,
             timeout_s=EMBED_TIMEOUT_S,
         )
@@ -368,14 +370,9 @@ async def _embed_claimed(
             system_actor=SYSTEM_ACTOR,
             ref=new_assist_ref(),
             tokens_in=outcome.usage.prompt_tokens,
-            # ZERO, AND IT IS THE TRUTH RATHER THAN A DEFAULT: the vendor's
-            # `CreateEmbeddingResponse.usage` has `prompt_tokens` and `total_tokens` and no
-            # output half at all.
+            # ZERO, AND IT IS THE TRUTH RATHER THAN A DEFAULT: `usageMetadata` counts prompt
+            # tokens only.
             tokens_out=0,
-            # THE MODEL, NOT `leg.wire_model`. On Azure a model is served under a
-            # DEPLOYMENT id the operator chose (D-410/D-417), and `rates.llm_inr_per_ktok`
-            # publishes no price for a deployment name — it would raise, on a row that
-            # could never afterwards be corrected.
             model=EMBEDDING_MODEL,
             feature=ASSIST_FEATURE_CALLER_EMBED,
         )
@@ -455,10 +452,13 @@ async def _sweep_tenant(
     commits.
     """
     remaining = min(MAX_CHUNKS_PER_TENANT, budget)
+    # Discovery still runs without consent: it writes the keyword arm and calls no provider.
+    async with tenant_session(tenant_id) as session:
+        allowed = await tenant_allows_embedding(session, tenant_id=tenant_id)
     for projection in registered_projections():
         async with tenant_session(tenant_id) as session:
             tally.projected += await _discover(session, tenant_id=tenant_id, projection=projection)
-        while remaining > 0:
+        while allowed and remaining > 0:
             stop = False
             async with tenant_session(tenant_id) as session:
                 rows = (
@@ -556,8 +556,8 @@ async def embed_caller_chunks(ctx: dict[str, Any]) -> str:
         return "unpriced"
     leg = embedding_leg()
     if leg is None:
-        # Tolerant boot (BACKEND-PATTERNS §2): a deployment with no embedding deployment
-        # configured runs every other queue, and an operator already sees this at
+        # Tolerant boot (BACKEND-PATTERNS §2): a deployment with no Gemini key or no Google
+        # data-use attestation runs every other queue, and an operator already sees this at
         # `/healthz/ready`.
         log.info("caller_embed_no_provider")
         return "no_provider"

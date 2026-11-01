@@ -502,13 +502,6 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "pip_notes_runway_days": AppliesRule(LIVE),
     "pip_notes_gap_repeat_calls": AppliesRule(LIVE),
     "pip_notes_good_week_percent": AppliesRule(LIVE),
-    # The EMBEDDING deployment (D-502). LIVE, and genuinely so: unlike the three chat
-    # deployment fields above, this value is never published into an agent's engine record —
-    # it is read per request by `retrieval/embedding.embedding_leg` and per tick by the
-    # ingestion sweep, so a correction takes effect within one poll interval with nothing to
-    # re-publish. Pointing it at a deployment that does not serve an embedding model is a
-    # 400 on every embedding call, visible at once in `kb_embed_provider_failed`.
-    "azure_openai_embedding_deployment": AppliesRule(LIVE),
     # Which retrieval store answers a cold lookup (D-502). LIVE because
     # `retrieval/service.get_retriever` is called per request and holds no state — which is
     # what makes this the OFF SWITCH for the store: an operator who sees knowledge search

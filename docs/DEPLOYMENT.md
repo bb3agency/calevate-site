@@ -782,7 +782,8 @@ Sequence, with the Calevate substitutions (uv/alembic for npm/prisma):
    `Settings()`), before any swap. In the image rather than on the host because what
    matters is what the process about to serve traffic can read. It also refuses a `.env`
    still carrying a key whose field a decision deleted (`retired_env_key`; the list is
-   `calevate_shared.config.RETIRED_ENV_KEYS`, today D-639's five `BOLNA_*` keys), naming
+   `calevate_shared.config.RETIRED_ENV_KEYS`: D-639's `BOLNA_*` keys, D-642's and D-763's,
+   and D-952's `AZURE_OPENAI_EMBEDDING_DEPLOYMENT` — embeddings run on `GEMINI_API_KEY`), naming
    each key and the decision — so no hand `grep` for leftovers is needed before a deploy.
    Delete the named lines and re-run. `Settings()` itself refuses the same keys at boot,
    from `.env` or the process environment, so a container started by hand fails with the

@@ -141,7 +141,7 @@ TtsProviderId = Annotated[str, Path(max_length=32, pattern=r"^[a-z][a-z0-9_]*$")
 
 # An ENCODER identifier on the wire. `ModelId`'s character class plus ONE optional interior
 # slash, because that is the widest shape an encoder identifier takes on the wire
-# (`text-embedding-3-small`, or a vendor-prefixed `models/<name>`) and nothing wider.
+# (`gemini-embedding-2`, or a vendor-prefixed `models/<name>`) and nothing wider.
 # Bounded and character-classed for `ModelId`'s reason — it is interpolated into a step-up
 # string and an audit summary. It is NOT an allow-list of the known encoders:
 # `attest_embedding_price` refuses an unknown one by name, and a second copy of the
@@ -449,8 +449,8 @@ class EmbeddingPriceAttestIn(BaseModel):
     #: When this price becomes authoritative. Omit for "from now on"; supply an earlier
     #: instant to correct the record for a period already elapsed. MUST be timezone-aware.
     effective_from: datetime | None = None
-    #: WHERE the figure came from, in the operator's words — "Azure billing export
-    #: 2026-09, text-embedding-3-small input tokens". It is the evidence that makes this an
+    #: WHERE the figure came from, in the operator's words — "Google Cloud billing
+    #: 2026-11, gemini-embedding-2 input tokens". It is the evidence that makes this an
     #: attestation rather than a guess, and the reason recorded in `audit_log`.
     source_note: str = Field(min_length=3, max_length=500)
 

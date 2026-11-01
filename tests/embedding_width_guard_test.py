@@ -28,8 +28,8 @@ import pytest
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.retrieval.caller_projections import registered_projections
 from apps.api.retrieval.embedding import EMBEDDING_DIMS, stored_vector_width
-from apps.workers import caller_embeddings, chat, kb_embeddings
-from apps.workers.chat import EmbeddingOutcome
+from apps.workers import caller_embeddings, gemini_native, kb_embeddings
+from apps.workers.gemini_native import EmbeddingOutcome
 from sqlalchemy import text
 from tests.kb_embedding_sweep_test import (
     _LEG,
@@ -72,7 +72,7 @@ async def test_the_knowledge_sweep_buys_nothing_when_the_column_is_the_wrong_wid
     await _settle_gloss(tenant_id)
     await _only_tenant(monkeypatch, tenant_id)
     monkeypatch.setattr(kb_embeddings, "EMBEDDING_DIMS", _NARROWER)
-    monkeypatch.setattr(chat, "embed", _explode)
+    monkeypatch.setattr(gemini_native, "embed", _explode)
 
     assert await kb_embeddings.embed_knowledge_chunks({}) == "width_mismatch"
     assert await _states(tenant_id) == [("pending", False)]
@@ -110,7 +110,7 @@ async def test_the_knowledge_sweep_still_runs_when_the_widths_agree(
             usage=None,
         )
 
-    monkeypatch.setattr(chat, "embed", _embed)
+    monkeypatch.setattr(gemini_native, "embed", _embed)
     assert await kb_embeddings.embed_knowledge_chunks({}) == "embedded=1"
     assert calls == [1]
 
@@ -133,6 +133,6 @@ async def test_the_caller_sweep_buys_nothing_when_the_column_is_the_wrong_width(
     monkeypatch.setattr(caller_embeddings, "embedding_leg", lambda: _LEG)
     monkeypatch.setattr(caller_embeddings, "tenants_with_caller_data", _no_tenants)
     monkeypatch.setattr(caller_embeddings, "EMBEDDING_DIMS", _NARROWER)
-    monkeypatch.setattr(chat, "embed", _explode)
+    monkeypatch.setattr(gemini_native, "embed", _explode)
 
     assert await caller_embeddings.embed_caller_chunks({}) == "width_mismatch"

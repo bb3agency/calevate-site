@@ -30,14 +30,25 @@ OpenAI-shaped copy.
 
 NOTHING HERE OPENS A PDF. The bytes arrive base64-encoded from the uploads bucket and go out
 the same way.
+
+EMBEDDINGS ARE THE SECOND NATIVE CALL (D-952), for the same kind of reason. Google's
+OpenAI-compatibility page shows `/v1beta/openai/embeddings` with a single string and documents
+neither `dimensions` nor a `usage` block for it (ai.google.dev/gemini-api/docs/openai, updated
+2026-10-28, read 1 Nov 2026). The native `models/{model}:batchEmbedContents` documents both:
+`EmbedContentConfig.outputDimensionality` per request and `usageMetadata.promptTokenCount` on
+the response, with `embeddings[]` "in the same order as the input" (ai.google.dev/api/
+embeddings, updated 2026-10-26, read 1 Nov 2026). The width is what the column holds and the
+token count is what hard rule 7 meters, so neither may be an undocumented hope.
 """
 
 from __future__ import annotations
 
 import json
+import math
 import uuid
 from collections.abc import AsyncIterator, Mapping, Sequence
-from typing import Any, Final
+from dataclasses import dataclass
+from typing import Any, Final, Literal
 
 import httpx
 
@@ -287,4 +298,141 @@ async def stream(
     )
 
 
-__all__ = ["PDF_PART", "request_body", "stream", "usage_of"]
+#: Which side of a search a text is on. Asymmetric retrieval embeds the question and the
+#: passages it should find differently.
+EmbedTask = Literal["query", "document"]
+
+#: `gemini-embedding-2` refuses `task_type` and takes the task as a prefix on the text
+#: instead: "task: search result | query: {content}" for a search query and
+#: "title: {title} | text: {content}" for a document, with "title: none" when there is none
+#: (ai.google.dev/gemini-api/docs/embeddings, updated 2026-10-29, read 1 Nov 2026). Applied
+#: here rather than by each caller so no surface can embed an unprefixed text into a column
+#: of prefixed ones.
+QUERY_PREFIX: Final = "task: search result | query: "
+NO_TITLE: Final = "none"
+
+
+def embed_text(text: str, *, task: EmbedTask, title: str | None = None) -> str:
+    """`text` as `gemini-embedding-2` expects it for `task`.
+
+    The title is the document's own context (for knowledge, the source's name: a chunk that
+    reads "Sunday 9 to 12" embeds as an answer about the clinic's hours only if it says whose
+    hours they are — Anthropic's "Contextual Retrieval", anthropic.com/news/contextual-
+    retrieval). Whitespace in it is collapsed so a name cannot break the one-line prefix.
+    """
+    if task == "query":
+        return f"{QUERY_PREFIX}{text}"
+    label = " ".join((title or "").split()) or NO_TITLE
+    return f"title: {label} | text: {text}"
+
+
+@dataclass(frozen=True, slots=True)
+class EmbeddingOutcome:
+    """One `batchEmbedContents` turn: the vectors, in request order, and what it cost.
+
+    `usage is None` means the provider did not count, never that it was free. An embedding
+    has no output half, so `usage.output_tokens` is always 0.
+    """
+
+    vectors: tuple[tuple[float, ...], ...]
+    usage: TokenUsage | None = None
+
+
+def embed_request(
+    model: str,
+    inputs: Sequence[str],
+    *,
+    task: EmbedTask,
+    dimensions: int,
+    titles: Sequence[str | None] | None = None,
+) -> dict[str, Any]:
+    """The `batchEmbedContents` body: one request per input, each naming the batch's model
+    (the reference requires they match) and the width the column holds."""
+    named = list(titles) if titles is not None else [None] * len(inputs)
+    if len(named) != len(inputs):
+        raise ValueError("titles must pair one-to-one with inputs")
+    return {
+        "requests": [
+            {
+                "model": f"models/{model}",
+                "content": {"parts": [{"text": embed_text(text, task=task, title=title)}]},
+                "embedContentConfig": {"outputDimensionality": dimensions},
+            }
+            for text, title in zip(inputs, named, strict=True)
+        ]
+    }
+
+
+async def embed(
+    leg: ChatLeg,
+    inputs: Sequence[str],
+    *,
+    task: EmbedTask,
+    dimensions: int,
+    timeout_s: float,
+    titles: Sequence[str | None] | None = None,
+    client: httpx.AsyncClient | None = None,
+) -> EmbeddingOutcome:
+    """Vectors for `inputs`, in the SAME ORDER. RAISES `httpx.HTTPStatusError` on non-2xx.
+
+    `leg.url` is the full `…:batchEmbedContents` address and `leg.wire_model` the model.
+    `titles`, when given, pairs one-to-one with `inputs` and is used on `document` only.
+    Only the gapless prefix of usable vectors is returned: callers pair `vectors[i]` with
+    `inputs[i]` and refuse whatever is past the end as a short answer, so a malformed or
+    non-finite vector at position 1 must end the answer there rather than let input 1 take
+    input 2's vector. pgvector refuses NaN and infinity, and that statement error would roll
+    back the whole batch for every tick to re-buy.
+    """
+    http = client or pooled_client()
+    response = await http.post(
+        leg.url,
+        headers={"x-goog-api-key": leg.api_key},
+        json=embed_request(leg.wire_model, inputs, task=task, dimensions=dimensions, titles=titles),
+        timeout=timeout_s,
+    )
+    if response.is_error:
+        log.warning(
+            "gemini_embed_refused",
+            extra={"status": response.status_code, "model": leg.wire_model},
+        )
+        response.raise_for_status()
+    body = response.json()
+    if not isinstance(body, Mapping):
+        return EmbeddingOutcome(vectors=())
+    rows = body.get("embeddings")
+    vectors: list[tuple[float, ...]] = []
+    for row in rows if isinstance(rows, list) else []:
+        if len(vectors) == len(inputs):
+            break
+        vector = _embedding_values(row)
+        if vector is None:
+            break
+        vectors.append(vector)
+    return EmbeddingOutcome(vectors=tuple(vectors), usage=usage_of(body))
+
+
+def _embedding_values(row: object) -> tuple[float, ...] | None:
+    """A `ContentEmbedding`'s `values` as finite floats, or None when it is not one."""
+    values = row.get("values") if isinstance(row, Mapping) else None
+    if not isinstance(values, list):
+        return None
+    try:
+        vector = tuple(float(v) for v in values)
+    except (TypeError, ValueError):
+        return None
+    return vector if all(math.isfinite(v) for v in vector) else None
+
+
+__all__ = [
+    "NO_TITLE",
+    "PDF_PART",
+    "QUERY_PREFIX",
+    "EmbedTask",
+    "EmbeddingOutcome",
+    "embed",
+    "embed_request",
+    "embed_text",
+    "request_body",
+    "stream",
+    "usage_of",
+]

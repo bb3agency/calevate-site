@@ -210,7 +210,7 @@ def _reject_invisible_characters(value: str, *, field: str) -> None:
 
 def chunk_text(body: str) -> list[str]:
     """Split on paragraph boundaries, packing up to the cap; only split a paragraph
-    that exceeds the cap on its own, and then on sentence ends.
+    that exceeds the cap on its own, and then on line boundaries, then sentence ends.
 
     **LOSSLESS, and that is a property this function is tested on rather than a hope.**
     Every non-whitespace character of `body` appears in exactly one chunk, in order
@@ -230,7 +230,7 @@ def chunk_text(body: str) -> list[str]:
             if buffer:
                 chunks.append(buffer)
                 buffer = ""
-            chunks.extend(_split_sentences(paragraph))
+            chunks.extend(_split_lines(paragraph))
             continue
         # The candidate carries its own joiner, so the two-character cost of `\n\n` is
         # counted when there IS a joiner and not when there is not. Charging for it
@@ -256,8 +256,45 @@ def chunk_text(body: str) -> list[str]:
     return chunks
 
 
+def _split_lines(paragraph: str) -> list[str]:
+    """An over-cap paragraph, packed a whole LINE at a time.
+
+    A spreadsheet row or a price-list line carries no full stop
+    (`workers/document_text.py` joins rows with a bare newline), so splitting such a
+    paragraph on sentence ends found one giant "sentence" and wrapped it at the cap — an
+    item in one chunk and its price in the next, neither retrievable as an answer. Lines
+    are the boundary the author drew; only a line that is itself over the cap falls back
+    to sentence splitting, and its last piece stays in the buffer so the next line can
+    pack onto it.
+    """
+    lines = [line.strip() for line in paragraph.split("\n") if line.strip()]
+    out: list[str] = []
+    buffer = ""
+    for line in lines:
+        if len(line) > MAX_CHUNK_CHARS:
+            if buffer:
+                out.append(buffer)
+            *complete, buffer = _split_sentences(line)
+            out.extend(complete)
+            continue
+        candidate = f"{buffer}\n{line}" if buffer else line
+        if len(candidate) <= MAX_CHUNK_CHARS:
+            buffer = candidate
+            continue
+        if buffer:
+            out.append(buffer)
+        buffer = line
+    if buffer:
+        out.append(buffer)
+    return out
+
+
+#: `|` and `॥` stand in for the danda in typed Telugu and in verse-style lists.
+_SENTENCE_END_SPLIT = re.compile(r"(?<=[.!?।॥|])\s+")
+
+
 def _split_sentences(paragraph: str) -> list[str]:
-    sentences = re.split(r"(?<=[.!?।])\s+", paragraph)
+    sentences = _SENTENCE_END_SPLIT.split(paragraph)
     out: list[str] = []
     buffer = ""
     for sentence in sentences:
@@ -726,6 +763,33 @@ async def reject_source(session: AsyncSession, *, source_id: UUID, reason: str) 
         to_status="rejected",
         from_statuses=("pending_approval",),
         extra_set="rejection_reason = :reason",
+        params={"reason": reason[:500]},
+    )
+
+
+#: Publish refusals that only an edit of the wording can clear: rendering is a pure function
+#: of the approved chunks, so re-driving the same version refuses the same way for ever.
+PUBLISH_REFUSALS_NEEDING_AN_EDIT: Final[frozenset[str]] = frozenset({"kb_render_refused"})
+
+
+async def refuse_at_publish(session: AsyncSession, *, source_id: UUID, reason: str) -> bool:
+    """Close an approved, never-live version whose publish was refused on its own words.
+
+    `rejected` with the refusal as `rejection_reason`, which is what the client's attention
+    list shows (`crm/attention.knowledge_waiting`); the sweep reads only `approved`, so it
+    stops re-driving a version that cannot go live, and a corrected submission is a new
+    version as after any rejection. Only a version that never went live: a live one keeps
+    serving whatever a later publish attempt says.
+    """
+    return await transition_status(
+        session,
+        table="kb_sources",
+        entity="Knowledge source",
+        row_id=source_id,
+        to_status="rejected",
+        from_statuses=("approved",),
+        extra_set="rejection_reason = :reason",
+        visible_where="NOT is_active AND published_at IS NULL",
         params={"reason": reason[:500]},
     )
 
@@ -2828,7 +2892,13 @@ async def catch_up_agent(
 #: `retrieval/pgvector.TS_CONFIG`: lexemes stored under one configuration do not match a
 #: `tsquery` built under another, and the symptom is an empty sparse arm rather than an
 #: error. `coalesce` because most chunks have no gloss and `||` with NULL erases the vector.
-_TSV_SQL = "to_tsvector('english', d.content) || to_tsvector('english', coalesce(d.gloss, ''))"
+#: The SOURCE'S NAME (`s`, joined by every statement that spells this) is part of the key:
+#: a chunk from the middle of "Room tariff" rarely says "tariff" itself, and the question
+#: does.
+_TSV_SQL = (
+    "to_tsvector('english', d.content) || to_tsvector('english', coalesce(d.gloss, '')) "
+    "|| to_tsvector('english', s.name)"
+)
 
 #: Insert or refresh one source's projection. `ON CONFLICT (document_id)` is what makes a
 #: republish idempotent in the DATABASE rather than in a read-then-write, and it is also
@@ -2903,16 +2973,33 @@ async def project_chunks(session: AsyncSession, *, tenant_id: UUID, source_id: U
 #: cannot disagree with a publish about what the key IS — the drift that would show up as a
 #: question matching before a republish and not after it.
 #:
-#: `d.gloss IS NOT NULL` is the cheap half of the predicate and `x.tsv <> (...)` is the
-#: exact half: a chunk with no gloss cannot have a stale key (its content is written once),
-#: and of those that have one, only the rows that actually differ are written — so a tick
-#: over a settled corpus updates nothing, touches no `updated_at`, and moves no cache epoch.
+#: The first predicate is cheap and picks the rows that CAN be stale; `x.tsv <> (...)` is the
+#: exact half, so a tick over a settled corpus updates nothing, touches no `updated_at`, and
+#: moves no cache epoch. A row can be stale two ways:
+#:
+#: * its gloss was written near or after its key. A day of slack rather than
+#:   `d.updated_at > x.updated_at`, because both stamps are TRANSACTION-START times: a gloss
+#:   transaction that started before a publish and committed after the publish's snapshot
+#:   carries the EARLIER stamp, and is exactly the race this statement exists for. After a
+#:   day the row has been compared ~48 times and drops out of the expensive half.
+#: * its key does not hold its source's name — a row keyed before the name joined the key,
+#:   or after a rename. Checked with the name's own short `tsquery`, never by rebuilding
+#:   the content's vector.
 _REKEY_SQL = f"""
 UPDATE kb_chunks c SET tsv = stale.tsv, updated_at = now()
 FROM (
   SELECT d.id AS document_id, {_TSV_SQL} AS tsv
   FROM kb_documents d JOIN kb_chunks x ON x.document_id = d.id
-  WHERE x.tenant_id = :tid AND d.gloss IS NOT NULL AND x.tsv <> ({_TSV_SQL})
+  JOIN kb_sources s ON s.id = x.source_id
+  WHERE x.tenant_id = :tid
+    AND (
+      (d.gloss IS NOT NULL AND d.updated_at > x.updated_at - interval '1 day')
+      OR NOT (
+        numnode(plainto_tsquery('english', s.name)) = 0
+        OR x.tsv @@ plainto_tsquery('english', s.name)
+      )
+    )
+    AND x.tsv <> ({_TSV_SQL})
   ORDER BY d.id LIMIT :limit
 ) stale
 WHERE c.document_id = stale.document_id AND c.tenant_id = :tid
@@ -2920,7 +3007,8 @@ WHERE c.document_id = stale.document_id AND c.tenant_id = :tid
 
 
 async def refresh_projection_keys(session: AsyncSession, *, tenant_id: UUID, limit: int) -> int:
-    """Rebuild the sparse key of projected chunks whose English gloss arrived late.
+    """Rebuild the sparse key of projected chunks whose English gloss arrived late, or whose
+    key does not hold their source's name (`_REKEY_SQL`).
 
     THE DEFECT THIS CLOSES, in one sentence: `project_chunks` builds `kb_chunks.tsv` from
     the chunk's text AND its gloss, at PUBLISH time, and the gloss is written afterwards by

@@ -22,7 +22,7 @@ import httpx
 import pytest
 from calevate_shared.engine import GOOGLE_DIRECT_MODELS
 
-from apps.workers import chat
+from apps.workers import chat, gemini_native
 
 #: A real selectable Gemini model, SOURCED FROM THE CATALOGUE rather than spelled as a
 #: literal here. `tests/sarvam_model_identifier_test.py` keeps every Google model id in
@@ -593,73 +593,6 @@ async def test_an_unparseable_frame_is_dropped_rather_than_ending_the_stream() -
     assert [e.text for e in events if e.text is not None] == ["ok"]
 
 
-# --- embeddings ------------------------------------------------------------------------
-
-EMBED_LEG = chat.ChatLeg(
-    url="https://example.invalid/openai/v1/embeddings",
-    api_key="k",
-    wire_model="dep",
-    dialect="openai",
-)
-
-
-async def _embed_answer(rows: list[dict[str, Any]], inputs: int = 3) -> chat.EmbeddingOutcome:
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"data": rows, "usage": {"prompt_tokens": 3}})
-
-    async with _client(handler) as client:
-        return await chat.embed(
-            EMBED_LEG, [f"in{i}" for i in range(inputs)], dimensions=2, timeout_s=5, client=client
-        )
-
-
-async def test_embeddings_are_put_back_in_input_order_by_their_index() -> None:
-    outcome = await _embed_answer(
-        [
-            {"index": 2, "embedding": [2.0, 2.0]},
-            {"index": 0, "embedding": [0.0, 0.0]},
-            {"index": 1, "embedding": [1.0, 1.0]},
-        ]
-    )
-    assert outcome.vectors == ((0.0, 0.0), (1.0, 1.0), (2.0, 2.0))
-
-
-async def test_a_skipped_index_stops_the_answer_rather_than_shifting_a_neighbour_in() -> None:
-    """FAILS IF: input 1 is handed input 2's vector because index 1 was missing."""
-    outcome = await _embed_answer(
-        [{"index": 0, "embedding": [0.0, 0.0]}, {"index": 2, "embedding": [2.0, 2.0]}]
-    )
-    assert outcome.vectors == ((0.0, 0.0),)
-
-
-async def test_a_repeated_index_does_not_become_the_next_inputs_vector() -> None:
-    outcome = await _embed_answer(
-        [{"index": 0, "embedding": [0.0, 0.0]}, {"index": 0, "embedding": [9.0, 9.0]}]
-    )
-    assert outcome.vectors == ((0.0, 0.0),)
-
-
-async def test_a_non_finite_vector_ends_the_answer_before_pgvector_refuses_the_batch() -> None:
-    outcome = await _embed_answer(
-        [
-            {"index": 0, "embedding": [0.0, 0.0]},
-            {"index": 1, "embedding": ["NaN", 1.0]},
-            {"index": 2, "embedding": [2.0, 2.0]},
-        ]
-    )
-    assert outcome.vectors == ((0.0, 0.0),)
-
-
-async def test_a_vector_holding_a_non_number_is_answered_with_no_width() -> None:
-    outcome = await _embed_answer([{"index": 0, "embedding": ["x", None]}], inputs=1)
-    assert outcome.vectors == ((),)
-
-
-async def test_an_answer_with_no_index_falls_back_to_array_order() -> None:
-    outcome = await _embed_answer([{"embedding": [0.0, 0.0]}, {"embedding": [1.0, 1.0]}], inputs=2)
-    assert outcome.vectors == ((0.0, 0.0), (1.0, 1.0))
-
-
 # --- the pooled client ----------------------------------------------------------------
 
 
@@ -668,17 +601,17 @@ async def test_calls_without_a_client_share_one_pooled_client_and_keep_their_own
 ) -> None:
     """Every turn of a Pip question rides the same pooled connection.
 
-    FAILS IF: `complete`, `stream` or `embed` go back to opening (and closing) a client of
-    their own per call, which paid a TCP and TLS handshake to the provider on every model
-    turn, or if the per-call budget stops reaching the request now that the pooled client
-    carries no timeout of its own.
+    FAILS IF: `complete`, `stream` or `gemini_native.embed` go back to opening (and closing)
+    a client of their own per call, which paid a TCP and TLS handshake to the provider on
+    every model turn, or if the per-call budget stops reaching the request now that the
+    pooled client carries no timeout of its own.
     """
     timeouts: list[dict[str, Any]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         timeouts.append(request.extensions["timeout"])
-        if request.url.path.endswith("/embeddings"):
-            return httpx.Response(200, json={"data": [{"index": 0, "embedding": [1.0]}]})
+        if request.url.path.endswith(":batchEmbedContents"):
+            return httpx.Response(200, json={"embeddings": [{"values": [1.0]}]})
         if json.loads(request.content).get("stream"):
             frame = _chunk(choices=[{"index": 0, "delta": {"content": "hi"}}])
             return httpx.Response(200, content=_sse(frame))
@@ -692,12 +625,12 @@ async def test_calls_without_a_client_share_one_pooled_client_and_keep_their_own
     await chat.complete(LEG, message, timeout_s=7)
     events = [event async for event in chat.stream(LEG, message, timeout_s=3)]
     embed_leg = chat.ChatLeg(
-        url="https://example.invalid/openai/v1/embeddings",
+        url="https://example.invalid/v1beta/models/m:batchEmbedContents",
         api_key="k",
-        wire_model="dep",
-        dialect="openai",
+        wire_model="m",
+        dialect="google",
     )
-    await chat.embed(embed_leg, ["a"], dimensions=1, timeout_s=5)
+    await gemini_native.embed(embed_leg, ["a"], task="query", dimensions=1, timeout_s=5)
 
     assert events[-1].outcome is not None and events[-1].outcome.content == "hi"
     assert [t["read"] for t in timeouts] == [7, 3, 5]

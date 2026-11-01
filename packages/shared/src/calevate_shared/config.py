@@ -127,6 +127,8 @@ RETIRED_ENV_KEYS: Mapping[str, str] = MappingProxyType(
         "VOBIZ_CALLBACK_SECRET": "D-763",
         "VOBIZ_CALLBACK_SECRET_RETIRED": "D-763",
         "VOBIZ_SIGNATURE_REQUIRED": "D-763",
+        # D-952 moved embeddings to Gemini on `GEMINI_API_KEY`.
+        "AZURE_OPENAI_EMBEDDING_DEPLOYMENT": "D-952",
     }
 )
 
@@ -944,26 +946,6 @@ class Settings(BaseSettings):
     # Bounded to the shape Azure accepts for a deployment id — letters, digits, hyphens
     # and underscores, up to 64 — so a value with a slash or a space cannot reach a URL.
     azure_openai_deployment: str | None = Field(
-        default=None, max_length=64, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
-    )
-    # THE EMBEDDING DEPLOYMENT — a THIRD deployment field, and it has to be one (D-502).
-    #
-    # An embedding model is served under its own Azure deployment, distinct from every chat
-    # deployment above however it is named: posting `POST /embeddings` input at a chat
-    # deployment is a 400, and posting chat messages at an embedding deployment is a 400 the
-    # other way. It therefore cannot be derived from `azure_openai_deployment` and must not
-    # be guessed from it — the same argument that gave the chat deployment its own field,
-    # applied to a different endpoint on the same resource.
-    #
-    # SAME RESOURCE, SAME REGION, SAME CREDENTIAL, so this adds NO sub-processor: it is the
-    # East US 2 resource D-449 already settled, reached through the one builder
-    # `calevate_shared.engine.azure_openai_base_url`.
-    #
-    # None until an operator creates the deployment — an EXTERNAL step, so knowledge search
-    # degrades to its sparse arm and to T0 rather than half-working
-    # (`apps/api/retrieval/service.get_retriever` says so at ERROR). Bounded to the same
-    # character class and 64-character ceiling as every other Azure deployment id here.
-    azure_openai_embedding_deployment: str | None = Field(
         default=None, max_length=64, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
     )
     # WHICH RETRIEVAL STORE ANSWERS A COLD LOOKUP (D-502). `compiled-facts` is T0 alone —

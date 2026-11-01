@@ -921,9 +921,9 @@ kb_chunks(id, tenant_id, agent_id, source_id, document_id, tsv tsvector,
 --    erasure two rows to find, and lets a correction to one diverge from the other. What is
 --    stored here is DERIVED and reconstructible, which is what makes the migration
 --    reversible without loss.
---  * `vector(1536)` NOT `vector(1024)`: the width text-embedding-3-small is ASKED for
---    (`retrieval/embedding.EMBEDDING_DIMS`, sent as the request's `dimensions`), not a
---    vendor default anyone here has read. Not `halfvec`: that type needs pgvector 0.7.0 and
+--  * `vector(1536)` NOT `vector(1024)`: the width the encoder is ASKED for
+--    (`retrieval/embedding.EMBEDDING_DIMS`, sent as `outputDimensionality`; since D-952
+--    `gemini-embedding-2`, for which Google recommends 1536), not the model's default. Not `halfvec`: that type needs pgvector 0.7.0 and
 --    this server has 0.6.0 — and quantisation belongs in the INDEX (pgvector's own
 --    half-precision indexing) rather than in a lossy column, which is also what keeps an
 --    export to a managed vendor full-fidelity.

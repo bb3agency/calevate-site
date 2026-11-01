@@ -30,9 +30,11 @@ from apps.api.db.session import tenant_session
 from apps.api.kb import service as kb_service
 from apps.api.kb.gloss import GLOSS_NOT_NEEDED, GLOSS_PENDING, GLOSS_READY
 from apps.api.retrieval.embedding import EMBEDDING_DIMS, EMBEDDING_MODEL
-from apps.workers import chat, kb_embeddings
-from apps.workers.chat import ChatLeg, EmbeddingOutcome, TokenUsage
+from apps.workers import gemini_native, kb_embeddings
+from apps.workers.chat import ChatLeg, TokenUsage
+from apps.workers.gemini_native import EmbeddingOutcome
 from sqlalchemy import text
+from tests.conftest import turn_pip_on_for_tests
 from tests.kb_workflow_test import _tenant_with_published_agent
 
 _LEG = ChatLeg(
@@ -89,7 +91,9 @@ async def _settle_gloss(tenant_id: uuid.UUID, *, state: str = GLOSS_NOT_NEEDED) 
         )
 
 
-async def _tenant_with_pending_chunk(body: str) -> tuple[uuid.UUID, uuid.UUID]:
+async def _tenant_with_pending_chunk(
+    body: str, *, pip_on: bool = True
+) -> tuple[uuid.UUID, uuid.UUID]:
     tenant_id, agent_id = await _tenant_with_published_agent()
     async with tenant_session(tenant_id) as session:
         submitted = await kb_service.submit_source(
@@ -99,6 +103,8 @@ async def _tenant_with_pending_chunk(body: str) -> tuple[uuid.UUID, uuid.UUID]:
         await kb_service.publish_source(
             session, tenant_id=tenant_id, source_id=uuid.UUID(str(submitted["id"]))
         )
+    if pip_on:
+        await turn_pip_on_for_tests(uuid.UUID(str(tenant_id)))
     return uuid.UUID(str(tenant_id)), uuid.UUID(str(agent_id))
 
 
@@ -141,7 +147,7 @@ async def test_an_unpriced_model_is_never_bought(monkeypatch: pytest.MonkeyPatch
 
     tenant_id, _ = await _tenant_with_pending_chunk("A consultation costs 500 rupees.")
     await _only_tenant(monkeypatch, tenant_id)
-    monkeypatch.setattr(chat, "embed", _explode)
+    monkeypatch.setattr(gemini_native, "embed", _explode)
 
     assert await kb_embeddings.embed_knowledge_chunks({}) == "unpriced"
     assert await _states(tenant_id) == [("pending", False)]
@@ -160,12 +166,59 @@ async def test_a_second_tick_over_the_same_corpus_buys_nothing(
     await _settle_gloss(tenant_id)
     await _only_tenant(monkeypatch, tenant_id)
     calls: list[int] = []
-    monkeypatch.setattr(chat, "embed", _counting_embed(calls))
+    monkeypatch.setattr(gemini_native, "embed", _counting_embed(calls))
 
     assert await kb_embeddings.embed_knowledge_chunks({}) == "embedded=1"
     assert await _states(tenant_id) == [("ready", True)]
     assert await kb_embeddings.embed_knowledge_chunks({}) == "embedded=0"
     assert calls == [1]
+
+
+async def test_knowledge_waits_for_the_owner_to_turn_pip_on(
+    monkeypatch: pytest.MonkeyPatch, priced: Any
+) -> None:
+    """FAILS IF: a client's knowledge reaches the embedding provider before the account's
+    owner turned Pip on (the published sub-processor promise). The chunk stays `pending`
+    and is embedded by the first tick after consent."""
+    tenant_id, _ = await _tenant_with_pending_chunk(
+        "A consultation costs 500 rupees.", pip_on=False
+    )
+    await _settle_gloss(tenant_id)
+    await _only_tenant(monkeypatch, tenant_id)
+    calls: list[int] = []
+    monkeypatch.setattr(gemini_native, "embed", _counting_embed(calls))
+
+    assert await kb_embeddings.embed_knowledge_chunks({}) == "embedded=0"
+    assert calls == []
+    assert await _states(tenant_id) == [("pending", False)]
+
+    await turn_pip_on_for_tests(tenant_id)
+    assert await kb_embeddings.embed_knowledge_chunks({}) == "embedded=1"
+    assert calls == [1]
+
+
+async def test_knowledge_is_embedded_as_a_document_at_the_column_width(
+    monkeypatch: pytest.MonkeyPatch, priced: Any
+) -> None:
+    """FAILS IF: a chunk is embedded with the query prefix, at a width the column does not
+    hold, or without its source's name — retrieval is asymmetric, and a passage embedded as
+    a question, or with no context, ranks wrongly."""
+    tenant_id, _ = await _tenant_with_pending_chunk("A consultation costs 500 rupees.")
+    await _settle_gloss(tenant_id)
+    await _only_tenant(monkeypatch, tenant_id)
+    asked: list[dict[str, Any]] = []
+    counting = _counting_embed([])
+
+    async def _recording(leg: ChatLeg, inputs: Sequence[str], **kwargs: Any) -> EmbeddingOutcome:
+        asked.append(kwargs)
+        return await counting(leg, inputs, **kwargs)
+
+    monkeypatch.setattr(gemini_native, "embed", _recording)
+    assert await kb_embeddings.embed_knowledge_chunks({}) == "embedded=1"
+    # The source's name travels as the document title (contextual retrieval).
+    assert [(a["task"], a["dimensions"], a["titles"]) for a in asked] == [
+        ("document", EMBEDDING_DIMS, ["Hours"])
+    ]
 
 
 async def test_the_sweep_waits_for_the_english_gloss(
@@ -180,7 +233,7 @@ async def test_the_sweep_waits_for_the_english_gloss(
     tenant_id, _ = await _tenant_with_pending_chunk(_TELUGU)
     await _only_tenant(monkeypatch, tenant_id)
     calls: list[int] = []
-    monkeypatch.setattr(chat, "embed", _counting_embed(calls))
+    monkeypatch.setattr(gemini_native, "embed", _counting_embed(calls))
 
     # `submit_source` leaves every chunk `gloss_state = 'pending'`, which is the real state
     # of a freshly published Telugu source until the gloss sweep reaches it.
@@ -230,7 +283,7 @@ async def test_a_wrong_width_is_refused_rather_than_left_pending(
     await _settle_gloss(tenant_id)
     await _only_tenant(monkeypatch, tenant_id)
     calls: list[int] = []
-    monkeypatch.setattr(chat, "embed", _counting_embed(calls, width=EMBEDDING_DIMS - 1))
+    monkeypatch.setattr(gemini_native, "embed", _counting_embed(calls, width=EMBEDDING_DIMS - 1))
 
     assert await kb_embeddings.embed_knowledge_chunks({}) == "embedded=0"
     assert await _states(tenant_id) == [("refused", False)]
@@ -247,7 +300,7 @@ async def test_the_spend_reaches_the_ledger_under_its_own_feature_name(
     tenant_id, _ = await _tenant_with_pending_chunk("A consultation costs 500 rupees.")
     await _settle_gloss(tenant_id)
     await _only_tenant(monkeypatch, tenant_id)
-    monkeypatch.setattr(chat, "embed", _counting_embed([]))
+    monkeypatch.setattr(gemini_native, "embed", _counting_embed([]))
     await kb_embeddings.embed_knowledge_chunks({})
 
     async with tenant_session(tenant_id) as session:
@@ -299,7 +352,7 @@ async def test_a_later_batch_failing_does_not_unrecord_a_batch_already_paid_for(
             raise httpx.ConnectError("provider unavailable")
         return await succeed(leg, inputs, **kwargs)
 
-    monkeypatch.setattr(chat, "embed", _second_fails)
+    monkeypatch.setattr(gemini_native, "embed", _second_fails)
     await kb_embeddings.embed_knowledge_chunks({})
 
     assert sorted(await _states(tenant_id)) == [("pending", False), ("ready", True)]
@@ -321,8 +374,8 @@ async def test_a_vector_from_a_superseded_model_is_re_bought(
     COMMENT.** Two embedding models' vectors are not comparable: a cosine distance
     between one model's vector and another's is a number with no meaning. Nothing raises,
     nothing looks wrong on any screen, and retrieval simply returns the wrong chunk for
-    as long as nobody notices. Changing `AZURE_OPENAI_EMBEDDING_DEPLOYMENT` is all it
-    takes to get there.
+    as long as nobody notices. D-952's move from `text-embedding-3-small` to Gemini is
+    exactly this case.
 
     `embed_model` and `embed_dim` were written for exactly this and read by nothing —
     `check_half_wired` caught them as write-only, which is the same defect wearing a
@@ -336,7 +389,7 @@ async def test_a_vector_from_a_superseded_model_is_re_bought(
     await _settle_gloss(tenant_id)
 
     calls: list[int] = []
-    monkeypatch.setattr(chat, "embed", _counting_embed(calls))
+    monkeypatch.setattr(gemini_native, "embed", _counting_embed(calls))
     await kb_embeddings.embed_knowledge_chunks({})
     assert calls == [1], "premise: the first tick bought exactly one vector"
     assert await _states(tenant_id) == [("ready", True)]
@@ -350,7 +403,7 @@ async def test_a_vector_from_a_superseded_model_is_re_bought(
     # The deployment is changed under it: the stored provenance no longer matches.
     async with tenant_session(tenant_id) as session:
         await session.execute(
-            text("UPDATE kb_chunks SET embed_model = 'superseded-embedding-v0'"),
+            text("UPDATE kb_chunks SET embed_model = 'text-embedding-3-small'"),
             {},
         )
 
@@ -378,7 +431,7 @@ async def test_a_row_with_no_recorded_provenance_is_re_bought_too(
     await _settle_gloss(tenant_id)
 
     calls: list[int] = []
-    monkeypatch.setattr(chat, "embed", _counting_embed(calls))
+    monkeypatch.setattr(gemini_native, "embed", _counting_embed(calls))
     await kb_embeddings.embed_knowledge_chunks({})
     assert calls == [1]
 
@@ -420,7 +473,7 @@ async def test_a_chunk_the_provider_refuses_does_not_hold_back_its_batch(
             )
         return await succeed(leg, inputs, **kwargs)
 
-    monkeypatch.setattr(chat, "embed", _refuses_one)
+    monkeypatch.setattr(gemini_native, "embed", _refuses_one)
     await kb_embeddings.embed_knowledge_chunks({})
     await kb_embeddings.embed_knowledge_chunks({})
 

@@ -35,10 +35,8 @@ no:
   model may reach `unit_cost_paid`. Without it `record_ai_assist_usage` raises AFTER the
   provider has been paid, the transaction rolls back, the chunk returns to `pending`, and
   the next tick buys the same vector to reach the same raise — an unpriced leg that spends
-  for ever and records nothing. This repository has read no vendor page publishing an
-  embedding price (`platform.openai.com` and `azure.microsoft.com` are both egress-blocked
-  here, measured 1 Sep 2026), so no figure is invented: an operator enters theirs from their
-  own invoice and until they do this sweep does nothing and says so.
+  for ever and records nothing. The catalogue's Gemini figure is a pre-fill, never a bill:
+  an operator attests the price and until they do this sweep does nothing and says so.
 * **THE WIDTH PREFLIGHT, WHICH IS THE SAME ARGUMENT AS THE PRICE GATE POINTED AT THE
   SCHEMA.** `_column_can_hold_our_vectors` asks the catalogue whether `kb_chunks.
   embedding` is as wide as the vectors this deployment buys, because if it is not, every
@@ -50,9 +48,9 @@ no:
 * `EMBED_BATCH` — how many chunks ride in one request, which bounds what a single failure
   re-does.
 
-WHICH LEG. Azure, on the resource, region and credential every other language call already
-uses (D-410/D-449) — **no new sub-processor**, which is one of the two reasons the bake-off
-recommended keeping this in-house at all. Not Sarvam: **Sarvam ToS v2.0 (eff. 29 July 2026)
+WHICH LEG. Gemini (`retrieval/embedding.embedding_leg`, D-952), on the key and the vendor the
+dashboard AI already uses — **no new sub-processor**, and only once the Google data-use
+attestation is recorded. Not Sarvam: **Sarvam ToS v2.0 (eff. 29 July 2026)
 s.17.5** permits Sarvam to use Inputs and Outputs to train its models and **s.6.2** makes a
 signed order form the only instrument that displaces it, and we have none (CLAUDE.md,
 evidence class VENDOR-PUBLISHED, read by the founder on 27 Aug 2026 and relayed;
@@ -76,7 +74,7 @@ which is why the provider branch logs `type(failure).__name__` and nothing else.
 
 from __future__ import annotations
 
-from typing import Any, Final
+from typing import Any, Final, NamedTuple
 from uuid import UUID
 
 import httpx
@@ -102,8 +100,9 @@ from apps.api.retrieval.embedding import (
     embedding_leg,
     embedding_price_is_billable,
     stored_vector_width,
+    tenant_allows_embedding,
 )
-from apps.workers import chat
+from apps.workers import chat, gemini_native
 from apps.workers.kb_gloss import tenants_holding_knowledge
 from apps.workers.set_aside import (
     REFUSED_INPUT_SET_ASIDE,
@@ -173,7 +172,7 @@ _PROJECTION_TABLE: Final = "kb_chunks"
 #: `:set_aside` leaves out chunks the provider refused (`_embed_singly`), which would
 #: otherwise head every claim.
 _CLAIM_SQL: Final = (
-    "SELECT c.id, d.content, coalesce(d.gloss, '') FROM kb_chunks c "
+    "SELECT c.id, d.content, coalesce(d.gloss, ''), d.title FROM kb_chunks c "
     "JOIN kb_documents d ON d.id = c.document_id "
     "WHERE c.is_active "
     f"AND d.gloss_state <> '{GLOSS_PENDING}' "
@@ -219,11 +218,20 @@ def embedding_input(content: str, gloss: str) -> str:
     return content if not gloss else f"{content}\n{gloss}"
 
 
+class _Claimed(NamedTuple):
+    id: UUID
+    content: str
+    gloss: str
+    #: `kb_documents.title`, which publishing writes as the source's name. Sent as the
+    #: embedding's document title so a chunk carries whose knowledge it is.
+    title: str | None
+
+
 async def _embed_batch(
     session: AsyncSession,
     *,
     tenant_id: UUID,
-    claimed: list[tuple[UUID, str, str]],
+    claimed: list[_Claimed],
     leg: chat.ChatLeg,
 ) -> int:
     """One provider request for up to `EMBED_BATCH` chunks. Returns how many were stored.
@@ -232,16 +240,18 @@ async def _embed_batch(
     included, which is what returns those chunks to `pending` for the next tick.
     """
     async with provider_health.watch("embeddings", chat.provider_of(leg), model=leg.wire_model):
-        outcome = await chat.embed(
+        outcome = await gemini_native.embed(
             leg,
-            [embedding_input(content, gloss) for _, content, gloss in claimed],
+            [embedding_input(c.content, c.gloss) for c in claimed],
+            task="document",
+            titles=[c.title for c in claimed],
             dimensions=EMBEDDING_DIMS,
             timeout_s=EMBED_TIMEOUT_S,
         )
 
     stored = 0
     refused: list[UUID] = []
-    for (chunk_id, _content, _gloss), vector in zip(claimed, outcome.vectors, strict=False):
+    for (chunk_id, *_), vector in zip(claimed, outcome.vectors, strict=False):
         if len(vector) != EMBEDDING_DIMS:
             # A width the column cannot hold. `refused` and NOT `pending`: the next tick
             # would buy the identical wrong answer, so this is the state that stops the
@@ -263,7 +273,7 @@ async def _embed_batch(
     # SHORT RESPONSES ARE REFUSED TOO, not left pending. The vendor returns one embedding per
     # input; fewer means the request was partially served, and `strict=False` above is what
     # keeps the pairing honest rather than raising on a mismatch we can record instead.
-    refused.extend(chunk_id for chunk_id, _, _ in claimed[len(outcome.vectors) :])
+    refused.extend(c.id for c in claimed[len(outcome.vectors) :])
     if refused:
         await session.execute(text(_REFUSE_SQL), {"ids": refused, "state": EMBED_REFUSED})
         alert(
@@ -287,15 +297,9 @@ async def _embed_batch(
             tenant_id=tenant_id,
             ref=new_assist_ref(),
             tokens_in=outcome.usage.prompt_tokens,
-            # ZERO, AND IT IS THE TRUTH RATHER THAN A DEFAULT. The vendor's
-            # `CreateEmbeddingResponse.usage` has `prompt_tokens` and `total_tokens` and no
-            # output half at all (openai/openai-openapi @ master, read 1 Sep 2026), so the
-            # `ai_assist_ktok_out` row this writes is always qty 0.
+            # ZERO, AND IT IS THE TRUTH RATHER THAN A DEFAULT: `usageMetadata` counts prompt
+            # tokens only, so the `ai_assist_ktok_out` row this writes is always qty 0.
             tokens_out=0,
-            # THE MODEL, NOT `leg.wire_model`. On Azure a model is served under a DEPLOYMENT
-            # id the operator chose (D-410/D-417); `rates.llm_inr_per_ktok` publishes no
-            # price for a deployment name and would raise, on an append-only ledger row that
-            # could never afterwards be corrected.
             model=EMBEDDING_MODEL,
             feature=ASSIST_FEATURE_KB_EMBED,
         )
@@ -317,7 +321,7 @@ async def _embed_singly(
     session: AsyncSession,
     *,
     tenant_id: UUID,
-    claimed: list[tuple[UUID, str, str]],
+    claimed: list[_Claimed],
     leg: chat.ChatLeg,
 ) -> tuple[int, list[str], bool]:
     """A batch the provider refused, asked one chunk at a time: how many were stored, the
@@ -356,12 +360,12 @@ async def _column_can_hold_our_vectors() -> bool:
 
     **ASKED ONCE PER TICK, BEFORE THE PROVIDER, AND FOR HARD RULE 7's REASON RATHER THAN
     FOR TIDINESS.** `EMBEDDING_DIMS` does two jobs — it sized the column in migration
-    `dc1aaeeeff02` and it is sent as the request's `dimensions` — so the two agree only
-    while the constant and the applied schema shipped together. Narrowing the constant
-    alone is an inviting move (these models are Matryoshka-style, so a smaller width is a
+    `dc1aaeeeff02` and it is sent as the request's `outputDimensionality` — so the two agree
+    only while the constant and the applied schema shipped together. Narrowing the constant
+    alone is an inviting move (the model is Matryoshka-style, so a smaller width is a
     re-request rather than a re-embedding) and it produces this, measured before it was
     guarded: the staleness clause in `_CLAIM_SQL` re-claims every `ready` row because
-    `embed_dim` no longer matches, `chat.embed` is paid for a batch of them, and
+    `embed_dim` no longer matches, `gemini_native.embed` is paid for a batch of them, and
     `_STORE_SQL` dies on `DataError: expected 1536 dimensions`. The raise rolls back the
     claim AND the `usage_events` row written in the same transaction, so the tick spends
     money, records none of it, changes no row — and does it again in thirty minutes, for
@@ -419,8 +423,8 @@ async def embed_knowledge_chunks(ctx: dict[str, Any]) -> str:
         return "unpriced"
     leg = embedding_leg()
     if leg is None:
-        # Tolerant boot (BACKEND-PATTERNS §2): a deployment with no embedding deployment
-        # configured runs every other queue, and an operator already sees this at
+        # Tolerant boot (BACKEND-PATTERNS §2): a deployment with no Gemini key or no Google
+        # data-use attestation runs every other queue, and an operator already sees this at
         # `/healthz/ready`.
         log.info("kb_embed_no_provider")
         return "no_provider"
@@ -449,6 +453,10 @@ async def embed_knowledge_chunks(ctx: dict[str, Any]) -> str:
         if budget <= 0:
             break
         try:
+            async with tenant_session(tenant_id) as session:
+                allowed = await tenant_allows_embedding(session, tenant_id=tenant_id)
+            if not allowed:
+                continue
             remaining = min(MAX_CHUNKS_PER_TENANT, budget)
             while remaining > 0:
                 stop = False
@@ -474,7 +482,15 @@ async def embed_knowledge_chunks(ctx: dict[str, Any]) -> str:
                     ).all()
                     if not rows:
                         break
-                    claimed = [(UUID(str(r[0])), str(r[1]), str(r[2])) for r in rows]
+                    claimed = [
+                        _Claimed(
+                            UUID(str(r[0])),
+                            str(r[1]),
+                            str(r[2]),
+                            None if r[3] is None else str(r[3]),
+                        )
+                        for r in rows
+                    ]
                     budget -= len(claimed)
                     remaining -= len(claimed)
                     try:

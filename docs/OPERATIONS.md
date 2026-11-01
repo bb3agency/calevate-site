@@ -866,6 +866,11 @@ disclosure + consent verified on a real recording · caps set · backups verifie
 alerts firing to Sri's phone · **error reports and traces verified as ARRIVING (§2 gate
 15) — `check_observability_ready` green is the configuration half and not this item** ·
 client owner trained on Leads table (15-min session) ·
+**semantic search on (D-952): `gemini-embedding-2`'s price attested in Admin → Ops → AI
+models and prices (Google's paid-tier figure, $0.20 per 1M input tokens, pricing page dated
+2026-10-30, confirmed against our own Google Cloud bill), the Google data-use attestation
+recorded in Admin → Ops → Dashboard data use, and the next `kb_embed_tick` log line showing
+`embedded` above zero** ·
 DPA + privacy notice signed · invoice template ready · **the admin realm's emailed second factor proved on
 staging** (it is on unconditionally — D-177; what needs proving is that the mail arrives) · **`GET /healthz/ready` answers `ready` — last, because it
 is the only item on this list the platform can answer for itself**.

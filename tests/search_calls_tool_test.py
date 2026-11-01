@@ -57,6 +57,14 @@ async def test_it_finds_the_exchange_and_marks_who_said_what() -> None:
     assert f"Agent: {AGENT_WORDS}" in answer
 
 
+async def test_a_long_natural_question_finds_it_on_any_shared_word() -> None:
+    """Keywords match on ANY word, not every word: a question carrying words the caller
+    never said must still find the exchange it shares a word with."""
+    tenant_id, _ = await _seed()
+    answer = await _ask(tenant_id, "did anyone ask about weekend appointments for their mother")
+    assert f"Caller: {CALLER_WORDS}" in answer
+
+
 async def test_a_question_that_matches_nothing_says_so_in_a_sentence() -> None:
     """An empty tool result reads to a model as a failure, and the two empty answers here
     are different: nobody said it, or retention took the words."""

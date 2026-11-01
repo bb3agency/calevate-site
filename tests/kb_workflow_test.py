@@ -114,6 +114,25 @@ def test_a_long_paragraph_is_split_on_sentence_ends() -> None:
     assert all(len(c) <= service.MAX_CHUNK_CHARS for c in chunks)
 
 
+def test_a_long_table_paragraph_never_splits_a_row() -> None:
+    """A spreadsheet's rows arrive newline-joined with no full stops; a row cut in half
+    puts an item in one chunk and its price in the next."""
+    rows = [f"Item: Service package number {i} | Price: Rs {100 + i * 25}" for i in range(60)]
+    chunks = service.chunk_text("\n".join(rows))
+    assert len(chunks) > 1
+    assert all(len(c) <= service.MAX_CHUNK_CHARS for c in chunks)
+    for row in rows:
+        holders = [c for c in chunks if row in c.split("\n")]
+        assert len(holders) == 1, f"row split or lost: {row!r}"
+
+
+def test_double_danda_and_pipe_end_sentences() -> None:
+    body = "ధర వంద రూపాయలు॥ " * 60 + "సమయం పది గంటలు| " * 60
+    chunks = service.chunk_text(body)
+    assert len(chunks) > 1
+    assert all(c.endswith(("॥", "|")) for c in chunks)
+
+
 def test_empty_content_produces_no_chunks() -> None:
     assert service.chunk_text("   \n\n  ") == []
 
@@ -153,6 +172,12 @@ LOSSLESS_CASES: dict[str, str] = {
     # The empty chunk in the MIDDLE: an over-cap paragraph empties the buffer, then a
     # cap-sized paragraph arrives on it.
     "over_cap_then_at_cap": ("z" * 1000) + "\n\n" + ("w" * (service.MAX_CHUNK_CHARS - 1)),
+    # Newline-joined rows past the cap, one row itself past the cap among them.
+    "table_rows_with_one_huge_row": "\n".join(
+        [f"Row {i} | price {i * 10}" for i in range(40)]
+        + ["q " * 600]
+        + [f"Row {i} | price {i * 10}" for i in range(40, 80)]
+    ),
 }
 
 
