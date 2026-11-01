@@ -11,6 +11,7 @@ import {
   ClipboardCheck,
   Coins,
   Gauge,
+  Headphones,
   HeartPulse,
   CirclePause,
   KeyRound,
@@ -236,6 +237,16 @@ export const ADMIN_NAV: NavGroup[] = [
         icon: AudioLines,
         permission: "ops:manage",
         action: "add and manage the voices this platform offers",
+      },
+      {
+        // The blind Cartesia / Sarvam listening test that decides Studio's voice provider
+        // (D-946). `ops:manage`, as every route it calls (`ops/voice_comparison_routes.py`).
+        href: "/admin/ops/voice-comparison",
+        label: "Voice comparison",
+        icon: Headphones,
+        permission: "ops:manage",
+        action: "run the blind voice comparison",
+        hideUnlessAllowed: true,
       },
       {
         // How agents speak each language (D-744): the founder reviews the spoken-style table

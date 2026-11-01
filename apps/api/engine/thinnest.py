@@ -138,8 +138,9 @@ from calevate_shared.webhook_signature import (
 
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
-from apps.api.core.logging import get_logger
+from apps.api.core.logging import get_logger, redact_text
 from apps.api.engine.capabilities import (
+    ENGINE_KB_LINK_UNREADABLE,
     NO_CREDENTIALS_REASON,
     engine_lacks,
     engine_not_configured,
@@ -315,11 +316,17 @@ BUSINESS_DESCRIPTION_MAX_CHARS: Final = 200
 GREETING_MAX_CHARS: Final = 200
 PURPOSE_MAX_CHARS: Final = 300
 NAME_MAX_CHARS: Final = 60
+#: One document's `text`: "up to 200,000 characters" (snapshots/2026-10-29/pages/api-reference/
+#: knowledge/add-knowledge-document.md, `KnowledgeDocumentRequest.text.maxLength`).
 KB_TEXT_MAX_CHARS: Final = 200_000
 # Ours, not the vendor's: a source longer than this is refused rather than sent as a pile of
 # documents. Ten parts covers any document our own chunker accepts with room to spare.
 KB_MAX_PARTS: Final = 10
 KB_TOTAL_MAX_CHARS: Final = KB_TEXT_MAX_CHARS * KB_MAX_PARTS
+#: A link is fetched and indexed before `POST /agents/{id}/knowledge` answers
+#: (add-knowledge-document.md:7). How long that takes is UNKNOWN (not documented); 60 s is
+#: ours, inside the worker's 300 s `job_timeout`, and connecting still gives up at 10 s.
+KB_LINK_TIMEOUT: Final = httpx.Timeout(60.0, connect=REQUEST_TIMEOUT_S)
 CALL_SECONDS_MIN: Final = 60
 CALL_SECONDS_MAX: Final = 1200
 #: How long a call the agent places rings before it is given up: fixed at the vendor's own
@@ -538,9 +545,10 @@ _VOICE_BANDS: Final[dict[str, HostedVoiceBand]] = {band: band for band in get_ar
 # * `records_audio`: we send `recordCalls: true` (agents.md:160) and phone calls are
 #   recorded on every number (channels/voice.md:426-438).
 # * `knowledge_base`: agent-scoped text documents (knowledge.md:38-52).
-#   `kb_text_only` True: this adapter posts `{title, text}` only; files are console uploads
-#   (snapshots/2026-10-28/pages/api-reference/knowledge/add-knowledge-document.md:7), and a
-#   request with neither `url` nor `text` is a 400 (same page, :500-514).
+#   `kb_text_only` True: files are console uploads, never `document`
+#   (snapshots/2026-10-29/pages/api-reference/knowledge/add-knowledge-document.md:7), and a
+#   request with neither `url` nor `text` is a 400 (same page, :500-514). `kb_fetches_url`
+#   True: a link is posted as `{url}` and fetched and indexed by the platform (same page, :7).
 # * `number_series` empty, `inbound_binding` False: renting and attaching a number are done
 #   in their console (voices-and-models.md:85-87; agents.md:167-168).
 # * `caller_id` True: `from` names which of the agent's numbers rings, and a number that is
@@ -570,6 +578,7 @@ THINNEST_CAPABILITIES = EngineCapabilities(
     campaigns=False,
     knowledge_base=True,
     kb_text_only=True,
+    kb_fetches_url=True,
     number_series=frozenset(),
     caller_id=True,
     inbound_binding=False,
@@ -1159,6 +1168,28 @@ def _ingest_failed() -> ProblemError:
         title="The voice platform could not index this knowledge",
         detail="The knowledge was uploaded and the voice platform could not index it.",
         remediation="Try publishing the knowledge again. If it keeps failing, contact us.",
+    )
+
+
+def _link_unreadable(reason: str | None) -> ProblemError:
+    """The client's sentence for a page the platform could not read, with its reason.
+
+    The vendor's `error` is shown because it is the one thing that tells the owner what to
+    fix ("the page may require JavaScript or a login", add-knowledge-document.md:561-565).
+    It is bounded the way every vendor sentence we keep is (`redact_text`: numbers and
+    emails masked, 200 characters), and dropped when it names the platform, which client
+    text never does (D-679).
+    """
+    said = redact_text(" ".join((reason or "").split())) if reason else ""
+    if not said or "thinnest" in said.lower():
+        said = "There is no text on it we could use."
+    log.warning("thinnest_kb_link_unreadable")
+    return ProblemError(
+        kind="business_rule",
+        code=ENGINE_KB_LINK_UNREADABLE,
+        title="Your agents could not read that page",
+        detail=f"Your agents could not read that page. {said}",
+        remediation="Check the page opens in a browser without a login, then add it again.",
     )
 
 
@@ -3648,12 +3679,72 @@ class ThinnestEngine:
             raise _KnowledgeIngestFailedError(handle)
         return handle
 
+    async def _post_link(self, ref: EngineAgentRef, url: str) -> str:
+        """`POST /agents/{id}/knowledge` with `{url}`: the vendor fetches and indexes that one
+        page before it answers, and answers `422` with the reason and the `failed` document
+        it left behind when it cannot read it (snapshots/2026-10-29/pages/api-reference/
+        knowledge/add-knowledge-document.md:7, :552-576)."""
+        raw, workspace = self._at(ref)
+        try:
+            data = await self._request(
+                "POST",
+                f"/agents/{raw}/knowledge",
+                route="/agents/{ref}/knowledge",
+                workspace=workspace,
+                json={"url": url},
+                extra_refused_statuses=frozenset({422}),
+                timeout=KB_LINK_TIMEOUT,
+            )
+        except EngineRejectedError as exc:
+            if exc.vendor_status != 422:
+                raise
+            reason = await self._clear_failed_link(ref, url)
+            raise _link_unreadable(reason) from None
+        handle = _str(data.get("id"))
+        if handle is None:
+            raise _bad_response("The voice platform did not return a knowledge base id.")
+        return handle
+
+    async def _clear_failed_link(self, ref: EngineAgentRef, url: str) -> str | None:
+        """Delete the `failed` documents a refused page left on the agent, and return the
+        vendor's reason for the newest. The refusal's body is not carried past the shared
+        ladder (`vendor_http.EngineRejectedError`), so the reason is read from the listing,
+        which carries each document's `status` and `error` (list-knowledge-documents.md)."""
+        raw, workspace = self._at(ref)
+        try:
+            rows, _, _ = await self._walk(
+                f"/agents/{raw}/knowledge", route="/agents/{ref}/knowledge", workspace=workspace
+            )
+        except ProblemError:
+            log.warning("thinnest_kb_link_failure_unlisted")
+            return None
+        failed = [
+            row
+            for row in rows
+            if row.get("status") == "failed" and row.get("source") == url and _str(row.get("id"))
+        ]
+        failed.sort(key=lambda row: _str(row.get("createdAt")) or "")
+        await self._remove_parts(ref, [str(row["id"]) for row in failed])
+        return _str(failed[-1].get("error")) if failed else None
+
     async def attach_kb(
         self, ref: EngineAgentRef, source: KBSourceRef, *, agent: AgentConfig | None = None
     ) -> EngineKBRef:
-        """`POST /agents/{id}/knowledge` with `{title, text}` (knowledge.md:9-36). Text only:
-        files are console uploads (knowledge.md:52), so `source.document` is not sent, and a
-        source with no text is refused before any request (`require_kb_text`)."""
+        """`POST /agents/{id}/knowledge` with `{url}` for a link, else `{title, text}`
+        (knowledge.md:9-36). Files are console uploads (add-knowledge-document.md:7), so
+        `source.document` is never sent, and a source with neither is refused before any
+        request (`require_kb_text`)."""
+        if source.source_url:
+            if source.text.strip():
+                # The vendor refuses both (`400 Send either url or text, not both`); choosing
+                # one here would publish something nobody approved.
+                raise _business_refusal(
+                    "engine_kb_link_with_text",
+                    title="A link was sent with words of its own",
+                    detail="A web page is sent as its address only.",
+                    remediation="Publish the link again. If it keeps failing, contact us.",
+                )
+            return await self._post_link(ref, source.source_url)
         require_kb_text(source.text, engine=self)
         text = self._within(
             source.text, KB_TOTAL_MAX_CHARS, code="engine_kb_text_too_long", what="knowledge text"

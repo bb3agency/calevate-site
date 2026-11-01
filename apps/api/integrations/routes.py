@@ -821,8 +821,7 @@ async def create_leadsquared_endpoint(
             code="leadsquared_host_unknown",
             title="That is not a LeadSquared API host",
             detail=(
-                "Use the API host LeadSquared shows for your account, like "
-                "api-in21.leadsquared.com."
+                "Use the host LeadSquared shows for your account, like api-in21.leadsquared.com."
             ),
             remediation="In LeadSquared: My Profile → Settings → API and Webhooks.",
             fields=[{"field": "api_host", "rule": "leadsquared_host", "message": "Unknown host"}],

@@ -9,9 +9,9 @@ exists (`teach.facts`, `kb.uploads`, `tenancy.business_profile`) and gives each 
 reference — `file:<id>`, `note:<id>`, `fact:<id>` — so a model can name one item without
 holding a list of ids.
 
-`agents_use` is the honest half: whether this item's words reach the agents today. A PDF or
-a link does only while `kb_send_extracted_files` is on; anything waiting for review, still
-being read, or a rule not yet in a script does not.
+`agents_use` is the honest half: whether this item's words reach the agents today. A PDF does
+once its words were read, a link once the platform read the page (D-868); anything waiting
+for review, still being read, refused, or a rule not yet in a script does not.
 
 Reads only, except `rename_source`, which the page's Rename and Pip's `knowledge_rename` both
 call. Every query runs in the caller's tenant session (RLS is the tenancy control).
@@ -148,7 +148,12 @@ def _upload_state(row: dict[str, object], *, reaches: bool) -> ItemState:
 
 
 def _upload_note(row: dict[str, object]) -> str | None:
+    """What Pip says about an item's state: its pages, and why it is not in use when it is
+    not — the reason we could not read it, or the reason its agents could not (a page the
+    platform refused, D-868), in the words the client's page shows."""
     parts: list[str] = []
+    if row["ingest_status"] in _STUCK and row.get("ingest_detail"):
+        parts.append(f"not added: {row['ingest_detail']}")
     if row.get("page_count"):
         parts.append(f"{row['page_count']} pages")
     if row.get("read_state") == READ_FAILED:
@@ -707,13 +712,13 @@ async def search_store(
 
 
 async def undelivered_source_ids(session: AsyncSession) -> set[UUID]:
-    """Live sources whose words the agents do not get: PDFs and links while the switch is
-    off, or whose reading did not finish. `search_knowledge` leaves their passages out of
-    "what my agents tell callers"."""
+    """Live sources whose words the agents do not get: a PDF whose reading did not finish,
+    or a link the platform refused. `search_knowledge` leaves their passages out of "what
+    my agents tell callers"."""
     rows = (
         await session.execute(
             text(
-                "SELECT s.id, u.source_kind, u.read_state FROM kb_sources s "
+                "SELECT s.id, u.source_kind, u.read_state, u.ingest_status FROM kb_sources s "
                 "JOIN kb_uploads u ON u.source_id = s.id "
                 "WHERE s.is_active AND u.source_kind = ANY(:kinds)"
             ),
@@ -723,7 +728,7 @@ async def undelivered_source_ids(session: AsyncSession) -> set[UUID]:
     return {
         UUID(str(r[0]))
         for r in rows
-        if not upload_reaches_agents(source_kind=str(r[1]), read_state=r[2])
+        if r[3] == "error" or not upload_reaches_agents(source_kind=str(r[1]), read_state=r[2])
     }
 
 

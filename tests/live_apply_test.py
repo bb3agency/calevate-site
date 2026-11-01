@@ -424,15 +424,11 @@ async def test_the_answering_machine_switch_queues_the_clients_live_apply() -> N
         body = {
             key: current[key]
             for key in (
-                "calling_agent_id",
-                "wait_seconds",
                 "hours_start",
                 "hours_end",
                 "days",
                 "holidays",
                 "after_hours",
-                "retry_attempts",
-                "retry_interval_minutes",
             )
         }
         body["detect_machines"] = not current["detect_machines"]

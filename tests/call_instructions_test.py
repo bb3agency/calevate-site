@@ -92,11 +92,11 @@ COVERAGE: dict[str, tuple[tuple[str, str], ...]] = {
     # Turned round: "say so rather than going quiet" put a "one second" filler before answers;
     # the engine speaks its own filler after two seconds of silence.
     DEFAULT_CALL_RULES[5]: ((OURS, "Never narrate a search or a wait"),),
-    DEFAULT_CALL_RULES[6]: ((OURS, "or still unclear after two tries: say so"),),
+    DEFAULT_CALL_RULES[6]: ((OURS, "or no clear reply twice: say so"),),
     DEFAULT_CALL_RULES[7]: (
         (OURS, "never a guess: a place or address, a project, stock or availability, a price"),
     ),
-    DEFAULT_CALL_RULES[8]: ((OURS, "or still unclear after two tries: say so"),),
+    DEFAULT_CALL_RULES[8]: ((OURS, "or no clear reply twice: say so"),),
     DEFAULT_CALL_RULES[9]: ((OURS, "how such businesses usually work"),),
     DEFAULT_CALL_RULES[10]: ((OURS, "how long something takes"),),
     DEFAULT_CALL_RULES[11]: ((OURS, "Never say anything is booked, fixed, confirmed or done"),),
@@ -199,8 +199,8 @@ def test_every_agent_says_who_it_is_when_asked_then_goes_on() -> None:
         prompt = compose_engine_prompt(_cfg(direction=direction))
         assert shared_engine.OPENING_CONTINUES_RULE in prompt
     assert (
-        "Asked who or why? Say both in one line, then stop and wait."
-        in shared_engine.OPENING_CONTINUES_RULE
+        "Asked who or why, or the business name said back? Say both in one line, "
+        "once, then stop and wait" in shared_engine.OPENING_CONTINUES_RULE
     )
 
 

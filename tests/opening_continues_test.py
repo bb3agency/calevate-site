@@ -75,17 +75,17 @@ def test_the_prompt_quotes_the_exact_opening_already_spoken_and_says_to_go_on() 
         assert NOTICE in prompt
         assert prompt.rindex(TRUTHFUL_ANSWER_MARKER) > prompt.index(START_OF_CALL_HEADER)
     rule = OPENING_CONTINUES_RULE
-    assert "Never greet, repeat it or ask if now suits again" in rule
+    assert "Never greet, repeat it or re-ask if now suits" in rule
     # A caller's first question gets its answer, never the opening again (D-910).
-    assert "even after answering a question first" in rule
-    assert '("hello", "yes", in any language)' in rule
-    assert "why you are calling or your first question" in rule
+    assert "even after answering." in rule
+    assert '("hello", "yes", any language)' in rule
+    assert "why you call or your first question" in rule
 
 
 def test_who_is_calling_goes_on_to_the_first_question_in_every_direction() -> None:
     # An outbound agent had no who-is-calling rule, and on the call of 28 Oct 2026 it said
     # who and why and asked "can we talk now?" again (D-912).
-    who = "Asked who or why? Say both in one line, then stop and wait."
+    who = "Say both in one line, once, then stop and wait"
     assert who in OPENING_CONTINUES_RULE
     assert "good time" not in OPENING_CONTINUES_RULE
     for direction in ("inbound", "outbound", "both"):

@@ -203,6 +203,7 @@ from apps.workers.fleet_walk import WalkCursor
 from apps.workers.handoff import settle_handoff
 from apps.workers.moments import (
     derive_moments,
+    field_backed,
     merge_moments,
     model_moments,
     prompt_line_turns,
@@ -1844,13 +1845,18 @@ async def _extract_stage(
         # re-drive must not quietly drop them.
         field_labels = {field.key: field.label for field in spec.fields}
         suggested = (
-            await _stored_model_moments(tenant_id, call_id)
+            field_backed(
+                await _stored_model_moments(tenant_id, call_id),
+                captured=extraction.data.keys(),
+                caller_turns={t.idx for t in snapshot.transcript if t.speaker == "caller"},
+            )
             if reused
             else model_moments(
                 extraction.moments,
                 line_turns=prompt_line_turns(snapshot.transcript),
                 field_labels=field_labels,
                 redact=lambda label: redact(label).text,
+                captured=extraction.data.keys(),
                 unheard=likely_cut_off(snapshot.transcript),
             )
         )

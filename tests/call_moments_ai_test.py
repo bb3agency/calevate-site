@@ -263,6 +263,7 @@ def _place(candidates: list[MomentCandidate]) -> list[dict[str, Any]]:
         line_turns=prompt_line_turns(TURNS),
         field_labels={"product": "Product wanted"},
         redact=lambda label: redact(label).text,
+        captured={"product"},
     )
 
 

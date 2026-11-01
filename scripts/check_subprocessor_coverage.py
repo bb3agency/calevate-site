@@ -110,6 +110,8 @@ _CREDENTIAL_SUFFIXES = (
 #: one line here and one row on the register — which is the point.
 VENDOR_OF: dict[str, str | None] = {
     "sarvam": "Sarvam",
+    # Our Sarvam key for voices, held in the admin voice-comparison workspace (D-946).
+    "sarvam_voice": "Sarvam",
     "supermemory": "Supermemory",
     # Our Cartesia key, installed in ThinnestAI workspaces as the Studio voice key (D-688).
     "cartesia": "Cartesia",

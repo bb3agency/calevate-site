@@ -362,7 +362,12 @@ async def new_test_set(
         practice=[s for s in written if wrong.keeps(s)],
         specimen=[
             s
-            for s in specimen_scenarios(language, brief.business_type, round_key=round_key)
+            for s in specimen_scenarios(
+                language,
+                brief.business_type,
+                round_key=round_key,
+                business_name=brief.business_name,
+            )
             if wrong.keeps(s)
         ],
         standard=[
