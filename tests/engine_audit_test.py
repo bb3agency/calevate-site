@@ -1584,10 +1584,13 @@ _VENDOR_ONLY_KEYS = frozenset(
         # byok-model` (D-834); ours is `engine_own_model`.
         "workspaceModel",
         # ThinnestAI (D-678): camelCase instants and their list cursor. Ours are
-        # `started_at`/`ended_at` and no cursor crosses the adapter boundary.
+        # `started_at`/`ended_at` and no cursor crosses the adapter boundary. `createdAt` is a
+        # knowledge document's, read only to order a refused page's failures; ours is
+        # `created_at`.
         "startedAt",
         "endedAt",
         "analysedAt",
+        "createdAt",
         "nextCursor",
         # ThinnestAI's call insights (`parse_insights`); ours are `CallInsights.no_reason`,
         # `next_step` and `CallNextStep.followed_up_at`.

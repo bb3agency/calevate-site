@@ -194,7 +194,7 @@ def _no_sarvam_key() -> ProblemError:
         code="voice_comparison_no_sarvam_key",
         title="No Sarvam voice key is stored",
         detail="The comparison speaks Sarvam voices on our own Sarvam key.",
-        remediation="Save sarvam_voice_api_key in Settings, Credentials, then set up again.",
+        remediation="Save the Sarvam Voice API Key in Settings, Credentials, then set up again.",
     )
 
 

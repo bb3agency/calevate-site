@@ -540,7 +540,10 @@ def test_every_dangerous_mutation_takes_the_composed_gate_rather_than_half_of_it
     # (`clear_digilocker_confirmation`) lifts an outbound block; recording a number's voice
     # platform handle (`admin/number_routes.py::set_engine_ref`, `engine_ref_confirmation`,
     # bound to client and number) decides which line rings the client's agent.
-    assert sites == 89, f"found {sites} step-up call sites, expected 89; the census went stale"
+    # ONE MORE sets up the voice comparison's Sarvam voices
+    # (`ops/voice_comparison_routes.py::post_setup`, `set_up_sarvam_voices`, D-946): it makes a
+    # workspace on the voice platform and installs one of our credentials there.
+    assert sites == 90, f"found {sites} step-up call sites, expected 90; the census went stale"
 
 
 #: Mutating handlers under `apps/api/ops/` that deliberately take NO step-up, and why.
@@ -598,6 +601,22 @@ _OPS_WRITES_WITHOUT_STEP_UP = {
         "It reaches no agent and no call: only the step-up-gated publish does. It is the "
         "screen's primary action, repeated entry by entry through a review of a hundred-odd "
         "words, and it is audited and undone by the next change."
+    ),
+    # The blind voice comparison (D-946). Only its set-up, which makes a workspace on the
+    # voice platform and installs one of our credentials there, takes the gate.
+    ("apps/api/ops/voice_comparison_routes.py", "post_round"): (
+        "starts a listening round: rows in two platform tables of our own, read by operators "
+        "only. It reaches no agent, call, client or price, sends nothing and speaks nothing "
+        "(a clip is spoken when it is first played), and it is audited."
+    ),
+    ("apps/api/ops/voice_comparison_routes.py", "post_finish"): (
+        "closes a round once every pair is rated, which unlocks its reveal and CSV. It reaches "
+        "no agent, call, client or price, and it is audited."
+    ),
+    ("apps/api/ops/voice_comparison_routes.py", "put_rating"): (
+        "records one operator's rating of one pair, the screen's primary action repeated up to "
+        "120 times a round. It reaches no agent, call, client or price, is audited, and a "
+        "pair can be rated again until the round is finished."
     ),
 }
 
