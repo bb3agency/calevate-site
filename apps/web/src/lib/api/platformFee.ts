@@ -20,6 +20,7 @@ import { lookup } from "@/lib/lookup";
 
 import { feeWaiverConfirmation, feePaymentConfirmation } from "./admin";
 import { apiRequest, type Session } from "./client";
+import { CREDIT_POLL_MS } from "./wallet";
 
 import type { components } from "./schema";
 
@@ -81,6 +82,38 @@ export function usePlatformFee(session: Session): UseQueryResult<PlatformFee> {
     queryKey: platformFeeKey(session.orgSlug),
     queryFn: () => apiRequest<PlatformFee>(session, PLATFORM_FEE_PATH),
   });
+}
+
+/** A fee this page saw paid, and the instant it stops waiting for the record to say so. */
+export interface AwaitedFee {
+  chargeId: string;
+  until: number;
+}
+
+function settled(fee: PlatformFee | undefined, chargeId: string): boolean {
+  return fee?.charges.some((charge) => charge.id === chargeId && charge.status === "paid") ?? false;
+}
+
+/**
+ * Has the fee a payment on this page just paid been recorded as paid?
+ *
+ * The same shape as `wallet.useCreditLanding`, for the same reason: the Checkout callback
+ * proves the payment and settles nothing, the webhook settles it seconds later, and the
+ * refetch on the callback almost always reads the fee from before it. Without polling the
+ * card kept the month "Due" with a live Pay button until the page was reloaded. Polls the
+ * fee read (one key, so the card itself updates) until that charge is paid or at `until`.
+ */
+export function useFeeLanding(session: Session, awaited: AwaitedFee | null): boolean {
+  const fee = useQuery({
+    queryKey: platformFeeKey(session.orgSlug),
+    queryFn: () => apiRequest<PlatformFee>(session, PLATFORM_FEE_PATH),
+    enabled: awaited !== null,
+    refetchInterval: (query) =>
+      awaited !== null && !settled(query.state.data, awaited.chargeId) && Date.now() < awaited.until
+        ? CREDIT_POLL_MS
+        : false,
+  });
+  return awaited !== null && settled(fee.data, awaited.chargeId);
 }
 
 export function useFeeOrder(session: Session) {

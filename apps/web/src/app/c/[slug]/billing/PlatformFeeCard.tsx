@@ -16,14 +16,17 @@ import {
   formatIST,
 } from "@/components/ui";
 import { useConfirmTopUp } from "@/lib/api/billing";
+import { CREDIT_WAIT_MS } from "@/lib/api/wallet";
 import { useWriteAccess } from "@/lib/api/hooks";
 import {
   feeMonth,
   feeStatusCopy,
   oldestUnpaid,
   platformFeeKey,
+  useFeeLanding,
   useFeeOrder,
   usePlatformFee,
+  type AwaitedFee,
   type FeeOrder,
   type PlatformFee,
 } from "@/lib/api/platformFee";
@@ -57,7 +60,9 @@ type PayStage =
   | { at: "opening" }
   | { at: "bank"; order: FeeOrder }
   | { at: "verifying" }
-  | { at: "received" }
+  | { at: "received"; awaited: AwaitedFee }
+  /** Paid in the window, refused by our check: money may have moved, so no second try. */
+  | { at: "unverified"; chargeId: string; problem: ApiProblem }
   | { at: "failed"; problem: ApiProblem };
 
 function FeeBody({ session, fee }: { session: Session; fee: PlatformFee }) {
@@ -69,7 +74,14 @@ function FeeBody({ session, fee }: { session: Session; fee: PlatformFee }) {
   const confirmFeedback = useActionFeedback(confirm, { errorDisplay: "inline" });
   const queries = useQueryClient();
   const [stage, setStage] = useState<PayStage>({ at: "idle" });
+  const landed = useFeeLanding(session, stage.at === "received" ? stage.awaited : null);
   const owed = oldestUnpaid(fee);
+  /* The month just paid keeps no live Pay button: until the record says paid it is a
+     second payment for one fee, and after an unverified confirmation it may be one. */
+  const justPaid =
+    owed !== null &&
+    ((stage.at === "received" && stage.awaited.chargeId === owed.id) ||
+      (stage.at === "unverified" && stage.chargeId === owed.id));
   const amount = fee.amount_inr;
 
   /* One button covers the order, the checkout window and the confirmation; it is busy
@@ -79,7 +91,7 @@ function FeeBody({ session, fee }: { session: Session; fee: PlatformFee }) {
       ? "pending"
       : stage.at === "failed"
         ? "error"
-        : confirmFeedback.status === "success"
+        : stage.at !== "unverified" && confirmFeedback.status === "success"
           ? "success"
           : "idle";
 
@@ -106,10 +118,11 @@ function FeeBody({ session, fee }: { session: Session; fee: PlatformFee }) {
             setStage({ at: "verifying" });
             confirm.mutate(response, {
               onSuccess: () => {
-                setStage({ at: "received" });
+                setStage({ at: "received", awaited: { chargeId, until: Date.now() + CREDIT_WAIT_MS } });
                 refresh();
               },
-              onError: (error) => setStage({ at: "failed", problem: error as ApiProblem }),
+              onError: (error) =>
+                setStage({ at: "unverified", chargeId, problem: error as ApiProblem }),
             });
           },
           onDismissed: () => setStage((now) => (now.at === "opening" ? { at: "idle" } : now)),
@@ -183,7 +196,7 @@ function FeeBody({ session, fee }: { session: Session; fee: PlatformFee }) {
                 status={payStatus}
                 successLabel="Paid"
                 pendingLabel={stage.at === "verifying" ? "Checking the payment" : undefined}
-                disabled={!write.allowed}
+                disabled={!write.allowed || justPaid}
                 onClick={() => pay(owed.id)}
               >
                 <Receipt aria-hidden className="h-4 w-4" />
@@ -207,12 +220,28 @@ function FeeBody({ session, fee }: { session: Session; fee: PlatformFee }) {
         )}
         {stage.at === "received" && (
           <NoticeBox tone="ok" title="Payment received">
-            Shows as paid within about a minute.
+            {landed ? <p role="status">Fee paid.</p> : <p>Shows as paid within about a minute.</p>}
           </NoticeBox>
+        )}
+        {stage.at === "unverified" && (
+          <div className="space-y-2">
+            <ProblemNotice error={stage.problem} />
+            <NoticeBox tone="warn" title="Do not pay again">
+              <p>We couldn&rsquo;t confirm this payment here.</p>
+              <Why>
+                <p>
+                  If the money has left your account, the fee is marked paid when the payment
+                  is confirmed. Tell us if it still shows unpaid.
+                </p>
+              </Why>
+            </NoticeBox>
+          </div>
         )}
         {stage.at === "failed" && <ProblemNotice error={stage.problem} />}
         {order.error != null && stage.at !== "failed" && <ProblemNotice error={order.error} />}
-        {confirm.error != null && stage.at !== "failed" && <ProblemNotice error={confirm.error} />}
+        {confirm.error != null && stage.at !== "failed" && stage.at !== "unverified" && (
+          <ProblemNotice error={confirm.error} />
+        )}
 
         {fee.charges.length > 0 && (
           <table className="w-full text-left text-body">
