@@ -66,6 +66,10 @@ ADMIN_CONSOLE_GETS: dict[str, str] = {
     ),
     # The blind voice comparison (D-946): platform tables of our own and our own keys,
     # admin console only. No client screen shows any of it.
+    "/v1/ops/call-mistakes": (
+        "the fleet-wide count of mistakes on real calls (D-949), read through the admin "
+        "directory session on the operator's console, never through impersonation"
+    ),
     "/v1/ops/voice-comparison/setup": "the comparison's set-up state (D-946), admin console only",
     "/v1/ops/voice-comparison/voices": "the comparison's candidate voices (D-946), admin only",
     "/v1/ops/voice-comparison/sentences": "the comparison's test sentences (D-946), admin only",
