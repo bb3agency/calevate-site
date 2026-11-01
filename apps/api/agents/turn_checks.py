@@ -93,6 +93,9 @@ Kind = Literal[
     "wrong_weekday",
     # D-947 (the Sri Estates call of 30 Oct 2026): one sentence said again on the same call.
     "said_again",
+    # D-959 (the Rytu Khata call of 2 Nov 2026): "anything else?" reply after reply while the
+    # caller was still in the middle of a task.
+    "offered_more_too_soon",
 ]
 
 #: How a reply SOUNDS (D-828): the words, numbers, punctuation, length and language of a
@@ -135,6 +138,9 @@ SOUND_KINDS: Final = frozenset(
         "stacked_after_who",
         # NAME_RULE decides it; a note, because "is that Ravi?" confirming a name reads alike.
         "reasked_name",
+        # HOW TO SPEAK decides it (D-959); a note, because a caller who keeps asking new
+        # things can fairly be offered more twice in three turns.
+        "offered_more_too_soon",
     }
 )
 #: What breaks the caller's task whatever the words: the caller's part said for them, a
@@ -1029,6 +1035,32 @@ _WRAPS_UP: Final = re.compile(
     r"शुक्रिया|और कुछ",
     re.IGNORECASE,
 )
+#: Offering more help, "anything else?" in each language our agents speak. Detection only,
+#: never spoken copy; read in a question, so "call if you need anything else." closing a
+#: call is not one.
+_OFFERS_MORE: Final = re.compile(
+    r"anything else|anything more|any other (?:question|doubt|help)|what else can i|"
+    r"ఇంకేమైనా|ఇంకా ఏమైనా|ఇంకా ఏదైనా|ఇంకేదైనా|వేరే ఏమైనా|"
+    r"और कुछ|कुछ और|और कोई (?:सवाल|मदद|बात)",
+    re.IGNORECASE,
+)
+#: Within how many replies two offers of more help count as too many (D-959).
+OFFERS_MORE_WINDOW: Final = 3
+#: A caller line that thanks or says they are done, after which offering more is right.
+_CALLER_DONE_WITH_TOPIC: Final = re.compile(
+    r"thank|that'?s all|nothing else|థాంక్స్|థ్యాంక్స్|ధన్యవాద|అంతే|धन्यवाद|शुक्रिया|थैंक|"
+    r"बस इतना",
+    re.IGNORECASE,
+)
+
+
+def offers_more(reply: str) -> bool:
+    """Whether a reply asks if the caller wants anything else."""
+    return any(
+        _OFFERS_MORE.search(s) for s in sentences(reply) if _is_question(s) or _reads_as_question(s)
+    )
+
+
 _GOODBYE: Final = re.compile(
     r"\bgood\s?bye\b|\bbye\b|గుడ్\s?బై|(?:^|[\s,.!?])బై(?=[\s,.!?]|$)|ఉంటాను\s*మరి|ఉంటానండి|"
     r"ఉంటాం\s*మరి|अलविदा|बाय",
@@ -1530,6 +1562,7 @@ def conversation_problems(
     caller_lines = ""
     searched = False
     name_given = False
+    offers: list[bool] = []  # one per spoken reply: did it ask "anything else?"
     for exchange in exchanges:
         said, reply = exchange.said, exchange.reply
         name_given = name_given or bool(_GIVES_NAME.search(said))
@@ -1550,6 +1583,17 @@ def conversation_problems(
         )
         if restarted:
             found.setdefault("opened_again", TurnProblem("opened_again", restarted))
+        offers.append(offers_more(reply) and not _CALLER_DONE_WITH_TOPIC.search(said))
+        if offers[-1] and sum(offers[-OFFERS_MORE_WINDOW:]) >= 2:
+            found.setdefault(
+                "offered_more_too_soon",
+                TurnProblem(
+                    "offered_more_too_soon",
+                    f"It asked whether they needed anything else twice in "
+                    f"{OFFERS_MORE_WINDOW} replies. It asks once a topic is done; while the "
+                    "caller is in the middle of something, it ends on the next step.",
+                ),
+            )
         # An answer that names none of the numbers offered ("టీవీహెచ్కే" to "two or three
         # BHK?") taken as one of them.
         picked = (
@@ -1758,6 +1802,7 @@ __all__ = [
     "JOB_KINDS",
     "MAX_SENTENCES",
     "MOBILE_DIGITS",
+    "OFFERS_MORE_WINDOW",
     "SOUND_KINDS",
     "Exchange",
     "TurnProblem",
@@ -1768,6 +1813,7 @@ __all__ = [
     "formal_swaps",
     "greeted_midway",
     "memory_not_said",
+    "offers_more",
     "opened_again",
     "sentences",
     "turn_problems",

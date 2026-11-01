@@ -1,6 +1,6 @@
-"""The opening waits for the person's "Hello" (D-871): `agents.opening_waits_for_caller`.
+"""The opening waits for the person's "Hello" (D-871, D-958): `agents.opening_waits_for_caller`.
 
-Default by direction at creation and in the migration's backfill, sent as ThinnestAI's
+Default by direction at creation and in the migrations' backfills, sent as ThinnestAI's
 `voice.openingWaitsForCaller` on every write, reported and repaired as drift, and set per
 agent through the call-handling routes with their permission, audit and live apply.
 """
@@ -34,30 +34,33 @@ from tests.thinnest_engine_test import WS, _cfg, tools_state
 pytestmark = [pytest.mark.rls]
 
 AGENT = f"ag_1@{WS}"
-REVISION = (
-    Path(__file__).resolve().parents[1]
-    / "alembic"
-    / "versions"
-    / "f4b8c1d6a273_agents_opening_waits_for_caller.py"
-)
+VERSIONS = Path(__file__).resolve().parents[1] / "alembic" / "versions"
+REVISION = VERSIONS / "f4b8c1d6a273_agents_opening_waits_for_caller.py"
+D958 = VERSIONS / "d958b4e1a2c7_both_direction_agents_wait_for_hello.py"
 
 
-def _revision() -> ModuleType:
-    """The migration loaded by path: `alembic/versions` is not a package."""
-    spec = importlib.util.spec_from_file_location("opening_waits_revision", REVISION)
+def _load(path: Path) -> ModuleType:
+    """A migration loaded by path: `alembic/versions` is not a package."""
+    spec = importlib.util.spec_from_file_location(f"revision_{path.stem[:12]}", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
 
 
+def _revision() -> ModuleType:
+    return _load(REVISION)
+
+
 # --- the default ----------------------------------------------------------------------
 
 
-def test_only_an_agent_that_only_places_calls_waits_by_default() -> None:
+def test_every_agent_that_places_calls_waits_by_default() -> None:
+    # A "both" agent's placed call opened over the person's "Hello" and greeted twice on the
+    # founder's Rytu Khata call of 2 Nov 2026 (D-958).
     assert opening_waits_default("outbound") is True
+    assert opening_waits_default("both") is True
     assert opening_waits_default("inbound") is False
-    assert opening_waits_default("both") is False
 
 
 async def test_a_new_agent_takes_the_default_of_its_direction() -> None:
@@ -82,7 +85,7 @@ async def test_a_new_agent_takes_the_default_of_its_direction() -> None:
             ).scalar_one()
             for direction, agent_id in made.items()
         }
-    assert held == {"outbound": True, "inbound": False, "both": False}
+    assert held == {"outbound": True, "inbound": False, "both": True}
 
 
 async def test_the_backfill_switches_on_only_agents_that_only_place_calls() -> None:
@@ -124,8 +127,66 @@ async def test_the_backfill_switches_on_only_agents_that_only_place_calls() -> N
 
     assert await held(tenant_a, agent_a) is True
     assert await held(tenant_a, inbound) is False
-    assert await held(tenant_a, both) is False
+    assert await held(tenant_a, both) is True, "created after D-958, so on from the start"
     assert await held(tenant_b, agent_b) is False, "a client's run reached another client"
+
+
+async def _held(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> bool:
+    async with tenant_session(tenant_id) as session:
+        return bool(
+            (
+                await session.execute(
+                    text("SELECT opening_waits_for_caller FROM agents WHERE id = :id"),
+                    {"id": agent_id},
+                )
+            ).scalar_one()
+        )
+
+
+async def test_the_d958_backfill_turns_on_only_both_agents_nobody_set() -> None:
+    """`d958b4e1a2c7`: a "both" agent still off with no call-handling save is switched on; one
+    whose owner saved its call settings, an answering agent and another client's agent are
+    left; the downgrade turns back exactly what the upgrade turned on."""
+    revision = _load(D958)
+    tenant_a, _agent, headers = await _tenant()
+    tenant_b, _agent_b, _ = await _tenant()
+
+    async def both(tenant_id: uuid.UUID, name: str, direction: str = "both") -> uuid.UUID:
+        async with tenant_session(tenant_id) as session:
+            agent_id = await lifecycle.create_agent(
+                session,
+                tenant_id=tenant_id,
+                name=name,
+                direction=direction,
+                language_primary="te-IN",
+            )
+            # The default before D-958.
+            await session.execute(
+                text("UPDATE agents SET opening_waits_for_caller = false WHERE id = :id"),
+                {"id": agent_id},
+            )
+        return agent_id
+
+    untouched = await both(tenant_a, "Untouched")
+    saved = await both(tenant_a, "Saved")
+    answering = await both(tenant_a, "Answers", "inbound")
+    elsewhere = await both(tenant_b, "Elsewhere")
+    async with _client() as client:
+        response = await client.patch(
+            f"/v1/agents/{saved}/call-handling", headers=headers, json={"turn_silence_ms": 700}
+        )
+    assert response.status_code == 200, response.text
+
+    async with tenant_session(tenant_a) as session:
+        await session.execute(text(revision._BACKFILL))
+    assert await _held(tenant_a, untouched) is True
+    assert await _held(tenant_a, saved) is False, "the owner saved its call settings"
+    assert await _held(tenant_a, answering) is False
+    assert await _held(tenant_b, elsewhere) is False, "a client's run reached another client"
+
+    async with tenant_session(tenant_a) as session:
+        await session.execute(text(revision._UNFILL))
+    assert await _held(tenant_a, untouched) is False
 
 
 # --- ThinnestAI: body, read-back, repair -------------------------------------------------

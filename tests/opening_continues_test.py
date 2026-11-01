@@ -75,10 +75,12 @@ def test_the_prompt_quotes_the_exact_opening_already_spoken_and_says_to_go_on() 
         assert NOTICE in prompt
         assert prompt.rindex(TRUTHFUL_ANSWER_MARKER) > prompt.index(START_OF_CALL_HEADER)
     rule = OPENING_CONTINUES_RULE
-    assert "Never greet, repeat it or re-ask if now suits" in rule
+    # A hello said back and the business name again were the second start of 2 Nov 2026
+    # (D-958), so both are named.
+    assert "Never greet, say hello back, repeat it or its names, or re-ask if now suits" in rule
     # A caller's first question gets its answer, never the opening again (D-910).
     assert "even after answering." in rule
-    assert '("hello", "yes", any language)' in rule
+    assert '("hello", "yes", any language) is a yes' in rule
     assert "why you call or your first question" in rule
 
 
@@ -103,7 +105,8 @@ def test_what_the_section_costs() -> None:
     start = _start(_cfg("both"))
     spoken = compose_first_utterance(_cfg("both"))
     print(f"START OF THE CALL: {len(start)} chars, of which the quoted opening {len(spoken)}")
-    assert len(start) - len(spoken) < 500
+    # 498 before D-958, which named a hello said back and the business name again (+40).
+    assert len(start) - len(spoken) < 540
 
 
 # --- the turn check -----------------------------------------------------------------------

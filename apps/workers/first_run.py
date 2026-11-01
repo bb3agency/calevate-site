@@ -846,6 +846,86 @@ async def _write_greeting(
     return {"state": "ready_made", "reason": reason}
 
 
+async def _write_placed_opening(
+    tenant_id: UUID,
+    agent_id: UUID,
+    run: Any,
+    *,
+    name: str,
+    introduced: bool,
+    created_by: UUID | None,
+    writer: _Writer | None,
+    started: float,
+) -> dict[str, Any]:
+    """A "both" agent's opening on the calls it places (D-920), held to the answering
+    opening's rules and repaired the same way (D-957, D-959): kept when it fits (`done`),
+    repaired by the opening writer (`repaired`), else cleared (`ready_made`, with `reason`),
+    so the call opens with the reviewed line for the language
+    (`calevate_shared.engine.placed_call_line`). None written is `none`, for the same reason.
+    A Telugu placed opening with "matladadaniki ok" in English letters went out on the
+    founder's call of 2 Nov 2026."""
+    language = str(run.language_primary)
+    async with tenant_session(tenant_id) as session:
+        current = (await load_agent_script(session, agent_id)).script.outbound_opening_line
+        business = (await session.execute(text("SELECT name FROM organizations LIMIT 1"))).one()
+    line = current.strip()
+    if not line:
+        return {"state": "none"}
+    problems = opening_problems(
+        line, language, names=(str(business[0]), name), introduced=introduced
+    )
+    if not problems:
+        return {"state": "done"}
+    reason: str | None
+    if writer is None:
+        reason = "nothing_to_write_from"
+    elif time.monotonic() - started > OPENING_WRITER_LATEST_S:
+        reason = "no_time"
+    else:
+        spent: JsonAnswer[str] | ProblemError
+        try:
+            spent = await write_opening(
+                replace(writer.brief, introduced=introduced),
+                line=line,
+                problems=problems,
+                tenant_leg=writer.tenant_leg,
+                quota_exhausted=writer.braked,
+                placed=True,
+            )
+        except ProblemError as refused:
+            spent = refused
+        reason = spent.code if isinstance(spent, ProblemError) else None
+        async with tenant_session(tenant_id) as session:
+            await _meter(session, tenant_id, spent)
+        if reason is None:
+            assert not isinstance(spent, ProblemError)
+            reason = await _replace_placed(tenant_id, agent_id, spent.value, created_by)
+            if reason is None:
+                return {"state": "repaired"}
+    cleared = await _replace_placed(tenant_id, agent_id, "", created_by)
+    return {"state": "ready_made" if cleared is None else "kept", "reason": reason}
+
+
+async def _replace_placed(
+    tenant_id: UUID, agent_id: UUID, line: str, created_by: UUID | None
+) -> str | None:
+    """Write the placed-call opening; None once written, else the refusal code."""
+    try:
+        async with tenant_session(tenant_id) as session:
+            await replace_opening_line(
+                session,
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                opening_line=line,
+                created_by=created_by,
+                placed=True,
+            )
+    except ProblemError as refused:
+        log.info("first_run_placed_opening_refused", extra={"reason": refused.code})
+        return refused.code
+    return None
+
+
 async def _ai_notice_on_file(tenant_id: UUID, agent_id: UUID) -> tuple[str, bool]:
     """(the agent's AI sentence, whether its owner switched the notice off for this agent)."""
     async with tenant_session(tenant_id) as session:
@@ -1003,6 +1083,20 @@ async def build_first_agent(ctx: dict[str, Any], payload: dict[str, Any]) -> str
                 started=started,
             )
             if not await _tick(tenant_id, run_id, build, "greeting", greeting_state):
+                return "replaced"
+        if direction_of_jobs(_jobs(run)) == "both":
+            placed_state = await _write_placed_opening(
+                tenant_id,
+                agent_id,
+                run,
+                name=name,
+                introduced=introduced and notice_state["state"] == "done",
+                created_by=created_by,
+                writer=writer,
+                started=started,
+            )
+            # Not one of the screen's `BUILD_STEPS`: recorded for the build's own trail.
+            if not await _tick(tenant_id, run_id, build, "placed_opening", placed_state):
                 return "replaced"
         if not await _tick(tenant_id, run_id, build, "notice", notice_state):
             return "replaced"

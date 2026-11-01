@@ -92,6 +92,10 @@ LESSONS: Final[dict[str, Lesson]] = {
         "Talked about the caller as “the caller”",
         "Speak to the caller directly.",
     ),
+    "offered_more_too_soon": Lesson(
+        "Kept asking “anything else?” before the caller was done",
+        "Ask once a topic is finished; while helping step by step, give the next step.",
+    ),
 }
 assert set(LESSONS) <= set(turn_checks.SOUND_KINDS | turn_checks.JOB_KINDS)
 
@@ -130,16 +134,22 @@ class SpokenTurn(Protocol):
     def text(self) -> str: ...
 
 
-def _replies(turns: Sequence[SpokenTurn], unheard: frozenset[int]) -> tuple[str, list[_Reply]]:
-    """The call's opening and each agent reply with the caller line it answered.
+def _replies(
+    turns: Sequence[SpokenTurn], unheard: frozenset[int]
+) -> tuple[str, list[_Reply], _Reply | None]:
+    """The call's opening, each agent reply with the caller line it answered, and the first
+    reply after the opening when the caller spoke over it.
 
     Consecutive turns of one speaker are one line. The agent's first line is the opening,
     judged as `conversation_problems`' `opening`, not as a reply, whoever spoke first: on a
     call the agent places, the person's "Hello" comes before the greeting, and judging the
     greeting as a reply to it would read it as greeting twice. A turn the caller spoke over
-    (`unheard`) is left out: saying again what was not heard is right."""
+    (`unheard`) is left out: saying again what was not heard is right. The first such reply
+    is still returned, because a turn is cut at its end, never its start, so a greeting that
+    opens it was heard ("హలో అండి. రైతు ఖాతా", cut off, on the call of 2 Nov 2026)."""
     opening: list[str] = []
     replies: list[_Reply] = []
+    cut_first: _Reply | None = None
     said: list[str] = []
     reply: list[str] = []
     first_idx: int | None = None
@@ -169,12 +179,14 @@ def _replies(turns: Sequence[SpokenTurn], unheard: frozenset[int]) -> tuple[str,
                 opening.append(words)
                 continue
             if turn.idx in unheard:
+                if not replies and not reply and cut_first is None:
+                    cut_first = _Reply(_Exchange(" ".join(said), words), turn.idx)
                 continue
             if first_idx is None:
                 first_idx = turn.idx
             reply.append(words)
     close()
-    return " ".join(opening), replies
+    return " ".join(opening), replies, cut_first
 
 
 def mistakes_in(
@@ -184,8 +196,10 @@ def mistakes_in(
 
     A reply's own problems are read reply by reply; what only the conversation shows is
     read on each growing prefix, so the first reply that makes it true is the one named."""
-    opening, replies = _replies(turns, frozenset(unheard))
+    opening, replies, cut_first = _replies(turns, frozenset(unheard))
     found: dict[str, int] = {}
+    if cut_first is not None and turn_checks.opened_again(cut_first.exchange.reply):
+        found["opened_again"] = cut_first.turn_idx
     for n, item in enumerate(replies, 1):
         own = turn_checks.turn_problems(
             item.exchange.reply, caller_said=item.exchange.said, language=language

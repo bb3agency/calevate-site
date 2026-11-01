@@ -2331,3 +2331,40 @@ clients' WhatsApp numbers are connected through our own Meta Tech Provider set-u
 >
 > Thanks,
 > Umesh
+
+## 43. Questions for the next email (Rytu Khata's Anjali, 2 Nov 2026, D-960; DRAFTED, unsent)
+
+The founder changed only the voice of a live "both" agent (Telugu, AI notice on) and placed a
+test call. Our side was traced (D-960): the voice change re-sends the same instructions,
+greeting, steps, call instructions, tools and `ownRules` to the same agent, changing only
+`voice.voice` or `PUT /agents/{id}/byok-voice`, the agent's `byok` (`llm` and `llm_voice` while
+our model is on) and `voice.speakingSpeed`; knowledge documents are not touched; the call's
+`purpose` is composed at dial time and starts with the AI introduction. Yet the call's first
+words heard were "హలో, నేను రైతు ఖాతా యాప్ గురించి కాల్ చేస్తున్నాను అండి. ఇప్పుడు matladadaniki
+ok నా అండి" (no introduction, a word in English letters, which our `purpose` never carries). The
+founder adds the two call ids (before and after the change) from the Calls page before sending.
+
+> Subject: An agent changed how it spoke after we changed only its voice
+>
+> Hi Ashutosh,
+>
+> On 2 Nov we changed only the voice of one agent (PATCH with the new voice, and its `byok`
+> scope where the voice moved between your voices and our Cartesia key) and placed a call.
+> The calls are `<call before>` and `<call after>`.
+>
+> 1. **Was our `purpose` spoken word for word as the first turn of the second call?** It
+>    begins "నమస్కారం అండి, నేను Rytu khata నుండి Anjaliని, ఏఐ అసిస్టెంట్‌ని…". What the
+>    person heard first reads like the model's own words. If the person said "Hello" while
+>    it played, was the `purpose` cut, and does `greetingUninterruptible: true` (which we
+>    send) cover a placed call's `purpose` as it covers the greeting?
+> 2. **Does changing an agent's voice or `byok` scope reset anything else on it?** In
+>    particular its knowledge documents or `knowledgeOnCalls`, `ownRules`,
+>    `voice.callInstructions`, `steps`, `greeting`, `pastConversations` or the model it runs.
+> 3. **Is the time to the first audio different for a Cartesia voice on our key than for
+>    one of your voices**, so that a person who says "Hello" on pickup is more likely to
+>    speak over the opening on one than the other?
+> 4. **With `openingWaitsForCaller` on**, is a placed call's `purpose` still played word for
+>    word after the person's first words, or does the model write the opening from it?
+>
+> Thanks,
+> Umesh

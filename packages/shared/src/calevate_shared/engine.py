@@ -2934,6 +2934,10 @@ _REGISTER_BULLET: Final = (
 #: D-947, from the founder's Sri Estates call of 30 Oct 2026: "Unclear? Ask again" let the
 #: agent say the same question word for word after each non-answer; "reworded" makes the one
 #: retry a different approach. What follows a second non-answer is in WHAT YOU CAN DO.
+#: D-959, from the founder's Rytu Khata call of 2 Nov 2026: walking a caller through the app
+#: step by step, the agent ended reply after reply with "anything else?" while the caller was
+#: still on the step. The close's "anything else" was the only mention, so the model used it
+#: as a turn ending; the bullet says when it belongs and what ends a turn mid-task instead.
 #: The agent's default call language (`AgentConfig.language_primary`).
 DEFAULT_PRIMARY_LANGUAGE: Final = "te-IN"
 
@@ -2971,6 +2975,8 @@ VOICE_STYLE_GUIDANCE: Final = (
     f"{_REGISTER_BULLET}"
     "- Unclear? Ask again, reworded; never pick for them. Asked to repeat? Say it shorter.\n"
     "- Never narrate a search or a wait.\n"
+    '- "Anything else?" only once a topic is done, never twice running; mid-task, end on the '
+    "next step or a check on it.\n"
     "- Close: what happens next in one line, no recap, anything else, then one goodbye and "
     "nothing more. End only then or when asked, never while they talk or ask."
 )
@@ -4590,13 +4596,15 @@ START_OF_CALL_HEADER: Final = "--- START OF THE CALL ---"
 #: "Or the business name said back ... once" (D-947): on that call the caller's "Sri
 #: Estates." came four times and each drew the same who-and-why line and question. Said back
 #: once, it is confirmed; after that it is no clear reply, which WHAT YOU CAN DO answers.
-#: Paid for inside this rule ("re-ask", "answering", "any language", "why you call"), so it
-#: did not grow past `tests/opening_continues_test` and the full-v2 bound.
+#: "Say hello back, ... its names" and "is a yes" (D-958): on the founder's Rytu Khata call of
+#: 2 Nov 2026 the caller's "Hello." after a placed call's opening that ended "can we talk
+#: now?" drew "హలో అండి. రైతు ఖాతా", a hello back and the business name again. "Never greet"
+#: did not cover returning a hello, and "go on" did not say the hello answered the question.
 OPENING_CONTINUES_RULE: Final = (
-    " Never greet, repeat it or re-ask if now suits, even after answering. Asked who or "
-    "why, or the business name said back? Say both in one line, once, then stop and wait. A "
-    'word or two ("hello", "yes", any language) means go on: why you call or your first '
-    "question."
+    " Never greet, say hello back, repeat it or its names, or re-ask if now suits, even after "
+    "answering. Asked who or why, or the business name said back? Say both in one line, once, "
+    'then stop and wait. A word or two ("hello", "yes", any language) is a yes: go on with '
+    "why you call or your first question."
 )
 
 

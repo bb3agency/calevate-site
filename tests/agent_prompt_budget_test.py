@@ -224,8 +224,11 @@ def test_a_guided_call_with_step_by_step_lists_fits_with_margin() -> None:
 #: unpunctuated).
 #: D-947 (30 Oct 2026) left both where they were (7,313/6,438, each 1 under): "no clear reply
 #: twice" in place of "still unclear after two tries" pays for "Unclear? Ask again, reworded".
-PER_CALL_MAX = 7_314
-PER_CALL_ONE_LANGUAGE_MAX = 6_439
+#: D-959 (2 Nov 2026) RAISED both by 116 (7,429/6,554): the founder's Rytu Khata call ended
+#: reply after reply with "anything else?" while the caller was mid-task, and no sentence said
+#: when it belongs, so the bullet saying so (and what ends a turn mid-task) is new text.
+PER_CALL_MAX = 7_430
+PER_CALL_ONE_LANGUAGE_MAX = 6_555
 
 
 def _platform_only(languages_extra: list[str]) -> AgentConfig:

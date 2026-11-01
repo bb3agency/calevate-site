@@ -52,7 +52,9 @@ async def _no_voice(_tenant_id: uuid.UUID, _language: str) -> None:
     return None
 
 
-async def _ready(language: str = "te-IN") -> tuple[uuid.UUID, Any]:
+async def _ready(
+    language: str = "te-IN", jobs: tuple[str, ...] = ("answer_calls",)
+) -> tuple[uuid.UUID, Any]:
     created = await admin_service.create_organization(
         name=BUSINESS,
         slug=f"open-{uuid.uuid4().hex[:8]}",
@@ -65,7 +67,7 @@ async def _ready(language: str = "te-IN") -> tuple[uuid.UUID, Any]:
         await first_run.save_job(
             session,
             tenant_id=tenant_id,
-            jobs=["answer_calls"],
+            jobs=list(jobs),
             language_primary=language,
             languages_extra=[],
         )
@@ -75,8 +77,9 @@ async def _ready(language: str = "te-IN") -> tuple[uuid.UUID, Any]:
     return tenant_id, run
 
 
-def _drafted(opening: str, seen: list[ScriptBrief] | None = None) -> Any:
+def _drafted(opening: str, seen: list[ScriptBrief] | None = None, placed: str = "") -> Any:
     script = CATALOGUE[("custom", "answer_calls")].call_script(business=BUSINESS, language="te-IN")
+    script = script.model_copy(update={"outbound_opening_line": placed})
 
     async def drafted(brief: ScriptBrief, **_kwargs: Any) -> SimpleNamespace:
         if seen is not None:
@@ -229,6 +232,72 @@ async def test_with_no_time_left_the_writer_is_not_started(
     assert after.build_steps["greeting"] == {"state": "ready_made", "reason": "no_time"}
 
 
+#: The placed-call opening of the founder's call of 2 Nov 2026 after the introduction: "can we
+#: talk now?" with two words in English letters (D-959).
+PLACED_SLIPPED = "నేను రైతు ఖాతా యాప్ గురించి కాల్ చేస్తున్నాను అండి. ఇప్పుడు matladadaniki ok నా అండి?"
+PLACED_REPAIRED = "మీ పంట లోన్ బాకీ గురించి కాల్ చేస్తున్నాను అండి, ఇప్పుడు మాట్లాడొచ్చా?"
+
+
+async def test_a_both_agents_placed_opening_with_english_letters_is_repaired(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id, run = await _ready(jobs=("answer_calls", "call_new_leads"))
+    asked: list[dict[str, Any]] = []
+
+    async def write(brief: ScriptBrief, **kwargs: Any) -> SimpleNamespace:
+        asked.append(kwargs)
+        return _answer(PLACED_REPAIRED if kwargs.get("placed") else REPAIRED)
+
+    monkeypatch.setattr(worker, "pick_voice", _no_voice)
+    monkeypatch.setattr(worker, "draft_script", _drafted(REPAIRED, placed=PLACED_SLIPPED))
+    monkeypatch.setattr(worker, "write_opening", write)
+    spent = _spends(monkeypatch)
+
+    after, _line = await _build(tenant_id, run)
+
+    assert after.build_steps["placed_opening"] == {"state": "repaired"}
+    placed = [kw for kw in asked if kw.get("placed")]
+    assert len(placed) == 1, "one bounded writer call for the placed opening"
+    assert placed[0]["line"] == PLACED_SLIPPED
+    assert any("“matladadaniki”" in problem for problem in placed[0]["problems"])
+    async with tenant_session(tenant_id) as session:
+        script = (await load_agent_script(session, after.agent_id)).script
+    assert script.outbound_opening_line == PLACED_REPAIRED
+    assert any(getattr(s, "value", None) == PLACED_REPAIRED for s in spent), "metered"
+
+
+async def test_an_unrepaired_placed_opening_is_cleared_for_the_reviewed_line(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id, run = await _ready(jobs=("answer_calls", "call_new_leads"))
+
+    async def refuse(_brief: ScriptBrief, **kwargs: Any) -> SimpleNamespace:
+        if kwargs.get("placed"):
+            raise ProblemError.business_rule("assist_answer_unusable", "Not cleanly.")
+        return _answer(REPAIRED)
+
+    monkeypatch.setattr(worker, "pick_voice", _no_voice)
+    monkeypatch.setattr(worker, "draft_script", _drafted(REPAIRED, placed=PLACED_SLIPPED))
+    monkeypatch.setattr(worker, "write_opening", refuse)
+    _spends(monkeypatch)
+
+    after, _line = await _build(tenant_id, run)
+
+    assert after.build_steps["placed_opening"] == {
+        "state": "ready_made",
+        "reason": "assist_answer_unusable",
+    }
+    async with tenant_session(tenant_id) as session:
+        script = (await load_agent_script(session, after.agent_id)).script
+    assert script.outbound_opening_line == ""
+
+
+def test_the_placed_opening_writer_is_told_it_is_for_calls_the_agent_places() -> None:
+    brief = ScriptBrief(business_name=BUSINESS, agent_name="Anjali", language="te-IN")
+    assert opening_line.PLACED_TASK in opening_line.opening_request(brief, placed=True)
+    assert opening_line.PLACED_TASK not in opening_line.opening_request(brief)
+
+
 def test_the_writer_is_told_the_business_the_rules_and_the_lines_problems() -> None:
     brief = ScriptBrief(
         description=BRIEF,
@@ -346,3 +415,62 @@ async def test_pips_proposal_repairs_the_opening_it_wrote(
     assert stored.script.opening_line == fixed
     assert any("does not end on a question" in p for p in asked[0]["problems"])
     assert len(metered) == 2, "the draft and the repair are both charged"
+
+
+async def test_pips_proposal_repairs_the_placed_opening_it_wrote(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created = await create_org_with_receptionist(
+        name=BUSINESS,
+        slug=f"prop-{uuid.uuid4().hex[:8]}",
+        vertical_template=TRADE,
+        billing_email=None,
+        language="te-IN",
+        created_by=None,
+    )
+    tenant_id, agent_id = uuid.UUID(str(created["id"])), uuid.UUID(str(created["agent_id"]))
+    async with tenant_session(tenant_id) as session:
+        proposal = await script_proposals.request_proposal(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            mode="change",
+            change="Add an opening for the calls it makes about crop loans.",
+            answers={},
+            requested_by=uuid.uuid4(),
+        )
+        base = proposal.base_script.opening_line
+
+    async def drafted(*_args: Any) -> Any:
+        return SimpleNamespace(
+            script=CallScript(opening_line=base, outbound_opening_line=PLACED_SLIPPED),
+            earlier=(),
+            model="gemini-2.5-flash-lite",
+            capability=SimpleNamespace(disclosure=None),
+        )
+
+    asked: list[dict[str, Any]] = []
+
+    async def write(brief: ScriptBrief, **kwargs: Any) -> SimpleNamespace:
+        asked.append(kwargs)
+        return _answer(PLACED_REPAIRED)
+
+    monkeypatch.setattr(proposal_worker, "_draft", drafted)
+    monkeypatch.setattr(proposal_worker, "write_opening", write)
+
+    async def meter(_session: Any, **_kwargs: Any) -> None:
+        return None
+
+    monkeypatch.setattr(crm_assist, "meter_assist", meter)
+    payload = {
+        "tenant_id": str(tenant_id),
+        "agent_id": str(agent_id),
+        "proposal_id": str(proposal.id),
+    }
+    assert await proposal_worker.draft_script_proposal({}, payload) == "ready"
+
+    async with tenant_session(tenant_id) as session:
+        stored = await script_proposals.read_proposal(session, agent_id)
+    assert stored is not None and stored.script is not None
+    assert stored.script.outbound_opening_line == PLACED_REPAIRED
+    assert [kw["placed"] for kw in asked] == [True], "the answering line it kept is not judged"

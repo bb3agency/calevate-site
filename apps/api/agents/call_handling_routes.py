@@ -538,7 +538,7 @@ _AGENT_DESCRIPTION = (
     f"({AMBIENCE_VOLUME_MIN_PCT}-{AMBIENCE_VOLUME_MAX_PCT}).\n\n"
     "`opening_waits_for_caller` holds the agent's first words until the person who picked "
     "up speaks, or `opening_wait_ms` of silence; it is the agent's own (true or false, never "
-    "inherited), on by default for an agent that only places calls. `opening_wait_ms` "
+    "inherited), on by default for an agent that places calls. `opening_wait_ms` "
     f"({OPENING_WAIT_MIN_MS}-{OPENING_WAIT_MAX_MS} in steps of {OPENING_WAIT_STEP_MS}) "
     "inherits like the settings below; it may be set only while "
     "`bounds.opening_wait_available`, and an effective null is four seconds "

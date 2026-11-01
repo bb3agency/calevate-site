@@ -1850,7 +1850,7 @@ export interface paths {
          *
          *     If the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, "" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).
          *
-         *     `opening_waits_for_caller` holds the agent's first words until the person who picked up speaks, or `opening_wait_ms` of silence; it is the agent's own (true or false, never inherited), on by default for an agent that only places calls. `opening_wait_ms` (500-10000 in steps of 100) inherits like the settings below; it may be set only while `bounds.opening_wait_available`, and an effective null is four seconds (`opening_wait_unavailable` otherwise).
+         *     `opening_waits_for_caller` holds the agent's first words until the person who picked up speaks, or `opening_wait_ms` of silence; it is the agent's own (true or false, never inherited), on by default for an agent that places calls. `opening_wait_ms` (500-10000 in steps of 100) inherits like the settings below; it may be set only while `bounds.opening_wait_available`, and an effective null is four seconds (`opening_wait_unavailable` otherwise).
          *
          *     `reask_after_ms` is how long the agent waits, after a question it asked has had no answer, before asking it again: 1500-10000 in steps of 100, or 0 for never.
          *
@@ -1870,7 +1870,7 @@ export interface paths {
          *
          *     If the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, "" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).
          *
-         *     `opening_waits_for_caller` holds the agent's first words until the person who picked up speaks, or `opening_wait_ms` of silence; it is the agent's own (true or false, never inherited), on by default for an agent that only places calls. `opening_wait_ms` (500-10000 in steps of 100) inherits like the settings below; it may be set only while `bounds.opening_wait_available`, and an effective null is four seconds (`opening_wait_unavailable` otherwise).
+         *     `opening_waits_for_caller` holds the agent's first words until the person who picked up speaks, or `opening_wait_ms` of silence; it is the agent's own (true or false, never inherited), on by default for an agent that places calls. `opening_wait_ms` (500-10000 in steps of 100) inherits like the settings below; it may be set only while `bounds.opening_wait_available`, and an effective null is four seconds (`opening_wait_unavailable` otherwise).
          *
          *     `reask_after_ms` is how long the agent waits, after a question it asked has had no answer, before asking it again: 1500-10000 in steps of 100, or 0 for never.
          *
@@ -3891,7 +3891,7 @@ export interface paths {
          *
          *     If the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, "" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).
          *
-         *     `opening_waits_for_caller` holds the agent's first words until the person who picked up speaks, or `opening_wait_ms` of silence; it is the agent's own (true or false, never inherited), on by default for an agent that only places calls. `opening_wait_ms` (500-10000 in steps of 100) inherits like the settings below; it may be set only while `bounds.opening_wait_available`, and an effective null is four seconds (`opening_wait_unavailable` otherwise).
+         *     `opening_waits_for_caller` holds the agent's first words until the person who picked up speaks, or `opening_wait_ms` of silence; it is the agent's own (true or false, never inherited), on by default for an agent that places calls. `opening_wait_ms` (500-10000 in steps of 100) inherits like the settings below; it may be set only while `bounds.opening_wait_available`, and an effective null is four seconds (`opening_wait_unavailable` otherwise).
          *
          *     `reask_after_ms` is how long the agent waits, after a question it asked has had no answer, before asking it again: 1500-10000 in steps of 100, or 0 for never.
          *
@@ -3911,7 +3911,7 @@ export interface paths {
          *
          *     If the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, "" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).
          *
-         *     `opening_waits_for_caller` holds the agent's first words until the person who picked up speaks, or `opening_wait_ms` of silence; it is the agent's own (true or false, never inherited), on by default for an agent that only places calls. `opening_wait_ms` (500-10000 in steps of 100) inherits like the settings below; it may be set only while `bounds.opening_wait_available`, and an effective null is four seconds (`opening_wait_unavailable` otherwise).
+         *     `opening_waits_for_caller` holds the agent's first words until the person who picked up speaks, or `opening_wait_ms` of silence; it is the agent's own (true or false, never inherited), on by default for an agent that places calls. `opening_wait_ms` (500-10000 in steps of 100) inherits like the settings below; it may be set only while `bounds.opening_wait_available`, and an effective null is four seconds (`opening_wait_unavailable` otherwise).
          *
          *     `reask_after_ms` is how long the agent waits, after a question it asked has had no answer, before asking it again: 1500-10000 in steps of 100, or 0 for never.
          *

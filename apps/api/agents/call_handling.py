@@ -123,11 +123,19 @@ AGENT_ONLY_FIELDS: Final[tuple[str, ...]] = ("opening_waits_for_caller",)
 
 
 def opening_waits_default(direction: str) -> bool:
-    """A new agent's `opening_waits_for_caller` (D-871): on for an agent that only places
-    calls, because the person who picks up speaks first and an opening played over their
-    "Hello" is greeted twice; off for one that answers calls, because a caller ringing a
-    business expects it to speak first and four seconds of silence reads as a dead line."""
-    return direction == "outbound"
+    """A new agent's `opening_waits_for_caller` (D-871, D-958): on for every agent that
+    places calls, because the person who picks up speaks first and an opening played over
+    their "Hello" is greeted twice; off for one that only answers, because a caller ringing a
+    business expects it to speak first.
+
+    A "both" agent waits on the calls it answers too: ThinnestAI's switch is the agent's
+    (`voice.openingWaitsForCaller`) and Place Call has no per-call override for it
+    (`CallOverrides` takes voice, language, maxCallSeconds, ringSeconds and callInstructions
+    and refuses any other key, `api-reference/calls/place-call.md:1254-1288`, 29 Oct 2026
+    snapshot). A caller ringing it hears the opening after their own "Hello" or the
+    console's short silence (`thinnest_opening_wait_ms`); a greeting said twice on every
+    placed call was the worse fault (founder's Rytu Khata call, 2 Nov 2026)."""
+    return direction in ("outbound", "both")
 
 
 @dataclass(frozen=True, slots=True)

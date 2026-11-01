@@ -153,47 +153,65 @@ async def _draft(
     )
 
 
+#: The lines the engine speaks first, each with whether it opens the calls a "both" agent
+#: places (D-920). Both are held to one rule and repaired the same way (D-957, D-959).
+_OPENINGS: Final = (("opening_line", False), ("outbound_opening_line", True))
+
+
 async def _opening_repaired(
     tenant_id: UUID, agent_id: UUID, proposal: script_proposals.ScriptProposal, script: CallScript
-) -> tuple[CallScript, JsonAnswer[str] | ProblemError | None]:
-    """The proposal's script with an opening line the model wrote that breaks the opening rule
-    repaired by the opening writer, as onboarding's is (`first_run._write_greeting`, D-957),
-    and what the repair spent. A conversion keeps the owner's sentences, and a line the owner
-    already had or asked for in their own words is theirs: neither is judged. A repair that
-    gives no line leaves the proposal as drafted, for the owner to review."""
-    line = script.opening_line.strip()
+) -> tuple[CallScript, list[JsonAnswer[str] | ProblemError]]:
+    """The proposal's script with each opening line the model wrote that breaks the opening
+    rule repaired by the opening writer, as onboarding's are (`first_run._write_greeting`,
+    `first_run._write_placed_opening`), and what the repairs spent. A conversion keeps the
+    owner's sentences, and a line the owner already had or asked for in their own words is
+    theirs: neither is judged. A repair that gives no line leaves the proposal as drafted, for
+    the owner to review."""
+    if proposal.mode == "steps":
+        return script, []
     owners = " ".join([proposal.request or "", *proposal.answers.values()])
-    if (
-        proposal.mode == "steps"
-        or not line
-        or line == proposal.base_script.opening_line.strip()
-        or line in owners
-    ):
-        return script, None
+    judged = [
+        (field, placed, line)
+        for field, placed in _OPENINGS
+        if (line := str(getattr(script, field)).strip())
+        and line != str(getattr(proposal.base_script, field)).strip()
+        and line not in owners
+    ]
+    if not judged:
+        return script, []
     async with tenant_session(tenant_id) as session:
         context = await script_proposals.brief_for(session, tenant_id, agent_id)
         tenant_leg = await account_assist_leg(session)
         quota = await read_ai_quota(session, tenant_id=tenant_id)
-    problems = opening_problems(
-        line,
-        context.language,
-        names=(context.business_name, context.agent_name),
-        introduced=context.introduced,
-    )
-    if not problems:
-        return script, None
-    try:
-        answer = await write_opening(
-            replace(context, answers=tuple(proposal.answers.items())),
-            line=line,
-            problems=problems,
-            tenant_leg=tenant_leg,
-            quota_exhausted=quota.at_ceiling or quota.platform_paused,
+    spends: list[JsonAnswer[str] | ProblemError] = []
+    for field, placed, line in judged:
+        problems = opening_problems(
+            line,
+            context.language,
+            names=(context.business_name, context.agent_name),
+            introduced=context.introduced,
         )
-    except ProblemError as refused:
-        log.info("script_proposal_opening_unrepaired", extra={"reason": refused.code})
-        return script, refused
-    return script.model_copy(update={"opening_line": answer.value}), answer
+        if not problems:
+            continue
+        try:
+            answer = await write_opening(
+                replace(context, answers=tuple(proposal.answers.items())),
+                line=line,
+                problems=problems,
+                tenant_leg=tenant_leg,
+                quota_exhausted=quota.at_ceiling or quota.platform_paused,
+                placed=placed,
+            )
+        except ProblemError as refused:
+            log.info(
+                "script_proposal_opening_unrepaired",
+                extra={"reason": refused.code, "field": field},
+            )
+            spends.append(refused)
+            continue
+        spends.append(answer)
+        script = script.model_copy(update={field: answer.value})
+    return script, spends
 
 
 async def _fail(tenant_id: UUID, agent_id: UUID, proposal_id: UUID, note: str) -> None:
@@ -239,7 +257,7 @@ async def draft_script_proposal(ctx: dict[str, Any], payload: dict[str, Any]) ->
         await _fail(tenant_id, agent_id, proposal_id, script_proposals.FAILED_NOTE)
         return "failed"
 
-    script, opening_spent = await _opening_repaired(tenant_id, agent_id, proposal, draft.script)
+    script, opening_spends = await _opening_repaired(tenant_id, agent_id, proposal, draft.script)
     unplaced = (
         unplaced_lines(proposal.base_script.raw_override or "", draft.script)
         if proposal.mode == "steps"
@@ -257,7 +275,10 @@ async def draft_script_proposal(ctx: dict[str, Any], payload: dict[str, Any]) ->
             unplaced=unplaced,
             disclosure=draft.capability.disclosure,
         )
-        spends: list[ScriptDraft | JsonAnswer[str] | ProblemError | None] = [draft, opening_spent]
+        spends: list[ScriptDraft | JsonAnswer[str] | ProblemError | None] = [
+            draft,
+            *opening_spends,
+        ]
         for spent in spends:
             if spent is None:
                 continue

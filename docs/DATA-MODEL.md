@@ -334,7 +334,8 @@ agents(id, tenant_id, name, direction ENUM[inbound,outbound,both],
   -- CALL SETTINGS ADDED 24-27 OCT 2026. Each is sent to ThinnestAI on every publish and
   -- read back as drift (D-911); a NULL inherits the account's default, then the console's.
   opening_waits_for_caller BOOL NOT NULL DEFAULT false,  -- f4b8c1d6a273, D-871. Sent as
-    -- `voice.openingWaitsForCaller`; backfilled true on agents that only place calls.
+    -- `voice.openingWaitsForCaller`; backfilled true on agents that only place calls, and
+    -- by d958b4e1a2c7 (D-958) on "both" agents whose call settings nobody had saved.
   opening_wait_ms INT NULL,   -- a9c4e1d7b352, D-901. `voice.openingWaitSeconds`; CHECK
     -- 500..10000 on whole tenths. NULL -> organizations.default_opening_wait_ms -> console
     -- `thinnest_opening_wait_ms`.

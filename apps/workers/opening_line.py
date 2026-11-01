@@ -159,11 +159,22 @@ def _writer_problems(
     ]
 
 
-def opening_request(brief: ScriptBrief, *, line: str = "", problems: Sequence[str] = ()) -> str:
+#: Said with the task when the line is a "both" agent's opening on the calls it places (D-920,
+#: D-959): the brief describes an agent that also answers, and the writer would otherwise
+#: write the answering kind of line.
+PLACED_TASK: Final = (
+    "This opening_line is the one the agent says on a call it PLACES: it rang the person, so "
+    "it says why it is calling and asks one short question. "
+)
+
+
+def opening_request(
+    brief: ScriptBrief, *, line: str = "", problems: Sequence[str] = (), placed: bool = False
+) -> str:
     """What the writer reads: the brief, the rules, and the line to repair with its problems
-    when there is one."""
+    when there is one. `placed` asks for the opening of the calls a "both" agent places."""
     names = (brief.business_name, brief.agent_name)
-    task = (
+    task = (PLACED_TASK if placed else "") + (
         f"This opening_line was written for the agent and cannot be used: “{line.strip()}”. "
         f"Its problems: {'; '.join(problems)}. Write the opening_line again with every "
         "problem fixed, keeping what it says about this business."
@@ -183,10 +194,12 @@ async def write_opening(
     problems: Sequence[str] = (),
     tenant_leg: TenantModelLeg | None = None,
     quota_exhausted: bool = False,
+    placed: bool = False,
 ) -> JsonAnswer[str]:
     """An opening line for the agent `brief` describes that keeps every rule, or the ladder's
     refusal (a `ProblemError`, a `SpentRefusalError` when a leg answered and must be
-    metered). With `line` and its `problems`, the line is repaired; without, written."""
+    metered). With `line` and its `problems`, the line is repaired; without, written.
+    `placed`: the opening of the calls a "both" agent places, held to the same rules."""
     names = (brief.business_name, brief.agent_name)
     lint = brief.lint_context()
 
@@ -203,7 +216,7 @@ async def write_opening(
         return written
 
     return await ask_json(
-        opening_request(brief, line=line, problems=problems),
+        opening_request(brief, line=line, problems=problems, placed=placed),
         OPENING_WRITER_INSTRUCTION,
         parse=parse,
         azure_format=_FORMAT,
@@ -220,6 +233,7 @@ __all__ = [
     "OPENING_PATH",
     "OPENING_WRITER_BUDGET_S",
     "OPENING_WRITER_INSTRUCTION",
+    "PLACED_TASK",
     "length_problem",
     "opening_problems",
     "opening_request",

@@ -281,7 +281,9 @@ def test_a_full_v2_prompt_fits_the_engine_and_the_guide_budget() -> None:
     # Fewer than ten digits: ask for the rest, wait, take it down only once all ten are confirmed
     # (founder, 27 Oct 2026, 7,610 before). D-910 kept it: the partial-number bullet, one
     # question on one thing and no second opening after a first question, paid for by trims.
-    assert len(prompt) <= 7_708
+    # D-958 named a hello said back and the opening's names in START OF THE CALL, and D-959
+    # said when "anything else?" belongs (7,708 before).
+    assert len(prompt) <= 7_856
 
 
 # --- script v2 (item 4) ---------------------------------------------------------------------

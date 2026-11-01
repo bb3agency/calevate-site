@@ -239,6 +239,15 @@ next thing" and "each turn begun differently". New SOUND checks: `offered_number
 `picked_for_them`, `promised_pace`; `opened_again` also judges every reply against the
 opening's own question when a real call's greeting is given (`conversation_problems(opening=)`).
 
+**What the 2 Nov call showed (D-958, D-959).** A "both" agent's placed call: the person's
+"Hello." was answered after the opening with "హలో అండి. రైతు ఖాతా", and "anything else?" ended
+reply after reply while the caller was still working through the app. START OF THE CALL now
+forbids a hello said back and the opening's names again, and reads a bare word as a yes to the
+opening's question (every agent that places calls also waits for the hello, D-958). HOW TO
+SPEAK: '"Anything else?" only once a topic is done, never twice running; mid-task, end on the
+next step or a check on it.' New SOUND check `offered_more_too_soon` (asked in two of three
+replies), also counted on real calls.
+
 **Two opening lines (D-920).** An agent that both answers and places calls (`both`) has two
 openings: its greeting for calls it answers and `CallScript.outbound_opening_line`, compiled
 under `[OPENING ON CALLS YOU PLACE]` and read back by `call_script.outbound_opening_of`. Every
