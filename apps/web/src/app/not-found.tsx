@@ -64,14 +64,19 @@ function exitsFor(pathname: string | null): Exit[] {
 }
 
 export default function NotFound() {
+  // A client component cannot export `metadata`; React 19 hoists a rendered <title> into
+  // the head instead, so the tab says what happened rather than the bare root fallback.
   return (
-    <NotFoundScreen
-      detail={
-        "The address you followed does not exist here — it may have been mistyped, or the " +
-        "page may have moved since the link was made. Nothing is broken, and nothing has " +
-        "been lost."
-      }
-      exits={exitsFor(usePathname())}
-    />
+    <>
+      <title>Page not found — Calevate</title>
+      <NotFoundScreen
+        detail={
+          "The address you followed does not exist here — it may have been mistyped, or the " +
+          "page may have moved since the link was made. Nothing is broken, and nothing has " +
+          "been lost."
+        }
+        exits={exitsFor(usePathname())}
+      />
+    </>
   );
 }
