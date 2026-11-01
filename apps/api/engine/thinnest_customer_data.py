@@ -84,6 +84,16 @@ class WorkspaceRetention:
     plan_retention_days: int
 
 
+#: List Contacts' `limit` ceiling (list-contacts.md:546). A phone names one contact, so a
+#: second page is already unusual and a sixth is a vendor defect, refused.
+_CONTACT_PAGE_SIZE: Final = 100
+_CONTACT_PAGES_MAX: Final = 5
+
+
+def _str(value: Any) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
 def _int(value: Any) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 
@@ -193,17 +203,32 @@ class ThinnestCustomerData:
             raise
 
     async def contact_ids(self, workspace: str | None, phone_e164: str) -> list[str]:
-        payload = await self._request(
-            workspace, "GET", "/contacts", route="/contacts", params={"phone": phone_e164}
-        )
-        rows = payload.get("items")
-        if not isinstance(rows, list):
-            return []
-        return [
-            str(row["id"])
-            for row in rows
-            if isinstance(row, dict) and isinstance(row.get("id"), str) and row["id"]
-        ]
+        """Every contact on `phone_e164` (`GET /contacts?phone=`, `{items, nextCursor}`, both
+        required; `snapshots/2026-10-29/pages/api-reference/contacts/list-contacts.md:482-
+        590`). An erasure reads an empty answer as "nothing held" and closes its task, so
+        an answer we cannot read in full, or a row without an id, is refused rather than
+        read as no contacts."""
+        ids: list[str] = []
+        cursor: str | None = None
+        for _ in range(_CONTACT_PAGES_MAX):
+            params: dict[str, Any] = {"phone": phone_e164, "limit": _CONTACT_PAGE_SIZE}
+            if cursor is not None:
+                params["cursor"] = cursor
+            payload = await self._request(
+                workspace, "GET", "/contacts", route="/contacts", params=params
+            )
+            rows = payload.get("items")
+            if not isinstance(rows, list):
+                raise _bad("List Contacts answered without `items`")
+            for row in rows:
+                contact_id = row.get("id") if isinstance(row, dict) else None
+                if not isinstance(contact_id, str) or not contact_id:
+                    raise _bad("List Contacts answered a contact without an id")
+                ids.append(contact_id)
+            cursor = _str(payload.get("nextCursor"))
+            if cursor is None:
+                return ids
+        raise _bad(f"List Contacts answered more than {_CONTACT_PAGES_MAX} pages for one number")
 
     async def delete_contact(self, workspace: str | None, contact_id: str) -> int:
         """Erase one contact. Returns the recordings still queued (0 when all are gone)."""

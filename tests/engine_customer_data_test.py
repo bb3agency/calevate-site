@@ -47,6 +47,8 @@ class FakeWorkspaceVendor:
     def __init__(self) -> None:
         self.requests: list[tuple[str, str, str | None, Any]] = []
         self.contacts: list[str] = ["cust_1"]
+        #: List Contacts' answer by the `cursor` asked for, in place of `contacts`.
+        self.contact_pages: dict[str | None, dict[str, Any]] | None = None
         self.delete_status = 204
         self.dnc_remove_status = 204
         self.fail = False
@@ -77,6 +79,8 @@ class FakeWorkspaceVendor:
                     404, json={"error": "That number is not on your do-not-call list."}
                 )
             return httpx.Response(204)
+        if path == "/contacts" and self.contact_pages is not None:
+            return httpx.Response(200, json=self.contact_pages[request.url.params.get("cursor")])
         if path == "/contacts":
             return httpx.Response(
                 200, json={"items": [{"id": c} for c in self.contacts], "nextCursor": None}
@@ -449,6 +453,47 @@ async def test_no_contact_on_the_number_is_confirmed_as_nothing_held(
 
     assert await jobs.erase_engine_contact({}, payload) == "contacts=0 recordings_pending=0"
     assert await _task_status(tenant_id, request_id) == ("confirmed", "no-contact")
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        {"nextCursor": None},
+        {"items": None, "nextCursor": None},
+        {"items": [{"name": "no id"}], "nextCursor": None},
+    ],
+)
+async def test_an_unreadable_contact_list_is_never_confirmed_as_nothing_held(
+    monkeypatch: pytest.MonkeyPatch, vendor: FakeWorkspaceVendor, answer: dict[str, Any]
+) -> None:
+    _provisioned(monkeypatch)
+    tenant_id, request_id, _phone = await _erased_with_platform_call(monkeypatch)
+    [payload] = await _outbox(jobs.ENGINE_CONTACT_ERASURE_JOB, tenant_id)
+    [content] = await _outbox(jobs.ENGINE_CONTENT_DELETE_JOB, tenant_id)
+    await jobs.delete_engine_call_content({}, content)
+    vendor.contact_pages = {None: answer}
+    monkeypatch.setattr(jobs, "alert", lambda *_a, **_kw: None)
+
+    with pytest.raises(ProblemError) as refused:
+        await jobs.erase_engine_contact({"job_try": 3}, payload)
+    assert refused.value.code == "engine_bad_response"
+    assert (await _task_status(tenant_id, request_id))[0] != "confirmed"
+
+
+async def test_every_page_of_contacts_on_the_number_is_erased(
+    monkeypatch: pytest.MonkeyPatch, vendor: FakeWorkspaceVendor
+) -> None:
+    _provisioned(monkeypatch)
+    tenant_id, _request_id, _phone = await _erased_with_platform_call(monkeypatch)
+    [payload] = await _outbox(jobs.ENGINE_CONTACT_ERASURE_JOB, tenant_id)
+    vendor.contact_pages = {
+        None: {"items": [{"id": "cust_1"}], "nextCursor": "c2"},
+        "c2": {"items": [{"id": "cust_2"}], "nextCursor": None},
+    }
+
+    assert (await jobs.erase_engine_contact({}, payload)).startswith("contacts=2")
+    deleted = [p for m, p, _h, _b in vendor.requests if m == "DELETE"]
+    assert deleted == ["/contacts/cust_1", "/contacts/cust_2"]
 
 
 async def test_an_erasure_job_never_reaches_a_workspace_that_is_not_the_clients(
