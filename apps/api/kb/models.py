@@ -244,10 +244,9 @@ class KbIndexDocument(PKMixin, TimestampMixin, Base):
 UPLOAD_NATIVE_KINDS: tuple[str, ...] = ("pdf", "url")
 UPLOAD_KINDS: tuple[str, ...] = (*UPLOAD_NATIVE_KINDS, *sorted(CONVERTIBLE_KINDS))
 
-#: The kinds whose words we read into a COPY (D-893 L8). The engine is handed the PDF's file
-#: or nothing for a link, so these words reach the agents only while the console switch
-#: `kb_send_extracted_files` is on (`kb.service.extracted_text_reaches_agents`); the copy is
-#: always ours to open and search. Every other kind's text IS what the agents are sent.
+#: The kinds whose words we read page by page into a copy (`apps/workers/kb_read.py`), with
+#: `read_state`. A PDF's words are what its agents are sent; a link is sent as its address,
+#: so its copy is ours to open and search (D-868, `kb.service.upload_reaches_agents`).
 READ_COPY_KINDS: tuple[str, ...] = UPLOAD_NATIVE_KINDS
 
 #: `kb_uploads.read_state`, for a `READ_COPY_KINDS` row only.
@@ -283,19 +282,25 @@ UPLOAD_STATUSES: tuple[str, ...] = (
 UPLOAD_RETRYABLE: tuple[str, ...] = (UPLOAD_RECEIVED, UPLOAD_CONVERTING, UPLOAD_PROCESSING)
 
 
-def text_is_read(*, kind: str, status: str, provenance: str | None) -> bool:
+def text_is_read(
+    *, kind: str, status: str, provenance: str | None, read_state: str | None = None
+) -> bool:
     """Has this upload's text been extracted, so there is something to review and publish?
 
-    A PDF and a link answer True: what was approved is the file or the page itself, so there
-    is nothing to wait for before publishing. Their words are read into a separate copy
-    (`READ_COPY_KINDS`, `apps/workers/kb_read.py`) that does not gate the publish. Every
-    other kind is read by the ingest job, which returns the row to `received` once the text
-    is stored — so `received` alone means both "not started" and "read, waiting for a
-    person", and `text_provenance` (written in the same statement) is what separates them.
-    The ingest job and the confirm route ask this one question so they cannot disagree.
+    A link answers True: the platform fetches the page itself, and our copy of its words
+    (`apps/workers/kb_read.py`) serves the reader and Pip, never the publish. A PDF answers
+    True unless its words are being read right now: those words are what its agents are
+    sent (D-868), and the ingest job reads one not yet read before it publishes. Every
+    other kind is read by the ingest job's conversion lane, which returns the row to
+    `received` once the text is stored — so `received` alone means both "not started" and
+    "read, waiting for a person", and `text_provenance` (written in the same statement) is
+    what separates them. The ingest job and the confirm route ask this one question so
+    they cannot disagree.
     """
-    if kind in ("pdf", "url"):
+    if kind == "url":
         return True
+    if kind == "pdf":
+        return read_state != READ_READING
     return status not in (UPLOAD_RECEIVED, UPLOAD_CONVERTING) or provenance is not None
 
 

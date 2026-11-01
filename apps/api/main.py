@@ -238,6 +238,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.ingest.routes import sources_router as lead_sources_router
     from apps.api.insights.routes import router as knowledge_gaps_router
     from apps.api.integrations.routes import router as integrations_router
+    from apps.api.kb.admin_routes import router as kb_admin_router
     from apps.api.kb.routes import router as kb_router
     from apps.api.legal.routes import router as legal_readiness_router
     from apps.api.live.routes import router as live_router
@@ -456,6 +457,7 @@ def _mount_routers(application: FastAPI) -> None:
     # not load-bearing here.
     application.include_router(knowledge_gaps_router)
     application.include_router(kb_router)
+    application.include_router(kb_admin_router)
     application.include_router(live_router)
     application.include_router(teach_router)
     application.include_router(ingest_router)

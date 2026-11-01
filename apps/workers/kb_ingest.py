@@ -384,7 +384,10 @@ async def ingest_kb_source(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
         # Read ONCE. A re-drive of a row whose text is already stored must not read it
         # again: for a photograph that is a second paid model call, and it would replace the
         # chunks a reviewer is reading (or has approved) with a different reading.
-        if not text_is_read(kind=kind, status=status, provenance=row[7]):
+        # A PDF's and a link's words are read by `kb_read` below, not by the conversion lane.
+        if kind not in READ_COPY_KINDS and not text_is_read(
+            kind=kind, status=status, provenance=row[7]
+        ):
             await _mark(session, upload_id, UPLOAD_CONVERTING)
             extracted = await _extract(
                 session,
@@ -436,10 +439,11 @@ async def ingest_kb_source(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
                 review_state = "approved"
 
         if kind in READ_COPY_KINDS:
-            # A PDF's or a link's words, read into our copy BEFORE the publish so that,
-            # with `kb_send_extracted_files` on, the publish below sends them. A savepoint,
-            # because a failed reading must never cost the client the publish: the file or
-            # the address still goes to the platform as it always did.
+            # A PDF's or a link's words, read into our copy BEFORE the publish, because a
+            # PDF's words are what the publish below sends (D-868). A savepoint, because a
+            # failed reading must not cost the client the publish of a link, which goes as
+            # its address; a PDF with no words is withheld from the agents, and its row
+            # says why (`read_detail`).
             from apps.workers.kb_read import read_saved_copy
 
             try:

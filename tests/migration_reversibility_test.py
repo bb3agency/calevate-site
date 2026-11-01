@@ -127,6 +127,11 @@ DATA_ONLY_REPAIRS: dict[str, str] = {
         "stt_autodetect_language, which Settings no longer declares since D-939; no DDL, the "
         "DELETE is a no-op once done, and no revision reads either key"
     ),
+    "c4e8a2d6f1b3": (
+        "deletes the one platform_settings row stored under kb_send_extracted_files, which "
+        "Settings no longer declares since D-868; no DDL, the DELETE is a no-op once done, "
+        "and earlier code reads a missing row as the switch's default"
+    ),
 }
 
 #: What a schema change looks like in a migration's source. A revision claiming to be a

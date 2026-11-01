@@ -326,6 +326,12 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "GET /v1/kb/notes": BoundedByConstruction(
         by="one row per note name, `LIMIT 200` in `kb.store._NOTES_SQL`."
     ),
+    "GET /v1/admin/tenants/{tenant_id}/agents/{agent_id}/knowledge": BoundedByConstruction(
+        by=(
+            "ONE agent's items, each query read with `LIMIT kb.agent_view.MAX_ITEMS` and the "
+            "whole list cut to the same `MAX_ITEMS` (500)."
+        )
+    ),
     "GET /v1/kb/uploads/{upload_id}/text": BoundedByConstruction(
         by=(
             "one reading page: one PDF page or `kb.store.CHUNKS_PER_PART` chunks "

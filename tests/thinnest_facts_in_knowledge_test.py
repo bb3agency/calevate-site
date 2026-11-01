@@ -158,10 +158,14 @@ class _KbEngine(FakeEngine):
         super().__init__(name="thinnest", capabilities=THINNEST_CAPABILITIES)
         self.attached: list[tuple[str, str]] = []
         self.detached: list[str] = []
+        #: Every page posted as an address, refused or not.
+        self.linked: list[str] = []
 
     async def attach_kb(
         self, ref: EngineAgentRef, source: KBSourceRef, *, agent: AgentConfig | None = None
     ) -> EngineKBRef:
+        if source.source_url:
+            self.linked.append(source.source_url)
         handle = await super().attach_kb(ref, source, agent=agent)
         self.attached.append((source.title, source.text))
         return handle

@@ -3215,6 +3215,110 @@
         "title": "AgentDailySpendOut",
         "type": "object"
       },
+      "AgentKnowledgeItemOut": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "handle": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Handle"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "source_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Id"
+          },
+          "verdict": {
+            "enum": [
+              "held",
+              "missing",
+              "not_sent",
+              "not_ours"
+            ],
+            "title": "Verdict",
+            "type": "string"
+          }
+        },
+        "required": [
+          "verdict"
+        ],
+        "title": "AgentKnowledgeItemOut",
+        "type": "object"
+      },
+      "AgentKnowledgeOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AgentKnowledgeItemOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "listed": {
+            "title": "Listed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "agent_id",
+          "listed",
+          "items"
+        ],
+        "title": "AgentKnowledgeOut",
+        "type": "object"
+      },
       "AgentLanguageOut": {
         "properties": {
           "name": {
@@ -45190,6 +45294,22 @@
         "title": "RemoveContactsOut",
         "type": "object"
       },
+      "RemoveDocumentIn": {
+        "additionalProperties": false,
+        "properties": {
+          "handle": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Handle",
+            "type": "string"
+          }
+        },
+        "required": [
+          "handle"
+        ],
+        "title": "RemoveDocumentIn",
+        "type": "object"
+      },
       "RenameIn": {
         "additionalProperties": false,
         "properties": {
@@ -68203,6 +68323,111 @@
           "admin"
         ],
         "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/knowledge": {
+      "get": {
+        "description": "Our copies (held, or missing on the platform), the client's live items not on this agent and why, and documents the platform holds that we did not send.",
+        "operationId": "admin_agent_knowledge_v1_admin_tenants__tenant_id__agents__agent_id__knowledge_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentKnowledgeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Everything one agent holds on the voice platform",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/knowledge/remove": {
+      "post": {
+        "description": "Deletes, on the voice platform, a document this agent holds that no record of ours names. 409 for one of the client's own items (removed from their page instead); 404 when the agent does not hold it.",
+        "operationId": "admin_remove_unrecorded_document_v1_admin_tenants__tenant_id__agents__agent_id__knowledge_remove_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoveDocumentIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Remove a document we did not send from one agent",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "agents:write"
       }
     },
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/lead-suggestions": {

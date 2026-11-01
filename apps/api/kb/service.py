@@ -53,12 +53,12 @@ from apps.api.agents.t0 import KnowledgeFact, recompile_t0
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
-from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.db.transition import transition_status
 from apps.api.engine import get_engine, require_capability
-from apps.api.kb.models import KB_STATUSES, READ_COPY_KINDS
+from apps.api.engine.capabilities import ENGINE_KB_LINK_UNREADABLE
+from apps.api.kb.models import KB_STATUSES, READ_COPY_KINDS, READ_READY
 from apps.api.kb.pdf_render import (
     ApprovedChunk,
     EmptyKnowledgeError,
@@ -722,77 +722,62 @@ async def reject_source(session: AsyncSession, *, source_id: UUID, reason: str) 
     )
 
 
-def extracted_text_reaches_agents() -> bool:
-    """Do the words we read out of a PDF or a web page go to the agents? (D-893 L8)
-
-    The console switch `kb_send_extracted_files`, read per use. Off, a PDF or a link is
-    delivered exactly as before its words were read — the file, or nothing — so the copy
-    serves the client's reader and Pip alone. Every path that hands knowledge to an agent
-    asks this through `_DELIVERED_HEAD`: the engine document (`_chunks_of`), the T0 block
-    (`active_knowledge`) and its glosses (`live_glosses`).
-    """
-    return get_settings().kb_send_extracted_files
-
-
 def upload_reaches_agents(*, source_kind: str, read_state: str | None) -> bool:
-    """Do this upload's words reach the agents? Every converted kind's text is what they
-    are sent; a PDF's or link's words only while the switch is on and they were read."""
-    if source_kind not in READ_COPY_KINDS:
-        return True
-    return extracted_text_reaches_agents() and read_state == "ready"
+    """Does what this upload says reach the agents (D-868)? Every converted kind's text is
+    what they are sent; a PDF's words once we have read them (`kb_read`), since the platform
+    takes text and not files; a link always, because it is sent as its address and the
+    platform fetches the page itself. A link the platform could not read is an `error` on
+    the row, which every screen shows ahead of this."""
+    if source_kind == "pdf":
+        return read_state == READ_READY
+    return True
 
 
-#: The source reaches the agents: it is not a PDF or link, or their words are sent. One
-#: predicate for every delivery read, so the engine document and the T0 block cannot
-#: disagree about what an agent was given; spelled once per alias it is joined on.
+#: The source's words are what the agents are sent: everything but a link, whose read copy
+#: is ours (the reader, Pip, search) while the agent answers from the page the platform
+#: fetched (D-868). One predicate for every delivery read, so the engine document and the
+#: T0 block cannot disagree about what an agent was given; spelled once per alias it is
+#: joined on. A PDF needs no clause: its chunks exist only once its words were read.
 _DELIVERED_HEAD = (
-    "(CAST(:send_extracted AS boolean) OR NOT EXISTS (SELECT 1 FROM kb_uploads ku "
-    "WHERE ku.source_kind = ANY(CAST(:copy_kinds AS text[])) AND ku.source_id = "
+    "NOT EXISTS (SELECT 1 FROM kb_uploads ku WHERE ku.source_kind = 'url' AND ku.source_id = "
 )
-_DELIVERED_BY_DOCUMENT = _DELIVERED_HEAD + "d.source_id))"
-_DELIVERED_BY_SOURCE = _DELIVERED_HEAD + "s.id))"
-
-
-def _delivery_params() -> dict[str, Any]:
-    return {
-        "send_extracted": extracted_text_reaches_agents(),
-        "copy_kinds": list(READ_COPY_KINDS),
-    }
+_DELIVERED_BY_DOCUMENT = _DELIVERED_HEAD + "d.source_id)"
+_DELIVERED_BY_SOURCE = _DELIVERED_HEAD + "s.id)"
 
 
 async def _chunks_of(session: AsyncSession, source_id: UUID) -> list[str]:
-    """The approved chunks of one source, in reading order — one engine document.
-
-    Empty for a PDF or a link while their words are not sent (`extracted_text_reaches_
-    agents`): their chunks are our readable copy, and the engine is handed the file or the
-    address as it always was.
-    """
+    """The approved chunks of one source, in reading order — one engine document. Empty
+    for a link, which is sent as its address (`_DELIVERED_HEAD`)."""
     rows = (
         await session.execute(
             text(
                 "SELECT d.content FROM kb_documents d WHERE d.source_id = :sid AND "
                 f"{_DELIVERED_BY_DOCUMENT} ORDER BY d.idx"
             ),
-            {"sid": source_id, **_delivery_params()},
+            {"sid": source_id},
         )
     ).scalars()
     return [str(chunk) for chunk in rows]
 
 
 def _withheld_from_engine(
-    engine: VoiceEngine, text_sent: str, *, source_id: UUID, agent_id: UUID | None = None
+    engine: VoiceEngine,
+    text_sent: str,
+    *,
+    source_id: UUID,
+    url: str | None = None,
+    agent_id: UUID | None = None,
 ) -> bool:
     """Is this source NOT attached, because the engine could hold nothing of it?
 
-    On a text-only knowledge base (`EngineCapabilities.kb_text_only`) a PDF or link whose
-    words are not sent (`extracted_text_reaches_agents` off, or never read) has no text,
-    and attaching it would post a blank document named after the client's file. Such a
-    source is skipped, not failed: the publish goes on, and a copy an agent already holds
-    is withdrawn as a stale one is, so turning the switch off takes the words back off
-    the agents. When its text is sent again the next publish or catch-up attaches it.
-    Every path that hands a source to `attach_kb` asks this, so they cannot disagree.
+    On a text-only knowledge base (`EngineCapabilities.kb_text_only`) a PDF with no words we
+    could read has no text, and attaching it would post a blank document named after the
+    client's file. Such a source is skipped, not failed: the publish goes on, and a copy an
+    agent already holds is withdrawn as a stale one is. Once "Read it again" finds words, the
+    next publish or catch-up attaches it. Every path that hands a source to `attach_kb` asks
+    this, so they cannot disagree.
     """
-    if engine.capabilities.kb_can_hold(text_sent):
+    if engine.capabilities.kb_can_hold(text_sent, url=url):
         return False
     log.info(
         "kb_source_withheld_no_text",
@@ -801,19 +786,49 @@ def _withheld_from_engine(
     return True
 
 
+#: Links the platform refused as unreadable (`ENGINE_KB_LINK_UNREADABLE`, recorded on the row
+#: as `error`): the catch-up does not post a page that answered 422 again on every sweep.
+_REFUSED_LINKS_SQL = (
+    "SELECT source_id FROM kb_uploads WHERE source_id = ANY(:ids) AND source_kind = 'url' "
+    "AND ingest_status = 'error'"
+)
+
+
+async def _refused_links(session: AsyncSession, source_ids: Iterable[UUID]) -> set[UUID]:
+    """The links among `source_ids` the platform refused. Not attached again by the
+    catch-up; a copy an agent already holds stays, since it was readable when fetched."""
+    rows = await session.execute(text(_REFUSED_LINKS_SQL), {"ids": list(source_ids)})
+    return {UUID(str(sid)) for sid in rows.scalars()}
+
+
 async def _withheld_sources(
     session: AsyncSession, engine: VoiceEngine, source_ids: Iterable[UUID]
 ) -> set[UUID]:
     """The sources among `source_ids` the engine could hold nothing of, by the same rule
     as `_withheld_from_engine`. Not logged per source: the catch-up asks on every pass,
     and a settled agent must not log the same PDF every sweep."""
+    withheld: set[UUID] = set()
     if not engine.capabilities.kb_text_only:
-        return set()  # every source is holdable; no reads
-    return {
-        source_id
-        for source_id in source_ids
-        if not engine.capabilities.kb_can_hold("\n\n".join(await _chunks_of(session, source_id)))
-    }
+        return withheld
+    for source_id in source_ids:
+        chunks = await _chunks_of(session, source_id)
+        url = await _link_of(session, source_id)
+        if not engine.capabilities.kb_can_hold("\n\n".join(chunks), url=url):
+            withheld.add(source_id)
+    return withheld
+
+
+async def _link_of(session: AsyncSession, source_id: UUID) -> str | None:
+    """The page a link source is sent as, or None for every other source."""
+    value = (
+        await session.execute(
+            text(
+                "SELECT source_url FROM kb_uploads WHERE source_id = :sid AND source_kind = 'url'"
+            ),
+            {"sid": source_id},
+        )
+    ).scalar()
+    return str(value) if value else None
 
 
 def _engine_name() -> str:
@@ -1608,8 +1623,8 @@ async def active_knowledge(session: AsyncSession, *, tenant_id: UUID) -> list[Kn
     reshuffle every fact each time one unrelated source was updated, minting a prompt
     version that changed nothing but line order.
 
-    PER TENANT (D-689): every agent of the client compiles the same knowledge half. A PDF or
-    a link counts only while their read words are sent (`extracted_text_reaches_agents`).
+    PER TENANT (D-689): every agent of the client compiles the same knowledge half. A link's
+    read copy does not count: the agents answer from the page itself (`_DELIVERED_HEAD`).
 
     This is the half of the recompile that belongs to the KB — "what is live" is a
     question about `kb_sources.is_active`, which only `publish_source` ever sets — and
@@ -1625,7 +1640,7 @@ async def active_knowledge(session: AsyncSession, *, tenant_id: UUID) -> list[Kn
                 f"WHERE s.tenant_id = :tid AND s.is_active = true AND {_DELIVERED_BY_SOURCE} "
                 "GROUP BY s.id, s.name ORDER BY s.name"
             ),
-            {"tid": tenant_id, **_delivery_params()},
+            {"tid": tenant_id},
         )
     ).all()
     return [KnowledgeFact(name=str(row[0]), text=str(row[1] or "")) for row in rows]
@@ -1641,7 +1656,6 @@ async def delivered_source_count(session: AsyncSession) -> int:
                     "AND EXISTS (SELECT 1 FROM kb_documents d WHERE d.source_id = s.id) "
                     f"AND {_DELIVERED_BY_SOURCE}"
                 ),
-                _delivery_params(),
             )
         ).scalar_one()
     )
@@ -1670,9 +1684,9 @@ async def live_chunks(session: AsyncSession, *, tenant_id: UUID) -> list[LiveChu
 
     The twin of `active_knowledge` for a reader that needs the chunks rather than whole
     sources: "live" is `s.is_active`, which only `publish_source` sets, so the approval gate
-    is inherited, and a PDF's or link's read words count only while they are sent
-    (`extracted_text_reaches_agents`), so a fact chosen by heart is never one the agents are
-    not otherwise given. `tenant_id` is restated on top of RLS for `live_glosses`' reason.
+    is inherited, and a link's read copy does not count (`_DELIVERED_HEAD`), so a fact chosen
+    by heart is never one the agents are not otherwise given. `tenant_id` is restated on top
+    of RLS for `live_glosses`' reason.
     """
     rows = (
         await session.execute(
@@ -1682,7 +1696,7 @@ async def live_chunks(session: AsyncSession, *, tenant_id: UUID) -> list[LiveChu
                 f"WHERE s.tenant_id = :tid AND s.is_active = true AND {_DELIVERED_BY_SOURCE} "
                 "ORDER BY s.name, d.idx LIMIT :cap"
             ),
-            {"tid": tenant_id, "cap": MAX_LIVE_CHUNKS, **_delivery_params()},
+            {"tid": tenant_id, "cap": MAX_LIVE_CHUNKS},
         )
     ).all()
     return [
@@ -1719,10 +1733,25 @@ async def live_glosses(session: AsyncSession, *, tenant_id: UUID) -> list[tuple[
                 "WHERE s.tenant_id = :tid AND s.is_active = true AND d.gloss IS NOT NULL "
                 f"AND {_DELIVERED_BY_SOURCE} GROUP BY s.id, s.name ORDER BY s.name"
             ),
-            {"tid": tenant_id, **_delivery_params()},
+            {"tid": tenant_id},
         )
     ).all()
     return [(str(r[0]), str(r[1])) for r in rows if r[1]]
+
+
+async def record_link_refusal(
+    session: AsyncSession, *, source_id: UUID, refusal: ProblemError
+) -> None:
+    """Put the platform's reason a page could not be read on the client's item, as the
+    `error` the ingest job records for a refused publish (`kb_ingest._fail`)."""
+    await session.execute(
+        text(
+            "UPDATE kb_uploads SET ingest_status = 'error', ingest_detail = :detail, "
+            "updated_at = now() WHERE source_id = :sid AND source_kind = 'url'"
+        ),
+        {"sid": source_id, "detail": f"{refusal.detail} {refusal.remediation or ''}".strip()},
+    )
+    log.warning("kb_link_refused", extra={"source_id": str(source_id), "code": refusal.code})
 
 
 async def _upload_row(session: AsyncSession, source_id: UUID) -> dict[str, Any] | None:
@@ -1790,12 +1819,12 @@ async def _publish_payload(
     * **Typed text, and any upload the conversion lane read into text** (Word,
       spreadsheets, CSV, plain text, photographs) renders the approved chunks to a PDF,
       exactly as before. There is ONE text→PDF renderer in this repository and this is it.
-    * **An uploaded PDF** is sent as the client's own bytes and is NOT re-rendered: the
-      artefact a human reviewed IS the document, and rendering a second one from it would
-      publish something nobody read.
-    * **A link** sends no bytes at all; the engine scrapes the page itself.
-    * With `kb_send_extracted_files` on, a PDF and a link also send the words we read out of
-      them, as the document's text (`_chunks_of`, `_with_sent_text`).
+    * **An uploaded PDF** sends the words we read out of it (`apps/workers/kb_read.py`) as
+      the document's text, and its own bytes for an engine that ingests files; it is NOT
+      re-rendered, because rendering a second document from it would publish something
+      nobody read. ThinnestAI takes no file over its API (add-knowledge-document.md:7) and
+      reads no scan (pages/agent/knowledge.md:39-53), which is why the words are ours.
+    * **A link** sends its address and nothing else; the engine fetches the page itself.
 
     THE DIGEST IS RECOMPUTED OVER THE BYTES WE ACTUALLY READ rather than trusted from the
     row. `kb_uploads.document_sha256` is written when the object is stored, and the object
@@ -1817,8 +1846,7 @@ async def _publish_payload(
 
     if upload["source_kind"] == "url":
         url = str(upload["source_url"])
-        digest = _link_digest(url=url, content_digest=upload["content_digest"])
-        return None, url, await _with_sent_text(session, source_id, digest)
+        return None, url, _link_digest(url=url, content_digest=upload["content_digest"])
 
     key = upload["document_key"]
     if not key:
@@ -1855,13 +1883,9 @@ async def _publish_payload(
 
 
 async def _with_sent_text(session: AsyncSession, source_id: UUID, digest: str) -> str:
-    """A PDF's or link's publish identity, extended by the words sent with it, if any.
-
-    With `kb_send_extracted_files` off nothing is added, so the identity of every copy the
-    agents already hold is unchanged and no publish re-sends it. On, the text is part of
-    what the agent holds, so flipping the switch (or a re-read that changed the words)
-    moves the digest and the re-upload guard sends the new copy instead of skipping it.
-    """
+    """A PDF's publish identity, extended by the words sent with it. The words are what
+    the agent holds, so a re-read that changed them moves the digest and the re-upload
+    guard sends the new copy instead of skipping it."""
     chunks = await _chunks_of(session, source_id)
     if not chunks:
         return digest
@@ -1953,7 +1977,9 @@ async def _attach_to_agent(
     )
     minted: str | None = None
     attached_ref: str | None
-    if _withheld_from_engine(engine, payload.text, source_id=source_id, agent_id=agent_id):
+    if _withheld_from_engine(
+        engine, payload.text, source_id=source_id, url=payload.source_url, agent_id=agent_id
+    ):
         # Nothing attached; a copy this agent holds of it comes down with the superseded ones.
         if own_handle is not None:
             withdraw.append((source_id, own_handle))
@@ -2497,16 +2523,19 @@ async def converge_agent_knowledge(
     ).all()
     # A live source the engine could hold nothing of is neither attached nor kept: a copy
     # this agent holds of it is withdrawn with the archived ones (`_withheld_from_engine`).
-    withheld = await _withheld_sources(session, engine, [UUID(str(row[0])) for row in live])
+    live_ids = [UUID(str(row[0])) for row in live]
+    withheld = await _withheld_sources(session, engine, live_ids)
+    # A refused page is not posted again on every sweep; the client's item says why.
+    skipped = withheld | await _refused_links(session, live_ids)
     missing = [
         (UUID(str(row[0])), str(row[1]))
         for row in live
-        if UUID(str(row[0])) not in held_ids and UUID(str(row[0])) not in withheld
+        if UUID(str(row[0])) not in held_ids and UUID(str(row[0])) not in skipped
     ]
     replace = [
         (UUID(str(row[0])), str(row[1]))
         for row in live
-        if UUID(str(row[0])) in outdated and UUID(str(row[0])) not in withheld
+        if UUID(str(row[0])) in outdated and UUID(str(row[0])) not in skipped
     ]
     stale = [
         (UUID(str(row[0])), str(row[1]))
@@ -2535,7 +2564,15 @@ async def converge_agent_knowledge(
                 source_url=source_url,
                 digest=digest,
             )
-            handle = await engine.attach_kb(ref, payload.ref(source_id, name), agent=config)
+            try:
+                handle = await engine.attach_kb(ref, payload.ref(source_id, name), agent=config)
+            except ProblemError as refusal:
+                if refusal.code != ENGINE_KB_LINK_UNREADABLE:
+                    raise
+                # One unreadable page must not keep the agent's other sources off it; the
+                # reason goes on the client's item and the sweep stops posting the page.
+                await record_link_refusal(session, source_id=source_id, refusal=refusal)
+                continue
             minted.append((source_id, handle, digest))
             if source_id not in outdated:
                 await _remember_engine_kb_ref(
@@ -2996,7 +3033,6 @@ __all__ = [
     "chunk_text",
     "converge_agent_knowledge",
     "delivered_source_count",
-    "extracted_text_reaches_agents",
     "knowledge_agents",
     "list_sources",
     "live_chunks",
@@ -3006,6 +3042,7 @@ __all__ = [
     "publish_lock_key",
     "publish_source",
     "publish_unless_superseded",
+    "record_link_refusal",
     "recorded_handles_of_agent",
     "refresh_projection_keys",
     "reject_source",
