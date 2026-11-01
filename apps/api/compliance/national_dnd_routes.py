@@ -262,10 +262,22 @@ async def suppress_globally(
 )
 async def list_global(
     session: GlobalSession,
-    _: Operator,
+    request: Request,
+    principal: Operator,
     limit: int = Query(default=100, ge=1, le=dnc.MAX_LIST),
 ) -> list[GlobalEntryOut]:
     entries = await dnc.list_global_entries(session, limit=limit)
+    # Up to MAX_LIST people's numbers in full (D-436) is an admin read of personal data
+    # (SEC-COMP §5), as `find_global` is for one; the row carries the count, never a number.
+    await write_audit(
+        session,
+        action="ops.dnc_global_listed",
+        actor=principal,
+        object_type="dnc_list",
+        object_id=None,
+        ip=client_request_ip(request),
+        summary={"returned": len(entries)},
+    )
     return [
         GlobalEntryOut(
             id=entry.id,

@@ -402,6 +402,18 @@ async def test_the_ops_surface_is_step_up_confirmed_and_audited_without_naming_t
     assert row is not None, "suppressing a number for every tenant must leave a record"
     assert (row[0], row[1]) == ("admin", "dnc_list")
 
+    async with untenanted_session() as session:
+        listed_row = (
+            await session.execute(
+                text(
+                    "SELECT actor_type, object_type FROM audit_log "
+                    "WHERE action = 'ops.dnc_global_listed' ORDER BY created_at DESC LIMIT 1"
+                )
+            )
+        ).first()
+    assert listed_row is not None, "reading every suppressed number is an audited admin read"
+    assert (listed_row[0], listed_row[1]) == ("admin", "dnc_list")
+
 
 async def test_a_global_entry_is_lifted_by_ops_and_by_nobody_else() -> None:
     """The two halves of `remove_entry`'s `dnc_global_entry` refusal, which named a desk
