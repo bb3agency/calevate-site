@@ -583,7 +583,7 @@ export function StatusBadge({
   const tones = kind === "lead" ? LEAD_STATUS_TONES : CALL_STATUS_TONES;
   return (
     <StatusPill tone={lookup(tones, value) ?? "neutral"}>
-      {kind === "call" ? sentenceCase(value) : value.replace(/_/g, " ")}
+      {sentenceCase(value)}
     </StatusPill>
   );
 }

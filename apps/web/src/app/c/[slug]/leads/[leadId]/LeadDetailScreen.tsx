@@ -316,7 +316,7 @@ export function LeadDetailScreen({ slug, leadId }: { slug: string; leadId: strin
                 label={`Stage for ${lead.data.name ?? lead.data.phone_e164}`}
                 disabled={!mayAssign.allowed || editLead.isPending}
                 onChange={(next) => editing.run({ leadId, edit: { status: next } })}
-                className="h-9 rounded-md border border-line bg-surface px-2 text-sm capitalize text-ink disabled:cursor-not-allowed disabled:opacity-50 touch:min-h-11"
+                className="h-9 rounded-md border border-line bg-surface px-2 text-sm text-ink disabled:cursor-not-allowed disabled:opacity-50 touch:min-h-11"
               />
             </div>
             <div className="flex flex-col gap-1">

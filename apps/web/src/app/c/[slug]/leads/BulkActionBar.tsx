@@ -15,6 +15,8 @@ import type {
   Member,
 } from "@/lib/api/leads";
 
+import { STATUSES, stageLabel } from "./StatusSelect";
+
 /**
  * Bulk actions on the leads table — the half slice Z deferred, and its guardrails.
  *
@@ -71,9 +73,6 @@ import type {
 
 /** Above this many rows the confirmation is typed. See the header for why it is the count. */
 export const TYPED_CONFIRMATION_FROM = 25;
-
-/** Fixed enum (D-21) — the same six the table's chips and selects offer. */
-const STATUSES: LeadStatus[] = ["new", "contacted", "interested", "hot", "won", "lost"];
 
 export interface BulkSelection {
   /** Ticked row ids. Empty when the whole filtered query is selected instead. */
@@ -184,7 +183,7 @@ export function BulkActionBar({
 
   const verb =
     action === "status"
-      ? `Set the stage to “${status}”`
+      ? `Set the stage to “${stageLabel(status)}”`
       : assignTo === ""
         ? "Remove the owner"
         : `Give these to ${members?.find((m) => m.id === assignTo)?.name ?? "the chosen colleague"}`;
@@ -255,11 +254,11 @@ export function BulkActionBar({
             aria-label="New stage"
             value={status}
             onChange={(e) => setStatus(e.target.value as LeadStatus)}
-            className={`${FIELD_INLINE} capitalize touch:min-h-11`}
+            className={`${FIELD_INLINE} touch:min-h-11`}
           >
             {STATUSES.map((s) => (
               <option key={s} value={s}>
-                {s}
+                {stageLabel(s)}
               </option>
             ))}
           </select>

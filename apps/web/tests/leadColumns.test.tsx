@@ -1,7 +1,8 @@
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import LeadsPage from "@/app/c/[slug]/leads/page";
+import { StatusSelect } from "@/app/c/[slug]/leads/StatusSelect";
 import type { Agent } from "@/lib/api/agents";
 import type { Me } from "@/lib/api/client";
 import type { Lead } from "@/lib/api/leads";
@@ -452,5 +453,14 @@ describe("saved views", () => {
       alerts.some((a) => a.textContent?.includes("Service unavailable")),
     ).toBe(true);
     expect(screen.queryByLabelText("Saved view")).toBeNull();
+  });
+});
+
+describe("the stage control", () => {
+  it("offers each stage as a word, not the wire value", () => {
+    render(<StatusSelect value="hot" label="Stage" disabled={false} onChange={() => {}} className="" />);
+    const options = Array.from(screen.getByRole("combobox", { name: "Stage" }).querySelectorAll("option"));
+    expect(options.map((o) => o.textContent)).toEqual(["New", "Contacted", "Interested", "Hot", "Won", "Lost"]);
+    expect(options.map((o) => o.value)).toEqual(["new", "contacted", "interested", "hot", "won", "lost"]);
   });
 });

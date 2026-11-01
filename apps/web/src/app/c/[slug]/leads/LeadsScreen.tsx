@@ -41,7 +41,7 @@ import { LeadTable } from "./LeadTable";
 import { LeadsFooter } from "./LeadsFooter";
 import { LeadsToolbar } from "./LeadsToolbar";
 import { MoreFilters, capturedFieldsOf } from "./MoreFilters";
-import { STATUSES } from "./StatusSelect";
+import { STATUSES, stageLabel } from "./StatusSelect";
 import { narrowedBeyondStatus } from "./leadFilters";
 import { PAGE_SIZE, exportRefusal, scopeLabel } from "./leadsTable";
 import { useLeadRowKit } from "./useLeadRowKit";
@@ -271,7 +271,7 @@ export function LeadsScreen() {
             { value: "", label: "All" },
             ...STATUSES.map((s) => ({
               value: s,
-              label: s.charAt(0).toUpperCase() + s.slice(1),
+              label: stageLabel(s),
               count: leads.data ? formatCount(stageCount(s)) : undefined,
             })),
           ]}

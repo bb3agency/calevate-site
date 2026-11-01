@@ -196,7 +196,7 @@ export function useLeadRowKit({
               label={`Status for ${lead.name ?? lead.phone_e164}`}
               disabled={rows.pendingFor(lead.id) || readOnly}
               onChange={(next) => rows.edit(lead.id, { status: next })}
-              className={`${INLINE_EDIT} capitalize hover:border-line`}
+              className={`${INLINE_EDIT} hover:border-line`}
             />
             <span className="block px-1 text-meta text-ink-faint">{stageSetBy(lead.status_set_by)}</span>
           </span>

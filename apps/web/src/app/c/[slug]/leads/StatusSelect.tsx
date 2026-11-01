@@ -14,6 +14,14 @@ import type { LeadStatus } from "@/lib/api/leads";
 export const STATUSES: LeadStatus[] = ["new", "contacted", "interested", "hot", "won", "lost"];
 
 /**
+ * A stage as a reader sees it ("Hot"). Spelled in the text rather than by CSS
+ * `capitalize`, which a native `<select>`'s option list does not reliably honour.
+ */
+export function stageLabel(stage: string): string {
+  return stage.charAt(0).toUpperCase() + stage.slice(1);
+}
+
+/**
  * The stage control. The caller supplies the accessible name (each row's names its own
  * lead) and the classes, because the table cell, the board card and the detail header
  * dress it differently while the options must never differ.
@@ -41,7 +49,7 @@ export function StatusSelect({
     >
       {STATUSES.map((s) => (
         <option key={s} value={s}>
-          {s}
+          {stageLabel(s)}
         </option>
       ))}
     </select>

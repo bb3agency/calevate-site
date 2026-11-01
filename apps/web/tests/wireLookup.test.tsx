@@ -228,7 +228,8 @@ describe("StatusBadge with a status off the wire", () => {
       expect(span?.getAttribute("data-tone"), inherited).toBe("neutral");
       // The status itself is still printed: a value we have no colour for is exactly
       // the one worth reading.
-      expect(span?.textContent, inherited).toBe(inherited.replace(/_/g, " "));
+      const words = inherited.replace(/_/g, " ");
+      expect(span?.textContent, inherited).toBe(words.charAt(0).toUpperCase() + words.slice(1));
       unmount();
     }
   });
@@ -236,5 +237,6 @@ describe("StatusBadge with a status off the wire", () => {
   it("still colours a status it knows", () => {
     const { container } = render(<StatusBadge value="won" />);
     expect(container.querySelector("span")?.getAttribute("data-tone")).toBe("ok");
+    expect(container.querySelector("span")?.textContent).toBe("Won");
   });
 });
