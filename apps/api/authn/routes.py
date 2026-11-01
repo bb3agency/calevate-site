@@ -110,7 +110,7 @@ from apps.api.authn.cookies import (
     set_session_cookie,
 )
 from apps.api.authn.hashing import MAX_PASSWORD_CHARS, MIN_PASSWORD_CHARS
-from apps.api.authn.models import AUTHN_REALMS
+from apps.api.authn.models import refuse_unknown_realm
 from apps.api.authn.sessions import (
     IssuedSession,
     SessionPolicy,
@@ -394,8 +394,7 @@ def _set_cookie(response: Response, request: Request, realm: str, issued: Issued
 
 def _realm_router(realm: str) -> APIRouter:
     """One realm's complete authentication surface. See the module docstring."""
-    if realm not in AUTHN_REALMS:
-        raise ValueError(f"{realm!r} is not an authentication realm")
+    refuse_unknown_realm(realm)
 
     router = APIRouter(prefix=f"/v1/auth/{realm}", tags=[f"auth-{realm}"])
 

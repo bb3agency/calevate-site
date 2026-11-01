@@ -18895,6 +18895,7 @@
         "type": "object"
       },
       "CostPerResultOut": {
+        "additionalProperties": false,
         "properties": {
           "billing_step_seconds": {
             "title": "Billing Step Seconds",
@@ -18916,6 +18917,7 @@
         "type": "object"
       },
       "CostWindowOut": {
+        "additionalProperties": false,
         "properties": {
           "answered_calls": {
             "title": "Answered Calls",
@@ -20134,6 +20136,7 @@
         "type": "object"
       },
       "DailySummaryOut": {
+        "additionalProperties": false,
         "description": "The owner's daily summary switch (D-944) and where it would go.",
         "properties": {
           "email_addresses": {
@@ -25541,6 +25544,7 @@
         "type": "object"
       },
       "FleetReplySpeedOut": {
+        "additionalProperties": false,
         "properties": {
           "clients": {
             "title": "Clients",
@@ -28480,6 +28484,7 @@
         "type": "object"
       },
       "HeldLeadOut": {
+        "additionalProperties": false,
         "properties": {
           "agent_id": {
             "format": "uuid",
@@ -28541,6 +28546,7 @@
         "type": "object"
       },
       "HeldLeadsOut": {
+        "additionalProperties": false,
         "properties": {
           "items": {
             "items": {
@@ -32204,6 +32210,7 @@
         "type": "object"
       },
       "LeadCallingOut": {
+        "additionalProperties": false,
         "properties": {
           "after_hours": {
             "enum": [
@@ -37049,6 +37056,7 @@
         "type": "object"
       },
       "NewLeadsFollowUpOut": {
+        "additionalProperties": false,
         "description": "The Follow-up new leads start (normally \"Call new leads\"), so the screen can say when\nit is off and offer to turn it back on.",
         "properties": {
           "id": {
@@ -45495,6 +45503,7 @@
         "type": "object"
       },
       "ReleasedOut": {
+        "additionalProperties": false,
         "properties": {
           "callback_id": {
             "format": "uuid",
@@ -45740,6 +45749,7 @@
         "type": "object"
       },
       "ReplySpeedOut": {
+        "additionalProperties": false,
         "description": "Per IST week, oldest first: the week's `all` row, then one per language.",
         "properties": {
           "current_week_partial": {
@@ -62195,6 +62205,7 @@
         "type": "object"
       },
       "WeekSpeed": {
+        "additionalProperties": false,
         "properties": {
           "answered": {
             "title": "Answered",

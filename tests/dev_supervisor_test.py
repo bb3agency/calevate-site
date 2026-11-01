@@ -254,3 +254,10 @@ def test_off_windows_every_ctrl_c_is_a_person(monkeypatch: pytest.MonkeyPatch) -
     now = time.monotonic()
     monkeypatch.setattr(dev, "_last_reload", [(now, "api")])
     assert dev._reload_echo(now) is None
+
+
+def test_the_supervisor_stamps_its_lines_in_ist_whatever_the_host_zone() -> None:
+    """Its lines interleave with the services', which `core/logging` stamps in IST."""
+    from datetime import UTC, datetime
+
+    assert dev._stamp(datetime(2026, 11, 1, 0, 0, 0, tzinfo=UTC)) == "05:30:00"

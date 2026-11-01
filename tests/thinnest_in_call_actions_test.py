@@ -27,6 +27,7 @@ from zoneinfo import ZoneInfo
 import httpx
 import pytest
 from apps.api.agents.test_window import open_window
+from apps.api.core.envelope import envelope_from_row
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
@@ -45,7 +46,6 @@ from apps.api.reliability.engine_actions import (
     check_agent_actions,
     definitions,
     ensure_agent_actions,
-    envelope_of,
     open_action_secret,
     retire_agent_actions,
 )
@@ -199,7 +199,7 @@ async def _held_secret(tenant_id: uuid.UUID, ref: str) -> str | None:
                 {"ref": ref},
             )
         ).one()
-    envelope = envelope_of(tuple(row))
+    envelope = envelope_from_row(tuple(row))
     return (
         None
         if envelope is None

@@ -62,7 +62,7 @@ def _admin_out(state: service.CopyState | None) -> AdminBusinessCopyOut:
 async def _require_tenant(session: AsyncSession, tenant_id: UUID) -> None:
     """A uuid naming nobody is a 404, never an empty copy for an absent account."""
     if not await tenant_exists(session, tenant_id):
-        raise ProblemError.not_found("Organization")
+        raise ProblemError.not_found("Client")
 
 
 @router.get(

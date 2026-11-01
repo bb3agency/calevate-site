@@ -151,7 +151,7 @@ from typing import Final
 
 from fastapi import Request, Response
 
-from apps.api.authn.models import AUTHN_REALMS
+from apps.api.authn.models import AUTHN_REALMS, refuse_unknown_realm
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 
@@ -182,14 +182,9 @@ _INSECURE_PREFIX_STRIP: Final = "__Host-"
 COOKIE_PERSISTENCE: Final[dict[str, bool]] = {"admin": False, "client": True}
 
 
-def _refuse_unknown_realm(realm: str) -> None:
-    if realm not in AUTHN_REALMS:
-        raise ValueError(f"{realm!r} is not an authentication realm")
-
-
 def cookie_name(realm: str, *, secure: bool = True) -> str:
     """The cookie this realm's session lives in."""
-    _refuse_unknown_realm(realm)
+    refuse_unknown_realm(realm)
     name = COOKIE_NAMES[realm]
     return name if secure else name.removeprefix(_INSECURE_PREFIX_STRIP)
 
@@ -285,7 +280,7 @@ def session_cookie_max_age(
     anyway. Clamping to one second would hand out a credential we know is dead; raising
     would turn a clock skew into a failed sign-in.
     """
-    _refuse_unknown_realm(realm)
+    refuse_unknown_realm(realm)
     if not (COOKIE_PERSISTENCE[realm] or stay_signed_in):
         return None
     at = now or datetime.now(UTC)

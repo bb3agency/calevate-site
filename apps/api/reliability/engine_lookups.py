@@ -23,14 +23,14 @@ goes ahead without them"). The drift sweep converges it and alarms when it had t
 
 from __future__ import annotations
 
-from typing import Any, Final, Literal
+from typing import Final, Literal
 from urllib.parse import urlencode
 from uuid import UUID
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.core.envelope import Envelope, seal, unseal
+from apps.api.core.envelope import Envelope, envelope_from_row, seal, unseal
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings, is_public_callback_base
@@ -68,19 +68,6 @@ def call_start_secret_context(engine: str, engine_agent_ref: str) -> str:
     return f"engine_call_start_secret:{engine}:{engine_agent_ref}"
 
 
-def envelope_of(row: tuple[Any, ...]) -> Envelope | None:
-    if any(value is None for value in row):
-        return None
-    ct, nonce, dw, dn, kek = row
-    return Envelope(
-        ciphertext=bytes(ct),
-        nonce=bytes(nonce),
-        dek_wrapped=bytes(dw),
-        dek_nonce=bytes(dn),
-        kek_id=int(kek),
-    )
-
-
 def open_call_start_secret(envelope: Envelope, *, engine: str, engine_agent_ref: str) -> str | None:
     """The plaintext, or None when no configured key opens it (`unseal` logged why)."""
     try:
@@ -106,7 +93,7 @@ async def read_call_start_secret(
     ).first()
     if row is None or not row[7]:
         return False, None, None, None
-    envelope = envelope_of(tuple(row[:5]))
+    envelope = envelope_from_row(tuple(row[:5]))
     secret = (
         open_call_start_secret(envelope, engine=engine, engine_agent_ref=engine_agent_ref)
         if envelope is not None

@@ -131,7 +131,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.authn.models import AUTHN_REALMS
+from apps.api.authn.models import refuse_unknown_realm
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
@@ -214,7 +214,7 @@ class SessionPolicy:
 
 def session_policy(realm: str, *, switch_on: bool, second_factor_proved: bool) -> SessionPolicy:
     """The policy for a session of `realm`, given its account's switch and its MFA state."""
-    _refuse_unknown_realm(realm)
+    refuse_unknown_realm(realm)
     if realm == STAY_SIGNED_IN_REALM and switch_on and second_factor_proved:
         return SessionPolicy(timeouts=STAY_SIGNED_IN_TIMEOUTS, stay_signed_in=True)
     return SessionPolicy(timeouts=REALM_TIMEOUTS[realm], stay_signed_in=False)
@@ -354,14 +354,6 @@ class SessionOutcome:
         return self.session
 
 
-def _refuse_unknown_realm(realm: str) -> None:
-    if realm not in AUTHN_REALMS:
-        # A programming error, not a caller error: `realm` is never taken from the wire,
-        # it is chosen by whichever dependency is asking. Refusing loudly beats writing a
-        # row into a realm the CHECK constraint would reject three statements later.
-        raise ValueError(f"{realm!r} is not an authentication realm ({', '.join(AUTHN_REALMS)})")
-
-
 def new_token() -> str:
     """A fresh bearer token. URL-safe so it survives a cookie value unencoded."""
     return secrets.token_urlsafe(TOKEN_ENTROPY_BYTES)
@@ -385,7 +377,7 @@ def token_fingerprint(token: str, realm: str) -> bytes:
     docstring: it makes cross-realm confusion arithmetic rather than a WHERE clause
     somebody has to remember.
     """
-    _refuse_unknown_realm(realm)
+    refuse_unknown_realm(realm)
     return hashlib.sha256(_FINGERPRINT_DOMAIN + realm.encode() + b"\x00" + token.encode()).digest()
 
 
@@ -408,7 +400,7 @@ async def issue_session(
     in `auth_sessions`, so an INSERT from one would be refused by the FORCEd policy's
     WITH CHECK rather than silently landing somewhere unreadable.
     """
-    _refuse_unknown_realm(realm)
+    refuse_unknown_realm(realm)
     issued_at = now or datetime.now(UTC)
     switch_on = await _switch_on(session, realm=realm, subject_id=subject_id)
     policy = session_policy(
@@ -495,7 +487,7 @@ async def verify_session(*, token: str, realm: str, now: datetime | None = None)
     `now` is injectable so the expiry branches are testable without sleeping or moving a
     clock; every caller in the application passes nothing.
     """
-    _refuse_unknown_realm(realm)
+    refuse_unknown_realm(realm)
     async with credential_session() as session:
         return await _verify_within(session, token=token, realm=realm, now=now)
 
@@ -520,7 +512,7 @@ async def session_still_live(
     writes nothing. A superseded row is answered "not live" (the stream closes and the
     browser reopens it with its new cookie), not "reuse".
     """
-    _refuse_unknown_realm(realm)
+    refuse_unknown_realm(realm)
     at = now or datetime.now(UTC)
     async with credential_session() as session:
         row = (
@@ -825,7 +817,7 @@ async def revoke_subject_sessions(
     `VerifiedSession` exists for yet — is expressible. Default `None` keeps every other
     caller at "everything, no exceptions", which is what a revocation should be.
     """
-    _refuse_unknown_realm(realm)
+    refuse_unknown_realm(realm)
     at = now or datetime.now(UTC)
     result = await session.execute(
         text(

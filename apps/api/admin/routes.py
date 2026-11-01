@@ -1362,7 +1362,7 @@ async def get_owner_status(
             )
         ).first()
         if exists is None:
-            raise ProblemError.not_found("Organization")
+            raise ProblemError.not_found("Client")
         status = await onboarding.owner_status(scoped)
         # D-482 L-1: whether anybody has joined is read from the client's own rows.
         await record_admin_tenant_read(
@@ -1513,7 +1513,7 @@ async def mint_impersonation_grant(
         )
     ).scalar()
     if tenant_id is None:
-        raise ProblemError.not_found("Organization")
+        raise ProblemError.not_found("Client")
 
     now = datetime.now(UTC)
     renewed = renewable_grant(
@@ -1580,7 +1580,7 @@ async def renew_impersonation_grant(
         )
     ).scalar()
     if tenant_id is None:
-        raise ProblemError.not_found("Organization")
+        raise ProblemError.not_found("Client")
     renewed = renewable_grant(
         payload.renew,
         admin_id=admin_id,
@@ -2879,12 +2879,7 @@ class CommercialTermsIn(BaseModel):
     )
     @classmethod
     def _never_a_float(cls, value: Any) -> Any:
-        """Hard rule 7 at the boundary, identical to the cap and top-up routes."""
-        if isinstance(value, float):
-            raise ValueError(
-                'money crosses the wire as a string ("9999.00"), never as a JSON float'
-            )
-        return value
+        return billing.refuse_json_float(value)
 
     @property
     def second_overage_rate_inr(self) -> Decimal | None:

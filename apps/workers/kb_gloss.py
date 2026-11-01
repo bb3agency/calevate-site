@@ -404,6 +404,7 @@ async def write_knowledge_glosses(ctx: dict[str, Any]) -> str:
     translated = 0
     not_needed = 0
     rekeyed = 0
+    failed = 0
     set_aside_chunks = await set_aside_ids(_SET_ASIDE_SWEEP)
     for tenant_id in tenants:
         # THE PAID HALF IS BUDGETED; THE RE-KEY BELOW IS NOT, AND THE LOOP NO LONGER BREAKS.
@@ -474,7 +475,10 @@ async def write_knowledge_glosses(ctx: dict[str, Any]) -> str:
                         else:
                             not_needed += 1
             except Exception:
+                # Isolated so one tenant cannot end the tick for the rest, and counted so a
+                # failure that repeats every tick (a row that always crashes) still alarms.
                 log.exception("kb_gloss_tenant_failed", extra={"tenant_id": str(tenant_id)})
+                failed += 1
 
         # ONE RE-KEY PER TENANT, NOT ONE PER DOCUMENT. Every chunk this tick glossed for
         # this tenant is already committed, and the statement selects by DIFFERENCE, so a
@@ -484,6 +488,15 @@ async def write_knowledge_glosses(ctx: dict[str, Any]) -> str:
         # anything here, for the reason above.
         rekeyed += await _rekey_one_tenant(tenant_id)
 
+    if failed:
+        alert(
+            "WORKER_TERMINAL",
+            "kb_gloss_sweep_incomplete",
+            detail=(
+                f"{failed} of {len(tenants)} tenant(s) failed the knowledge gloss sweep; "
+                "their chunks stay pending and the sweep runs again in thirty minutes"
+            ),
+        )
     log.info(
         "kb_gloss_tick",
         extra={

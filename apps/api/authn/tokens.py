@@ -43,7 +43,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.authn.codes import code_fingerprint, code_fingerprints, new_url_token
 from apps.api.authn.locks import lock_subject_credentials
-from apps.api.authn.models import AUTHN_REALMS, EMAIL_TOKEN_PURPOSES
+from apps.api.authn.models import EMAIL_TOKEN_PURPOSES, refuse_unknown_realm
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
@@ -82,8 +82,7 @@ def _domain(purpose: str) -> str:
 def _refuse_unknown(purpose: str, realm: str) -> None:
     if purpose not in EMAIL_TOKEN_PURPOSES:
         raise ValueError(f"{purpose!r} is not an email-token purpose")
-    if realm not in AUTHN_REALMS:
-        raise ValueError(f"{realm!r} is not an authentication realm")
+    refuse_unknown_realm(realm)
 
 
 @dataclass(frozen=True, slots=True)

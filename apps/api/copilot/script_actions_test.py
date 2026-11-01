@@ -181,6 +181,20 @@ async def test_a_neighbours_agent_is_not_found() -> None:
     assert missing.value.status == 404
 
 
+async def test_an_archived_agent_is_refused_back_to_the_model() -> None:
+    """`copilot.actions.agent_name`, the one lookup every agent action uses: an archived
+    agent is still visible to `assert_visible`, so the archive is refused by name."""
+    tenant_id, _slug, token = await _make_tenant()
+    agent_id = await _agent_of(tenant_id)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE agents SET deleted_at = now() WHERE id = :aid"), {"aid": agent_id}
+        )
+    with pytest.raises(WriteRefusedError) as refused:
+        await _propose(tenant_id, token, _args(agent_id))
+    assert "has been deleted" in refused.value.reason
+
+
 async def test_the_allowance_refusal_reaches_the_person_before_the_card(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

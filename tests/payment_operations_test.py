@@ -33,7 +33,7 @@ from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 from apps.api.core.stepup import StepUp
-from apps.api.db.session import tenant_session
+from apps.api.db.session import admin_session, tenant_session
 from fastapi import Request, UploadFile
 from sqlalchemy import text
 from starlette.datastructures import Headers
@@ -558,7 +558,9 @@ async def test_the_reconcile_route_reports_the_pass(monkeypatch: pytest.MonkeyPa
         )
 
     monkeypatch.setattr(payment_admin_routes, "reconcile", _report)
+    before = await _platform_audits("payment.reconciliation_run")
     out = await payment_admin_routes.run_reconciliation(
+        _request(),
         _admin(),
         StepUp(present=False, verified_at=None),
         payment_admin_routes.RECONCILE_PAYMENTS_CONFIRMATION,
@@ -566,6 +568,20 @@ async def test_the_reconcile_route_reports_the_pass(monkeypatch: pytest.MonkeyPa
     assert out.window_days == 3 and out.payments_seen == 4
     assert out.credited_late == ["pay_a"]
     assert out.settled_inr == Decimal("99.50")
+    # A hand-run pass can credit wallets, so it is audited like the dispute decisions.
+    assert await _platform_audits("payment.reconciliation_run") == before + 1
+
+
+async def _platform_audits(action: str) -> int:
+    async with admin_session() as session:
+        return int(
+            (
+                await session.execute(
+                    text("SELECT count(*) FROM audit_log WHERE tenant_id IS NULL AND action = :a"),
+                    {"a": action},
+                )
+            ).scalar_one()
+        )
 
 
 async def _open_dispute(amount: str = "400.00") -> tuple[UUID, str]:

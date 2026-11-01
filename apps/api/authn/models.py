@@ -56,6 +56,18 @@ from apps.api.db.base import Base, PKMixin, TimestampMixin
 #: password and no session.
 AUTHN_REALMS: tuple[Realm, ...] = ("admin", "client")
 
+
+def refuse_unknown_realm(realm: str) -> None:
+    """Raise `ValueError` unless `realm` is one of `AUTHN_REALMS`.
+
+    A programming error, not a caller error: `realm` is never taken from the wire, it is
+    chosen by whichever dependency is asking. Refusing loudly beats writing a row into a
+    realm the CHECK constraint would reject three statements later.
+    """
+    if realm not in AUTHN_REALMS:
+        raise ValueError(f"{realm!r} is not an authentication realm ({', '.join(AUTHN_REALMS)})")
+
+
 #: Why a session stopped being usable. A closed vocabulary rather than free text, because
 #: this value is read by an operator during an incident and "logout" vs "reuse_detected"
 #: are the two ends of the question they are asking.

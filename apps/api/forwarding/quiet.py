@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.core.alerting import alert, resolve_alert
 from apps.api.core.logging import get_logger
+from apps.api.crm.performance import IST_ZONE
 
 log = get_logger(__name__)
 
@@ -51,7 +52,7 @@ async def normally_gets_calls(session: AsyncSession, *, before: datetime) -> boo
         await session.execute(
             text(
                 "SELECT count(*), count(DISTINCT (COALESCE(c.started_at, c.created_at) "
-                "AT TIME ZONE 'Asia/Kolkata')::date) FROM calls c "
+                f"AT TIME ZONE '{IST_ZONE}')::date) FROM calls c "
                 f"WHERE {_INBOUND} AND COALESCE(c.started_at, c.created_at) >= :since "
                 "AND COALESCE(c.started_at, c.created_at) < :before"
             ),

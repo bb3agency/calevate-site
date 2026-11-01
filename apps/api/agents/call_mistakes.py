@@ -366,12 +366,9 @@ async def platform_mistakes(
     `admin_session()`: `call_mistake_scan` enters each client under its own tenant id, and
     only an admin session can list the clients (migration e7b3c9d1a4f2)."""
     now = now or datetime.now(UTC)
-    rows = (
-        await session.execute(
-            text("SELECT scanned_tenant_id, kind, call_started_at FROM call_mistake_scan(:since)"),
-            {"since": now - timedelta(days=WINDOW_DAYS)},
-        )
-    ).all()
+    # Counted in SQL rather than in Python: the scan returns one row per call per kind
+    # across every client for the whole window, and only nine numbers per kind leave it.
+    # A call holds a kind at most once (unique on tenant, call, kind), so rows are calls.
     fixes = {
         str(kind): (at, note)
         for kind, at, note in (
@@ -383,20 +380,39 @@ async def platform_mistakes(
             )
         ).all()
     }
-    week = now - timedelta(days=7)
+    counts = {
+        str(row.kind): row
+        for row in (
+            await session.execute(
+                text(
+                    "WITH fx AS (SELECT DISTINCT ON (kind) kind, fixed_at "
+                    "FROM platform_mistake_fixes ORDER BY kind, fixed_at DESC) "
+                    "SELECT s.kind, "
+                    "count(*) FILTER (WHERE s.call_started_at >= :week) AS calls_7d, "
+                    "count(*) AS calls_30d, "
+                    "count(DISTINCT s.scanned_tenant_id) AS accounts_30d, "
+                    "count(*) FILTER (WHERE s.call_started_at > fx.fixed_at) AS since_fix, "
+                    "max(s.call_started_at) AS last_seen "
+                    "FROM call_mistake_scan(:since) s LEFT JOIN fx ON fx.kind = s.kind "
+                    "GROUP BY s.kind"
+                ),
+                {"since": now - timedelta(days=WINDOW_DAYS), "week": now - timedelta(days=7)},
+            )
+        ).all()
+    }
     out = []
     for kind, lesson in LESSONS.items():
-        mine = [(t, at) for t, k, at in rows if k == kind]
         fixed_at, note = fixes.get(kind, (None, None))
-        last_seen = max((at for _t, at in mine), default=None)
+        row = counts.get(kind)
+        last_seen = row.last_seen if row else None
         out.append(
             PlatformMistake(
                 kind=kind,
                 label=lesson.label,
-                calls_7d=sum(1 for _t, at in mine if at >= week),
-                calls_30d=len(mine),
-                accounts_30d=len({t for t, _at in mine}),
-                calls_since_fix=sum(1 for _t, at in mine if fixed_at and at > fixed_at),
+                calls_7d=row.calls_7d if row else 0,
+                calls_30d=row.calls_30d if row else 0,
+                accounts_30d=row.accounts_30d if row else 0,
+                calls_since_fix=row.since_fix if row else 0,
                 last_seen_at=last_seen,
                 fixed_at=fixed_at,
                 fix_note=note,

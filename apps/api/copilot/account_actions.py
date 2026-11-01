@@ -67,6 +67,7 @@ from apps.api.copilot.actions import (
     WriteRefusedError,
     account_code,
     action_schema,
+    agent_name,
     parse_args,
 )
 from apps.api.copilot.actions import (
@@ -74,7 +75,6 @@ from apps.api.copilot.actions import (
 )
 from apps.api.copilot.sanitize import strip_invisible
 from apps.api.core.errors import ProblemError
-from apps.api.db.ownership import assert_visible
 
 
 def _owner_invite_code(args: Mapping[str, Any]) -> str | None:
@@ -95,19 +95,6 @@ def _masked(phone: str) -> str:
     from apps.workers.redaction import redact
 
     return redact(phone).text
-
-
-async def _agent_name(session: AsyncSession, agent_id: UUID) -> str:
-    await assert_visible(session, "agent", agent_id)
-    row = (
-        await session.execute(
-            text("SELECT name FROM agents WHERE id = :aid AND deleted_at IS NULL"),
-            {"aid": agent_id},
-        )
-    ).first()
-    if row is None:
-        raise WriteRefusedError("that agent has been deleted; choose another from `agents_list`")
-    return strip_invisible(str(row[0]))
 
 
 def _uuid_or_none(raw: object) -> UUID | None:
@@ -146,9 +133,7 @@ async def _plan_number_assign(
         raise ProblemError.not_found("Phone number")
     masked = _masked(str(row[0]))
     current = strip_invisible(str(row[1])) if row[1] is not None else "no agent"
-    proposed = (
-        "no agent" if parsed.agent_id is None else await _agent_name(session, parsed.agent_id)
-    )
+    proposed = "no agent" if parsed.agent_id is None else await agent_name(session, parsed.agent_id)
     direction = parsed.direction or str(row[2] or "both")
     return Plan(
         object_id=str(parsed.number_id),
@@ -1089,7 +1074,7 @@ async def _plan_source_create(
 ) -> Plan:
     del actor
     parsed = parse_args(_SourceCreateArgs, args)
-    agent = None if parsed.agent_id is None else await _agent_name(session, parsed.agent_id)
+    agent = None if parsed.agent_id is None else await agent_name(session, parsed.agent_id)
     return Plan(
         object_id="",
         title="Add a lead source",
@@ -1190,10 +1175,8 @@ async def _plan_source_agent(
     del actor
     parsed = parse_args(_SourceAgentArgs, args)
     source, current_agent, _active = await _source_row(session, parsed.lead_source_id)
-    current = "no agent" if current_agent is None else await _agent_name(session, current_agent)
-    proposed = (
-        "no agent" if parsed.agent_id is None else await _agent_name(session, parsed.agent_id)
-    )
+    current = "no agent" if current_agent is None else await agent_name(session, current_agent)
+    proposed = "no agent" if parsed.agent_id is None else await agent_name(session, parsed.agent_id)
     return Plan(
         object_id=str(parsed.lead_source_id),
         title="Change who answers a lead source",

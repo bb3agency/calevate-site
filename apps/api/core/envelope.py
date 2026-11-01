@@ -250,6 +250,26 @@ class Envelope:
     kek_id: int
 
 
+def envelope_from_row(row: tuple[Any, ...]) -> Envelope | None:
+    """Five sealed columns, in `Envelope` field order, as an envelope; None when any is NULL.
+
+    A sealed value is stored as five nullable columns that are written together, so a NULL
+    in any one means nothing is held — never a partial envelope to try opening.
+    """
+    if len(row) != 5:
+        raise ValueError(f"a sealed row has 5 columns, not {len(row)}")
+    if any(value is None for value in row):
+        return None
+    ciphertext, nonce, dek_wrapped, dek_nonce, kek_id = row
+    return Envelope(
+        ciphertext=bytes(ciphertext),
+        nonce=bytes(nonce),
+        dek_wrapped=bytes(dek_wrapped),
+        dek_nonce=bytes(dek_nonce),
+        kek_id=int(kek_id),
+    )
+
+
 def _decode_kek(raw: str, *, env_var: str) -> bytes:
     """Base64 → exactly 32 bytes, or a refusal an operator can act on.
 
@@ -632,6 +652,7 @@ __all__ = [
     "Kek",
     "KekRing",
     "build_ring",
+    "envelope_from_row",
     "kek_ring",
     "last_four",
     "open_fields",

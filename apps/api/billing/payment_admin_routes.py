@@ -36,6 +36,7 @@ from apps.api.billing.payments import (
 from apps.api.billing.razorpay_api import EvidenceKind, razorpay_api
 from apps.api.billing.reconciliation import reconcile
 from apps.api.billing.service import to_paise
+from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
@@ -201,12 +202,28 @@ RECONCILE_PAYMENTS_CONFIRMATION = "reconcile_payments"
     summary="Run the Razorpay reconciliation now (it also runs daily)",
 )
 async def run_reconciliation(
-    _principal: Operator,
+    request: Request,
+    principal: Operator,
     step_up: StepUpGate,
     x_confirm_action: Annotated[str | None, Header()] = None,
 ) -> ReconcileOut:
     step_up.require(x_confirm_action, RECONCILE_PAYMENTS_CONFIRMATION)
     report = await reconcile()
+    # Audited like the dispute decisions beside it: a hand-run pass can credit wallets.
+    # Payment ids and counts only, never amounts per client.
+    async with untenanted_session() as session:
+        await write_audit(
+            session,
+            action="payment.reconciliation_run",
+            actor=principal,
+            object_type="payment_reconciliation",
+            ip=client_request_ip(request),
+            summary={
+                "credited_late": report.credited_late,
+                "refunds_recorded_late": report.refunds_recorded_late,
+                "unexplained": len(report.unexplained),
+            },
+        )
     return ReconcileOut(
         window_days=report.window_days,
         payments_seen=report.payments_seen,

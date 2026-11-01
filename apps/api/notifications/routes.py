@@ -82,6 +82,8 @@ class DailySummaryIn(BaseModel):
 class DailySummaryOut(BaseModel):
     """The owner's daily summary switch (D-944) and where it would go."""
 
+    model_config = ConfigDict(extra="forbid")
+
     enabled: bool
     #: Addresses the email goes to (owners and the billing address).
     email_addresses: int

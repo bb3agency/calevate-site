@@ -48,7 +48,6 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Annotated, Any, Final, Literal
 from uuid import UUID, uuid4
-from zoneinfo import ZoneInfo
 
 from calevate_shared.call_script import opening_line_of, outbound_opening_of
 from calevate_shared.languages import offered_language_tags
@@ -60,6 +59,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents import lifecycle
 from apps.api.agents.languages import LANGUAGE_LABELS, OfferedLanguage
 from apps.api.billing.display import display_inr
+from apps.api.billing.plans import IST
 from apps.api.campaigns import controls as campaign_controls
 from apps.api.campaigns import service as campaigns_service
 from apps.api.copilot.actions import (
@@ -87,8 +87,6 @@ from apps.api.copilot.set_actions import CAMPAIGN_ADD_LEADS, LEADS_BULK_UPDATE
 from apps.api.core.errors import ProblemError
 from apps.api.crm import service as crm_service
 from apps.api.db.ownership import assert_visible
-
-IST: Final = ZoneInfo("Asia/Kolkata")
 
 #: What every voice minute costs, said the same way as `agent_actions._BILLED_PER_MINUTE`
 #: and for its reason: the rate is the plan's, never a figure typed into a prompt module.

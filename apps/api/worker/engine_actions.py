@@ -86,6 +86,7 @@ from apps.api.actions.in_call import run_in_call_action
 from apps.api.agents.test_window import window_open
 from apps.api.core.alerting import alert
 from apps.api.core.auth import client_request_ip
+from apps.api.core.envelope import envelope_from_row
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
@@ -108,7 +109,6 @@ from apps.api.reliability.engine_actions import (
     CLIENT_LEAF,
     HANDOFF,
     OPT_OUT,
-    envelope_of,
     open_action_secret,
 )
 from apps.api.reliability.in_call_once import once_per_call
@@ -207,7 +207,7 @@ async def _route_if_authentic(
             ).first()
     expected: str | None = None
     if row is not None:
-        envelope = envelope_of(tuple(row[2:7]))
+        envelope = envelope_from_row(tuple(row[2:7]))
         if envelope is not None:
             expected = open_action_secret(
                 envelope, engine=engine, engine_agent_ref=engine_agent_ref

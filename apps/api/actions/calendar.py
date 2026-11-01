@@ -36,6 +36,7 @@ from apps.api.actions.schema import PreparedRequest
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
+from apps.api.crm.performance import IST_ZONE
 
 log = get_logger(__name__)
 
@@ -46,7 +47,7 @@ OAUTH_STATE_TTL: Final = oauth.STATE_TTL
 CALENDAR_SCOPES = oauth.GOOGLE_CALENDAR_SCOPES
 
 #: Every caller of ours is in India; the calendar is asked and written in India time.
-CALENDAR_TIME_ZONE: Final = "Asia/Kolkata"
+CALENDAR_TIME_ZONE: Final = IST_ZONE
 
 _API_BASE = "https://www.googleapis.com/calendar/v3"
 

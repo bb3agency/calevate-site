@@ -62,7 +62,7 @@ class LeadCallingIn(Strict):
     detect_machines: bool = False
 
 
-class NewLeadsFollowUpOut(BaseModel):
+class NewLeadsFollowUpOut(Strict):
     """The Follow-up new leads start (normally "Call new leads"), so the screen can say when
     it is off and offer to turn it back on."""
 
@@ -71,7 +71,7 @@ class NewLeadsFollowUpOut(BaseModel):
     status: Literal["draft", "live", "paused", "off"]
 
 
-class LeadCallingOut(BaseModel):
+class LeadCallingOut(Strict):
     hours_start: time
     hours_end: time
     days: list[Weekday]
@@ -95,7 +95,7 @@ class LeadCallingOut(BaseModel):
     agents_updated: int = 0
 
 
-class HeldLeadOut(BaseModel):
+class HeldLeadOut(Strict):
     id: UUID
     lead_id: UUID
     lead_name: str | None
@@ -105,11 +105,11 @@ class HeldLeadOut(BaseModel):
     held_at: datetime
 
 
-class HeldLeadsOut(BaseModel):
+class HeldLeadsOut(Strict):
     items: list[HeldLeadOut]
 
 
-class ReleasedOut(BaseModel):
+class ReleasedOut(Strict):
     callback_id: UUID
     due_at: datetime
 
@@ -228,6 +228,28 @@ async def list_held_leads(
     )
 
 
+async def _audit_held_decision(
+    session: AsyncSession,
+    request: Request,
+    principal: Principal,
+    hold_id: UUID,
+    summary: dict[str, str],
+) -> None:
+    """The same row Pip's `held_lead_decide` writes (copilot/account_actions.py), so the
+    trail reads one way whichever door the decision came through."""
+    assert principal.tenant_id is not None
+    await write_audit(
+        session,
+        action="lead_calling.held_decided",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="lead_call_hold",
+        object_id=str(hold_id),
+        ip=client_request_ip(request),
+        summary=summary,
+    )
+
+
 @router.post(
     "/held/{hold_id}/release",
     response_model=ReleasedOut,
@@ -237,11 +259,15 @@ async def list_held_leads(
 async def release_held_lead(
     hold_id: UUID,
     session: SessionDep,
+    request: Request,
     principal: Manager,
 ) -> ReleasedOut:
     assert principal.tenant_id is not None
     callback_id, due = await lead_policy.release_held(
         session, tenant_id=principal.tenant_id, hold_id=hold_id, user_id=principal.user_id
+    )
+    await _audit_held_decision(
+        session, request, principal, hold_id, {"decision": "call", "callback_id": str(callback_id)}
     )
     return ReleasedOut(callback_id=callback_id, due_at=due)
 
@@ -255,9 +281,11 @@ async def release_held_lead(
 async def drop_held_lead(
     hold_id: UUID,
     session: SessionDep,
+    request: Request,
     principal: Manager,
 ) -> None:
     await lead_policy.drop_held(session, hold_id=hold_id, user_id=principal.user_id)
+    await _audit_held_decision(session, request, principal, hold_id, {"decision": "drop"})
 
 
 __all__ = ["ALWAYS_APPLIED", "router"]

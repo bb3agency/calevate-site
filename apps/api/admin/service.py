@@ -59,7 +59,7 @@ async def tenant_exists(session: AsyncSession, tenant_id: UUID) -> bool:
 
     Soft-deleted counts as absent: `deleted_at` is set by the erasure path and a tenant
     on its way out must not be creditable, cappable or dialable. Callers turn a False
-    into `ProblemError.not_found("Organization")` — a 404 rather than an FK violation
+    into `ProblemError.not_found("Client")` — a 404 rather than an FK violation
     rendered as a 500, or worse a cheerful 200 describing a tenant that is not there.
 
     It lives here, with `create_organization`, because organizations are this module's

@@ -68,6 +68,7 @@ from apps.api.core.loadshed import get_platform_status
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import enqueue
 from apps.api.core.settings import get_settings
+from apps.api.crm.performance import IST_TODAY_SQL, IST_ZONE
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
@@ -224,7 +225,7 @@ async def _gate(session: AsyncSession, *, tenant_id: UUID, now: datetime) -> Non
             await session.execute(
                 text(
                     "SELECT count(*) FROM forwarding_tests WHERE (created_at AT TIME ZONE "
-                    "'Asia/Kolkata')::date = (now() AT TIME ZONE 'Asia/Kolkata')::date"
+                    f"'{IST_ZONE}')::date = {IST_TODAY_SQL}"
                 )
             )
         ).scalar_one()

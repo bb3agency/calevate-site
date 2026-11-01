@@ -256,6 +256,24 @@ def to_paise(value: Decimal) -> Decimal:
     return value.quantize(PAISE, rounding=ROUNDING)
 
 
+def refuse_json_float(value: Any) -> Any:
+    """Hard rule 7 at the edge: the ONE `mode="before"` validator every money field in a
+    request body uses.
+
+    REFUSED rather than quietly rounded: `2500.10` parsed as a binary float and back is
+    how a paise-level dispute starts. Send `"2500.10"`, which is also how every money
+    field in our responses is serialized, so a client echoing our own shape is already
+    correct.
+
+    A function rather than a `MoneyIn` base field, so each body can name its amount for
+    what it holds (`corrected_amount_inr` is a TOTAL, `threshold_inr` a line) while the
+    refusal stays one definition.
+    """
+    if isinstance(value, float):
+        raise ValueError('money crosses the wire as a string ("2500.00"), never as a JSON float')
+    return value
+
+
 def allocate_paise(parts: Sequence[Decimal], total: Decimal) -> tuple[Decimal, ...]:
     """Quantize `parts` to two decimals so they add up to EXACTLY `total`.
 

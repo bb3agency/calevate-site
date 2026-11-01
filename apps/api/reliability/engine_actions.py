@@ -42,7 +42,7 @@ from __future__ import annotations
 
 import secrets
 from dataclasses import dataclass
-from typing import Any, Final, Literal
+from typing import Final, Literal
 from urllib.parse import urlencode
 from uuid import UUID
 
@@ -52,7 +52,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.actions.schema import CALLER_AGREED_ARG, CALLER_WORDS_ARG, ParamSpec
 from apps.api.actions.service import LoadedTool, in_call_tools
 from apps.api.core.alerting import alert
-from apps.api.core.envelope import Envelope, seal, unseal
+from apps.api.core.envelope import Envelope, envelope_from_row, seal, unseal
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings, is_public_callback_base
@@ -422,20 +422,6 @@ _SECRET_COLUMNS: Final = (
 )
 
 
-def envelope_of(row: tuple[Any, ...]) -> Envelope | None:
-    """The five sealed columns as an envelope, or None when none is held."""
-    if any(value is None for value in row):
-        return None
-    ct, nonce, dw, dn, kek = row
-    return Envelope(
-        ciphertext=bytes(ct),
-        nonce=bytes(nonce),
-        dek_wrapped=bytes(dw),
-        dek_nonce=bytes(dn),
-        kek_id=int(kek),
-    )
-
-
 def open_action_secret(envelope: Envelope, *, engine: str, engine_agent_ref: str) -> str | None:
     """The plaintext, or None when no configured key opens it (`unseal` has logged why)."""
     try:
@@ -484,7 +470,7 @@ async def _held_secret(
     if row is None:
         return False, None, None
     agent_id = UUID(str(row[5])) if row[5] is not None else None
-    envelope = envelope_of(tuple(row[:5]))
+    envelope = envelope_from_row(tuple(row[:5]))
     if envelope is None:
         return True, None, agent_id
     return (
@@ -750,7 +736,6 @@ __all__ = [
     "client_definitions",
     "definitions",
     "ensure_agent_actions",
-    "envelope_of",
     "is_client_action",
     "open_action_secret",
     "probe_agent_actions",

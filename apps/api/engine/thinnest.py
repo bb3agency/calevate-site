@@ -254,7 +254,7 @@ def _catalogue_model(model_id: str, label: str, row: dict[str, Any]) -> Catalogu
         console_latency_ms=_MODEL_CONSOLE_LATENCY_MS.get(label),
         listed_call_tier=_CALL_TIERS.get(str(row.get("callTier"))),
         listed_price_per_minute=_micro_amount(row.get("callPricePerMinuteMicro")),
-        listed_currency=_str(row.get("currency")),
+        listed_currency=wire_str(row.get("currency")),
     )
 
 
@@ -596,7 +596,8 @@ THINNEST_CAPABILITIES = EngineCapabilities(
 SigningSecretResolver = Callable[[str], str | None]
 
 
-def _str(value: Any) -> str | None:
+def wire_str(value: Any) -> str | None:
+    """A vendor field that is a non-empty string, else None."""
     return value if isinstance(value, str) and value else None
 
 
@@ -715,7 +716,7 @@ def _raw_status_of(call: dict[str, Any]) -> str:
     `completed`, `missed` or `failed`, read with `hangup` like a status (ThinnestAI's email
     of 21 Oct 2026, §23 item 5, and the `call.completed` example in the live
     https://app.thinnest.ai/openapi.json, both read 21 Oct 2026)."""
-    return (_str(call.get("status")) or _str(call.get("outcome")) or "").lower()
+    return (wire_str(call.get("status")) or wire_str(call.get("outcome")) or "").lower()
 
 
 def _our_status(raw_status: str, hangup: str | None) -> CallStatus:
@@ -737,7 +738,7 @@ def _not_placed_reason(hangup: str | None, error: object) -> NotPlacedReason | N
     get-call.md:1027-1031) and `not_placed` is the hangup of such a call (:932-936). The
     vendor's sentence goes no further than this function: it may name a number (hard rule
     6) and it is not our wording (D-679)."""
-    words = _str(error)
+    words = wire_str(error)
     if hangup != "not_placed" and words is None:
         return None
     if words is not None and words.strip().rstrip(".").casefold() == _FROM_NUMBER_WITHDRAWN:
@@ -756,8 +757,8 @@ def _agent_ref_of(payload: dict[str, Any]) -> str | None:
     every adapter one neutral payload; neither is a ThinnestAI field."""
     agent = payload.get("agent")
     if isinstance(agent, dict):
-        return _str(agent.get("id"))
-    return _str(agent) or _str(payload.get("agent_id"))
+        return wire_str(agent.get("id"))
+    return wire_str(agent) or wire_str(payload.get("agent_id"))
 
 
 def _call_id_of(payload: dict[str, Any]) -> str | None:
@@ -765,7 +766,7 @@ def _call_id_of(payload: dict[str, Any]) -> str | None:
     stored; `call.completed` sends it only for a call placed through the API and `callRef`
     on every call, so an inbound call is named by `callRef` (docs.thinnest.ai
     api-reference/webhooks "call.completed", read 11 Oct 2026)."""
-    return _str(payload.get("id")) or _str(payload.get("callRef"))
+    return wire_str(payload.get("id")) or wire_str(payload.get("callRef"))
 
 
 def _whole(value: Any) -> int | None:
@@ -968,7 +969,7 @@ def _insight_notes(value: Any, kinds: frozenset[str]) -> list[tuple[str, str]]:
     for item in value[:_INSIGHT_ITEMS_MAX]:
         if not isinstance(item, dict):
             continue
-        words = (_str(item.get("text")) or "").strip()[:_INSIGHT_TEXT_MAX]
+        words = (wire_str(item.get("text")) or "").strip()[:_INSIGHT_TEXT_MAX]
         if words:
             kind = item.get("kind")
             notes.append((words, kind if kind in kinds else "other"))
@@ -982,7 +983,7 @@ def _insight_next_step(value: Any) -> CallNextStep | None:
     return CallNextStep(
         kind=value["kind"],
         at=_parse_dt(value.get("at")),
-        note=(_str(value.get("note")) or "").strip()[:_INSIGHT_NOTE_MAX],
+        note=(wire_str(value.get("note")) or "").strip()[:_INSIGHT_NOTE_MAX],
         status=status if status in _NEXT_STEP_STATUSES else "open",
         followed_up_at=_parse_dt(value.get("followedUpAt")),
     )
@@ -1207,10 +1208,10 @@ def _rebuild_composites(rows: Sequence[dict[str, Any]]) -> list[EngineKBRef]:
     handles: list[EngineKBRef] = []
     groups: dict[tuple[str, int], dict[int, str]] = {}
     for row in rows:
-        handle = _str(row.get("id"))
+        handle = wire_str(row.get("id"))
         if handle is None:
             continue
-        marker = _PART_MARKER_RE.search(_str(row.get("title")) or "")
+        marker = _PART_MARKER_RE.search(wire_str(row.get("title")) or "")
         if marker is None:
             handles.append(handle)
             continue
@@ -1427,7 +1428,7 @@ def _key_state(data: dict[str, Any]) -> OwnVoiceKeyState:
     """A `GET /byok` body (bring-your-own-keys.md:121-147). A body without a readable `using`
     is refused rather than read as "no", because the answer decides which rate a publish
     stamps."""
-    using = _str(data.get("using"))
+    using = wire_str(data.get("using"))
     if using not in {"own", "developer", "none"}:
         raise _bad_response("The voice platform did not say whose keys it is using.")
     credentials = data.get("credentials")
@@ -1439,13 +1440,13 @@ def _key_state(data: dict[str, Any]) -> OwnVoiceKeyState:
     llm = next((row for row in rows if row.get("kind") == "llm"), {})
     return OwnVoiceKeyState(
         enabled=data.get("enabled") is True,
-        scope=_str(data.get("scope")),
+        scope=wire_str(data.get("scope")),
         complete=data.get("complete") is True,
         using=using,
-        voice_provider=_str(voice.get("provider")),
-        llm_provider=_str(llm.get("provider")),
-        llm_model=_str(llm.get("model")),
-        llm_verified=_str(llm.get("verifiedAt")) is not None,
+        voice_provider=wire_str(voice.get("provider")),
+        llm_provider=wire_str(llm.get("provider")),
+        llm_model=wire_str(llm.get("model")),
+        llm_verified=wire_str(llm.get("verifiedAt")) is not None,
     )
 
 
@@ -2107,10 +2108,10 @@ def _effective_own_model(data: dict[str, Any]) -> str:
     its own choice, else the key's (`workspaceModel`). `model` is null when the agent runs the
     key's model, and a `stale` choice is answered by the key's model too (snapshots/2026-10-18/
     pages/api-reference/agents/get-agent-byok-model.md:7,543-560). "" when neither is given."""
-    chosen = _str(data.get("model"))
-    if chosen and not _str(data.get("stale")):
+    chosen = wire_str(data.get("model"))
+    if chosen and not wire_str(data.get("stale")):
         return chosen
-    return _str(data.get("workspaceModel")) or ""
+    return wire_str(data.get("workspaceModel")) or ""
 
 
 def _own_model_scope_of(agent: dict[str, Any]) -> bool | None:
@@ -2278,7 +2279,7 @@ class ThinnestEngine:
             )
             pages += 1
             rows.extend(_items(payload))
-            following = _str(payload.get("nextCursor"))
+            following = wire_str(payload.get("nextCursor"))
             if following is None:
                 return rows, None, pages
             if following in seen:
@@ -2654,9 +2655,9 @@ class ThinnestEngine:
         tag = _name_tag(cfg)
         rows, reason, _ = await self._walk("/agents", route="/agents", workspace=workspace)
         for row in rows:
-            name = _str(row.get("name"))
+            name = wire_str(row.get("name"))
             if name is not None and name.endswith(tag):
-                return _str(row.get("id"))
+                return wire_str(row.get("id"))
         if reason is not None:
             # Creating now could make a second agent for one of ours; refusing costs a retry.
             log.warning("thinnest_agent_listing_incomplete", extra={"reason": reason})
@@ -2675,14 +2676,14 @@ class ThinnestEngine:
         """The developer workspace's agent named `TRIAL_LINE_AGENT_NAME`, or None."""
         rows, reason, _ = await self._walk("/agents", route="/agents", workspace=None)
         for row in rows:
-            if _str(row.get("name")) == TRIAL_LINE_AGENT_NAME:
+            if wire_str(row.get("name")) == TRIAL_LINE_AGENT_NAME:
                 voice = row.get("voice")
                 held = voice if isinstance(voice, dict) else {}
                 return TrialLineAgent(
-                    ref=_str(row.get("id")) or "",
+                    ref=wire_str(row.get("id")) or "",
                     answers_calls=held.get("answersCalls") is True,
-                    message=_str(held.get("unavailableMessage")),
-                    message_note=_str(held.get("unavailableMessageNote")),
+                    message=wire_str(held.get("unavailableMessage")),
+                    message_note=wire_str(held.get("unavailableMessageNote")),
                 )
         if reason is not None:
             raise ProblemError(
@@ -2718,7 +2719,7 @@ class ThinnestEngine:
                     workspace=None,
                     json={"name": TRIAL_LINE_AGENT_NAME, "byok": "off", "voice": wanted_voice},
                 )
-            ref = _str(row.get("id"))
+            ref = wire_str(row.get("id"))
             if ref is None:
                 raise _bad_response("a created agent without its id")
             log.info("thinnest_trial_line_agent_created")
@@ -2811,8 +2812,8 @@ class ThinnestEngine:
         name = FORWARDING_TEST_AGENT_NAMES[leg - 1]
         rows, reason, _ = await self._walk("/agents", route="/agents", workspace=None)
         for row in rows:
-            if _str(row.get("name")) == name:
-                ref = _str(row.get("id"))
+            if wire_str(row.get("name")) == name:
+                ref = wire_str(row.get("id"))
                 if ref is not None:
                     return ref
         if reason is not None:
@@ -2831,7 +2832,7 @@ class ThinnestEngine:
                 workspace=None,
                 json={"name": name, "byok": "off", "voice": {"answersCalls": True}},
             )
-        ref = _str(row.get("id"))
+        ref = wire_str(row.get("id"))
         if ref is None:
             raise _bad_response("a created agent without its id")
         await self.set_line_answering(ref, on=True)
@@ -2877,7 +2878,7 @@ class ThinnestEngine:
             if refusal is exc:
                 raise
             raise refusal from exc
-        handle = _str(data.get("id"))
+        handle = wire_str(data.get("id"))
         if handle is None:
             raise _bad_response("The voice platform did not return a call id.")
         return handle
@@ -3080,7 +3081,7 @@ class ThinnestEngine:
             )
         else:
             data = await self._write_agent("POST", "/agents", "/agents", workspace, body)
-            raw = _str(data.get("id"))
+            raw = wire_str(data.get("id"))
             if raw is None:
                 raise _bad_response("The voice platform did not return an agent id.")
         _refuse_unsaved_steps(body, data)
@@ -3176,7 +3177,7 @@ class ThinnestEngine:
         data = await self._request(
             "GET", f"/agents/{raw}", route="/agents/{ref}", workspace=workspace
         )
-        returned = _str(data.get("id"))
+        returned = wire_str(data.get("id"))
         if returned is not None and returned != raw:
             raise _bad_response("The voice platform described a different agent.")
         instructions = data.get("instructions")
@@ -3191,7 +3192,7 @@ class ThinnestEngine:
         own_model, own_model_readable = await self._held_own_model(raw, workspace, data)
         return AgentSnapshot(
             engine_agent_ref=ref,
-            name=_our_name(_str(data.get("name"))),
+            name=_our_name(wire_str(data.get("name"))),
             system_prompt=instructions if isinstance(instructions, str) else None,
             system_prompt_readable=isinstance(instructions, str),
             greeting=greeting if isinstance(greeting, str) else "",
@@ -3328,7 +3329,7 @@ class ThinnestEngine:
             )
         out: list[EngineAgentRef] = []
         for row in rows:
-            name, raw = _str(row.get("name")), _str(row.get("id"))
+            name, raw = wire_str(row.get("name")), wire_str(row.get("id"))
             if name is None or raw is None or not _NAME_TAG_RE.search(name):
                 continue
             if (_our_name(name) or "").startswith(prefix):
@@ -3396,11 +3397,11 @@ class ThinnestEngine:
         results = tuple(
             _test_chat_tool(item, name)
             for item in (tools_raw if isinstance(tools_raw, list) else [])
-            if isinstance(item, dict) and (name := _str(item.get("name")))
+            if isinstance(item, dict) and (name := wire_str(item.get("name")))
         )
         return TestChatTurn(
-            session=_str(data.get("session")) or "",
-            reply=_str(data.get("reply")) or "",
+            session=wire_str(data.get("session")) or "",
+            reply=wire_str(data.get("reply")) or "",
             tools=tuple(tool.name for tool in results),
             failed_part_way=data.get("error") is not None,
             tool_results=results,
@@ -3428,7 +3429,7 @@ class ThinnestEngine:
             )
         except ProblemError as exc:
             raise _dial_precondition_failed(missing="published agent") from exc
-        greeting = _str(data.get("greeting"))
+        greeting = wire_str(data.get("greeting"))
         values: dict[str, str | None] = {**variables}
         spoken = _tidy_spoken(substitute_variables(greeting or "", values))
         if not spoken:
@@ -3525,7 +3526,7 @@ class ThinnestEngine:
             if refusal is exc:
                 raise
             raise refusal from exc
-        handle = _str(data.get("id"))
+        handle = wire_str(data.get("id"))
         if handle is None:
             raise _bad_response("The voice platform did not return a call id.")
         if data.get("status") == "scheduled":
@@ -3566,7 +3567,7 @@ class ThinnestEngine:
                 if snapshot.raw_status == "cancelled"
                 else RecallOutcome.ALREADY_RUNNING
             )
-        status = _str(report.get("status"))
+        status = wire_str(report.get("status"))
         if status == "cancelled":
             return RecallOutcome.PREVENTED
         if status in _LIVE_RAW:
@@ -3604,19 +3605,19 @@ class ThinnestEngine:
         if reason is not None:
             log.warning("thinnest_number_listing_incomplete", extra={"reason": reason})
         for row in rows:
-            raw = _str(row.get("number"))
+            raw = wire_str(row.get("number"))
             e164 = _e164(raw)
             if raw is None or e164 is None:
                 continue
             numbers.append(
                 ProvisionedNumber(
                     e164=e164,
-                    provider=_str(row.get("provider")),
+                    provider=wire_str(row.get("provider")),
                     engine_number_ref=scoped_handle(raw, workspace),
                     engine_owned=row.get("source") == "rented",
-                    label=_str(row.get("label")),
-                    answering_agent_ref=_scoped(_str(row.get("agent")), workspace),
-                    calling_agent_ref=_scoped(_str(row.get("callingAgent")), workspace),
+                    label=wire_str(row.get("label")),
+                    answering_agent_ref=_scoped(wire_str(row.get("agent")), workspace),
+                    calling_agent_ref=_scoped(wire_str(row.get("callingAgent")), workspace),
                 )
             )
         return numbers
@@ -3655,7 +3656,7 @@ class ThinnestEngine:
             workspace=workspace,
             json={"title": title, "text": text},
         )
-        handle = _str(data.get("id"))
+        handle = wire_str(data.get("id"))
         if handle is None:
             raise _bad_response("The voice platform did not return a knowledge base id.")
         if data.get("status") == "failed":
@@ -3685,7 +3686,7 @@ class ThinnestEngine:
                 raise
             reason = await self._clear_failed_link(ref, url)
             raise _link_unreadable(reason) from None
-        handle = _str(data.get("id"))
+        handle = wire_str(data.get("id"))
         if handle is None:
             raise _bad_response("The voice platform did not return a knowledge base id.")
         return handle
@@ -3706,11 +3707,13 @@ class ThinnestEngine:
         failed = [
             row
             for row in rows
-            if row.get("status") == "failed" and row.get("source") == url and _str(row.get("id"))
+            if row.get("status") == "failed"
+            and row.get("source") == url
+            and wire_str(row.get("id"))
         ]
-        failed.sort(key=lambda row: _str(row.get("createdAt")) or "")
+        failed.sort(key=lambda row: wire_str(row.get("createdAt")) or "")
         await self._remove_parts(ref, [str(row["id"]) for row in failed])
-        return _str(failed[-1].get("error")) if failed else None
+        return wire_str(failed[-1].get("error")) if failed else None
 
     async def attach_kb(
         self, ref: EngineAgentRef, source: KBSourceRef, *, agent: AgentConfig | None = None
@@ -3856,7 +3859,7 @@ class ThinnestEngine:
         objects: list[AccountKBObject] = []
         agents, reason, pages = await self._walk("/agents", route="/agents", workspace=workspace)
         for row in agents:
-            raw = _str(row.get("id"))
+            raw = wire_str(row.get("id"))
             if raw is None:
                 continue
             try:
@@ -3905,7 +3908,7 @@ class ThinnestEngine:
         voices: list[HostedVoice] = []
         unread: Counter[str] = Counter()
         for row in _items(data):
-            voice_id, label = _str(row.get("id")), _str(row.get("name"))
+            voice_id, label = wire_str(row.get("id")), wire_str(row.get("name"))
             if voice_id is None or label is None:
                 continue
             band = _VOICE_BANDS.get(str(row.get("tier")))
@@ -3920,8 +3923,8 @@ class ThinnestEngine:
                     source="engine",
                     is_custom=row.get("mine") is True or shared,
                     shared_from_developer=shared,
-                    language=_str(row.get("accent")),
-                    description=_str(row.get("description")),
+                    language=wire_str(row.get("accent")),
+                    description=wire_str(row.get("description")),
                     band=band,
                 )
             )
@@ -3952,17 +3955,17 @@ class ThinnestEngine:
                 label=label,
                 source="byok",
                 is_custom=row.get("own") is True,
-                language=_str(row.get("language")),
+                language=wire_str(row.get("language")),
                 # `gender` is "its gender, when the provider says" (list-byok-voices.md:576-580).
-                gender=_str(row.get("gender")),
-                sample_url=_str(row.get("sample")),
+                gender=wire_str(row.get("gender")),
+                sample_url=wire_str(row.get("sample")),
             )
             for row in _items(data)
-            if (voice_id := _str(row.get("id"))) and (label := _str(row.get("name")))
+            if (voice_id := wire_str(row.get("id"))) and (label := wire_str(row.get("name")))
         ]
         return HostedVoiceListing(
             voices=voices,
-            provider=_str(provider.get("id")) if isinstance(provider, dict) else None,
+            provider=wire_str(provider.get("id")) if isinstance(provider, dict) else None,
             complete=data.get("complete") is True,
         )
 
@@ -4011,17 +4014,17 @@ class ThinnestEngine:
 
     @staticmethod
     def _clone(row: dict[str, Any]) -> VoiceClone | None:
-        clone_id = _str(row.get("id"))
-        voice_id = _str(row.get("voiceId"))
-        label = _str(row.get("name"))
+        clone_id = wire_str(row.get("id"))
+        voice_id = wire_str(row.get("voiceId"))
+        label = wire_str(row.get("name"))
         if clone_id is None or voice_id is None or label is None:
             return None
         return VoiceClone(
             clone_id=clone_id,
             voice_id=voice_id,
             label=label,
-            language=_str(row.get("language")),
-            preview_url=_str(row.get("previewUrl")),
+            language=wire_str(row.get("language")),
+            preview_url=wire_str(row.get("previewUrl")),
             usable_on_agents=row.get("usableOnAgents") is True,
         )
 
@@ -4312,7 +4315,7 @@ class ThinnestEngine:
             params={"from": since.isoformat()},
         )
         for row in rows:
-            call_id = _str(row.get("id"))
+            call_id = wire_str(row.get("id"))
             if call_id is None:
                 continue
             if not _is_rupees(row):
@@ -4324,7 +4327,7 @@ class ThinnestEngine:
                 EngineCharge(
                     engine_call_id=scoped_handle(call_id, workspace),
                     engine_agent_ref=_scoped(
-                        _str(agent.get("id")) if isinstance(agent, dict) else None, workspace
+                        wire_str(agent.get("id")) if isinstance(agent, dict) else None, workspace
                     ),
                     charged_inr=charged,
                 )
@@ -4345,7 +4348,7 @@ class ThinnestEngine:
         models = [
             _catalogue_model(model_id, label, row)
             for row in model_rows
-            if (model_id := _str(row.get("id"))) and (label := _str(row.get("name")))
+            if (model_id := wire_str(row.get("id"))) and (label := wire_str(row.get("name")))
         ]
         return EngineCatalogue(models=models, complete=model_reason is None)
 
@@ -4365,7 +4368,7 @@ class ThinnestEngine:
         raw_call = _call_id_of(payload)
         call_id = scoped_handle(raw_call, workspace) if raw_call else fallback_id
         raw_status = _raw_status_of(payload)
-        hangup = _str(payload.get("hangup"))
+        hangup = wire_str(payload.get("hangup"))
         terminal = raw_status in _TERMINAL_RAW
         direction: CallDirection = (
             "inbound" if payload.get("direction") == "inbound" else "outbound"
@@ -4373,7 +4376,7 @@ class ThinnestEngine:
         customer = _e164(payload.get("phone"))
         ours = _our_number(payload, direction)
         recording = payload.get("recording")
-        recording_url = _str(recording.get("url")) if isinstance(recording, dict) else None
+        recording_url = wire_str(recording.get("url")) if isinstance(recording, dict) else None
         started = _parse_dt(payload.get("startedAt"))
         ended = _parse_dt(payload.get("endedAt"))
         seconds = payload.get("seconds")
@@ -4393,7 +4396,7 @@ class ThinnestEngine:
         agent = _scoped(_agent_ref_of(payload), workspace)
         # `forwardedTo` is the phone a number forward put the call through to, absent or
         # null otherwise (api-reference/webhooks "call.completed", read 11 Oct 2026).
-        forwarded = bool(_str(payload.get("forwardedTo")))
+        forwarded = bool(wire_str(payload.get("forwardedTo")))
         return ExecutionSnapshot(
             engine_call_id=call_id,
             engine_agent_ref=agent,
@@ -4415,7 +4418,7 @@ class ThinnestEngine:
             engine_extracted=fields if isinstance(fields, dict) else {},
             # "Two or three sentences about the call, when summarised" (get-call.md:766-770);
             # final once `analysedAt` is set, so a summary on an unanalysed row is not read.
-            engine_summary=((_str(payload.get("summary")) or "").strip() or None)
+            engine_summary=((wire_str(payload.get("summary")) or "").strip() or None)
             if analysed
             else None,
             quality=parse_quality(payload.get("quality")),
@@ -4594,12 +4597,12 @@ class ThinnestEngine:
         data = payload.get("data")
         call: dict[str, Any] = data if isinstance(data, dict) else payload
         raw_status = _raw_status_of(call)
-        hangup = _str(call.get("hangup"))
+        hangup = wire_str(call.get("hangup"))
         direction: CallDirection = "inbound" if call.get("direction") == "inbound" else "outbound"
         customer = _e164(call.get("phone"))
         ours = _our_number(call, direction)
         recording = call.get("recording")
-        recording_url = _str(recording.get("url")) if isinstance(recording, dict) else None
+        recording_url = wire_str(recording.get("url")) if isinstance(recording, dict) else None
         return CallEvent(
             call_id=_scoped(_call_id_of(call), workspace_of(None)) or "",
             engine_agent_ref=_scoped(_agent_ref_of(call), workspace_of(None)),
@@ -4626,7 +4629,7 @@ class ThinnestEngine:
         the record.
         """
         kind = _NOTICE_KINDS.get(str(payload.get("event")))
-        notice_id = _str(payload.get("id"))
+        notice_id = wire_str(payload.get("id"))
         if kind is None or notice_id is None:
             return None
         data = payload.get("data")
@@ -4635,9 +4638,9 @@ class ThinnestEngine:
             kind=kind,
             notice_id=notice_id,
             engine_agent_ref=_scoped(
-                _agent_ref_of(body) or _str(body.get("agentId")), workspace_of(None)
+                _agent_ref_of(body) or wire_str(body.get("agentId")), workspace_of(None)
             ),
-            engine_call_id=_scoped(_str(body.get("callId")), workspace_of(None)),
+            engine_call_id=_scoped(wire_str(body.get("callId")), workspace_of(None)),
             occurred_at=_parse_dt(payload.get("sentAt")),
             engine=self.name,
         )
@@ -4655,8 +4658,8 @@ class ThinnestEngine:
         body: dict[str, Any] = data if isinstance(data, dict) else {}
         reason = body.get("reason")
         return EngineOptOut(
-            phone=_str(body.get("phone")),
-            engine_call_id=_scoped(_str(body.get("callId")), workspace_of(None)),
+            phone=wire_str(body.get("phone")),
+            engine_call_id=_scoped(wire_str(body.get("callId")), workspace_of(None)),
             reason=reason.strip() or None if isinstance(reason, str) else None,
             engine=self.name,
         )
@@ -4669,17 +4672,17 @@ class ThinnestEngine:
         is read for `byok_failed` alone, for the operator alarm (`problem_detail`)."""
         if payload.get("event") != "call.problem":
             return None
-        problem_id = _str(payload.get("id"))
+        problem_id = wire_str(payload.get("id"))
         data = payload.get("data")
         body: dict[str, Any] = data if isinstance(data, dict) else {}
         kind = _PROBLEM_KINDS.get(str(body.get("kind")))
-        call = _scoped(_str(body.get("callId")), workspace_of(None))
+        call = _scoped(wire_str(body.get("callId")), workspace_of(None))
         if problem_id is None or kind is None or call is None:
             return None
         return EngineProblem(
             kind=kind,
             problem_id=problem_id,
-            engine_agent_ref=_scoped(_str(body.get("agentId")), workspace_of(None)),
+            engine_agent_ref=_scoped(wire_str(body.get("agentId")), workspace_of(None)),
             engine_call_id=call,
             occurred_at=_parse_dt(body.get("at")) or _parse_dt(payload.get("sentAt")),
             engine=self.name,
@@ -4695,16 +4698,16 @@ class ThinnestEngine:
         (snapshots/2026-10-15/pages/api-reference/webhooks.md:286, :536-563)."""
         if payload.get("event") != "contact.erased":
             return None
-        event_id = _str(payload.get("id"))
+        event_id = wire_str(payload.get("id"))
         data = payload.get("data")
         body: dict[str, Any] = data if isinstance(data, dict) else {}
-        contact = _str(body.get("contactId"))
+        contact = wire_str(body.get("contactId"))
         if event_id is None or contact is None:
             return None
         return EngineContactErased(
             event_id=event_id,
             contact_id=contact,
-            workspace=_str(body.get("workspaceId")),
+            workspace=wire_str(body.get("workspaceId")),
             erased_at=_parse_dt(body.get("erasedAt")),
             engine=self.name,
         )
@@ -4716,21 +4719,21 @@ class ThinnestEngine:
         webhooks.md:565-597)."""
         if payload.get("event") != "byok.changed":
             return None
-        event_id = _str(payload.get("id"))
+        event_id = wire_str(payload.get("id"))
         data = payload.get("data")
         body: dict[str, Any] = data if isinstance(data, dict) else {}
-        change = _str(body.get("change"))
+        change = wire_str(body.get("change"))
         if event_id is None or change not in _BYOK_CHANGES:
             return None
         enabled = body.get("byokEnabled")
         return EngineByokChanged(
             event_id=event_id,
             change=cast(EngineByokChange, change),
-            kind=_str(body.get("kind")),
-            provider=_str(body.get("provider")),
+            kind=wire_str(body.get("kind")),
+            provider=wire_str(body.get("provider")),
             byok_enabled=enabled if isinstance(enabled, bool) else None,
-            scope=_str(body.get("scope")),
-            workspace=_str(body.get("workspaceId")),
+            scope=wire_str(body.get("scope")),
+            workspace=wire_str(body.get("workspaceId")),
             engine=self.name,
         )
 
@@ -4786,4 +4789,5 @@ __all__ = [
     "ThinnestEngine",
     "parse_transcript",
     "vendor_agent_name",
+    "wire_str",
 ]

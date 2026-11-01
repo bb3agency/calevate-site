@@ -44,7 +44,7 @@ import httpx
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 from apps.api.engine.capabilities import NO_CREDENTIALS_REASON, engine_not_configured
-from apps.api.engine.thinnest import AUTH_HEADER, AUTH_SCHEME, BASE_URL, KEY_SCOPE_CODES
+from apps.api.engine.thinnest import AUTH_HEADER, AUTH_SCHEME, BASE_URL, KEY_SCOPE_CODES, wire_str
 from apps.api.engine.thinnest_workspace import WORKSPACE_HEADER, workspace_headers
 from apps.api.engine.vendor_http import REQUEST_TIMEOUT_S, EngineRejectedError, vendor_request
 
@@ -88,10 +88,6 @@ class WorkspaceRetention:
 #: second page is already unusual and a sixth is a vendor defect, refused.
 _CONTACT_PAGE_SIZE: Final = 100
 _CONTACT_PAGES_MAX: Final = 5
-
-
-def _str(value: Any) -> str | None:
-    return value if isinstance(value, str) and value else None
 
 
 def _int(value: Any) -> int | None:
@@ -225,7 +221,7 @@ class ThinnestCustomerData:
                 if not isinstance(contact_id, str) or not contact_id:
                     raise _bad("List Contacts answered a contact without an id")
                 ids.append(contact_id)
-            cursor = _str(payload.get("nextCursor"))
+            cursor = wire_str(payload.get("nextCursor"))
             if cursor is None:
                 return ids
         raise _bad(f"List Contacts answered more than {_CONTACT_PAGES_MAX} pages for one number")

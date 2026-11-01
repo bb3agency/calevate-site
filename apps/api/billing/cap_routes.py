@@ -50,7 +50,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.caps import CapView, apply_client_caps, read_caps, read_spend_counters
-from apps.api.billing.service import current_billing_month, to_paise
+from apps.api.billing.service import current_billing_month, refuse_json_float, to_paise
 from apps.api.billing.trials import trial_billing_active
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, requires
@@ -122,11 +122,7 @@ class CapsIn(Strict):
     def _never_a_float(cls, value: Any) -> Any:
         """Hard rule 7 at the boundary, identical to both top-up routes: `2500.10` as a
         JSON number has already been through a binary float by the time we see it."""
-        if isinstance(value, float):
-            raise ValueError(
-                'money crosses the wire as a string ("2500.00"), never as a JSON float'
-            )
-        return value
+        return refuse_json_float(value)
 
 
 class CapsOut(Strict):

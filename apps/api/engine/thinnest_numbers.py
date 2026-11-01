@@ -71,6 +71,7 @@ from apps.api.engine.thinnest import (
     BASE_URL,
     IDEMPOTENCY_HEADER,
     IDEMPOTENCY_IN_PROGRESS_CODE,
+    wire_str,
 )
 from apps.api.engine.thinnest_workspace import workspace_headers
 from apps.api.engine.vendor_http import REQUEST_TIMEOUT_S, EngineRejectedError, vendor_request
@@ -176,10 +177,6 @@ def digits(number: str) -> str:
     return "".join(ch for ch in raw_of(number) if ch.isdigit())
 
 
-def _str(value: Any) -> str | None:
-    return value if isinstance(value, str) and value else None
-
-
 def _bad(detail: str) -> ProblemError:
     return ProblemError(
         kind="dependency",
@@ -196,16 +193,16 @@ def _scoped(raw: str | None, workspace: str | None) -> str | None:
 
 
 def _number(row: dict[str, Any], workspace: str | None) -> EngineNumber | None:
-    raw = _str(row.get("number"))
+    raw = wire_str(row.get("number"))
     if raw is None or not digits(raw):
         return None
     return EngineNumber(
         number=scoped_handle(raw, workspace),
         e164=f"+{digits(raw)}",
         rented=row.get("source") == "rented",
-        answering_agent=_scoped(_str(row.get("agent")), workspace),
-        calling_agent=_scoped(_str(row.get("callingAgent")), workspace),
-        forward_to=_str(row.get("forwardTo")),
+        answering_agent=_scoped(wire_str(row.get("agent")), workspace),
+        calling_agent=_scoped(wire_str(row.get("callingAgent")), workspace),
+        forward_to=wire_str(row.get("forwardTo")),
         rented_since=_instant(row.get("since")),
     )
 
@@ -213,7 +210,7 @@ def _number(row: dict[str, Any], workspace: str | None) -> EngineNumber | None:
 def _instant(value: Any) -> datetime | None:
     """An ISO-8601 instant the vendor sends (`2026-09-02T07:15:40.118Z`), or None when it is
     absent, unreadable or carries no zone: a naive instant is a date we cannot place."""
-    raw = _str(value)
+    raw = wire_str(value)
     if raw is None:
         return None
     try:
@@ -234,20 +231,20 @@ def _inr(price: Any) -> Decimal | None:
 
 
 def _business(row: dict[str, Any]) -> BusinessDetails:
-    raw = _str(row.get("status"))
+    raw = wire_str(row.get("status"))
     status: BusinessStatus = raw if raw in _STATUSES else "unknown"  # type: ignore[assignment]
-    submitted = _str(row.get("submittedAt"))
+    submitted = wire_str(row.get("submittedAt"))
     try:
         at = datetime.fromisoformat(submitted.replace("Z", "+00:00")) if submitted else None
     except ValueError:
         at = None
     return BusinessDetails(
         status=status,
-        business_name=_str(row.get("businessName")),
+        business_name=wire_str(row.get("businessName")),
         can_rent=row.get("canRent") is True,
         submitted_at=at,
-        review_note=_str(row.get("reviewNote")),
-        document_kind=_str(row.get("documentKind")),
+        review_note=wire_str(row.get("reviewNote")),
+        document_kind=wire_str(row.get("documentKind")),
     )
 
 
@@ -369,7 +366,7 @@ class ThinnestNumbers:
         for row in rows if isinstance(rows, list) else []:
             if not isinstance(row, dict):
                 continue
-            name = _str(row.get("name"))
+            name = wire_str(row.get("name"))
             count = row.get("available")
             if name is None or isinstance(count, bool) or not isinstance(count, int):
                 continue
@@ -403,18 +400,18 @@ class ThinnestNumbers:
         for row in rows if isinstance(rows, list) else []:
             if not isinstance(row, dict):
                 continue
-            raw = _str(row.get("number"))
+            raw = wire_str(row.get("number"))
             if raw is None or not digits(raw):
                 continue
             numbers.append(
                 AvailableEngineNumber(
                     number=raw,
                     e164=f"+{digits(raw)}",
-                    city=_str(row.get("city")),
+                    city=wire_str(row.get("city")),
                     vendor_monthly_inr=_inr(row.get("monthlyPrice")),
                 )
             )
-        return AvailablePage(numbers=numbers, next_cursor=_str(payload.get("nextCursor")))
+        return AvailablePage(numbers=numbers, next_cursor=wire_str(payload.get("nextCursor")))
 
     async def rent(self, workspace: str, number: str, *, attempt_id: str) -> EngineNumber:
         """Rent `number` in `workspace`. Spends money at the vendor on success only.
@@ -507,7 +504,7 @@ class ThinnestNumbers:
             json={"toWorkspace": to_workspace},
             extra_refused_statuses=frozenset({403, 404, 409, 410}),
         )
-        moved_to = _str(row.get("to"))
+        moved_to = wire_str(row.get("to"))
         if moved_to is not None and moved_to != to_workspace:
             raise _bad("a moved number that landed in another workspace")
         return scoped_handle(digits(number), to_workspace), row.get("source") == "rented"

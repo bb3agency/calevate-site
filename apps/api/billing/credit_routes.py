@@ -255,6 +255,7 @@ from apps.api.billing.service import (
     read_recorded_payment,
     record_entry,
     recorded_payments,
+    refuse_json_float,
     remove_credit_from_lots,
     reprice_lot,
     restatement_ref,
@@ -308,26 +309,6 @@ _ZERO = _paise(Decimal("0"))
 
 class Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
-
-
-def refuse_json_float(value: Any) -> Any:
-    """Hard rule 7 at the edge, in ONE function for every money field on this router.
-
-    REFUSED rather than quietly rounded: `2500.10` parsed as a binary float and back is
-    how a paise-level dispute starts. Send `"2500.10"` — which is also how every money
-    field in our responses is serialized, so a client echoing our own shape is already
-    correct.
-
-    A module function rather than only a `MoneyIn` method, because the third write on
-    this router names its amount for what it holds (`corrected_amount_inr` is a TOTAL,
-    not a movement) and so cannot inherit the field. Sharing the refusal rather than the
-    field name keeps one definition of the rule while letting each body say what its
-    number means — the alternative was three surfaces spelling one amount `amount_inr`
-    with three different meanings.
-    """
-    if isinstance(value, float):
-        raise ValueError('money crosses the wire as a string ("2500.00"), never as a JSON float')
-    return value
 
 
 class MoneyIn(Strict):
@@ -2395,6 +2376,3 @@ async def read_credits(
             for payment in sorted(payments.values(), key=lambda p: p.first_at, reverse=True)
         ],
     )
-
-
-__all__ = ["router"]

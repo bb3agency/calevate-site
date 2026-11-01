@@ -144,6 +144,7 @@ async def list_sources(
 async def submit(
     payload: SubmitIn,
     session: Session,
+    request: Request,
     # `requires_kb_curation()`, NOT `requires("kb:write")`, and the swap is ADDITIVE:
     # it runs that dependency's ladder first and unchanged, then asks one further
     # question on the branch that was already a 403 — whether this account's owner
@@ -163,6 +164,14 @@ async def submit(
         auto_approve=goes_live_without_review(
             realm=principal.realm, impersonating=principal.impersonating
         ),
+    )
+    await _added_audit(
+        session,
+        principal,
+        request,
+        action="kb.submitted",
+        source_id=result["id"],
+        summary={"version": result["version"], "status": result["status"]},
     )
     return SubmitOut.model_validate(result)
 
@@ -303,6 +312,7 @@ class DownloadOut(Strict):
 )
 async def upload_document(
     session: Session,
+    request: Request,
     file: Annotated[UploadFile, File()],
     name: Annotated[str | None, Form()] = None,
     agent_id: Annotated[
@@ -327,6 +337,14 @@ async def upload_document(
         auto_approve=goes_live_without_review(
             realm=principal.realm, impersonating=principal.impersonating
         ),
+    )
+    await _added_audit(
+        session,
+        principal,
+        request,
+        action="kb.uploaded",
+        source_id=result["source_id"],
+        summary={"upload_id": str(result["id"]), "source_kind": result["source_kind"]},
     )
     return UploadOut.model_validate(result)
 
@@ -385,6 +403,7 @@ _READ_CHUNK_BYTES = 1024 * 1024
 async def add_link(
     payload: LinkIn,
     session: Session,
+    request: Request,
     principal: Principal = Depends(requires_kb_curation()),
 ) -> UploadOut:
     assert principal.tenant_id is not None
@@ -397,6 +416,14 @@ async def add_link(
         auto_approve=goes_live_without_review(
             realm=principal.realm, impersonating=principal.impersonating
         ),
+    )
+    await _added_audit(
+        session,
+        principal,
+        request,
+        action="kb.link_added",
+        source_id=result["source_id"],
+        summary={"upload_id": str(result["id"])},
     )
     return UploadOut.model_validate(result)
 
@@ -614,6 +641,30 @@ def _note_out(note: store.Note) -> NoteOut:
         chunks=note.chunks,
         changed_at=note.changed_at,
         restorable=note.restorable,
+    )
+
+
+async def _added_audit(
+    session: AsyncSession,
+    principal: Principal,
+    request: Request,
+    *,
+    action: str,
+    source_id: object,
+    summary: dict[str, object],
+) -> None:
+    """Knowledge added by a person: audited like Pip's same act (`knowledge_note_save`,
+    `knowledge_link_add`) and like confirming or removing it. Ids and states only; the
+    name, the text and the URL are the client's business data (hard rule 6)."""
+    await write_audit(
+        session,
+        action=action,
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="kb_source",
+        object_id=str(source_id),
+        ip=client_request_ip(request),
+        summary=summary,
     )
 
 

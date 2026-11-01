@@ -53,7 +53,7 @@ async def _template(*, submitted_hours_ago: float) -> tuple[UUID, UUID]:
 
 @pytest.fixture
 def wired(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
-    state: dict[str, Any] = {"word": "APPROVED", "scheduled": [], "alarms": []}
+    state: dict[str, Any] = {"word": "APPROVED", "scheduled": [], "job_ids": [], "alarms": []}
 
     async def _token(*_a: Any, **_kw: Any) -> str:
         return "token"
@@ -63,6 +63,7 @@ def wired(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
 
     async def _enqueue(job: str, payload: dict[str, Any], **kw: Any) -> str:
         state["scheduled"].append((job, payload["check"], kw["_defer_until"]))
+        state["job_ids"].append(kw["job_id"])
         return "job"
 
     monkeypatch.setattr(whatsapp_meta.accounts, "account_token", _token)
@@ -114,6 +115,9 @@ async def test_still_pending_after_the_last_check_alarms(wired: dict[str, Any]) 
     early = await whatsapp_meta.check_whatsapp_template({}, _payload(tenant_id, template_id))
     assert early == "still_pending"
     assert [check for _, check, _ in wired["scheduled"]] == [1]
+    # Keyed like every other job (`job_id_for`), per template and check, so a retried
+    # check cannot schedule its successor twice.
+    assert wired["job_ids"] == [f"{templates.TEMPLATE_CHECK_JOB}:{template_id}:1"]
 
     last = whatsapp_meta.TEMPLATE_CHECKS - 1
     result = await whatsapp_meta.check_whatsapp_template(

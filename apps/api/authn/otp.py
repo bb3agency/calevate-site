@@ -48,7 +48,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.authn.codes import code_fingerprints, new_otp_code
 from apps.api.authn.locks import lock_subject_credentials
-from apps.api.authn.models import AUTHN_REALMS, OTP_PURPOSES
+from apps.api.authn.models import OTP_PURPOSES, refuse_unknown_realm
 from apps.api.authn.throttle import OTP_MAX_ATTEMPTS
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
@@ -79,8 +79,7 @@ def _domain(purpose: str) -> str:
 def _refuse_unknown(purpose: str, realm: str) -> None:
     if purpose not in OTP_PURPOSES:
         raise ValueError(f"{purpose!r} is not an OTP purpose")
-    if realm not in AUTHN_REALMS:
-        raise ValueError(f"{realm!r} is not an authentication realm")
+    refuse_unknown_realm(realm)
 
 
 @dataclass(frozen=True, slots=True)

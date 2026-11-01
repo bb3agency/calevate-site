@@ -58,9 +58,11 @@ import sys
 import threading
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import IO
+
+from apps.api.core.logging import LOG_TIMEZONE
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -161,8 +163,10 @@ def _paint(text: str, code: str) -> str:
     return f"\033[{code}m{text}\033[0m" if _COLOUR else text
 
 
-def _stamp() -> str:
-    return datetime.now().strftime("%H:%M:%S")
+def _stamp(now: datetime | None = None) -> str:
+    """IST wall clock, the zone the services stamp their own lines in, so the two agree
+    whatever `TZ` the host or container runs with."""
+    return (now or datetime.now(UTC)).astimezone(LOG_TIMEZONE).strftime("%H:%M:%S")
 
 
 _print_lock = threading.Lock()

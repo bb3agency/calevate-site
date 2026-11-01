@@ -50,6 +50,7 @@ from apps.api.billing.ai_quota import (
     quota_payload,
     read_ai_quota,
 )
+from apps.api.billing.service import refuse_json_float
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
@@ -89,9 +90,7 @@ class AiExtraIn(Strict):
         """Hard rule 7 at the boundary, identical to both top-up routes and the caps
         route: `500.10` as a JSON number has already lost its exactness before we see
         it, and this field's entire job is to be compared for EQUALITY."""
-        if isinstance(value, float):
-            raise ValueError('money crosses the wire as a string ("500.00"), never as a JSON float')
-        return value
+        return refuse_json_float(value)
 
 
 class AiQuotaOut(Strict):

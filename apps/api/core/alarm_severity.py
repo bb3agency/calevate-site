@@ -583,6 +583,12 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "account_notice_tenant_missing": "attention",
     "account_notice_unknown_event": "attention",
     "closure_sweep_incomplete": "attention",
+    # A background AI sweep crashed on one or more tenants this tick (their work waits).
+    "kb_embed_sweep_incomplete": "attention",
+    "caller_embed_sweep_incomplete": "attention",
+    "copilot_distil_sweep_incomplete": "attention",
+    "caller_memory_distil_sweep_incomplete": "attention",
+    "kb_gloss_sweep_incomplete": "attention",
     "closure_erasure_stuck": "attention",
     "tenant_erasure_redriven": "attention",
     "hot_lead_whatsapp_exhausted": "attention",

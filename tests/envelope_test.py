@@ -35,6 +35,7 @@ from apps.api.core.envelope import (
     KekRing,
     _local_kek,
     build_ring,
+    envelope_from_row,
     last_four,
     seal,
     unseal,
@@ -453,6 +454,32 @@ def test_a_structurally_malformed_row_refuses_instead_of_raising() -> None:
         with pytest.raises(ProblemError) as raised:
             unseal(broken, context=CONTEXT, ring=ring)
         assert raised.value.code == "platform_secret_unwrappable"
+
+
+# --- reading a sealed value back out of its five columns -------------------
+
+
+def test_a_sealed_row_round_trips_and_a_null_column_means_nothing_is_held() -> None:
+    ring = _ring()
+    sealed = seal(SECRET, context=CONTEXT, ring=ring)
+    row = (
+        memoryview(sealed.ciphertext),
+        memoryview(sealed.nonce),
+        sealed.dek_wrapped,
+        sealed.dek_nonce,
+        str(sealed.kek_id),
+    )
+    opened = envelope_from_row(row)
+    assert opened == sealed
+    assert opened is not None and unseal(opened, context=CONTEXT, ring=ring) == SECRET
+    for missing in range(5):
+        holed = tuple(None if i == missing else v for i, v in enumerate(row))
+        assert envelope_from_row(holed) is None
+
+
+def test_a_row_that_is_not_five_sealed_columns_is_a_programming_error() -> None:
+    with pytest.raises(ValueError, match="5 columns, not 4"):
+        envelope_from_row((b"", b"", b"", b""))
 
 
 # --- the one fragment that may be stored --------------------------------------

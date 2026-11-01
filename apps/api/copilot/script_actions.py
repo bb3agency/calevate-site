@@ -32,7 +32,6 @@ from typing import Annotated, Any, Final
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import script_proposals, test_conversations
@@ -51,12 +50,12 @@ from apps.api.copilot.actions import (
     ToolActor,
     WriteRefusedError,
     action_schema,
+    agent_name,
     parse_args,
 )
 from apps.api.copilot.identity import ASSISTANT_NAME
 from apps.api.copilot.quotes import quoted_in
 from apps.api.copilot.sanitize import strip_invisible
-from apps.api.db.ownership import assert_visible
 from apps.workers.script_assist import OWNER_QUESTIONS
 
 _NULLABLE_TEXT: Final = {"anyOf": [{"type": "string"}, {"type": "null"}]}
@@ -92,14 +91,6 @@ class _ScriptSuggestArgs(BaseModel):
     mode: ProposalMode
     change: _Said | None
     answers: _Answers | None
-
-
-async def _agent_name(session: AsyncSession, agent_id: UUID) -> str:
-    await assert_visible(session, "agent", agent_id)
-    name = (
-        await session.execute(text("SELECT name FROM agents WHERE id = :aid"), {"aid": agent_id})
-    ).scalar()
-    return strip_invisible(str(name or "This agent"))
 
 
 NO_ANSWERS_REASON: Final = "no answers were given, so ask the person the six questions first"
@@ -166,7 +157,7 @@ async def _plan_script_suggest(
 ) -> Plan:
     """READ ONLY. The refusals the model can fix come first, then the allowance."""
     parsed = parse_args(_ScriptSuggestArgs, args)
-    name = await _agent_name(session, parsed.agent_id)
+    name = await agent_name(session, parsed.agent_id)
     canonical = _canonical(parsed)
     base = await script_proposals.working_script(session, parsed.agent_id)
     if parsed.mode == "steps" and not base.is_raw:
@@ -228,7 +219,7 @@ async def _execute_script_suggest(
 
     The allowance is asked again here, at the door: the planner's answer is advisory."""
     parsed = parse_args(_ScriptSuggestArgs, args)
-    name = await _agent_name(session, parsed.agent_id)
+    name = await agent_name(session, parsed.agent_id)
     await require_ai_assist(session, tenant_id=actor.tenant_id)
     proposal = await script_proposals.request_proposal(
         session,
@@ -317,7 +308,7 @@ class _TestsFixArgs(BaseModel):
 async def _plan_tests_fix(session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]) -> Plan:
     """READ ONLY. The run, the failures to fix, then the allowance."""
     parsed = parse_args(_TestsFixArgs, args)
-    name = await _agent_name(session, parsed.agent_id)
+    name = await agent_name(session, parsed.agent_id)
     run = (
         await test_conversations.get_run(session, parsed.agent_id, parsed.run_id)
         if parsed.run_id is not None
@@ -387,7 +378,7 @@ async def _execute_tests_fix(
     (D-748)."""
     parsed = parse_args(_TestsFixArgs, args)
     assert parsed.run_id is not None  # the planner signs it in
-    name = await _agent_name(session, parsed.agent_id)
+    name = await agent_name(session, parsed.agent_id)
     await require_ai_assist(session, tenant_id=actor.tenant_id)
     await test_conversations.request_improvement(
         session,

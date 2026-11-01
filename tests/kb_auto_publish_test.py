@@ -538,3 +538,55 @@ async def test_an_older_upload_finishing_late_is_archived_not_published_over_a_n
         (1, "archived", False),
         (2, "approved", True),
     ]
+
+
+async def test_knowledge_a_member_adds_is_audited_like_pips_same_act(
+    s3: FakeS3, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Typed text, a file and a link all go live with nobody approving them (D-658), so the
+    add is the decision and each one leaves an `audit_log` row naming the person, as
+    confirming, renaming and removing already do."""
+    del s3
+
+    async def _public(*_: Any, **__: Any) -> None:
+        return None
+
+    monkeypatch.setattr(uploads, "assert_public_http_url", _public)
+    tenant_id, agent_id = await _tenant_with_published_agent()
+    tenant_id = uuid.UUID(str(tenant_id))
+    owner = await _member(tenant_id, "owner")
+    headers = {"Authorization": f"Bearer dev:client:{owner}", "X-Org-Slug": await _slug(tenant_id)}
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as http:
+        typed = await http.post(
+            "/v1/kb/sources",
+            headers=headers,
+            json={"agent_id": str(agent_id), "name": "Fees", "body": BODY, "kind": "text"},
+        )
+        filed = await http.post(
+            "/v1/kb/uploads",
+            headers=headers,
+            files={"file": ("fees.txt", BODY.encode(), "text/plain")},
+        )
+        linked = await http.post(
+            "/v1/kb/links",
+            headers=headers,
+            json={"name": "Opening hours", "url": "https://example.com/hours"},
+        )
+    for response in (typed, filed, linked):
+        assert response.status_code == 201, response.text
+
+    async with untenanted_session() as session:
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT action, actor_id, object_type, object_id FROM audit_log "
+                    "WHERE tenant_id = :t AND action LIKE 'kb.%' ORDER BY at, id"
+                ),
+                {"t": tenant_id},
+            )
+        ).all()
+    assert [(r[0], str(r[1]), r[2], str(r[3])) for r in rows] == [
+        ("kb.submitted", str(owner), "kb_source", typed.json()["id"]),
+        ("kb.uploaded", str(owner), "kb_source", filed.json()["source_id"]),
+        ("kb.link_added", str(owner), "kb_source", linked.json()["source_id"]),
+    ]

@@ -25,7 +25,7 @@ from sqlalchemy import text
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import WORKER_MAX_TRIES, enqueue
+from apps.api.core.queue import WORKER_MAX_TRIES, enqueue, job_id_for
 from apps.api.db.session import tenant_session, untenanted_session, whatsapp_waba_session
 from apps.api.reliability.service import mark_inbox_failed, mark_inbox_processed
 from apps.api.whatsapp import accounts, graph, templates
@@ -225,7 +225,7 @@ async def _schedule_check(payload: dict[str, Any], *, check: int, due: datetime)
     await enqueue(
         _CHECK_JOB,
         {**payload, "check": check},
-        job_id=f"wa-template-check:{template_id}:{check}",
+        job_id=job_id_for(_CHECK_JOB, template_id, str(check)),
         _defer_until=due,
     )
 

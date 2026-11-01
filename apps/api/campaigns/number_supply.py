@@ -74,6 +74,7 @@ from apps.api.compliance.trial_access import refuse_trial_numbers
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
+from apps.api.crm.performance import IST_ZONE
 
 log = get_logger(__name__)
 
@@ -360,7 +361,7 @@ async def _meter_purchase_month(
     month = str(
         (
             await session.execute(
-                text("SELECT to_char(now() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM')")
+                text(f"SELECT to_char(now() AT TIME ZONE '{IST_ZONE}', 'YYYY-MM')")
             )
         ).scalar_one()
     )

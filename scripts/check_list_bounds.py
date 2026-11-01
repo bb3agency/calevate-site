@@ -145,8 +145,15 @@ _FOLLOW_UP_RUN = BoundedByConstruction(
     )
 )
 
+#: Call mistakes (D-949): one row per lesson kind, never per call.
+_CALL_MISTAKES = BoundedByConstruction(
+    by="one item per lesson kind, at most `len(agents/call_mistakes.LESSONS)` (nine)."
+)
+
 #: Every list-shaped route that legitimately has no `limit`, keyed `"METHOD /path"`.
 BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
+    "GET /v1/agents/{agent_id}/call-mistakes": _CALL_MISTAKES,
+    "GET /v1/ops/call-mistakes": _CALL_MISTAKES,
     "POST /v1/follow-ups": _FOLLOW_UP,
     "GET /v1/follow-ups/{follow_up_id}": _FOLLOW_UP,
     "PATCH /v1/follow-ups/{follow_up_id}": _FOLLOW_UP,

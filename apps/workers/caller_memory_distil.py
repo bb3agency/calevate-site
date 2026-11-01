@@ -588,6 +588,7 @@ async def distil_caller_memories(ctx: dict[str, Any]) -> str:
     budget = MAX_CALLS_PER_TICK
     excluded = await set_aside_ids(_SET_ASIDE_SWEEP)
     facts_written = 0
+    failed = 0
     for tenant_id in tenants:
         if budget <= 0:
             break
@@ -605,9 +606,22 @@ async def distil_caller_memories(ctx: dict[str, Any]) -> str:
                 extra={"tenant_id": str(tenant_id), "error": type(failure).__name__},
             )
         except Exception:
+            # Isolated so one tenant cannot end the tick for the rest, and counted so a
+            # failure that repeats every tick (a row that always crashes) still alarms.
             log.exception("caller_memory_distil_tenant_failed", extra={"tenant_id": str(tenant_id)})
+            failed += 1
         budget -= tally.spent
         facts_written += tally.facts
+
+    if failed:
+        alert(
+            "WORKER_TERMINAL",
+            "caller_memory_distil_sweep_incomplete",
+            detail=(
+                f"{failed} of {len(tenants)} tenant(s) failed the caller memory sweep; their "
+                "recent calls stay pending and the sweep runs again in an hour"
+            ),
+        )
 
     log.info(
         "caller_memory_distil_tick",

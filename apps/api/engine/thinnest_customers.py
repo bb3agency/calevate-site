@@ -33,7 +33,13 @@ import httpx
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 from apps.api.engine.capabilities import NO_CREDENTIALS_REASON, engine_not_configured
-from apps.api.engine.thinnest import AUTH_HEADER, AUTH_SCHEME, BASE_URL, IDEMPOTENCY_HEADER
+from apps.api.engine.thinnest import (
+    AUTH_HEADER,
+    AUTH_SCHEME,
+    BASE_URL,
+    IDEMPOTENCY_HEADER,
+    wire_str,
+)
 from apps.api.engine.thinnest_workspace import (
     WorkspaceScopeError,
     is_developer_workspace,
@@ -75,12 +81,8 @@ class Customer:
     erase_after: datetime | None
 
 
-def _str(value: Any) -> str | None:
-    return value if isinstance(value, str) and value else None
-
-
 def _dt(value: Any) -> datetime | None:
-    raw = _str(value)
+    raw = wire_str(value)
     if raw is None:
         return None
     try:
@@ -90,7 +92,7 @@ def _dt(value: Any) -> datetime | None:
 
 
 def _customer(row: dict[str, Any]) -> Customer:
-    workspace = _str(row.get("id"))
+    workspace = wire_str(row.get("id"))
     if workspace is None:
         raise ProblemError(
             kind="dependency",
@@ -102,7 +104,7 @@ def _customer(row: dict[str, Any]) -> Customer:
         )
     return Customer(
         workspace_id=workspace,
-        external_id=_str(row.get("externalId")),
+        external_id=wire_str(row.get("externalId")),
         archived_at=_dt(row.get("archivedAt")),
         erase_after=_dt(row.get("eraseAfter")),
     )
@@ -222,7 +224,7 @@ class ThinnestCustomers:
         row = await self._request("GET", "/workspace", route="/workspace")
         workspace = _customer(row).workspace_id
         remember_developer_workspace(workspace)
-        return DeveloperWorkspace(workspace_id=workspace, name=_str(row.get("name")))
+        return DeveloperWorkspace(workspace_id=workspace, name=wire_str(row.get("name")))
 
     async def get(self, workspace_id: str) -> Customer:
         return _customer(

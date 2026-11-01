@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -31,7 +31,7 @@ from apps.api.billing.auto_recharge import (
     save_auto_recharge,
 )
 from apps.api.billing.razorpay_api import MANDATE_MAX_DEBIT_INR
-from apps.api.billing.service import to_paise
+from apps.api.billing.service import refuse_json_float, to_paise
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.rbac import permission_meta
@@ -45,12 +45,6 @@ Writer = Annotated[Principal, Depends(requires("org:manage", realm="client"))]
 
 class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
-
-
-def _no_float(value: Any) -> Any:
-    if isinstance(value, float):
-        raise ValueError('money crosses the wire as a string ("2000.00"), never as a float')
-    return value
 
 
 class AutoRechargeOut(_Strict):
@@ -98,7 +92,7 @@ class AutoRechargeIn(_Strict):
     monthly_cap_inr: Decimal = Field(max_digits=10, decimal_places=2)
 
     _floats = field_validator("threshold_inr", "amount_inr", "monthly_cap_inr", mode="before")(
-        _no_float
+        refuse_json_float
     )
 
 
@@ -107,7 +101,7 @@ class MandateIn(_Strict):
     #: The largest single recharge this mandate may debit.
     max_debit_inr: Decimal = Field(max_digits=10, decimal_places=2)
 
-    _floats = field_validator("max_debit_inr", mode="before")(_no_float)
+    _floats = field_validator("max_debit_inr", mode="before")(refuse_json_float)
 
 
 class MandateCheckoutOut(_Strict):

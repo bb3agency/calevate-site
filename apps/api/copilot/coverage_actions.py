@@ -43,6 +43,7 @@ from apps.api.copilot.actions import (
     ToolActor,
     WriteRefusedError,
     action_schema,
+    agent_name,
     parse_args,
 )
 from apps.api.copilot.actions import principal_of as _principal_of
@@ -50,7 +51,6 @@ from apps.api.copilot.help import HELP_LOOKUP
 from apps.api.copilot.sanitize import strip_invisible
 from apps.api.copilot.tools import ReadTool, ToolContext
 from apps.api.core.errors import ProblemError
-from apps.api.db.ownership import assert_visible
 from apps.api.kb.proposals import CURATE_PERMISSION
 from apps.workers.redaction import redact
 
@@ -61,19 +61,6 @@ def _masked(value: str) -> str:
 
 def _nullable(schema: dict[str, Any]) -> dict[str, Any]:
     return {"anyOf": [schema, {"type": "null"}]}
-
-
-async def _agent_name(session: AsyncSession, agent_id: UUID) -> str:
-    await assert_visible(session, "agent", agent_id)
-    row = (
-        await session.execute(
-            text("SELECT name FROM agents WHERE id = :aid AND deleted_at IS NULL"),
-            {"aid": agent_id},
-        )
-    ).first()
-    if row is None:
-        raise WriteRefusedError("that agent has been deleted; choose another from `agents_list`")
-    return strip_invisible(str(row[0]))
 
 
 # =========================================================================================
@@ -226,7 +213,7 @@ async def _plan_alert(session: AsyncSession, actor: ToolActor, args: Mapping[str
 
     del actor
     parsed = parse_args(_AlertArgs, args)
-    name = await _agent_name(session, parsed.agent_id)
+    name = await agent_name(session, parsed.agent_id)
     view = await read_rule(session, agent_id=parsed.agent_id)
     outcomes = {o.key: o.label for o in view.outcomes}
     fields = {f.key: f.label for f in view.fields}
@@ -278,7 +265,7 @@ async def _execute_alert(
     from apps.api.team_alerts.service import Rule, save_rule
 
     parsed = parse_args(_AlertArgs, args)
-    await _agent_name(session, parsed.agent_id)
+    await agent_name(session, parsed.agent_id)
     rule = Rule(
         contact_id=parsed.team_contact_id,
         on_outcomes=tuple(parsed.on_outcomes),

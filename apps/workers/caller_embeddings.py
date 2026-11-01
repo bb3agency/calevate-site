@@ -593,6 +593,7 @@ async def embed_caller_chunks(ctx: dict[str, Any]) -> str:
     projected = 0
     excluded = await set_aside_ids(_SET_ASIDE_SWEEP)
     embedded = 0
+    failed = 0
     for tenant_id in tenants:
         if budget <= 0:
             break
@@ -610,10 +611,24 @@ async def embed_caller_chunks(ctx: dict[str, Any]) -> str:
                 extra={"tenant_id": str(tenant_id), "error": type(failure).__name__},
             )
         except Exception:
+            # Isolated so one tenant cannot end the tick for the rest, and counted so a
+            # failure that repeats every tick (a row that always crashes) still alarms.
             log.exception("caller_embed_tenant_failed", extra={"tenant_id": str(tenant_id)})
+            failed += 1
         projected += tally.projected
         embedded += tally.embedded
         budget -= tally.embedded
+
+    if failed:
+        alert(
+            "WORKER_TERMINAL",
+            "caller_embed_sweep_incomplete",
+            detail=(
+                f"{failed} of {len(tenants)} tenant(s) failed the caller-data embedding "
+                "sweep; their calls and leads stay keyword-searchable and the sweep runs "
+                "again in thirty minutes"
+            ),
+        )
 
     log.info(
         "caller_embed_tick",

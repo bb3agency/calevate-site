@@ -19,13 +19,13 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, time, timedelta
 from typing import Final, Literal
 from uuid import UUID
-from zoneinfo import ZoneInfo
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.engine_minutes import OWN_VOICE_RATE_KEYS
 from apps.api.billing.first_payment import has_paid
+from apps.api.billing.plans import IST
 from apps.api.billing.rates import PREMIUM_VOICE_TIER
 from apps.api.billing.trials import (
     TRIAL_ACTIVE,
@@ -38,8 +38,6 @@ from apps.api.billing.trials import (
 )
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
-
-_IST: Final = ZoneInfo("Asia/Kolkata")
 
 #: The shortest limit a call can be placed with (`maxCallSeconds` minimum 60,
 #: thinnest-findings/mirror/snapshots/2026-10-15/pages/api-reference/calls/
@@ -176,8 +174,8 @@ async def refuse_trial_numbers(session: AsyncSession, *, tenant_id: UUID) -> Non
 
 def ist_day_start(at: datetime) -> datetime:
     """Midnight IST of the day `at` falls in, as a UTC instant: the daily cap's window."""
-    local = at.astimezone(_IST)
-    return datetime.combine(local.date(), time(0), tzinfo=_IST).astimezone(UTC)
+    local = at.astimezone(IST)
+    return datetime.combine(local.date(), time(0), tzinfo=IST).astimezone(UTC)
 
 
 @dataclass(frozen=True, slots=True)

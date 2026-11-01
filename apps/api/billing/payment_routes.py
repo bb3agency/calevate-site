@@ -145,7 +145,7 @@ from apps.api.billing.rates import (
     VoiceTier,
     voice_tier_label,
 )
-from apps.api.billing.service import plan_tier_of, to_paise
+from apps.api.billing.service import plan_tier_of, refuse_json_float, to_paise
 from apps.api.billing.wallet import record_attempt
 from apps.api.campaigns.number_pricing import attested_price_inr
 from apps.api.compliance.audit import write_audit
@@ -257,11 +257,7 @@ class TopUpIntentIn(Strict):
     def _never_a_float(cls, value: Any) -> Any:
         """Hard rule 7 at the boundary, identical to the manual top-up route: `2500.10`
         as a JSON number has already been through a binary float by the time we see it."""
-        if isinstance(value, float):
-            raise ValueError(
-                'money crosses the wire as a string ("2500.00"), never as a JSON float'
-            )
-        return value
+        return refuse_json_float(value)
 
     @model_validator(mode="after")
     def _exactly_one_source(self) -> TopUpIntentIn:
@@ -1219,9 +1215,7 @@ class RefundIn(Strict):
     @field_validator("amount_inr", mode="before")
     @classmethod
     def _never_a_float(cls, value: Any) -> Any:
-        if isinstance(value, float):
-            raise ValueError('money crosses the wire as a string ("2500.00"), never as a float')
-        return value
+        return refuse_json_float(value)
 
 
 class RefundOut(Strict):

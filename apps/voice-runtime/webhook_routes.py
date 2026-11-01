@@ -673,14 +673,7 @@ async def _receive(
     # same bounded bytes); this one serves the engines that sign nothing.
     raw = await read_bounded(request, engine=engine, meter=WEBHOOK_ACK)
     if raw is None:
-        alert("ROUTE_HANDLER", "webhook_payload_too_large", engine=engine)
-        raise ProblemError(
-            kind="validation",
-            code="payload_too_large",
-            title="Event too large",
-            detail="The event body exceeds the accepted size.",
-            status=413,
-        )
+        raise _too_large(engine)
 
     # Step 3 — parse defensively. Anyone who reaches this line has cleared the source
     # check, but "the engine's IP sent it" is not "the engine sent well-formed JSON",
@@ -774,6 +767,18 @@ def _intake_unavailable(engine: str, reason: str) -> ProblemError:
     )
 
 
+def _too_large(engine: str) -> ProblemError:
+    """The one 413 both intake paths answer when `read_bounded` refuses the body."""
+    alert("ROUTE_HANDLER", "webhook_payload_too_large", engine=engine)
+    return ProblemError(
+        kind="validation",
+        code="payload_too_large",
+        title="Event too large",
+        detail="The event body exceeds the accepted size.",
+        status=413,
+    )
+
+
 async def _receive_signed(
     engine: str, intake: SignedIntake, request: Request, response: Response, started: float
 ) -> dict[str, str]:
@@ -800,14 +805,7 @@ async def _receive_signed(
 
     raw = await read_bounded(request, engine=engine, meter=WEBHOOK_ACK)
     if raw is None:
-        alert("ROUTE_HANDLER", "webhook_payload_too_large", engine=engine)
-        raise ProblemError(
-            kind="validation",
-            code="payload_too_large",
-            title="Event too large",
-            detail="The event body exceeds the accepted size.",
-            status=413,
-        )
+        raise _too_large(engine)
 
     # ONE ring opens the secret and seals the body. Fetched once here rather than once per
     # use, so sealing cannot fail after opening succeeded and needs no failure arm of its own.

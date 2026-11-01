@@ -38,11 +38,11 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Any, Final, Literal
 from uuid import UUID
-from zoneinfo import ZoneInfo
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.billing.plans import IST
 from apps.api.copilot import jobs
 from apps.api.copilot.memory import redacted_content
 from apps.api.copilot.routine_models import (
@@ -54,9 +54,6 @@ from apps.api.copilot.sanitize import strip_invisible
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
 from apps.api.tenancy.members import acting_member_role
-
-#: Routines are scheduled in India's time, the only time zone this product's clients keep.
-IST: Final = ZoneInfo("Asia/Kolkata")
 
 #: Monday first, matching `date.weekday()`; bit N of `days` is `WEEKDAYS[N]`.
 WEEKDAYS: Final[tuple[str, ...]] = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")

@@ -60,7 +60,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.authn.models import AUTHN_REALMS
+from apps.api.authn.models import refuse_unknown_realm
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
 from apps.api.db.session import untenanted_session
@@ -82,11 +82,6 @@ class Subject:
     subject_id: UUID
     email: str
     email_verified_at: datetime | None
-
-
-def _refuse_unknown_realm(realm: str) -> None:
-    if realm not in AUTHN_REALMS:
-        raise ValueError(f"{realm!r} is not an authentication realm ({', '.join(AUTHN_REALMS)})")
 
 
 #: The client realm's liveness rule: a row that exists and has not been deactivated.
@@ -146,7 +141,7 @@ async def load_subject_in(session: AsyncSession, realm: str, subject_id: UUID) -
     connection of its own for one indexed row. `users` carries no row policy, so any
     session reads it alike.
     """
-    _refuse_unknown_realm(realm)
+    refuse_unknown_realm(realm)
     row = (await session.execute(text(_statement(realm, "id = :sid")), {"sid": subject_id})).first()
     if row is None:
         # An id that resolves to nothing is either a stale token or a deleted account.
@@ -177,7 +172,7 @@ async def resolve_by_email(realm: str, email: str) -> Subject | None:
     `None` every other failure produces; the operator gets a `WARNING` naming the ids,
     which is the one thing that makes the data fixable.
     """
-    _refuse_unknown_realm(realm)
+    refuse_unknown_realm(realm)
     needle = email.strip().casefold()
     if not needle:
         # An empty identifier cannot match and must not become `lower(email) = ''`, which
@@ -216,7 +211,7 @@ async def mark_email_verified(realm: str, subject_id: UUID, *, at: datetime) -> 
     returns early and says so — but raising would be worse, because the caller
     (`service.confirm_otp`) is realm-generic by design.
     """
-    _refuse_unknown_realm(realm)
+    refuse_unknown_realm(realm)
     if realm != "client":
         return
     async with untenanted_session() as session:

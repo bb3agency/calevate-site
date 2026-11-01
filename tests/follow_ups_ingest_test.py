@@ -209,6 +209,73 @@ async def test_a_released_held_lead_is_called_on_its_run_and_a_dropped_one_ends_
     ]
 
 
+async def test_releasing_or_dropping_a_held_lead_on_screen_is_audited_as_pip_audits_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import uuid
+    from datetime import time
+
+    from apps.api.db.session import untenanted_session
+    from apps.api.ingest import lead_policy
+    from apps.api.ingest.lead_policy import LeadCallPlan
+    from tests.ingest_deferred_window_test import _pin_gate_clock, _utc_at_ist
+
+    _pin_gate_clock(monkeypatch, _utc_at_ist(2026, 10, 13, 19, 30))
+    tenant_id, _agent, webhook_id = await _tenant_with_ingest()
+    tid = UUID(str(tenant_id))
+    async with tenant_session(tid) as session:
+        await lead_policy.save_plan(
+            session,
+            tenant_id=tid,
+            plan=LeadCallPlan(hours_start=time(10), hours_end=time(18), after_hours="hold"),
+            user_id=None,
+        )
+    await _post(webhook_id, "9876508810")
+    await _post(webhook_id, "9876508811")
+    user_id = uuid.uuid4()
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "INSERT INTO users (id, email, created_at, updated_at) "
+                "VALUES (:id, :email, now(), now())"
+            ),
+            {"id": user_id, "email": f"{user_id}@example.com"},
+        )
+    async with tenant_session(tid) as session:
+        await session.execute(
+            text(
+                "INSERT INTO memberships (id, tenant_id, user_id, role, created_at, updated_at) "
+                "VALUES (:id, :tid, :uid, 'owner', now(), now())"
+            ),
+            {"id": uuid.uuid4(), "tid": tid, "uid": user_id},
+        )
+        holds = [
+            str(h)
+            for h in (
+                await session.execute(text("SELECT id FROM lead_call_holds ORDER BY held_at"))
+            )
+            .scalars()
+            .all()
+        ]
+    headers = {"Authorization": f"Bearer dev:client:{user_id}"}
+    async with _client() as http:
+        released = await http.post(f"/v1/lead-calling/held/{holds[0]}/release", headers=headers)
+        dropped = await http.post(f"/v1/lead-calling/held/{holds[1]}/drop", headers=headers)
+    assert released.status_code == 200, released.text
+    assert dropped.status_code == 204, dropped.text
+    async with untenanted_session() as session:
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT object_id, actor_id FROM audit_log WHERE tenant_id = :tid "
+                    "AND action = 'lead_calling.held_decided' ORDER BY at"
+                ),
+                {"tid": tid},
+            )
+        ).all()
+    assert [(str(r[0]), r[1]) for r in rows] == [(holds[0], user_id), (holds[1], user_id)]
+
+
 async def test_the_hourly_cap_holds_for_the_inline_first_call(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

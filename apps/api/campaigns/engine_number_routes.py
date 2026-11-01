@@ -24,9 +24,9 @@ from fastapi import APIRouter, Depends, Header, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.billing.credit_routes import refuse_json_float
 from apps.api.billing.first_payment import has_paid
 from apps.api.billing.number_rental import RentalOutcome
+from apps.api.billing.service import refuse_json_float
 from apps.api.campaigns import engine_numbers
 from apps.api.campaigns.engine_business_details import (
     RESUBMITTABLE,

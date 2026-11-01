@@ -53,6 +53,7 @@ from apps.api.engine.thinnest import (
     BASE_URL,
     DELIVERED_AT_HEADER,
     SIGNATURE_HEADER,
+    wire_str,
 )
 from apps.api.engine.thinnest_workspace import workspace_headers
 from apps.api.engine.vendor_http import REQUEST_TIMEOUT_S, EngineRejectedError, vendor_request
@@ -300,10 +301,6 @@ def _same_json(held: str | None, wanted: str) -> bool:
         return False
 
 
-def _str(value: Any) -> str | None:
-    return value if isinstance(value, str) and value else None
-
-
 def _text(value: Any) -> str:
     return value if isinstance(value, str) else ""
 
@@ -320,7 +317,7 @@ def _bad(detail: str) -> ProblemError:
 
 
 def _param(row: Any) -> ActionParam | None:
-    if not isinstance(row, dict) or _str(row.get("name")) is None:
+    if not isinstance(row, dict) or wire_str(row.get("name")) is None:
         return None
     return ActionParam(
         name=str(row["name"]),
@@ -330,8 +327,8 @@ def _param(row: Any) -> ActionParam | None:
 
 
 def _action(row: dict[str, Any]) -> VendorAction:
-    action_id = _str(row.get("id"))
-    name = _str(row.get("name"))
+    action_id = wire_str(row.get("id"))
+    name = wire_str(row.get("name"))
     if action_id is None or name is None:
         raise _bad("/actions returned an action without an id or name")
     params = tuple(p for p in (_param(r) for r in row.get("parameters") or ()) if p is not None)
@@ -340,8 +337,8 @@ def _action(row: dict[str, Any]) -> VendorAction:
         action_id=action_id,
         name=name,
         description=_text(row.get("description")),
-        method=_str(row.get("method")) or "GET",
-        url=_str(row.get("url")) or "",
+        method=wire_str(row.get("method")) or "GET",
+        url=wire_str(row.get("url")) or "",
         parameters=params,
         body_template=row.get("bodyTemplate") if isinstance(row.get("bodyTemplate"), str) else None,
         header_names=frozenset(h for h in headers if isinstance(h, str))
@@ -349,7 +346,7 @@ def _action(row: dict[str, Any]) -> VendorAction:
         else frozenset(),
         # Absent is read as off: the converge then switches it on, which is harmless.
         enabled=row.get("enabled") is True,
-        speak_before=_str(row.get("speakBefore")),
+        speak_before=wire_str(row.get("speakBefore")),
     )
 
 
@@ -379,12 +376,12 @@ def parse_call_start(raw: bytes) -> CallStartLookup | None:
         return None
     caller = data.get("from")
     return CallStartLookup(
-        agent_id=_str(data.get("agentId")),
+        agent_id=wire_str(data.get("agentId")),
         answerable=data.get("event") == "call.started"
         and data.get("direction") == "inbound"
         and data.get("surface") in ("phone", "whatsapp"),
         caller=caller if isinstance(caller, str) else None,
-        call_id=_str(data.get("callId")),
+        call_id=wire_str(data.get("callId")),
     )
 
 
@@ -448,7 +445,7 @@ class ThinnestActions:
             if not isinstance(rows, list):
                 raise _bad("/actions returned a list without `items`")
             actions.extend(_action(r) for r in rows if isinstance(r, dict))
-            cursor = _str(page.get("nextCursor"))
+            cursor = wire_str(page.get("nextCursor"))
             if cursor is None:
                 return actions
         raise _bad(f"/actions listed more than {_MAX_PAGES} pages")
@@ -546,18 +543,18 @@ class ThinnestActions:
             agent_ref=agent_ref,
             absent_is_success=True,
         )
-        if _str(row.get("id")) is None:
+        if wire_str(row.get("id")) is None:
             return None
         agent = row.get("agent")
         workspace = scope_of(agent_ref)
-        vendor_agent = _str(agent.get("id")) if isinstance(agent, dict) else _str(agent)
+        vendor_agent = wire_str(agent.get("id")) if isinstance(agent, dict) else wire_str(agent)
         return LiveCall(
             engine_call_id=scoped_handle(str(row["id"]), workspace),
-            direction=_str(row.get("direction")),
-            phone=_str(row.get("phone")),
-            reference=_str(row.get("reference")),
+            direction=wire_str(row.get("direction")),
+            phone=wire_str(row.get("phone")),
+            reference=wire_str(row.get("reference")),
             agent_ref=scoped_handle(vendor_agent, workspace) if vendor_agent else None,
-            status=_str(row.get("status")),
+            status=wire_str(row.get("status")),
         )
 
     # --- caller lookup (`voice.callStartUrl`, D-716) ------------------------------------
@@ -575,7 +572,7 @@ class ThinnestActions:
             "GET", "/agents/{agent}", route="/agents/{id}", agent_ref=agent_ref
         )
         voice = agent.get("voice")
-        return _str(voice.get("callStartUrl")) if isinstance(voice, dict) else None
+        return wire_str(voice.get("callStartUrl")) if isinstance(voice, dict) else None
 
     async def set_call_start(self, agent_ref: str, url: str, *, rotate: bool) -> str | None:
         """Point the agent's lookup at `url` (and mint a new secret when `rotate`). Returns
@@ -604,9 +601,9 @@ class ThinnestActions:
         held = saved.get("voice")
         if not isinstance(held, dict):
             return None
-        if _str(held.get("callStartUrl")) != url:
+        if wire_str(held.get("callStartUrl")) != url:
             raise _bad("the agent did not save the caller lookup address")
-        return _str(held.get("callStartSecret"))
+        return wire_str(held.get("callStartSecret"))
 
 
 _DEFAULT: ThinnestActions | None = None

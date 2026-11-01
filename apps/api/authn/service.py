@@ -79,7 +79,7 @@ from apps.api.authn import otp, tokens
 from apps.api.authn.credentials import authenticate_subject, set_password
 from apps.api.authn.hashing import verify_password
 from apps.api.authn.locks import lock_subject_credentials
-from apps.api.authn.models import AUTHN_REALMS
+from apps.api.authn.models import refuse_unknown_realm
 from apps.api.authn.policy import normalize
 from apps.api.authn.sessions import (
     IssuedSession,
@@ -170,11 +170,6 @@ class LoginOutcome:
     status: LoginStatus
     session: IssuedSession
     subject_id: UUID
-
-
-def _refuse_unknown_realm(realm: str) -> None:
-    if realm not in AUTHN_REALMS:
-        raise ValueError(f"{realm!r} is not an authentication realm")
 
 
 def _invalid_credentials() -> ProblemError:
@@ -283,7 +278,7 @@ async def sign_in(
     `tests/authn_enumeration_test.py` measures the timing property rather than asserting
     that the code looks right.
     """
-    _refuse_unknown_realm(realm)
+    refuse_unknown_realm(realm)
     started = time.monotonic()
     at = now or datetime.now(UTC)
     subject = await resolve_by_email(realm, email)
@@ -684,7 +679,7 @@ async def request_password_reset(
     becoming a denial-of-service lever. The floor sits far above the known path's cost, so
     only a database stall longer than the floor itself can show through it.
     """
-    _refuse_unknown_realm(realm)
+    refuse_unknown_realm(realm)
     started = time.monotonic()
     try:
         await _request_password_reset(realm=realm, email=email, ip=ip, now=now)
@@ -786,7 +781,7 @@ async def confirm_password_reset(
     about the TOKEN (wrong realm, dead subject) are raised after the transaction commits,
     so those burns stand.
     """
-    _refuse_unknown_realm(realm)
+    refuse_unknown_realm(realm)
     at = now or datetime.now(UTC)
     subject: Subject | None = None
     async with credential_session() as session:
@@ -1044,7 +1039,7 @@ async def request_otp(
     accepted a bare email address would be a way to make us send mail to arbitrary
     addresses, which is a spam vector even when it leaks nothing.
     """
-    _refuse_unknown_realm(realm)
+    refuse_unknown_realm(realm)
     subject = await load_subject(realm, subject_id)
     if subject is None:
         raise _invalid_credentials()
@@ -1071,7 +1066,7 @@ async def confirm_otp(
     now: datetime | None = None,
 ) -> None:
     """Spend one guess against the live challenge. Raises on failure."""
-    _refuse_unknown_realm(realm)
+    refuse_unknown_realm(realm)
     attempt = await reserve(OTP_BUDGET, realm=realm, subject_id=subject_id)
     at = now or datetime.now(UTC)
     async with credential_session() as session:

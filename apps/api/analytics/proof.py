@@ -36,11 +36,11 @@ from uuid import UUID
 
 from calevate_shared.business_outcomes import STARTING_OUTCOMES
 from calevate_shared.languages import find_language
-from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.call_outcomes import outcome_lead_move
+from apps.api.analytics.schemas import Strict
 from apps.api.billing.history import spend_series
 from apps.api.billing.plans import IST
 from apps.api.billing.rates import CLIENT_PULSE_SECONDS
@@ -82,7 +82,7 @@ class SpeedCall:
         return bool(self.duration_s) and self.status not in _DIAL_ONLY
 
 
-class WeekSpeed(BaseModel):
+class WeekSpeed(Strict):
     #: The IST Monday the week starts on.
     week_start: date
     #: A BCP-47 tag (`te-IN`), `all` for the week's every call, or `unknown`.
@@ -101,7 +101,7 @@ class WeekSpeed(BaseModel):
     reply_slow_ms: float | None
 
 
-class ReplySpeedOut(BaseModel):
+class ReplySpeedOut(Strict):
     """Per IST week, oldest first: the week's `all` row, then one per language."""
 
     weeks: list[WeekSpeed]
@@ -284,7 +284,7 @@ async def fleet_reply_speed(
 # --- rupees per result ----------------------------------------------------------------
 
 
-class CostWindowOut(BaseModel):
+class CostWindowOut(Strict):
     days: int
     from_date: date
     to_date: date
@@ -298,7 +298,7 @@ class CostWindowOut(BaseModel):
     per_booked_result_inr: Decimal | None
 
 
-class CostPerResultOut(BaseModel):
+class CostPerResultOut(Strict):
     windows: list[CostWindowOut]
     #: Calls are billed in steps of this many seconds, rounded up (D-681).
     billing_step_seconds: int

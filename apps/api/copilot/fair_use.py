@@ -23,13 +23,13 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Final
 from uuid import UUID
-from zoneinfo import ZoneInfo
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing import ai_quota
 from apps.api.billing.models import AI_ASSIST_UNIT_TYPES, FREE_ASSIST_FEATURES
+from apps.api.billing.plans import IST
 from apps.api.copilot.identity import ASSISTANT_NAME
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
@@ -38,8 +38,6 @@ from apps.api.core.redis import get_redis
 from apps.api.core.settings import get_settings
 
 log = get_logger(__name__)
-
-IST: Final = ZoneInfo("Asia/Kolkata")
 
 #: The Redis marker that makes the operator alarm once per account per day.
 _ALERTED_KEY: Final = "calevate:copilot:fair-use:alerted:{tenant}:{day}"

@@ -672,3 +672,24 @@ async def test_an_agent_id_that_names_nothing_has_no_prompt_history() -> None:
     assert "agent" in absent_agent.json()["detail"].lower()
     assert real_agent.status_code == 200, real_agent.text
     assert isinstance(real_agent.json(), list)
+
+
+async def test_the_console_calls_an_absent_account_a_client_on_every_route_that_names_it() -> None:
+    """The operator console's noun is "client"; two routes said "organization"."""
+    absent = uuid.uuid4()
+    token = await _make_admin()
+    headers = {"Authorization": f"Bearer {token}"}
+
+    async with _client() as http:
+        answers = {
+            "business-copy": await http.get(
+                f"/v1/admin/tenants/{absent}/business-copy", headers=headers
+            ),
+            "owner-status": await http.get(
+                f"/v1/admin/tenants/{absent}/owner-status", headers=headers
+            ),
+        }
+
+    for name, response in answers.items():
+        assert response.status_code == 404, f"{name}: {response.text}"
+        assert response.json()["title"] == "Client not found", f"{name}: {response.text}"

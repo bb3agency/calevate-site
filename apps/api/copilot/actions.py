@@ -72,11 +72,14 @@ from typing import Any, Final, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ValidationError
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.copilot.prompt import function_tool
+from apps.api.copilot.sanitize import strip_invisible
 from apps.api.core.context import Principal
 from apps.api.core.rbac import Permission, role_has, withheld_from_view_as
+from apps.api.db.ownership import assert_visible
 
 # The one predicate for "may this person curate knowledge" — the role table PLUS the
 # owner's per-account switch. Imported rather than re-derived so the assistant and the
@@ -118,6 +121,24 @@ class WriteRefusedError(Exception):
     def __init__(self, reason: str) -> None:
         self.reason = reason
         super().__init__(reason)
+
+
+async def agent_name(session: AsyncSession, agent_id: UUID) -> str:
+    """The name of an agent an action names, ready for a card or a prompt.
+
+    A neighbour's agent is the 404 `assert_visible` raises. An archived one is still visible
+    (`assert_visible` does not read `deleted_at`), so it is refused back to the model, which
+    can pick another agent rather than act on one the person no longer has."""
+    await assert_visible(session, "agent", agent_id)
+    row = (
+        await session.execute(
+            text("SELECT name FROM agents WHERE id = :aid AND deleted_at IS NULL"),
+            {"aid": agent_id},
+        )
+    ).first()
+    if row is None:
+        raise WriteRefusedError("that agent has been deleted; choose another from `agents_list`")
+    return strip_invisible(str(row[0]))
 
 
 @dataclass(frozen=True, slots=True)

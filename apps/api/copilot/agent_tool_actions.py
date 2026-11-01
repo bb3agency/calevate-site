@@ -22,7 +22,6 @@ from typing import Annotated, Any, Final, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.actions import agent_tools
@@ -38,6 +37,7 @@ from apps.api.copilot.actions import (
     ToolActor,
     WriteRefusedError,
     action_schema,
+    agent_name,
     parse_args,
 )
 from apps.api.copilot.sanitize import strip_invisible
@@ -46,19 +46,6 @@ from apps.api.db.ownership import assert_visible
 
 _ID: Final[dict[str, Any]] = {"type": "string", "description": "The agent's id, never invented."}
 _NULLABLE_STR: Final[dict[str, Any]] = {"anyOf": [{"type": "string"}, {"type": "null"}]}
-
-
-async def _agent_name(session: AsyncSession, agent_id: UUID) -> str:
-    await assert_visible(session, "agent", agent_id)
-    row = (
-        await session.execute(
-            text("SELECT name FROM agents WHERE id = :aid AND deleted_at IS NULL"),
-            {"aid": agent_id},
-        )
-    ).first()
-    if row is None:  # pragma: no cover - `assert_visible` has already 404'd an absent row
-        raise ProblemError.not_found("Agent")
-    return strip_invisible(str(row[0]))
 
 
 def _json_object(field: str, raw: str | None) -> Any:
@@ -142,7 +129,7 @@ async def _plan_action_set(
 ) -> Plan:
     del actor
     parsed = parse_args(_ActionSetArgs, args)
-    name = await _agent_name(session, parsed.agent_id)
+    name = await agent_name(session, parsed.agent_id)
     current = None
     if parsed.action_id is not None:
         current = await actions_service.get_agent_tool(
@@ -297,7 +284,7 @@ async def _one_tool(
 async def _plan_switch(session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]) -> Plan:
     del actor
     parsed = parse_args(_SwitchArgs, args)
-    name = await _agent_name(session, parsed.agent_id)
+    name = await agent_name(session, parsed.agent_id)
     word = "on" if parsed.enabled else "off"
     if parsed.action_id is None:
         held = await actions_service.actions_enabled(session, agent_id=parsed.agent_id)
@@ -375,7 +362,7 @@ class _RemoveArgs(BaseModel):
 async def _plan_remove(session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]) -> Plan:
     del actor
     parsed = parse_args(_RemoveArgs, args)
-    name = await _agent_name(session, parsed.agent_id)
+    name = await agent_name(session, parsed.agent_id)
     tool = await _one_tool(session, parsed.agent_id, parsed.action_id)
     return Plan(
         object_id=str(parsed.agent_id),
@@ -602,7 +589,7 @@ _KIND_WORDS: Final[dict[str, str]] = {
 async def _plan_answer(session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]) -> Plan:
     del actor
     parsed = parse_args(_AnswerArgs, args)
-    name = await _agent_name(session, parsed.agent_id)
+    name = await agent_name(session, parsed.agent_id)
     state = await field_suggestions.read_state(session, agent_id=parsed.agent_id)
     chosen = next((s for s in state.suggestions if s.id == parsed.suggestion_id), None)
     if chosen is None:

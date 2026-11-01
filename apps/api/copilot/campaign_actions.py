@@ -22,12 +22,12 @@ from collections.abc import Mapping
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Annotated, Any, Final
 from uuid import UUID
-from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.billing.plans import IST
 from apps.api.campaigns import controls as campaign_controls
 from apps.api.campaigns import scheduling
 from apps.api.campaigns import service as campaigns_service
@@ -57,8 +57,6 @@ from apps.api.copilot.set_actions import DialConsent
 from apps.api.core.errors import ProblemError
 from apps.api.db.ownership import assert_visible
 from apps.api.ingest.service import normalize_phone
-
-IST: Final = ZoneInfo("Asia/Kolkata")
 
 #: The most rows one Pip contact action carries. A longer list is the campaign screen's
 #: upload, where the person sees the file they chose; past this the model would be

@@ -32,7 +32,7 @@ from calevate_shared.engine_scope import raw_of, scope_of, scoped_handle
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 from apps.api.engine.capabilities import NO_CREDENTIALS_REASON, engine_not_configured
-from apps.api.engine.thinnest import AUTH_HEADER, AUTH_SCHEME, BASE_URL, NOTICE_EVENTS
+from apps.api.engine.thinnest import AUTH_HEADER, AUTH_SCHEME, BASE_URL, NOTICE_EVENTS, wire_str
 from apps.api.engine.thinnest_workspace import workspace_headers
 from apps.api.engine.vendor_http import REQUEST_TIMEOUT_S, vendor_request
 
@@ -94,12 +94,8 @@ class CreatedEndpoint:
     signing_secret: str
 
 
-def _str(value: Any) -> str | None:
-    return value if isinstance(value, str) and value else None
-
-
 def _endpoint(row: dict[str, Any], workspace: str | None) -> WebhookEndpoint:
-    raw = _str(row.get("id"))
+    raw = wire_str(row.get("id"))
     if raw is None:
         raise _bad("a webhook endpoint without an id")
     webhook_id = scoped_handle(raw, workspace)
@@ -107,7 +103,7 @@ def _endpoint(row: dict[str, Any], workspace: str | None) -> WebhookEndpoint:
     failures = delivery.get("failuresInARow") if isinstance(delivery, dict) else None
     return WebhookEndpoint(
         webhook_id=webhook_id,
-        url=_str(row.get("url")),
+        url=wire_str(row.get("url")),
         # Absent is read as switched OFF: the sweep then re-enables it, which is harmless
         # on an endpoint that was on, while reading absent as on would leave a dead one.
         enabled=row.get("enabled") is True,
@@ -186,7 +182,7 @@ class ThinnestWebhooks:
                 "events": list(SUBSCRIBED_EVENTS),
             },
         )
-        secret = _str(row.get("signingSecret"))
+        secret = wire_str(row.get("signingSecret"))
         if secret is None:
             raise _bad("a created endpoint without its signingSecret")
         return CreatedEndpoint(endpoint=_endpoint(row, workspace), signing_secret=secret)
@@ -210,7 +206,7 @@ class ThinnestWebhooks:
             if not isinstance(rows, list):
                 raise _bad("a webhook list without `items`")
             endpoints.extend(_endpoint(row, workspace) for row in rows if isinstance(row, dict))
-            cursor = _str(payload.get("nextCursor"))
+            cursor = wire_str(payload.get("nextCursor"))
             if cursor is None:
                 return endpoints
         raise _bad(f"a webhook list longer than {_LIST_MAX_PAGES} pages")

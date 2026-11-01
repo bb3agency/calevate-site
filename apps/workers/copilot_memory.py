@@ -428,6 +428,7 @@ async def distil_copilot_memories(ctx: dict[str, Any]) -> str:
     budget = MAX_GROUPS_PER_TICK
     distilled_groups = 0
     facts_written = 0
+    failed = 0
     excluded = await set_aside_ids(_SET_ASIDE_SWEEP)
     for tenant_id in tenants:
         if budget <= 0:
@@ -490,7 +491,21 @@ async def distil_copilot_memories(ctx: dict[str, Any]) -> str:
                 extra={"tenant_id": str(tenant_id), "error": type(failure).__name__},
             )
         except Exception:
+            # Isolated so one tenant cannot end the tick for the rest, and counted so a
+            # failure that repeats every tick (a row that always crashes) still alarms.
             log.exception("copilot_distil_tenant_failed", extra={"tenant_id": str(tenant_id)})
+            failed += 1
+
+    if failed:
+        alert(
+            "WORKER_TERMINAL",
+            "copilot_distil_sweep_incomplete",
+            detail=(
+                f"{failed} of {len(tenants)} tenant(s) failed the Pip memory distillation "
+                "sweep; their conversations stay undistilled and the sweep runs again in "
+                "an hour"
+            ),
+        )
 
     log.info(
         "copilot_distil_tick",

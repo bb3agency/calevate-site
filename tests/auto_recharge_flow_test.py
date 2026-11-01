@@ -656,7 +656,7 @@ def _request() -> Request:
 
 
 def test_money_never_crosses_the_wire_as_a_float() -> None:
-    with pytest.raises(ValidationError, match="never as a float"):
+    with pytest.raises(ValidationError, match="never as a JSON float"):
         auto_recharge_routes.AutoRechargeIn.model_validate(
             {
                 "enabled": False,

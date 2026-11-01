@@ -108,7 +108,7 @@ from pathlib import Path
 from typing import Final
 
 from apps.api.authn.hashing import MAX_PASSWORD_CHARS, MIN_PASSWORD_CHARS
-from apps.api.authn.models import AUTHN_REALMS
+from apps.api.authn.models import AUTHN_REALMS, refuse_unknown_realm
 from apps.api.core.errors import ProblemError
 
 #: The minimum on every realm (D-765). Below SP 800-63B-4's single-factor 15 on the client
@@ -187,8 +187,7 @@ def min_password_chars(realm: str) -> int:
     An unknown realm raises rather than defaulting: a new realm gets a floor by decision,
     not by inheriting one.
     """
-    if realm not in AUTHN_REALMS:
-        raise ValueError(f"{realm!r} is not an authentication realm ({', '.join(AUTHN_REALMS)})")
+    refuse_unknown_realm(realm)
     return MIN_CHARS_BY_REALM[realm]
 
 

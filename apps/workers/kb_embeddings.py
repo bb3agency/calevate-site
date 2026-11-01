@@ -443,6 +443,7 @@ async def embed_knowledge_chunks(ctx: dict[str, Any]) -> str:
 
     budget = MAX_CHUNKS_PER_TICK
     embedded = 0
+    failed = 0
     excluded = await set_aside_ids(_SET_ASIDE_SWEEP)
     for tenant_id in tenants:
         if budget <= 0:
@@ -500,8 +501,21 @@ async def embed_knowledge_chunks(ctx: dict[str, Any]) -> str:
                 extra={"tenant_id": str(tenant_id), "error": type(failure).__name__},
             )
         except Exception:
+            # Isolated so one tenant cannot end the tick for the rest, and counted so a
+            # failure that repeats every tick (a row that always crashes) still alarms.
             log.exception("kb_embed_tenant_failed", extra={"tenant_id": str(tenant_id)})
+            failed += 1
 
+    if failed:
+        alert(
+            "WORKER_TERMINAL",
+            "kb_embed_sweep_incomplete",
+            detail=(
+                f"{failed} of {len(tenants)} tenant(s) failed the knowledge embedding sweep; "
+                "their new knowledge stays keyword-searchable and the sweep runs again in "
+                "thirty minutes"
+            ),
+        )
     log.info(
         "kb_embed_tick",
         extra={"tenants": len(tenants), "embedded": embedded, "budget_left": budget},

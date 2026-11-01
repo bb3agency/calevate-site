@@ -73,6 +73,7 @@ from apps.api.billing.service import (
     low_balance_line,
     plan_tier_of,
     recorded_payments,
+    refuse_json_float,
     set_low_balance_line,
     to_paise,
 )
@@ -897,9 +898,7 @@ class LowBalanceAlertIn(Strict):
     @field_validator("threshold_inr", mode="before")
     @classmethod
     def _never_a_float(cls, value: object) -> object:
-        if isinstance(value, float):
-            raise ValueError('money crosses the wire as a string ("500.00"), never as a float')
-        return value
+        return refuse_json_float(value)
 
 
 class LowBalanceAlertOut(Strict):

@@ -30,7 +30,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.authn.hashing import hash_password, verify_password
-from apps.api.authn.models import AUTHN_REALMS
+from apps.api.authn.models import refuse_unknown_realm
 from apps.api.authn.policy import assert_password_allowed
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -38,11 +38,6 @@ from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 
 log = get_logger(__name__)
-
-
-def _refuse_unknown_realm(realm: str) -> None:
-    if realm not in AUTHN_REALMS:
-        raise ValueError(f"{realm!r} is not an authentication realm ({', '.join(AUTHN_REALMS)})")
 
 
 async def set_password(
@@ -84,7 +79,7 @@ async def set_password(
     the time with no way for the caller to see it. AUTH-MIGRATION §1 lists it as a
     capability with its own test rather than as a side effect of this call.
     """
-    _refuse_unknown_realm(realm)
+    refuse_unknown_realm(realm)
     assert_password_allowed(password, realm=realm, email=email)
     at = now or datetime.now(UTC)
     digest = await hash_password(password)
@@ -132,7 +127,7 @@ async def authenticate_subject(
     person would meet a 400 about length on a correct sign-in. So a refusal here is
     logged and skipped; the row keeps its old hash and the account keeps working.
     """
-    _refuse_unknown_realm(realm)
+    refuse_unknown_realm(realm)
     at = now or datetime.now(UTC)
     row = (
         await session.execute(
@@ -195,7 +190,7 @@ async def subjects_with_password(
     An empty `subject_ids` short-circuits: `IN ()` is not valid SQL, and a round trip that
     can only answer "none" is a round trip worth not taking.
     """
-    _refuse_unknown_realm(realm)
+    refuse_unknown_realm(realm)
     if not subject_ids:
         return frozenset()
     rows = (
@@ -225,7 +220,7 @@ async def delete_password(session: AsyncSession, *, realm: str, subject_id: UUID
     contract `set_password` states, for the same reason: a live session does not consult
     the password store.
     """
-    _refuse_unknown_realm(realm)
+    refuse_unknown_realm(realm)
     result = await session.execute(
         text("DELETE FROM auth_credentials WHERE realm = :realm AND subject_id = :sub"),
         {"realm": realm, "sub": subject_id},
