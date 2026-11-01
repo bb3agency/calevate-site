@@ -67,6 +67,16 @@ def self_names(
     return frozenset(agents), frozenset(businesses)
 
 
+def is_own_name(name: str | None, *, agent_name: str | None, business_name: str | None) -> bool:
+    """Whether a name held for the caller is the agent's own (a whole-word run of it) or the
+    business's (whole), on `is_self_name`'s rules without a transcript or script: what a
+    reader can decide from the lead's name and the call's agent alone."""
+    folded = fold(name or "")
+    if not folded:
+        return False
+    return _has_run(fold(agent_name or ""), folded) or folded == fold(business_name or "")
+
+
 def _agent_said_it_first(name: str, turns: Sequence[TranscriptTurn]) -> bool:
     for turn in sorted(turns, key=lambda t: t.idx):
         if _has_run(fold(turn.text), name):
@@ -135,4 +145,4 @@ def without_self_names(
     return cleaned, dropped
 
 
-__all__ = ["NAME_KEYS", "fold", "is_self_name", "self_names", "without_self_names"]
+__all__ = ["NAME_KEYS", "fold", "is_own_name", "is_self_name", "self_names", "without_self_names"]

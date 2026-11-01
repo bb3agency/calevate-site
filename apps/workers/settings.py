@@ -234,7 +234,7 @@ from apps.workers.kb_index_sync import INDEX_SYNC_MINUTES, sync_knowledge_index
 from apps.workers.kb_ingest import SWEEP_MINUTES as KB_UPLOAD_SWEEP_MINUTES
 from apps.workers.kb_ingest import ingest_kb_source, publish_kb_source, sweep_kb_uploads
 from apps.workers.kb_orphans import ORPHAN_SWEEP_HOUR, ORPHAN_SWEEP_MINUTE, sweep_kb_orphans
-from apps.workers.kb_read import read_kb_upload, redeliver_extracted_knowledge
+from apps.workers.kb_read import read_kb_upload
 from apps.workers.kb_reconciliation import KB_SWEEP_MINUTES, sweep_kb_drift
 from apps.workers.kb_teach import run_kb_teaching
 from apps.workers.kyc_notices import (
@@ -345,6 +345,7 @@ from apps.workers.trial_notices import (
 )
 from apps.workers.trials import sweep_trials
 from apps.workers.voice_catalogue import REFRESH_MINUTE, refresh_voice_catalogue
+from apps.workers.voice_comparison_key import push_voice_comparison_key
 from apps.workers.wallet_alerts import notify_low_balance
 from apps.workers.whatsapp import escalate_campaign_contact, notify_hot_lead_whatsapp
 from apps.workers.whatsapp_meta import (
@@ -601,6 +602,9 @@ FUNCTIONS: list[Any] = [
         # the platform.
         push_studio_voice_key,
         push_studio_voice_key_to_workspace,
+        # D-946. A rotated Sarvam voice key, pushed to the voice-comparison workspace;
+        # published by `ops/secret_routes.set_secret_route`.
+        push_voice_comparison_key,
         # D-764. A rotated Google key, fanned out to every client workspace on our model,
         # one outbox job each; published by `ops/secret_routes.set_secret_route`.
         push_own_model_key,
@@ -628,11 +632,9 @@ FUNCTIONS: list[Any] = [
         # assistant; enqueued through the OUTBOX in the submission's transaction, so an
         # unregistered name here leaves the source "approved, not live" for ever.
         publish_kb_source,
-        # D-893 L8. Read one saved PDF or link into the copy Pip and the reader open, and
-        # re-send every live PDF and link when `kb_send_extracted_files` changes. Both are
+        # D-893 L8. Read one saved PDF or link again ("Read it again", the backfill script),
         # enqueued through the OUTBOX (`kb/reading.py`).
         read_kb_upload,
-        redeliver_extracted_knowledge,
         # D-538. Queued in the SAME transaction as the closure it announces, so a client
         # is never told about a closure that rolled back and a closure never commits with
         # nobody told. Registered here because an unregistered job name is a DLQ

@@ -158,6 +158,8 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "teach-questions",
     "admin/kb",
     "admin/kb-preview",
+    // The operator's per-agent list reads the same knowledge rows (`kb/agent_view.py`).
+    "agent-knowledge",
     // A source waiting for approval is a row on the operator's health board.
     "admin/client-health",
     "readiness",
@@ -380,6 +382,7 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "admin/ops/secrets",
     "admin/ops/spoken-style",
     "admin/ops/voices",
+    "admin/ops/voice-comparison",
     "ops/config-sources",
     "ops/engine-minute-prices",
     "ops/engine-model-bands",

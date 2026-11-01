@@ -1,6 +1,6 @@
 """The migrations that retire a stored console row remove that row and nothing else:
-`f3c9a1d5e7b2` (`actions_callback_base_url`, D-642) and `b7e4c2d9f1a3`
-(`thinnest_reply_languages`, D-830).
+`f3c9a1d5e7b2` (`actions_callback_base_url`, D-642), `b7e4c2d9f1a3`
+(`thinnest_reply_languages`, D-830) and `c4e8a2d6f1b3` (`kb_send_extracted_files`, D-868).
 
 Run as the owner role in a transaction that is always rolled back, because the table is
 platform-wide and shared with the rest of the suite.
@@ -27,6 +27,7 @@ KEPT = "engine_actions_base_url"
 RETIREMENTS = (
     ("f3c9a1d5e7b2", "actions_callback_base_url", "https://hooks.example.test"),
     ("b7e4c2d9f1a3", "thinnest_reply_languages", True),
+    ("c4e8a2d6f1b3", "kb_send_extracted_files", True),
 )
 
 

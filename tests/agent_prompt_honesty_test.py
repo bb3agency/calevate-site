@@ -74,7 +74,7 @@ def test_the_notices_are_quoted_as_already_said_and_never_repeated() -> None:
     assert start.startswith(f"{START_OF_CALL_HEADER}\n")
     # The whole opening, quoted as spoken: greeting, then the notices (D-861, D-864).
     assert f'first turn: "{OPENING} {NOTICES}".' in start
-    assert "Never greet, repeat it or ask if now suits again, even after answering" in start
+    assert "Never greet, repeat it or re-ask if now suits, even after answering" in start
     prompt = compose_engine_prompt(cfg)
     # The publish read-back scores containment of the notices (`agents/verification`), and a
     # caller who asks is still answered by the block that binds last.
@@ -118,8 +118,8 @@ def test_the_chat_hears_the_honesty_rules_the_call_rules_would_have_given() -> N
     assert "what happens next" not in ACTION_CLAIM_RULE
     prompt = compose_engine_prompt(_cfg())
     assert (
-        'No answer after searching ("the team will share that"), or still unclear after '
-        "two tries: say so, then" in prompt
+        'No answer after searching ("the team will share that"), or no clear reply twice: '
+        "say so, then" in prompt
     )
 
 

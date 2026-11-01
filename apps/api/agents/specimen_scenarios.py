@@ -29,6 +29,11 @@ Lines = Mapping[str, str]
 
 _DEFAULT: Final = "_default"
 
+#: A caller line that is the business's own name, filled per account by `scenario_of`.
+BUSINESS_SLOT: Final = "{business}."
+#: Said in its place when the account has no name on file.
+_NO_BUSINESS_NAME: Final = "Hello"
+
 
 @dataclass(frozen=True, slots=True)
 class SpecimenClass:
@@ -365,6 +370,25 @@ CLASSES: Final[tuple[SpecimenClass, ...]] = (
             "do-not-call talk they did not ask for."
         ),
     ),
+    # The Sri Estates call of 30 Oct 2026 (D-947): the caller only said the business name back,
+    # four times, and each time the agent said who it was and asked the same question.
+    SpecimenClass(
+        key="specimen_echoes_business_name",
+        title="Only says the business name back",
+        turns={
+            _DEFAULT: _turns(
+                {"te-IN": BUSINESS_SLOT, "hi-IN": BUSINESS_SLOT, "en-IN": BUSINESS_SLOT},
+                {"te-IN": BUSINESS_SLOT, "hi-IN": BUSINESS_SLOT, "en-IN": BUSINESS_SLOT},
+                {"te-IN": BUSINESS_SLOT, "hi-IN": BUSINESS_SLOT, "en-IN": BUSINESS_SLOT},
+            ),
+        },
+        expect=(
+            "Confirms once, in one line, who is calling and why, then waits. When only the "
+            "name comes back again it never says a line it already said: it tries once in "
+            "other words, then says it may be a bad time, offers what it can (a call back, or "
+            "the team getting back to them) and closes politely."
+        ),
+    ),
 )
 
 
@@ -372,34 +396,50 @@ def _line(lines: Lines, language: str) -> str:
     return lines.get(language) or lines["en-IN"]
 
 
-def scenario_of(cls: SpecimenClass, language: str, business_type: str) -> Scenario:
-    """One class as a test caller for this business type and language."""
+def scenario_of(
+    cls: SpecimenClass, language: str, business_type: str, *, business_name: str = ""
+) -> Scenario:
+    """One class as a test caller for this business type and language, `{business}` in a
+    line filled with the account's name."""
     turns = cls.turns.get(business_type) or cls.turns[_DEFAULT]
+    name = " ".join(business_name.split()) or _NO_BUSINESS_NAME
     return Scenario(
         key=cls.key,
         title=cls.title,
         category=cls.category,
-        turns=tuple(_line(lines, language) for lines in turns),
+        turns=tuple(_line(lines, language).replace("{business}", name) for lines in turns),
         expect=cls.expect,
         source="standard",
     )
 
 
-def all_specimen_scenarios(language: str, business_type: str) -> list[Scenario]:
-    return [scenario_of(cls, language, business_type) for cls in CLASSES]
+def all_specimen_scenarios(
+    language: str, business_type: str, *, business_name: str = ""
+) -> list[Scenario]:
+    return [
+        scenario_of(cls, language, business_type, business_name=business_name) for cls in CLASSES
+    ]
 
 
 def specimen_scenarios(
-    language: str, business_type: str, *, round_key: str, count: int = PER_RUN
+    language: str,
+    business_type: str,
+    *,
+    round_key: str,
+    count: int = PER_RUN,
+    business_name: str = "",
 ) -> list[Scenario]:
     """`count` classes for this run, chosen by the round key so successive runs rotate
     through every class."""
     start = int(hashlib.sha256(round_key.encode()).hexdigest()[:8], 16) % len(CLASSES)
     picked = [CLASSES[(start + i) % len(CLASSES)] for i in range(min(count, len(CLASSES)))]
-    return [scenario_of(cls, language, business_type) for cls in picked]
+    return [
+        scenario_of(cls, language, business_type, business_name=business_name) for cls in picked
+    ]
 
 
 __all__ = [
+    "BUSINESS_SLOT",
     "CLASSES",
     "PER_RUN",
     "SpecimenClass",

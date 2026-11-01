@@ -177,6 +177,7 @@ def platform_prompt_revision() -> str:
     processes: no ids, clocks or settings go in.
     """
     from calevate_shared.call_script import (
+        PRONOUNCE_LEAD,
         CallScript,
         Capabilities,
         ConversationStage,
@@ -190,6 +191,7 @@ def platform_prompt_revision() -> str:
         AgentConfig,
         compose_engine_prompt,
         join_first_words,
+        said_as_taught,
         sends_our_call_rules,
     )
     from calevate_shared.languages import offered_language_tags
@@ -254,6 +256,14 @@ def platform_prompt_revision() -> str:
         join_first_words("A N", "hello, O", ai_notice="A", language=language)
         for language in sorted(INTRODUCTION_SALUTATIONS)
     ]
+    # How an opening line says a taught name and the business's own spelling (D-947).
+    parts.append(
+        said_as_taught(
+            "hello, Bee-Shop and Cee here",
+            body=f'{PRONOUNCE_LEAD}Cee as "C"',
+            business="Bee Shop",
+        )
+    )
     # The fixed call-behaviour values too (filler timing, interruptions, re-ask), so a deploy
     # that changes one republishes every live agent rather than each reading as drift.
     from apps.api.engine.hosted_platform import PLATFORM_AGENT_VALUES

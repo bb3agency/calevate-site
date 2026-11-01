@@ -782,6 +782,21 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "stamped `withdrawn_at` rather than deleted — a delete would silently un-curate a "
         "voice that came back. Nothing here is still PII, a credential or tenant data."
     ),
+    "platform_voice_comparison_rounds": (
+        "platform-scoped, admin realm only (D-946). An operator's blind listening round "
+        "between voices of OUR OWN Cartesia and Sarvam provider accounts, heard on our own "
+        "ThinnestAI workspaces: the voices, the test sentences an operator typed, and two "
+        "character counters. No client's agent, call, caller or voice is in it, so there is "
+        "no tenant whose row this could be and it carries no tenant_id. Reachable only "
+        "behind `ops:manage` (`ops/voice_comparison_routes.py`); every write is audited."
+    ),
+    "platform_voice_comparison_trials": (
+        "platform-scoped, admin realm only (D-946). One pair of a "
+        "`platform_voice_comparison_rounds` round and the operator's two naturalness "
+        "scores and preference for it: integers, a letter, an admin id and a timestamp. No "
+        "tenant data, PII or credential, so no tenant_id. Reachable only behind "
+        "`ops:manage`; every rating is audited."
+    ),
     "platform_tts_prices": (
         "platform-scoped, admin realm only (D-547, plan §3.5). The operator-attested TTS "
         "price per VOICE PROVIDER, effective-dated — one Cartesia account and one Sarvam "

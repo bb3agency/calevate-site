@@ -2,6 +2,12 @@ import { act } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { OPS_INR_LLM_PRICES } from "./fixtures/opsInrLlmPrices";
 import { STYLE_LIST, TELUGU_STYLE } from "./fixtures/spokenStyle";
+import {
+  COMPARISON_ROUNDS,
+  COMPARISON_SENTENCES,
+  COMPARISON_SETUP,
+  COMPARISON_VOICES,
+} from "./fixtures/voiceComparison";
 import { replyTimeReport } from "./fixtures/replyTimes";
 import { pipQualityReport } from "./fixtures/pipQuality";
 import { COST_PER_RESULT, COST_PER_RESULT_ROUTE, REPLY_SPEED_FIXTURE } from "./fixtures/proof";
@@ -60,6 +66,7 @@ import KitPage from "@/app/admin/ops/kit/page";
 import WhatsAppAdminPage from "@/app/admin/ops/whatsapp/page";
 import SpokenStylePage from "@/app/admin/ops/spoken-style/page";
 import VoicesPage from "@/app/admin/ops/voices/page";
+import VoiceComparisonPage from "@/app/admin/ops/voice-comparison/page";
 import OperatorsPage from "@/app/admin/operators/page";
 import OpsConfigPage from "@/app/admin/ops/config/page";
 import { OPS_CONFIG_SECTIONS, SELF_SERVE_PRICE_META, control } from "./fixtures/opsConfig";
@@ -4852,6 +4859,23 @@ const ADMIN_SCREENS: Screen[] = [
       },
       "/v1/ops/spoken-style": STYLE_LIST,
       "/v1/ops/spoken-style/te-IN": TELUGU_STYLE,
+    },
+  },
+  {
+    // Ops > Voice comparison (D-946): the set-up, the new-round form with both providers'
+    // voice lists and the sentences, and the rounds list.
+    file: "admin/ops/voice-comparison/page.tsx",
+    realm: "admin",
+    element: () => <VoiceComparisonPage />,
+    routes: {
+      "/v1/admin/me": {
+        ...ADMIN_ME,
+        permissions: [...ADMIN_ME.permissions, "ops:manage"],
+      },
+      "/v1/ops/voice-comparison/setup": COMPARISON_SETUP,
+      "/v1/ops/voice-comparison/voices": COMPARISON_VOICES,
+      "/v1/ops/voice-comparison/sentences": COMPARISON_SENTENCES,
+      "/v1/ops/voice-comparison/rounds": COMPARISON_ROUNDS,
     },
   },
   {

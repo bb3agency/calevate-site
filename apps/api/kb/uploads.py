@@ -750,7 +750,10 @@ async def confirm_upload(
         )
     row = await get_upload(session, upload_id)
     if not text_is_read(
-        kind=row["source_kind"], status=row["ingest_status"], provenance=row["text_provenance"]
+        kind=row["source_kind"],
+        status=row["ingest_status"],
+        provenance=row["text_provenance"],
+        read_state=row["read_state"],
     ):
         # Nothing to approve YET is a different answer from "you may not", and a client
         # who is told "not yet, we are still reading it" reloads rather than files a ticket.

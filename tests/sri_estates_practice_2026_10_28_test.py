@@ -72,7 +72,7 @@ def test_the_prompt_carries_each_fix_and_keeps_the_locked_text() -> None:
     assert 'A bare "OK"? Ask one thing, reworded.' in prompt
     assert CALL_NUMBER_RULE in prompt and "for call backs too" in CALL_NUMBER_RULE
     assert OPENING_CONTINUES_RULE in prompt
-    assert "even after answering a question first" in OPENING_CONTINUES_RULE
+    assert "even after answering." in OPENING_CONTINUES_RULE
     assert CONFIDENTIALITY_MARKER in prompt and TRUTHFUL_ANSWER_MARKER in prompt
     assert prompt.index(CONFIDENTIALITY_MARKER) < prompt.index(TRUTHFUL_ANSWER_MARKER)
 

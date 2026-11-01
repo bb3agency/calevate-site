@@ -151,7 +151,7 @@ const STARTERS: FollowUpStartersOut = {
     },
     {
       key: "appointment_reminder",
-      name: "Appointment reminder",
+      name: "Visit reminder",
       description: "Message the lead the day before their visit.",
       trigger: { kind: "lead_date", field: "visit_date", offset_days: -1, at: "10:00" },
       steps: [STEPS[4]],
@@ -349,8 +349,8 @@ describe("the Follow-ups list", () => {
       "/v1/follow-ups": LIST,
       "/v1/follow-ups/starters": STARTERS,
     });
-    expect(await screen.findByText("Appointment reminder")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Use ready-made: Appointment reminder" })).toBeNull();
+    expect(await screen.findByText("Visit reminder")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Use ready-made: Visit reminder" })).toBeNull();
     const fix = screen.getByRole("link", { name: "Connect WhatsApp" });
     expect(fix.getAttribute("href")).toBe("/c/acme/integrations");
     expect(calls.some((call) => call.method === "POST")).toBe(false);

@@ -268,10 +268,10 @@ describe("the control the founder could not find", () => {
     const { container } = await renderKnowledge([]);
 
     const text = container.textContent ?? "";
-    expect(text).toContain("Word, Excel, CSV, text, or a photo of a list.");
+    expect(text).toContain("PDF, Word, Excel, CSV, text, or a photo of a list.");
     expect(text).toContain("20 MB");
-    // A PDF is accepted, and said apart: its row says whether the agents use its words.
-    expect(text).toContain("PDFs are saved, but agents may not use them.");
+    // A PDF is read page by page, scans too; its row says how the reading went.
+    expect(text).toContain("Scanned PDF pages are read too.");
     // The picker's own filter carries the same list, so the file browser greys out a
     // `.doc` rather than letting it be chosen and refused.
     expect(filePicker().accept).toContain(".docx");
@@ -401,8 +401,8 @@ describe("the control the founder could not find", () => {
 
     await ready();
     fireEvent.click(screen.getByRole("radio", { name: "Link" }));
-    // Said before anything is typed: a link is saved and its one page read.
-    expect(screen.getByText(/We read that one page/)).toBeTruthy();
+    // Said before anything is typed: the agents read that one page.
+    expect(screen.getByText(/Your agents read that one page/)).toBeTruthy();
     fireEvent.change(screen.getByLabelText(/web address/i), {
       target: { value: "https://example.in/prices" },
     });

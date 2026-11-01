@@ -63,7 +63,7 @@ export function ReaderDrawer({
   const [renaming, setRenaming] = useState(false);
   const [replacing, setReplacing] = useState(false);
   const state = uploadState(upload);
-  const reaches = reachesAgents(upload) && upload.is_live;
+  const reaches = reachesAgents(upload) && upload.is_live && upload.ingest_status !== "error";
   const isLink = upload.source_kind === "url";
 
   return (

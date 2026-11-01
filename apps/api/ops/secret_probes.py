@@ -137,6 +137,15 @@ PROBES: Mapping[str, Probe] = {
         source="apps/workers/extraction.py (SARVAM_CHAT_URL host, Bearer auth)",
         verified=False,
     ),
+    # The same Sarvam account read, for the key its voices speak on (D-946). The real check
+    # is ThinnestAI's: it asks Sarvam before it stores the key (`PUT /byok/credentials`).
+    "sarvam_voice_api_key": Probe(
+        method="GET",
+        url="https://api.sarvam.ai/v1/models",
+        headers=_bearer,
+        source="apps/workers/extraction.py (SARVAM_CHAT_URL host, Bearer auth)",
+        verified=False,
+    ),
     # THE EMAIL CREDENTIAL, TESTABLE FOR THE FIRST TIME. `smtp_password` never had a probe
     # and could not have one: a probe is an HTTP request and SMTP AUTH is a different
     # protocol, so a wrong mail password was always discovered at the first hot lead.
