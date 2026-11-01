@@ -8,6 +8,7 @@ import {
 import { describe, expect, it } from "vitest";
 
 import AgentsPage from "@/app/c/[slug]/agents/page";
+import { ToastProvider } from "@/components/arc/toast";
 import { ARCHIVED_QUERY, type Agent, type AgentStats } from "@/lib/api/agents";
 import type { Lanes } from "@/lib/api/publishing";
 
@@ -477,6 +478,32 @@ describe("deleting an agent from the roster", () => {
         "/v1/agents/a-off/archive",
       ),
     );
+  });
+
+  it("says the delete worked though the row has left the list by then", async () => {
+    let archivedYet = false;
+    await renderClientPage(
+      <ToastProvider>{page}</ToastProvider>,
+      routes({
+        ...ROSTER,
+        // The roster excludes a deleted agent, and the move's refresh is awaited, so the
+        // row is gone before the move reports success.
+        "/v1/agents": () => (archivedYet ? ROSTER["/v1/agents"].slice(0, 1) : ROSTER["/v1/agents"]),
+        "POST /v1/agents/a-off/archive": () => {
+          archivedYet = true;
+          return { agent_id: "a-off", status: "archived", changed: true, numbers_released: 0 };
+        },
+      }),
+    );
+    await screen.findByText("Weekend line");
+
+    const panel = await chooseDelete("Weekend line");
+    await act(async () => {
+      fireEvent.click(await pressable(panel, /Delete Weekend line/));
+    });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(await screen.findByText("Weekend line deleted")).toBeTruthy();
+    expect(within(roster()).queryByText("Weekend line")).toBeNull();
   });
 
   it("offers no delete on an agent that is already deleted", async () => {

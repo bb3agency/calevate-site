@@ -27,7 +27,7 @@ import {
   formatCount,
   formatIST,
 } from "@/components/ui";
-import { useActionFeedback } from "@/components/arc/feedback";
+import { useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { EmptySketch } from "@/components/console/emptySketch";
 import { EmptyState } from "@/components/console/emptyState";
@@ -61,6 +61,23 @@ export function Roster({ agents, slug }: { agents: Agent[]; slug: string }) {
   const stats = useAgentStats(session);
   // Like the figures: a row whose score has not arrived (or failed) shows none, never a 0.
   const readiness = useAccountReadiness(session, ROSTER_LIMIT);
+  // The list, not the row or its dialog, holds the delete: the move's refresh is awaited, so
+  // the deleted agent's row has already left the list when the move succeeds, and a feedback
+  // hook unmounted with it would never say it worked. `target` outlives the dialog so the
+  // toast can name the agent.
+  const [target, setTarget] = useState<Agent | null>(null);
+  const [asking, setAsking] = useState(false);
+  const move = useAgentLifecycle(session, target?.id ?? "");
+  const moveFeedback = useActionFeedback(move, {
+    errorDisplay: "inline",
+    successToast: (_data, step) =>
+      target === null ? null : step === "archive" ? `${target.name} deleted` : `${target.name} switched off`,
+  });
+  const askToDelete = (agent: Agent) => {
+    move.reset();
+    setTarget(agent);
+    setAsking(true);
+  };
 
   if (agents.length === 0) {
     return (
@@ -80,7 +97,28 @@ export function Roster({ agents, slug }: { agents: Agent[]; slug: string }) {
     ...agents.filter((agent) => agentGroup(agent) === "active"),
     ...agents.filter((agent) => agentGroup(agent) !== "active"),
   ];
-  return <AgentList rows={ordered} slug={slug} stats={stats.data} readiness={readiness.data} label="Your agents" />;
+  return (
+    <>
+      <AgentList
+        rows={ordered}
+        slug={slug}
+        stats={stats.data}
+        readiness={readiness.data}
+        label="Your agents"
+        onDelete={askToDelete}
+      />
+      {asking && target !== null && (
+        <DeleteDialog
+          // The roster's current copy of the agent, so a refetch while the dialog is open
+          // (it was switched on elsewhere) changes which question it asks.
+          agent={agents.find((agent) => agent.id === target.id) ?? target}
+          move={move}
+          status={moveFeedback.status}
+          onClose={() => setAsking(false)}
+        />
+      )}
+    </>
+  );
 }
 
 /**
@@ -113,6 +151,7 @@ function AgentList({
   readiness,
   label,
   archived = false,
+  onDelete,
 }: {
   rows: Agent[];
   slug: string;
@@ -121,6 +160,8 @@ function AgentList({
   readiness?: AccountReadiness;
   label: string;
   archived?: boolean;
+  /** Absent on the deleted list, whose rows offer no delete. */
+  onDelete?: (agent: Agent) => void;
 }) {
   return (
     <ul
@@ -132,8 +173,8 @@ function AgentList({
           key={agent.id}
           agent={agent}
           slug={slug}
-          archived={archived}
           index={index}
+          onDelete={archived ? undefined : onDelete}
           // `find`, not an index keyed by server ids: a keyed object inherits
           // `Object.prototype` (src/lib/lookup.ts), and the roster is bounded at 200 rows.
           stats={stats?.find((row) => row.agent_id === agent.id)}
@@ -147,20 +188,19 @@ function AgentList({
 function AgentRow({
   agent,
   slug,
-  archived,
   stats,
   score,
   index,
+  onDelete,
 }: {
   agent: Agent;
   slug: string;
-  archived: boolean;
   stats: AgentStats | undefined;
   score?: number;
   index: number;
+  onDelete?: (agent: Agent) => void;
 }) {
   const { href } = useClientRealm();
-  const [deleting, setDeleting] = useState(false);
   const direction = lookup(DIRECTION_COPY, agent.direction);
   const language = lookup(LANGUAGE_NAMES, agent.language_primary) ?? agent.language_primary;
   const ownTier = agentOwnTier(agent);
@@ -218,17 +258,16 @@ function AgentRow({
           <LiveBadge agent={agent} />
         </span>
       </Link>
-      {!archived && (
+      {onDelete && (
         <RowMenu
           label={agent.name}
           items={[
             { id: "open", label: "Open", href: open },
             { id: "script", label: "Edit its script", href: href(`/c/${slug}/agents/${agent.id}?section=script`) },
-            { id: "delete", label: "Delete…", tone: "danger", onSelect: () => setDeleting(true) },
+            { id: "delete", label: "Delete…", tone: "danger", onSelect: () => onDelete(agent) },
           ]}
         />
       )}
-      {deleting && <DeleteDialog agent={agent} onClose={() => setDeleting(false)} />}
     </li>
   );
 }
@@ -237,14 +276,18 @@ function AgentRow({
  * Delete, with its consequences stated before anything is sent. On a working agent it
  * offers Switch off instead — the server refuses to delete a live agent.
  */
-function DeleteDialog({ agent, onClose }: { agent: Agent; onClose: () => void }) {
+function DeleteDialog({
+  agent,
+  move,
+  status,
+  onClose,
+}: {
+  agent: Agent;
+  move: ReturnType<typeof useAgentLifecycle>;
+  status: FeedbackStatus;
+  onClose: () => void;
+}) {
   const session = useClientSession();
-  const move = useAgentLifecycle(session, agent.id);
-  // The dialog closes on success and the row moves or leaves, so the result is a toast.
-  const moveFeedback = useActionFeedback(move, {
-    errorDisplay: "inline",
-    successToast: (_data, step) => (step === "archive" ? `${agent.name} deleted` : `${agent.name} switched off`),
-  });
   const write = useWriteAccess(session, "org:manage", "delete an agent");
   const working = agentGroup(agent) === "active";
   const copy = MOVE_COPY.archive.confirm;
@@ -256,7 +299,7 @@ function DeleteDialog({ agent, onClose }: { agent: Agent; onClose: () => void })
         confirmLabel="Switch it off"
         pendingLabel="Switching off…"
         cancelLabel="Keep it"
-        status={moveFeedback.status}
+        status={status}
         successLabel="Switched off"
         error={move.error}
         onCancel={onClose}
@@ -276,7 +319,7 @@ function DeleteDialog({ agent, onClose }: { agent: Agent; onClose: () => void })
       confirmLabel={`Delete ${agent.name}`}
       pendingLabel="Deleting…"
       cancelLabel="Keep it"
-      status={moveFeedback.status}
+      status={status}
       successLabel="Deleted"
       error={move.error}
       onCancel={onClose}
