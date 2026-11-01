@@ -172,7 +172,8 @@ export function CreditStrip({ slug }: { slug: string }) {
   const pathname = usePathname();
   const { session, href } = useClientRealm();
   const wallet = useWallet(session);
-  if (!wallet.data || pathname === `/c/${slug}`) return null;
+  if (pathname === `/c/${slug}`) return null;
+  if (!wallet.data) return null;
   if (trialView(wallet.data) !== null) return null;
   const state = walletState(wallet.data);
   if (state !== "low" && state !== "stopped") return null;
