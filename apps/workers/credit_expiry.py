@@ -87,8 +87,17 @@ async def expire_credit_lots(ctx: dict[str, Any]) -> str:
         tenants = [UUID(str(t)) for t in (await directory.execute(text(_ALL_TENANTS))).scalars()]
     expired = failed = promised = notice_failed = 0
     for tenant_id in tenants:
-        async with tenant_session(tenant_id) as scoped:
-            due = await due_lots(scoped, now=now)
+        try:
+            async with tenant_session(tenant_id) as scoped:
+                due = await due_lots(scoped, now=now)
+        except Exception as exc:
+            # Counted as one failure: a lot of this tenant may be past due and unexpired.
+            failed += 1
+            due = []
+            log.error(
+                "credit_lot_due_read_failed",
+                extra={"tenant_id": str(tenant_id), "error": exc.__class__.__name__},
+            )
         for lot_id in due:
             try:
                 async with tenant_session(tenant_id) as scoped:

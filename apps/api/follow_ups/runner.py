@@ -1299,6 +1299,12 @@ _CLAIM_SQL: Final = (
 )
 
 
+_RELEASE_SQL: Final = (
+    "UPDATE follow_up_runs SET status = 'waiting', wake_at = least(wake_at, now()), "
+    "updated_at = now() WHERE id = :rid AND status = 'running' AND step_id = :sid"
+)
+
+
 async def _claim(session: AsyncSession, run_id: UUID) -> Run | None:
     row = (
         await session.execute(
@@ -1414,11 +1420,20 @@ async def drive(tenant_id: UUID, run_id: UUID) -> int:
                 if not await apply(session, run, follow.steps, step, outcome):
                     return taken
                 continue
-        outcome = (
-            await _send_whatsapp(run, step)
-            if isinstance(step, d.WhatsAppStep)
-            else await _run_action(run, step)
-        )
+        try:
+            outcome = (
+                await _send_whatsapp(run, step)
+                if isinstance(step, d.WhatsAppStep)
+                else await _run_action(run, step)
+            )
+        except Exception:
+            # The claim committed `running`; left so, the worker's retries find nothing to
+            # claim for `STALE_CLAIM` and return quietly, and the run never reaches
+            # `step_failed`. Releasing it is safe: the WhatsApp send is keyed on (run, step)
+            # and an action that recorded `started` is never run again.
+            async with tenant_session(tenant_id) as session:
+                await session.execute(text(_RELEASE_SQL), {"rid": run_id, "sid": step.id})
+            raise
         taken += 1
         async with tenant_session(tenant_id) as session:
             current = await load_run(session, run_id, lock=True)
