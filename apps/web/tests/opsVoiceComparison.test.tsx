@@ -23,7 +23,7 @@ import {
   COMPARISON_TRIAL_ID as TRIAL_ID,
   COMPARISON_VOICES,
 } from "./fixtures/voiceComparison";
-import { renderAdminPage } from "./harness";
+import { problem, renderAdminPage, stubDownloads } from "./harness";
 
 /**
  * Ops > Voice comparison (D-946). What the screen must get right, worst failure first:
@@ -182,6 +182,42 @@ describe("Ops > Voice comparison", () => {
       rating_b: 2,
       preference: "a",
     });
+  });
+
+  it("loads a clip again when it is pressed after a failed load", async () => {
+    // jsdom has no media playback; this file is isolated, so the stubs need no undoing.
+    stubDownloads();
+    HTMLMediaElement.prototype.play = () => Promise.resolve();
+    let attempts = 0;
+    const page = renderAdminPage(
+      <VoiceComparisonPage />,
+      routes({
+        [`${trialPath(TRIAL_ID)}/audio?side=a`]: () => {
+          attempts += 1;
+          return attempts === 1
+            ? problem(503, { title: "Unavailable", status: 503 })
+            : new Response(new Blob(["RIFF"], { type: "audio/wav" }), {
+                status: 200,
+                headers: { "content-type": "audio/wav" },
+              });
+        },
+      }),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Open" }));
+    const pair = await screen.findByRole("region", { name: "Pair 1 of 1" });
+    const button = within(pair).getByRole("button", { name: "Play Voice A" });
+    fireEvent.click(button);
+    await within(pair).findByText(/Could not load Voice A/);
+    await waitFor(() => expect(button.matches(":disabled")).toBe(false));
+    fireEvent.click(button);
+    await waitFor(() =>
+      expect(
+        page.calls.filter((c) => c.path.endsWith("/audio?side=a")),
+      ).toHaveLength(2),
+    );
+    await waitFor(() =>
+      expect(within(pair).queryByText(/Could not load Voice A/)).toBeNull(),
+    );
   });
 
   it("starts a round with the picked voices and the default sentences", async () => {

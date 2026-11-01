@@ -201,6 +201,18 @@ describe("the QA sampling queue", () => {
     expect(screen.getByRole("navigation", { name: "Queue pages" })).toBeTruthy();
   });
 
+  it("offers the first page when the page asked for is past the end", async () => {
+    window.history.replaceState(null, "", "/admin/qa-sampling?page=3");
+    const { container } = await renderAdminRoute(<QaSamplingPage />, {
+      [queuePath({ ...DEFAULT_FILTERS, page: 3 })]: page([], { total: 2, offset: 100, waiting_total: 2 }),
+      [NEXT]: page([SAMPLE]),
+      [QUEUE]: page([SAMPLE], { total: 2, waiting_total: 2 }),
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Go to the first page" }));
+    await screen.findByRole("link", { name: /Sri Traders/ });
+    expect(container.textContent).not.toContain("Showing 101");
+  });
+
   it("marks the page it is leaving as loading while the next is fetched", async () => {
     await renderAdminRoute(<QaSamplingPage />, {
       [QUEUE]: page([SAMPLE], { total: 120, waiting_total: 120 }),

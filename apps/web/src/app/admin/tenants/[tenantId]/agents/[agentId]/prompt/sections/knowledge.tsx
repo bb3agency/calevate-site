@@ -7,7 +7,10 @@
  * are removed from the client's page, so our rows and the platform never disagree.
  */
 
+import { useState } from "react";
+
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { ConfirmDialog } from "@/components/confirmDialog";
 import { lookup } from "@/lib/lookup";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
 import { StatusPill } from "@/components/admin/kit";
@@ -56,6 +59,9 @@ export function AgentKnowledgePanel({
   const state = useAdminAgentKnowledge(tenantId, agentId);
   const remove = useAdminRemoveAgentDocument(tenantId, agentId);
   const feedback = useActionFeedback(remove, { errorDisplay: "inline", successToast: "Document removed" });
+  // The delete happens on the voice platform and we hold no copy of a document we did not
+  // send, so it cannot be undone from here: ask first.
+  const [confirming, setConfirming] = useState<AgentKnowledgeItem | null>(null);
 
   if (state.isLoading) return <Skeleton rows={3} />;
   if (state.error || !state.data) {
@@ -93,7 +99,10 @@ export function AgentKnowledgePanel({
                     pendingLabel="Removing…"
                     successLabel="Removed"
                     disabled={!write.allowed}
-                    onClick={() => item.handle && feedback.run(item.handle)}
+                    onClick={() => {
+                      remove.reset();
+                      setConfirming(item);
+                    }}
                   >
                     Remove
                   </ActionButton>
@@ -103,6 +112,25 @@ export function AgentKnowledgePanel({
           ))}
         </SettingRows>
       )}
+      {confirming?.handle ? (
+        <ConfirmDialog
+          title={`Remove ${rowLabel(confirming)} from this agent`}
+          confirmLabel="Remove it"
+          pendingLabel="Removing…"
+          status={feedback.status}
+          error={remove.error}
+          onCancel={() => setConfirming(null)}
+          onConfirm={() => {
+            const handle = confirming.handle;
+            if (handle) remove.mutate(handle, { onSuccess: () => setConfirming(null) });
+          }}
+        >
+          <p>
+            It is deleted on ThinnestAI. We did not send it and hold no copy, so it cannot be put
+            back from here.
+          </p>
+        </ConfirmDialog>
+      ) : null}
     </div>
   );
 }

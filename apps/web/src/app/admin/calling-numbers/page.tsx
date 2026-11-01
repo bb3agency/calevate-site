@@ -94,13 +94,17 @@ function MarkFiled({ client, write }: { client: ClientFiling; write: AdminAccess
   const mark = useMarkFiled(client.tenant_id);
   const feedback = useActionFeedback(mark, { errorDisplay: "inline" });
   const unfiled = client.numbers.filter((n) => !n.filed_on).map((n) => n.number);
-  const [ticked, setTicked] = useState<string[]>(unfiled);
+  // What the operator UNticked, not what is ticked: the board refetches after a partial
+  // filing, and a ticked list captured at mount would still hold the numbers just filed,
+  // so the next submit would record them again under that filing's date and reference.
+  const [unticked, setUnticked] = useState<string[]>([]);
+  const ticked = unfiled.filter((number) => !unticked.includes(number));
   const [filedOn, setFiledOn] = useState<string>(todayIST());
   const [reference, setReference] = useState("");
   const referenceId = `filing-reference-${client.tenant_id}`;
 
   const toggle = (number: string, on: boolean) =>
-    setTicked((current) => (on ? [...current, number] : current.filter((n) => n !== number)));
+    setUnticked((current) => (on ? current.filter((n) => n !== number) : [...current, number]));
 
   return (
     <form
@@ -108,7 +112,17 @@ function MarkFiled({ client, write }: { client: ClientFiling; write: AdminAccess
       className="space-y-3"
       onSubmit={(event) => {
         event.preventDefault();
-        feedback.run({ numbers: ticked, filed_on: filedOn, filing_reference: reference.trim() });
+        // The reference belongs to the filing just recorded; the numbers still unfiled were
+        // not in it, so the next filing starts with all of them ticked and no reference.
+        mark.mutate(
+          { numbers: ticked, filed_on: filedOn, filing_reference: reference.trim() },
+          {
+            onSuccess: () => {
+              setReference("");
+              setUnticked([]);
+            },
+          },
+        );
       }}
     >
       <RestrictionNote reason={write.reason} />

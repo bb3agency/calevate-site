@@ -47,12 +47,26 @@ describe("an agent's knowledge, for an operator", () => {
     expect(screen.getAllByRole("button", { name: "Remove" })).toHaveLength(1);
   });
 
+  it("asks before removing, and Cancel removes nothing", async () => {
+    const page = renderAdminPage(<AgentKnowledgePanel tenantId={TENANT} agentId={AGENT} write={WRITE} />, {
+      [`GET ${PATH}`]: VIEW,
+      [`POST ${PATH}/remove`]: noContent(),
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Remove" }));
+    const dialog = await screen.findByRole("dialog", { name: "Remove Document doc_9@org_a from this agent" });
+    expect(dialog.textContent).toContain("cannot be put back");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(page.calls.some((c) => c.method === "POST")).toBe(false);
+  });
+
   it("removes the document by its id", async () => {
     const page = renderAdminPage(<AgentKnowledgePanel tenantId={TENANT} agentId={AGENT} write={WRITE} />, {
       [`GET ${PATH}`]: VIEW,
       [`POST ${PATH}/remove`]: noContent(),
     });
     fireEvent.click(await screen.findByRole("button", { name: "Remove" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Remove it" }));
     await waitFor(() => expect(page.calls.some((c) => c.method === "POST")).toBe(true));
     const posted = page.calls.find((c) => c.method === "POST");
     expect(JSON.parse(posted?.body ?? "{}")).toEqual({ handle: "doc_9@org_a" });
