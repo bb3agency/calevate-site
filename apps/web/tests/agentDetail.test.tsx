@@ -9,6 +9,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import AgentDetailPage from "@/app/c/[slug]/agents/[agentId]/page";
+import { ToastProvider } from "@/components/arc/toast";
 import { TOUR_STEPS } from "@/app/c/[slug]/agents/[agentId]/tour/tourModel";
 import type { Agent } from "@/lib/api/agents";
 import { ENGINE_CATALOGUE_PATH } from "@/lib/api/engineCatalogue";
@@ -16,7 +17,7 @@ import type { PendingState } from "@/lib/api/publishing";
 import { EMPTY_SCRIPT } from "@/lib/api/script";
 import { useCopilotSurfaceHolder, type SurfaceHolder } from "@/lib/copilot/registry";
 
-import { problem, renderClientPage } from "./harness";
+import { problem, renderClientPage, stillLoading } from "./harness";
 import { businessProfileFixture } from "./businessProfileFixture";
 import {
   AGENT_SPEND_PATH,
@@ -1784,6 +1785,31 @@ describe("switching an agent on, off and deleting it (D-440, D-527)", () => {
     );
   });
 
+  it("says the switch-off worked though the notice has given way to the delete by then", async () => {
+    openSection("advanced");
+    let off = false;
+    await renderClientPage(
+      <ToastProvider>{page}</ToastProvider>,
+      routes({
+        // The move's refresh is awaited, so the agent reloads switched off — and the notice
+        // holding the button gives way to the delete panel — before the move succeeds.
+        "/v1/agents/agent-1": () => (off ? agent({ status: "paused", published: true }) : agent()),
+        "POST /v1/agents/agent-1/deactivate": () => {
+          off = true;
+          return { agent_id: "agent-1", status: "paused", changed: true };
+        },
+      }),
+    );
+
+    await screen.findByText("Reception");
+    const panel = card("Delete this agent");
+    await act(async () => {
+      fireEvent.click(await pressable(panel, /^Switch off$/));
+    });
+    expect(await screen.findByText("Switched off. You can delete it now.")).toBeTruthy();
+    expect(within(card("Delete this agent")).getByRole("button", { name: /^Delete…$/ })).toBeTruthy();
+  });
+
   it("offers a switched-off agent the delete the live one could not have", async () => {
     openSection("advanced");
     await renderClientPage(page, routes(SWITCHED_OFF));
@@ -1910,6 +1936,31 @@ describe("switching an agent on, off and deleting it (D-440, D-527)", () => {
     });
     const posted = calls.find((call) => call.method === "POST");
     expect(posted?.path).toBe("/v1/agents/agent-1/archive");
+  });
+
+  it("keeps the confirmed delete on screen, pending and unpressable, while it is in flight", async () => {
+    openSection("advanced");
+    const { calls } = await renderClientPage(
+      page,
+      routes({ ...SWITCHED_OFF, "POST /v1/agents/agent-1/archive": stillLoading() }),
+    );
+    await screen.findByText("Reception");
+    const panel = card("Delete this agent");
+    await act(async () => {
+      fireEvent.click(await pressable(panel, /^Delete…$/));
+    });
+    await act(async () => {
+      fireEvent.click(await pressable(panel, /Delete this agent/));
+    });
+
+    const confirm = within(panel).getByRole("button", { name: /Delete this agent/ });
+    await waitFor(() => expect(confirm.getAttribute("aria-busy")).toBe("true"));
+    expect(within(panel).queryByRole("button", { name: /^Delete…$/ })).toBeNull();
+    expect(within(panel).queryByRole("button", { name: /Keep it/ })).toBeNull();
+    await act(async () => {
+      fireEvent.click(confirm);
+    });
+    expect(calls.filter((call) => call.method === "POST")).toHaveLength(1);
   });
 
   it("announces the delete consequences and leaves the keyboard on the control", async () => {

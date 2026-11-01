@@ -18,11 +18,11 @@
 
 import Link from "next/link";
 
-import { useActionFeedback } from "@/components/arc/feedback";
+import { useActionFeedback, type ActionFeedback } from "@/components/arc/feedback";
 import { Section, TEXT_ACTION } from "@/components/console/section";
 import { NoticeBox, ProblemNotice, SECONDARY_BUTTON_SM } from "@/components/ui";
 import { movesFor } from "@/lib/agentState";
-import { useAgentLifecycle, type Agent } from "@/lib/api/agents";
+import { useAgentLifecycle, type Agent, type LifecycleMove } from "@/lib/api/agents";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
 import { CopilotSurfaceScope } from "@/lib/copilot/registry";
@@ -39,6 +39,15 @@ export const CALL_HANDLING_ANCHOR = "call-handling";
 export function SettingsTab({ agent, slug }: { agent: Agent; slug: string }) {
   const { href } = useClientRealm();
   const canDelete = movesFor(agent.status).includes("archive");
+  // The tab, not the notice, holds the switch-off: the move waits for the agent to reload
+  // switched off, and by then the notice has given way to the delete panel and would take
+  // its feedback with it.
+  const session = useClientSession();
+  const switchOff = useAgentLifecycle(session, agent.id);
+  const switchOffFeedback = useActionFeedback(switchOff, {
+    errorDisplay: "inline",
+    successToast: "Switched off. You can delete it now.",
+  });
   return (
     <CopilotSurfaceScope
       route="/c/{slug}/agents/{id}"
@@ -93,7 +102,7 @@ export function SettingsTab({ agent, slug }: { agent: Agent; slug: string }) {
         />
 
         <Section headingLevel={3} title="Delete this agent">
-          {canDelete ? <AgentLifecycle agent={agent} only={["archive"]} /> : <SwitchOffFirst agent={agent} />}
+          {canDelete ? <AgentLifecycle agent={agent} only={["archive"]} /> : <SwitchOffFirst agent={agent} move={switchOff} moveFeedback={switchOffFeedback} />}
         </Section>
       </div>
     </CopilotSurfaceScope>
@@ -101,11 +110,16 @@ export function SettingsTab({ agent, slug }: { agent: Agent; slug: string }) {
 }
 
 /** Why there is no delete yet, with the switch-off beside it. */
-function SwitchOffFirst({ agent }: { agent: Agent }) {
+function SwitchOffFirst({
+  agent,
+  move,
+  moveFeedback,
+}: {
+  agent: Agent;
+  move: ReturnType<typeof useAgentLifecycle>;
+  moveFeedback: ActionFeedback<LifecycleMove>;
+}) {
   const session = useClientSession();
-  const move = useAgentLifecycle(session, agent.id);
-  // Once it is off this notice gives way to the delete panel, so the success is a toast.
-  const moveFeedback = useActionFeedback(move, { errorDisplay: "inline", successToast: "Switched off. You can delete it now." });
   const write = useWriteAccess(session, "org:manage", "change whether this agent is working");
   const canSwitchOff = movesFor(agent.status).includes("deactivate");
   return (
