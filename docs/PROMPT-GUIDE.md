@@ -440,14 +440,13 @@ invitation to trim guardrails.
   the opening is composed in the main language, so a call starts in it. ThinnestAI advises
   pinning Telugu as the listening language; that is not built, because it breaks this rule, and
   is with the founder (D-924).
-- **Names: how they are said, and what the recogniser listens for (D-924).** A client gives a
-  name's spoken form in the script builder under "Names and how to say them"; it compiles as
-  the pronunciation line ("Say these names exactly like this"). The same names reach the
-  recogniser: `engine/thinnest._vocabulary` sends `voice.vocabulary` as the business's name,
-  the script's pronunciation names (`call_script.pronounced_names_of`), then the agent's name,
-  deduplicated, each at most 64 characters, at most 50 terms, most-said first. ThinnestAI uses
-  it as saaras:v4 key terms under Ear only (VENDOR-STATED, email of 28 Oct 2026,
-  `docs/vendor/thinnest-replies-2026-10-12.md` §39). A name can also go in a pinned fact.
+- **Names: how they are said (D-924), and why the recogniser is not told them (D-948).** A
+  client gives a name's spoken form in the script builder under "Names and how to say them";
+  it compiles as the pronunciation line ("Say these names exactly like this"). Those names are
+  NOT sent to the recogniser: `voice.vocabulary` is stated empty (`engine/thinnest.VOCABULARY`).
+  Under Ear it becomes saaras:v4 key terms (VENDOR-STATED, `docs/vendor/thinnest-replies-
+  2026-10-12.md` §39), and with the business name in it every unclear caller turn of the
+  30 Oct 2026 Sri Estates call was heard as "Sri Estates". A name can also go in a pinned fact.
 - Numbers, times, addresses: read slowly, confirm back ("మీ నంబర్ 98… కరెక్టేనా?").
   Extraction accuracy depends on this confirm-back habit — it's in every task flow.
 

@@ -180,9 +180,8 @@ async def test_create_sends_the_composed_prompt_and_the_call_settings() -> None:
         "turnSilenceSeconds": 0.25,
         # Silence ends the turn, stated rather than left to the platform's default.
         "turnDetection": "timer",
-        # The names callers say, for the recogniser: this config names no business, so only
-        # the agent's own name (D-911, D-924).
-        "vocabulary": ["Sunrise Clinic receptionist"],
+        # No key terms for the recogniser (D-948).
+        "vocabulary": [],
         # Early answers stated at the vendor's default (D-852).
         "earlyAnswers": True,
         # The console's count (`thinnest_interrupt_words`, 2).

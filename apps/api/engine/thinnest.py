@@ -52,7 +52,6 @@ from urllib.parse import quote, urlsplit
 import httpx
 from calevate_shared.call_script import (
     business_line_of,
-    pronounced_names_of,
     substitute_variables,
 )
 from calevate_shared.calling_window import CALLING_HOURS_RULE, DEFAULT_WINDOW
@@ -389,16 +388,18 @@ EAR_VOICE_VALUES: Final[dict[str, Any]] = {
 #: message on (`send_whatsapp` off).
 CUSTOMER_RECALL: Final = "verified"
 VERIFY_BY_CODE: Final = False
-#: `voice.vocabulary`, the recogniser's custom vocabulary: at most 50 terms of 1-64 characters,
-#: `[]` none (same openapi.json, `AgentVoiceInput.vocabulary`). Under Ear it reaches the
-#: recogniser (Sarvam saaras:v4) as key terms, as many as fit its limit in the order listed;
-#: under Timer and Smart on Indian lines it is not used (ThinnestAI, email of 28 Oct 2026,
-#: VENDOR-STATED). So the most-said names go first (`_vocabulary`).
-VOCABULARY_TERM_MAX_CHARS: Final = 64
-VOCABULARY_MAX_TERMS: Final = 50
-#: Which of our values fills `voice.vocabulary`, named in the platform revision so a change of
-#: the rule republishes every live agent (`hosted_platform.PLATFORM_AGENT_VALUES`).
-VOCABULARY_SOURCE: Final = "business_name,pronounced_names,agent_name"
+#: `voice.vocabulary`, the recogniser's custom vocabulary (openapi.json,
+#: `AgentVoiceInput.vocabulary`), stated EMPTY (D-948). Under Ear it reaches Sarvam saaras:v4
+#: as key terms (ThinnestAI, 28 Oct 2026, VENDOR-STATED). We sent the business name, the
+#: taught names and the agent's name (D-924) until the Sri Estates test call of 30 Oct 2026:
+#: every short or unclear caller turn came back as "Sri Estates", the agent answered the
+#: name it thought it heard, and the call looped. A key term wins where the recogniser is
+#: unsure, which is where a wrong one also wins (AssemblyAI, "When keyterm prompting
+#: backfires"), and a caller rarely says the business's name — the agent does.
+VOCABULARY: Final[tuple[str, ...]] = ()
+#: Named in the platform revision so a change of the rule republishes every live agent
+#: (`hosted_platform.PLATFORM_AGENT_VALUES`).
+VOCABULARY_SOURCE: Final = "none"
 #: Every fixed agent value beyond `PLATFORM_VOICE_VALUES` that only a deploy changes.
 PLATFORM_AGENT_FIELDS: Final[dict[str, Any]] = {
     "temperature": AGENT_TEMPERATURE,
@@ -1508,22 +1509,6 @@ def _knowledge_on_calls(cfg: AgentConfig) -> bool:
     return cfg.facts_in_knowledge or cfg.knowledge_tool is not None
 
 
-def _vocabulary(cfg: AgentConfig) -> list[str]:
-    """`voice.vocabulary` for `cfg`, most-said first: the business's name, then the names
-    its owner taught the voice to say (the script's pronunciations: products, places,
-    people), then the agent's own name. A term longer than a term may be is left out (a
-    longer one is a 400, and cutting it would teach the recogniser a word nobody says), and a
-    repeat is said once."""
-    terms: list[str] = []
-    seen: set[str] = set()
-    for raw in (cfg.business, *pronounced_names_of(cfg.system_prompt), cfg.name):
-        term = " ".join(raw.split())
-        if 0 < len(term) <= VOCABULARY_TERM_MAX_CHARS and term.casefold() not in seen:
-            seen.add(term.casefold())
-            terms.append(term)
-    return terms[:VOCABULARY_MAX_TERMS]
-
-
 def _tools_drift(wanted: dict[str, Any], held: dict[str, Any]) -> list[str]:
     """Which of `built_in_tools_body`'s settings the vendor does NOT hold, by our names.
 
@@ -2444,7 +2429,7 @@ class ThinnestEngine:
                 if cfg.turn_detection == "ear"
                 else {}
             ),
-            "vocabulary": _vocabulary(cfg),
+            "vocabulary": list(VOCABULARY),
             # The console's switch (D-852), always stated so a console change reads as drift.
             # On (the vendor default) a run discarded because the caller kept talking is
             # billed to our Google key and left out of `usage`; off, a reply starts only once

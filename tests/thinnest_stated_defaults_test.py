@@ -61,45 +61,12 @@ def test_every_write_states_the_wording_temperature_at_the_vendors_own_default()
     assert _body()["temperature"] == AGENT_TEMPERATURE == 0.3
 
 
-@pytest.mark.parametrize(
-    ("business", "vocabulary"),
-    [
-        ("Sunrise  Dental\tCare", ["Sunrise Dental Care"]),
-        ("", []),
-        ("   ", []),
-        ("x" * 64, ["x" * 64]),
-        ("x" * 65, []),
-    ],
-)
-def test_the_business_name_is_the_recognisers_vocabulary(
-    business: str, vocabulary: list[str]
-) -> None:
-    """One term of at most 64 characters; a longer name is left out rather than cut, since a
-    cut name is a word nobody says and a longer term is refused with a 400."""
-    assert _body(business=business, name="")["voice"]["vocabulary"] == vocabulary
-
-
-def test_the_names_callers_say_follow_the_business_most_said_first() -> None:
-    """Under Ear the list reaches the recogniser as key terms in order, as many as fit
-    (ThinnestAI, 28 Oct 2026): the business, the names the owner taught the voice, then the
-    agent's own name, each once."""
-    body = (
-        "[STYLE]\nTone: warm\n"
-        'Say these names exactly like this: Green Acres as "గ్రీన్ ఏకర్స్"; '
-        'Kisan Plus as "కిసాన్ ప్లస్"; green acres as "x"\n'
-        "[OPENING]\nHello"
-    )
-    vocabulary = _body(business="Green Acres", name="Sindhu", system_prompt=body)["voice"][
-        "vocabulary"
-    ]
-    assert vocabulary == ["Green Acres", "Kisan Plus", "Sindhu"]
-
-
-def test_the_vocabulary_holds_at_most_fifty_terms() -> None:
-    names = "; ".join(f'Name{i} as "n{i}"' for i in range(60))
-    body = f"Say these names exactly like this: {names}"
-    vocabulary = _body(business="Acme", name="Asha", system_prompt=body)["voice"]["vocabulary"]
-    assert len(vocabulary) == 50 and vocabulary[:2] == ["Acme", "Name0"]
+def test_the_recogniser_is_given_no_key_terms() -> None:
+    """D-948: not the business, not a taught name, not the agent's own name. Under Ear a key
+    term wins every unsure caller turn, and on 30 Oct 2026 that made each one "Sri Estates"."""
+    body = 'Say these names exactly like this: Kisan Plus as "కిసాన్ ప్లస్"\n[OPENING]\nHello'
+    voice = _body(business="Sri Estates", name="Sindhu", system_prompt=body)["voice"]
+    assert voice["vocabulary"] == []
 
 
 def test_the_backchannel_settings_are_stated_only_under_ear() -> None:
@@ -173,8 +140,7 @@ async def test_an_agent_holding_what_we_send_has_no_drift_and_null_lists_are_emp
     [
         (None, "temperature", 0.7, "temperature"),
         (None, "temperature", None, "temperature"),
-        ("voice", "vocabulary", [], "vocabulary"),
-        ("voice", "vocabulary", ["Someone Else"], "vocabulary"),
+        ("voice", "vocabulary", ["Sri Estates"], "vocabulary"),
         ("voice", "backchannelDetection", False, "turn_silence"),
         ("voice", "backchannelWords", ["hmm"], "turn_silence"),
     ],
@@ -217,7 +183,7 @@ def test_a_deploy_that_changes_a_stated_default_republishes_every_agent() -> Non
     values = PLATFORM_AGENT_VALUES["thinnest"]
     assert values["temperature"] == AGENT_TEMPERATURE
     assert (values["recall"], values["verifyByCode"]) == ("verified", False)
-    assert values["vocabulary"] == "business_name,pronounced_names,agent_name"
+    assert values["vocabulary"] == "none"
     assert all(values[key] == value for key, value in EAR_VOICE_VALUES.items())
 
 

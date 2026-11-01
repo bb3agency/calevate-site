@@ -210,12 +210,6 @@ def pronunciations_of(body: str | None) -> list[tuple[str, str]]:
     return out
 
 
-def pronounced_names_of(body: str | None) -> list[str]:
-    """The names on the compiled body's pronunciation line, as the owner spelled them, or [].
-    Names a caller may say, so the recogniser is told them."""
-    return [word for word, _said in pronunciations_of(body)]
-
-
 def _section_of(body: str | None, header: str) -> str:
     if not body:
         return ""
@@ -1288,7 +1282,6 @@ __all__ = [
     "outbound_opening_of",
     "per_call_sections_last",
     "procedure_pointer",
-    "pronounced_names_of",
     "pronunciations_of",
     "quick_fact_lines",
     "render_steps",

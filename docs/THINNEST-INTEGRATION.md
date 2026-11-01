@@ -508,7 +508,7 @@ workspace on a real client (T-20).
 | Field | Before | Now |
 |---|---|---|
 | `temperature` (0-2, default 0.3) | unstated: the vendor default decided | stated at 0.3 (`AGENT_TEMPERATURE`, no change on the wire's effect); swept as `temperature` |
-| `voice.vocabulary` (≤50 × 64 chars, the recogniser's custom vocabulary) | unstated | since D-924: the business's name, the names the script teaches the voice to say (`call_script.pronounced_names_of`), then the agent's name, deduplicated, a term over 64 characters left out, at most 50 (`_vocabulary`); swept as `vocabulary`, `null` reads as `[]` |
+| `voice.vocabulary` (≤50 × 64 chars, the recogniser's custom vocabulary) | unstated | `[]` since D-948 (D-924 sent the business's name, the taught names and the agent's name, and under Ear every unclear caller turn was heard as the business's name); swept as `vocabulary`, `null` reads as `[]` |
 | `voice.backchannelDetection`, `backchannelWords`, `acknowledgementWords` (Ear only) | unstated | stated under `ear` only: on, `[]`, `[]` (`EAR_VOICE_VALUES`, the vendor's defaults); swept under `turn_silence` |
 | tools `recall` (`trusted`/`two_tier`/`verified`, default `two_tier`) | unstated | `verified`: nothing from another channel on a phone call, where a caller id can be faked (`concepts.md:63-68`, `:97-119`); swept as `customer_recall`, refused at publish when not saved (`engine_tools_not_pinned`) |
 | tools `verifyByCode` | unstated | `false`: the code would go out on WhatsApp, which our agents never use |
