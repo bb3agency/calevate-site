@@ -134,21 +134,44 @@ export function BillingScreen({ slug }: { slug: string }) {
      them disagree is how a support call starts. */
   const [month, setMonth] = useState(currentISTMonth);
 
-  /* `?tab=` is read once on mount: a view, or `credits`, which opens the Add credit
-     drawer over the default view (`tabs.ts` keeps the retired values resolving). */
-  const [initial] = useState(() => resolveBillingTab(searchParams.get("tab")));
+  /* `?tab=` names a view, or `credits`, which opens the Add credit drawer over the view
+     (`tabs.ts` keeps the retired values resolving). It is FOLLOWED, not read once on
+     mount: the header's "Add credit" and Pip link to `?tab=credits` from every screen,
+     this one included, and a link to the screen already open is a soft navigation that
+     keeps it mounted. Adjusted during render rather than in an effect, React's pattern for
+     state that follows a changing input. */
+  const tabParam = searchParams.get("tab");
+  const [initial] = useState(() => resolveBillingTab(tabParam));
   const [view, setView] = useState<BillingView>(initial.view);
   const [addingCredit, setAddingCredit] = useState(initial.addCredit);
+  const [followedTab, setFollowedTab] = useState(tabParam);
+  if (tabParam !== followedTab) {
+    setFollowedTab(tabParam);
+    const wanted = resolveBillingTab(tabParam);
+    // The drawer opens over whichever view is showing rather than resetting it.
+    if (wanted.addCredit) setAddingCredit(true);
+    else setView(wanted.view);
+  }
   const selectView = (next: string) => {
     if (!isBillingView(next)) return;
     setView(next);
     /* `replaceState`, not `router.push`: switching a view is not a navigation, and a push
-       would make the Back button walk the views instead of leaving the screen. */
+       would make the Back button walk the views instead of leaving the screen. The state
+       is `null`, not `window.history.state`: Next's patched `replaceState` treats a state
+       carrying its own `__NA` marker as an internal call and skips syncing the router, so
+       `useSearchParams` would keep the old `tab` and the follow above would miss the next
+       link to `?tab=credits`. Next copies its internal state over a `null` itself. */
     if (typeof window !== "undefined") {
       const url = new URL(window.location.href);
       url.searchParams.set("tab", next);
-      window.history.replaceState(window.history.state, "", url);
+      window.history.replaceState(null, "", url);
     }
+  };
+  /* Closing drops `?tab=credits` from the address, so the next link to it is a change this
+     screen can follow, and a reload does not reopen a drawer the reader closed. */
+  const closeAddCredit = () => {
+    setAddingCredit(false);
+    if (tabParam === "credits") selectView(view);
   };
 
   /*
@@ -458,7 +481,7 @@ export function BillingScreen({ slug }: { slug: string }) {
       <AddCreditDrawer
         session={session}
         open={addingCredit}
-        onClose={() => setAddingCredit(false)}
+        onClose={closeAddCredit}
         billingRefused={billingRefused}
       />
     </div>

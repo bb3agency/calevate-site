@@ -870,7 +870,9 @@ function finished(org: string): void {
     const url = new URL(window.location.href);
     if (!url.searchParams.has("provider_ref")) return;
     url.searchParams.delete("provider_ref");
-    window.history.replaceState(window.history.state, "", url.toString());
+    // `null`, so Next's patched `replaceState` syncs its router to the shorter address
+    // (a state carrying Next's own marker is passed through unsynced).
+    window.history.replaceState(null, "", url.toString());
   } catch {
     // The address keeps the reference; a reload answers "already recorded".
   }
