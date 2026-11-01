@@ -100,3 +100,16 @@ def test_a_non_numeric_setting_is_refused(tmp_path: Path) -> None:
     proc = _prune(folder, PREDEPLOY_DUMP_KEEP_LAST="five")
     assert proc.returncode == 2
     assert len(list(folder.iterdir())) == 7
+
+
+@requires_posix_shell
+def test_a_leading_zero_is_read_as_decimal_not_octal(tmp_path: Path) -> None:
+    # `08` is not octal; read as such, the keep-newest guard errored and was skipped, and
+    # every dump past the age cutoff went, the newest included.
+    folder = tmp_path / "dumps"
+    folder.mkdir()
+    _dumps(folder, [30, 31, 32, 33, 34, 35, 36, 37, 38, 39])
+    proc = _prune(folder, PREDEPLOY_DUMP_KEEP_LAST="08", PREDEPLOY_DUMP_KEEP_DAYS="09")
+    assert proc.returncode == 0, proc.stderr
+    assert "value too great" not in proc.stderr
+    assert len(list(folder.iterdir())) == 8
