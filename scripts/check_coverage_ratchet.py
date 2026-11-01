@@ -456,6 +456,10 @@ AREAS: tuple[Area, ...] = (
             # `copilot_plans.estimate_inr` (D-893 F3) is the credit a plan's card says it
             # will spend before one click approves it — money, so this area's failures.
             "apps/api/copilot/plan_models.py",
+            # `follow_up_run_events` (D-940) is an append-only ledger: one row per step
+            # outcome of a Follow-up run, under the unique index that keeps a worker retry
+            # from acting twice.
+            "apps/api/follow_ups/models.py",
         ),
         why=(
             "metering, credits, caps, rating and invoicing. Money arithmetic fails "

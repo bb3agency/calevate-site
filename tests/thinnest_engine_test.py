@@ -857,8 +857,8 @@ async def test_failed_knowledge_indexing_is_not_reported_as_attached() -> None:
 
 @pytest.mark.parametrize("blank", ["", "  \n\n  "])
 async def test_knowledge_with_no_text_is_refused_before_any_request(blank: str) -> None:
-    """A PDF whose words are not sent arrives as its file and no text. The vendor indexes
-    text only, so posting it would be a blank document under the client's file name."""
+    """A PDF with no words we could read arrives as its file and no text. The vendor takes
+    no file, so posting it would be a blank document under the client's file name."""
     from calevate_shared.engine import KBSourceRef
 
     handler, seen = _recorder({})
@@ -870,6 +870,104 @@ async def test_knowledge_with_no_text_is_refused_before_any_request(blank: str) 
             KBSourceRef(kb_id="k", title="Menu", text=blank, document=b"%PDF-1.4\n%%EOF\n"),
         )
     assert raised.value.code == "engine_kb_text_empty"
+    assert not [r for r in seen if r.url.path.endswith("/knowledge")]
+
+
+async def test_a_link_is_posted_as_its_address_alone() -> None:
+    """`POST /agents/{id}/knowledge` takes `url` OR `text` (add-knowledge-document.md:7)."""
+    from calevate_shared.engine import KBSourceRef
+
+    handler, seen = _recorder(
+        {
+            ("POST", "/agents/ag_1/knowledge"): httpx.Response(
+                201, json={"id": "doc_7", "type": "url", "status": "ready", "passages": 4}
+            )
+        }
+    )
+    handle = await _engine(handler).attach_kb(
+        "ag_1", KBSourceRef(kb_id="k", title="Prices", text="", source_url="https://shop.in/p")
+    )
+    assert handle == "doc_7"
+    posted = [r for r in seen if r.method == "POST"]
+    assert [json.loads(r.content) for r in posted] == [{"url": "https://shop.in/p"}]
+
+
+async def test_an_unreadable_page_is_refused_with_its_reason_and_its_failed_copy_deleted() -> None:
+    """A `422` leaves a `failed` document behind (add-knowledge-document.md:552-576): the
+    reason is read from the listing, shown to the client, and the document deleted."""
+    from calevate_shared.engine import KBSourceRef
+
+    url = "https://shop.in/faq"
+    reason = "No readable text found — the page may require JavaScript or a login."
+    handler, seen = _recorder(
+        {
+            ("POST", "/agents/ag_1/knowledge"): httpx.Response(422, json={"error": reason}),
+            ("GET", "/agents/ag_1/knowledge"): httpx.Response(
+                200,
+                json={
+                    "items": [
+                        {"id": "doc_ok", "type": "text", "source": "pasted", "status": "ready"},
+                        {
+                            "id": "doc_bad",
+                            "type": "url",
+                            "source": url,
+                            "status": "failed",
+                            "error": reason,
+                            "createdAt": "2026-11-01T05:00:00Z",
+                        },
+                    ],
+                    "nextCursor": None,
+                },
+            ),
+            ("DELETE", "/agents/ag_1/knowledge/doc_bad"): httpx.Response(204),
+        }
+    )
+    with pytest.raises(ProblemError) as raised:
+        await _engine(handler).attach_kb(
+            "ag_1", KBSourceRef(kb_id="k", title="FAQ", text="", source_url=url)
+        )
+    assert raised.value.code == "engine_kb_link_unreadable"
+    assert raised.value.kind == "business_rule"
+    assert "may require JavaScript or a login" in (raised.value.detail or "")
+    deleted = [r.url.path for r in seen if r.method == "DELETE"]
+    assert deleted == ["/api/v1/agents/ag_1/knowledge/doc_bad"]
+
+
+async def test_a_reason_naming_the_platform_is_not_shown_to_the_client() -> None:
+    from calevate_shared.engine import KBSourceRef
+
+    url = "https://shop.in/x"
+    handler, _ = _recorder(
+        {
+            ("POST", "/agents/ag_1/knowledge"): httpx.Response(422, json={"error": "x"}),
+            ("GET", "/agents/ag_1/knowledge"): httpx.Response(
+                200,
+                json={
+                    "items": [
+                        {"id": "d", "source": url, "status": "failed", "error": "Thinnest says no"}
+                    ],
+                    "nextCursor": None,
+                },
+            ),
+            ("DELETE", "/agents/ag_1/knowledge/d"): httpx.Response(204),
+        }
+    )
+    with pytest.raises(ProblemError) as raised:
+        await _engine(handler).attach_kb(
+            "ag_1", KBSourceRef(kb_id="k", title="X", text="", source_url=url)
+        )
+    assert "thinnest" not in (raised.value.detail or "").lower()
+
+
+async def test_a_link_with_words_of_its_own_is_refused_before_any_request() -> None:
+    from calevate_shared.engine import KBSourceRef
+
+    handler, seen = _recorder({})
+    with pytest.raises(ProblemError) as raised:
+        await _engine(handler).attach_kb(
+            "ag_1", KBSourceRef(kb_id="k", title="X", text="words", source_url="https://a.in")
+        )
+    assert raised.value.code == "engine_kb_link_with_text"
     assert not [r for r in seen if r.url.path.endswith("/knowledge")]
 
 

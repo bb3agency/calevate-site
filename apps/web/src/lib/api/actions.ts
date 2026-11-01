@@ -315,6 +315,7 @@ export const RUN_STATUS_LABELS: Record<string, string> = {
   not_opted_in: "Caller has not agreed to WhatsApp",
   consent_not_asked: "Caller was not asked about WhatsApp",
   caller_declined: "Caller said no to WhatsApp",
+  reask_locked: "Caller said no recently, not asked again",
   blocked: "Number may not be contacted",
   slot_taken: "Slot already taken",
   timeout: "Took too long",

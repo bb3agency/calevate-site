@@ -689,6 +689,9 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # D-688: a rotated Cartesia key did not reach the voice platform. If the old key was
     # revoked, every Studio call stops speaking, with no fallback, so it pages.
     "studio_voice_key_push_failed": "page",
+    # D-946: the admin voice comparison's Sarvam key did not reach its workspace. No client
+    # hears it, so it does not page.
+    "voice_comparison_key_push_failed": "attention",
     # D-764: a rotated Google key did not reach a client workspace on our model. If the old
     # key was revoked, every call there hears an apology instead of an answer: pages.
     "own_model_key_push_failed": "page",

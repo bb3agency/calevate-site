@@ -36,7 +36,6 @@
 
 import type { KbUpload } from "@/lib/api/kb";
 import type { NoticeTone } from "@/components/ui";
-import { lookup } from "@/lib/lookup";
 
 /** One state, as the client meets it. */
 export interface UploadState {
@@ -78,20 +77,14 @@ export function awaitsConfirmation(upload: KbUpload): boolean {
 }
 
 /**
- * WHETHER THE WORDS REACH THE AGENTS IS THE SERVER'S ANSWER, NOT THIS FILE'S (D-893 L8).
- * Word, text, CSV, Excel and photos are read into text and that text is what the agents
- * are sent. A PDF's and a link's words are read into a copy the owner and Pip can open and
- * search, and reach the agents only while our console sends them (`reaches_agents`,
- * `apps/api/kb/service.upload_reaches_agents`). Until it does, the row must not say "In use".
+ * WHETHER THE WORDS REACH THE AGENTS IS THE SERVER'S ANSWER, NOT THIS FILE'S (D-868).
+ * Word, text, CSV, Excel, photos and PDFs are read into text and that text is what the
+ * agents are sent; a PDF only once we have read its words (`reaches_agents`,
+ * `apps/api/kb/service.upload_reaches_agents`). A link is sent as its address and read by
+ * the agents' platform; a page it cannot read comes back as an `error` with the reason in
+ * `ingest_detail`. Until the server says it reaches them, the row must not say "In use".
  */
 const READ_COPY_KINDS: ReadonlySet<string> = new Set(["pdf", "url"]);
-
-/** Said under a PDF or link the agents do not use yet, once its words are read. */
-const NOT_USED_YET: Readonly<Record<string, string>> = {
-  // A file's words still shape the agents' scripts: at onboarding, or as a suggestion (D-923).
-  pdf: "Agents don't use PDFs yet. It still shapes their scripts.",
-  url: "Agents don't use links yet. Write the key facts instead.",
-};
 
 /** Does what this upload says reach the agents? The server's `reaches_agents`. */
 export function reachesAgents(upload: Pick<KbUpload, "reaches_agents">): boolean {
@@ -117,14 +110,27 @@ export function uploadState(upload: KbUpload): UploadState {
   const isLink = upload.source_kind === "url";
   const thing = isLink ? "page" : "file";
 
-  // A PDF or a link, ahead of `is_live`: published, it still reaches the agents only when
-  // `reaches_agents` says so, and "In use" would tell the owner callers are hearing their
-  // price list when they are not. Refusals still come first, whatever the kind.
-  if (isReadCopy(upload) && !isStopped(upload)) {
+  // A refusal comes first, whatever the kind and even on a live row: a page the agents'
+  // platform could not read is not in use however it was published, and the reason it
+  // gives ("the page may require a login") is the one thing the owner can act on.
+  if (upload.ingest_status === "error") {
+    return {
+      label: isLink ? "Agents couldn't read it" : "Could not be added",
+      meaning: upload.ingest_detail ?? `Couldn't add this ${thing}. Send it again.`,
+      tone: STOP_TONE,
+      working: false,
+      awaitingConfirmation: false,
+    };
+  }
+
+  // A PDF's words, ahead of `is_live`: published, it reaches the agents only once they are
+  // read, and "In use" would tell the owner callers are hearing their price list when they
+  // are not.
+  if (upload.source_kind === "pdf" && !isStopped(upload)) {
     if (upload.read_state === "reading") {
       return {
         label: "Being read",
-        meaning: "Reading it now. About a minute.",
+        meaning: "Reading every page now. About a minute.",
         tone: WORK_TONE,
         working: true,
         awaitingConfirmation: false,
@@ -133,19 +139,17 @@ export function uploadState(upload: KbUpload): UploadState {
     if (upload.read_state === "failed") {
       return {
         label: "Couldn't read",
-        meaning:
-          upload.read_detail ??
-          `Couldn't read this ${thing}. It is still saved.`,
+        meaning: upload.read_detail ?? "Couldn't read this file. It is still saved.",
         tone: STOP_TONE,
         working: false,
         awaitingConfirmation: false,
       };
     }
-    if (!reachesAgents(upload)) {
+    if (upload.is_live && !reachesAgents(upload)) {
       return {
-        label: "Saved, not used yet",
-        meaning: lookup(NOT_USED_YET, upload.source_kind) ?? NOT_USED_YET.pdf!,
-        tone: QUIET_TONE,
+        label: "Not read yet",
+        meaning: "Open it and tap Read it again.",
+        tone: WAIT_TONE,
         working: false,
         awaitingConfirmation: false,
       };
@@ -155,20 +159,11 @@ export function uploadState(upload: KbUpload): UploadState {
   if (upload.is_live) {
     return {
       label: "In use",
-      meaning: isLink ? "Your agents use this on calls." : "Your agents use this on calls and in their scripts.",
+      // A partial reading ("We read 18 of 20 pages") is said where the owner looks.
+      meaning:
+        (upload.source_kind === "pdf" ? upload.read_detail : null) ??
+        (isLink ? "Your agents use this page on calls." : "Your agents use this on calls and in their scripts."),
       tone: LIVE_TONE,
-      working: false,
-      awaitingConfirmation: false,
-    };
-  }
-
-  // A refusal, ahead of any review state: nobody is waiting to review a document that
-  // could not be read, and the client is the only person who can fix it.
-  if (upload.ingest_status === "error") {
-    return {
-      label: "Could not be added",
-      meaning: `Couldn't add this ${thing}. Send it again.`,
-      tone: STOP_TONE,
       working: false,
       awaitingConfirmation: false,
     };
@@ -284,8 +279,8 @@ export function uploadState(upload: KbUpload): UploadState {
 export function uploadSteps(
   upload: KbUpload,
 ): { steps: { id: string; label: string }[]; current: number } | null {
-  // A PDF or a link the agents do not use has no "In use" step to walk towards.
-  if (upload.is_live || !reachesAgents(upload) || (isReadCopy(upload) && upload.read_state === "reading")) {
+  // While a PDF's pages are being read the status chip says so; the steps resume after.
+  if (upload.is_live || (isReadCopy(upload) && upload.read_state === "reading")) {
     return null;
   }
   if (awaitsConfirmation(upload)) {
@@ -332,24 +327,24 @@ export const ACCEPT_ATTRIBUTE = ACCEPTED_EXTENSIONS.join(",");
 
 /**
  * The kinds whose words reach the agents: one short line by default, the full sentence
- * behind the File view's tip. PDFs are accepted too (`ACCEPTED_EXTENSIONS`) but said apart,
- * because whether the agents use one is decided per item (`reaches_agents`) and said on
- * its row.
+ * behind the File view's tip. Each row still says whether its agents use it
+ * (`reaches_agents`), since a PDF with no readable words, or a page that cannot be read,
+ * does not reach them.
  */
-export const READ_KINDS_LINE = "Word, Excel, CSV, text, or a photo of a list.";
+export const READ_KINDS_LINE = "PDF, Word, Excel, CSV, text, or a photo of a list.";
 export const READ_KINDS_SENTENCE =
-  "Send what you already have: a Word document, an Excel or CSV sheet, a text file, or a " +
+  "Send what you already have: a PDF, a Word document, an Excel or CSV sheet, a text file, or a " +
   "photo of a printed price list or menu. We read it, and every one of your agents uses what it says.";
 
-/** Said beside the file control so a PDF is never sent believing the agents will read it. */
-export const PDF_LINE = "PDFs are saved, but agents may not use them.";
+/** Said beside the file control: scanned pages are read too (`apps/workers/kb_read.py`). */
+export const PDF_LINE = "Scanned PDF pages are read too.";
 export const PDF_NOTE =
-  "You can save a PDF too. We read its words so you and Pip can open and search it, and each one shows whether your agents use it.";
+  "We read every page of a PDF, scanned pages too, and your agents use its words. Each one shows how the reading went.";
 
-/** Said beside the link control, for the same reason. */
-export const LINK_LINE = "We read that one page. Agents may not use it.";
+/** Said beside the link control: the agents read the page itself (D-868). */
+export const LINK_LINE = "Your agents read that one page.";
 export const LINK_NOTE =
-  "We read that one page so you and Pip can open and search it. Each link shows whether your agents use it.";
+  "We send that one page to your agents and keep a copy you and Pip can open. If it can't be read, its row says why.";
 
 /** `apps/api/kb/uploads.MAX_UPLOAD_BYTES`, said the way the refusal says it. */
 export const MAX_UPLOAD_MB = 20;

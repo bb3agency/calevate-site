@@ -10,9 +10,9 @@ A candidate is a PDF or link upload of a version that is not history (`archived`
 words were never read (`read_state` NULL) — or, with `--retry-failed`, whose reading failed.
 `--apply` queues `read_kb_upload` through the outbox (`kb.reading.queue_read`), one per
 upload, in that tenant's own session; the job reads the file or page, stores the words where
-every upload's text is stored, and re-sends a live one only while `kb_send_extracted_files`
-is on. A scanned PDF's pages are read by our Gemini reader and metered to the client, so the
-read-only run comes first. Re-running is safe: a reading already `ready` is never queued.
+every upload's text is stored, and re-sends a live one to its agents. A scanned PDF's pages
+are read by our Gemini reader and metered to the client, so the read-only run comes first.
+Re-running is safe: a reading already `ready` is never queued.
 Prints ids and counts only (hard rule 6).
 
 Tenants are walked through `kb_gloss.tenants_holding_knowledge`, and every read is inside

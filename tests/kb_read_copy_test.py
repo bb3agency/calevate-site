@@ -5,12 +5,12 @@ What must hold, each driven through the real path:
 1. A PDF's words are read page by page into `kb_documents` (pypdf), a scanned page is read
    by the OCR leg and METERED, and the row says how it went (`read_state`, `page_count`).
    A link's one page is read into its visible text.
-2. With `kb_send_extracted_files` OFF the agents receive exactly what they did before: no
-   text in the engine document, nothing in the T0 block, the same publish digest. ON, the
-   words go out and the digest moves so the re-upload guard re-sends.
+2. A PDF's read words are what its agents receive (D-868): the engine document, the T0
+   block, and a publish digest that moves with them. A link's read words stay ours; the link
+   goes as its address.
 3. Pip can find every item, open one a page at a time, and search the words of everything,
-   each hit saying whether the agents use it; "what my agents tell callers" never quotes a
-   PDF the agents do not get.
+   each hit saying whether the agents use it; "what my agents tell callers" never quotes an
+   item the agents do not get.
 4. Pip's edits go through the page's own functions: rename (with Undo), a note, a
    correction, remove and restore.
 5. The routes: the reader's text, Rename and "Read it again", within role.
@@ -32,7 +32,6 @@ from apps.api.copilot.knowledge_actions import (
 )
 from apps.api.copilot.tools import ToolContext, run_read_tool
 from apps.api.core.errors import ProblemError
-from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
 from apps.api.kb import service as kb_service
 from apps.api.kb import store, uploads
@@ -189,7 +188,7 @@ async def test_an_uploaded_pdf_is_read_page_by_page_and_the_scan_is_metered(
     assert len(metered) == 1 and metered[0]["model"] == "gemini-test"
 
 
-async def test_a_pdf_that_cannot_be_read_still_goes_to_the_platform_as_its_file(
+async def test_a_pdf_that_cannot_be_read_goes_live_and_says_its_agents_do_not_use_it(
     s3: FakeS3,
 ) -> None:
     tenant_id, _agent = await _tenant_with_published_agent()
@@ -236,135 +235,58 @@ async def test_a_link_is_read_into_its_visible_text_and_sets_the_change_baseline
 # --- 2. what the agents receive --------------------------------------------------------
 
 
-async def test_off_the_agents_receive_exactly_what_they_did_before(
-    s3: FakeS3, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(get_settings(), "kb_send_extracted_files", False)
-    tenant_id, _agent = await _tenant_with_published_agent()
-    data = _pdf(PRICE_PAGE)
-    row = await _pdf_upload(tenant_id, data)
-    await _ingest(tenant_id, row["source_id"])
-    source_id = uuid.UUID(str(row["source_id"]))
-
-    async with tenant_session(tenant_id) as session:
-        assert await kb_service._chunks_of(session, source_id) == []
-        names = [k.name for k in await kb_service.active_knowledge(session, tenant_id=tenant_id)]
-        _document, _url, digest = await kb_service._publish_payload(session, source_id, name="Menu")
-    assert "Menu" not in names
-    # The publish identity of the file alone, as before its words were read.
+async def test_a_read_pdf_sends_its_words_and_its_digest_follows_them(s3: FakeS3) -> None:
     import hashlib
 
-    assert digest == hashlib.sha256(data).hexdigest()
-    assert (await _upload_row(tenant_id, row["id"]))["reaches_agents"] is False
-
-
-async def test_on_the_words_go_out_and_the_digest_moves_so_the_copy_is_sent_again(
-    s3: FakeS3, monkeypatch: pytest.MonkeyPatch
-) -> None:
     tenant_id, _agent = await _tenant_with_published_agent()
     data = _pdf(PRICE_PAGE)
     row = await _pdf_upload(tenant_id, data)
     await _ingest(tenant_id, row["source_id"])
     source_id = uuid.UUID(str(row["source_id"]))
-    async with tenant_session(tenant_id) as session:
-        _d, _u, off_digest = await kb_service._publish_payload(session, source_id, name="Menu")
 
-    monkeypatch.setattr(get_settings(), "kb_send_extracted_files", True)
     async with tenant_session(tenant_id) as session:
         chunks = await kb_service._chunks_of(session, source_id)
         knowledge = await kb_service.active_knowledge(session, tenant_id=tenant_id)
-        _d, _u, on_digest = await kb_service._publish_payload(session, source_id, name="Menu")
+        _d, url, digest = await kb_service._publish_payload(session, source_id, name="Menu")
     assert any("Thali costs 180 rupees" in chunk for chunk in chunks)
     assert any(k.name == "Menu" for k in knowledge)
-    assert on_digest != off_digest
+    assert url is None
+    # The words are part of the publish identity, so a re-read that changes them re-sends.
+    assert digest != hashlib.sha256(data).hexdigest()
     assert (await _upload_row(tenant_id, row["id"]))["reaches_agents"] is True
 
 
-async def test_saving_the_switch_queues_the_redelivery_of_every_live_pdf_and_link() -> None:
-    from apps.api.db.session import untenanted_session
-    from apps.api.ops.config_service import _apply_to_live_agents
-
-    async with untenanted_session() as session:
-        assert await _apply_to_live_agents(session, "kb_send_extracted_files", uuid.uuid4()) is None
-        queued = (
-            await session.execute(
-                text(
-                    "SELECT count(*) FROM outbox_messages "
-                    "WHERE job = 'redeliver_extracted_knowledge' AND status = 'pending'"
-                )
-            )
-        ).scalar()
-        await session.rollback()
-    assert queued and queued >= 1
-
-
-async def test_redelivery_republishes_each_live_pdf(
+async def test_a_link_goes_as_its_address_and_its_read_words_stay_ours(
     s3: FakeS3, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    async def _page(url: str) -> bytes:
+        return b"<html><body><p>Free delivery above 500 rupees.</p></body></html>"
+
+    monkeypatch.setattr(kb_ingest, "fetch_page", _page)
     tenant_id, _agent = await _tenant_with_published_agent()
-    row = await _pdf_upload(tenant_id, _pdf(PRICE_PAGE))
+    async with tenant_session(tenant_id) as session:
+        row = await uploads.create_link(
+            session,
+            tenant_id=tenant_id,
+            name="Delivery page",
+            url="https://shop.example/delivery",
+            submitted_by=None,
+            auto_approve=True,
+        )
     await _ingest(tenant_id, row["source_id"])
-    published: list[uuid.UUID] = []
-
-    async def _publish(session: Any, *, tenant_id: uuid.UUID, source_id: uuid.UUID) -> int:
-        published.append(source_id)
-        return 1
-
-    monkeypatch.setattr(kb_service, "publish_source", _publish)
-    await kb_read.redeliver_extracted_knowledge({}, {})
-    assert uuid.UUID(str(row["source_id"])) in published
-
-
-class _OneItemBudget:
-    """A `WalkBudget` with room for exactly one source per run."""
-
-    def __init__(self) -> None:
-        self._asked = 0
-
-    def spent(self) -> bool:
-        self._asked += 1
-        return self._asked > 1
-
-
-async def test_a_redelivery_that_runs_out_of_budget_queues_the_rest_as_a_continuation(
-    s3: FakeS3, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from apps.workers import kb_gloss
-
-    tenant_id, _agent = await _tenant_with_published_agent()
-    for name, page in (("Prices", PRICE_PAGE), ("Hours", HOURS_PAGE)):
-        row = await _pdf_upload(tenant_id, _pdf(page), name=name)
-        await _ingest(tenant_id, row["source_id"])
-    published: list[uuid.UUID] = []
-    queued: list[tuple[str, dict[str, Any], str | None]] = []
-
-    async def _publish(session: Any, *, tenant_id: uuid.UUID, source_id: uuid.UUID) -> int:
-        published.append(source_id)
-        return 1
-
-    async def _enqueue(job: str, payload: dict[str, Any], *, job_id: str | None = None) -> str:
-        queued.append((job, payload, job_id))
-        return job_id or job
-
-    async def _only_this_tenant() -> list[uuid.UUID]:
-        return [tenant_id]
-
-    monkeypatch.setattr(kb_service, "publish_source", _publish)
-    monkeypatch.setattr(kb_gloss, "tenants_holding_knowledge", _only_this_tenant)
-    monkeypatch.setattr(kb_read, "WalkBudget", _OneItemBudget)
-    monkeypatch.setattr(kb_read, "enqueue", _enqueue)
-
-    assert await kb_read.redeliver_extracted_knowledge({}, {}) == "sent=1 continued"
-    assert len(published) == 1 and len(queued) == 1
-    job, payload, job_id = queued[0]
-    assert job == "redeliver_extracted_knowledge"
-    assert payload == {"after": f"{tenant_id}:{published[0]}"}
-    assert job_id == f"redeliver_extracted_knowledge:after:{tenant_id}:{published[0]}"
-
-    # The continuation sends the other source and nothing it already sent.
-    assert await kb_read.redeliver_extracted_knowledge({}, payload) == "sent=1"
-    assert len(published) == 2 and published[0] != published[1]
-    assert len(queued) == 1
+    source_id = uuid.UUID(str(row["source_id"]))
+    async with tenant_session(tenant_id) as session:
+        chunks = await kb_service._chunks_of(session, source_id)
+        knowledge = await kb_service.active_knowledge(session, tenant_id=tenant_id)
+        document, url, _digest = await kb_service._publish_payload(
+            session, source_id, name="Delivery page"
+        )
+        stored = await store.read_item(session, tenant_id=tenant_id, ref=f"link:{row['id']}")
+    assert chunks == [] and document is None
+    assert url == "https://shop.example/delivery"
+    assert not any(k.name == "Delivery page" for k in knowledge)
+    assert "Free delivery" in stored.sections[0][1]
+    assert (await _upload_row(tenant_id, row["id"]))["reaches_agents"] is True
 
 
 # --- 3. Pip reads --------------------------------------------------------------------
@@ -386,10 +308,7 @@ def _ctx(tenant_id: uuid.UUID, role: str = "owner") -> ToolContext:
     return ToolContext(tenant_id=tenant_id, role=role)
 
 
-async def test_pip_finds_opens_and_searches_a_pdf_and_says_the_agents_do_not_use_it(
-    s3: FakeS3, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(get_settings(), "kb_send_extracted_files", False)
+async def test_pip_finds_opens_and_searches_a_pdf_its_agents_use(s3: FakeS3) -> None:
     tenant_id, _agent = await _tenant_with_published_agent()
     row = await _pdf_upload(tenant_id, _pdf(PRICE_PAGE, HOURS_PAGE))
     await _ingest(tenant_id, row["source_id"])
@@ -398,12 +317,11 @@ async def test_pip_finds_opens_and_searches_a_pdf_and_says_the_agents_do_not_use
     found = await _tool(
         "knowledge_sources",
         json.dumps(
-            {"kind": "file", "state": "not_used_yet", "find": "menu", "detail": "full",
-             "page": None}
+            {"kind": "file", "state": "in_use", "find": "menu", "detail": "full", "page": None}
         ),
         context=_ctx(tenant_id),
-    )  # fmt: skip
-    assert f"[{ref}]" in found and "agents don't use it yet" in found and "2 pages" in found
+    )
+    assert f"[{ref}]" in found and "agents use it" in found and "2 pages" in found
 
     opened = await _tool(
         "knowledge_sources",
@@ -418,7 +336,37 @@ async def test_pip_finds_opens_and_searches_a_pdf_and_says_the_agents_do_not_use
         context=_ctx(tenant_id),
     )
     assert "Thali costs 180 rupees" in everything
-    assert "agents do NOT use this yet" in everything
+    assert "agents use this" in everything
+
+
+async def test_pip_explains_a_page_the_agents_could_not_read_and_never_quotes_it(
+    s3: FakeS3, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from apps.api.engine import get_engine
+
+    async def _page(url: str) -> bytes:
+        return b"<html><body><p>Thali costs 180 rupees at the counter.</p></body></html>"
+
+    monkeypatch.setattr(kb_ingest, "fetch_page", _page)
+    url = f"https://shop.example/{uuid.uuid4().hex}"
+    tenant_id, _agent = await _tenant_with_published_agent()
+    monkeypatch.setattr(get_engine(), "unreadable_urls", {url})
+    async with tenant_session(tenant_id) as session:
+        row = await uploads.create_link(
+            session, tenant_id=tenant_id, name="Counter page", url=url, submitted_by=None,
+            auto_approve=True,
+        )  # fmt: skip
+    assert (await _ingest(tenant_id, row["source_id"])).startswith("failed")
+
+    after = await _upload_row(tenant_id, row["id"])
+    assert after["ingest_status"] == "error"
+    assert "could not read that page" in after["ingest_detail"]
+    found = await _tool(
+        "knowledge_sources",
+        json.dumps({"kind": "link", "state": None, "find": None, "detail": "full", "page": None}),
+        context=_ctx(tenant_id),
+    )
+    assert "needs attention" in found and "could not read that page" in found
 
     agents = await _tool(
         "search_knowledge",
@@ -426,7 +374,6 @@ async def test_pip_finds_opens_and_searches_a_pdf_and_says_the_agents_do_not_use
         context=_ctx(tenant_id),
     )
     assert "Thali costs 180 rupees" not in agents
-    assert "Menu" in agents  # named as saved but not used, never quoted as an answer
 
 
 async def test_pip_reads_are_refused_without_the_agents_read_permission() -> None:
@@ -642,7 +589,7 @@ async def test_the_reader_rename_and_read_again_routes(s3: FakeS3) -> None:
         body = words.json()
         assert body["page"] == 2 and body["pages"] == 2
         assert body["sections"][0]["label"] == "Page 2"
-        assert body["reaches_agents"] is False
+        assert body["reaches_agents"] is True
 
         renamed = await http.patch(
             f"/v1/kb/uploads/{row['id']}", json={"name": "Dinner menu"}, headers=_h(owner, slug)
@@ -675,19 +622,19 @@ async def test_queue_read_marks_the_row_and_promises_the_job(s3: FakeS3) -> None
     assert (await _upload_row(tenant_id, row["id"]))["read_state"] == "reading"
 
 
-async def test_readiness_counts_a_pdf_only_while_its_words_reach_the_agents(
-    s3: FakeS3, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_readiness_counts_a_pdf_once_its_words_reach_the_agents(s3: FakeS3) -> None:
     from apps.api.agents.readiness import knowledge_items
 
     tenant_id, _agent = await _tenant_with_published_agent()
     async with tenant_session(tenant_id) as session:
         before = await knowledge_items(session)
+    unreadable = await _pdf_upload(tenant_id, _pdf(None), name="Blank")
+    await _ingest(tenant_id, unreadable["source_id"])
+    async with tenant_session(tenant_id) as session:
+        blank = await knowledge_items(session)
     row = await _pdf_upload(tenant_id, _pdf(PRICE_PAGE))
     await _ingest(tenant_id, row["source_id"])
     async with tenant_session(tenant_id) as session:
-        off = await knowledge_items(session)
-        monkeypatch.setattr(get_settings(), "kb_send_extracted_files", True)
-        on = await knowledge_items(session)
-    assert off == before
-    assert on == before + 1
+        read = await knowledge_items(session)
+    assert blank == before
+    assert read == before + 1
