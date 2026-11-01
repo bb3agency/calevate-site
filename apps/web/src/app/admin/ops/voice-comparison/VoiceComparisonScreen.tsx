@@ -3,18 +3,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Download, LoaderCircle, Pause, Play } from "lucide-react";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import {
   Card,
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
   NoticeBox,
-  PRIMARY_BUTTON,
   ProblemNotice,
   SECONDARY_BUTTON,
+  ScrollRegion,
   Skeleton,
   formatIST,
 } from "@/components/ui";
+import { lookup } from "@/lib/lookup";
 import {
   MAX_PAIRS,
   MAX_VOICES_PER_PROVIDER,
@@ -33,6 +35,7 @@ import {
   useSetUpSarvam,
   useStartRound,
   type ComparisonCandidate,
+  type ComparisonVoices,
   type ComparisonRound,
   type ComparisonTrial,
 } from "@/lib/api/opsVoiceComparison";
@@ -41,6 +44,8 @@ const PROVIDER_NAME: Record<string, string> = {
   cartesia: "Cartesia",
   sarvam: "Sarvam",
 };
+const providerName = (provider: string) =>
+  lookup(PROVIDER_NAME, provider) ?? provider;
 const SCORES = [1, 2, 3, 4, 5] as const;
 
 export function VoiceComparisonScreen({ enabled }: { enabled: boolean }) {
@@ -65,6 +70,7 @@ export function VoiceComparisonScreen({ enabled }: { enabled: boolean }) {
 function SetupCard({ enabled }: { enabled: boolean }) {
   const setup = useComparisonSetup(enabled);
   const setUp = useSetUpSarvam();
+  const setUpFeedback = useActionFeedback(setUp, { errorDisplay: "inline" });
   const data = setup.data;
   return (
     <Card title="Set-up">
@@ -94,14 +100,16 @@ function SetupCard({ enabled }: { enabled: boolean }) {
             agents in it.
           </p>
           {setUp.error && <ProblemNotice error={setUp.error} />}
-          <button
-            type="button"
-            className={SECONDARY_BUTTON}
-            disabled={!data.sarvam_key_stored || setUp.isPending}
-            onClick={() => setUp.mutate()}
+          <ActionButton
+            variant="secondary"
+            status={setUpFeedback.status}
+            pendingLabel="Setting up…"
+            successLabel="Set up"
+            disabled={!data.sarvam_key_stored}
+            onClick={() => setUpFeedback.run()}
           >
-            {setUp.isPending ? "Setting up…" : "Set up Sarvam voices"}
-          </button>
+            Set up Sarvam voices
+          </ActionButton>
         </div>
       )}
     </Card>
@@ -172,14 +180,49 @@ function NewRoundCard({
 }) {
   const voices = useComparisonVoices(enabled);
   const defaults = useComparisonSentences(enabled);
+
+  return (
+    <Card title="New round">
+      {voices.isError ? (
+        <ProblemNotice
+          error={voices.error}
+          onRetry={() => void voices.refetch()}
+        />
+      ) : defaults.isError ? (
+        <ProblemNotice
+          error={defaults.error}
+          onRetry={() => void defaults.refetch()}
+        />
+      ) : voices.isPending || defaults.isPending ? (
+        <Skeleton rows={4} label="Loading the voices" />
+      ) : (
+        <NewRoundForm
+          voices={voices.data}
+          defaultSentences={defaults.data.sentences}
+          onStarted={onStarted}
+        />
+      )}
+    </Card>
+  );
+}
+
+function NewRoundForm({
+  voices,
+  defaultSentences,
+  onStarted,
+}: {
+  voices: ComparisonVoices;
+  defaultSentences: string[];
+  onStarted: (id: string) => void;
+}) {
   const start = useStartRound();
+  const startFeedback = useActionFeedback(start, { errorDisplay: "inline" });
   const [title, setTitle] = useState("");
   const [cartesia, setCartesia] = useState<string[]>([]);
   const [sarvam, setSarvam] = useState<string[]>([]);
-  const [text, setText] = useState<string | null>(null);
-
   // The default sentences fill the box once; after that it is the listener's.
-  const sentences = text ?? (defaults.data?.sentences ?? []).join("\n");
+  const [sentences, setSentences] = useState(() => defaultSentences.join("\n"));
+
   const lines = sentenceLines(sentences);
   const pairs = pairCount(cartesia.length, sarvam.length, lines.length);
   const tooMany = pairs > MAX_PAIRS;
@@ -187,16 +230,8 @@ function NewRoundCard({
     cartesia.length > 0 && sarvam.length > 0 && lines.length > 0 && !tooMany;
 
   return (
-    <Card title="New round">
-      {voices.error ? (
-        <ProblemNotice
-          error={voices.error}
-          onRetry={() => void voices.refetch()}
-        />
-      ) : !voices.data ? (
-        <Skeleton rows={4} label="Loading the voices" />
-      ) : (
         <form
+          noValidate
           className="space-y-5"
           onSubmit={(event) => {
             event.preventDefault();
@@ -222,23 +257,23 @@ function NewRoundCard({
               onChange={(event) => setTitle(event.target.value)}
             />
           </label>
-          <div className="grid gap-5 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
             <VoicePicks
               legend="Cartesia voices"
-              voices={voices.data.cartesia}
+              voices={voices.cartesia}
               picked={cartesia}
               onChange={setCartesia}
             />
             <VoicePicks
               legend="Sarvam voices"
-              voices={voices.data.sarvam}
+              voices={voices.sarvam}
               picked={sarvam}
               onChange={setSarvam}
             />
           </div>
-          {voices.data.sarvam_note && (
+          {voices.sarvam_note && (
             <NoticeBox tone="warn" title="Sarvam voices are not listed">
-              <p className="mt-1">{voices.data.sarvam_note}</p>
+              <p className="mt-1">{voices.sarvam_note}</p>
             </NoticeBox>
           )}
           <label className="block">
@@ -250,7 +285,7 @@ function NewRoundCard({
             <textarea
               className={`${FIELD} min-h-48 resize-y`}
               value={sentences}
-              onChange={(event) => setText(event.target.value)}
+              onChange={(event) => setSentences(event.target.value)}
             />
           </label>
           <p className="text-sm text-ink-muted" aria-live="polite">
@@ -260,16 +295,16 @@ function NewRoundCard({
               : "."}
           </p>
           {start.error && <ProblemNotice error={start.error} />}
-          <button
+          <ActionButton
             type="submit"
-            className={PRIMARY_BUTTON}
-            disabled={!canStart || start.isPending}
+            status={startFeedback.status}
+            pendingLabel="Starting…"
+            successLabel="Started"
+            disabled={!canStart}
           >
-            {start.isPending ? "Starting…" : "Start the round"}
-          </button>
+            Start the round
+          </ActionButton>
         </form>
-      )}
-    </Card>
   );
 }
 
@@ -458,6 +493,7 @@ function PairCard({
   onSaved: () => void;
 }) {
   const rate = useRateTrial(roundId);
+  const rateFeedback = useActionFeedback(rate, { errorDisplay: "inline" });
   const [a, setA] = useState<number | null>(trial.rating_a);
   const [b, setB] = useState<number | null>(trial.rating_b);
   const [preference, setPreference] = useState<"a" | "b" | "none" | null>(
@@ -525,10 +561,11 @@ function PairCard({
       </fieldset>
       <span className={FIELD_HINT}>1 is robotic, 5 sounds like a person.</span>
       {rate.error && <ProblemNotice error={rate.error} />}
-      <button
-        type="button"
-        className={PRIMARY_BUTTON}
-        disabled={!complete || rate.isPending}
+      <ActionButton
+        status={rateFeedback.status}
+        pendingLabel="Saving…"
+        successLabel="Saved"
+        disabled={!complete}
         onClick={() => {
           if (a === null || b === null || preference === null) return;
           rate.mutate(
@@ -540,8 +577,8 @@ function PairCard({
           );
         }}
       >
-        {rate.isPending ? "Saving…" : "Save and next"}
-      </button>
+        Save and next
+      </ActionButton>
     </section>
   );
 }
@@ -555,6 +592,7 @@ function RoundPanel({
 }) {
   const round = useComparisonRound(roundId);
   const finish = useFinishRound(roundId);
+  const finishFeedback = useActionFeedback(finish, { errorDisplay: "inline" });
   const [index, setIndex] = useState<number | null>(null);
   const data = round.data;
 
@@ -629,14 +667,15 @@ function RoundPanel({
             ))}
           </nav>
           {finish.error && <ProblemNotice error={finish.error} />}
-          <button
-            type="button"
-            className={PRIMARY_BUTTON}
-            disabled={data.rated < data.pairs || finish.isPending}
-            onClick={() => finish.mutate()}
+          <ActionButton
+            status={finishFeedback.status}
+            pendingLabel="Finishing…"
+            successLabel="Finished"
+            disabled={data.rated < data.pairs}
+            onClick={() => finishFeedback.run()}
           >
-            {finish.isPending ? "Finishing…" : "Finish and show providers"}
-          </button>
+            Finish and show providers
+          </ActionButton>
         </div>
       )}
     </Card>
@@ -667,14 +706,14 @@ function Reveal({ round }: { round: ComparisonRound }) {
       <ul className="space-y-2">
         {data.providers.map((p) => (
           <li key={p.provider}>
-            <strong>{PROVIDER_NAME[p.provider]}</strong>: naturalness{" "}
+            <strong>{providerName(p.provider)}</strong>: naturalness{" "}
             {score(p.mean_naturalness)} of 5, preferred in {p.preferred} of{" "}
             {data.pairs} pairs · {p.characters} characters spoken
           </li>
         ))}
         <li>No preference: {data.no_preference}</li>
       </ul>
-      <div className="overflow-x-auto">
+      <ScrollRegion label="Each voice, revealed">
         <table className="w-full text-left">
           <caption className="sr-only">Each voice, revealed</caption>
           <thead>
@@ -700,7 +739,7 @@ function Reveal({ round }: { round: ComparisonRound }) {
                 className="border-t border-line"
               >
                 <td className="py-1 pr-3 break-words">{v.label}</td>
-                <td className="py-1 pr-3">{PROVIDER_NAME[v.provider]}</td>
+                <td className="py-1 pr-3">{providerName(v.provider)}</td>
                 <td className="py-1 pr-3">{score(v.mean_naturalness)}</td>
                 <td className="py-1">
                   {v.preferred} of {v.heard}
@@ -709,7 +748,7 @@ function Reveal({ round }: { round: ComparisonRound }) {
             ))}
           </tbody>
         </table>
-      </div>
+      </ScrollRegion>
       <p className="text-ink-muted">{data.cost_note}</p>
       {downloadError ? <ProblemNotice error={downloadError} /> : null}
       <button
