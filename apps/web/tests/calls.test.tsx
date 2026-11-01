@@ -1,8 +1,11 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import { cloneElement } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import CallsPage from "@/app/c/[slug]/calls/page";
 import type { CallSummary, Me } from "@/lib/api/client";
+import { ClientRealmProvider } from "@/lib/api/session";
 
 import { browserOffline, csv, problem, renderClientPage, stubDownloads } from "./harness";
 
@@ -377,6 +380,37 @@ describe("the agent filter from a link", () => {
       fireEvent.click(chip);
       await waitFor(() => expect(screen.queryByRole("button", { name: /Agent:/ })).toBeNull());
       expect(calls.some((c) => c.path === "/v1/calls?limit=100")).toBe(true);
+    } finally {
+      window.history.replaceState(null, "", "/");
+    }
+  });
+});
+
+describe("a filter link followed while the log is already open", () => {
+  it("applies the new query rather than keeping the filters it opened with", async () => {
+    // The header's live-calls link opens `?status=in_progress` from any page, this one too.
+    window.history.replaceState(null, "", "/c/acme/calls");
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    try {
+      const { calls, rerender } = await renderClientPage(
+        page,
+        routes([call()], { "/v1/calls?agent_id=a1&limit=100": [call()] }),
+        "acme",
+        client,
+      );
+      await waitFor(() => expect(calls.some((c) => c.path === "/v1/calls?limit=100")).toBe(true));
+      expect(screen.queryByRole("button", { name: /Remove the filter: Agent/ })).toBeNull();
+      await act(async () => {
+        window.history.replaceState(null, "", "/c/acme/calls?agent_id=a1");
+        rerender(
+          <QueryClientProvider client={client}>
+            {/* A new element, so React renders the route again rather than reusing the old tree. */}
+            <ClientRealmProvider slug="acme">{cloneElement(page)}</ClientRealmProvider>
+          </QueryClientProvider>,
+        );
+      });
+      expect(await screen.findByRole("button", { name: "Remove the filter: Agent: Reception" })).toBeTruthy();
+      expect(calls.some((c) => c.path === "/v1/calls?agent_id=a1&limit=100")).toBe(true);
     } finally {
       window.history.replaceState(null, "", "/");
     }

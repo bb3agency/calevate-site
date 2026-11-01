@@ -1,5 +1,7 @@
 "use client";
 
+import { useSearchParams } from "next/navigation";
+
 import { LeadsScreen } from "./LeadsScreen";
 
 /**
@@ -7,9 +9,12 @@ import { LeadsScreen } from "./LeadsScreen";
  *
  * A route module keeps the chrome and hands off (UX-DOCTRINE §6): it may export only
  * `default` (D-196), so the screen cannot be split by extraction while it lives here.
- * This file used to BE the screen at 1,466 lines; `LeadsScreen.tsx` and its siblings are
- * what came out of it, and the argument for each split is at the top of each file.
+ *
+ * Keyed on the query string because the lens is seeded from `?status=` and
+ * `?campaign_id=` once, at mount: a link to another stage followed from this screen (a
+ * Pip chart) would otherwise change the URL and leave the table on the old filter.
  */
 export default function LeadsPage() {
-  return <LeadsScreen />;
+  const query = useSearchParams().toString();
+  return <LeadsScreen key={query} />;
 }

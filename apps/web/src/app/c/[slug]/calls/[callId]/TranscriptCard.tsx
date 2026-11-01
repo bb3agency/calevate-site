@@ -184,9 +184,36 @@ function emptyTranscript(detail: Pick<CallDetail, "status" | "summary_state">): 
 
 function speakerName(speaker: string, detail: Pick<CallDetail, "agent_name" | "lead_name">): string {
   if (speaker === "agent") return detail.agent_name?.trim() || "Agent";
-  if (speaker === "caller") return detail.lead_name?.trim() || "Caller";
+  if (speaker === "caller") {
+    const lead = detail.lead_name?.trim();
+    return lead && !isAgentsOwnName(lead, detail.agent_name) ? lead : "Caller";
+  }
   // A speaker this build has never heard of keeps its own name rather than vanishing.
   return lookup(SPEAKERS, speaker)?.label ?? speaker;
+}
+
+/** `text` for comparison: case, punctuation and Latin accents dropped, as `caller_name.fold`. */
+function foldName(text: string): string {
+  const kept: string[] = [];
+  for (const ch of text.toLocaleLowerCase().normalize("NFKD")) {
+    // A combining mark after a Latin letter is an accent; after a Telugu or Devanagari
+    // letter it is the vowel, and dropping it would make different names equal.
+    if (/\p{M}/u.test(ch) && /[a-z]/.test(kept.at(-1) ?? "")) continue;
+    kept.push(ch);
+  }
+  return kept.join("").normalize("NFC").replace(/[^\p{L}\p{N}\p{M}]+/gu, " ").trim();
+}
+
+/**
+ * Whether the lead's name is the call's own agent's (a whole-word run of it: "Anjali"
+ * against "Anjali Sales"). The server already withholds such a name from a call
+ * (`crm.service._caller_name`); this keeps the agent's name off the caller's lines if a
+ * response ever carries one anyway, where it reads as the agent talking to itself.
+ */
+function isAgentsOwnName(lead: string, agent: string | null | undefined): boolean {
+  const name = foldName(lead);
+  const own = foldName(agent ?? "");
+  return Boolean(name && own) && ` ${own} `.includes(` ${name} `);
 }
 
 /**

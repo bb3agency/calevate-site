@@ -274,6 +274,23 @@ describe("the conversation", () => {
     expect(list.textContent).toContain("0:05");
   });
 
+  it("never labels the caller's lines with the agent's own name", async () => {
+    // "reception" inside "Front Desk Reception", case and punctuation aside.
+    await renderClientPage(
+      page,
+      routes(detail({ agent_name: "Front Desk Reception", lead_name: "reception!", translation_state: "ready", transcript: TELUGU })),
+    );
+    const list = await screen.findByRole("list", { name: "The conversation, line by line" });
+    const caller = Array.from(list.children)[1];
+    expect(caller.querySelector("p")?.textContent).toBe("Caller");
+  });
+
+  it("labels the caller's lines with the lead's own name", async () => {
+    await renderClientPage(page, routes(detail({ lead_name: "Lakshmi", translation_state: "ready", transcript: TELUGU })));
+    const list = await screen.findByRole("list", { name: "The conversation, line by line" });
+    expect(Array.from(list.children)[1].querySelector("p")?.textContent).toBe("Lakshmi");
+  });
+
   it("marks a time the platform only approximates with a tilde", async () => {
     await renderClientPage(
       page,
