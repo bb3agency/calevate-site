@@ -60,6 +60,12 @@ ALLOWED: tuple[tuple[str, frozenset[str], str], ...] = (
         "garage takes appointments too); matched, never spoken or shown",
     ),
     (
+        "apps/api/compliance/call_purpose.py",
+        frozenset({"appointment", "appointments"}),
+        "booked things in any trade ('don't miss your appointment' is a reminder, not an "
+        "offer), so the promotional checker does not flag them; matched, never spoken or shown",
+    ),
+    (
         "apps/api/engine/fake.py",
         frozenset({"clinic", "appointment", "doctor"}),
         "ENGINE=fake, the test-only engine; its sample call is a clinic booking the "

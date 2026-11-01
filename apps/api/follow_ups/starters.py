@@ -171,7 +171,7 @@ def build(account: _Account) -> list[Starter]:
         ),
         Starter(
             key="appointment_reminder",
-            name="Appointment reminder",
+            name="Visit reminder",
             description="The day before a visit, send a reminder; three hours later, call.",
             trigger=d.LeadDateTrigger(
                 kind="lead_date", field="visit_date", offset_days=-1, at="10:00"

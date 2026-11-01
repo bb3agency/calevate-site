@@ -69,8 +69,8 @@ from tests.spend_caps_test import _bill, _spend_state, _tenant
 _OLD_RATE = Decimal("6.0000")
 _NEW_RATE = Decimal("9.0000")
 
-#: 890s = 14.8333.. minutes, which the panel publishes as 14.83 — the exact figure the
-#: audit reproduced the defect on (₹88.98 at ₹6, ₹133.47 at ₹9).
+#: 890s = 14.8333.. minutes by the second, which the panel publishes as 14.83 — the exact figure the
+#: audit reproduced the defect on (₹88.98 at ₹6, ₹133.47 at ₹9); 15.00 in 30-second steps.
 _SECONDS = 890
 
 #: What the engine charged US, deliberately unrelated to either list rate.
@@ -287,21 +287,21 @@ async def test_a_closed_months_statement_is_not_repriced_by_a_later_rate_move(
     async with tenant_session(tenant_id) as session:
         summary = await usage_summary(session, tenant_id=tenant_id, month=closed_month)
 
-    minutes = summary["minutes_used"]
-    assert minutes == Decimal("14.83"), "the panel's published minute count"
+    # The closed month is the one before today's, so which pulse rule it falls under moves
+    # with the clock: by the second before 7 Oct 2026 (890s publishes as 14.83), in
+    # 30-second steps from then on (15.00). Read from the same rule the meter bills by.
+    billed_minutes = client_billed_minutes(Decimal(_SECONDS), at=ended)
+    assert summary["minutes_used"] == billed_minutes.quantize(Decimal("0.01")), (
+        "the panel's published minute count"
+    )
     # WHAT THE WALLET WAS ACTUALLY DEBITED, which since D-547 is what the statement reads
     # (`service.calling_revenue_inr`): the ledger's own lot splits, not `minutes x a rate`.
-    # This wallet held no lot, so the whole call is one overdraft split priced at the
-    # month's own list card — ₹89.0000, and NOT the ₹88.98 the old re-derivation produced
-    # off the published (rounded) minute count. That bounded residual is what reading the
-    # ledger closes.
+    # Under 30-second steps a billed minute count is a multiple of 0.5, so the ledger and a
+    # re-derivation from it agree to the paisa and this fixture cannot tell them apart;
+    # `lot_priced_statement_test` pins the ledger reading with lots priced off the card.
     charged = to_paise(_debit(_OLD_RATE, ended=ended))
     at_todays_rate = to_paise(_debit(_NEW_RATE, ended=ended))
     assert charged != at_todays_rate, "the fixture must be able to tell them apart"
-    assert charged != to_paise(minutes * _OLD_RATE), (
-        "and it must be able to tell the LEDGER apart from a re-derivation at the same "
-        "rate, or this asserts nothing about which of the two the panel read"
-    )
 
     assert summary["spend_used_inr"] == charged, (
         f"the closed month rendered at {summary['spend_used_inr']}; the wallet was charged "

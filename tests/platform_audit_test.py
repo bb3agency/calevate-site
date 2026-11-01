@@ -465,7 +465,20 @@ def test_every_outbound_path_passes_the_compliance_gate() -> None:
     single vendor call underneath it. Both sets are pinned here, so a new dial site
     fails this test instead of silently escaping the halt.
     """
+    import ast
     import pathlib
+
+    def _uses_dispatch_call(tree: ast.AST) -> bool:
+        # Any code reference, not only a call: passing `dispatch_call` along as a dialer is
+        # a dial path too. Read from the syntax tree rather than the text, because a
+        # docstring that names `dispatch_call(...)` (follow_ups/runner.py explains it books
+        # a call-back instead of dialling) is not a dial.
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and node.id == "dispatch_call":
+                return True
+            if isinstance(node, ast.Attribute) and node.attr == "dispatch_call":
+                return True
+        return False
 
     root = pathlib.Path(__file__).resolve().parent.parent
     dialers: set[str] = set()
@@ -473,7 +486,7 @@ def test_every_outbound_path_passes_the_compliance_gate() -> None:
     for path in sorted(root.glob("apps/**/*.py")):
         rel = path.relative_to(root).as_posix()
         source = path.read_text(encoding="utf-8")
-        if "dispatch_call(" in source and "async def dispatch_call(" not in source:
+        if "async def dispatch_call(" not in source and _uses_dispatch_call(ast.parse(source)):
             dialers.add(rel)
         if ".start_outbound_call(" in source:
             vendor_callers.add(rel)
