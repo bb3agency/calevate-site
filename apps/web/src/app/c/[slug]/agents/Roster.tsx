@@ -27,7 +27,7 @@ import {
   formatCount,
   formatIST,
 } from "@/components/ui";
-import { useActionFeedback } from "@/components/arc/feedback";
+import { useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { EmptySketch } from "@/components/console/emptySketch";
 import { EmptyState } from "@/components/console/emptyState";
@@ -161,6 +161,15 @@ function AgentRow({
 }) {
   const { href } = useClientRealm();
   const [deleting, setDeleting] = useState(false);
+  // The row, not the dialog, holds the mutation and its feedback: the dialog closes in the
+  // render the mutation succeeds in, and a feedback hook unmounted by that render never sees
+  // the success it would announce.
+  const session = useClientSession();
+  const move = useAgentLifecycle(session, agent.id);
+  const moveFeedback = useActionFeedback(move, {
+    errorDisplay: "inline",
+    successToast: (_data, step) => (step === "archive" ? `${agent.name} deleted` : `${agent.name} switched off`),
+  });
   const direction = lookup(DIRECTION_COPY, agent.direction);
   const language = lookup(LANGUAGE_NAMES, agent.language_primary) ?? agent.language_primary;
   const ownTier = agentOwnTier(agent);
@@ -228,7 +237,9 @@ function AgentRow({
           ]}
         />
       )}
-      {deleting && <DeleteDialog agent={agent} onClose={() => setDeleting(false)} />}
+      {deleting && (
+        <DeleteDialog agent={agent} move={move} status={moveFeedback.status} onClose={() => setDeleting(false)} />
+      )}
     </li>
   );
 }
@@ -237,14 +248,18 @@ function AgentRow({
  * Delete, with its consequences stated before anything is sent. On a working agent it
  * offers Switch off instead — the server refuses to delete a live agent.
  */
-function DeleteDialog({ agent, onClose }: { agent: Agent; onClose: () => void }) {
+function DeleteDialog({
+  agent,
+  move,
+  status,
+  onClose,
+}: {
+  agent: Agent;
+  move: ReturnType<typeof useAgentLifecycle>;
+  status: FeedbackStatus;
+  onClose: () => void;
+}) {
   const session = useClientSession();
-  const move = useAgentLifecycle(session, agent.id);
-  // The dialog closes on success and the row moves or leaves, so the result is a toast.
-  const moveFeedback = useActionFeedback(move, {
-    errorDisplay: "inline",
-    successToast: (_data, step) => (step === "archive" ? `${agent.name} deleted` : `${agent.name} switched off`),
-  });
   const write = useWriteAccess(session, "org:manage", "delete an agent");
   const working = agentGroup(agent) === "active";
   const copy = MOVE_COPY.archive.confirm;
@@ -256,7 +271,7 @@ function DeleteDialog({ agent, onClose }: { agent: Agent; onClose: () => void })
         confirmLabel="Switch it off"
         pendingLabel="Switching off…"
         cancelLabel="Keep it"
-        status={moveFeedback.status}
+        status={status}
         successLabel="Switched off"
         error={move.error}
         onCancel={onClose}
@@ -276,7 +291,7 @@ function DeleteDialog({ agent, onClose }: { agent: Agent; onClose: () => void })
       confirmLabel={`Delete ${agent.name}`}
       pendingLabel="Deleting…"
       cancelLabel="Keep it"
-      status={moveFeedback.status}
+      status={status}
       successLabel="Deleted"
       error={move.error}
       onCancel={onClose}
