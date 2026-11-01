@@ -1650,3 +1650,14 @@ describe("the marketing pages' decorative grid", () => {
     ).toMatch(/(^|\s)isolate(\s|$)/);
   });
 });
+
+describe("the marketing shell's skip link", () => {
+  it("is the first focusable element and lands on a focusable <main>", async () => {
+    const { container } = render(await Home());
+    const first = container.querySelector("a[href], button, summary");
+    expect(first?.textContent).toBe("Skip to main content");
+    const target = container.querySelector(first?.getAttribute("href") ?? "#none");
+    expect(target?.tagName).toBe("MAIN");
+    expect(target?.getAttribute("tabindex")).toBe("-1");
+  });
+});

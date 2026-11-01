@@ -37,6 +37,7 @@
 import { useEffect } from "react";
 
 import { FailureScreen } from "@/components/failureScreen";
+import { clientConsoleUrl } from "@/lib/consoleOrigin";
 
 export default function RootError({
   error,
@@ -65,7 +66,7 @@ export default function RootError({
       reset={reset}
       exits={[
         { href: "/", label: "Go to the homepage" },
-        { href: "/c", label: "Open your console" },
+        { href: clientConsoleUrl("/c"), label: "Open your console" },
       ]}
     />
   );

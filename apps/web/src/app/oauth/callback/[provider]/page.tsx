@@ -19,7 +19,8 @@ import { useEffect, useState } from "react";
 
 import { Providers } from "@/app/providers";
 import { AuthPageFrame } from "@/components/authPage";
-import { NoticeBox, Skeleton } from "@/components/ui";
+import { NoticeBox, PRIMARY_BUTTON, Skeleton } from "@/components/ui";
+import { clientConsoleUrl } from "@/lib/consoleOrigin";
 
 import { noteOAuthReturn } from "../../../c/[slug]/integrations/oauthReturn";
 
@@ -28,6 +29,7 @@ export default function OAuthCallbackPage({ params }: { params: Promise<{ provid
   // Set when this popup could not close itself (a browser may refuse): say so, and offer
   // the way back, rather than loading the console inside the small window.
   const [leftOpen, setLeftOpen] = useState<string | null>(null);
+  const [inPopup, setInPopup] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -40,6 +42,7 @@ export default function OAuthCallbackPage({ params }: { params: Promise<{ provid
       const refused = url.searchParams.get("error");
       // The code is single-use and short-lived; it still leaves the address bar at once.
       window.history.replaceState(null, "", url.pathname);
+      setInPopup(Boolean(window.opener));
       if (refused || !code || !state) {
         setProblem("The connection was cancelled or did not complete. Start it again from Integrations.");
         return;
@@ -65,9 +68,23 @@ export default function OAuthCallbackPage({ params }: { params: Promise<{ provid
     <Providers>
       <AuthPageFrame realmLabel="Client console">
         {problem ? (
-          <NoticeBox tone="warn" title="Not connected">
-            {problem}
-          </NoticeBox>
+          <div className="space-y-4">
+            <NoticeBox tone="warn" title="Not connected">
+              {problem}
+            </NoticeBox>
+            {/* The sentence sends them to Integrations, so the screen must offer the way
+                there. A popup is closed (its opener still shows Integrations); a full-page
+                return has no slug here, so it goes through the `/c` junction. */}
+            {inPopup ? (
+              <button type="button" onClick={() => window.close()} className={PRIMARY_BUTTON}>
+                Close this window
+              </button>
+            ) : (
+              <Link href={clientConsoleUrl("/c")} className={PRIMARY_BUTTON}>
+                Open your console
+              </Link>
+            )}
+          </div>
         ) : leftOpen ? (
           <NoticeBox tone="ok" title="Connected">
             You can close this window; the Integrations screen finishes the connection. If it
