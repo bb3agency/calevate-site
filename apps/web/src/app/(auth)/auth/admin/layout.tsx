@@ -1,6 +1,10 @@
 import type { Metadata } from "next";
-
-export { TitleOnlyLayout as default } from "@/components/titleOnlyLayout";
+import type { ReactNode } from "react";
 
 // Also the fallback for the operator screens below that name their own.
 export const metadata: Metadata = { title: "Your operator account — Calevate" };
+
+// Metadata only: the page is a client component and cannot export it (see tests/a11y.ts).
+export default function TitleLayout({ children }: { children: ReactNode }) {
+  return children;
+}

@@ -377,7 +377,7 @@ export const UNSWEPT_SCREENS: Record<string, string> = {
       "oauth/callback/[provider]/layout.tsx",
     ].map((file) => [
       file,
-      "a `TitleOnlyLayout`: it carries the page title for a client page that cannot " +
+      "a metadata-only layout: it carries the page title for a client page that cannot " +
         "export metadata and returns `{children}` unchanged, so there is no subtree for " +
         "axe to scan. The page it wraps is swept. CLOSED BY: nothing while it renders " +
         "no markup.",
