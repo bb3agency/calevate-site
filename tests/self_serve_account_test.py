@@ -16,6 +16,8 @@ import jwt
 import pytest
 import pytest_asyncio
 from apps.api.authn import google, registration
+from apps.api.authn.service import has_password
+from apps.api.authn.sessions import verify_session
 from apps.api.authn.subjects import load_subject, resolve_by_email
 from apps.api.billing.trials import read_trial
 from apps.api.core.errors import ProblemError
@@ -242,6 +244,46 @@ async def test_a_verified_google_email_links_to_the_existing_account(
     signed_in, _ = await _sign_in(monkeypatch, email=email.upper())
     assert signed_in.subject_id == created.subject_id
     assert signed_in.linked is True
+    # A PROVED account keeps its password and its sessions: only an unproved one is reclaimed.
+    assert signed_in.reclaimed is False
+    assert await has_password("client", created.subject_id)
+    assert (await verify_session(token=created.session.token, realm="client")).session
+
+
+async def test_linking_google_reclaims_an_unproved_account(
+    monkeypatch: pytest.MonkeyPatch, planted: list[str]
+) -> None:
+    """D-955, the "classic-federated merge" pre-hijack: somebody set a password on this
+    address without ever proving it; Google now proves the mailbox. The merge must not keep
+    that password or any session it opened."""
+    from apps.api.authn.credentials import authenticate_subject, set_password
+    from apps.api.authn.invitations import _find_or_create_user
+    from apps.api.authn.sessions import issue_session
+
+    email = _address("prehijack")
+    planted.append(email)
+    at = datetime.now(UTC)
+    user_id, created = await _find_or_create_user(email=email, name=None, at=at)
+    assert created
+    async with credential_session() as session:
+        await set_password(
+            session, realm="client", subject_id=user_id, password=GOOD_PASSWORD, email=email
+        )
+        squatter = await issue_session(session, realm="client", subject_id=user_id)
+
+    signed_in, _ = await _sign_in(monkeypatch, email=email)
+
+    assert signed_in.subject_id == user_id
+    assert signed_in.linked is True and signed_in.reclaimed is True
+    assert not await has_password("client", user_id)
+    async with credential_session() as session:
+        assert not await authenticate_subject(
+            session, realm="client", subject_id=user_id, password=GOOD_PASSWORD
+        )
+    assert (await verify_session(token=squatter.token, realm="client")).session is None
+    assert (await verify_session(token=signed_in.session.token, realm="client")).session
+    subject = await load_subject("client", user_id)
+    assert subject is not None and subject.email_verified_at is not None
 
 
 async def test_an_address_google_does_not_host_neither_links_nor_creates(

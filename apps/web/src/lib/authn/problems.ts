@@ -59,7 +59,6 @@ export const AUTHN_CODES = {
   invalidCurrentPassword: "invalid_current_password",
   invalidResetToken: "invalid_reset_token",
   invalidSecondFactor: "invalid_second_factor",
-  invitationAccountUnverified: "invitation_account_unverified",
   invitationExistingAccountPassword: "invitation_existing_account_password",
   invitationUseGoogle: "invitation_use_google",
   invitationInvalid: "invitation_invalid",
@@ -200,13 +199,6 @@ const SIGN_IN_COPY: Record<string, string> = {
     "This setup link cannot be used. Setup links work once and expire an hour after they are sent.",
   [AUTHN_CODES.alreadyBootstrapped]:
     "This account already has a password, so the setup link no longer opens anything. Sign in instead.",
-  // D-185's refusal, and the one entry here whose job is to STOP a person retrying. An
-  // account already exists on this address with a password somebody set, and the address
-  // was never confirmed — so this invitation cannot be attached to it until the mailbox is
-  // proved. The sentence has to send them to the OTP they already have rather than back to
-  // the invite link, because re-opening the link produces this same refusal forever.
-  [AUTHN_CODES.invitationAccountUnverified]:
-    "There is already an account for this email address, and the address has not been confirmed. Sign in to that account, confirm the address from your account settings, then open this invitation again.",
   [AUTHN_CODES.invitationExistingAccountPassword]:
     "You already have a Calevate account with this email address. Enter the password you sign in with to join — or reset it from the sign-in page, then open this invitation again.",
   [AUTHN_CODES.invitationUseGoogle]:

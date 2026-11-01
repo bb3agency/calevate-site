@@ -67,39 +67,36 @@ attaches the membership to it. The squatter then signs in with their own passwor
 client realm has no second factor (`service.MFA_REQUIRED_REALMS` is `{"admin"}`), so a
 password is the entire credential.
 
-So the address starts UNVERIFIED and becomes verified the way every other address in this
+So a NEW account starts UNVERIFIED and becomes verified the way every other address in this
 system does: an `email_verify` OTP round trip (`POST /v1/auth/client/otp/request` +
-`/otp/verify` → `subjects.mark_email_verified`), which is already built, already registered
-with the mailer, and already the thing `SessionOut.email_verified` reports.
-
-WHAT WAS STILL OPEN AFTER D-185, and what closed it: a squatter could still take an address
-hostage — the real person's redemption was refused instead of hijacked, which is a denial of
-service rather than an account takeover, and that was a strict improvement rather than a
-closure. D-185 named the one thing it did not do: stop the token being returned to the
-inviter. **D-190 did it for the client realm's route and D-198 for the admin realm's**, so
-the token now exists in the invited mailbox and nowhere else and there is nobody left who
-can squat an address they do not control.
-
-What that leaves is the ordinary residue of any emailed link: whoever reads the mailbox can
-redeem it. That is the trust level the mechanism is FOR, and it is the reason the address
-still has to be proved separately before the account may join a second organisation.
+`/otp/verify` → `subjects.mark_email_verified`), which is already the thing
+`SessionOut.email_verified` reports. D-190 and D-198 closed the squat itself: the token now
+exists in the invited mailbox and nowhere else, so whoever redeems it reads that mailbox.
 
 ═══ AN INVITATION FOR SOMEBODY WHO ALREADY HAS AN ACCOUNT ═══
 
 Real and ordinary: one person can be staff at two client businesses (`memberships` is the
-many-to-many). The user row is reused and **the password is NOT touched** — `has_password`
-is checked first, and an existing credential is left exactly as it is. Overwriting it would
-mean anybody who can get an invitation issued to your address can reset your password,
-which turns an invite into an account takeover. The typed password must BE that account's
-(`_prove_existing_account`), because the session issued below is a session as that account
-in every organisation it belongs to, and the link may have been forwarded.
+many-to-many). What happens depends on whether that account's address is proved.
 
-That refusal to overwrite is right, and it is also what makes the squat stick: the honest
-invitee cannot displace a credential somebody else set. So reuse now carries a condition —
-**an account that already has a password may only take on a NEW membership once its address
-has been proven.** A first membership still rides on the inviter vouching inside their own
-tenant, which is the tenant they already control and where the invitation grants nothing
-they could not grant anyway; a SECOND organisation asks for the mailbox.
+**Proved address, with a password: the password is NOT touched.** Overwriting it would mean
+anybody holding an invitation to your address — a forwarded link — could reset your
+password. The typed password must BE that account's (`_prove_existing_account`), because the
+session issued below is a session as that account in every organisation it belongs to.
+
+**Unproved address, with a password: the mailbox owner reclaims it (D-955, amending
+D-185).** Such a credential is exactly what an account pre-hijacker leaves behind — register
+the victim's address with a password of your choosing and wait (Sudhodanan & Paverd,
+"Pre-hijacked accounts", USENIX Security 2022, §6.2: verify the identifier before the
+account is usable, and invalidate other sessions and credentials when the owner proves
+it). D-185 refused this redemption instead, which kept the squatter out and the owner out
+with them: the honest invitee was told to sign in to an account whose password they may
+never have set. The redeemed token is the better claim of the two — it reached the mailbox,
+the unproved password never proved anything — so the typed password REPLACES the old one,
+every session of the account is revoked in the same transaction, and the address is marked
+proved. The account's earlier memberships stay; a reclaim changes who holds the account, not
+what it belongs to.
+
+**No password, proved address (a Google account): refused** — it accepts with Google.
 """
 
 from __future__ import annotations
@@ -114,8 +111,8 @@ from sqlalchemy import text
 from apps.api.admin import service as admin_service
 from apps.api.authn.credentials import set_password
 from apps.api.authn.service import has_password
-from apps.api.authn.sessions import IssuedSession, issue_session
-from apps.api.authn.subjects import load_subject
+from apps.api.authn.sessions import IssuedSession, issue_session, revoke_subject_sessions
+from apps.api.authn.subjects import load_subject, mark_email_verified
 from apps.api.compliance.audit import write_audit
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -181,7 +178,10 @@ async def accept_with_password(
       2. find or create the `users` row, OUTSIDE any tenant session, because `users` is
          global and creating it inside a tenant transaction would tie an identity's
          existence to one tenant's write succeeding;
-      3. set the password only if there is not one already (see the module docstring);
+      3. set the password only if there is not one already, or replace an unproved one
+         and revoke its sessions (see the module docstring), then mark the address proved
+         on that reclaim — all before anything below, so a refused password changes
+         nothing and the invitation stays redeemable;
       4. burn the invitation and create the membership under `tenant_session`, via the
          EXISTING `admin_service.accept_invitation` — one implementation of the CAS burn,
          not a second one that has to be kept in step;
@@ -212,40 +212,28 @@ async def accept_with_password(
         email=invited_email, name=name or row[2], phone=row[3], at=at
     )
 
-    # D-185. The one condition on reuse. Reached ONLY when this redemption did not create
-    # the row and the row already carries a credential — i.e. somebody has signed in as this
-    # address before, and it was not proved to be theirs. Ordered before the membership and
-    # before the session so a refusal leaves nothing behind: the invitation is not burned
-    # (`admin_service.accept_invitation` has not run), so the real owner can still redeem it
-    # after verifying.
+    # D-955 (amends D-185). An existing account with a password whose address was never
+    # proved is RECLAIMED by the mailbox owner rather than refused: this token was mailed to
+    # the address and nowhere else (D-190, D-198), so redeeming it proves the mailbox, and
+    # the unproved credential may be a pre-hijacker's (Sudhodanan & Paverd, USENIX Security
+    # 2022, §6.2). The typed password replaces it and every session it opened is revoked.
+    # A PROVED account keeps D-185's rule: the typed password must be its current one.
     #
     # `created` is checked first and is not redundant with `has_password`: a row this call
     # just inserted has no password yet, so the second clause would pass anyway — but only
     # by accident of ordering, and a later change that set the password earlier would
-    # silently start refusing every first-time invitee.
-    if not created and await has_password(INVITE_REALM, user_id):
-        subject = await load_subject(INVITE_REALM, user_id)
-        if subject is None or subject.email_verified_at is None:
-            log.info("auth_invitation_refused_unverified_account", extra={"user_id": str(user_id)})
-            raise ProblemError(
-                kind="business_rule",
-                code="invitation_account_unverified",
-                title="Confirm your email address first",
-                detail=(
-                    "An account already exists for this address and its email address has "
-                    "not been confirmed. It has to be confirmed before the account can join "
-                    "another organisation."
-                ),
-                remediation=(
-                    "Sign in to the account you already have, confirm the email address "
-                    "from your account settings, then open this invitation again."
-                ),
-            )
+    # silently start treating every first-time invitee as a reclaim.
+    reclaiming = (
+        not created
+        and await has_password(INVITE_REALM, user_id)
+        and not await _address_proved(user_id)
+    )
 
-    if not created:
+    if not created and not reclaiming:
         await _prove_existing_account(user_id, password=password, at=at, ip=ip)
 
-    if not await has_password(INVITE_REALM, user_id):
+    revoked = 0
+    if reclaiming or not await has_password(INVITE_REALM, user_id):
         async with credential_session() as session:
             await set_password(
                 session,
@@ -260,6 +248,17 @@ async def accept_with_password(
                 email=invited_email,
                 now=at,
             )
+            # Same transaction as the write (`set_password`'s contract). Zero rows for an
+            # account that never had a password; on a reclaim, every session the unproved
+            # credential opened, so a pre-hijacker's live cookie dies with their password.
+            revoked = await revoke_subject_sessions(
+                session, realm=INVITE_REALM, subject_id=user_id, now=at
+            )
+    if reclaiming:
+        # After the password, so a password the policy refuses leaves the address exactly as
+        # unproved as it was and the invitation unburned for the retry.
+        await mark_email_verified(INVITE_REALM, user_id, at=at)
+        log.info("auth_invitation_reclaimed_unverified_account", extra={"user_id": str(user_id)})
 
     async with tenant_session(tenant_id) as scoped:
         await admin_service.accept_invitation(scoped, raw_token=token, user_id=user_id)
@@ -285,6 +284,17 @@ async def accept_with_password(
             ip=ip,
             summary={"account_created": created},
         )
+        if reclaiming:
+            await write_audit(
+                scoped,
+                action="auth.invitation_reclaimed_unverified_account",
+                actor_type="user",
+                tenant_id=tenant_id,
+                object_type="auth_subject",
+                object_id=str(user_id),
+                ip=ip,
+                summary={"sessions_revoked": revoked},
+            )
 
     async with credential_session() as session:
         issued = await issue_session(session, realm=INVITE_REALM, subject_id=user_id, now=at)
@@ -295,6 +305,11 @@ async def accept_with_password(
         user_id=user_id,
         session=issued,
     )
+
+
+async def _address_proved(user_id: UUID) -> bool:
+    subject = await load_subject(INVITE_REALM, user_id)
+    return subject is not None and subject.email_verified_at is not None
 
 
 async def _prove_existing_account(
@@ -429,9 +444,9 @@ async def _find_or_create_user(
     survives one more release under hard rule 8's two-step (recorded in
     `scripts/check_wiring.UNWIRED_BASELINE`).
 
-    `email_verified_at` is NOT set here (D-185) — see the module docstring on why possession
-    of the token is not proof of the mailbox while the token is handed to the inviter. The
-    column is left NULL and an `email_verify` OTP round trip is what fills it.
+    `email_verified_at` is NOT set here (D-185) — see the module docstring. The column is
+    left NULL and an `email_verify` OTP round trip is what fills it, except on a reclaim
+    (D-955), which `accept_with_password` marks after replacing the password.
 
     THE INSERT IS GUARDED BY `ON CONFLICT`, WHICH IT WAS NOT (D-178). It was a read then a
     write, because there was no unique constraint on `users.email` to conflict against; the

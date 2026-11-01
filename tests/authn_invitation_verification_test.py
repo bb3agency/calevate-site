@@ -1,32 +1,15 @@
-"""An unverified address cannot carry a membership into a second organisation (D-185).
+"""Invitations against accounts that already exist: proved, unproved, Google-only.
 
-WHAT THIS FILE MEASURES, and why it is worth a file of its own. The 17 Aug security audit's
-S-2 located "`users.email` is an authorization input with no verification check" in
-`apps/api/core/clerk_identity.py`. D-177 deleted that file. The finding's QUESTION outlived
-its evidence, and the answer is that the property the vendor was assumed to supply — that a
-`users.email` is an address somebody proved they receive mail at — was never replaced.
+The 17 Aug security audit's S-2: `users.email` is an authorization input, so an account
+holding an address nobody proved is a pre-hijack waiting for its victim — register the
+address with your own password, wait for the real person to be invited, sign in as them.
 
-THE ESCALATION, exactly as `test_a_squatted_account_cannot_be_handed_a_second_membership`
-drives it and with no defect anywhere else in the chain:
-
-  1. An owner of ANY tenant — a trial signup is enough — issues an invitation to an address
-     they do not control. `POST /v1/invitations` returns the RAW TOKEN in its own 201 body,
-     deliberately, because the client realm has no invitation mailer.
-  2. The issuer redeems it themselves. `users` is global and `uq_users_email_lower` makes
-     that the ONLY row for the address, so the attacker now holds the victim's address with
-     a password they chose.
-  3. The victim's real organisation invites the victim. `_find_or_create_user` finds the
-     squatter's row, `has_password` is true so the password is deliberately NOT overwritten
-     (overwriting would be its own takeover), and the membership attaches to the attacker's
-     account.
-  4. The attacker signs in with their own password. `MFA_REQUIRED_REALMS` is `{"admin"}`,
-     so on the client realm a password is the entire credential.
-
-Step 3 is the one this closes: a reused account that already carries a credential may only
-take on a NEW membership once its address has been proven by an `email_verify` round trip.
-Step 4 is then unreachable because step 3 never happened. What is NOT closed, and is
-asserted here rather than claimed away, is the squat itself — the address stays hostage
-until the token is emailed rather than handed to the inviter.
+- An UNPROVED account with a password is reclaimed by whoever redeems a token mailed to the
+  address (D-955, amending D-185's refusal): the redeemer's password replaces the old one,
+  every old session is revoked, and the address is marked proved.
+- A PROVED account keeps its password; the redeemer must type it.
+- A Google-only account is refused a password.
+- The inviter is never handed the token (D-190), so the mailbox is the only place it exists.
 
 CONCURRENCY: every test mints its own organizations and its own random addresses, and
 deletes the `users` rows it planted. Nothing here reads another suite's rows.
@@ -238,69 +221,109 @@ async def _memberships(tenant_id: uuid.UUID, email: str) -> int:
 # ═══════════════ the finding ═══════════════
 
 
+async def _password_signs_in(user_id: uuid.UUID, password: str) -> bool:
+    from apps.api.authn.credentials import authenticate_subject
+    from apps.api.db.session import credential_session
+
+    async with credential_session() as session:
+        return await authenticate_subject(
+            session, realm="client", subject_id=user_id, password=password
+        )
+
+
+async def _open_session(user_id: uuid.UUID) -> str:
+    """A live session for this account, as signing in with its password would leave."""
+    from apps.api.authn.sessions import issue_session
+    from apps.api.db.session import credential_session
+
+    async with credential_session() as session:
+        issued = await issue_session(session, realm="client", subject_id=user_id)
+    return issued.token
+
+
+async def _session_live(token: str) -> bool:
+    from apps.api.authn.sessions import verify_session
+
+    return (await verify_session(token=token, realm="client")).session is not None
+
+
+async def _reclaim_audits(tenant_id: uuid.UUID, user_id: uuid.UUID) -> int:
+    async with tenant_session(tenant_id) as session:
+        return int(
+            (
+                await session.execute(
+                    text(
+                        "SELECT count(*) FROM audit_log "
+                        "WHERE action = 'auth.invitation_reclaimed_unverified_account' "
+                        "AND object_id = :s"
+                    ),
+                    {"s": str(user_id)},
+                )
+            ).scalar_one()
+        )
+
+
 @pytest.mark.asyncio
-async def test_a_squatted_account_cannot_be_handed_a_second_membership(
+async def test_the_mailbox_owner_reclaims_an_unverified_account(planted: Planted) -> None:
+    """D-955. An account whose address was never proved holds a password nobody showed
+    belongs to the mailbox owner — a pre-hijacker's, in the worst case. Redeeming a token
+    that was mailed to the address IS that proof, so the redeemer's password replaces the
+    old one, every old session dies, and the address is marked proved. Under D-185 this
+    redemption was refused with `invitation_account_unverified`."""
+    first_tenant, first_slug, first_session = await planted.tenant()
+    owned_tenant, owned_slug, owned_session = await planted.tenant()
+    address = planted.address("reclaim")
+
+    first = await _invite(first_slug, first_session, address, "staff")
+    assert (await _redeem(first, ATTACKER_PASSWORD)).status_code == 200
+    user_id = await _user_id(address)
+    assert user_id is not None
+    assert await _verified_at(address) is None
+    old_session = await _open_session(user_id)
+
+    real_token = await _invite(owned_slug, owned_session, address, "owner")
+    reclaimed = await _redeem(real_token, REDEMPTION_PASSWORD)
+
+    assert reclaimed.status_code == 200, reclaimed.text
+    assert reclaimed.json()["tenant_id"] == str(owned_tenant)
+    assert await _memberships(owned_tenant, address) == 1
+    assert await _user_id(address) == user_id, "the account is reclaimed, not replaced"
+    assert await _verified_at(address) is not None
+    assert not await _password_signs_in(user_id, ATTACKER_PASSWORD)
+    assert await _password_signs_in(user_id, REDEMPTION_PASSWORD)
+    assert not await _session_live(old_session), "a session the old password opened survived"
+    assert await _reclaim_audits(owned_tenant, user_id) == 1
+    assert await _memberships(first_tenant, address) == 1, "earlier memberships are kept"
+
+
+@pytest.mark.asyncio
+async def test_a_refused_password_leaves_an_unverified_account_untouched(
     planted: Planted,
 ) -> None:
-    """S-2, end to end. WITHOUT D-185 the last assertion is what fails: the victim's
-    membership lands on the attacker's account and the attacker signs into it."""
-    attacker_tenant, attacker_slug, attacker_session = await planted.tenant()
-    victim_tenant, victim_slug, victim_session = await planted.tenant()
-    address = planted.address("finance")
+    """The reclaim happens only once the new password passes the policy: a refusal must not
+    have already revoked sessions or marked the address, and the token must still work."""
+    _first_tenant, first_slug, first_session = await planted.tenant()
+    owned_tenant, owned_slug, owned_session = await planted.tenant()
+    address = planted.address("retype")
 
-    # 1-2. The squat: the attacker invites an address they do not control, into their
-    # own tenant, and redeems their own invitation with a password only they know.
-    squat_token = await _invite(attacker_slug, attacker_session, address, "staff")
-    squat = await _redeem(squat_token, ATTACKER_PASSWORD)
-    assert squat.status_code == 200, squat.text
+    first = await _invite(first_slug, first_session, address, "staff")
+    assert (await _redeem(first, ATTACKER_PASSWORD)).status_code == 200
+    user_id = await _user_id(address)
+    assert user_id is not None
+    old_session = await _open_session(user_id)
 
-    # The row exists, and it is the only one there can be for this address.
-    assert await _user_id(address) is not None
-    assert await _verified_at(address) is None, (
-        "an address claimed through a token that was handed to the inviter has not been "
-        "proven, and must not be recorded as verified"
-    )
+    real_token = await _invite(owned_slug, owned_session, address, "owner")
+    weak = await _redeem(real_token, "password1234")
 
-    # 3. The victim's real organisation invites the real person, as OWNER.
-    real_token = await _invite(victim_slug, victim_session, address, "owner")
-    hijack = await _redeem(real_token, REDEMPTION_PASSWORD)
+    assert weak.status_code == 422, weak.text
+    assert await _verified_at(address) is None
+    assert await _password_signs_in(user_id, ATTACKER_PASSWORD)
+    assert await _session_live(old_session)
+    assert await _memberships(owned_tenant, address) == 0
 
-    assert hijack.status_code == 422, hijack.text
-    assert hijack.json()["type"].endswith("/invitation_account_unverified")
-
-    # The membership never happened, so there is nothing for step 4 to sign in to.
-    assert await _memberships(attacker_tenant, address) == 1, "the squat itself is unchanged"
-    assert await _memberships(victim_tenant, address) == 0, (
-        "the victim's tenant must not have attached a membership to an account whose "
-        "address was claimed by somebody else"
-    )
-
-
-@pytest.mark.asyncio
-async def test_the_refusal_leaves_the_invitation_redeemable(planted: Planted) -> None:
-    """A refusal that burned the token would turn a security control into a lockout: the
-    real owner of the mailbox could never redeem it even after verifying. So the refusal
-    lands BEFORE `admin_service.accept_invitation`'s CAS, and the same token works once the
-    address is proven."""
-    _attacker_tenant, attacker_slug, attacker_session = await planted.tenant()
-    victim_tenant, victim_slug, victim_session = await planted.tenant()
-    address = planted.address("reopen")
-
-    squat_token = await _invite(attacker_slug, attacker_session, address, "staff")
-    assert (await _redeem(squat_token, ATTACKER_PASSWORD)).status_code == 200
-
-    real_token = await _invite(victim_slug, victim_session, address, "owner")
-    assert (await _redeem(real_token, REDEMPTION_PASSWORD)).status_code == 422
-
-    # The person proves the mailbox — `POST /v1/auth/client/otp/verify`.
-    await _mark_verified(address)
-
-    # Joining an existing account takes that account's own password.
-    second_try = await _redeem(real_token, ATTACKER_PASSWORD)
-
-    assert second_try.status_code == 200, second_try.text
-    assert second_try.json()["tenant_id"] == str(victim_tenant)
-    assert await _memberships(victim_tenant, address) == 1
+    retyped = await _redeem(real_token, REDEMPTION_PASSWORD)
+    assert retyped.status_code == 200, retyped.text
+    assert not await _session_live(old_session)
 
 
 @pytest.mark.asyncio

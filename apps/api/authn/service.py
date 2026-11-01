@@ -819,6 +819,10 @@ async def confirm_password_reset(
             extra={"realm": realm, "subject_id": str(redeemed.subject_id)},
         )
         raise _bad_token()
+    # The link reached this mailbox, so the address is proved (D-955): an account a reset
+    # recovered needs no second round trip before it can be invited elsewhere.
+    if subject.email_verified_at is None:
+        await mark_email_verified(realm, subject.subject_id, at=at)
     await clear_password(realm=realm, subject_id=subject.subject_id, source=ip)
     # And the REQUEST budget, because this link being redeemed is proof the person asking
     # for the links is the person who owns the mailbox. Leaving it spent would mean somebody

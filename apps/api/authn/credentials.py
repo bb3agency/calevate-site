@@ -208,8 +208,10 @@ async def subjects_with_password(
 async def delete_password(session: AsyncSession, *, realm: str, subject_id: UUID) -> bool:
     """Destroy one subject's password. Returns whether there was one.
 
-    THE COUNTERPART TO `set_password`, and the only caller is a REVOCATION
-    (`operators.revoke_operator`). It is deliberately not exposed as "disable an account":
+    THE COUNTERPART TO `set_password`. Two callers: a REVOCATION (`operators.revoke_operator`)
+    and a Google sign-in reclaiming an account whose address was never proved
+    (`google._reclaim_unproved`, D-955), which leaves a Google account with no password.
+    It is deliberately not exposed as "disable an account":
     an account with no password is an account that has not finished being created, which
     is a different state entirely — what ends an operator account is `deactivated_at`, and
     this runs beside it so that no authentication material outlives the account it

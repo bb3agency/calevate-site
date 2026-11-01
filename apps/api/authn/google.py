@@ -45,7 +45,8 @@ import jwt
 from sqlalchemy import text
 
 from apps.api.actions.oauth import StatePurpose, spend_purpose_state
-from apps.api.authn.sessions import IssuedSession, issue_session
+from apps.api.authn.credentials import delete_password
+from apps.api.authn.sessions import IssuedSession, issue_session, revoke_subject_sessions
 from apps.api.authn.subjects import (
     create_verified_client,
     load_subject,
@@ -101,6 +102,8 @@ class SignedIn:
     next_path: str | None
     created: bool
     linked: bool
+    #: An unproved account's password and sessions were removed on linking (D-955).
+    reclaimed: bool = False
 
 
 # --- configuration ---------------------------------------------------------------------
@@ -407,6 +410,29 @@ async def _link(subject_id: Any, provider_subject: str, at: datetime) -> None:
         )
 
 
+async def _reclaim_unproved(subject_id: Any, at: datetime) -> None:
+    """Strip what an unproved account holds before Google's proof of the mailbox joins it.
+
+    The "classic-federated merge" pre-hijack (Sudhodanan & Paverd, USENIX Security 2022,
+    §3 and §6.2): an attacker registers the victim's address with a password, the victim
+    later signs in with Google, the accounts merge, and the attacker's password still signs
+    in. Linking proves the Google holder controls the mailbox; nothing ever proved the
+    password's author did, so the password is deleted and every session it opened is
+    revoked in one transaction (`credentials.set_password`'s contract). The owner can set a
+    password again through the reset link, which mails the address Google just vouched for.
+    The address is marked proved last, so a failure above leaves it unproved and the next
+    Google sign-in repeats the reclaim.
+    """
+    async with credential_session() as session:
+        dropped = await delete_password(session, realm=REALM, subject_id=subject_id)
+        revoked = await revoke_subject_sessions(session, realm=REALM, subject_id=subject_id, now=at)
+    await mark_email_verified(REALM, subject_id, at=at)
+    log.info(
+        "google_sign_in_reclaimed_unverified_account",
+        extra={"user_id": str(subject_id), "password_dropped": dropped, "revoked": revoked},
+    )
+
+
 async def finish(
     *,
     code: str,
@@ -431,7 +457,7 @@ async def finish(
     email = str(id_claims.get("email") or "").strip()
     verified = id_claims.get("email_verified") is True
 
-    created = linked = False
+    created = linked = reclaimed = False
     subject_id = await _identity_subject(sub)
     if subject_id is not None:
         if await load_subject(REALM, subject_id) is None:
@@ -463,9 +489,12 @@ async def finish(
         existing = await resolve_by_email(REALM, email)
         if existing is not None:
             subject_id = existing.subject_id
-            await _link(subject_id, sub, at)
+            # The reclaim precedes the link: once linked, later Google sign-ins take the
+            # `auth_identities` branch above and never reach this one again.
             if existing.email_verified_at is None:
-                await mark_email_verified(REALM, subject_id, at=at)
+                await _reclaim_unproved(subject_id, at)
+                reclaimed = True
+            await _link(subject_id, sub, at)
             linked = True
         else:
             if not signup_open:
@@ -496,6 +525,7 @@ async def finish(
         next_path=safe_next(claims.get("nxt")),
         created=created,
         linked=linked,
+        reclaimed=reclaimed,
     )
 
 

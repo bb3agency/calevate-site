@@ -226,6 +226,7 @@ async def google_complete(
         summary={
             "account_created": signed_in.created,
             "linked": signed_in.linked,
+            "reclaimed": signed_in.reclaimed,
             "invitation": joined is not None,
         },
     )

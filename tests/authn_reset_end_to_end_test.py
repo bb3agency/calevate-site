@@ -207,6 +207,33 @@ async def test_a_reset_from_request_to_sign_in(
     assert audited == 1
 
 
+async def test_a_completed_reset_confirms_an_unconfirmed_address(
+    accounts: dict[str, tuple[uuid.UUID, str]],
+) -> None:
+    """The link reached the mailbox, so the address is proved (D-955)."""
+    subject_id, email = accounts["client"]
+    async with untenanted_session() as session:
+        await session.execute(
+            text("UPDATE users SET email_verified_at = NULL WHERE id = :id"), {"id": subject_id}
+        )
+    async with _client() as http:
+        requested = await http.post("/v1/auth/client/password/reset/request", json={"email": email})
+        assert requested.status_code == 202, requested.text
+        _realm, secret = await _mailed_secret(email)
+        confirmed = await http.post(
+            "/v1/auth/client/password/reset/confirm",
+            json={"token": secret, "password": NEW_PASSWORD},
+        )
+        assert confirmed.status_code == 204, confirmed.text
+    async with untenanted_session() as session:
+        verified_at = (
+            await session.execute(
+                text("SELECT email_verified_at FROM users WHERE id = :id"), {"id": subject_id}
+            )
+        ).scalar_one()
+    assert verified_at is not None
+
+
 @pytest.mark.parametrize("realm", REALMS)
 async def test_a_link_from_the_other_realm_is_refused(
     realm: str, accounts: dict[str, tuple[uuid.UUID, str]]

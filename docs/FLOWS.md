@@ -210,8 +210,13 @@ fingerprint so a client credential cannot be looked up as an admin one. There is
    call, redeems the invitation, creates the credential, creates the membership and issues
    the session. It is one call where the Clerk-era flow took two, because there is no
    vendor to have made the account first — and it needs no address comparison at all:
-   possession of a token emailed to that address IS the proof, which is also what sets
-   `users.email_verified_at`. Token hash lookup, expiry + `used_at` check, **burned on
+   the address comes from the invitation. A NEW account starts with
+   `users.email_verified_at` NULL (D-185; the `email_verify` OTP proves it). An EXISTING
+   account whose address is proved must type its current password; one that signs in with
+   Google is refused a password. An existing account with a password and an UNPROVED address
+   is reclaimed by the redeemer (D-955): the typed password replaces the old one, every
+   session is revoked, the address is marked proved, audited as
+   `auth.invitation_reclaimed_unverified_account`. Token hash lookup, expiry + `used_at` check, **burned on
    success** with one `UPDATE … WHERE used_at IS NULL … RETURNING`, so exactly one of two
    concurrent submissions wins at the database; a resend retires the prior token. This is
    how MANAGED clients — and extra staff on any org — get in.

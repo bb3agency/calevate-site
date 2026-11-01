@@ -56,17 +56,6 @@ _REVOCATION = "revoke_subject_sessions"
 #: at the moment the password is written. "Onboarding" is not a password on the exemption —
 #: it is the claim that the account is not yet usable, and it has to be true of the code.
 _EXEMPT: dict[str, str] = {
-    "apps/api/authn/invitations.py::accept_with_password": (
-        "The redemption of an invitation, and it writes a password only under `if not "
-        "await has_password(...)` — so it never REPLACES a credential, it installs the "
-        "first one for an account that has never had one. A subject with no password has "
-        "no way to have signed in, so there is no session for a revocation to end: the "
-        "call would revoke zero rows on every path that reaches it. The branch where a "
-        "password already exists does not write one, and D-185's unverified-account "
-        "refusal above it is what stops that branch being a takeover. The session this "
-        "flow issues is minted AFTER, at the foot of the function, and revoking it would "
-        "sign the new member out of the redemption they just completed."
-    ),
     "apps/api/authn/registration.py::complete_signup": (
         "Self-serve account creation (D-703). The subject is inserted by "
         "`create_verified_client` in this same call, which refuses an address that already "
@@ -200,14 +189,16 @@ def test_the_four_known_callers_are_all_present_and_accounted_for() -> None:
     Not a duplicate of the census above: that one asserts a PROPERTY of whatever callers
     exist, and would stay green if three of these four were deleted. This asserts that the
     four surfaces that write a password are still the four we reasoned about — a reset, an
-    operator revocation, an invitation redemption, a first-operator bootstrap, plus the
-    self-service change this lane added.
+    operator revocation, an invitation redemption, a first-operator bootstrap, the
+    self-service change, self-serve signup, and a Google sign-in reclaiming an unproved
+    account (D-955).
     """
     assert set(_callers()) == {
         "apps/api/authn/service.py::confirm_password_reset",
         "apps/api/authn/service.py::change_password",
         "apps/api/authn/bootstrap.py::confirm_bootstrap",
         "apps/api/authn/invitations.py::accept_with_password",
+        "apps/api/authn/google.py::_reclaim_unproved",
         "apps/api/authn/operators.py::revoke_operator",
         "apps/api/authn/registration.py::complete_signup",
     }, (
