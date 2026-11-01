@@ -380,6 +380,7 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "admin/ops/secrets",
     "admin/ops/spoken-style",
     "admin/ops/voices",
+    "admin/ops/voice-comparison",
     "ops/config-sources",
     "ops/engine-minute-prices",
     "ops/engine-model-bands",

@@ -706,6 +706,9 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # Read per use by the Studio key installer (`agents/studio_voices`,
     # `workers/studio_voice_key`), which pushes a rotation to the voice platform.
     "cartesia_api_key": AppliesRule(LIVE),
+    # Read per use by the voice-comparison set-up (`ops/voice_comparison`); a rotation is
+    # pushed to the comparison workspace by `workers/voice_comparison_key`.
+    "sarvam_voice_api_key": AppliesRule(LIVE),
     # `sentry_sdk.init` runs once at boot (from `init_observability`) with this DSN;
     # nothing reconfigures it afterwards.
     "sentry_dsn": AppliesRule(
