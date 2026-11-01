@@ -36,6 +36,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.reliability.service import enqueue_outbox
+from apps.api.tenancy.members import acting_member_role
 
 log = get_logger(__name__)
 
@@ -56,20 +57,10 @@ _STALLED_SQL: Final = (
 
 async def _actor(tenant_id: UUID, user_id: UUID) -> ToolActor | None:
     async with tenant_session(tenant_id) as session:
-        role = (
-            await session.execute(
-                # A deactivated person's approval stops counting the moment they are
-                # deactivated, exactly like a removed membership.
-                text(
-                    "SELECT m.role FROM memberships m JOIN users u ON u.id = m.user_id "
-                    "WHERE m.user_id = :uid AND u.deactivated_at IS NULL"
-                ),
-                {"uid": user_id},
-            )
-        ).scalar_one_or_none()
+        role = await acting_member_role(session, user_id)
     if role is None:
         return None
-    return ToolActor(tenant_id=tenant_id, user_id=user_id, role=str(role), impersonating=False)
+    return ToolActor(tenant_id=tenant_id, user_id=user_id, role=role, impersonating=False)
 
 
 async def _close(tenant_id: UUID, plan_id: UUID, *, skip_reason: str | None, note: str) -> None:

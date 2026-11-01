@@ -446,6 +446,24 @@ async def test_a_routine_whose_author_left_is_switched_off() -> None:
     assert status == "skipped" and reason is not None and "no longer on the account" in reason
 
 
+async def test_a_routine_whose_author_was_deactivated_is_switched_off() -> None:
+    tenant_id, slug, token = await _make_tenant()
+    created = await _create(token, slug)
+    async with untenanted_session() as session:
+        await session.execute(
+            text("UPDATE users SET deactivated_at = now() WHERE id = :u"), {"u": _user_of(token)}
+        )
+    now = datetime.now(UTC)
+    await _make_due(tenant_id, str(created["id"]), now - timedelta(minutes=1))
+    async with tenant_session(tenant_id) as session:
+        assert (
+            await routines.fire_due(session, routine_id=UUID(str(created["id"])), now=now)
+            == "skipped"
+        )
+    [(status, reason, _)] = await _runs(tenant_id, str(created["id"]))
+    assert status == "skipped" and reason is not None and "no longer on the account" in reason
+
+
 async def test_run_now_queues_a_job_and_leaves_the_schedule_alone() -> None:
     _tenant_id, slug, token = await _make_tenant()
     created = await _create(token, slug)
