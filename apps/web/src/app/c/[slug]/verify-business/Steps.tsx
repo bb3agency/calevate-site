@@ -474,7 +474,10 @@ function BusinessDocument({ session, record, access }: { session: Session; recor
   useActionFeedback(upload, { errorDisplay: "inline" });
   const current = businessDocument(record);
   const options = record.gst_registered ? (["gst"] as const) : (["incorporation", "udyam"] as const);
-  const [kind, setKind] = useState<string>(options[0]);
+  const [picked, setPicked] = useState<string>(options[0]);
+  // Re-derived on every render: the GST answer in step 1 can change while this step stays
+  // mounted, and a choice made under the other answer must not be sent as this one's.
+  const kind = (options as readonly string[]).includes(picked) ? picked : options[0];
   const view = useAsyncAction((id: string) => openOwnCertificate(session, id), { errorDisplay: "inline" });
   const openError = view.status === "error" ? view.error : null;
   // The server's own lock: replaceable until the review starts, and never once verified.
@@ -537,7 +540,7 @@ function BusinessDocument({ session, record, access }: { session: Session; recor
           {!record.gst_registered && (
             <label className="block">
               <span className={FIELD_LABEL}>Which certificate</span>
-              <select className={FIELD} value={kind} onChange={(event) => setKind(event.target.value)}>
+              <select className={FIELD} value={kind} onChange={(event) => setPicked(event.target.value)}>
                 {options.map((value) => (
                   <option key={value} value={value}>
                     {BUSINESS_DOCUMENT_KINDS[value]}
@@ -550,7 +553,7 @@ function BusinessDocument({ session, record, access }: { session: Session; recor
             disabled={!access.allowed || upload.isPending}
             label={current ? "Replace the certificate" : "Choose the certificate"}
             onPick={(file, onProgress) =>
-              upload.mutateAsync({ slot: "business", kind: record.gst_registered ? "gst" : kind, file, onProgress })
+              upload.mutateAsync({ slot: "business", kind, file, onProgress })
             }
           />
           <ProblemNotice error={upload.error} />
