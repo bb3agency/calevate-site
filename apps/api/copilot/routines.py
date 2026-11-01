@@ -53,6 +53,7 @@ from apps.api.copilot.routine_models import (
 from apps.api.copilot.sanitize import strip_invisible
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
+from apps.api.tenancy.members import acting_member_role
 
 #: Routines are scheduled in India's time, the only time zone this product's clients keep.
 IST: Final = ZoneInfo("Asia/Kolkata")
@@ -438,12 +439,7 @@ class _Skip:
 
 async def _start_job(session: AsyncSession, routine: RoutineRow) -> UUID | _Skip:
     """A job id, or why no job was started."""
-    role = (
-        await session.execute(
-            text("SELECT role FROM memberships WHERE user_id = :uid"), {"uid": routine.user_id}
-        )
-    ).scalar()
-    if role is None:
+    if await acting_member_role(session, routine.user_id) is None:
         return _Skip(
             "The person who set this up is no longer on the account, so it was switched off.",
             switch_off=True,

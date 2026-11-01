@@ -287,3 +287,21 @@ async def test_a_staff_member_cannot_stage_what_their_role_cannot_do() -> None:
             job_id=job.id,
         )
     assert "role may not" in refused.value.reason
+
+
+async def test_a_deactivated_person_s_queued_job_does_not_run() -> None:
+    """Deactivating a person stops the work they queued, as removing their membership does:
+    the worker finds nobody to run as and fails the job before any model call."""
+    from apps.workers.copilot_jobs import run_copilot_job
+
+    tenant_id, _slug, token = await _make_tenant()
+    job = await _job(tenant_id, token)
+    async with untenanted_session() as session:
+        await session.execute(
+            text("UPDATE users SET deactivated_at = now() WHERE id = :id"),
+            {"id": _user_of(token)},
+        )
+    outcome = await run_copilot_job({}, {"job_id": str(job.id), "tenant_id": str(tenant_id)})
+    assert outcome == "member_gone"
+    async with tenant_session(tenant_id) as session:
+        assert await jobs.job_status(session, job_id=job.id) == "failed"

@@ -10,7 +10,8 @@ wrong story to tell a person, so a failure marks the job `failed` with a code an
 person asks again. arq only retries on `Retry`, which this never raises.
 
 WHO IT RUNS AS. The person who started it, re-read NOW: their membership role is looked up
-at the start of the run, so a member demoted or removed since they asked is refused by the
+at the start of the run, so a member demoted, removed or deactivated since they asked is
+refused by the
 same permission ladder every action uses, rather than acting on yesterday's role. Every
 action writes its own `audit_log` row naming that person, exactly as from the panel.
 
@@ -26,8 +27,6 @@ from __future__ import annotations
 from typing import Any, Final
 from uuid import UUID
 
-from sqlalchemy import text
-
 from apps.api.billing.ai_quota import new_assist_ref
 from apps.api.copilot import jobs, model_tiers, service
 from apps.api.copilot.consent import require_consent
@@ -41,6 +40,7 @@ from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from apps.api.crm.assist import ASSIST_FEATURE_COPILOT, meter_assist
 from apps.api.db.session import tenant_session
+from apps.api.tenancy.members import acting_member_role
 
 log = get_logger(__name__)
 
@@ -75,11 +75,7 @@ async def run_copilot_job(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
         return "not_queued"
 
     async with tenant_session(tenant_id) as session:
-        role = (
-            await session.execute(
-                text("SELECT role FROM memberships WHERE user_id = :uid"), {"uid": job.user_id}
-            )
-        ).scalar()
+        role = await acting_member_role(session, job.user_id)
         refusal: ProblemError | None = None
         if role is not None:
             try:

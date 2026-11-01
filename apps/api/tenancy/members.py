@@ -60,6 +60,7 @@ if TYPE_CHECKING:
 __all__ = [
     "MEMBER_ROLES",
     "PendingInvitation",
+    "acting_member_role",
     "assert_role_is_grantable",
     "assign_member_role",
     "change_member_role",
@@ -189,6 +190,26 @@ def _assert_an_owner_remains(owner_ids: set[UUID], losing_owner: UUID) -> None:
             "people, change roles or manage its own settings."
         ),
     )
+
+
+async def acting_member_role(session: AsyncSession, user_id: UUID) -> str | None:
+    """The role work queued by this person runs with now, or None if it must not run.
+
+    For a background run acting as a client member (a Pip job, routine or approved plan):
+    no membership of the session's tenant, or a person deactivated platform-wide, is None.
+    A request is refused for a deactivated person by `core/auth._load_client_principal`;
+    queued work never passes through it, so the deactivation is read here instead.
+    """
+    role = (
+        await session.execute(
+            text(
+                "SELECT m.role FROM memberships m JOIN users u ON u.id = m.user_id "
+                "WHERE m.user_id = :uid AND u.deactivated_at IS NULL"
+            ),
+            {"uid": user_id},
+        )
+    ).scalar_one_or_none()
+    return None if role is None else str(role)
 
 
 async def _member_role(session: AsyncSession, user_id: UUID) -> str:
