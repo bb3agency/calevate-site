@@ -252,7 +252,7 @@ async def _assert_erasure_answers(
         raise ProblemError.business_rule(
             "rights_erasure_not_linked",
             "Say which erasure answered this request.",
-            remediation="File the erasure from this request, then mark it answered.",
+            remediation="File the erasure from the person's own request, then mark it answered.",
         )
     match = (
         await session.execute(
