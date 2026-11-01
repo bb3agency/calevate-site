@@ -1261,6 +1261,37 @@ describe("unanswered questions", () => {
  * the figures start their reads with it instead of after it, so nothing arrives a round
  * trip late and pushes the page down.
  */
+describe("a new owner is sent to meet their agent before the dashboard shows", () => {
+  const OWNER: Me = { ...ME, permissions: ["calls:read", "leads:read", "org:manage"] };
+  const UNSTARTED = {
+    due: true,
+    jobs: [],
+    questions: { status: "idle", items: [], disclosure: null },
+    build: { status: "idle", steps: [], disclosure: null, builds_left: 3 },
+  };
+
+  it("never paints the dashboard for an owner whose first run is unstarted", async () => {
+    const { calls } = await renderClientPage(
+      page,
+      routes({ "/v1/me": OWNER, "/v1/agents": [], "/v1/first-run": UNSTARTED }),
+    );
+    // Every read the decision rests on has answered...
+    await waitFor(() => expect(calls.some((call) => call.path === "/v1/first-run")).toBe(true));
+    await waitFor(() => expect(calls.some((call) => call.path === "/v1/dashboard")).toBe(true));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    // ...and the dashboard still did not show while the redirect is on its way.
+    expect(screen.queryByRole("heading", { name: "This week" })).toBeNull();
+  });
+
+  it("shows the dashboard once the first run is put aside", async () => {
+    await renderClientPage(
+      page,
+      routes({ "/v1/me": OWNER, "/v1/agents": [], "/v1/first-run": { ...UNSTARTED, due: false } }),
+    );
+    expect(await screen.findByRole("heading", { name: "This week" })).toBeTruthy();
+  });
+});
+
 describe("the dashboard arrives in one paint", () => {
   const TRIAL = {
     on_trial: true,

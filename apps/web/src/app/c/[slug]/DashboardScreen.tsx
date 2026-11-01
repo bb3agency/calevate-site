@@ -16,7 +16,7 @@ import { useCampaignNumbers, useCampaigns } from "@/lib/api/campaigns";
 import { useFirstRun } from "@/lib/api/firstRun";
 import { useForwarding } from "@/lib/api/forwarding";
 import { useLineIncidents } from "@/lib/api/healer";
-import { useCalls, useDashboard, useUsage, useWriteAccess } from "@/lib/api/hooks";
+import { useCalls, useDashboard, useMe, useUsage, useWriteAccess } from "@/lib/api/hooks";
 import { useKnowledgeGaps } from "@/lib/api/knowledgeGaps";
 import { useAccountReadiness } from "@/lib/api/readiness";
 import { useClientRealm } from "@/lib/api/session";
@@ -108,6 +108,7 @@ export function DashboardScreen({ slug }: { slug: string }) {
   // on: an owner who began it and came back here chose to, and the invitation below offers
   // it again; one who put it aside is no longer due.
   const router = useRouter();
+  const me = useMe(session);
   const firstRunAsked = agents.data?.length === 0 && agentAccess.allowed && !session.impersonateOrg;
   const firstRun = useFirstRun(session, firstRunAsked);
   const firstRunDue = firstRunAsked && firstRun.data?.due === true;
@@ -243,7 +244,25 @@ export function DashboardScreen({ slug }: { slug: string }) {
     apply: noFill,
   });
 
-  if (dashboard.isLoading || notices.some((notice) => notice.isLoading)) {
+  /*
+   * WHETHER THIS OWNER IS SENT TO "MEET YOUR AGENT" IS PART OF LOADING. Rendering the
+   * dashboard while the answer is in flight, or while the redirect is on its way, flashed
+   * a full dashboard at a brand-new owner a moment before it was replaced. Each read that
+   * FAILS, or is paused offline, lets the page through rather than holding it: only a read
+   * actually in flight (`isLoading`), or a redirect already decided, keeps the skeleton.
+   */
+  const firstRunUndecided =
+    !session.impersonateOrg &&
+    (me.isLoading ||
+      agents.isLoading ||
+      (firstRunAsked && firstRun.isLoading) ||
+      firstRunUnstarted);
+
+  if (
+    firstRunUndecided ||
+    dashboard.isLoading ||
+    notices.some((notice) => notice.isLoading)
+  ) {
     return (
       <div className="space-y-6">
         <Skeleton rows={4} />
