@@ -528,7 +528,8 @@ async def publish_kb_source(ctx: dict[str, Any], payload: dict[str, Any]) -> str
     A publish refusal is NOT raised for arq to retry, because none of them heals on a
     retry seconds later: they need a person, who sees the source
     "approved, not live" on both the client's screen and the operator's publish queue.
-    Anything that is not a `ProblemError` is raised, so arq's retries and DLQ apply.
+    Anything that is not a `ProblemError` is raised: the job fails, and `sweep_kb_uploads`
+    re-drives the source, which arq would not (it retries only on `Retry`).
     """
     tenant_id = UUID(str(payload["tenant_id"]))
     source_id = UUID(str(payload["source_id"]))

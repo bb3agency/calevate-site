@@ -535,6 +535,22 @@ async def _trial(
     return trial, await read_round(session, trial.round_id)
 
 
+async def _lock_round(session: AsyncSession, round_id: UUID) -> PlatformVoiceComparisonRound:
+    """The round row under FOR UPDATE, so a rating and a finish on the same round take turns:
+    without it a rating read before the finish commits could land after the reveal."""
+    found = (
+        await session.execute(
+            select(PlatformVoiceComparisonRound)
+            .where(PlatformVoiceComparisonRound.id == round_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one_or_none()
+    if found is None:
+        raise ProblemError.not_found("Comparison round")
+    return found
+
+
 async def rate_trial(
     session: AsyncSession,
     trial_id: UUID,
@@ -545,6 +561,7 @@ async def rate_trial(
     actor_id: UUID,
 ) -> PlatformVoiceComparisonTrial:
     trial, round_ = await _trial(session, trial_id)
+    round_ = await _lock_round(session, round_.id)
     if round_.finished_at is not None:
         raise _finished_already()
     trial.rating_a, trial.rating_b, trial.preference = rating_a, rating_b, preference
@@ -556,7 +573,7 @@ async def rate_trial(
 async def finish_round(session: AsyncSession, round_id: UUID) -> PlatformVoiceComparisonRound:
     """Close the round so its providers can be shown. Every pair must be rated first; a
     round already finished stays as it was."""
-    round_ = await read_round(session, round_id)
+    round_ = await _lock_round(session, round_id)
     if round_.finished_at is not None:
         return round_
     left = sum(1 for t in await round_trials(session, round_id) if t.rated_at is None)
