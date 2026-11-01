@@ -1965,6 +1965,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/knowledge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Everything one agent holds on the voice platform
+         * @description Our copies (held, or missing on the platform), the client's live items not on this agent and why, and documents the platform holds that we did not send.
+         */
+        get: operations["admin_agent_knowledge_v1_admin_tenants__tenant_id__agents__agent_id__knowledge_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/knowledge/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Remove a document we did not send from one agent
+         * @description Deletes, on the voice platform, a document this agent holds that no record of ours names. 409 for one of the client's own items (removed from their page instead); 404 when the agent does not hold it.
+         */
+        post: operations["admin_remove_unrecorded_document_v1_admin_tenants__tenant_id__agents__agent_id__knowledge_remove_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/lead-suggestions": {
         parameters: {
             query?: never;
@@ -14563,6 +14603,36 @@ export interface components {
             agent_name: string | null;
             /** Calls Inr */
             calls_inr: string;
+        };
+        /** AgentKnowledgeItemOut */
+        AgentKnowledgeItemOut: {
+            /** Detail */
+            detail?: string | null;
+            /** Handle */
+            handle?: string | null;
+            /** Kind */
+            kind?: string | null;
+            /** Name */
+            name?: string | null;
+            /** Source Id */
+            source_id?: string | null;
+            /**
+             * Verdict
+             * @enum {string}
+             */
+            verdict: "held" | "missing" | "not_sent" | "not_ours";
+        };
+        /** AgentKnowledgeOut */
+        AgentKnowledgeOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Items */
+            items: components["schemas"]["AgentKnowledgeItemOut"][];
+            /** Listed */
+            listed: boolean;
         };
         /** AgentLanguageOut */
         AgentLanguageOut: {
@@ -29948,6 +30018,11 @@ export interface components {
             /** Removed */
             removed: number;
         };
+        /** RemoveDocumentIn */
+        RemoveDocumentIn: {
+            /** Handle */
+            handle: string;
+        };
         /** RenameIn */
         RenameIn: {
             /** Name */
@@ -39924,6 +39999,72 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ExtractionSchemaOut"];
                 };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    admin_agent_knowledge_v1_admin_tenants__tenant_id__agents__agent_id__knowledge_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentKnowledgeOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    admin_remove_unrecorded_document_v1_admin_tenants__tenant_id__agents__agent_id__knowledge_remove_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RemoveDocumentIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description RFC-9457 problem+json */
             default: {

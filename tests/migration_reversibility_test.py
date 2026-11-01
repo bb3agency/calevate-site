@@ -132,6 +132,11 @@ DATA_ONLY_REPAIRS: dict[str, str] = {
         "DDL beyond the RLS bracket, the predicate is false once applied, and restoring the "
         "replaced value would rename those leads to the agent again"
     ),
+    "c4e8a2d6f1b3": (
+        "deletes the one platform_settings row stored under kb_send_extracted_files, which "
+        "Settings no longer declares since D-868; no DDL, the DELETE is a no-op once done, "
+        "and earlier code reads a missing row as the switch's default"
+    ),
 }
 
 #: What a schema change looks like in a migration's source. A revision claiming to be a

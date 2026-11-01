@@ -234,9 +234,9 @@ class UploadOut(Strict):
     #: Why a reading failed or was partial, written for the client.
     read_detail: str | None = None
     page_count: int | None = None
-    #: Whether this item's words reach the agents. Always true for a converted kind; for a
-    #: PDF or a link only while the platform sends the words we read
-    #: (`kb_send_extracted_files`) and they were read.
+    #: Whether this item reaches the agents once it is live. True for a converted kind and
+    #: a link (sent as its address); for a PDF once its words were read (D-868). A refusal
+    #: (`ingest_status = error`, the reason in `ingest_detail`) outranks it on every screen.
     reaches_agents: bool = True
 
 

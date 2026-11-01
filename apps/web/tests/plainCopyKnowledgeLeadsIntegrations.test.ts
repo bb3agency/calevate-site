@@ -48,12 +48,12 @@ const ALLOWED: { file: string; startsWith: string; why: string }[] = [
   },
   {
     file: "knowledge/uploadCopy.ts",
-    startsWith: "You can save a PDF too",
+    startsWith: "We read every page of a PDF",
     why: "PDF_NOTE, shown only inside the File view's ⓘ",
   },
   {
     file: "knowledge/uploadCopy.ts",
-    startsWith: "We read that one page so you and",
+    startsWith: "We send that one page to your",
     why: "LINK_NOTE, shown only inside the Link view's ⓘ",
   },
 ];
