@@ -112,7 +112,6 @@ export function FollowUpScreen({ followUpId }: { followUpId: string }) {
     <div className="max-w-4xl space-y-6 pb-12">
       <PageHeader
         back={back}
-        headingLevel={1}
         title={data.name}
         status={
           <StatusPill tone={lookup(STATUS_TONES, data.status) ?? "neutral"}>

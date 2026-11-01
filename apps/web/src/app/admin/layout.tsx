@@ -279,7 +279,12 @@ function Sidebar({
 
       <nav className={sidebarNavClass}>
         {NAV.map((group) => (
-          <div key={group.heading ?? "main"} className="mb-6">
+          <div
+            key={group.heading ?? "main"}
+            className="mb-6"
+            role={group.heading ? "group" : undefined}
+            aria-label={group.heading ?? undefined}
+          >
             {group.heading && (
               <SidebarGroupHeading isCollapsed={isCollapsed}>
                 {group.heading}

@@ -47,7 +47,7 @@ import { useMutation } from "@tanstack/react-query";
 import { LogOut } from "lucide-react";
 
 import { useActionFeedback } from "@/components/arc/feedback";
-import { SidebarLabel } from "@/components/sidebarCollapse";
+import { SIDEBAR_ROW_CLASS, SidebarLabel } from "@/components/sidebarCollapse";
 import { TEXT_ACTION } from "@/components/console/section";
 import { NoticeBox } from "@/components/ui";
 
@@ -121,8 +121,8 @@ export function SidebarSignOut({ authn, signInPath, isCollapsed }: SidebarSignOu
       // `px-4` inside the footer's `px-3` puts this glyph's centre on 36px — the collapsed
       // rail's centre line, the same one every other leading glyph in the panel sits on
       // (`components/sidebarCollapse.tsx`). It therefore does not move while the panel
-      // animates; only the label beside it does.
-      className="flex w-full items-center gap-3 overflow-hidden rounded-lg px-4 py-2 text-sm font-medium text-ink-muted transition-colors hover:bg-black/5 hover:text-ink disabled:cursor-not-allowed disabled:opacity-60 dark:hover:bg-white/5 touch:min-h-11"
+      // animates; only the label beside it does. Geometry and focus ring are the nav rows'.
+      className={`${SIDEBAR_ROW_CLASS} w-full text-ink-muted transition-colors hover:bg-ink/[0.04] hover:text-ink disabled:cursor-not-allowed disabled:opacity-60 dark:hover:bg-white/5`}
     >
       <LogOut aria-hidden className="h-4 w-4 shrink-0" />
       {/* Mounted in both states and faded, not unmounted: the only way out of the console

@@ -67,9 +67,10 @@ export function ClientTopHeader({ slug, onMenuToggle }: { slug: string; onMenuTo
           >
             <Menu className="h-5 w-5" />
           </button>
-          {/* A step down on a phone, where the menu button and two header buttons leave about
-              190px: at the title size "Your phone numbers" was cut to "Your phone numb…". */}
-          <h1 className="truncate text-heading text-ink sm:text-title">{title}</h1>
+          {/* A step down on a phone, where the menu button and the header buttons leave about
+              150px, and allowed a second line there: one line cut "What your agents know"
+              to "What your age…". Two lines of either size fit the 72px bar. */}
+          <h1 className="line-clamp-2 text-heading text-ink [overflow-wrap:anywhere] sm:line-clamp-1 sm:text-title">{title}</h1>
         </div>
 
         <div className="flex shrink-0 items-center gap-0.5 sm:gap-2 lg:gap-3">

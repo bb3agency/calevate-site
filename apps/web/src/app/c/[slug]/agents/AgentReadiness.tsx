@@ -102,9 +102,9 @@ export function AgentReadinessPanel({ agentId, slug }: { agentId: string; slug: 
 
   return (
     <section aria-labelledby="readiness-heading" className="space-y-3">
-      <h2 id="readiness-heading" className="text-heading text-ink">
+      <h3 id="readiness-heading" className="text-heading text-ink">
         How ready it is
-      </h2>
+      </h3>
       {readiness.isLoading ? (
         <Skeleton rows={3} label="Working out how ready it is" />
       ) : readiness.error ? (
@@ -116,11 +116,12 @@ export function AgentReadinessPanel({ agentId, slug }: { agentId: string; slug: 
             label="Readiness"
             fixes={fixesFor(readiness.data, link)}
             fixesTitle="Fix these to raise it"
+            fixesHeadingLevel={4}
             allDoneText="Nothing to fix. Ready for callers."
             pointsLabel={(points) => `+${points}`}
           />
           <ReadinessAdvice advice={readiness.data.advice ?? []} link={link} />
-          <Disclosure variant="inline" headingLevel={3} title="How the score is made">
+          <Disclosure variant="inline" headingLevel={4} title="How the score is made">
             <ul className="divide-y divide-line">
               {readiness.data.components.map((part) => (
                 <li key={part.key} className="flex items-start justify-between gap-3 py-2">

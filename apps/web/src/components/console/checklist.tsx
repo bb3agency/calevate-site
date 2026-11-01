@@ -251,7 +251,7 @@ export function Checklist({
       <details open={defaultOpen && !allDone} className={`group ${className}`}>
         <summary className="flex cursor-pointer list-none flex-col gap-2 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11 [&::-webkit-details-marker]:hidden">
           <span className="flex items-center justify-between gap-3">
-            <Heading className="text-[15px] font-semibold text-ink">{label}</Heading>
+            <Heading className="text-heading text-ink">{label}</Heading>
             <span className="flex items-center gap-2">
               {count}
               <ChevronDown
@@ -270,7 +270,7 @@ export function Checklist({
   return (
     <section aria-label={label} className={className}>
       <div className="mb-3 flex items-baseline justify-between gap-3">
-        <Heading className="text-[15px] font-semibold text-ink">{label}</Heading>
+        <Heading className="text-heading text-ink">{label}</Heading>
         {count}
       </div>
       <div className="mb-4">

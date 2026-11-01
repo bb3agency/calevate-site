@@ -81,7 +81,7 @@ export default function GoogleCallbackPage() {
                 lead="Nothing was changed. You can try again or use your email address."
               />
               <Link href={CLIENT_SIGN_IN_PATH} className={`${PRIMARY_BUTTON} w-full justify-center`}>
-                Back to sign in
+                Back to sign-in
               </Link>
             </div>
           )}
@@ -90,7 +90,7 @@ export default function GoogleCallbackPage() {
               <AuthHeading title="We could not sign you in" />
               <AuthProblemNotice error={view.error} />
               <Link href={CLIENT_SIGN_IN_PATH} className={`${PRIMARY_BUTTON} w-full justify-center`}>
-                Back to sign in
+                Back to sign-in
               </Link>
             </div>
           )}

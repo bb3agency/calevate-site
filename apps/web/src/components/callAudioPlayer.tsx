@@ -11,7 +11,7 @@ import {
   VolumeX,
 } from "lucide-react";
 
-import { SECONDARY_BUTTON_SM } from "@/components/ui";
+import { SECONDARY_BUTTON_SM, formatClock } from "@/components/ui";
 
 /**
  * The player for one call recording — built rather than borrowed, and the reasons are
@@ -72,15 +72,9 @@ const MARK_TONE: Record<NonNullable<PlayerMark["tone"]>, string> = {
 const RATES = [1, 1.25, 1.5, 2] as const;
 const SKIP_S = 10;
 
-/** `137` -> `2:17`, `3730` -> `1:02:10`. Hours only appear when there are hours. */
-export function formatClock(seconds: number): string {
-  if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
-  const whole = Math.floor(seconds);
-  const s = String(whole % 60).padStart(2, "0");
-  const m = Math.floor(whole / 60) % 60;
-  const h = Math.floor(whole / 3600);
-  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`;
-}
+// The one stopwatch lives in `ui.tsx` beside `formatDuration`; re-exported for the
+// transcript and moment callers that import it from here.
+export { formatClock };
 
 export function CallAudioPlayer({
   src,

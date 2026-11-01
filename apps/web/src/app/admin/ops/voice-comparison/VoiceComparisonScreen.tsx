@@ -503,7 +503,7 @@ function PairCard({
 
   return (
     <section aria-labelledby={`pair-${trial.id}`} className="space-y-4">
-      <h3 id={`pair-${trial.id}`} className="text-sm font-semibold">
+      <h3 id={`pair-${trial.id}`} className="text-body font-semibold text-ink">
         Pair {trial.position} of {total}
       </h3>
       <p

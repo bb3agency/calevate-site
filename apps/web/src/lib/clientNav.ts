@@ -40,8 +40,10 @@ import {
   ListChecks,
   Megaphone,
   MessageSquare,
+  Phone,
   PhoneCall,
   PhoneForwarded,
+  PhoneOutgoing,
   PhoneOff,
   ScrollText,
   ShieldAlert,
@@ -103,11 +105,11 @@ export function clientNavigation(slug: string): NavGroup[] {
         // Beside Leads rather than under "Compliance & data": a promised call-back is
         // work waiting to happen, checked daily by whoever watches the leads, not a
         // record consulted when something goes wrong.
-        { href: `/c/${slug}/callbacks`, label: "Call-backs", icon: PhoneForwarded },
+        { href: `/c/${slug}/callbacks`, label: "Call-backs", icon: PhoneOutgoing },
         // D-874: named for what an owner asks ("what do my agents know?"), not for the
         // machinery. The path keeps its old segment so existing links still land.
         { href: `/c/${slug}/knowledge`, label: "What your agents know", icon: BookOpen },
-        { href: `/c/${slug}/phone-number`, label: "Your phone number", icon: PhoneForwarded },
+        { href: `/c/${slug}/phone-number`, label: "Your phone number", icon: Phone },
         { href: `/c/${slug}/performance`, label: "Performance", icon: BarChart3 },
         { href: `/c/${slug}/assistant`, label: "Pip", icon: PipIcon },
       ],

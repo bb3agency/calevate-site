@@ -418,8 +418,10 @@ function Editor({
 
   // Pip's panel sits beside the steps when the list leaves room for it; the flow picture
   // wants the full width, so with it, and on a narrow screen, the panel follows the steps.
-  const twoColumns = sidePanel && !showCanvas;
-  const pip = <PipAsk handWritten={raw} />;
+  // A hand-written script has no panel: its one move, turning it into steps, sits under the
+  // script beside the length check that gates it.
+  const twoColumns = sidePanel && !showCanvas && !raw;
+  const pip = <PipAsk />;
   const steps = (
     <section id="stages" aria-labelledby="call-heading" className={`scroll-mt-24 space-y-4 ${showCanvas ? "" : "max-w-3xl"}`}>
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -676,7 +678,6 @@ function Editor({
               />
             </fieldset>
           )}
-          {raw && !twoColumns && pip}
           </div>
           {!raw && (
             <div className="space-y-8">

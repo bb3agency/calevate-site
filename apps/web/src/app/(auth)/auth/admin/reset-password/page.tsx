@@ -12,9 +12,9 @@
 import Link from "next/link";
 
 import { Providers } from "@/app/providers";
-import { AuthPageFrame } from "@/components/authPage";
+import { AuthCard, AuthHeading, AuthPageFrame } from "@/components/authPage";
 import { MissingLinkCode, SetPasswordForm } from "@/components/authn/setPasswordForm";
-import { Card, NoticeBox, PRIMARY_BUTTON } from "@/components/ui";
+import { NoticeBox, PRIMARY_BUTTON } from "@/components/ui";
 import { ADMIN_FORGOT_PATH, ADMIN_SIGN_IN_PATH, adminAuthn } from "@/lib/authn/adminAuthn";
 import { AUTHN_CODES } from "@/lib/authn/problems";
 import { useIdempotencyKey } from "@/lib/authn/useIdempotencyKey";
@@ -24,12 +24,10 @@ export default function AdminResetPasswordPage() {
   return (
     <Providers>
       <AuthPageFrame realmLabel="Operator console">
-        <div className="space-y-4">
-          <h1 className="text-2xl font-semibold tracking-tight text-ink">
-            Choose a new operator password
-          </h1>
+        <AuthCard>
+          <AuthHeading title="Choose a new operator password" />
           <AdminResetBody />
-        </div>
+        </AuthCard>
       </AuthPageFrame>
     </Providers>
   );
@@ -62,17 +60,17 @@ function AdminResetBody() {
         adminAuthn.confirmPasswordReset({ token: linkToken, password }, idempotencyKey)
       }
       renderSuccess={() => (
-        <Card>
+        <div>
           <div className="space-y-3 text-sm text-ink-muted">
             <NoticeBox tone="ok" title="Your password has been changed">
               Every operator session on this account has ended. Sign in with the new password
               and the emailed code.
             </NoticeBox>
-            <Link href={ADMIN_SIGN_IN_PATH} className={PRIMARY_BUTTON}>
+            <Link href={ADMIN_SIGN_IN_PATH} className={`${PRIMARY_BUTTON} w-full justify-center`}>
               Go to sign-in
             </Link>
           </div>
-        </Card>
+        </div>
       )}
       renderMissingToken={
         <MissingLinkCode

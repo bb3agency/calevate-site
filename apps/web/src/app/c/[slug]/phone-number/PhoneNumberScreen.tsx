@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 
 import { InfoTip } from "@/components/console/infoTip";
 import { PageHeader } from "@/components/console/pageHeader";
+import { Section } from "@/components/console/section";
 import { ProblemNotice, SECONDARY_BUTTON, Skeleton, formatPhone } from "@/components/ui";
 import { useAgents } from "@/lib/api/agents";
 import { useCampaignNumbers, type CampaignNumber } from "@/lib/api/campaigns";
@@ -90,66 +91,71 @@ export function PhoneNumberScreen() {
       ) : (
         <>
           {ours.length > 0 && (
-            <section className="space-y-3">
-              <h2 className="flex items-center gap-1 text-body font-semibold text-ink">
-                Forward your phone to this number
-                <InfoTip label="How to forward your line">
+            <Section
+              title="Forward your phone to this number"
+              info={
+                <p>
                   Your existing phone forwards calls to this number. Keep advertising your own
                   number; nobody needs to know this one.
-                </InfoTip>
-              </h2>
-              <Link
-                href={href(`/c/${session.orgSlug}/settings/phone-numbers`)}
-                className={`${SECONDARY_BUTTON} w-full justify-center sm:w-auto`}
-              >
-                Get codes and test
-              </Link>
-              {/* `answerable` needs an agent on the number AND our connection of it at the
-                  carrier. Only the first is the client's to fix, so the two get different
-                  lines: "nothing for you to do" beside a number with no agent would leave it
-                  silent for good. Each says what to do; the why is behind the ⓘ. */}
-              {ours.some((number) => !number.held && !number.answerable && !number.agent_id) && (
-                <WaitLine why="A number with no agent cannot take calls. Forward calls only once it says Ready to answer.">
-                  Pick an agent below before you forward.
-                </WaitLine>
-              )}
-              {ours.some((number) => !number.held && !number.answerable && outboundOnly(number)) && (
-                <WaitLine why="An agent that only makes calls does not answer them. Choose an agent that answers calls, or set that agent's What it does to Answer calls or Both.">
-                  Its agent only calls out. Pick one that answers.
-                </WaitLine>
-              )}
-              {ours.some(waiting) && (
-                <WaitLine why="We are still connecting it. Forward calls only once it says Ready to answer, or callers hear silence.">
-                  Still connecting. Nothing to do yet.
-                </WaitLine>
-              )}
-              {ours.map((number) => (
-                <NumberCard
-                  key={number.id}
-                  number={number}
-                  releasable={ownNumbers && number.releasable === true}
-                  outboundOnly={outboundOnly(number)}
-                />
-              ))}
-            </section>
+                </p>
+              }
+            >
+              <div className="space-y-3">
+                <Link
+                  href={href(`/c/${session.orgSlug}/settings/phone-numbers`)}
+                  className={`${SECONDARY_BUTTON} w-full justify-center sm:w-auto`}
+                >
+                  Get codes and test
+                </Link>
+                {/* `answerable` needs an agent on the number AND our connection of it at the
+                    carrier. Only the first is the client's to fix, so the two get different
+                    lines: "nothing for you to do" beside a number with no agent would leave it
+                    silent for good. Each says what to do; the why is behind the ⓘ. */}
+                {ours.some((number) => !number.held && !number.answerable && !number.agent_id) && (
+                  <WaitLine why="A number with no agent cannot take calls. Forward calls only once it says Ready to answer.">
+                    Pick an agent below before you forward.
+                  </WaitLine>
+                )}
+                {ours.some((number) => !number.held && !number.answerable && outboundOnly(number)) && (
+                  <WaitLine why="An agent that only makes calls does not answer them. Choose an agent that answers calls, or set that agent's What it does to Answer calls or Both.">
+                    Its agent only calls out. Pick one that answers.
+                  </WaitLine>
+                )}
+                {ours.some(waiting) && (
+                  <WaitLine why="We are still connecting it. Forward calls only once it says Ready to answer, or callers hear silence.">
+                    Still connecting. Nothing to do yet.
+                  </WaitLine>
+                )}
+                {ours.map((number) => (
+                  <NumberCard
+                    key={number.id}
+                    number={number}
+                    releasable={ownNumbers && number.releasable === true}
+                    outboundOnly={outboundOnly(number)}
+                  />
+                ))}
+              </div>
+            </Section>
           )}
           {theirs.length > 0 && (
-            <section className="space-y-3">
-              <h2 className="flex items-center gap-1 text-body font-semibold text-ink">
-                Numbers your agents call out from
-                <InfoTip label="Where these numbers come from">
-                  We set these numbers up for you. Calevate provides them on
-                  our own telephony account, so there is no operator account for you to open or
-                  manage.
-                </InfoTip>
-              </h2>
-              <p className="text-body text-ink-muted">
-                Do not forward these anywhere.
-              </p>
-              {theirs.map((number) => (
-                <NumberCard key={number.id} number={number} releasable={ownNumbers && number.releasable === true} />
-              ))}
-            </section>
+            <Section
+              title="Numbers your agents call out from"
+              info={
+                <p>
+                  We set these numbers up for you. Calevate provides them on our own telephony
+                  account, so there is no operator account for you to open or manage.
+                </p>
+              }
+            >
+              {/* A warning, not a description: Section folds a description behind the ⓘ on
+                  a phone, and this line has to stay in sight. */}
+              <div className="space-y-3">
+                <p className="text-body text-ink-muted">Do not forward these anywhere.</p>
+                {theirs.map((number) => (
+                  <NumberCard key={number.id} number={number} releasable={ownNumbers && number.releasable === true} />
+                ))}
+              </div>
+            </Section>
           )}
         </>
       )}

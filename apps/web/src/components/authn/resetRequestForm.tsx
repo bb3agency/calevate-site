@@ -23,11 +23,11 @@
 import { useState, type FormEvent } from "react";
 
 import { useMutation } from "@tanstack/react-query";
-import { MailCheck, Send } from "lucide-react";
+import { MailCheck } from "lucide-react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { AuthField, AuthProblemNotice } from "@/components/authn/fields";
-import { Card, NoticeBox } from "@/components/ui";
+import { NoticeBox } from "@/components/ui";
 import type { RealmAuthn } from "@/lib/authn/realm";
 import { useIdempotencyKey } from "@/lib/authn/useIdempotencyKey";
 
@@ -44,7 +44,7 @@ export function ResetRequestForm({ authn }: { authn: RealmAuthn }) {
 
   if (request.isSuccess) {
     return (
-      <Card>
+      <div>
         <div className="space-y-3 text-sm text-ink-muted">
           <NoticeBox
             tone="ok"
@@ -67,12 +67,12 @@ export function ResetRequestForm({ authn }: { authn: RealmAuthn }) {
             address. A wrong address is more likely than a lost email.
           </p>
         </div>
-      </Card>
+      </div>
     );
   }
 
   return (
-    <Card>
+    <div>
       <form
         className="space-y-4"
         noValidate
@@ -99,14 +99,14 @@ export function ResetRequestForm({ authn }: { authn: RealmAuthn }) {
 
         <ActionButton
           type="submit"
+          className="w-full py-2.5"
           status={feedback.status}
           pendingLabel="Sending…"
           disabled={address === "" && feedback.status !== "pending"}
         >
-          <Send aria-hidden className="h-4 w-4" />
           Email me a reset link
         </ActionButton>
       </form>
-    </Card>
+    </div>
   );
 }

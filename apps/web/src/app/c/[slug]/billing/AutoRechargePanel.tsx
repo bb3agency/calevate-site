@@ -342,7 +342,7 @@ export function AutoRechargePanel({
         <ConfirmDialog
           title="Withdraw the payment approval?"
           confirmLabel="Withdraw approval"
-          pendingLabel="Withdrawing"
+          pendingLabel="Withdrawing…"
           status={withdrawFeedback.status}
           error={withdraw.error}
           onCancel={() => {

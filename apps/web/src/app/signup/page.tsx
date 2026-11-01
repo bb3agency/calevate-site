@@ -16,7 +16,7 @@ import {
   SECONDARY_BUTTON,
   Skeleton,
 } from "@/components/ui";
-import { AuthPageFrame } from "@/components/authPage";
+import { AuthCard, AuthHeading, AuthPageFrame } from "@/components/authPage";
 import { AuthShowcase } from "@/components/authn/authShowcase";
 import { CreateAccountForm } from "@/components/authn/createAccountForm";
 import { useSignInOptions } from "@/components/authn/googleSignIn";
@@ -123,7 +123,7 @@ function SignupOrAccount() {
   return useClientSessionRow() !== null ? (
     <SignupForm />
   ) : (
-    <Card>
+    <AuthCard>
       <CreateAccountForm onCreated={() => window.location.reload()} />
       <p className="mt-6 text-center text-sm text-ink-muted">
         Already have an account?{" "}
@@ -134,7 +134,7 @@ function SignupOrAccount() {
           Sign in
         </Link>
       </p>
-    </Card>
+    </AuthCard>
   );
 }
 
@@ -167,11 +167,8 @@ function SignupClosed({
   onRetry?: () => void;
 }) {
   return (
-    <div className="space-y-4">
-      <h1 className="text-2xl font-semibold tracking-tight text-ink">
-        {deferred ? "Not right now" : "Signing up online is closed"}
-      </h1>
-      <Card>
+    <AuthCard>
+      <AuthHeading title={deferred ? "Not right now" : "Signing up online is closed"} />
         <div className="space-y-3 text-sm text-ink-muted">
           <p>
             {deferred
@@ -217,8 +214,7 @@ function SignupClosed({
             </button>
           )}
         </div>
-      </Card>
-    </div>
+    </AuthCard>
   );
 }
 
@@ -247,11 +243,8 @@ function ConfirmYourAddress({
   onRetry: () => void;
 }) {
   return (
-    <div className="space-y-4">
-      <h1 className="text-2xl font-semibold tracking-tight text-ink">
-        Confirm your email address first
-      </h1>
-      <Card>
+    <AuthCard>
+      <AuthHeading title="Confirm your email address first" />
         <div className="space-y-3 text-sm text-ink-muted">
           <p>
             Before we create a workspace we need to know the address on your account
@@ -270,8 +263,7 @@ function ConfirmYourAddress({
             </button>
           </div>
         </div>
-      </Card>
-    </div>
+    </AuthCard>
   );
 }
 

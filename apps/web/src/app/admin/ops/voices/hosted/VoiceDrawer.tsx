@@ -8,6 +8,7 @@ import { WriteFailure } from "@/app/admin/writeFailure";
 import { SavedNote, StatusPill, sentenceCase } from "@/components/admin/kit";
 import { DatePicker } from "@/components/arc/calendar";
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { formatDateShort, isISODate } from "@/components/arc/ist-dates";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { Drawer } from "@/components/console/drawer";
 import { TEXT_ACTION } from "@/components/console/section";
@@ -63,9 +64,7 @@ const AGENT_USE: Record<string, string> = {
 
 /** `2026-10-11` as "11 Oct 2026": a calendar date, so no time zone is involved. */
 function formatDay(isoDate: string): string {
-  const [y, m, d] = isoDate.split("-").map(Number);
-  if (!y || !m || !d) return isoDate;
-  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+  return isISODate(isoDate) ? formatDateShort(isoDate) : isoDate;
 }
 const DEFAULT_STATEMENT =
   "I agree that a cloned copy of my voice may be used by Calevate as a voice option for the AI phone agents of Calevate's clients. I understand callers will hear it as an AI voice under a name Calevate chooses, and that I can withdraw this consent in writing.";

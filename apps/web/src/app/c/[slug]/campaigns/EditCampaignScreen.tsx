@@ -186,7 +186,7 @@ export function EditCampaignScreen({ slug, campaignId }: { slug: string; campaig
               title={write.allowed ? undefined : (write.reason ?? undefined)}
               disabled={!write.allowed}
               status={updateFeedback.status}
-              pendingLabel="Saving"
+              pendingLabel="Saving…"
               successLabel="Saved"
             >
               Save changes

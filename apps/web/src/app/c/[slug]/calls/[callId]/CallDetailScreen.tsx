@@ -2,13 +2,13 @@
 
 import Link from "next/link";
 import { useCallback, useRef, useState } from "react";
-import { ArrowLeft } from "lucide-react";
 
 import { ButtonGroup } from "@/components/arc/button-group";
 import { useActionFeedback } from "@/components/arc/feedback";
 import { useFollowUpActions } from "@/components/calls/followUpActions";
 import { NoticeBox, ProblemNotice, SECONDARY_BUTTON_SM } from "@/components/ui";
 import { LiveCallPanel } from "@/components/console/liveCallPanel";
+import { PageHeader } from "@/components/console/pageHeader";
 import type { CallAudioPlayerHandle } from "@/components/callAudioPlayer";
 import { canDialOut } from "@/lib/agentState";
 import { useAgents } from "@/lib/api/agents";
@@ -276,7 +276,15 @@ export function CallDetailScreen({
   });
 
   if (call.isLoading) return <CallDetailSkeleton />;
-  if (call.error) return <ProblemNotice error={call.error} onRetry={() => void call.refetch()} />;
+  const back = { href: href(`/c/${slug}/calls`), label: "All calls" };
+  if (call.error) {
+    return (
+      <div className="space-y-8 pb-12">
+        <PageHeader back={back} />
+        <ProblemNotice error={call.error} onRetry={() => void call.refetch()} />
+      </div>
+    );
+  }
   if (!call.data) {
     // Not an empty state dressed as data: react-query only lands here when the query
     // resolved with nothing, which is a broken premise rather than a call with no
@@ -315,13 +323,7 @@ export function CallDetailScreen({
   return (
     <div className="space-y-8 pb-12">
       {/* No <h1>: the app shell renders the page title from the nav list. */}
-      <Link
-        href={href(`/c/${slug}/calls`)}
-        className="inline-flex items-center gap-1.5 rounded-sm text-sm font-medium text-ink-muted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:min-h-11"
-      >
-        <ArrowLeft aria-hidden className="h-4 w-4" />
-        Call logs
-      </Link>
+      <PageHeader back={back} />
 
       <CallHeader
         detail={detail}

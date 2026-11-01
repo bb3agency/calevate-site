@@ -46,11 +46,10 @@ import Link from "next/link";
 import { useState, type FormEvent, type ReactNode } from "react";
 
 import { useMutation } from "@tanstack/react-query";
-import { KeyRound } from "lucide-react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { AuthField, AuthProblemNotice } from "@/components/authn/fields";
-import { Card, NoticeBox, PRIMARY_BUTTON } from "@/components/ui";
+import { NoticeBox, PRIMARY_BUTTON } from "@/components/ui";
 import {
   MAX_PASSWORD_CHARS,
   MIN_PASSWORD_CHARS_BY_REALM,
@@ -152,19 +151,19 @@ export function SetPasswordForm<T>({
   if (ready && token === "") return <>{renderMissingToken}</>;
   if (deadLink && submit.isError && codeOf(submit.error) === deadLink.code) {
     return (
-      <Card>
+      <div>
         <div className="space-y-3">
           <AuthProblemNotice error={submit.error} />
-          <Link href={deadLink.href} className={PRIMARY_BUTTON}>
+          <Link href={deadLink.href} className={`${PRIMARY_BUTTON} w-full justify-center`}>
             {deadLink.label}
           </Link>
         </div>
-      </Card>
+      </div>
     );
   }
 
   return (
-    <Card>
+    <div>
       <form
         className="space-y-4"
         noValidate
@@ -226,11 +225,11 @@ export function SetPasswordForm<T>({
 
         <ActionButton
           type="submit"
+          className="w-full py-2.5"
           status={feedback.status}
           pendingLabel="Saving…"
           disabled={!canSend && feedback.status !== "pending"}
         >
-          <KeyRound aria-hidden className="h-4 w-4" />
           {submitLabel}
         </ActionButton>
 
@@ -239,14 +238,14 @@ export function SetPasswordForm<T>({
           page.
         </p>
       </form>
-    </Card>
+    </div>
   );
 }
 
 /** The panel every one of the three shows when its link arrived without its code. */
 export function MissingLinkCode({ what, remedy }: { what: string; remedy: ReactNode }) {
   return (
-    <Card>
+    <div>
       <div className="space-y-3 text-sm text-ink-muted">
         {/* Not "this link is invalid": nothing has been checked. The likeliest cause is a
             chat app or mail client wrapping a long URL across two lines, so the remedy is
@@ -263,6 +262,6 @@ export function MissingLinkCode({ what, remedy }: { what: string; remedy: ReactN
           {remedy}
         </p>
       </div>
-    </Card>
+    </div>
   );
 }

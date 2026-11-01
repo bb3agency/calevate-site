@@ -38,7 +38,8 @@ export const wholeRequestFor = (agentName: string) =>
   `Draft the whole script for my agent “${agentName}”. Ask me the six questions first.`;
 export const STEPS_REQUEST = "Turn this agent's hand-written script into steps.";
 
-export function PipAsk({ handWritten }: { handWritten: boolean }) {
+/** Steps only: a hand-written script's one move is under the script (`HandWritten`). */
+export function PipAsk() {
   const session = useClientSession();
   // Asking Pip spends the account's AI allowance, which a view-as operator may not.
   const write = useActAccess(session, "org:manage", "billing.ai_assist", `ask ${ASSISTANT_NAME} to change this script`);
@@ -58,48 +59,39 @@ export function PipAsk({ handWritten }: { handWritten: boolean }) {
         Tell {ASSISTANT_NAME} what to change
       </h3>
       <RestrictionNote reason={write.reason} />
-      {handWritten ? (
-        <div className="space-y-2">
-          <p className="text-body text-ink">Written by hand. Turn it into steps first.</p>
-          <AskAssistant label={`Let ${ASSISTANT_NAME} turn it into steps`} prompt={STEPS_REQUEST} disabled={!write.allowed} />
-        </div>
-      ) : (
-        <>
-          <form noValidate onSubmit={submit} className="space-y-2">
-            <label className={FIELD_LABEL} htmlFor="pip-change">
-              What should change?
-            </label>
-            <textarea
-              id="pip-change"
-              className={`${FIELD} mt-0`}
-              rows={3}
-              // No `maxLength`: it cuts a paste without a word. Pip's ask box, which this
-              // prefills, shows the count and holds Send past the limit.
-              disabled={!write.allowed}
-              value={change}
-              placeholder={eg.scriptChange}
-              onChange={(e) => setChange(e.target.value)}
-            />
-            <button type="submit" className={SECONDARY_BUTTON} disabled={!write.allowed || change.trim().length === 0}>
-              Let {ASSISTANT_NAME} do it
-            </button>
-          </form>
-          <div className="space-y-1.5">
-            <p className="text-meta text-ink-muted">Or tap one:</p>
-            <ul className="flex flex-wrap gap-1.5" aria-label="Ideas">
-              {ideas.map((idea) => (
-                <li key={idea}>
-                  <AskAssistant variant="chip" prompt={changeRequest(idea)} label={idea} disabled={!write.allowed} />
-                </li>
-              ))}
-            </ul>
-          </div>
-          <p className="text-meta text-ink-muted">
-            Uses your AI allowance. You check every change first.
-          </p>
-          <AskAssistant label={`Let ${ASSISTANT_NAME} draft the whole script`} prompt={WHOLE_REQUEST} disabled={!write.allowed} />
-        </>
-      )}
+      <form noValidate onSubmit={submit} className="space-y-2">
+        <label className={FIELD_LABEL} htmlFor="pip-change">
+          What should change?
+        </label>
+        <textarea
+          id="pip-change"
+          className={`${FIELD} mt-0`}
+          rows={3}
+          // No `maxLength`: it cuts a paste without a word. Pip's ask box, which this
+          // prefills, shows the count and holds Send past the limit.
+          disabled={!write.allowed}
+          value={change}
+          placeholder={eg.scriptChange}
+          onChange={(e) => setChange(e.target.value)}
+        />
+        <button type="submit" className={SECONDARY_BUTTON} disabled={!write.allowed || change.trim().length === 0}>
+          Let {ASSISTANT_NAME} do it
+        </button>
+      </form>
+      <div className="space-y-1.5">
+        <p className="text-meta text-ink-muted">Or tap one:</p>
+        <ul className="flex flex-wrap gap-1.5" aria-label="Ideas">
+          {ideas.map((idea) => (
+            <li key={idea}>
+              <AskAssistant variant="chip" prompt={changeRequest(idea)} label={idea} disabled={!write.allowed} />
+            </li>
+          ))}
+        </ul>
+      </div>
+      <p className="text-meta text-ink-muted">
+        Uses your AI allowance. You check every change first.
+      </p>
+      <AskAssistant label={`Let ${ASSISTANT_NAME} draft the whole script`} prompt={WHOLE_REQUEST} disabled={!write.allowed} />
     </section>
   );
 }

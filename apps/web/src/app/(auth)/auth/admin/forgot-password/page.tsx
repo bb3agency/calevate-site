@@ -9,7 +9,7 @@
 import Link from "next/link";
 
 import { Providers } from "@/app/providers";
-import { AuthPageFrame } from "@/components/authPage";
+import { AuthCard, AuthHeading, AuthPageFrame } from "@/components/authPage";
 import { ResetRequestForm } from "@/components/authn/resetRequestForm";
 import { ADMIN_SIGN_IN_PATH, adminAuthn } from "@/lib/authn/adminAuthn";
 
@@ -17,17 +17,15 @@ export default function AdminForgotPasswordPage() {
   return (
     <Providers>
       <AuthPageFrame realmLabel="Operator console">
-        <div className="space-y-4">
-          <h1 className="text-2xl font-semibold tracking-tight text-ink">
-            Reset your operator password
-          </h1>
+        <AuthCard>
+          <AuthHeading title="Reset your operator password" />
           <ResetRequestForm authn={adminAuthn} />
-          <p className="text-sm text-ink-muted">
-            <Link href={ADMIN_SIGN_IN_PATH} className="text-brand-strong underline underline-offset-2 dark:text-brand-bright">
-              Back to sign-in
-            </Link>
-          </p>
-        </div>
+        </AuthCard>
+        <p className="mt-6 text-center text-sm text-ink-muted">
+          <Link href={ADMIN_SIGN_IN_PATH} className="inline-flex items-center text-brand-strong underline underline-offset-2 touch:min-h-11 dark:text-brand-bright">
+            Back to sign-in
+          </Link>
+        </p>
       </AuthPageFrame>
     </Providers>
   );

@@ -189,7 +189,11 @@ export function AgentLifecycle({
   return (
     <div className="space-y-4">
       <RestrictionNote reason={write.reason} />
-      {agent.status !== "live" && profile.data && (
+      {/* Only beside a move that puts it to work: under Delete the list read as a
+          condition for deleting. */}
+      {agent.status !== "live" &&
+        profile.data &&
+        moves.some((key) => key === "activate" || key === "prepare") && (
         <ProfileBlockers blockers={profile.data.blockers} href={href} />
       )}
       <LifecycleError error={move.error} />

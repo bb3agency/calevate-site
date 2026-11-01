@@ -470,6 +470,7 @@ export function BillingScreen({ slug }: { slug: string }) {
       <div className="space-y-6">
         <SegmentedControl
           label="Billing view"
+          fill
           value={view}
           onValueChange={selectView}
           options={BILLING_VIEWS.map((item) => ({ value: item.value, label: item.label }))}

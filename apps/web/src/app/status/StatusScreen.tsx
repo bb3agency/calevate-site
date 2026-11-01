@@ -32,12 +32,12 @@ export function StatusScreen() {
   const data = status.data;
   const allWell = data?.components.every((c) => c.state === "operational") ?? false;
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-8 px-4 py-12 sm:px-6 sm:py-16">
-      <header className="space-y-2">
-        <h1 className="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
+    <div className="mx-auto w-full max-w-3xl space-y-8 px-5 py-10 sm:px-6 sm:py-16">
+      <header className="space-y-4">
+        <h1 className="text-[2.25rem] leading-[1.08] font-semibold tracking-tight text-balance text-ink sm:text-5xl sm:leading-[1.05]">
           Service status
         </h1>
-        <p className="max-w-prose text-sm text-ink-muted" aria-live="polite">
+        <p className="max-w-prose text-lg text-pretty text-ink-muted" aria-live="polite">
           {status.isLoading
             ? "Checking…"
             : !data

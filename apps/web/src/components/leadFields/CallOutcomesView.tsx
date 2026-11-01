@@ -3,7 +3,7 @@
 /**
  * HOW A CALL CAN END FOR THIS BUSINESS — each agent's own call outcomes (D-836).
  *
- * Beside the outcomes every business shares (Missed, Hung up early, Call back booked,
+ * Beside the outcomes every business shares (Missed, Hung up early, Call-back booked,
  * Transferred, Needs you), which the platform decides from what happened, each agent has up
  * to eight of its own: a short name, what it means, and how far a call like that moves the
  * lead. The AI drafts them once from the business details and the agent's job; the owner
@@ -127,7 +127,7 @@ export function CallOutcomesView({
     <Section
       title="How calls end"
       description="How each agent sorts your calls."
-      info="Besides Missed, Hung up early, Call back booked, Transferred and Needs you, which are decided from what happened on the call, each agent sorts its calls into outcomes of your business. Each one moves the lead up to the stage you choose; it never marks a lead won or lost."
+      info="Besides Missed, Hung up early, Call-back booked, Transferred and Needs you, which are decided from what happened on the call, each agent sorts its calls into outcomes of your business. Each one moves the lead up to the stage you choose; it never marks a lead won or lost."
     >
       {!agent ? (
         <p className="text-sm text-ink-muted">No agents yet. Outcomes appear here once you create one.</p>

@@ -22,16 +22,20 @@ export function LatestCalls({
   recent,
   allHref,
   callHref,
+  headingLevel = 2,
 }: {
   recent: ReturnType<typeof useCalls>;
   allHref: string;
   callHref: (id: string) => string;
+  /** 3 where it sits under a tab whose own heading is the h2 (an agent's Overview). */
+  headingLevel?: 2 | 3;
 }) {
   const { session } = useClientRealm();
   const readAhead = useReadAhead(usePrefetchCall(session));
   return (
     <Section
       title="Latest calls"
+      headingLevel={headingLevel}
       action={
         <Link
           href={allHref}

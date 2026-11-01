@@ -1,4 +1,5 @@
 import { timingCopy } from "@/app/admin/ops/opsLanguage";
+import { formatDateShort } from "@/components/arc/ist-dates";
 import {
   formatCount,
   formatCallCap,
@@ -189,11 +190,7 @@ export function displayValue(field: ConfigField, value: ConfigValue): string {
     return value.startsWith("+") ? formatPhone(value) : value;
   }
   if (kind === "date" && typeof value === "string" && isCalendarDay(value)) {
-    // A calendar day with no zone: formatted in UTC so no browser's offset moves it.
-    const [year, month, day] = value.split("-").map(Number);
-    return new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }).format(
-      new Date(Date.UTC(year, month - 1, day)),
-    );
+    return formatDateShort(value);
   }
   if (value === "") return "Empty";
   return String(value);

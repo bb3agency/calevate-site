@@ -339,14 +339,16 @@ export function SidebarGroupHeading({
 }) {
   return (
     <div className="relative mb-1 h-5">
-      {/* Sentence case, quiet weight: a group label orients, it does not shout. */}
-      <h3
+      {/* Sentence case, quiet weight: a group label orients, it does not shout. A label,
+          not a heading: the sidebar comes before the page's h1, and the group it names
+          carries it as its accessible name (`role="group"` at the call site). */}
+      <p
         className={`absolute inset-0 truncate px-4 text-[12px] font-medium leading-5 text-ink-faint ${sidebarFadeClass(
           isCollapsed,
         )}`}
       >
         {children}
-      </h3>
+      </p>
       {/* Decorative: it says the same thing the heading above it says, for a reader who
           can see the rail but not read 11px of text on it. */}
       <div

@@ -156,7 +156,7 @@ describe("the call log", () => {
     const chips = Array.from(
       screen.getByRole("group", { name: "Show calls by how they ended" }).querySelectorAll("button"),
     ).map((b) => b.textContent);
-    expect(chips).toEqual(["Needs you", "Call back booked", "Answered", "Transferred", "Hung up early", "Missed"]);
+    expect(chips).toEqual(["Needs you", "Call-back booked", "Answered", "Transferred", "Hung up early", "Missed"]);
     // When is a span of India-time days (the kit date-range picker), not a dropdown.
     expect(screen.getByRole("button", { name: "Dates" })).toBeTruthy();
     expect(screen.getByRole("combobox", { name: "Which way" })).toBeTruthy();
@@ -327,7 +327,7 @@ describe("a call row", () => {
     const late = screen.getAllByText("Call back overdue")[0];
     expect(late.className).toContain("text-warn");
     // The late call back is said beside its outcome, not instead of it.
-    expect(screen.getAllByText("Call back booked").some((el) => el.tagName === "SPAN")).toBe(true);
+    expect(screen.getAllByText("Call-back booked").some((el) => el.tagName === "SPAN")).toBe(true);
   });
 
   it("shows the outcome AND Needs you on one row, with the outcome's coloured mark", async () => {

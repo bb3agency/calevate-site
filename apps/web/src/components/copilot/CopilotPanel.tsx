@@ -378,7 +378,7 @@ export function CopilotPanel({
               type="button"
               onClick={onClose}
               aria-label={`Close ${ASSISTANT_NAME}`}
-              className="-mr-1 rounded-md p-1 text-ink-muted hover:bg-ink/[0.05] hover:text-ink touch:p-2.5"
+              className="-mr-1 inline-flex items-center justify-center rounded-md p-1 text-ink-muted hover:bg-ink/[0.05] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:h-11 touch:w-11"
             >
               <X aria-hidden className="h-4 w-4" />
             </button>

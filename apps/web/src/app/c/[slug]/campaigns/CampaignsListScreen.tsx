@@ -272,7 +272,7 @@ function NameCell({ campaign, href }: { campaign: CampaignSummary; href: string 
     <div className="min-w-0">
       <Link
         href={href}
-        className="rounded-sm text-sm font-semibold text-ink after:absolute after:inset-0 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+        className="rounded-sm font-medium text-ink after:absolute after:inset-0 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
       >
         {campaign.name}
       </Link>

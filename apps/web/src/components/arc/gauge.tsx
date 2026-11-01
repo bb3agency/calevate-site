@@ -56,6 +56,8 @@ export type GaugeProps = {
   pendingText?: string;
   fixes?: ReadinessFix[];
   fixesTitle?: string;
+  /** The fixes title's level: one below whatever heads the block the gauge sits in. */
+  fixesHeadingLevel?: 3 | 4;
   /** Said when the score has nothing left to fix. */
   allDoneText?: string;
   pointsLabel?: (points: number) => string;
@@ -74,11 +76,13 @@ export function Gauge({
   pendingText = "No score yet",
   fixes,
   fixesTitle = "What to fix",
+  fixesHeadingLevel = 3,
   allDoneText = "Nothing left to fix.",
   pointsLabel = (p) => `+${p}`,
   size = 132,
   className,
 }: GaugeProps) {
+  const FixesHeading = fixesHeadingLevel === 4 ? "h4" : "h3";
   const score = value === null ? null : Math.max(0, Math.min(100, Math.round(value)));
   const band = score === null ? undefined : bandFor(score, bands);
   const r = size / 2 - 9;
@@ -139,7 +143,7 @@ export function Gauge({
         {score === null ? <p className="text-body text-ink-muted">{pendingText}</p> : null}
         {fixes ? (
           <>
-            <h3 className="text-body font-semibold text-ink">{fixesTitle}</h3>
+            <FixesHeading className="text-body font-semibold text-ink">{fixesTitle}</FixesHeading>
             {fixes.length === 0 ? (
               <p className="mt-1 text-body text-ink-muted">{allDoneText}</p>
             ) : (

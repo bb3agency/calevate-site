@@ -492,10 +492,15 @@ export function StatTile({
       <div className="min-w-0">
         <p className="text-[13px] font-medium text-ink-muted">{label}</p>
         {/* `tabular-nums` so a polling number does not make the card twitch as digits
-            change width (D-24: this screen refetches on an interval). Never truncated — an
-            amount cut to "₹1,23,4…" is a wrong number — so it steps down a size in a
-            narrow tile and wraps only as a last resort. */}
-        <p className="mt-1 text-xl font-bold tracking-tight tabular-nums text-ink [overflow-wrap:anywhere] @[13rem]:text-2xl">
+            change width (D-24: this screen refetches on an interval). Never truncated and
+            never broken inside a figure — "₹9,19,87,65,4" over "3,210" reads as two numbers —
+            so a long figure steps down a size and wraps only between words. */}
+        <p
+          className={clsx(
+            "mt-1 font-bold tracking-tight tabular-nums text-ink [overflow-wrap:normal]",
+            String(value ?? "").length > 12 ? "text-base @[13rem]:text-xl" : "text-xl @[13rem]:text-2xl",
+          )}
+        >
           {value ?? "—"}
         </p>
         {hint && <div className="mt-1 text-[11px] text-ink-muted">{hint}</div>}
@@ -1452,11 +1457,20 @@ export function FilterChip({
   );
 }
 
+/** `137` -> `2:17`, `3730` -> `1:02:10`: a stopwatch, with hours only when there are hours. */
+export function formatClock(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
+  const whole = Math.floor(seconds);
+  const s = String(whole % 60).padStart(2, "0");
+  const m = Math.floor(whole / 60) % 60;
+  const h = Math.floor(whole / 3600);
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`;
+}
+
+/** How long a call ran, on the same clock as the recording player; "—" when unknown. */
 export function formatDuration(seconds: number | null | undefined): string {
   if (seconds === null || seconds === undefined) return "—";
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return `${m}:${String(s).padStart(2, "0")}`;
+  return formatClock(seconds);
 }
 
 /**

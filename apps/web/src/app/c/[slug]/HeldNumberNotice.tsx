@@ -36,7 +36,7 @@ export function HeldNumberNotice({
     <NoticeBox
       tone="stop"
       role="alert"
-      title={`Calls stopped. Top up to keep your ${plural ? "numbers" : "number"}.`}
+      title={`Calls stopped. Add credit to keep your ${plural ? "numbers" : "number"}.`}
       action={
         <Link href={topUpHref} className={TEXT_ACTION}>
           Add credit
@@ -59,7 +59,7 @@ export function HeldNumberLine({ number, topUpHref }: { number: CampaignNumber; 
     <NoticeBox
       tone="stop"
       role="status"
-      title="Calls stopped. Top up to keep this number."
+      title="Calls stopped. Add credit to keep this number."
       action={
         <Link href={topUpHref} className={TEXT_ACTION}>
           Add credit

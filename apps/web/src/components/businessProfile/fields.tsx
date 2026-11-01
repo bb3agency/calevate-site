@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { Plus, Trash2 } from "lucide-react";
 
+import { FieldMessage } from "@/components/formValidation";
 import { FIELD_HINT, FIELD_LABEL, SECONDARY_BUTTON_SM } from "@/components/ui";
 
 /**
@@ -41,11 +42,7 @@ export function Field({
           {hint}
         </span>
       )}
-      {error && (
-        <span id={errorId} className="mt-1 block text-meta font-medium text-danger">
-          {error}
-        </span>
-      )}
+      {error && errorId && <FieldMessage id={errorId}>{error}</FieldMessage>}
     </div>
   );
 }

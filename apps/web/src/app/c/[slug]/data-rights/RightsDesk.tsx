@@ -7,6 +7,7 @@ import { Drawer } from "@/components/console/drawer";
 import { StatusPill } from "@/components/console/statusPill";
 import {
   FIELD,
+  FIELD_HINT,
   FIELD_LABEL,
   PRIMARY_BUTTON,
   ProblemNotice,
@@ -294,7 +295,7 @@ function LogForm({ session, onDone }: { session: Session; onDone: () => void }) 
       <label className="block">
         <span className={FIELD_LABEL}>{COPY.askedField}</span>
         <input className={FIELD} type="date" value={asked} onChange={(event) => setAsked(event.target.value)} />
-        <span className="mt-1 block text-xs text-ink-faint">{COPY.askedHint}</span>
+        <span className={FIELD_HINT}>{COPY.askedHint}</span>
       </label>
       {log.error && <ProblemNotice error={log.error} />}
       <button type="submit" className={PRIMARY_BUTTON} disabled={!phone.trim() || log.isPending}>

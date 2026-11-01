@@ -11,7 +11,7 @@
 /** In the order an owner works them, what needs a person first (`lib/callReview`). */
 export const OUTCOMES = [
   { value: "needs_you", label: "Needs you" },
-  { value: "call_back_booked", label: "Call back booked" },
+  { value: "call_back_booked", label: "Call-back booked" },
   { value: "answered", label: "Answered" },
   { value: "transferred", label: "Transferred" },
   { value: "hung_up_early", label: "Hung up early" },

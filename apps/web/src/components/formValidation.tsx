@@ -340,7 +340,7 @@ export function useFormValidation(): FormValidation {
  */
 export function FieldMessage({ id, children }: { id: string; children: ReactNode }) {
   return (
-    <p id={id} role="alert" className="mt-1 text-xs font-medium text-rose-700 dark:text-rose-400">
+    <p id={id} role="alert" className="mt-1 text-xs font-medium text-danger dark:text-rose-400">
       {children}
     </p>
   );

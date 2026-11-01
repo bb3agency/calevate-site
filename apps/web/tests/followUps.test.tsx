@@ -371,7 +371,7 @@ describe("the Follow-ups list", () => {
 describe("one Follow-up's steps", () => {
   it("draws branches under their outcome, one line per step, and is accessible", async () => {
     const { container } = await detail({});
-    expect(await screen.findByRole("heading", { level: 1, name: "Qualify new leads" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { level: 2, name: "Qualify new leads" })).toBeTruthy();
     const steps = screen.getByRole("list", { name: "Steps" });
     expect(steps.textContent).toContain("Call with Riya, try 3 times, an hour apart");
     expect(steps.textContent).toContain("If “Interested”");
@@ -505,7 +505,7 @@ describe("the status controls", () => {
 
   it("shows a read-only role no button that would be refused", async () => {
     const { calls } = await detail({}, STAFF);
-    expect(await screen.findByRole("heading", { level: 1, name: "Qualify new leads" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { level: 2, name: "Qualify new leads" })).toBeTruthy();
     for (const name of ["Pause", "Turn off", "Publish"]) {
       expect(screen.queryByRole("button", { name })).toBeNull();
     }

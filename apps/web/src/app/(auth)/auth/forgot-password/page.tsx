@@ -10,7 +10,7 @@
 import Link from "next/link";
 
 import { Providers } from "@/app/providers";
-import { AuthPageFrame } from "@/components/authPage";
+import { AuthCard, AuthHeading, AuthPageFrame } from "@/components/authPage";
 import { ResetRequestForm } from "@/components/authn/resetRequestForm";
 import { CLIENT_SIGN_IN_PATH, clientAuthn } from "@/lib/authn/clientAuthn";
 
@@ -18,17 +18,15 @@ export default function ClientForgotPasswordPage() {
   return (
     <Providers>
       <AuthPageFrame realmLabel="Client console">
-        <div className="space-y-4">
-          <h1 className="text-2xl font-semibold tracking-tight text-ink">
-            Reset your password
-          </h1>
+        <AuthCard>
+          <AuthHeading title="Reset your password" />
           <ResetRequestForm authn={clientAuthn} />
-          <p className="text-sm text-ink-muted">
-            <Link href={CLIENT_SIGN_IN_PATH} className="text-brand-strong underline underline-offset-2 dark:text-brand-bright">
-              Back to sign-in
-            </Link>
-          </p>
-        </div>
+        </AuthCard>
+        <p className="mt-6 text-center text-sm text-ink-muted">
+          <Link href={CLIENT_SIGN_IN_PATH} className="inline-flex items-center text-brand-strong underline underline-offset-2 touch:min-h-11 dark:text-brand-bright">
+            Back to sign-in
+          </Link>
+        </p>
       </AuthPageFrame>
     </Providers>
   );

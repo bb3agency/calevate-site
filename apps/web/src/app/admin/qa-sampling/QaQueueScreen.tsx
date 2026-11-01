@@ -223,7 +223,7 @@ function WorkBand({
       className="flex flex-col gap-3 rounded-card border border-line bg-surface p-4 sm:flex-row sm:items-center sm:justify-between"
     >
       <div className="min-w-0">
-        <p className="text-lg font-semibold text-ink">
+        <p className="text-heading text-ink">
           {waitingHere === undefined
             ? "Checking the queue…"
             : waitingHere === 0

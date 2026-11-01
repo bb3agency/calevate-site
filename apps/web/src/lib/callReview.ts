@@ -38,7 +38,7 @@ const OUTCOME_WORDS: Record<CallOutcome, { label: string; reason: string }> = {
     reason: "The agent couldn't finish this. Someone should follow up.",
   },
   call_back_booked: {
-    label: "Call back booked",
+    label: "Call-back booked",
     reason: "The caller asked to be called back, and the agent booked it.",
   },
   answered: {
@@ -70,7 +70,7 @@ type OutcomeFields = Pick<CallSummary, "outcome_tag"> & { business_outcome_label
 
 /**
  * The words a call is filed under (D-836). What happened on the call comes first — Needs
- * you, Call back booked, Transferred, Hung up early, Missed — because those are facts the
+ * you, Call-back booked, Transferred, Hung up early, Missed — because those are facts the
  * owner acts on. Otherwise the agent's own outcome for the business ("Wants to buy"), and
  * only then the general "Answered". Null when nothing is known yet.
  */
@@ -157,7 +157,7 @@ export type OutcomeKind =
 export const OUTCOME_KIND_WORDS: Record<OutcomeKind, string> = {
   hot: "Ready to act",
   interested: "Interested",
-  call_back: "Call back booked",
+  call_back: "Call-back booked",
   transferred: "Handed to your team",
   neutral: "Answered",
   hung_up_early: "Hung up early",

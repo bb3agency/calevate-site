@@ -47,6 +47,7 @@ import {
   Skeleton,
   formatIST,
   formatPhone,
+  MonoValue,
 } from "@/components/ui";
 import { ApiProblem, type CallLeadResult, type Session } from "@/lib/api/client";
 import { useCancelCallback } from "@/lib/api/callbacks";
@@ -354,7 +355,7 @@ export function useFollowUpActions(
   });
   const later = useActionFeedback(schedule, {
     errorDisplay: "inline",
-    successToast: (out) => (out.status === "scheduled" && out.requested_at ? `Call back booked for ${formatIST(out.requested_at)}` : null),
+    successToast: (out) => (out.status === "scheduled" && out.requested_at ? `Call-back booked for ${formatIST(out.requested_at)}` : null),
     successDescription: (out) =>
       out.rescheduled
         ? "Moved the call back already booked."
@@ -596,7 +597,7 @@ function CallDialog({
       onConfirm={onConfirm}
     >
       <p>
-        {dialer.name} rings {target.phone ? <span className="tabular-nums text-ink">{formatPhone(target.phone)}</span> : "them"} now.
+        {dialer.name} rings {target.phone ? <MonoValue className="tabular-nums text-ink">{formatPhone(target.phone)}</MonoValue> : "them"} now.
       </p>
       {/* Kept on screen, not behind a tap: these checks can stop the call the person asked for. */}
       <p className="mt-1">Do-not-call, hours and consent checks still apply.</p>

@@ -26,10 +26,10 @@
 import Link from "next/link";
 
 import { Providers } from "@/app/providers";
-import { AuthPageFrame } from "@/components/authPage";
+import { AuthCard, AuthHeading, AuthPageFrame } from "@/components/authPage";
 import { GoogleSignIn } from "@/components/authn/googleSignIn";
 import { MissingLinkCode, SetPasswordForm } from "@/components/authn/setPasswordForm";
-import { Card, NoticeBox, PRIMARY_BUTTON } from "@/components/ui";
+import { NoticeBox, PRIMARY_BUTTON } from "@/components/ui";
 import { lookup } from "@/lib/lookup";
 import { ROLE_COPY } from "@/lib/api/members";
 import {
@@ -42,10 +42,8 @@ export default function AcceptInvitationPage() {
   return (
     <Providers>
       <AuthPageFrame realmLabel="Client console">
-        <div className="space-y-4">
-          <h1 className="text-2xl font-semibold tracking-tight text-ink">
-            Accept your invitation
-          </h1>
+        <AuthCard>
+          <AuthHeading title="Accept your invitation" />
           <SetPasswordForm<AcceptedInvitation>
             realm="client"
             submitLabel="Accept and create my account"
@@ -81,7 +79,7 @@ export default function AcceptInvitationPage() {
               />
             }
           />
-        </div>
+        </AuthCard>
       </AuthPageFrame>
     </Providers>
   );
@@ -91,14 +89,14 @@ export default function AcceptInvitationPage() {
 function Joined({ result }: { result: AcceptedInvitation }) {
   const role = lookup(ROLE_COPY, result.role);
   return (
-    <Card>
+    <div>
       <div className="space-y-3 text-sm text-ink-muted">
         <NoticeBox tone="ok" title={`You joined ${result.slug} as ${role?.label ?? result.role}`}>
           {role && <p className="mt-1">{role.can}</p>}
         </NoticeBox>
         <p>You are signed in. This invite link is now used up.</p>
         <p>Bookmark the dashboard to sign in next time.</p>
-        <Link href={`/c/${result.slug}`} className={PRIMARY_BUTTON}>
+        <Link href={`/c/${result.slug}`} className={`${PRIMARY_BUTTON} w-full justify-center`}>
           Open the dashboard
         </Link>
         <p className="text-xs text-ink-faint">
@@ -109,6 +107,6 @@ function Joined({ result }: { result: AcceptedInvitation }) {
           with the address the invitation was sent to.
         </p>
       </div>
-    </Card>
+    </div>
   );
 }

@@ -7,6 +7,7 @@ import { ActionButton, useActionFeedback, useAsyncAction } from "@/components/ar
 import { RadioGroup } from "@/components/arc/radio-group";
 import { StatusPill } from "@/components/console/statusPill";
 import { FileDrop, FileSummary } from "@/components/fileDrop";
+import { FieldMessage } from "@/components/formValidation";
 import {
   Disclosure,
   FIELD,
@@ -370,26 +371,26 @@ function DetailsForm({ session, record, access }: { session: Session; record: Ky
         onChange={(value) => setGst(value === "yes")}
       />
       {gst && (
-        <label className="block">
-          <span className={FIELD_LABEL}>GSTIN</span>
-          <input
-            className={`${FIELD} font-mono uppercase`}
-            value={gstin}
-            onChange={(event) => setGstin(event.target.value)}
-            onBlur={() => setGstinTouched(true)}
-            maxLength={15}
-            autoComplete="off"
-            autoCapitalize="characters"
-            spellCheck={false}
-            aria-invalid={showGstinError}
-            aria-describedby={showGstinError ? gstinErrorId : undefined}
-          />
+        <div>
+          <label className="block">
+            <span className={FIELD_LABEL}>GSTIN</span>
+            <input
+              className={`${FIELD} font-mono uppercase`}
+              value={gstin}
+              onChange={(event) => setGstin(event.target.value)}
+              onBlur={() => setGstinTouched(true)}
+              maxLength={15}
+              autoComplete="off"
+              autoCapitalize="characters"
+              spellCheck={false}
+              aria-invalid={showGstinError}
+              aria-describedby={showGstinError ? gstinErrorId : undefined}
+            />
+          </label>
           {showGstinError && (
-            <span id={gstinErrorId} className="mt-1 block text-sm text-danger">
-              A GSTIN is 15 characters, like 36AABCT1234C1Z5.
-            </span>
+            <FieldMessage id={gstinErrorId}>A GSTIN is 15 characters, like 36AABCT1234C1Z5.</FieldMessage>
           )}
-        </label>
+        </div>
       )}
       <label className="block">
         <span className={FIELD_LABEL}>Owner or authorised signatory, as on their ID</span>
@@ -670,12 +671,8 @@ function ManualPath({ session, record, access }: { session: Session; record: Kyc
           <span className="block">We keep only a masked PAN, like XXXXX1234X.</span>
           <span className="block">The file is deleted after review, or after 30 days.</span>
         </span>
-        {showProblem && (
-          <span id={panErrorId} className="mt-1 block text-sm text-danger">
-            {numberProblem}
-          </span>
-        )}
       </label>
+      {showProblem && <FieldMessage id={panErrorId}>{numberProblem}</FieldMessage>}
       <ActionButton
         status={submitFeedback.status}
         disabled={!access.write.allowed || !owner || !number || Boolean(numberProblem)}

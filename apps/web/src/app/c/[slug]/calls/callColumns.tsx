@@ -6,7 +6,7 @@ import { CircleAlert, CircleCheck } from "lucide-react";
 
 import { HoverCard } from "@/components/arc/hover-card";
 
-import { formatDuration, formatINR, formatIST, formatPhone } from "@/components/ui";
+import { MonoValue, formatDuration, formatINR, formatIST, formatPhone } from "@/components/ui";
 import type { DataColumn } from "@/components/console/dataTable";
 import { LIVE_STATUS, LiveDot } from "@/components/console/liveCalls";
 import { NOTICE_DOT } from "@/components/console/statusPill";
@@ -188,7 +188,7 @@ export function CallPreview({ call }: { call: CallSummary }) {
       <div>
         <p className="font-semibold text-ink">{callTitle(call)}</p>
         {call.lead_name?.trim() && call.caller_e164 ? (
-          <p className="tabular-nums text-ink-muted">{formatPhone(call.caller_e164)}</p>
+          <p className="text-ink-muted"><MonoValue className="tabular-nums">{formatPhone(call.caller_e164)}</MonoValue></p>
         ) : null}
       </div>
       <p className={line.pending ? "italic text-ink-faint" : "text-ink"}>{line.text}</p>
@@ -308,9 +308,9 @@ export function callColumns({
               </HoverCard>
             )}
             {named && call.caller_e164 && (
-              <span className={`hidden whitespace-nowrap text-meta tabular-nums sm:inline ${running ? "text-ink-muted" : "text-ink-faint"}`}>
+              <MonoValue className={`hidden whitespace-nowrap text-meta tabular-nums sm:inline ${running ? "text-ink-muted" : "text-ink-faint"}`}>
                 {formatPhone(call.caller_e164)}
-              </span>
+              </MonoValue>
             )}
             {running && <LiveMark />}
             {call.test_call && <TestCallTag />}

@@ -118,6 +118,7 @@ export function Overview({ agent, slug }: { agent: Agent; slug: string }) {
         recent={recent}
         allHref={href(`/c/${slug}/calls?agent_id=${agent.id}`)}
         callHref={(id) => href(`/c/${slug}/calls/${id}`)}
+        headingLevel={3}
       />
     </div>
   );

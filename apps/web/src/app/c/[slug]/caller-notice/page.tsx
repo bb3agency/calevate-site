@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useRef } from "react";
+import { Printer } from "lucide-react";
 
 import { PageHeader } from "@/components/console/pageHeader";
 import { RowMenu } from "@/components/arc/menu";
@@ -120,6 +121,7 @@ function Draft({ notice }: { notice: CallerNotice }) {
               ]}
             />
             <button type="button" onClick={print} className={PRIMARY_BUTTON}>
+              <Printer className="h-4 w-4" aria-hidden />
               {COPY.print}
             </button>
           </>

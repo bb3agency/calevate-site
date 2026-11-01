@@ -185,7 +185,7 @@ function StatementDrawer({
           className={PRIMARY_BUTTON}
         >
           <Printer className="h-4 w-4" aria-hidden />
-          Print or save PDF
+          Print or save as PDF
         </button>
         {printing.failed && <p role="alert" className="text-meta text-danger">{PRINT_FAILED}</p>}
         </div>

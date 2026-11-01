@@ -136,7 +136,12 @@ export function ClientSidebar({
 
       <nav className={sidebarNavClass}>
         {groups.map((group) => (
-          <div key={group.heading ?? "main"} className="mb-4">
+          <div
+            key={group.heading ?? "main"}
+            className="mb-4"
+            role={group.heading ? "group" : undefined}
+            aria-label={group.heading ?? undefined}
+          >
             {group.heading && (
               <SidebarGroupHeading isCollapsed={isCollapsed}>{group.heading}</SidebarGroupHeading>
             )}
@@ -211,7 +216,7 @@ export function ClientSidebar({
         <Link
           href={CLIENT_ACCOUNT_PATH}
           title={isCollapsed ? "Your account" : undefined}
-          className="flex w-full items-center gap-3 overflow-hidden rounded-lg px-4 py-1.5 text-body font-medium text-ink-muted transition-colors hover:bg-ink/[0.04] hover:text-ink touch:min-h-11"
+          className={`${SIDEBAR_ROW_CLASS} w-full text-ink-muted transition-colors hover:bg-ink/[0.04] hover:text-ink`}
         >
           <UserRound aria-hidden className="h-4 w-4 shrink-0" />
           {/* Mounted and faded rather than unmounted, for `SidebarSignOut`'s reason: the

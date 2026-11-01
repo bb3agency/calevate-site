@@ -105,7 +105,7 @@ describe("the verdict", () => {
       }),
     );
 
-    const verdict = await screen.findByRole("heading", { name: "Call back booked" });
+    const verdict = await screen.findByRole("heading", { name: "Call-back booked" });
     expect(screen.getByText("The caller asked to be called back, and the agent booked it.")).toBeTruthy();
     expect(screen.getByText(/green chilli is in stock/)).toBeTruthy();
     // The lead's name is the title; the number moves to the line under it.
@@ -174,7 +174,7 @@ describe("the verdict", () => {
     );
     expect((await screen.findByText(telugu)).getAttribute("lang")).toBe("te-IN");
     expect(screen.getByText("Translating…").closest("[role=status]")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Call back booked" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Call-back booked" })).toBeTruthy();
     translating.unmount();
 
     await renderClientPage(
@@ -504,7 +504,7 @@ describe("the kind of ending a call had", () => {
       "Wants to buy or book",
       "interested",
     ],
-    ["a booked call back", { ...done, outcome_tag: "call_back_booked", business_outcome_label: "Interested", business_outcome_lead_status: "interested" }, "Call back booked", "call_back"],
+    ["a booked call back", { ...done, outcome_tag: "call_back_booked", business_outcome_label: "Interested", business_outcome_lead_status: "interested" }, "Call-back booked", "call_back"],
     ["a hand-over to a person", { ...done, outcome_tag: "transferred" }, "Transferred", "transferred"],
     [
       "an outcome that only marks contact",
@@ -545,7 +545,7 @@ describe("the business's own outcome on the verdict (D-836)", () => {
       page,
       routes(detail({ outcome_tag: "call_back_booked", business_outcome: "wants_to_buy", business_outcome_label: "Wants to buy" })),
     );
-    await screen.findByRole("heading", { name: "Call back booked" });
+    await screen.findByRole("heading", { name: "Call-back booked" });
     expect(screen.getByText("Wants to buy")).toBeTruthy();
     expect(screen.getByText(/For your business:/)).toBeTruthy();
   });

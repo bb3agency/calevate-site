@@ -174,7 +174,7 @@ export function EngineVoiceList({
           const headingId = `engine-voice-${rung.value}`;
           return (
             <div key={rung.value} role="group" aria-labelledby={headingId}>
-              <h3 id={headingId} className="text-sm font-semibold text-ink">
+              <h3 id={headingId} className="text-heading text-ink">
                 {rung.label} voices
               </h3>
               <p className="text-meta text-ink-muted">{rung.blurb}</p>

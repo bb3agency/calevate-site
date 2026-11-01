@@ -35,6 +35,8 @@ export type SegmentedControlProps = {
   value: string;
   onValueChange: (value: string) => void;
   className?: string;
+  /** Spans the content width on a phone (a page-level view switch), its own width from `sm`. */
+  fill?: boolean;
 };
 
 export function SegmentedControl({
@@ -43,6 +45,7 @@ export function SegmentedControl({
   value,
   onValueChange,
   className = "",
+  fill = false,
 }: SegmentedControlProps) {
   const count = Math.max(1, options.length);
   const index = options.findIndex((o) => o.value === value);
@@ -104,7 +107,7 @@ export function SegmentedControl({
       <div
         role="radiogroup"
         aria-label={label}
-        className="relative inline-grid w-max select-none rounded-[10px] bg-ink/[0.05] p-[3px] shadow-[inset_0_0_0_1px_var(--line)]"
+        className={`relative inline-grid ${fill ? "w-full min-w-max sm:w-max" : "w-max"} select-none rounded-[10px] bg-ink/[0.05] p-[3px] shadow-[inset_0_0_0_1px_var(--line)]`}
         style={{ gridTemplateColumns: `repeat(${count}, 1fr)`, touchAction: "manipulation" }}
       >
         <motion.div

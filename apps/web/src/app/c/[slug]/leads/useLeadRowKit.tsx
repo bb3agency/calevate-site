@@ -3,7 +3,7 @@
 import Link from "next/link";
 
 import type { FollowUpActions, FollowUpTarget } from "@/components/calls/followUpActions";
-import { formatCount, formatIST, formatPhone } from "@/components/ui";
+import { MonoValue, formatCount, formatIST, formatPhone } from "@/components/ui";
 import { useWriteAccess } from "@/lib/api/hooks";
 import {
   useLeadRowEdit,
@@ -187,7 +187,7 @@ export function useLeadRowKit({
         // tabular for the same reason the detail screen and the DNC console are: a
         // number a person compares against their own records is read character by
         // character.
-        return <span className="tabular-nums">{formatPhone(lead.phone_e164)}</span>;
+        return <MonoValue className="tabular-nums">{formatPhone(lead.phone_e164)}</MonoValue>;
       case "status":
         return (
           <span className="block">

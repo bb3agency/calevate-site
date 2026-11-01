@@ -17,6 +17,7 @@ import {
   formatIST,
   formatISTStamp,
   formatPhone,
+  MonoValue,
 } from "@/components/ui";
 import { CopyButton } from "@/components/interior/copy-button";
 import { PageHeader } from "@/components/console/pageHeader";
@@ -223,7 +224,7 @@ export function LeadDetailScreen({ slug, leadId }: { slug: string; leadId: strin
 
   return (
     <div className="max-w-4xl space-y-8 pb-12">
-      <PageHeader back={{ href: href(`/c/${slug}/leads`), label: "Leads" }} />
+      <PageHeader back={{ href: href(`/c/${slug}/leads`), label: "All leads" }} />
 
       {lead.error && <ProblemNotice error={lead.error} onRetry={() => void lead.refetch()} />}
 
@@ -244,7 +245,7 @@ export function LeadDetailScreen({ slug, leadId }: { slug: string; leadId: strin
             description={
               <>
                 <span className="flex items-center gap-1 text-body tabular-nums text-ink">
-                  {formatPhone(lead.data.phone_e164)}
+                  <MonoValue>{formatPhone(lead.data.phone_e164)}</MonoValue>
                   <CopyButton value={lead.data.phone_e164} label="Copy phone number" />
                 </span>
                 {/* Chips, as on the call page: each fact wraps whole. */}

@@ -13,7 +13,7 @@ import { stubApi } from "./harness";
 /**
  * A call row and a call's page say what its booked call back came to, and a lead says when
  * its next one is; all three are read through `scheduled_callbacks`. When a call back is
- * called off, placed or settled they must re-read, or "Call back booked" stays on a call
+ * called off, placed or settled they must re-read, or "Call-back booked" stays on a call
  * whose call back was cancelled.
  */
 

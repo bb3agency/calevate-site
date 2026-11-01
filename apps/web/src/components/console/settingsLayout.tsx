@@ -264,7 +264,7 @@ export function SettingsLayout({
                         }
                         picked.current = true;
                       }}
-                      className={`press flex min-h-9 items-center gap-2 whitespace-nowrap lg:py-1.5 rounded-full px-3.5 text-[13px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11 ${row ? "" : "lg:justify-between lg:rounded-md lg:px-3 lg:text-[14px]"} ${
+                      className={`press flex min-h-9 items-center justify-center gap-2 whitespace-nowrap lg:py-1.5 rounded-full px-3.5 text-[13px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11 touch:min-w-11 ${row ? "" : "lg:justify-between lg:rounded-md lg:px-3 lg:text-[14px]"} ${
                         on
                           ? row
                             ? "bg-ink text-surface"
@@ -383,7 +383,7 @@ function TabbedSections({
               <button
                 key={section.id}
                 {...tabs.getTabProps({ value: section.id, label: section.label }, index)}
-                className={`-mb-px flex h-11 shrink-0 items-center gap-1.5 border-b-2 text-body outline-none transition-colors duration-(--duration-fast) focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-brand ${
+                className={`-mb-px flex h-11 shrink-0 items-center justify-center gap-1.5 border-b-2 touch:min-w-11 text-body outline-none transition-colors duration-(--duration-fast) focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-brand ${
                   selected ? "border-brand-strong font-medium text-ink" : "border-transparent text-ink-muted hover:text-ink"
                 }`}
               >

@@ -10,7 +10,7 @@ export const PERFORMANCE_COPY = {
   loadingFigures: "Loading the figures",
   activityTitle: "Activity over time",
   activityTip: "Drag the window under the chart to look closer. India time.",
-  activityEmpty: "No calls in this stretch yet.",
+  activityEmpty: "No calls in this period yet.",
   activityError: "We could not load your calls over time.",
   funnelTitle: "From calls to customers",
   outcomesTitle: "How calls ended",

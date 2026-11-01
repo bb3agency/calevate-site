@@ -158,7 +158,7 @@ function DocumentBlockers({ data }: { data: AdminInvoice }) {
       aria-labelledby="invoice-blockers"
       className="border-l-2 border-line py-1 pl-4 text-body print:hidden"
     >
-      <h3 id="invoice-blockers" className="font-medium text-ink">
+      <h3 id="invoice-blockers" className="text-body font-semibold text-ink">
         Not a tax invoice yet
       </h3>
       <p className="mt-0.5 text-meta text-ink-muted">

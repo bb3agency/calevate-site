@@ -157,7 +157,7 @@ function NoteRow({
             type="button"
             onClick={() => setConfirming(true)}
             aria-label={`Remove ${note.name}`}
-            className="press inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-ink-muted hover:bg-danger/[0.08] hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
+            className="press inline-flex shrink-0 items-center justify-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-ink-muted hover:bg-danger/[0.08] hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11 touch:min-w-11"
           >
             <Trash2 aria-hidden className="h-3.5 w-3.5" />
             <span className="max-sm:sr-only">Remove</span>

@@ -52,7 +52,7 @@ const LEGAL: Exit = { href: "/legal", label: "Legal documents" };
 function exitsFor(pathname: string | null): Exit[] {
   if (pathname?.startsWith("/admin")) {
     return [
-      { href: adminConsoleUrl("/admin"), label: "Back to the operator console" },
+      { href: adminConsoleUrl("/admin"), label: "Back to clients" },
       HOME,
     ];
   }

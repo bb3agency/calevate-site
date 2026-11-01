@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 
-import { formatDuration, formatIST, formatPhone } from "@/components/ui";
+import { MonoValue, formatDuration, formatIST, formatPhone } from "@/components/ui";
 import { CopyButton } from "@/components/interior/copy-button";
 import { LiveDot } from "@/components/console/liveCalls";
 import type { CallDetail } from "@/lib/api/client";
@@ -27,7 +27,7 @@ export function CallHeader({ detail, actions }: { detail: CallDetail; actions?: 
     detail.agent_name ?? null,
   ].filter((fact): fact is string => Boolean(fact));
   return (
-    <header className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
+    <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
       <div className="min-w-0 flex-1 basis-64">
       <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
         {isLive(detail) && <LiveDot />}
@@ -39,7 +39,7 @@ export function CallHeader({ detail, actions }: { detail: CallDetail; actions?: 
       </div>
       {named && detail.caller_e164 && (
         <p className="mt-1 flex items-center gap-1 text-meta tabular-nums text-ink-muted">
-          {formatPhone(detail.caller_e164)}
+          <MonoValue>{formatPhone(detail.caller_e164)}</MonoValue>
           <CopyButton value={detail.caller_e164} label="Copy phone number" />
         </p>
       )}
@@ -83,6 +83,6 @@ export function CallHeader({ detail, actions }: { detail: CallDetail; actions?: 
       {detail.not_placed_reason && <p className="mt-1 text-meta text-ink-muted">{detail.not_placed_reason}</p>}
       </div>
       {actions ? <div className="max-w-full">{actions}</div> : null}
-    </header>
+    </div>
   );
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import { FieldMessage } from "@/components/formValidation";
 import { FIELD } from "@/components/ui";
 import {
   PROFILE_LANGUAGES,
@@ -257,7 +258,7 @@ export function SectionEditor({
               </label>
             );
           })}
-          {errorAt("languages") && <p className="text-meta font-medium text-danger">{errorAt("languages")}</p>}
+          {errorAt("languages") && <FieldMessage id="profile-languages-error">{errorAt("languages")}</FieldMessage>}
         </fieldset>
       );
   }

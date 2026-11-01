@@ -22,19 +22,17 @@
 import Link from "next/link";
 
 import { Providers } from "@/app/providers";
-import { AuthPageFrame } from "@/components/authPage";
+import { AuthCard, AuthHeading, AuthPageFrame } from "@/components/authPage";
 import { MissingLinkCode, SetPasswordForm } from "@/components/authn/setPasswordForm";
-import { Card, NoticeBox, PRIMARY_BUTTON } from "@/components/ui";
+import { NoticeBox, PRIMARY_BUTTON } from "@/components/ui";
 import { ADMIN_SIGN_IN_PATH, confirmAdminBootstrap } from "@/lib/authn/adminAuthn";
 
 export default function AdminBootstrapPage() {
   return (
     <Providers>
       <AuthPageFrame realmLabel="Operator console">
-        <div className="space-y-4">
-          <h1 className="text-2xl font-semibold tracking-tight text-ink">
-            Set up the first operator account
-          </h1>
+        <AuthCard>
+          <AuthHeading title="Set up the first operator account" />
           <SetPasswordForm
             realm="admin"
             submitLabel="Set the password"
@@ -54,17 +52,17 @@ export default function AdminBootstrapPage() {
             }
             onSubmit={({ token, password }) => confirmAdminBootstrap({ token, password })}
             renderSuccess={() => (
-              <Card>
+              <div>
                 <div className="space-y-3 text-sm text-ink-muted">
                   <NoticeBox tone="ok" title="The first operator account is ready">
                     Sign in with the address the link was sent to. Every operator sign-in asks
                     for an emailed six-digit code.
                   </NoticeBox>
-                  <Link href={ADMIN_SIGN_IN_PATH} className={PRIMARY_BUTTON}>
+                  <Link href={ADMIN_SIGN_IN_PATH} className={`${PRIMARY_BUTTON} w-full justify-center`}>
                     Go to sign-in
                   </Link>
                 </div>
-              </Card>
+              </div>
             )}
             renderMissingToken={
               <MissingLinkCode
@@ -73,7 +71,7 @@ export default function AdminBootstrapPage() {
               />
             }
           />
-        </div>
+        </AuthCard>
       </AuthPageFrame>
     </Providers>
   );

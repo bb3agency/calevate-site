@@ -188,7 +188,7 @@ function ComplaintReview({
             title={refusal}
             disabled={!read || !canWrite}
             status={reviewFeedback.status}
-            pendingLabel="Saving"
+            pendingLabel="Saving…"
             successLabel="Confirmed"
             onClick={() => reviewFeedback.run()}
           >

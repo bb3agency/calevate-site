@@ -17,6 +17,7 @@ import { useId, type ReactNode } from "react";
 
 import { CircleAlert } from "lucide-react";
 
+import { FieldMessage } from "@/components/formValidation";
 import { PasswordInput } from "@/components/passwordInput";
 import { FIELD, FIELD_HINT, FIELD_LABEL, NoticeBox, ProblemNotice } from "@/components/ui";
 import { signInMessage } from "@/lib/authn/problems";
@@ -101,11 +102,7 @@ export function AuthField({
         </span>
       )}
       {error && (
-        // `role="alert"` so the message is announced when it appears rather than only
-        // when focus happens to reach the field it describes.
-        <p id={errorId} role="alert" className="mt-1 text-xs text-rose-600 dark:text-rose-400">
-          {error}
-        </p>
+        <FieldMessage id={errorId}>{error}</FieldMessage>
       )}
     </div>
   );

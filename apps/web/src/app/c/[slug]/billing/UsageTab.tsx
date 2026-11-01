@@ -471,7 +471,7 @@ function SpendLimit({ session }: { session: Session }) {
             type="submit"
             variant="secondary"
             status={saveFeedback.status}
-            pendingLabel="Saving"
+            pendingLabel="Saving…"
             successLabel="Saved"
             disabled={!write.allowed}
             className="sm:mb-0.5"

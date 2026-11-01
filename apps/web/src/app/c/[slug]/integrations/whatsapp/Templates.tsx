@@ -16,6 +16,7 @@ import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { RadioGroup } from "@/components/arc/radio-group";
 import { Section, TEXT_ACTION } from "@/components/console/section";
 import { StatusPill } from "@/components/console/statusPill";
+import { FieldMessage } from "@/components/formValidation";
 import {
   FIELD,
   FIELD_HINT,
@@ -287,7 +288,7 @@ function TemplateForm({
           onChange={(e) => setBody(e.target.value)}
           maxLength={1024}
           placeholder={eg.messageBody}
-          aria-describedby={`${bodyId}-hint`}
+          aria-describedby={problem ? `${bodyId}-hint ${bodyId}-problem` : `${bodyId}-hint`}
         />
         <span id={`${bodyId}-hint`} className={FIELD_HINT}>
           A blank like {"{{1}}"} is filled on each message, e.g. a name. {body.length}/1024
@@ -295,7 +296,7 @@ function TemplateForm({
         <button type="button" className={`${TEXT_ACTION} mt-1`} onClick={insertBlank}>
           Insert a blank
         </button>
-        {problem && <p className="mt-1 text-meta text-danger">{problem}</p>}
+        {problem && <FieldMessage id={`${bodyId}-problem`}>{problem}</FieldMessage>}
       </div>
 
       {blanks.length > 0 && (

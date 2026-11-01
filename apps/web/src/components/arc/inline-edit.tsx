@@ -161,7 +161,7 @@ export function InlineEdit({
           disabled={disabled}
           aria-label={`${editLabel(label)}: ${value}`}
           className={clsx(
-            "press inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-md px-1 text-left text-ink hover:bg-ink/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:cursor-default disabled:hover:bg-transparent touch:min-h-11",
+            "press inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-md px-1 text-left text-ink hover:bg-ink/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:cursor-default disabled:hover:bg-transparent touch:min-h-11 touch:min-w-11",
             textClassName,
           )}
         >

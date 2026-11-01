@@ -240,7 +240,7 @@ function ClientTable({ data }: { data: FleetSpend }) {
         <>
           <Link
             href={`/admin/tenants/${tenant.tenant_id}/spend`}
-            className="rounded-sm font-medium text-ink underline underline-offset-2 after:absolute after:inset-0 hover:text-brand-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+            className="rounded-sm font-medium text-ink underline-offset-2 after:absolute after:inset-0 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
           >
             {tenant.name}
           </Link>
