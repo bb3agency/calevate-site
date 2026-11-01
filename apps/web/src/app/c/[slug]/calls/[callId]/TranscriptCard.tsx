@@ -400,7 +400,8 @@ function Bubble({
           {body}
         </button>
       ) : (
-        <div data-turn={turn.idx} className={`${shape} scroll-mt-48`}>
+        // tabIndex -1: focusable from script only, so "Show where" on a mistake can move focus here.
+        <div data-turn={turn.idx} tabIndex={-1} className={`${shape} scroll-mt-48 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2`}>
           {body}
         </div>
       )}

@@ -870,6 +870,7 @@ describe("meet your agent", () => {
       has_recording: false,
       disclosure_played: true,
       moments: [],
+      mistakes: [],
       quality: null,
       signals: [],
       transcript: [

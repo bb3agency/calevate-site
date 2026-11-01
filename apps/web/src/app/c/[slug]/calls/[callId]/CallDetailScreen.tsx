@@ -32,6 +32,7 @@ import { AssistCard } from "./AssistCard";
 import { initialView, useRetryEnglish, type CallView } from "./callEnglish";
 import { CallDetailSkeleton } from "./CallDetailSkeleton";
 import { CallHeader } from "./CallHeader";
+import { CallMistakesCard } from "./CallMistakesCard";
 import { CallQualityCard } from "./CallQualityCard";
 import { CallVerdict } from "./CallVerdict";
 import { CapturedDetails } from "./CapturedDetails";
@@ -247,6 +248,11 @@ export function CallDetailScreen({
               value: String(Object.keys(call.data.extraction_needs_review ?? {}).length),
             },
             { key: "moments", label: "Marked moments on the timeline", value: String(call.data.moments.length) },
+            {
+              key: "mistakes",
+              label: "Mistakes the agent made on this call (Calevate fixes these)",
+              value: call.data.mistakes.map((m) => m.label).join("; ") || "none",
+            },
           ]
         : []),
       {
@@ -422,6 +428,12 @@ export function CallDetailScreen({
               an operator viewing as the client; the wait for an answer for the client. */}
           {detail.insights && <InsightsCard insights={detail.insights} />}
           <CallQualityCard detail={detail} operator={viewAsRequested} />
+          {detail.mistakes.length > 0 && (
+            <CallMistakesCard
+              mistakes={detail.mistakes}
+              turnsOnScreen={new Set(turns.map((turn) => turn.idx))}
+            />
+          )}
           {detail.moments.length > 0 && (
             <KeyMomentsCard
               moments={detail.moments}

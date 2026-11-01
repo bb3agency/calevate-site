@@ -45,6 +45,7 @@ const CALL = {
   has_recording: false,
   disclosure_played: true,
   moments: [],
+  mistakes: [],
   captured: [],
 };
 

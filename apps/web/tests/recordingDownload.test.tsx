@@ -57,6 +57,7 @@ function detail(): CallDetail {
     has_recording: true,
     disclosure_played: true,
     moments: [],
+    mistakes: [],
     quality: null,
     signals: [],
     timeline: null,

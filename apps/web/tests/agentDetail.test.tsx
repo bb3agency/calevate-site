@@ -293,6 +293,8 @@ function routes(over: Record<string, unknown> = {}) {
     // role="alert", so every `findByRole("alert")` here becomes a race. Empty because the
     // list is `teachQuestions.test.tsx`'s subject.
     "/v1/teach/questions?agent_id=agent-1": { items: [], open_count: 0 },
+    // Mistakes on real calls, beside it on Training (D-949); `callMistakes.test.tsx` is its subject.
+    "/v1/agents/agent-1/call-mistakes": { items: [], window_days: 30 },
     // The handover panel's read (D-533), for the SAME reason as the two entries above and
     // not because this file asserts anything about it — `agentHandover.test.tsx` is that
     // subject. Unstubbed, the panel raises its own `role="alert"` and every
@@ -2925,11 +2927,12 @@ describe("Training is the checklist first, the rest folded (D-893 §6)", () => {
   const order = () =>
     screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent?.trim() ?? "");
 
-  it("leads with the questions to answer, then Try it, then the folded summaries", async () => {
+  it("leads with the questions to answer, then the mistakes on real calls, then Try it, then the folded summaries", async () => {
     await renderClientPage(page, routes({ ...TRAINING_READS, ...OPEN_QUESTION }));
     await screen.findByText("When are you open?");
     const headings = order();
     expect(headings[0]).toBe("Questions to answer");
+    expect(headings[1]).toBe("Mistakes on real calls");
     expect(headings.indexOf("Try it")).toBeLessThan(headings.indexOf("What it knows"));
     expect(headings.indexOf("What it knows")).toBeLessThan(headings.indexOf("Saved tests"));
     expect(headings.indexOf("Saved tests")).toBeLessThan(headings.indexOf("Practice callers"));

@@ -60,6 +60,7 @@ import OpsHealerPage from "@/app/admin/ops/healer/page";
 import PaymentsPage from "@/app/admin/payments/page";
 import ReplyTimesPage from "@/app/admin/ops/reply-times/page";
 import PipQualityPage from "@/app/admin/ops/pip-quality/page";
+import CallMistakesPage from "@/app/admin/ops/call-mistakes/page";
 import ReplySpeedPage from "@/app/admin/ops/reply-speed/page";
 import { DAILY_SUMMARY_PATH } from "@/lib/api/proof";
 import KitPage from "@/app/admin/ops/kit/page";
@@ -870,6 +871,27 @@ const TEACH_QUESTION = {
   draft_source_kind: "profile",
   draft_source_label: "Your business profile",
   drafting: false,
+};
+
+/** Mistakes on real calls (D-949), one in each state, for the Training tab's card. */
+const AGENT_MISTAKE = {
+  kind: "said_again",
+  label: "Said the same line again",
+  instead: "With no clear reply, ask once in other words, then offer the next step.",
+  calls: 3,
+  calls_since_fix: 1,
+  last_seen_at: "2026-08-13T04:30:00Z",
+  last_call_id: "0192f0aa-5555-7000-8000-0000000ca111",
+  fixed_at: "2026-08-10T04:30:00Z",
+  state: "back",
+} as const;
+const AGENT_MISTAKES = {
+  window_days: 30,
+  items: [
+    AGENT_MISTAKE,
+    { ...AGENT_MISTAKE, kind: "asked_again", label: "Asked the same question again, word for word", calls_since_fix: 0, fixed_at: null, state: "fixing" },
+    { ...AGENT_MISTAKE, kind: "opened_again", label: "Greeted the caller again in the middle of the call", calls: 1, calls_since_fix: 0, state: "fixed" },
+  ],
 };
 
 /**
@@ -2515,6 +2537,10 @@ const CLIENT_SCREENS: Screen[] = [
             importance: 2,
           },
         ],
+        // On a turn that is on screen, so the card and its jump button are swept.
+        mistakes: [
+          { kind: "said_again", label: "Said the same line again", instead: "Ask once in other words.", turn_idx: 0 },
+        ],
         summary_state: "ready",
         test_call: false,
         caller_id_hidden: false,
@@ -2968,6 +2994,7 @@ const CLIENT_SCREENS: Screen[] = [
         items: [TEACH_QUESTION, { ...TEACH_QUESTION, key: "pricing", why: "practice", callers: 0, draft: null, draft_source_kind: null, draft_source_label: null, latest_call_id: null }],
         open_count: 2,
       },
+      "/v1/agents/agent-1/call-mistakes": AGENT_MISTAKES,
     },
   },
   {
@@ -4823,6 +4850,26 @@ const ADMIN_SCREENS: Screen[] = [
         permissions: [...ADMIN_ME.permissions, "ops:manage"],
       },
       "/v1/ops/copilot-quality?days=7&realm=client": pipQualityReport(),
+    },
+  },
+  {
+    // D-949: one kind in each state, with and without a fix note.
+    file: "admin/ops/call-mistakes/page.tsx",
+    realm: "admin",
+    element: () => <CallMistakesPage />,
+    routes: {
+      "/v1/admin/me": {
+        ...ADMIN_ME,
+        permissions: [...ADMIN_ME.permissions, "ops:manage"],
+      },
+      "/v1/ops/call-mistakes": {
+        window_days: 30,
+        items: [
+          { kind: "said_again", label: "Said the same line again", calls_7d: 4, calls_30d: 9, accounts_30d: 3, calls_since_fix: 2, last_seen_at: "2026-08-13T04:30:00Z", fixed_at: "2026-08-10T04:30:00Z", fix_note: "Rephrase rule added.", state: "back" },
+          { kind: "wrong_language", label: "Answered in a different language from the caller", calls_7d: 1, calls_30d: 2, accounts_30d: 1, calls_since_fix: 0, last_seen_at: "2026-08-12T04:30:00Z", fixed_at: null, fix_note: null, state: "fixing" },
+          { kind: "opened_again", label: "Greeted the caller again in the middle of the call", calls_7d: 0, calls_30d: 1, accounts_30d: 1, calls_since_fix: 0, last_seen_at: "2026-08-01T04:30:00Z", fixed_at: "2026-08-05T04:30:00Z", fix_note: "Greet once.", state: "fixed" },
+        ],
+      },
     },
   },
   {

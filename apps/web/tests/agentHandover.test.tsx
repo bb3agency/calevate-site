@@ -160,6 +160,8 @@ function routes(over: Record<string, unknown> = {}) {
     },
     "/v1/integrations/credentials": [],
     "/v1/teach/questions?agent_id=agent-1": { items: [], open_count: 0 },
+    // Mistakes on real calls, beside it on Training (D-949); `callMistakes.test.tsx` is its subject.
+    "/v1/agents/agent-1/call-mistakes": { items: [], window_days: 30 },
     "/v1/agents/lanes": LANES,
     // The header's "spent this month" line (owners hold billing:read).
     [AGENT_SPEND_PATH]: spendThisMonth(),

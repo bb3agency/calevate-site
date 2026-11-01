@@ -88,6 +88,7 @@ function detail(over: Partial<CallDetail> = {}): CallDetail {
     has_recording: false,
     disclosure_played: true,
     moments: [],
+    mistakes: [],
     quality: null,
     signals: [],
     timeline: null,
@@ -616,5 +617,39 @@ describe("a call in progress", () => {
     await renderClientPage(page, routes(detail()));
     await screen.findByText("My number is [redacted].");
     expect(screen.queryByRole("heading", { name: /^Live call/ })).toBeNull();
+  });
+});
+
+describe("what went wrong on this call (D-949)", () => {
+  it("is not shown when the call had no mistakes", async () => {
+    await renderClientPage(page, routes(detail()));
+    await screen.findByText("My number is [redacted].");
+    expect(screen.queryByRole("heading", { name: "What went wrong on this call" })).toBeNull();
+  });
+
+  it("lists each mistake as ours to fix, and jumps to the line it happened on", async () => {
+    await renderClientPage(
+      page,
+      routes(
+        detail({
+          mistakes: [
+            { kind: "said_again", label: "Said the same line again", instead: "Ask once in other words.", turn_idx: 0 },
+            { kind: "wrong_language", label: "Answered in a different language from the caller", instead: "Reply in the caller's language.", turn_idx: 7 },
+          ],
+        }),
+      ),
+    );
+    const list = await screen.findByRole("list", { name: "What went wrong on this call" });
+    expect(list.textContent).toContain("Said the same line again");
+    expect(list.textContent).toContain("We're fixing this");
+    // The advice is for us, not the owner: the call card never shows it.
+    expect(list.textContent).not.toContain("Ask once in other words.");
+    // Turn 7 is not in this transcript, so only the first row can jump.
+    const jumps = screen.getAllByRole("button", { name: /^Show where it happened/ });
+    expect(jumps).toHaveLength(1);
+    const line = document.querySelector<HTMLElement>('[data-turn="0"]');
+    expect(line).not.toBeNull();
+    fireEvent.click(jumps[0]!);
+    expect(document.activeElement).toBe(line);
   });
 });

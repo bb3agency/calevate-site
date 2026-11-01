@@ -84,6 +84,9 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "admin/pin-card",
     // A Follow-up run moves on when its call ends (D-940).
     "follow-ups",
+    // Mistakes on real calls (D-949) are counted when a call is checked after it ends.
+    "call-mistakes",
+    "admin/ops/call-mistakes",
   ],
   leads: [
     ...SUMMARY,

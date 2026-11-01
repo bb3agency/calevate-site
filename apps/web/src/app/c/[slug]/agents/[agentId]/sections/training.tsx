@@ -8,6 +8,8 @@
  *    callers need and what setup leaves open, most asked first, each answered in place.
  *    Real calls first (D-826): it is the part that names something already going wrong,
  *    and the tab's badge counts it.
+ * 1b. Mistakes on real calls (D-949): what it got wrong on live calls, each a rule we fix,
+ *    with the last call it happened on.
  * 2. Try it: one card, a chat with the live agent beside a practice call on a real phone
  *    (phone only; there is no in-browser call).
  * 3. One line each that opens on click: what it knows (with the teach box), saved tests,
@@ -26,6 +28,7 @@ import { useState } from "react";
 import { BookOpen, Pin } from "lucide-react";
 
 import { Section, TEXT_ACTION } from "@/components/console/section";
+import { CallMistakes } from "@/components/improvement/CallMistakes";
 import { QuestionsToAnswer } from "@/components/improvement/QuestionsToAnswer";
 import { SavedTests } from "@/components/improvement/SavedTests";
 import { TryChat } from "@/components/improvement/TryChat";
@@ -64,7 +67,7 @@ export function TrainingTab({ agent, slug }: { agent: Agent; slug: string }) {
           key: "what_is_here",
           label: "What this tab holds",
           value:
-            "the questions this agent needs answered, a chat and a practice call with it, what the agents know with a teach box, saved tests, and practice callers",
+            "the questions this agent needs answered, the mistakes it made on real calls (which Calevate fixes), a chat and a practice call with it, what the agents know with a teach box, saved tests, and practice callers",
         },
       ]}
     >
@@ -107,6 +110,8 @@ function Training({ agent, slug }: { agent: Agent; slug: string }) {
   return (
     <div className="space-y-10">
       <QuestionsToAnswer agentId={agent.id} focus={focus} headingLevel={3} />
+
+      <CallMistakes agentId={agent.id} headingLevel={3} />
 
       <Section headingLevel={3} title="Try it" description="Nothing here reaches a real caller.">
         <div className="mt-2 grid grid-cols-1 gap-8 rounded-md border border-line p-4 page-lg:grid-cols-2">

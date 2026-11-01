@@ -99,6 +99,8 @@ TABLE_TOPICS: Final[dict[str, Topic]] = {
     # knowledge
     "knowledge_gaps": "knowledge_gaps",
     "knowledge_gap_occurrences": "knowledge_gaps",
+    # D-949: written by the post-call pipeline, read on the call and the agent's Training tab.
+    "call_mistakes": "calls",
     "kb_sources": "knowledge",
     "kb_documents": "knowledge",
     "kb_uploads": "knowledge",
@@ -244,6 +246,7 @@ TABLE_TOPICS: Final[dict[str, Topic]] = {
     "platform_voice_catalog": "platform",
     "platform_voice_comparison_rounds": "platform",
     "platform_voice_comparison_trials": "platform",
+    "platform_mistake_fixes": "platform",
     "spoken_style_publications": "platform",
     "spoken_style_revisions": "platform",
 }

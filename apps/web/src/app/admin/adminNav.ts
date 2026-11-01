@@ -18,6 +18,7 @@ import {
   Languages,
   Megaphone,
   MessageCircle,
+  MessageSquareWarning,
   PhoneCall,
   PhoneOff,
   ShieldUser,
@@ -340,6 +341,15 @@ export const ADMIN_NAV: NavGroup[] = [
         icon: ThumbsUp,
         permission: "ops:manage",
         action: "read Pip's quality scores",
+      },
+      {
+        // D-949: what agents got wrong on real calls, by kind, and marking the platform rule
+        // behind one fixed. `ops:manage`, as both routes (`agents/call_mistake_routes.py`).
+        href: "/admin/ops/call-mistakes",
+        label: "Call mistakes",
+        icon: MessageSquareWarning,
+        permission: "ops:manage",
+        action: "read and mark the call mistakes",
       },
       {
         // Clients' own WhatsApp through Meta (D-784): Meta's weekly onboarding limit against our
