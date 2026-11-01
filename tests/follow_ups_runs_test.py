@@ -1316,3 +1316,42 @@ async def test_a_lead_source_condition_needs_a_new_lead_trigger() -> None:
     only_if = {"source_ids": [str(uuid.uuid4())]}
     assert "source_needs_new_lead" in codes({"kind": "manual", "only_if": only_if})
     assert "source_needs_new_lead" not in codes({"kind": "new_lead", "only_if": only_if})
+
+
+async def test_a_whatsapp_step_that_raises_is_tried_again_on_the_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The claim is released when the send raises, so arq's retry drives the step rather
+    than finding the run `running` and returning with nothing done."""
+    from apps.api.crm import lead_message, swipe
+
+    calls: list[str] = []
+
+    async def _send(session: Any, **kwargs: Any) -> swipe.WhatsAppSendOut:
+        calls.append(kwargs["idempotency_key"])
+        if len(calls) == 1:
+            raise RuntimeError("provider timeout")
+        return swipe.WhatsAppSendOut(status="sent")
+
+    monkeypatch.setattr(lead_message, "send_lead_whatsapp", _send)
+    tenant_id, agent_id = await _dialable_tenant()
+    follow_up_id = await _published_raw(
+        tenant_id,
+        [
+            {
+                "id": "s1",
+                "kind": "whatsapp",
+                "template_id": str(uuid.uuid4()),
+                "values": [{"source": "text", "text": "Hi"}],
+                "next": {"sent": None, "not_sent": None},
+            }
+        ],
+    )
+    lead_id, _p = await _lead(tenant_id, agent_id)
+    run_id = await _start(tenant_id, follow_up_id, lead_id)
+    with pytest.raises(RuntimeError):
+        await runner.drive(tenant_id, run_id)
+    assert (await _run_by_id(tenant_id, run_id))["status"] == "waiting"
+    assert await runner.drive(tenant_id, run_id) == 1
+    assert calls == [f"follow-up:{run_id}:s1"] * 2
+    assert [e[2] for e in await _events(tenant_id, run_id)][-1] == "sent"
