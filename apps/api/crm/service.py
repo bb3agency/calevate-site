@@ -33,6 +33,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.business_hours import count_after_hours_calls
+from apps.api.agents.call_mistakes import call_mistakes as read_call_mistakes
 from apps.api.agents.call_outcomes import outcome_lead_move
 from apps.api.billing.caps import read_spend_counters
 from apps.api.billing.models import LEDGER_KEY_SINCE_SQL
@@ -56,6 +57,7 @@ from apps.api.crm.schemas import (
     CallCallbackOut,
     CallDetailOut,
     CallInsightsOut,
+    CallMistakeOut,
     CallMomentOut,
     CallQualityOut,
     CallSignalOut,
@@ -674,6 +676,10 @@ async def get_call(
         extraction=extraction_data,
         captured=captured,
         extraction_valid=bool(extraction[1]) if extraction else True,
+        mistakes=[
+            CallMistakeOut(kind=m.kind, label=m.label, instead=m.instead, turn_idx=m.turn_idx)
+            for m in await read_call_mistakes(session, call_id)
+        ],
         moments=_moments_out(
             field_backed(
                 extraction[2] if extraction else None,

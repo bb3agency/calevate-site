@@ -533,6 +533,9 @@ class TestRlsCoverage:
             # Sarvam voice accounts. No client's voice, call or caller is in them.
             "platform_voice_comparison_rounds",
             "platform_voice_comparison_trials",
+            # D-949: an operator's statement that a mistake kind of the platform's own
+            # speaking rules is fixed. The kinds are the same for every client.
+            "platform_mistake_fixes",
             # D-459: the founder's attested per-model prices, set once per model in
             # the ops console and read by billing for `unit_cost_paid`. Platform-
             # global for the same reason `platform_secrets` is — a price is the

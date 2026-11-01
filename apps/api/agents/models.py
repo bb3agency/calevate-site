@@ -1940,3 +1940,59 @@ class LiveApplyRun(PKMixin, TimestampMixin, Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     walked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class CallMistake(PKMixin, Base):
+    """One mistake the turn checks found on one real call (D-949): a kind and the agent
+    turn it was first seen on, never the words (hard rule 6). Derived from the transcript,
+    so a re-driven call replaces its own rows (`agents/call_mistakes.record_call_mistakes`).
+    `call_started_at` is the call's own start, so a call placed before a fix and read after
+    it never counts as the mistake coming back."""
+
+    __tablename__ = "call_mistakes"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "call_id", "kind", name="uq_call_mistakes_call_kind"),
+        CheckConstraint("turn_idx >= 0", name="turn_idx_non_negative"),
+        Index(
+            "ix_call_mistakes_agent_started", "tenant_id", "agent_id", text("call_started_at DESC")
+        ),
+        Index("ix_call_mistakes_call", "call_id"),
+        Index("ix_call_mistakes_started", text("call_started_at DESC")),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
+    )
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="RESTRICT"), nullable=False
+    )
+    call_id: Mapped[UUID] = mapped_column(
+        ForeignKey("calls.id", ondelete="CASCADE"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    turn_idx: Mapped[int] = mapped_column(Integer, nullable=False)
+    call_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class PlatformMistakeFix(PKMixin, Base):
+    """An operator's statement that one mistake kind is fixed in the platform (D-949). One
+    row per statement, only ever inserted; the latest per kind is in force. Platform state:
+    the kinds are the platform's rules, so there is no tenant and no `tenant_id`."""
+
+    __tablename__ = "platform_mistake_fixes"
+    __table_args__ = (
+        CheckConstraint("length(btrim(note)) > 0", name="note_present"),
+        Index("ix_platform_mistake_fixes_kind_latest", "kind", text("fixed_at DESC")),
+    )
+
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    note: Mapped[str] = mapped_column(Text, nullable=False)
+    fixed_by: Mapped[UUID] = mapped_column(
+        ForeignKey("admin_users.id", ondelete="RESTRICT"), nullable=False
+    )
+    fixed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

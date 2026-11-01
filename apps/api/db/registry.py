@@ -448,6 +448,10 @@ TENANT_TABLES = [
     # mutates; the immutable trail of dismiss/teach is `audit_log`.
     "knowledge_gaps",
     "knowledge_gap_occurrences",
+    # Mistakes on real calls (D-949): a kind and a turn index per (call, kind) the turn
+    # checks found. Tenant data derived from a client's own transcript, FORCE-RLS'd. NOT
+    # append-only: a re-driven call replaces its own rows; the call's erasure CASCADEs.
+    "call_mistakes",
     # What the in-app copilot remembers, per tenant AND per user (migration d4a9c17e6b02).
     # Tenant data of a shape nothing else here holds: prose a client's own STAFF typed about
     # their own console, plus the facts a background worker distilled out of it. Redacted on
@@ -796,6 +800,13 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "scores and preference for it: integers, a letter, an admin id and a timestamp. No "
         "tenant data, PII or credential, so no tenant_id. Reachable only behind "
         "`ops:manage`; every rating is audited."
+    ),
+    "platform_mistake_fixes": (
+        "platform-scoped, admin realm only (D-949). An operator's statement that one "
+        "mistake kind of the platform's own speaking rules is fixed: a kind name, a note, an "
+        "admin id and a time. The kinds are the platform's rules, the same for every client, "
+        "so there is no tenant whose row this could be and it carries no tenant_id. Written "
+        "only behind `ops:manage` (`agents/call_mistake_routes.py`), every row audited."
     ),
     "platform_tts_prices": (
         "platform-scoped, admin realm only (D-547, plan §3.5). The operator-attested TTS "

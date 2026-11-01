@@ -127,6 +127,8 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.admin.routes import router as admin_router
     from apps.api.agents.call_handling_routes import admin_router as call_handling_admin_router
     from apps.api.agents.call_handling_routes import router as call_handling_router
+    from apps.api.agents.call_mistake_routes import ops_router as ops_call_mistakes_router
+    from apps.api.agents.call_mistake_routes import router as agent_call_mistakes_router
     from apps.api.agents.call_outcomes_routes import agent_router as call_outcomes_agent_router
     from apps.api.agents.call_outcomes_routes import router as call_outcomes_router
     from apps.api.agents.engine_catalogue_routes import router as engine_catalogue_router
@@ -647,6 +649,9 @@ def _mount_routers(application: FastAPI) -> None:
     # The same panel on an engine that HOSTS its voices (D-687): literal sub-paths only.
     application.include_router(ops_hosted_voice_router)
     application.include_router(ops_voice_comparison_router)
+    # Mistakes on real calls (D-949): the owner's list per agent and the operator's board.
+    application.include_router(agent_call_mistakes_router)
+    application.include_router(ops_call_mistakes_router)
     # Which LLM legs the in-app assistant may run on, and the operator attestation behind it
     # (D-477). Its own router beside the price panel for `model_price_routes.py`'s reason:
     # same realm and permission, different store and a different write shape.

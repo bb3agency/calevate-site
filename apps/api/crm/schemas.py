@@ -183,6 +183,16 @@ MomentKindOut = Literal[
 ]
 
 
+class CallMistakeOut(Strict):
+    """One thing the agent got wrong on this call (D-949): a kind, the owner's words for it,
+    and the transcript turn it was first seen on. Never the caller's words."""
+
+    kind: str
+    label: str
+    instead: str
+    turn_idx: int
+
+
 class CallMomentOut(Strict):
     """One jump-to point in a call's recording.
 
@@ -362,6 +372,9 @@ class CallDetailOut(CallSummaryOut):
     #: hides the panel either way, and the distinction that matters to an operator is
     #: NULL-versus-`[]` in the column, which is not a client's question.
     moments: list[CallMomentOut]
+    #: What the agent got wrong on this call, in call order (D-949). Required for
+    #: `moments`' reason.
+    mistakes: list[CallMistakeOut]
     extraction: dict[str, Any] = Field(default_factory=dict)
     #: `extraction` with its labels, the core first. Required for `moments`' reason.
     captured: list[CapturedFieldOut]

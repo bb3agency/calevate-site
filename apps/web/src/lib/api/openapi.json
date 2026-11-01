@@ -3442,6 +3442,97 @@
         "title": "AgentLlmModelOut",
         "type": "object"
       },
+      "AgentMistakeOut": {
+        "additionalProperties": false,
+        "properties": {
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "calls_since_fix": {
+            "title": "Calls Since Fix",
+            "type": "integer"
+          },
+          "fixed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fixed At"
+          },
+          "instead": {
+            "title": "Instead",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "last_call_id": {
+            "format": "uuid",
+            "title": "Last Call Id",
+            "type": "string"
+          },
+          "last_seen_at": {
+            "format": "date-time",
+            "title": "Last Seen At",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "fixing",
+              "fixed",
+              "back"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "label",
+          "instead",
+          "calls",
+          "calls_since_fix",
+          "last_seen_at",
+          "last_call_id",
+          "fixed_at",
+          "state"
+        ],
+        "title": "AgentMistakeOut",
+        "type": "object"
+      },
+      "AgentMistakesOut": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AgentMistakeOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "window_days": {
+            "title": "Window Days",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "window_days"
+        ],
+        "title": "AgentMistakesOut",
+        "type": "object"
+      },
       "AgentMoveOut": {
         "additionalProperties": false,
         "properties": {
@@ -8741,6 +8832,13 @@
             ],
             "title": "Live State"
           },
+          "mistakes": {
+            "items": {
+              "$ref": "#/components/schemas/CallMistakeOut"
+            },
+            "title": "Mistakes",
+            "type": "array"
+          },
           "moments": {
             "items": {
               "$ref": "#/components/schemas/CallMomentOut"
@@ -8940,6 +9038,7 @@
           "forwarded_to_phone",
           "not_placed_reason",
           "moments",
+          "mistakes",
           "captured",
           "insights",
           "translation_state",
@@ -9879,6 +9978,36 @@
           "status"
         ],
         "title": "CallLiveOut",
+        "type": "object"
+      },
+      "CallMistakeOut": {
+        "additionalProperties": false,
+        "description": "One thing the agent got wrong on this call (D-949): a kind, the owner's words for it,\nand the transcript turn it was first seen on. Never the caller's words.",
+        "properties": {
+          "instead": {
+            "title": "Instead",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "turn_idx": {
+            "title": "Turn Idx",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "kind",
+          "label",
+          "instead",
+          "turn_idx"
+        ],
+        "title": "CallMistakeOut",
         "type": "object"
       },
       "CallMomentOut": {
@@ -36446,6 +36575,42 @@
         "title": "MetricOut",
         "type": "object"
       },
+      "MistakeFixIn": {
+        "additionalProperties": false,
+        "properties": {
+          "note": {
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "note"
+        ],
+        "title": "MistakeFixIn",
+        "type": "object"
+      },
+      "MistakeFixOut": {
+        "additionalProperties": false,
+        "properties": {
+          "fixed_at": {
+            "format": "date-time",
+            "title": "Fixed At",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "fixed_at"
+        ],
+        "title": "MistakeFixOut",
+        "type": "object"
+      },
       "ModelPriceAttestIn": {
         "additionalProperties": false,
         "properties": {
@@ -41015,6 +41180,115 @@
           "charges"
         ],
         "title": "PlatformFeeOut",
+        "type": "object"
+      },
+      "PlatformMistakeOut": {
+        "additionalProperties": false,
+        "properties": {
+          "accounts_30d": {
+            "title": "Accounts 30D",
+            "type": "integer"
+          },
+          "calls_30d": {
+            "title": "Calls 30D",
+            "type": "integer"
+          },
+          "calls_7d": {
+            "title": "Calls 7D",
+            "type": "integer"
+          },
+          "calls_since_fix": {
+            "title": "Calls Since Fix",
+            "type": "integer"
+          },
+          "fix_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fix Note"
+          },
+          "fixed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fixed At"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "last_seen_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Seen At"
+          },
+          "state": {
+            "enum": [
+              "fixing",
+              "fixed",
+              "back"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "label",
+          "calls_7d",
+          "calls_30d",
+          "accounts_30d",
+          "calls_since_fix",
+          "last_seen_at",
+          "fixed_at",
+          "fix_note",
+          "state"
+        ],
+        "title": "PlatformMistakeOut",
+        "type": "object"
+      },
+      "PlatformMistakesOut": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PlatformMistakeOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "window_days": {
+            "title": "Window Days",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "window_days"
+        ],
+        "title": "PlatformMistakesOut",
         "type": "object"
       },
       "PlatformStateIn": {
@@ -74997,6 +75271,46 @@
         "x-calevate-permission": "org:manage"
       }
     },
+    "/v1/agents/{agent_id}/call-mistakes": {
+      "get": {
+        "operationId": "list_agent_mistakes_v1_agents__agent_id__call_mistakes_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentMistakesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "What this agent got wrong on real calls, and whether it is fixed",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "agents:read"
+      }
+    },
     "/v1/agents/{agent_id}/call-outcomes": {
       "put": {
         "description": "Calls already read keep the outcome and name they were given; the next call is read against this list. A saved list is never replaced by the AI draft.",
@@ -94093,6 +94407,85 @@
           }
         },
         "summary": "Recompute the audit hash chain and report every broken link",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/ops/call-mistakes": {
+      "get": {
+        "description": "A read, so no step-up: it writes nothing and shows counts, never words.",
+        "operationId": "list_platform_mistakes_v1_ops_call_mistakes_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformMistakesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Mistakes agents made on real calls, across every client (D-949)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/ops/call-mistakes/{kind}/fixed": {
+      "post": {
+        "description": "No step-up: it changes no client's agent and no money, only when a recurrence counts\nas one. Audited, with the note.",
+        "operationId": "mark_mistake_fixed_v1_ops_call_mistakes__kind__fixed_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "title": "Kind",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MistakeFixIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MistakeFixOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Say the platform rule behind a mistake is fixed, from now",
         "tags": [
           "ops"
         ],

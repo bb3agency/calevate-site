@@ -347,6 +347,11 @@ ERASURE_EXEMPT: dict[str, str] = {
         "un-recorded would spring the cancelled card back into force on every reader at "
         "once. RLS-exempt on the same ground."
     ),
+    "platform_mistake_fixes": (
+        "An operator's one-line note that a mistake kind of the platform's own speaking "
+        "rules is fixed (D-949): a kind, the note, an admin id and a time. Platform state "
+        "with no tenant and no call; the note says what rule changed, never who called."
+    ),
     "platform_maintenance_windows": (
         "Platform state: a window and the operator's `reason` for it. Deployment-wide, "
         "never about a person, and RLS-exempt for the same reason."
@@ -408,6 +413,11 @@ ERASURE_EXEMPT: dict[str, str] = {
         "The engine's own per-turn timings for one call — milliseconds and a component "
         "name, nothing else. Numbers about a conversation are not a record of the person "
         "who had it, and the call row itself is erased."
+    ),
+    "call_mistakes": (
+        "What the agent got wrong on one call (D-949): a mistake kind and a turn index, "
+        "nothing else. No words and no number are stored; the kind names the agent's "
+        "behaviour, not the caller. The call's own words go with `calls`."
     ),
     "call_variant_assignments": (
         "Which prompt variant a call was assigned, for the experiment arm. A call id and a "

@@ -3942,6 +3942,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agents/{agent_id}/call-mistakes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What this agent got wrong on real calls, and whether it is fixed */
+        get: operations["list_agent_mistakes_v1_agents__agent_id__call_mistakes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents/{agent_id}/call-outcomes": {
         parameters: {
             query?: never;
@@ -11522,6 +11539,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/ops/call-mistakes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Mistakes agents made on real calls, across every client (D-949)
+         * @description A read, so no step-up: it writes nothing and shows counts, never words.
+         */
+        get: operations["list_platform_mistakes_v1_ops_call_mistakes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/call-mistakes/{kind}/fixed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Say the platform rule behind a mistake is fixed, from now
+         * @description No step-up: it changes no client's agent and no money, only when a recurrence counts
+         *     as one. Audited, with the note.
+         */
+        post: operations["mark_mistake_fixed_v1_ops_call_mistakes__kind__fixed_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/ops/config": {
         parameters: {
             query?: never;
@@ -14882,6 +14940,43 @@ export interface components {
              */
             llm_model_source: "agent" | "organization" | "platform";
         };
+        /** AgentMistakeOut */
+        AgentMistakeOut: {
+            /** Calls */
+            calls: number;
+            /** Calls Since Fix */
+            calls_since_fix: number;
+            /** Fixed At */
+            fixed_at: string | null;
+            /** Instead */
+            instead: string;
+            /** Kind */
+            kind: string;
+            /** Label */
+            label: string;
+            /**
+             * Last Call Id
+             * Format: uuid
+             */
+            last_call_id: string;
+            /**
+             * Last Seen At
+             * Format: date-time
+             */
+            last_seen_at: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "fixing" | "fixed" | "back";
+        };
+        /** AgentMistakesOut */
+        AgentMistakesOut: {
+            /** Items */
+            items: components["schemas"]["AgentMistakeOut"][];
+            /** Window Days */
+            window_days: number;
+        };
         /** AgentMoveOut */
         AgentMoveOut: {
             /**
@@ -16648,6 +16743,8 @@ export interface components {
             lead_name?: string | null;
             /** Live State */
             live_state?: ("live" | "unreported") | null;
+            /** Mistakes */
+            mistakes: components["schemas"]["CallMistakeOut"][];
             /** Moments */
             moments: components["schemas"]["CallMomentOut"][];
             /** Next Step */
@@ -16985,6 +17082,21 @@ export interface components {
              * @enum {string}
              */
             status_source: "call" | "engine";
+        };
+        /**
+         * CallMistakeOut
+         * @description One thing the agent got wrong on this call (D-949): a kind, the owner's words for it,
+         *     and the transcript turn it was first seen on. Never the caller's words.
+         */
+        CallMistakeOut: {
+            /** Instead */
+            instead: string;
+            /** Kind */
+            kind: string;
+            /** Label */
+            label: string;
+            /** Turn Idx */
+            turn_idx: number;
         };
         /**
          * CallMomentOut
@@ -27023,6 +27135,21 @@ export interface components {
             /** Label */
             label: string;
         };
+        /** MistakeFixIn */
+        MistakeFixIn: {
+            /** Note */
+            note: string;
+        };
+        /** MistakeFixOut */
+        MistakeFixOut: {
+            /**
+             * Fixed At
+             * Format: date-time
+             */
+            fixed_at: string;
+            /** Kind */
+            kind: string;
+        };
         /** ModelPriceAttestIn */
         ModelPriceAttestIn: {
             /** Cached Input Usd Per Mtok */
@@ -28590,6 +28717,39 @@ export interface components {
             grace_days: number;
             /** Outbound Paused */
             outbound_paused: boolean;
+        };
+        /** PlatformMistakeOut */
+        PlatformMistakeOut: {
+            /** Accounts 30D */
+            accounts_30d: number;
+            /** Calls 30D */
+            calls_30d: number;
+            /** Calls 7D */
+            calls_7d: number;
+            /** Calls Since Fix */
+            calls_since_fix: number;
+            /** Fix Note */
+            fix_note: string | null;
+            /** Fixed At */
+            fixed_at: string | null;
+            /** Kind */
+            kind: string;
+            /** Label */
+            label: string;
+            /** Last Seen At */
+            last_seen_at: string | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "fixing" | "fixed" | "back";
+        };
+        /** PlatformMistakesOut */
+        PlatformMistakesOut: {
+            /** Items */
+            items: components["schemas"]["PlatformMistakeOut"][];
+            /** Window Days */
+            window_days: number;
         };
         /** PlatformStateIn */
         PlatformStateIn: {
@@ -44194,6 +44354,37 @@ export interface operations {
             };
         };
     };
+    list_agent_mistakes_v1_agents__agent_id__call_mistakes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentMistakesOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     put_call_outcomes_v1_agents__agent_id__call_outcomes_put: {
         parameters: {
             query?: never;
@@ -58012,6 +58203,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ChainVerifyOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_platform_mistakes_v1_ops_call_mistakes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformMistakesOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    mark_mistake_fixed_v1_ops_call_mistakes__kind__fixed_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                kind: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MistakeFixIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MistakeFixOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

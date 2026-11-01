@@ -66,7 +66,7 @@ from calevate_shared.lead_fields import with_core
 from sqlalchemy import Numeric, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents import assignment
+from apps.api.agents import assignment, call_mistakes
 from apps.api.agents import call_outcomes as agent_outcomes
 from apps.api.agents.field_suggestions import queue_on_repeat
 from apps.api.agents.lead_fields import business_type_label
@@ -1521,6 +1521,26 @@ async def _run_post_call_stages(
                 turns=redacted_turns,
             )
             set_span_attributes(stage, gap_count=gap_count)
+
+    # STEP 3c' — mistakes on real calls (D-949): the practice-test turn checks, read on this
+    # call, so the same mistake is counted across calls and a fixed one is caught coming
+    # back. Kinds and turn indexes only are stored (hard rule 6). Idempotent per call.
+    if snapshot.transcript:
+        with span("pipeline.call_mistakes", call_id=str(call_id), agent_id=str(agent_id)) as stage:
+            languages = await _agent_languages(tenant_id, agent_id)
+            found = call_mistakes.mistakes_in(
+                snapshot.transcript,
+                language=languages[0] if languages else "",
+                unheard=likely_cut_off(snapshot.transcript),
+            )
+            await call_mistakes.record_call_mistakes(
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                call_id=call_id,
+                call_started_at=snapshot.started_at or datetime.now(UTC),
+                found=found,
+            )
+            set_span_attributes(stage, mistake_count=len(found))
 
     # STEP 3d — what the call came to, in words: the summaries as the engine and the model
     # wrote them, the headline and the next step (founder decisions 4, 5, 12). After

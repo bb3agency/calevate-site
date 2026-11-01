@@ -170,6 +170,9 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # woken, and the operator sees it on the board next time they look, which is the
     # right latency for "a capability is off" — it was already off yesterday.
     "kb_detach_failed": "attention",
+    # A mistake marked fixed came back on a real call (D-949). Our platform rule did not
+    # hold; the call itself already happened, so this is work, not an outage.
+    "call_mistake_back": "attention",
     # A client's knowledge upload has failed to publish for hours and is still being retried.
     "kb_ingest_stuck": "attention",
     "engine_capability_absent": "attention",
