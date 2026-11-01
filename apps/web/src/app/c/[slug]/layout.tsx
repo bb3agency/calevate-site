@@ -12,7 +12,7 @@ import { ClientRealmProvider } from "@/lib/api/session";
 
 import { ClientAnnouncements } from "./ClientAnnouncements";
 import { ClientSidebar } from "./ClientSidebar";
-import { ClientTopHeader } from "./ClientTopHeader";
+import { ClientTopHeader, CreditStrip } from "./ClientTopHeader";
 import { TrialBanner } from "./TrialBanner";
 import { ViewAsBanner } from "./ViewAsBanner";
 
@@ -105,6 +105,8 @@ export default function ClientRealmLayout({
                   bar carries it. Renders nothing otherwise. */}
               <TrialBanner />
               <ClientTopHeader slug={slug} onMenuToggle={() => setIsMobileOpen(true)} />
+              {/* Phones only: the bar has no room for the credit chip there. */}
+              <CreditStrip slug={slug} />
               {/* `tabIndex={-1}` is what makes `SkipLink` actually skip: following a
                   fragment scrolls to the target but only MOVES FOCUS if the target is
                   focusable, so without it the next Tab resumes inside the navigation the

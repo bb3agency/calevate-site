@@ -198,7 +198,10 @@ export function AgentLifecycle({
       {moves.map((key) => {
         const copy = MOVE_COPY[key];
         const Icon = copy.icon;
-        const open = confirming === key;
+        // Held open while the confirmed move is in flight, so the confirm button shows it
+        // pending (and ignores a second press) instead of reverting to the trigger.
+        const inFlight = move.isPending && move.variables === key;
+        const open = confirming === key || inFlight;
         return (
           <div key={key}>
             <p className="text-sm font-semibold text-ink">{copy.label}</p>
@@ -260,7 +263,7 @@ export function AgentLifecycle({
                   {copy.confirm?.go ?? copy.label}
                 </ActionButton>
               )}
-              {copy.confirm && open && (
+              {copy.confirm && open && !inFlight && (
                 <button
                   type="button"
                   onClick={() => setConfirming(null)}
