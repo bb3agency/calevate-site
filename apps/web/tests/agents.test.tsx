@@ -480,16 +480,18 @@ describe("deleting an agent from the roster", () => {
     );
   });
 
-  it("says the delete worked after the dialog has closed", async () => {
+  it("says the delete worked though the row has left the list by then", async () => {
+    let archivedYet = false;
     await renderClientPage(
       <ToastProvider>{page}</ToastProvider>,
       routes({
         ...ROSTER,
-        "POST /v1/agents/a-off/archive": {
-          agent_id: "a-off",
-          status: "archived",
-          changed: true,
-          numbers_released: 0,
+        // The roster excludes a deleted agent, and the move's refresh is awaited, so the
+        // row is gone before the move reports success.
+        "/v1/agents": () => (archivedYet ? ROSTER["/v1/agents"].slice(0, 1) : ROSTER["/v1/agents"]),
+        "POST /v1/agents/a-off/archive": () => {
+          archivedYet = true;
+          return { agent_id: "a-off", status: "archived", changed: true, numbers_released: 0 };
         },
       }),
     );
@@ -499,9 +501,9 @@ describe("deleting an agent from the roster", () => {
     await act(async () => {
       fireEvent.click(await pressable(panel, /Delete Weekend line/));
     });
-    // The dialog closes in the render the delete succeeds in; the toast must still come.
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(await screen.findByText("Weekend line deleted")).toBeTruthy();
+    expect(within(roster()).queryByText("Weekend line")).toBeNull();
   });
 
   it("offers no delete on an agent that is already deleted", async () => {

@@ -61,6 +61,23 @@ export function Roster({ agents, slug }: { agents: Agent[]; slug: string }) {
   const stats = useAgentStats(session);
   // Like the figures: a row whose score has not arrived (or failed) shows none, never a 0.
   const readiness = useAccountReadiness(session, ROSTER_LIMIT);
+  // The list, not the row or its dialog, holds the delete: the move's refresh is awaited, so
+  // the deleted agent's row has already left the list when the move succeeds, and a feedback
+  // hook unmounted with it would never say it worked. `target` outlives the dialog so the
+  // toast can name the agent.
+  const [target, setTarget] = useState<Agent | null>(null);
+  const [asking, setAsking] = useState(false);
+  const move = useAgentLifecycle(session, target?.id ?? "");
+  const moveFeedback = useActionFeedback(move, {
+    errorDisplay: "inline",
+    successToast: (_data, step) =>
+      target === null ? null : step === "archive" ? `${target.name} deleted` : `${target.name} switched off`,
+  });
+  const askToDelete = (agent: Agent) => {
+    move.reset();
+    setTarget(agent);
+    setAsking(true);
+  };
 
   if (agents.length === 0) {
     return (
@@ -80,7 +97,28 @@ export function Roster({ agents, slug }: { agents: Agent[]; slug: string }) {
     ...agents.filter((agent) => agentGroup(agent) === "active"),
     ...agents.filter((agent) => agentGroup(agent) !== "active"),
   ];
-  return <AgentList rows={ordered} slug={slug} stats={stats.data} readiness={readiness.data} label="Your agents" />;
+  return (
+    <>
+      <AgentList
+        rows={ordered}
+        slug={slug}
+        stats={stats.data}
+        readiness={readiness.data}
+        label="Your agents"
+        onDelete={askToDelete}
+      />
+      {asking && target !== null && (
+        <DeleteDialog
+          // The roster's current copy of the agent, so a refetch while the dialog is open
+          // (it was switched on elsewhere) changes which question it asks.
+          agent={agents.find((agent) => agent.id === target.id) ?? target}
+          move={move}
+          status={moveFeedback.status}
+          onClose={() => setAsking(false)}
+        />
+      )}
+    </>
+  );
 }
 
 /**
@@ -113,6 +151,7 @@ function AgentList({
   readiness,
   label,
   archived = false,
+  onDelete,
 }: {
   rows: Agent[];
   slug: string;
@@ -121,6 +160,8 @@ function AgentList({
   readiness?: AccountReadiness;
   label: string;
   archived?: boolean;
+  /** Absent on the deleted list, whose rows offer no delete. */
+  onDelete?: (agent: Agent) => void;
 }) {
   return (
     <ul
@@ -132,8 +173,8 @@ function AgentList({
           key={agent.id}
           agent={agent}
           slug={slug}
-          archived={archived}
           index={index}
+          onDelete={archived ? undefined : onDelete}
           // `find`, not an index keyed by server ids: a keyed object inherits
           // `Object.prototype` (src/lib/lookup.ts), and the roster is bounded at 200 rows.
           stats={stats?.find((row) => row.agent_id === agent.id)}
@@ -147,29 +188,19 @@ function AgentList({
 function AgentRow({
   agent,
   slug,
-  archived,
   stats,
   score,
   index,
+  onDelete,
 }: {
   agent: Agent;
   slug: string;
-  archived: boolean;
   stats: AgentStats | undefined;
   score?: number;
   index: number;
+  onDelete?: (agent: Agent) => void;
 }) {
   const { href } = useClientRealm();
-  const [deleting, setDeleting] = useState(false);
-  // The row, not the dialog, holds the mutation and its feedback: the dialog closes in the
-  // render the mutation succeeds in, and a feedback hook unmounted by that render never sees
-  // the success it would announce.
-  const session = useClientSession();
-  const move = useAgentLifecycle(session, agent.id);
-  const moveFeedback = useActionFeedback(move, {
-    errorDisplay: "inline",
-    successToast: (_data, step) => (step === "archive" ? `${agent.name} deleted` : `${agent.name} switched off`),
-  });
   const direction = lookup(DIRECTION_COPY, agent.direction);
   const language = lookup(LANGUAGE_NAMES, agent.language_primary) ?? agent.language_primary;
   const ownTier = agentOwnTier(agent);
@@ -227,18 +258,15 @@ function AgentRow({
           <LiveBadge agent={agent} />
         </span>
       </Link>
-      {!archived && (
+      {onDelete && (
         <RowMenu
           label={agent.name}
           items={[
             { id: "open", label: "Open", href: open },
             { id: "script", label: "Edit its script", href: href(`/c/${slug}/agents/${agent.id}?section=script`) },
-            { id: "delete", label: "Delete…", tone: "danger", onSelect: () => setDeleting(true) },
+            { id: "delete", label: "Delete…", tone: "danger", onSelect: () => onDelete(agent) },
           ]}
         />
-      )}
-      {deleting && (
-        <DeleteDialog agent={agent} move={move} status={moveFeedback.status} onClose={() => setDeleting(false)} />
       )}
     </li>
   );
