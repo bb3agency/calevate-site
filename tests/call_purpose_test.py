@@ -203,3 +203,42 @@ def test_campaign_purpose_follows_the_choices_the_client_made(
 def test_lead_source_purpose_follows_the_declared_basis() -> None:
     assert lead_source_purpose("application").window == "3 months from their application"
     assert lead_source_purpose("inquiry").window == "7 days from their enquiry"
+
+
+@pytest.mark.parametrize(
+    ("wording", "language"),
+    [("ఉచిత కన్సల్టేషన్ ఉంది.", "te"), ("मुफ्त जांच करवाइए।", "hi")],
+)
+def test_free_on_its_own_in_telugu_or_hindi_asks_for_a_check(wording: str, language: str) -> None:
+    report = lint([ScriptPart("Test", wording)])
+    assert report.verdict == "check"
+    assert [(f.category, f.language) for f in report.findings] == [("free_offer", language)]
+
+
+def test_words_two_rules_both_match_are_reported_once() -> None:
+    """The strong free-gift rule and the voucher rule both match "free voucher": one finding."""
+    report = lint([ScriptPart("Test", "Get a free voucher with every visit.")])
+    assert report.verdict == "promotional"
+    assert len(report.findings) == 1
+
+
+def test_script_parts_read_every_section_and_its_steps() -> None:
+    script = CallScript.model_validate(
+        {
+            "schema_version": 2,
+            "stages": [
+                {
+                    "id": "pitch",
+                    "name": "Pitch",
+                    "instruction": "Tell them about the visit.",
+                    "procedure": [{"action": "Mention our mega sale."}],
+                }
+            ],
+        }
+    )
+    parts = script_parts(script)
+    assert [p.text for p in parts if p.where == "Section “Pitch”"] == [
+        "Tell them about the visit.",
+        "Mention our mega sale.",
+    ]
+    assert lint(parts).verdict == "promotional"
