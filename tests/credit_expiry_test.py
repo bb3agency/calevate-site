@@ -236,6 +236,30 @@ async def test_the_daily_job_expires_only_what_is_due(expiry_on: None) -> None:
     assert lot is not None and lot.closed_at is None, "a lot not yet due was expired"
 
 
+async def test_one_account_whose_due_lots_cannot_be_read_does_not_stop_the_sweep(
+    expiry_on: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from apps.workers import credit_expiry as worker
+
+    await _tenant(monthly_fee=None)
+    calls = 0
+
+    async def _flaky(session: object, *, now: datetime) -> list[uuid.UUID]:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("database busy")
+        return []
+
+    alarms: list[str] = []
+    monkeypatch.setattr(worker, "due_lots", _flaky)
+    monkeypatch.setattr(worker, "alert", lambda _stage, code, **_k: alarms.append(code))
+    summary = await expire_credit_lots({})
+    assert calls > 1, "the sweep stopped at the first account"
+    assert "'failed': 1" in summary
+    assert alarms == ["credit_expiry_incomplete"]
+
+
 async def test_a_lot_not_yet_due_is_left_alone_when_asked_directly(expiry_on: None) -> None:
     """`expire_lot` re-reads the lot under the credit lock: a caller holding a stale due list
     must not lapse credit that is not due."""
