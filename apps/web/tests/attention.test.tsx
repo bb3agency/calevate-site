@@ -1,4 +1,5 @@
-import { screen } from "@testing-library/react";
+import { QueryClient } from "@tanstack/react-query";
+import { act, fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import AttentionPage from "@/app/c/[slug]/attention/page";
@@ -231,6 +232,19 @@ describe("the needs-attention queue", () => {
     // no chip at all.
     expect(container.textContent).not.toContain("Delivery failed");
     expect(container.textContent).not.toContain("Knowledge not accepted");
+  });
+
+  it("goes back to everything when the chosen kind empties, rather than an empty list", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const answers = routes();
+    await renderClientPage(page, answers, "acme", client);
+    fireEvent.click(await screen.findByRole("radio", { name: /Campaign stalled/ }));
+    expect(screen.queryByText("+919876543210 was not called")).toBeNull();
+
+    // The stalled campaign was resumed elsewhere; the queue re-reads with one kind left.
+    answers["/v1/attention"] = queue({ total: 1, counts: { lead_blocked: 1 }, items: [BLOCKED] });
+    await act(() => client.invalidateQueries());
+    expect(await screen.findByText("+919876543210 was not called")).toBeTruthy();
   });
 
   it("explains a missing permission instead of answering with an error", async () => {

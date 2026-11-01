@@ -35,7 +35,7 @@ export default function AttentionPage({ params }: { params: Promise<{ slug: stri
   const { session, href } = useClientRealm();
   const queue = useAttention(session);
   const me = useMe(session);
-  const [filter, setFilter] = useState<string>(ALL);
+  const [chosen, setFilter] = useState<string>(ALL);
 
   /**
    * `GET /v1/attention` requires `leads:read` — staff work this queue, so it is
@@ -50,6 +50,9 @@ export default function AttentionPage({ params }: { params: Promise<{ slug: stri
   const counts: Record<string, number> = data?.counts ?? {};
   const countOf = (kind: AttentionKind): number => lookup(counts, kind) ?? 0;
   const kinds = (Object.keys(KIND_COPY) as AttentionKind[]).filter((kind) => countOf(kind) > 0);
+  // A kind whose last item was handled while it was chosen drops out of `kinds`, and with
+  // it the control's option: back to everything, rather than an empty list nobody can leave.
+  const filter = chosen === ALL || kinds.some((kind) => kind === chosen) ? chosen : ALL;
   useAttentionCopilot(queue, me, { value: filter, all: ALL, kinds, set: setFilter });
 
   const refused = me.data !== undefined && !me.data.permissions.includes("leads:read");
