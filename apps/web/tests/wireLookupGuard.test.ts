@@ -70,9 +70,12 @@ describe("the ESLint ban on `in` with a wire-supplied key", () => {
     // for `pnpm lint` (https://eslint.org/docs/latest/integrate/nodejs-api). The real
     // project config is loaded — this asserts the rule that actually ships, not a rule
     // re-declared here, which would pass with the config's copy deleted.
+    // Loading the project config takes ~8s on an idle machine, so vitest's 10s hook default
+    // fails it under a full parallel run; the budget is explicit for the reason the type
+    // scan's below is.
     const eslint = new ESLint({ cwd: WEB_ROOT, ignore: false });
     messages = await eslint.lintFiles([FIXTURE]);
-  });
+  }, 60_000);
 
   it("flags the dynamic-key `in`, and nothing else in the file", () => {
     const flagged = messages
