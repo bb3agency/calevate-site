@@ -2245,15 +2245,30 @@ describe("changing what an agent is", () => {
     expect(await shown.findByRole("checkbox", { name: "Tamil" })).toBeTruthy();
   });
 
-  it("offers a ready-made opening line in the new main language once it is saved (D-838)", async () => {
+  it("offers an opening line written in the new main language once it is saved (D-838, D-965)", async () => {
+    const proposal = (status: "drafting" | "ready") => ({
+      id: "p-lang",
+      mode: "written",
+      documents: [],
+      status,
+      request: null,
+      base_script: { ...EMPTY_SCRIPT, opening_line: "Namaskaram." },
+      script: status === "ready" ? { ...EMPTY_SCRIPT, opening_line: "नमस्ते जी, आज क्या चाहिए?" } : null,
+      unplaced: [],
+      disclosure: null,
+      note: null,
+      requested_at: "2026-11-02T10:00:00Z",
+    });
+    let asked = false;
     const { calls } = await renderClientPage(
       page,
       routes({
         "PATCH /v1/agents/agent-1": agent({ language_primary: "hi-IN", reply_languages: ["hi-IN"] }),
-        "POST /v1/agents/agent-1/script/opening-line/in-language": {
-          opening_line: "नमस्ते जी, Sunrise में call करने के लिए thank you.",
-          saved_at: "2026-10-20T10:00:00Z",
+        "POST /v1/agents/agent-1/script/opening-line/in-language": () => {
+          asked = true;
+          return proposal("drafting");
         },
+        "/v1/agents/agent-1/script/proposal": () => ({ proposal: asked ? proposal("ready") : null }),
       }),
     );
 
@@ -2267,11 +2282,11 @@ describe("changing what an agent is", () => {
     await act(async () => {
       fireEvent.click(await pressable(panel, /Save changes/));
     });
-    const offer = await within(panel).findByRole("button", { name: "Use a ready-made opening line in Hindi" });
+    const offer = await within(panel).findByRole("button", { name: "Write my opening line in Hindi" });
     await act(async () => {
       fireEvent.click(offer);
     });
-    expect(await within(panel).findByText(/नमस्ते जी/)).toBeTruthy();
+    expect(await within(panel).findByText(/आज क्या चाहिए/)).toBeTruthy();
     expect(calls.some((c) => c.method === "POST" && c.path.endsWith("/opening-line/in-language"))).toBe(true);
   });
 

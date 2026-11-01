@@ -92,11 +92,11 @@ COVERAGE: dict[str, tuple[tuple[str, str], ...]] = {
     # Turned round: "say so rather than going quiet" put a "one second" filler before answers;
     # the engine speaks its own filler after two seconds of silence.
     DEFAULT_CALL_RULES[5]: ((OURS, "Never narrate a search or a wait"),),
-    DEFAULT_CALL_RULES[6]: ((OURS, "or no clear reply twice: say so"),),
+    DEFAULT_CALL_RULES[6]: ((OURS, "or no clear reply twice to one question: say so"),),
     DEFAULT_CALL_RULES[7]: (
         (OURS, "never a guess: a place or address, a project, stock or availability, a price"),
     ),
-    DEFAULT_CALL_RULES[8]: ((OURS, "or no clear reply twice: say so"),),
+    DEFAULT_CALL_RULES[8]: ((OURS, "or no clear reply twice to one question: say so"),),
     DEFAULT_CALL_RULES[9]: ((OURS, "how such businesses usually work"),),
     DEFAULT_CALL_RULES[10]: ((OURS, "how long something takes"),),
     DEFAULT_CALL_RULES[11]: ((OURS, "Never say anything is booked, fixed, confirmed or done"),),

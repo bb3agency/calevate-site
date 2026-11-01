@@ -80,7 +80,8 @@ def test_the_prompt_quotes_the_exact_opening_already_spoken_and_says_to_go_on() 
     assert "Never greet, say hello back, repeat it or its names, or re-ask if now suits" in rule
     # A caller's first question gets its answer, never the opening again (D-910).
     assert "even after answering." in rule
-    assert '("hello", "yes", any language) is a yes' in rule
+    # A one-word "No" to "can we talk now?" is no yes (D-965).
+    assert "A hello or yes, in any language, is a yes" in rule
     assert "why you call or your first question" in rule
 
 
@@ -106,8 +107,9 @@ def test_what_the_section_costs() -> None:
     spoken = compose_first_utterance(_cfg("both"))
     print(f"START OF THE CALL: {len(start)} chars, of which the quoted opening {len(spoken)}")
     # 498 before D-958, which named a hello said back and the business name again (+40); D-961
-    # added the rule that a claim about the person needs THIS CALL (+77).
-    assert len(start) - len(spoken) < 620
+    # added the rule that a claim about the person needs THIS CALL (+77); D-965 what a no,
+    # busy or later to the opening's question gets (+56).
+    assert len(start) - len(spoken) < 680
 
 
 # --- the turn check -----------------------------------------------------------------------

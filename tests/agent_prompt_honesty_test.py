@@ -121,8 +121,8 @@ def test_the_chat_hears_the_honesty_rules_the_call_rules_would_have_given() -> N
     assert "what happens next" not in ACTION_CLAIM_RULE
     prompt = compose_engine_prompt(_cfg())
     assert (
-        'No answer after searching ("the team will share that"), or no clear reply twice: '
-        "say so, then" in prompt
+        'No answer after searching ("the team will share that"), or no clear reply twice to '
+        "one question: say so, then" in prompt
     )
 
 

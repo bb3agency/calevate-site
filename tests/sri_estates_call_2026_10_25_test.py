@@ -116,7 +116,7 @@ def test_every_agent_reads_today_and_the_name_and_the_rules_that_use_them() -> N
             assert prompt.index(rule) > prompt.index(OPENING)
             assert prompt.index(rule) < prompt.index(CONFIDENTIALITY_MARKER)
     assert "never a past one" in DAYS_RULE and "Ask which" in DAYS_RULE
-    assert "Ask it once, after your first answer" in NAME_RULE
+    assert "Ask once, to book, call back or hand over, or at the close" in NAME_RULE
 
 
 # --- 3 and 4. open questions for what the caller decides, the next days for a visit -------

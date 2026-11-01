@@ -58,6 +58,17 @@ async def _opening(tenant_id: UUID, agent_id: UUID) -> str:
     return opening_line_of(row[0])
 
 
+async def _written_suggestion(tenant_id: UUID, agent_id: UUID) -> str | None:
+    """The status of the agent's `written` opening suggestion, if one is waiting."""
+    row = await _one(
+        tenant_id,
+        "SELECT script_proposal->>'status' FROM agents "
+        "WHERE id = :a AND script_proposal->>'mode' = 'written'",
+        a=agent_id,
+    )
+    return None if row is None else str(row[0])
+
+
 def _create(name: str, direction: str, job: str | None) -> dict[str, Any]:
     return {"name": name, "direction": direction, "language_primary": "en-IN", "job": job}
 
@@ -78,7 +89,9 @@ async def test_a_job_gives_the_new_agent_its_ready_made_script_and_details() -> 
         a=agent_id,
     )
     assert (row[0], row[1]) == ("inbound", "draft")
-    assert await _opening(tenant_id, agent_id) != ""
+    # No ready-made opening; one is written for the business as a suggestion (D-965).
+    assert await _opening(tenant_id, agent_id) == ""
+    assert await _written_suggestion(tenant_id, agent_id) == "drafting"
 
 
 async def test_both_starts_from_the_answering_job_and_is_widened() -> None:
@@ -89,7 +102,8 @@ async def test_both_starts_from_the_answering_job_and_is_widened() -> None:
     agent_id = UUID(receipt.object_id)
     row = await _one(tenant_id, "SELECT direction FROM agents WHERE id = :a", a=agent_id)
     assert row[0] == "both"
-    assert await _opening(tenant_id, agent_id) != ""
+    assert await _opening(tenant_id, agent_id) == ""
+    assert await _written_suggestion(tenant_id, agent_id) == "drafting"
 
 
 @pytest.mark.parametrize(
@@ -139,7 +153,9 @@ async def _starter_agent(tenant_id: UUID, token: str) -> UUID:
 async def test_the_opening_line_is_replaced_and_undo_puts_the_old_one_back() -> None:
     tenant_id, slug, token = await _make_tenant()
     agent_id = await _starter_agent(tenant_id, token)
-    before = await _opening(tenant_id, agent_id)
+    # A starter carries no opening (D-965), so the line undo puts back is set first.
+    before = "Hello, front desk here. What can I do for you?"
+    await _run(tenant_id, token, "agent_edit", _edit(agent_id, before))
     line = "Hello, you have reached the front desk. How can I help you today?"
     receipt = await _run(tenant_id, token, "agent_edit", _edit(agent_id, line))
     assert receipt.applied is True

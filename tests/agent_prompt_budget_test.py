@@ -231,6 +231,11 @@ def test_a_guided_call_with_step_by_step_lists_fits_with_margin() -> None:
 #: promised a call back and asked a name on a question its knowledge answered, so "answer what
 #: your knowledge holds; being an AI is no reason not to" is new text, the name is asked after
 #: the first answer, and the "one kg" and "crores" illustrations went (D-915: neutral).
+#: D-965 (2 Nov 2026) left both where they were (7,442/6,567): a bare "OK" re-asks only after
+#: a question, an "OK" after an explanation goes on, not knowing an answer gets help rather
+#: than a close, the name waits for a use, and "no clear reply twice" is to one question; paid
+#: for by merging the bare-"OK" and "Unclear?" rules, one talked-over/too-fast clause, no
+#: "anything else" in the close and shorter clauses elsewhere.
 PER_CALL_MAX = 7_444
 PER_CALL_ONE_LANGUAGE_MAX = 6_569
 

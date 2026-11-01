@@ -59,7 +59,6 @@ from apps.api.agents import (
     script_builder,
     script_proposals,
     script_publish,
-    starters,
     test_conversations,
     test_titles,
     trial_results,
@@ -1297,8 +1296,9 @@ class ScriptProposalOut(BaseModel):
     #: `change` (one change), `whole` (the whole script from the owner's answers), `steps` (a
     #: hand-written script turned into steps) or `knowledge` (what files added to the
     #: knowledge tell callers, worked into the current script, D-923) or `opening` (the
-    #: opening line written to follow the agent's introduction, D-865).
-    mode: Literal["change", "whole", "steps", "knowledge", "opening"]
+    #: opening line written to follow the agent's introduction, D-865) or `written` (the
+    #: opening lines written for this business in the agent's main language, D-965).
+    mode: Literal["change", "whole", "steps", "knowledge", "opening", "written"]
     #: The files a `knowledge` suggestion was written from, by name.
     documents: list[str]
     #: `drafting` until it is written (poll), then `ready`, or `failed` with `note`.
@@ -1535,31 +1535,33 @@ async def restore_script_version(
     return DraftOut(script=draft.script, saved_at=draft.saved_at)
 
 
-class OpeningRewrittenOut(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    #: The opening line now in the draft, in the agent's main language.
-    opening_line: str
-    saved_at: datetime
-
-
 @router.post(
     "/opening-line/in-language",
-    response_model=OpeningRewrittenOut,
+    response_model=ScriptProposalOut,
+    status_code=202,
     openapi_extra=permission_meta("org:manage"),
-    summary="Put a ready-made opening line in the agent's main language into the draft",
+    summary="Ask for the opening lines written for this business in the agent's main language",
     description=(
-        "Offered after the agent's main language changes (D-838). The line is the "
-        "ready-made greeting for this business type in that language, written into the "
-        "autosaved draft; callers keep the live script until the draft is put live."
+        "Offered after the agent's main language changes (D-838, D-965). Queues a `written` "
+        "suggestion with the opening lines written for this business in that language; poll "
+        "`GET .../proposal` until it is `ready` and review it on the Script page. Nothing "
+        "reaches a caller until the line is put live."
     ),
 )
 async def rewrite_opening_in_language(
-    agent_id: UUID, session: Session, _: ScriptWriter
-) -> OpeningRewrittenOut:
-    # Not audited, for the autosave's reason: nothing here reaches a call. Putting it live is.
-    done = await starters.rewrite_opening_in_language(session, agent_id)
-    return OpeningRewrittenOut(opening_line=done.opening_line, saved_at=done.saved_at)
+    agent_id: UUID, session: Session, principal: ScriptWriter
+) -> ScriptProposalOut:
+    assert principal.tenant_id is not None
+    # Spends the dashboard AI allowance like any suggestion Pip writes.
+    assert_view_as_may(principal, "billing.ai_assist")
+    await require_ai_assist(session, tenant_id=principal.tenant_id)
+    proposal = await script_proposals.request_written_opening(
+        session,
+        tenant_id=principal.tenant_id,
+        agent_id=agent_id,
+        requested_by=principal.user_id,
+    )
+    return _proposal_out(proposal)
 
 
 class OpeningLineIn(BaseModel):

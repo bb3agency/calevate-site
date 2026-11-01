@@ -43,7 +43,6 @@ from __future__ import annotations
 import contextlib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Any, Final, Literal, get_args
 from uuid import UUID
 
@@ -67,15 +66,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents.extraction_routes import validate_fields, write_schema
 from apps.api.agents.lead_fields import starting_business_fields
 from apps.api.agents.models import AgentDirection
-from apps.api.agents.script_builder import (
-    load_agent_script,
-    read_draft,
-    rewrite_script,
-    save_agent_script,
-    save_draft,
-)
+from apps.api.agents.script_builder import rewrite_script, save_agent_script
 from apps.api.agents.trade_playbooks import playbook_for
-from apps.api.agents.write_guard import archived_refusal
 from apps.api.core.errors import ProblemError
 from apps.api.tenancy.business_copy import read_state as read_business_copy
 
@@ -667,6 +659,11 @@ async def apply_starter(
     is written FIRST, because the script's "what to collect" section is compiled from it at
     the save. `language` picks the example call (`spoken_style.json`). Returns the script
     version.
+
+    The script carries no opening line (D-965): the starter's is the same for every business
+    of a type (D-962, D-963). The caller has one written for the business: Meet your agent
+    writes it in its run, `POST /v1/agents` and Pip queue a `written` suggestion
+    (`script_proposals.request_written_opening`).
     """
     jobs = starter_jobs(job)
     # The ACCOUNT's business fields, not the starter catalogue's vertical: a type with no
@@ -683,6 +680,7 @@ async def apply_starter(
         jobs,
         language,
     )
+    script = script.model_copy(update={"opening_line": "", "outbound_opening_line": ""})
     saved = await save_agent_script(
         session,
         tenant_id=tenant_id,
@@ -860,48 +858,6 @@ async def replace_unedited_starter(
     )
 
 
-@dataclass(frozen=True, slots=True)
-class RewrittenOpening:
-    opening_line: str
-    saved_at: datetime
-
-
-async def rewrite_opening_in_language(session: AsyncSession, agent_id: UUID) -> RewrittenOpening:
-    """Put the ready-made opening line in the agent's main language into its working copy.
-
-    The owner's one click after changing the main language (D-838). The line is the one a
-    starter agent of this business type greets with in that language, so it is a sentence
-    we wrote and reviewed rather than a machine translation of the owner's. It goes into the
-    autosaved draft and reaches no caller until the owner puts it live; the rest of the
-    working copy is kept.
-    """
-    row = (
-        await session.execute(
-            text(
-                "SELECT a.direction, a.language_primary, o.name, o.vertical_template, a.status "
-                "FROM agents a JOIN organizations o ON o.id = a.tenant_id "
-                "WHERE a.id = :aid AND a.deleted_at IS NULL"
-            ),
-            {"aid": agent_id},
-        )
-    ).first()
-    if row is None:
-        raise ProblemError.not_found("Agent")
-    if str(row[4]) == "archived":
-        raise archived_refusal("edited")
-    # A "both" agent greets as the receptionist: it is the caller who rang who hears it first.
-    job: StarterJob = "call_leads" if str(row[0]) == "outbound" else "answer_calls"
-    line = starter_for(None if row[3] is None else str(row[3]), job).opening_for(
-        str(row[2]), str(row[1])
-    )
-    draft = await read_draft(session, agent_id)
-    script = (
-        draft.script if draft is not None else (await load_agent_script(session, agent_id)).script
-    )
-    saved_at = await save_draft(session, agent_id, script.model_copy(update={"opening_line": line}))
-    return RewrittenOpening(opening_line=line, saved_at=saved_at)
-
-
 __all__ = [
     "CATALOGUE",
     "JOBS_OF_DIRECTION",
@@ -914,7 +870,6 @@ __all__ = [
     "TRADES",
     "JobChoice",
     "LineSet",
-    "RewrittenOpening",
     "Starter",
     "StarterJob",
     "StarterStep",
@@ -925,7 +880,6 @@ __all__ = [
     "direction_of_jobs",
     "jobs_label",
     "replace_unedited_starter",
-    "rewrite_opening_in_language",
     "starter_for",
     "starter_jobs",
     "starter_opening",

@@ -57,7 +57,7 @@ from pydantic.config import JsonDict
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents import lifecycle, roster, starters
+from apps.api.agents import lifecycle, roster, script_proposals, starters
 
 # The languages the product sells, imported rather than respelled. `OfferedLanguage` and
 # not the bare `Literal`: same OpenAPI enum, and a refusal written for the person holding
@@ -652,8 +652,10 @@ async def _agent_row(session: AsyncSession, agent_id: UUID) -> AgentOut:
         "activated, and it cannot be activated until it has a script.\n\n"
         "Send `starter` (`answer_calls`, `call_new_leads` or `call_leads`) to start from a "
         "ready-made agent "
-        "for your business type: its script, opening line and the details it captures are "
-        "filled in for you to review (`GET /v1/agents/starters` previews them). The job "
+        "for your business type: its script and the details it captures are filled in for "
+        "you to review (`GET /v1/agents/starters` previews them), and its opening lines are "
+        "written for your business as a suggestion on the Script page "
+        "(`GET .../script/proposal`). The job "
         "sets the calling direction; a `direction` that contradicts it is refused with "
         "`starter_direction_mismatch`.\n\n"
         "Both opening notices — the AI disclosure and the recording notice — are written "
@@ -687,6 +689,15 @@ async def create_agent_route(
         starter=payload.starter,
         created_by=principal.user_id,
     )
+    if payload.starter is not None:
+        # The starter leaves the openings empty; they are written for this business by the
+        # proposal job and reviewed on the Script page (D-965).
+        await script_proposals.request_written_opening(
+            session,
+            tenant_id=principal.tenant_id,
+            agent_id=agent_id,
+            requested_by=principal.user_id,
+        )
     await write_audit(
         session,
         action="agent.created",

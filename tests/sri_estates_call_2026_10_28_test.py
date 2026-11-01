@@ -98,11 +98,11 @@ def test_the_prompt_carries_each_fix_and_keeps_the_locked_text() -> None:
         # F2: no options for a count, not even as examples after an open question.
         "never for counts or amounts, not even as examples.",
         # F3: an answer that fits no option is asked again.
-        "- Unclear? Ask again, reworded; never pick for them.",
+        "Ask one thing again, reworded; never pick for them.",
         # F4: no promise to slow down.
-        "Too fast or hard to follow? Sorry once, no promise, go on where you were, shorter.",
+        "Talked over or too fast? Stop, answer, sorry once, no promise, go on shorter.",
         # F5: one line for the close.
-        "- Close: what happens next in one line, no recap, anything else, then one goodbye",
+        "- Close: what happens next in one line, no recap, then one goodbye",
     ):
         assert clause in prompt, clause
     assert CONFIDENTIALITY_MARKER in prompt and TRUTHFUL_ANSWER_MARKER in prompt

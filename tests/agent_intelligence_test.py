@@ -175,12 +175,12 @@ def test_a_clarification_stops_after_two_tries_at_what_the_account_allows() -> N
     Not asking it the same way twice is ThinnestAI's own speaking rule (D-824)."""
     body = compile_call_script(V2)
     paying = compose_engine_prompt(_cfg(body))
-    assert "Unclear? Ask again, reworded; never pick for them." in paying
-    assert "or no clear reply twice: say so, then offer a call back" in paying
+    assert "Ask one thing again, reworded; never pick for them." in paying
+    assert "or no clear reply twice to one question: say so, then offer a call back" in paying
     trial = compose_engine_prompt(_cfg(body, callbacks_offered=False))
     assert (
-        "or no clear reply twice: say so, then say the business will get back to "
-        "them. Never offer or book a call back"
+        "or no clear reply twice to one question: say so, then say the business will get back "
+        "to them. Never offer or book a call back"
     ) in trial
     # After the client script, so a script cannot undo it.
     assert trial.index(CLIENT_SCRIPT_CLOSE) < trial.index("or no clear reply twice")
@@ -283,8 +283,10 @@ def test_a_full_v2_prompt_fits_the_engine_and_the_guide_budget() -> None:
     # question on one thing and no second opening after a first question, paid for by trims.
     # D-958 named a hello said back and the opening's names in START OF THE CALL, and D-959
     # said when "anything else?" belongs (7,708 before). D-961 says to answer from knowledge
-    # before a call back and asks the name after the first answer (7,856 before).
-    assert len(prompt) <= 7_870
+    # before a call back and asks the name after the first answer (7,856 before). D-965 says
+    # what a no, busy or later to the opening's question gets in START OF THE CALL; HOW TO
+    # SPEAK and WHAT YOU CAN DO stayed the same size (7,870 before).
+    assert len(prompt) <= 7_930
 
 
 # --- script v2 (item 4) ---------------------------------------------------------------------

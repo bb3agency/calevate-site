@@ -93,12 +93,11 @@ def test_the_style_layer_states_the_directives_the_guide_specifies() -> None:
     # back as the one meant, inside the read-back bullet.
     read_back = next(line for line in block.splitlines() if line.startswith("- read back"))
     assert "could be a range or a decimal" in read_back
-    assert '"one to two crores?"' in read_back
     # The language's own register moved to the SPOKEN REGISTER section (D-714), which names
     # each language the agent speaks; this block says to mirror the caller's register.
     assert "caller's language and register" in block
     # Not heard, or heard as none of the options: asked again, never picked (D-912).
-    assert "unclear? ask again, reworded; never pick for them" in block
+    assert "ask one thing again, reworded; never pick for them" in block
     # D-714: the answer first. Turn length, one question a turn, titles in full and varied
     # openings are ThinnestAI's own speaking rules, which every call keeps (D-814).
     assert "lead with the answer" in block
@@ -116,7 +115,7 @@ def test_the_style_layer_answers_the_founders_calls_of_27_oct_2026() -> None:
 
     react = bullet("- Asked something?")
     assert "React only if it fits what they said" in react
-    assert "never the same way twice" in react and "often not at all" in react
+    assert "never the same way twice" in react and "often not." in react
     # The voice starts on the first comma after three words (D-901), so a reply opens with a
     # few words and a comma.
     assert bullet("- Open with a few words and a comma").startswith(
@@ -128,13 +127,15 @@ def test_the_style_layer_answers_the_founders_calls_of_27_oct_2026() -> None:
 
     one = bullet("- One question a turn")
     assert one.startswith("- One question a turn, on one thing, last;")
-    # After a bare "సరే" the agent asked both questions again word for word (D-910).
-    assert 'A bare "OK"? Ask one thing, reworded.' in one
+    # After a bare "సరే" the agent asked both questions again word for word (D-910); since
+    # D-965 only an "OK" to its own question is asked again, and one after a step goes on.
+    unclear = bullet("- Unclear")
+    assert 'a bare "OK" to your question? Ask one thing again, reworded' in unclear
+    assert '"OK" after you explain? Give the next step' in bullet("- Mid-task")
 
-    pace = bullet("- Talked over?")
+    pace = bullet("- Talked over")
     # "I'll speak slowly from now on" promised a speed the model cannot set (D-912).
-    assert "Too fast or hard to follow? Sorry once, no promise" in pace
-    assert "go on where you were" in pace
+    assert "Talked over or too fast? Stop, answer, sorry once, no promise" in pace
 
     amounts = bullet("- Amounts the English way")
     # A time or amount, not a phone number: "a time or number" had four digits said back

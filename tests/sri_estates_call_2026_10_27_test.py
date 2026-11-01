@@ -65,7 +65,7 @@ def test_anjalis_prompt_carries_every_fix_and_keeps_the_locked_text() -> None:
     for clause in (
         "React only if it fits what they said",
         "One question a turn, on one thing, last;",
-        "Too fast or hard to follow? Sorry once",
+        "Talked over or too fast? Stop, answer, sorry once",
         '("six" stays "six")',
     ):
         assert clause in prompt, clause

@@ -3514,7 +3514,7 @@ export interface paths {
          * Create an agent (starts as a draft)
          * @description The agent is created in `draft`: it takes no calls and places none until it is activated, and it cannot be activated until it has a script.
          *
-         *     Send `starter` (`answer_calls`, `call_new_leads` or `call_leads`) to start from a ready-made agent for your business type: its script, opening line and the details it captures are filled in for you to review (`GET /v1/agents/starters` previews them). The job sets the calling direction; a `direction` that contradicts it is refused with `starter_direction_mismatch`.
+         *     Send `starter` (`answer_calls`, `call_new_leads` or `call_leads`) to start from a ready-made agent for your business type: its script and the details it captures are filled in for you to review (`GET /v1/agents/starters` previews them), and its opening lines are written for your business as a suggestion on the Script page (`GET .../script/proposal`). The job sets the calling direction; a `direction` that contradicts it is refused with `starter_direction_mismatch`.
          *
          *     Both opening notices — the AI disclosure and the recording notice — are written for you from the chosen language and start switched off, so a new agent opens with its own opening line (part of its script). They cannot be supplied here: every agent on this platform has an AI disclosure on file, and no field on this form can change that. Switching a notice on adds it after the opening line; it never replaces the opening line.
          */
@@ -4489,8 +4489,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Put a ready-made opening line in the agent's main language into the draft
-         * @description Offered after the agent's main language changes (D-838). The line is the ready-made greeting for this business type in that language, written into the autosaved draft; callers keep the live script until the draft is put live.
+         * Ask for the opening lines written for this business in the agent's main language
+         * @description Offered after the agent's main language changes (D-838, D-965). Queues a `written` suggestion with the opening lines written for this business in that language; poll `GET .../proposal` until it is `ready` and review it on the Script page. Nothing reaches a caller until the line is put live.
          */
         post: operations["rewrite_opening_in_language_v1_agents__agent_id__script_opening_line_in_language_post"];
         delete?: never;
@@ -17380,7 +17380,7 @@ export interface components {
             example_needs_review: boolean;
             /**
              * Faq Fallback
-             * @default నాకు ఆ వివరం ఖచ్చితంగా తెలియదు — మా టీమ్ మీకు తిరిగి కాల్ చేసి చెబుతుంది.
+             * @default
              */
             faq_fallback: string;
             /** Faqs */
@@ -27668,16 +27668,6 @@ export interface components {
              */
             when: "answers" | "calls";
         };
-        /** OpeningRewrittenOut */
-        OpeningRewrittenOut: {
-            /** Opening Line */
-            opening_line: string;
-            /**
-             * Saved At
-             * Format: date-time
-             */
-            saved_at: string;
-        };
         /** OperatorCreateIn */
         OperatorCreateIn: {
             /**
@@ -31455,7 +31445,7 @@ export interface components {
              * Mode
              * @enum {string}
              */
-            mode: "change" | "whole" | "steps" | "knowledge" | "opening";
+            mode: "change" | "whole" | "steps" | "knowledge" | "opening" | "written";
             /** Note */
             note: string | null;
             /** Request */
@@ -45337,12 +45327,12 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Successful Response */
-            200: {
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OpeningRewrittenOut"];
+                    "application/json": components["schemas"]["ScriptProposalOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

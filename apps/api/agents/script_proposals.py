@@ -40,6 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import script_builder
 from apps.api.agents.capability_manifest import manifest_for, owner_facts
+from apps.api.agents.write_guard import archived_refusal
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
 from apps.api.first_run.models import MAX_DOCUMENTS
@@ -66,7 +67,12 @@ KNOWLEDGE_MODE: Final = "knowledge"
 #: already says who is calling (`publishing.OPENING_INTRODUCES_CODE`). A stored mode for
 #: `knowledge`'s reason.
 OPENING_MODE: Final = "opening"
-StoredMode = Literal["change", "whole", "steps", "knowledge", "opening"]
+#: `written` (D-965): the agent's opening lines written for this business in its main
+#: language, asked after the main language changes and queued when an agent is made from a
+#: ready-made starter, whose openings are left empty rather than the same for every business.
+#: A stored mode for `knowledge`'s reason.
+WRITTEN_MODE: Final = "written"
+StoredMode = Literal["change", "whole", "steps", "knowledge", "opening", "written"]
 
 ProposalStatus = Literal["drafting", "ready", "failed"]
 
@@ -207,6 +213,30 @@ async def request_opening_proposal(
         tenant_id=tenant_id,
         agent_id=agent_id,
         mode=OPENING_MODE,
+        change=None,
+        answers={},
+        requested_by=requested_by,
+    )
+
+
+async def request_written_opening(
+    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID, requested_by: UUID | None
+) -> ScriptProposal:
+    """Ask for the agent's opening lines written for this business in its main language
+    (`WRITTEN_MODE`), as `request_proposal` asks for any other."""
+    status = (
+        await session.execute(
+            text("SELECT status FROM agents WHERE id = :aid AND deleted_at IS NULL"),
+            {"aid": agent_id},
+        )
+    ).scalar_one_or_none()
+    if status == "archived":
+        raise archived_refusal("edited")
+    return await _request(
+        session,
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        mode=WRITTEN_MODE,
         change=None,
         answers={},
         requested_by=requested_by,
@@ -475,6 +505,7 @@ __all__ = [
     "PROPOSAL_MODES",
     "STALE_NOTE",
     "SUGGEST_JOB",
+    "WRITTEN_MODE",
     "ProposalMode",
     "ProposalStatus",
     "ScriptProposal",
@@ -486,6 +517,7 @@ __all__ = [
     "request_opening_proposal",
     "request_proposal",
     "request_text",
+    "request_written_opening",
     "store_failed",
     "store_ready",
     "working_script",

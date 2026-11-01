@@ -126,11 +126,22 @@ def substitute_variables(
 # ---------------------------------------------------------------------------
 # The structured model.
 # ---------------------------------------------------------------------------
-#: The don't-know response a fresh FAQ ships with, in Telugu-first phrasing that matches
-#: PROMPT-GUIDE §1's truth-boundary pattern verbatim ("నాకు ఆ వివరం ఖచ్చితంగా తెలియదు — మా టీమ్
-#: మీకు తిరిగి కాల్ చేస్తుంది."). A client may rewrite it; this is the default so an FAQ is
-#: never authored with an empty fence.
-DEFAULT_FAQ_FALLBACK: Final = "నాకు ఆ వివరం ఖచ్చితంగా తెలియదు — మా టీమ్ మీకు తిరిగి కాల్ చేసి చెబుతుంది."
+#: An FAQ's don't-know line: empty unless the owner writes one. A v1 FAQ with none tells the
+#: agent what to do (`_FAQ_DONT_KNOW`) rather than quoting a line, because a line written for
+#: every business promised a call back on accounts where call backs are off (D-965, D-915).
+DEFAULT_FAQ_FALLBACK: Final = ""
+
+#: The Telugu line every v1 script was saved with as its default until D-965. A stored script
+#: still holding it word for word never chose it, so it compiles as if empty.
+RETIRED_FAQ_FALLBACK: Final = "నాకు ఆ వివరం ఖచ్చితంగా తెలియదు — మా టీమ్ మీకు తిరిగి కాల్ చేసి చెబుతుంది."
+
+#: What a v1 FAQ with no don't-know line of the owner's says. WHAT YOU CAN DO, after the
+#: script, says what follows a "don't know" on this account (a call back or not), so the
+#: script names no promise of its own.
+_FAQ_DONT_KNOW: Final = (
+    "say you do not know that, then do what the PLATFORM RULES say for a question you cannot "
+    "answer."
+)
 
 #: The always-on end-call rule. Present in EVERY compiled structured script regardless of
 #: the client's extra rules, because "end the call cleanly" is not a preference — an agent
@@ -634,7 +645,7 @@ class CallScript(BaseModel):
     outbound_opening_line: str = Field(default="", max_length=1000)
     steps: list[ScriptStep] = Field(default_factory=list, max_length=MAX_SCRIPT_STEPS)
     faqs: list[FaqEntry] = Field(default_factory=list, max_length=MAX_SCRIPT_FAQS)
-    faq_fallback: str = Field(default=DEFAULT_FAQ_FALLBACK, min_length=1, max_length=500)
+    faq_fallback: str = Field(default=DEFAULT_FAQ_FALLBACK, max_length=500)
     end_call_extra_rules: list[str] = Field(default_factory=list, max_length=MAX_END_CALL_RULES)
     variables: list[ScriptVariable] = Field(default_factory=list, max_length=MAX_SCRIPT_VARIABLES)
     #: The raw escape hatch. `None` = structured mode. A string (including "") = raw mode:
@@ -1182,7 +1193,7 @@ def compile_call_script(script: CallScript, *, collect: Sequence[CollectField] =
     if script.schema_version == SCRIPT_SCHEMA_VERSION:
         return _compile_v2(script, collect)
 
-    # v1, byte for byte as it compiled before v2 existed.
+    # v1, as it compiled before v2 existed but for the FAQ's don't-know line (D-965).
     sections: list[str] = []
 
     opening = script.opening_line.strip()
@@ -1207,10 +1218,11 @@ def compile_call_script(script: CallScript, *, collect: Sequence[CollectField] =
     ]
     if faqs:
         pairs = "\n".join(f"Q: {question}\nA: {answer}" for question, answer in faqs)
+        own = script.faq_fallback.strip()
+        dont_know = f'say: "{own}"' if own and own != RETIRED_FAQ_FALLBACK else _FAQ_DONT_KNOW
         sections.append(
             "[FAQ] Answer these questions ONLY from the answers written here. If the caller "
-            "asks something these do not cover, do not guess — say: "
-            f'"{script.faq_fallback.strip()}"\n{pairs}'
+            f"asks something these do not cover, do not guess: {dont_know}\n{pairs}"
         )
 
     # The built-in rule is always first; client extra rules follow. `_rules_are_one_per_line`
@@ -1249,6 +1261,7 @@ __all__ = [
     "PRONOUNCE_LEAD",
     "QUICK_FACTS_HEADER",
     "QUICK_FACTS_LEAD",
+    "RETIRED_FAQ_FALLBACK",
     "SCRIPT_SCHEMA_VERSION",
     "SPECIAL_TARGETS",
     "STAGE_DETAIL_MAX",

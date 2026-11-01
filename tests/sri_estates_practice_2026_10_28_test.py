@@ -69,7 +69,7 @@ def test_the_prompt_carries_each_fix_and_keeps_the_locked_text() -> None:
     assert "never read back, confirm, act or end on part of one" in prompt
     assert "A time or amount they said goes back in their words" in prompt
     assert "One question a turn, on one thing, last;" in prompt
-    assert 'A bare "OK"? Ask one thing, reworded.' in prompt
+    assert 'a bare "OK" to your question? Ask one thing again, reworded' in prompt
     assert CALL_NUMBER_RULE in prompt and "for call backs too" in CALL_NUMBER_RULE
     assert OPENING_CONTINUES_RULE in prompt
     assert "even after answering." in OPENING_CONTINUES_RULE

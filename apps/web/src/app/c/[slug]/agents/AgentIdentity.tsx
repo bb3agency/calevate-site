@@ -55,7 +55,7 @@ import {
   type AgentUpdateIn,
 } from "@/lib/api/agents";
 import { useWriteAccess } from "@/lib/api/hooks";
-import { useRewriteOpeningInLanguage } from "@/lib/api/script";
+import { useRewriteOpeningInLanguage, useScriptProposal } from "@/lib/api/script";
 import { useClientSession } from "@/lib/api/session";
 import { hasKey, lookup } from "@/lib/lookup";
 import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
@@ -201,6 +201,7 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
       {save.error && <ProblemNotice error={save.error} />}
       {rewriteOffer !== null && (
         <OpeningLineOffer
+          agentId={agent.id}
           language={rewriteOffer}
           rewrite={rewrite}
           rewriteStatus={rewriteFeedback.status}
@@ -306,36 +307,53 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
 /**
  * The one-click rewrite offered after the main language changed (D-838). The notices are
  * already rewritten by the server; the opening line is the owner's own words, so it is only
- * offered: the ready-made greeting in the new language goes into the script draft, and
- * callers keep the live one until it is put live.
+ * offered: a line written for this business in the new language (D-965), written in the
+ * background as a suggestion the owner keeps on the Script tab. Callers keep the live line
+ * until it is put live.
  */
 function OpeningLineOffer({
+  agentId,
   language,
   rewrite,
   rewriteStatus,
   canWrite,
   onDismiss,
 }: {
+  agentId: string;
   language: string;
   rewrite: ReturnType<typeof useRewriteOpeningInLanguage>;
   rewriteStatus: FeedbackStatus;
   canWrite: boolean;
   onDismiss: () => void;
 }) {
+  const session = useClientSession();
+  const suggestion = useScriptProposal(session, agentId);
   const name = hasKey(LANGUAGE_NAMES, language) ? LANGUAGE_NAMES[language] : language;
-  if (rewrite.data) {
+  // Only the suggestion this offer asked for, never an older one waiting on the Script tab.
+  const asked = rewrite.data?.id ?? null;
+  const mine = suggestion.data && suggestion.data.id === asked ? suggestion.data : null;
+  const written = mine?.status === "ready" ? (mine.script?.opening_line ?? null) : null;
+  if (written !== null) {
     return (
       <div role="status" className={`${NOTICE_BASE} ${NOTICE_BAR.ok}`}>
-        <p>
-          The opening line in your draft is now: “{rewrite.data.opening_line}”. Review it on the
-          Script tab, then put it live.
-        </p>
+        <p>Written in {name}: “{written}”. Keep it on the Script tab, then put it live.</p>
         <button type="button" className={SECONDARY_BUTTON_SM} onClick={onDismiss}>
           Done
         </button>
       </div>
     );
   }
+  if (mine?.status === "failed") {
+    return (
+      <div role="status" className={`${NOTICE_BASE} ${NOTICE_BAR.warn}`}>
+        <p>{mine.note}</p>
+        <button type="button" className={SECONDARY_BUTTON_SM} onClick={onDismiss}>
+          Done
+        </button>
+      </div>
+    );
+  }
+  const writing = rewrite.isPending || (asked !== null && mine?.status !== "ready");
   return (
     <div role="status" className={`${NOTICE_BASE} ${NOTICE_BAR.neutral}`}>
       <p>
@@ -345,13 +363,12 @@ function OpeningLineOffer({
       <div className="flex flex-wrap gap-2 pt-1">
         <ActionButton
           variant="secondary-sm"
-          status={rewriteStatus}
+          status={writing ? "pending" : rewriteStatus === "error" ? "error" : "idle"}
           pendingLabel="Writing it…"
-          successLabel="Written"
           disabled={!canWrite}
           onClick={() => rewrite.mutate()}
         >
-          {`Use a ready-made opening line in ${name}`}
+          {`Write my opening line in ${name}`}
         </ActionButton>
         <button type="button" className={SECONDARY_BUTTON_SM} onClick={onDismiss}>
           Keep mine

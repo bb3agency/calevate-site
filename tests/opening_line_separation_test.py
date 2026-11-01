@@ -250,6 +250,7 @@ def test_the_roster_serves_the_notices_the_opening_line_and_the_first_words() ->
         0,  # 23 extraction schema version
         None,  # 24 caller-memory statement version accepted
         False,  # 25 caller follows along on a screen
+        "Sunrise Clinic",  # 26 business name
     )
     out = agent_out(row)
     assert out.opening_line == ""

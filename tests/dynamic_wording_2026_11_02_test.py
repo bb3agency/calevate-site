@@ -114,7 +114,8 @@ def test_the_agent_helps_from_its_knowledge_before_a_call_back_or_a_name() -> No
     prompt = compose_engine_prompt(_cfg("both"))
     assert "Answer what your knowledge holds; being an AI is no reason not to." in prompt
     assert prompt.index("being an AI is no reason") < prompt.index("No answer after searching")
-    assert "early" not in NAME_RULE and "after your first answer" in NAME_RULE
+    # Not early, and since D-965 not after the first answer either: only when it is used.
+    assert "early" not in NAME_RULE and "first answer" not in NAME_RULE
 
 
 # --- slice 2: plans are structure only; their old lines are refused and taken off ----------

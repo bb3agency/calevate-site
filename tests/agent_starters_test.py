@@ -276,6 +276,8 @@ async def test_creating_with_a_starter_writes_a_draft_script_and_captured_detail
     expected = starters.starter_for("real_estate", "answer_calls").call_script(
         business="Skyline Homes"
     )
+    # Without its ready-made opening, which is written for the business instead (D-965).
+    expected = expected.model_copy(update={"opening_line": "", "outbound_opening_line": ""})
     assert CallScript.model_validate(structured) == expected
     collect = [
         CollectField(

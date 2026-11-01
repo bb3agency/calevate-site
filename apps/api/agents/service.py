@@ -117,6 +117,7 @@ from calevate_shared.engine import (
     compose_engine_prompt,
     compose_opening_line,
     introduces_itself,
+    introduction_names,
     join_first_words,
     named_lead_opening,
     notice_fields,
@@ -4007,7 +4008,14 @@ def lead_first_words(agent: AgentRow, *, call_is_recorded: bool) -> str | None:
     if named is None:
         return None
     notices = compose_opening_line(posture, call_is_recorded=call_is_recorded)
-    return join_first_words(notices, named, ai_notice=ai_notice, language=language)
+    return join_first_words(
+        notices,
+        named,
+        ai_notice=ai_notice,
+        language=language,
+        # The agent's name only, as on any placed call (`placed_call_first_words`).
+        names=introduction_names(name=str(agent["name"]), business="", body=body),
+    )
 
 
 def dial_first_words(
@@ -4038,6 +4046,7 @@ def dial_first_words(
             ai_notice=spoken_ai_notice(posture),
             language=str(agent["language_primary"]),
             business=str(agent.get("business_name") or ""),
+            agent_name=str(agent["name"]),
         )
     if test_call:
         return trial_call_first_words(agent, call_is_recorded=call_is_recorded)

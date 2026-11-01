@@ -131,6 +131,9 @@ export function PipProposal({
         {proposal.mode === "opening" && (
           <p className="text-meta text-ink-muted">An opening line for after your agent says who it is.</p>
         )}
+        {proposal.mode === "written" && (
+          <p className="text-meta text-ink-muted">An opening line written for your business, in {languageName(language)}.</p>
+        )}
         {proposal.mode === "knowledge" && (
           <p className="text-meta text-ink-muted">
             From your new file: {proposal.documents.map((name) => `“${name}”`).join(", ")}. Your own lines stay.

@@ -157,7 +157,7 @@ export const EMPTY_SCRIPT: CallScript = {
   opening_line: "",
   steps: [],
   faqs: [],
-  faq_fallback: "నాకు ఆ వివరం ఖచ్చితంగా తెలియదు — మా టీమ్ మీకు తిరిగి కాల్ చేసి చెబుతుంది.",
+  faq_fallback: "",
   end_call_extra_rules: [],
   variables: [],
   raw_override: null,
@@ -450,22 +450,22 @@ export function usePublishScript(
   });
 }
 
-export type OpeningRewritten = components["schemas"]["OpeningRewrittenOut"];
-
-/** The ready-made opening line in the agent's main language, put into the script draft. */
+/**
+ * Ask for the opening lines written for this business in the agent's main language (D-965).
+ * The answer is a `written` suggestion, polled through `useScriptProposal` and reviewed on
+ * the Script tab.
+ */
 export function useRewriteOpeningInLanguage(
   session: Session,
   agentId: string,
-): UseMutationResult<OpeningRewritten, Error, void> {
+): UseMutationResult<ScriptProposal, Error, void> {
   const client = useQueryClient();
   return useMutation({
     mutationFn: () =>
-      apiRequest<OpeningRewritten>(
-        session,
-        `${base(agentId)}/opening-line/in-language`,
-        { method: "POST" },
-      ),
-    onSuccess: () => invalidateScript(client, session, agentId),
+      apiRequest<ScriptProposal>(session, `${base(agentId)}/opening-line/in-language`, {
+        method: "POST",
+      }),
+    onSuccess: () => client.invalidateQueries({ queryKey: proposalKey(session.orgSlug, agentId) }),
   });
 }
 

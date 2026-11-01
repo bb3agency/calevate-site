@@ -94,6 +94,12 @@ def length_problem(where: str, text: str) -> str | None:
     return f"{where}: {size} characters; keep it to at most {OPENING_MAX_CHARS} characters"
 
 
+def rewrite_problem(where: str) -> str:
+    """The repair asked of a line the owner wants written again (D-965): it may be in the
+    agent's former language or a ready-made line, so its content is a hint, not the answer."""
+    return f"{where}: write it again for this business, in the call language the brief names"
+
+
 def opening_problems(
     line: str,
     language: str | None,
@@ -240,5 +246,6 @@ __all__ = [
     "opening_problems",
     "opening_request",
     "opening_rules",
+    "rewrite_problem",
     "write_opening",
 ]

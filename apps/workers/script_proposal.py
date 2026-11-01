@@ -37,7 +37,7 @@ from apps.api.first_run.documents import document_words, read_documents
 from apps.api.kb.service import knowledge_agents
 from apps.workers.extraction import TenantModelLeg
 from apps.workers.first_run import documents_block
-from apps.workers.opening_line import opening_problems, write_opening
+from apps.workers.opening_line import opening_problems, rewrite_problem, write_opening
 from apps.workers.script_assist import (
     CONVERT_INSTRUCTION,
     JsonAnswer,
@@ -134,6 +134,47 @@ async def _introduced_opening(
     )
 
 
+def _written_problems(line: str, field: str, brief: ScriptBrief) -> list[str]:
+    """What a `written` proposal asks of a line: written fresh when there is none, else
+    written again with the rules it breaks (`opening_problems`) and `rewrite_problem`."""
+    if not line:
+        return []
+    names = (brief.business_name, brief.agent_name)
+    return [
+        *opening_problems(
+            line, brief.language, names=names, introduced=brief.introduced, where=field
+        ),
+        rewrite_problem(field),
+    ]
+
+
+async def _written_opening(
+    context: ScriptBrief,
+    base: CallScript,
+    tenant_leg: TenantModelLeg | None,
+    *,
+    quota_exhausted: bool,
+) -> ScriptDraft:
+    """`base` with the opening callers who ring hear written for this business in the agent's
+    main language (D-965). A "both" agent's opening for the calls it places is written after
+    it by `_opening_repaired`, so each line's spend is metered on its own."""
+    line = base.opening_line.strip()
+    answer = await write_opening(
+        context,
+        line=line,
+        problems=_written_problems(line, "opening_line", context),
+        tenant_leg=tenant_leg,
+        quota_exhausted=quota_exhausted,
+    )
+    return ScriptDraft(
+        script=base.model_copy(update={"opening_line": answer.value}),
+        capability=answer.capability,
+        usage=answer.usage,
+        model=answer.model,
+        earlier=answer.earlier,
+    )
+
+
 async def _draft(
     tenant_id: UUID, agent_id: UUID, proposal: script_proposals.ScriptProposal
 ) -> ScriptDraft:
@@ -145,6 +186,8 @@ async def _draft(
     base = proposal.base_script
     if proposal.mode == script_proposals.OPENING_MODE:
         return await _introduced_opening(context, base, tenant_leg, quota_exhausted=exhausted)
+    if proposal.mode == script_proposals.WRITTEN_MODE:
+        return await _written_opening(context, base, tenant_leg, quota_exhausted=exhausted)
     if proposal.mode == "steps":
         # The brief the conversion has always used: the hand-written text and the three
         # facts that decide its register, nothing else.
@@ -200,9 +243,11 @@ async def _opening_repaired(
     `first_run._write_placed_opening`), and what the repairs spent. A conversion keeps the
     owner's sentences, and a line the owner already had or asked for in their own words is
     theirs: neither is judged. A repair that gives no line leaves the proposal as drafted, for
-    the owner to review."""
+    the owner to review. A `written` proposal (D-965) has a "both" agent's opening for the
+    calls it places written here, whatever it held."""
     if proposal.mode in ("steps", script_proposals.OPENING_MODE):
         return script, []
+    written = proposal.mode == script_proposals.WRITTEN_MODE
     owners = " ".join([proposal.request or "", *proposal.answers.values()])
     judged = [
         (field, placed, line)
@@ -211,21 +256,29 @@ async def _opening_repaired(
         and line != str(getattr(proposal.base_script, field)).strip()
         and line not in owners
     ]
-    if not judged:
+    if not judged and not written:
         return script, []
     async with tenant_session(tenant_id) as session:
         context = await script_proposals.brief_for(session, tenant_id, agent_id)
         tenant_leg = await account_assist_leg(session)
         quota = await read_ai_quota(session, tenant_id=tenant_id)
+    if written:
+        placed_line = script.outbound_opening_line.strip()
+        both = context.direction == "both"
+        judged = [("outbound_opening_line", True, placed_line)] if both else []
     spends: list[JsonAnswer[str] | ProblemError] = []
     for field, placed, line in judged:
-        problems = opening_problems(
-            line,
-            context.language,
-            names=(context.business_name, context.agent_name),
-            introduced=context.introduced,
+        problems = (
+            _written_problems(line, field, context)
+            if written
+            else opening_problems(
+                line,
+                context.language,
+                names=(context.business_name, context.agent_name),
+                introduced=context.introduced,
+            )
         )
-        if not problems:
+        if line and not problems:
             continue
         try:
             answer = await write_opening(

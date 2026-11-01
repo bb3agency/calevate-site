@@ -10671,9 +10671,8 @@
             "type": "boolean"
           },
           "faq_fallback": {
-            "default": "\u0c28\u0c3e\u0c15\u0c41 \u0c06 \u0c35\u0c3f\u0c35\u0c30\u0c02 \u0c16\u0c1a\u0c4d\u0c1a\u0c3f\u0c24\u0c02\u0c17\u0c3e \u0c24\u0c46\u0c32\u0c3f\u0c2f\u0c26\u0c41 \u2014 \u0c2e\u0c3e \u0c1f\u0c40\u0c2e\u0c4d \u0c2e\u0c40\u0c15\u0c41 \u0c24\u0c3f\u0c30\u0c3f\u0c17\u0c3f \u0c15\u0c3e\u0c32\u0c4d \u0c1a\u0c47\u0c38\u0c3f \u0c1a\u0c46\u0c2c\u0c41\u0c24\u0c41\u0c02\u0c26\u0c3f.",
+            "default": "",
             "maxLength": 500,
-            "minLength": 1,
             "title": "Faq Fallback",
             "type": "string"
           },
@@ -37904,26 +37903,6 @@
         "title": "OpeningLineOut",
         "type": "object"
       },
-      "OpeningRewrittenOut": {
-        "additionalProperties": false,
-        "properties": {
-          "opening_line": {
-            "title": "Opening Line",
-            "type": "string"
-          },
-          "saved_at": {
-            "format": "date-time",
-            "title": "Saved At",
-            "type": "string"
-          }
-        },
-        "required": [
-          "opening_line",
-          "saved_at"
-        ],
-        "title": "OpeningRewrittenOut",
-        "type": "object"
-      },
       "OperatorCreateIn": {
         "additionalProperties": false,
         "properties": {
@@ -48335,7 +48314,8 @@
               "whole",
               "steps",
               "knowledge",
-              "opening"
+              "opening",
+              "written"
             ],
             "title": "Mode",
             "type": "string"
@@ -74206,7 +74186,7 @@
         "x-calevate-permission": "agents:read"
       },
       "post": {
-        "description": "The agent is created in `draft`: it takes no calls and places none until it is activated, and it cannot be activated until it has a script.\n\nSend `starter` (`answer_calls`, `call_new_leads` or `call_leads`) to start from a ready-made agent for your business type: its script, opening line and the details it captures are filled in for you to review (`GET /v1/agents/starters` previews them). The job sets the calling direction; a `direction` that contradicts it is refused with `starter_direction_mismatch`.\n\nBoth opening notices \u2014 the AI disclosure and the recording notice \u2014 are written for you from the chosen language and start switched off, so a new agent opens with its own opening line (part of its script). They cannot be supplied here: every agent on this platform has an AI disclosure on file, and no field on this form can change that. Switching a notice on adds it after the opening line; it never replaces the opening line.",
+        "description": "The agent is created in `draft`: it takes no calls and places none until it is activated, and it cannot be activated until it has a script.\n\nSend `starter` (`answer_calls`, `call_new_leads` or `call_leads`) to start from a ready-made agent for your business type: its script and the details it captures are filled in for you to review (`GET /v1/agents/starters` previews them), and its opening lines are written for your business as a suggestion on the Script page (`GET .../script/proposal`). The job sets the calling direction; a `direction` that contradicts it is refused with `starter_direction_mismatch`.\n\nBoth opening notices \u2014 the AI disclosure and the recording notice \u2014 are written for you from the chosen language and start switched off, so a new agent opens with its own opening line (part of its script). They cannot be supplied here: every agent on this platform has an AI disclosure on file, and no field on this form can change that. Switching a notice on adds it after the opening line; it never replaces the opening line.",
         "operationId": "create_agent_route_v1_agents_post",
         "requestBody": {
           "content": {
@@ -76607,7 +76587,7 @@
     },
     "/v1/agents/{agent_id}/script/opening-line/in-language": {
       "post": {
-        "description": "Offered after the agent's main language changes (D-838). The line is the ready-made greeting for this business type in that language, written into the autosaved draft; callers keep the live script until the draft is put live.",
+        "description": "Offered after the agent's main language changes (D-838, D-965). Queues a `written` suggestion with the opening lines written for this business in that language; poll `GET .../proposal` until it is `ready` and review it on the Script page. Nothing reaches a caller until the line is put live.",
         "operationId": "rewrite_opening_in_language_v1_agents__agent_id__script_opening_line_in_language_post",
         "parameters": [
           {
@@ -76622,11 +76602,11 @@
           }
         ],
         "responses": {
-          "200": {
+          "202": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/OpeningRewrittenOut"
+                  "$ref": "#/components/schemas/ScriptProposalOut"
                 }
               }
             },
@@ -76639,7 +76619,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Put a ready-made opening line in the agent's main language into the draft",
+        "summary": "Ask for the opening lines written for this business in the agent's main language",
         "tags": [
           "agents"
         ],

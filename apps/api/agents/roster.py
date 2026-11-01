@@ -41,6 +41,7 @@ from calevate_shared.call_script import opening_line_of, outbound_opening_of
 from calevate_shared.engine import (
     DisclosurePosture,
     compose_opening_line,
+    introduction_names,
     join_first_words,
     placed_call_first_words,
     spoken_ai_notice,
@@ -193,7 +194,15 @@ def agent_out(r: Any) -> AgentOut:
         opening_line=notices,
         script_opening_line=opening,
         first_words=join_first_words(
-            notices, opening, ai_notice=spoken_ai_notice(posture), language=str(r[4])
+            notices,
+            opening,
+            ai_notice=spoken_ai_notice(posture),
+            language=str(r[4]),
+            names=introduction_names(
+                name=str(r[1]),
+                business="" if r[2] == "outbound" else str(r[26] or ""),
+                body=r[21],
+            ),
         ),
         script_outbound_opening_line=outbound_opening_of(r[21]) if r[2] == "both" else None,
         first_words_when_calling=placed_call_first_words(
@@ -202,6 +211,7 @@ def agent_out(r: Any) -> AgentOut:
             ai_notice=spoken_ai_notice(posture),
             language=str(r[4]),
             business=str(r[26] or ""),
+            agent_name=str(r[1]),
         )
         if r[2] == "both"
         else None,

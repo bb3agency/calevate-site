@@ -978,6 +978,7 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("GET", "/v1/agents/{agent_id}/script/versions", {}, {}),
     ("POST", "/v1/agents/{agent_id}/script/versions/{version}/restore", {}, {}),
     ("POST", "/v1/agents/{agent_id}/script/opening-line/in-language", {}, {}),
+    ("POST", "/v1/agents/{agent_id}/script/opening-line/after-introduction", {}, {}),
     ("PUT", "/v1/agents/{agent_id}/script/opening-line", {"opening_line": "Namaskaram"}, {}),
     # D-715: what a lead's calls captured.
     ("GET", "/v1/leads/{lead_id}/captured", {}, {}),
