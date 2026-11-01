@@ -34,6 +34,7 @@ from apps.workers.document_ocr import (
     estimated_page_cost_usd,
     ocr_images,
     ocr_leg,
+    ocr_pictures,
 )
 from calevate_shared.document_ingest import (
     MAX_IMAGE_BYTES,
@@ -441,3 +442,70 @@ def test_an_image_carries_no_filename_for_a_log_to_leak() -> None:
     """A filename is client data that routinely carries a person's name
     (`menu-ravi-kumar.jpg`). `OcrImage` has nowhere to put one."""
     assert set(OcrImage.__slots__) == {"data", "mime_type", "position"}
+
+
+# --- PICTURES INSIDE A DOCUMENT (D-956) ----------------------------------------------
+
+
+def _batch(*sections: str) -> str:
+    return "\n".join(f"=== PICTURE {n} ===\n{body}" for n, body in enumerate(sections, start=1))
+
+
+async def test_pictures_go_four_to_a_request_and_each_answer_returns_to_its_picture() -> None:
+    client, seen = _client(
+        _reply(_batch("Item: Idli; Price: 40", NO_TEXT_SENTINEL, "Open 7 am to 11 pm", "Chart")),
+        _reply("Item: Vada; Price: 30"),
+    )
+    async with client:
+        out = await ocr_pictures([_image(n) for n in range(1, 6)], client=client)
+    assert len(seen) == 2
+    first = json.loads(seen[0].content)["messages"][0]["content"]
+    assert [p["type"] for p in first].count("image_url") == document_ocr.PICTURES_PER_REQUEST
+    assert "Item: Idli; Price: 40" in first[0]["text"]  # the row shape asked for
+    assert [(p.position, p.text, p.reason) for p in out.pictures] == [
+        (1, "Item: Idli; Price: 40", None),
+        (2, "", "no_text"),
+        (3, "Open 7 am to 11 pm", None),
+        (4, "", "too_little_text"),
+        (5, "Item: Vada; Price: 30", None),
+    ]
+    assert (out.model, out.prompt_tokens, out.output_tokens) == (DOCUMENT_OCR_MODEL, 5160, 600)
+
+
+async def test_a_cut_off_batch_keeps_the_pictures_finished_before_the_cut() -> None:
+    client, _ = _client(_reply(_batch("Item: Idli; Price: 40", "Item: Dosa; Pri"), finish="length"))
+    async with client:
+        out = await ocr_pictures([_image(n) for n in range(1, 4)], client=client)
+    assert [(p.text, p.reason) for p in out.pictures] == [
+        ("Item: Idli; Price: 40", None),
+        ("", "truncated"),
+        ("", "truncated"),
+    ]
+
+
+async def test_a_batch_the_provider_refuses_is_asked_again_one_picture_at_a_time() -> None:
+    client, seen = _client(400, _reply("Item: Idli; Price: 40"), 503)
+    async with client:
+        out = await ocr_pictures([_image(1), _image(2)], client=client)
+    assert len(seen) == 3
+    assert [(p.text, p.reason) for p in out.pictures] == [
+        ("Item: Idli; Price: 40", None),
+        ("", "provider_rejected_503"),
+    ]
+    assert out.prompt_tokens == 2580
+
+
+async def test_no_picture_is_sent_while_the_reader_is_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(document_ocr, "unofferable_reason", lambda _m, **_k: "price_unattested")
+    client, seen = _client()
+    async with client:
+        with pytest.raises(OcrUnavailableError):
+            await ocr_pictures([_image()], client=client)
+    assert seen == []
+
+
+async def test_nothing_answered_means_nothing_to_meter() -> None:
+    client, _ = _client(503)
+    async with client:
+        out = await ocr_pictures([_image()], client=client)
+    assert out.model is None and out.prompt_tokens is None

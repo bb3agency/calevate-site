@@ -55,6 +55,7 @@ from uuid import UUID
 import httpx
 from calevate_shared.document_ingest import (
     MAX_SOURCE_BYTES,
+    DocumentEmptyError,
     DocumentRefusedError,
     ExtractedText,
     OcrUnavailableError,
@@ -90,7 +91,8 @@ from apps.api.kb.models import (
 )
 from apps.api.kb.uploads import enqueue_ingest
 from apps.workers.document_ocr import OcrImage, PaidOcrUnusableError, ocr_images
-from apps.workers.document_text import extract_document
+from apps.workers.document_pictures import read_pictures
+from apps.workers.document_text import assemble, read_document
 from apps.workers.fleet_walk import WalkCursor
 from apps.workers.storage import read_kb_object
 
@@ -266,7 +268,9 @@ async def _extract(
                 ]
             )
         else:
-            extracted = extract_document(data, kind)  # type: ignore[arg-type]
+            extracted = await _read_with_pictures(
+                session, tenant_id=tenant_id, upload_id=upload_id, data=data, kind=kind
+            )
     except OcrUnavailableError as unavailable:
         # An OPERATOR fixes this, not a retry and not the client: no model leg is
         # configured for reading photographs on this deployment. The status says so, and
@@ -314,6 +318,30 @@ async def _extract(
             usage_incomplete=extracted.usage_incomplete,
         )
     return extracted
+
+
+async def _read_with_pictures(
+    session: AsyncSession, *, tenant_id: UUID, upload_id: UUID, data: bytes, kind: str
+) -> ExtractedText:
+    """A file's text with its pictures' words after the paragraph or sheet that holds them
+    (D-956), and on the row the client's sentence about any picture not read.
+
+    `read_detail` carries that sentence, as it carries a PDF's partial reading: it stays on
+    the row through the publish, where `ingest_detail` is rewritten at every status. A
+    file of pictures alone, on a deployment whose reader is off, is the reader's refusal
+    (`conversion_unavailable`), not "no words": its words are there, unread."""
+    parts = read_document(data, kind)  # type: ignore[arg-type]
+    pictures = await read_pictures(session, tenant_id=tenant_id, collector=parts.pictures)
+    await session.execute(
+        text("UPDATE kb_uploads SET read_detail = :detail WHERE id = :id"),
+        {"detail": pictures.detail(), "id": upload_id},
+    )
+    try:
+        return assemble(parts, pictures.blocks)
+    except DocumentEmptyError:
+        if pictures.unavailable is not None:
+            raise pictures.unavailable from None
+        raise
 
 
 async def _meter_ocr(

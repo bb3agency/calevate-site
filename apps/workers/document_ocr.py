@@ -41,13 +41,14 @@ What is VERIFIED about it, with the evidence class each fact carries:
   image tokenization: *"For an 1024x1024 image, it consumes 1290 tokens"*, and *"PDFs are
   billed as image input, with one PDF page equivalent to one image."* See
   `estimated_page_cost_usd` below for what that makes a page cost.
-* ⚠ **UNVERIFIED, and it is the wire shape:** whether the OpenAI-COMPATIBILITY surface
-  accepts an image as an OpenAI `image_url` content part with a `data:` URI. Google's own
-  page saying so (`ai.google.dev/gemini-api/docs/openai`) is EGRESS-BLOCKED from this
-  container; a web search returned a summary of it, which is a summary and not a reading.
-  It is therefore REPORTED, not confirmed, and it is settled by one call with a real key —
-  which is why `_transcribe` treats a provider error as a per-image discard with a named
-  reason rather than as a crash, and why `OcrUnavailableError` exists for the operator.
+* **The wire shape.** VERIFIED-VENDOR-DOCS: the OpenAI-compatibility surface takes an image
+  as an `image_url` content part with a `data:image/jpeg;base64,…` URI
+  (`ai.google.dev/gemini-api/docs/openai`, "Image understanding", updated 2026-10-28). That
+  page shows ONE image per message; several in one request is documented for the native API
+  ("a maximum of 3,600 image files per request", inline data capping the whole request at
+  20MB, `ai.google.dev/gemini-api/docs/image-understanding`) and is REPORTED, not shown, for
+  the compatibility surface — so `ocr_pictures` re-asks a batch the provider rejects one
+  picture at a time.
 * ⚠ **UNKNOWN, and it is the one that matters most for this market: how well any of these
   legs reads TELUGU SCRIPT out of a photograph.** Google publishes that Gemini supports
   Telugu as a LANGUAGE; that is a different claim from "it transcribes Telugu script off a
@@ -99,6 +100,7 @@ that it can be.
 from __future__ import annotations
 
 import base64
+import re
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -114,6 +116,7 @@ from calevate_shared.document_ingest import (
     ExtractedText,
     OcrUnavailableError,
     OcrUnusableError,
+    serialise_row,
 )
 from calevate_shared.engine import (
     DOCUMENT_OCR_MODEL,
@@ -179,14 +182,37 @@ MIN_TRANSCRIPT_CHARS: Final = 12
 #: contains none.
 MAX_GARBLE_RATIO: Final = 0.02
 
+#: A table row as the transcription must write it: `serialise_row`'s own output, so a table
+#: read off a picture packs and retrieves exactly as a spreadsheet row does (the chunker
+#: keeps a line whole, `kb.service._split_lines`).
+_TABLE_EXAMPLE: Final = serialise_row(["Item", "Price"], ["Idli", "40"])
+
+#: What every transcription is asked for, photograph, scanned page or a picture inside a
+#: document alike. A transcription rather than a description, because the agent answers
+#: from these words: "a menu with a red border" is noise to a caller, "Idli: 40" is the
+#: answer. Google's own media-prompting guidance is to be specific and to name the output
+#: format (ai.google.dev/gemini-api/docs/files#prompt-guide, updated 2026-10-26), and its
+#: image-understanding page puts the text before a single image
+#: (ai.google.dev/gemini-api/docs/image-understanding).
+_RULES: Final = (
+    "Transcribe every word and number that is visible, exactly as it is written, in reading "
+    "order. "
+    "Keep the original language and script: do not translate, do not transliterate, and do "
+    "not correct spelling or grammar. "
+    "Keep the line breaks of ordinary text. "
+    "Write a table as one line per row, each cell as its column heading, a colon and the "
+    f"value, with a semicolon between cells, like '{_TABLE_EXAMPLE}'. "
+    "Write a chart as its title, what each axis measures, and every value it shows beside "
+    "its label. "
+    "Do not describe the image, logos, photographs, colours or layout, and add no headings, "
+    "commentary, markdown or code fences. "
+)
+
 _PROMPT: Final = (
-    "Transcribe every word visible in this image, exactly as it is written. "
-    "Keep the original language and script — do not translate, do not transliterate, "
-    "and do not correct spelling or grammar. "
-    "Keep the reading order and the line breaks. "
-    "Return only the transcribed text: no description of the image, no headings you "
-    "have added, no commentary, no code fences. "
-    f"If there is no legible writing in the image, reply with exactly {NO_TEXT_SENTINEL}."
+    "Read this image. "
+    + _RULES
+    + f"If there is no legible writing or data in the image, reply with exactly "
+    f"{NO_TEXT_SENTINEL}."
 )
 
 
@@ -409,29 +435,36 @@ async def _transcribe(
     because page 4 of 6 got a 503 turns a recoverable partial into a lost one. The reason
     is recorded, the human sees it, and they can re-upload that page.
     """
+    outcome, failed = await _ask(
+        leg, [{"type": "text", "text": _PROMPT}, _image_part(image)], http, OCR_MAX_OUTPUT_TOKENS
+    )
+    if outcome is None:
+        return "", failed, None
+    text = outcome.content.strip()
+    reason = _legibility_reason(text, finish_reason=outcome.finish_reason)
+    return ("" if reason else text), reason, outcome.usage
+
+
+def _image_part(image: OcrImage) -> dict[str, object]:
     data_uri = f"data:{image.mime_type};base64,{base64.b64encode(image.data).decode('ascii')}"
-    message = {
-        "role": "user",
-        "content": [
-            {"type": "text", "text": _PROMPT},
-            # ⚠ The OpenAI `image_url` content part on Google's compat surface is the one
-            # REPORTED wire fact in this module — see the module docstring. A provider
-            # that rejects it answers 400 here, which lands in the `HTTPError` arm below
-            # with `provider_rejected`, visible to an operator rather than silent.
-            {"type": "image_url", "image_url": {"url": data_uri}},
-        ],
-    }
+    return {"type": "image_url", "image_url": {"url": data_uri}}
+
+
+async def _ask(
+    leg: chat.ChatLeg, parts: list[dict[str, object]], http: httpx.AsyncClient, max_tokens: int
+) -> tuple[chat.ChatOutcome | None, str]:
+    """One request to the reader: its outcome, or None and the `provider_…` discard code."""
     try:
         async with provider_health.watch("ocr", chat.provider_of(leg), model=leg.wire_model):
             outcome = await chat.complete(
                 leg,
-                [message],
+                [{"role": "user", "content": parts}],
                 timeout_s=OCR_TIMEOUT_S,
                 # Transcription, not composition: there is one right answer on the page, so
                 # 0 — except on a model whose vendor warns a lowered temperature loops
                 # (`engine.TEMPERATURE_KEEP_DEFAULT`), where none is sent.
                 temperature=None if keeps_default_temperature(leg.wire_model) else 0,
-                max_tokens=OCR_MAX_OUTPUT_TOKENS,
+                max_tokens=max_tokens,
                 client=http,
             )
     except httpx.HTTPStatusError as failure:
@@ -439,14 +472,206 @@ async def _transcribe(
             "document_ocr_provider_error",
             extra={"status": failure.response.status_code, "model": DOCUMENT_OCR_MODEL},
         )
-        return "", f"provider_rejected_{failure.response.status_code}", None
+        return None, f"provider_rejected_{failure.response.status_code}"
     except httpx.HTTPError as failure:
         log.warning("document_ocr_transport_error", extra={"error": type(failure).__name__})
-        return "", "provider_unreachable", None
+        return None, "provider_unreachable"
+    return outcome, ""
 
-    text = outcome.content.strip()
-    reason = _legibility_reason(text, finish_reason=outcome.finish_reason)
-    return ("" if reason else text), reason, outcome.usage
+
+# --- PICTURES INSIDE A DOCUMENT (D-956) ------------------------------------------------
+
+#: Pictures asked about in one request. Several per request cuts a document's round trips
+#: (twenty pictures are five calls, not twenty) while a truncated or failed answer costs at
+#: most this many. Bounded by the output ceiling — `OCR_MAX_OUTPUT_TOKENS` each, 24,000 in
+#: all, inside the model's 65,536 (ai.google.dev/gemini-api/docs/models/
+#: gemini-3.5-flash-lite, updated 2026-10-30) — and by `MAX_REQUEST_PICTURE_BYTES`.
+PICTURES_PER_REQUEST: Final = 4
+
+#: The pictures' bytes in one request. Inline data caps a whole request at 20MB
+#: (ai.google.dev/gemini-api/docs/image-understanding), and base64 grows bytes by 4/3, so
+#: 14 MiB of pictures is under 19.6 MB on the wire with the prompt beside it. One picture at
+#: `MAX_IMAGE_BYTES` always fits alone.
+MAX_REQUEST_PICTURE_BYTES: Final = 14 * 1024 * 1024
+
+#: The line the reader writes before each picture's transcription, so one answer can be
+#: split back into pictures and each judged by `_legibility_reason` on its own.
+_PICTURE_HEADING: Final = re.compile(r"^\W*PICTURE\s+(\d+)\W*$", re.MULTILINE | re.IGNORECASE)
+
+
+def _batch_prompt(count: int) -> str:
+    return (
+        f"Read each of the {count} numbered pictures that follow. "
+        + _RULES
+        + "Answer for every picture, in order: first a line '=== PICTURE n ===' with its "
+        "number, then its transcription. For a picture with no legible writing or data, "
+        f"write exactly {NO_TEXT_SENTINEL} under its line."
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class PictureText:
+    """One picture's reading: its words, or the discard code that says why there are none."""
+
+    position: int
+    text: str
+    reason: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class PictureTranscripts:
+    """Every picture of one document, and what reading them cost.
+
+    `model is None` when no request was answered, so there is nothing to meter; otherwise
+    the token counts follow `ExtractedText`'s rule (`None` = the provider did not say)."""
+
+    pictures: tuple[PictureText, ...]
+    model: str | None = None
+    prompt_tokens: int | None = None
+    output_tokens: int | None = None
+    cached_prompt_tokens: int | None = None
+    usage_incomplete: bool = False
+
+
+async def ocr_pictures(
+    images: Sequence[OcrImage],
+    *,
+    client: httpx.AsyncClient | None = None,
+) -> PictureTranscripts:
+    """Pictures found inside a document → one `PictureText` each, `PICTURES_PER_REQUEST` to
+    a request. Raises `OcrUnavailableError` before any call when the reader is off (no key,
+    no attested price, no data-use attestation), and `DocumentTooLargeError` past the caps.
+
+    Unlike `ocr_images` nothing here is a refusal: a document's own text stands without its
+    pictures, so a picture that could not be read is a code beside it, not an error."""
+    if len(images) > MAX_OCR_IMAGES:
+        raise DocumentTooLargeError(size=len(images), limit=MAX_OCR_IMAGES, unit="images")
+    for image in images:
+        if len(image.data) > MAX_IMAGE_BYTES:
+            raise DocumentTooLargeError(size=len(image.data), limit=MAX_IMAGE_BYTES)
+        if image.mime_type not in OCR_IMAGE_MIME_TYPES:
+            raise OcrUnusableError(reason="unsupported_image_type", images=len(images))
+    if not images:
+        return PictureTranscripts(pictures=())
+
+    leg = ocr_leg()
+    owns_client = client is None
+    http = client or httpx.AsyncClient(timeout=OCR_TIMEOUT_S, follow_redirects=False)
+    deadline = time.monotonic() + OCR_DEADLINE_S
+    results: list[PictureText] = []
+    answered: list[chat.TokenUsage | None] = []
+    try:
+        for batch in _picture_batches(images):
+            if time.monotonic() >= deadline:
+                results.extend(PictureText(i.position, "", "not_attempted") for i in batch)
+                continue
+            read, usage, failed = await _read_batch(leg, batch, http)
+            if read is None and len(batch) > 1 and failed.startswith("provider_rejected_4"):
+                # Several images in one compatibility-surface message is REPORTED, not
+                # shown by Google (module docstring): a refusal of the batch is asked again
+                # one picture at a time rather than losing all of them.
+                for image in batch:
+                    one, one_usage, one_failed = await _read_batch(leg, [image], http)
+                    if one is not None:
+                        answered.append(one_usage)
+                    results.extend(one or [PictureText(image.position, "", one_failed)])
+                continue
+            if read is not None:
+                answered.append(usage)
+            results.extend(read or [PictureText(i.position, "", failed) for i in batch])
+    finally:
+        if owns_client:
+            await http.aclose()
+
+    log.info(
+        "document_pictures_read",
+        extra={
+            "images": len(images),
+            "kept": sum(1 for r in results if r.reason is None),
+            "model": DOCUMENT_OCR_MODEL,
+        },
+    )
+    if not answered:
+        return PictureTranscripts(pictures=tuple(results))
+    spent = chat.sum_usage(answered)
+    return PictureTranscripts(
+        pictures=tuple(results),
+        model=DOCUMENT_OCR_MODEL,
+        prompt_tokens=spent.prompt_tokens if spent is not None else None,
+        output_tokens=spent.output_tokens if spent is not None else None,
+        cached_prompt_tokens=spent.cached_tokens_in if spent is not None else None,
+        usage_incomplete=spent.incomplete if spent is not None else False,
+    )
+
+
+def _picture_batches(images: Sequence[OcrImage]) -> list[list[OcrImage]]:
+    """Consecutive pictures, at most `PICTURES_PER_REQUEST` and `MAX_REQUEST_PICTURE_BYTES`
+    to a batch, in document order so each answer lands beside its own page."""
+    batches: list[list[OcrImage]] = []
+    size = 0
+    for image in images:
+        if (
+            not batches
+            or len(batches[-1]) >= PICTURES_PER_REQUEST
+            or size + len(image.data) > MAX_REQUEST_PICTURE_BYTES
+        ):
+            batches.append([])
+            size = 0
+        batches[-1].append(image)
+        size += len(image.data)
+    return batches
+
+
+async def _read_batch(
+    leg: chat.ChatLeg, batch: Sequence[OcrImage], http: httpx.AsyncClient
+) -> tuple[list[PictureText] | None, chat.TokenUsage | None, str]:
+    """One request for `batch`: each picture's reading, the usage, and the `provider_…`
+    code when the provider did not answer (then the list is None and nothing was billed)."""
+    if len(batch) == 1:
+        parts: list[dict[str, object]] = [{"type": "text", "text": _PROMPT}, _image_part(batch[0])]
+    else:
+        parts = [{"type": "text", "text": _batch_prompt(len(batch))}]
+        for number, image in enumerate(batch, start=1):
+            parts.append({"type": "text", "text": f"PICTURE {number}"})
+            parts.append(_image_part(image))
+    outcome, failed = await _ask(leg, parts, http, OCR_MAX_OUTPUT_TOKENS * len(batch))
+    if outcome is None:
+        return None, None, failed
+    content = outcome.content.strip()
+    if len(batch) == 1:
+        reason = _legibility_reason(content, finish_reason=outcome.finish_reason)
+        return (
+            [PictureText(batch[0].position, "" if reason else content, reason)],
+            outcome.usage,
+            "",
+        )
+    return _split_answer(batch, content, outcome.finish_reason), outcome.usage, ""
+
+
+def _split_answer(
+    batch: Sequence[OcrImage], content: str, finish_reason: str | None
+) -> list[PictureText]:
+    """One batched answer → a reading per picture, each judged on its own. Under a cut-off
+    (`length`) the last section written may be incomplete and the rest are missing, so both
+    are `truncated`; the sections before it were finished and stand."""
+    sections: dict[int, str] = {}
+    headings = list(_PICTURE_HEADING.finditer(content))
+    for here, after in zip(headings, [*headings[1:], None], strict=True):
+        number = int(here.group(1))
+        end = after.start() if after is not None else len(content)
+        if 1 <= number <= len(batch) and number not in sections:
+            sections[number] = content[here.end() : end].strip()
+    last = max(sections) if sections else 0
+    out: list[PictureText] = []
+    for number, image in enumerate(batch, start=1):
+        if number not in sections:
+            missing = "truncated" if finish_reason == "length" else "not_answered"
+            out.append(PictureText(image.position, "", missing))
+            continue
+        cut = finish_reason == "length" and number == last
+        reason = _legibility_reason(sections[number], finish_reason="length" if cut else None)
+        out.append(PictureText(image.position, "" if reason else sections[number], reason))
+    return out
 
 
 def _legibility_reason(text: str, *, finish_reason: str | None) -> str | None:

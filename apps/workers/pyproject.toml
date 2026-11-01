@@ -48,6 +48,11 @@ dependencies = [
     # 6.21.0; github.com/py-pdf/pypdf/security/advisories, read 29 Oct 2026). Pure Python,
     # no build hooks, no required dependencies.
     "pypdf>=6.21.2",
+    # Decodes the pictures inside a client's document (`document_pictures`, D-956), and
+    # pypdf needs it to extract PDF images. Already locked at 13.0.0 through the api's
+    # fpdf2; declared here because the workers import it by name. 13.0.0 is the floor the
+    # 29 Oct 2026 advisory sweep set (GHSA-78g4-xqwv-q3g8 fixed there).
+    "pillow>=13.0.0",
 ]
 
 # Virtual member: run from the repo root as `apps.workers.settings.WorkerSettings`.

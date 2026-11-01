@@ -22,6 +22,10 @@ client's AI usage in this transaction exactly as a photograph is (`kb_ingest._me
 At most `MAX_OCR_PAGES` scanned pages are read per document, the bound `MAX_OCR_IMAGES` puts
 on a photograph upload, so one large scan cannot spend without limit.
 
+The other pictures on a page — a price list pasted as an image beside ordinary text, a chart,
+a menu photo — are read too (D-956, `document_pictures`), within what the scans left of that
+bound, and their words follow the page's own in the same section.
+
 ═══ HOW A LINK IS READ ═══
 
 That one page only (founder, 24 Oct 2026), through `kb_ingest.fetch_page` — the same SSRF
@@ -61,6 +65,7 @@ from apps.api.core.logging import get_logger
 from apps.api.db.session import tenant_session
 from apps.api.kb import service as kb_service
 from apps.api.kb.models import READ_COPY_KINDS, READ_FAILED, READ_READING, READ_READY
+from apps.workers.document_pictures import PictureCollector, read_pictures
 
 log = get_logger(__name__)
 
@@ -71,6 +76,7 @@ MAX_PDF_PAGES: Final = 500
 #: extract it, and a page built to be huge would otherwise set our memory.
 MAX_PAGE_CHARS: Final = 20_000
 #: Scanned pages read by the Gemini reader per document: the photograph upload's own bound.
+#: Pictures on the other pages share it (`document_pictures`).
 MAX_OCR_PAGES: Final = MAX_OCR_IMAGES
 #: The wall-clock seconds one PDF's pages may take, checked before each page. `read_pdf` runs
 #: in a thread, which `asyncio` cannot cancel: when the job overruns `job_timeout` (300 s) the
@@ -109,6 +115,9 @@ class PdfReading:
     blank: int = 0
     #: Pages looked at before `MAX_PDF_PAGES` or `MAX_PDF_READ_S` stopped the reading.
     examined: int = 0
+    #: Every other picture worth reading, anchored to its page (D-956): a price list pasted
+    #: as an image on a page of ordinary text is read beside that page's words.
+    pictures: PictureCollector = field(default_factory=PictureCollector)
 
 
 def read_pdf(data: bytes) -> PdfReading:
@@ -143,17 +152,19 @@ def read_pdf(data: bytes) -> PdfReading:
         except Exception as exc:
             log.info("kb_read_page_failed", extra={"page": number, "error": type(exc).__name__})
             words = ""
-        if words and _is_text_layer(words):
-            reading.pages.append((number, words))
-            continue
-        scan = _largest_image(page)
+        images = _page_images(page)
+        scan = None if words and _is_text_layer(words) else _largest_image(images)
         if scan is not None:
             reading.scans.append((number, *scan))
+            # Read whole as the page; the reader is not asked about it twice.
+            reading.pictures.exclude(scan[0])
         elif words:
-            # Thin or garbled, but nothing better on the page: keep what pypdf found.
+            # A text layer, or thin or garbled with nothing better: keep what pypdf found.
             reading.pages.append((number, words))
         else:
             reading.blank += 1
+        for data, _mime in images:
+            reading.pictures.offer(data, anchor=number, where=f"page {number}")
     return reading
 
 
@@ -175,19 +186,35 @@ def _is_text_layer(words: str) -> bool:
     return unmapped <= len(dense) * MAX_UNMAPPED_SHARE
 
 
-def _largest_image(page: Any) -> tuple[bytes, str] | None:
+def _page_images(page: Any) -> list[tuple[bytes, str | None]]:
+    """Every image on a page as `(bytes, mime)`, the mime None when the reader does not take
+    the type as it is. One at a time by key, as pypdf advises: iterating `page.images`
+    "will raise an exception on the first issue" (pypdf docs, "Extract Images", stable), so
+    one damaged image would have cost the page's others."""
+    found: list[tuple[bytes, str | None]] = []
+    try:
+        keys = list(page.images.keys())
+    except Exception as exc:
+        log.info("kb_read_images_failed", extra={"error": type(exc).__name__})
+        return found
+    for key in keys:
+        try:
+            image = page.images[key]
+            data = bytes(image.data)
+        except Exception as exc:
+            log.info("kb_read_image_failed", extra={"error": type(exc).__name__})
+            continue
+        mime = _IMAGE_TYPES.get(str(image.name).rsplit(".", 1)[-1].lower())
+        found.append((data, mime if mime in OCR_IMAGE_MIME_TYPES else None))
+    return found
+
+
+def _largest_image(images: list[tuple[bytes, str | None]]) -> tuple[bytes, str] | None:
     """The biggest image on a page with no words, as `(bytes, mime)`, when the reader takes
     its type. A scanned page is one image the size of the page; the largest is that one."""
     best: tuple[bytes, str] | None = None
-    try:
-        images = list(page.images)
-    except Exception as exc:
-        log.info("kb_read_images_failed", extra={"error": type(exc).__name__})
-        return None
-    for image in images:
-        mime = _IMAGE_TYPES.get(str(image.name).rsplit(".", 1)[-1].lower())
-        data = bytes(image.data)
-        if mime is None or mime not in OCR_IMAGE_MIME_TYPES or len(data) > MAX_IMAGE_BYTES:
+    for data, mime in images:
+        if mime is None or len(data) > MAX_IMAGE_BYTES:
             continue
         if best is None or len(data) > len(best[0]):
             best = (data, mime)
@@ -335,6 +362,21 @@ async def _read_scans(
     return reading
 
 
+def _with_pictures(
+    pages: list[tuple[int, str]], pictures: dict[int, list[str]]
+) -> list[tuple[int | None, str]]:
+    """Each page's words, then the words of the pictures on it, as one section per page:
+    a section is chunked on its own and its chunks carry the page (`store_read_copy`)."""
+    words = dict(pages)
+    return [
+        (
+            number,
+            "\n\n".join([*([words[number]] if number in words else []), *pictures.get(number, [])]),
+        )
+        for number in sorted({*words, *pictures})
+    ]
+
+
 def _partial_detail(*, read: int, total: int) -> str | None:
     if read >= total:
         return None
@@ -382,15 +424,27 @@ async def read_saved_copy(
             await _mark(session, upload_id, READ_FAILED, detail=unreadable.detail)
             return "failed"
         scanned = await _read_scans(session, tenant_id=tenant_id, scans=reading.scans)
-        sections: list[tuple[int | None, str]] = [
-            (number, words) for number, words in sorted([*reading.pages, *scanned.pages])
-        ]
+        # Scanned pages and pictures share one document's reads (`MAX_OCR_IMAGES`, the
+        # bound the OCR cost assertion is stated over); the scans are the pages' own words,
+        # so they come first.
+        pictures = await read_pictures(
+            session,
+            tenant_id=tenant_id,
+            collector=reading.pictures,
+            budget=MAX_OCR_IMAGES - min(len(reading.scans), MAX_OCR_PAGES),
+        )
+        sections = _with_pictures([*reading.pages, *scanned.pages], pictures.blocks)
         pages = reading.page_count
-        detail = _partial_detail(read=len(sections), total=reading.examined)
+        detail = _partial_detail(
+            read=len({*(n for n, _ in reading.pages), *(n for n, _ in scanned.pages)}),
+            total=reading.examined,
+        )
         if reading.examined < pages:
             detail = f"We read the first {reading.examined} pages of {pages}."
         if scanned.unavailable:
             detail = OCR_OFF_DETAIL
+        if (said := pictures.detail()) is not None and not scanned.unavailable:
+            detail = f"{detail} {said}" if detail else said
         empty = (
             OCR_OFF_DETAIL
             if scanned.unavailable

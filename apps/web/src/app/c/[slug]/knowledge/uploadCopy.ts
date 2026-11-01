@@ -159,9 +159,11 @@ export function uploadState(upload: KbUpload): UploadState {
   if (upload.is_live) {
     return {
       label: "In use",
-      // A partial reading ("We read 18 of 20 pages") is said where the owner looks.
+      // A partial reading ("We read 18 of 20 pages", "2 pictures could not be read") is
+      // said where the owner looks. Not a link's: its agents use the page the platform
+      // fetched, whatever our own copy managed.
       meaning:
-        (upload.source_kind === "pdf" ? upload.read_detail : null) ??
+        (isLink ? null : upload.read_detail) ??
         (isLink ? "Your agents use this page on calls." : "Your agents use this on calls and in their scripts."),
       tone: LIVE_TONE,
       working: false,

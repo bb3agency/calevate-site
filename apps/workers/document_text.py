@@ -51,6 +51,13 @@ Three defences, none of them optional:
 3. **Time.** There is no I/O here at all, so there is nothing to hang on: every loop is
    bounded by a ceiling above, and the worst input costs a bounded parse.
 
+PICTURES (D-956). A DOCX's inline pictures and an XLSX's sheet pictures are found here too,
+through the same pre-flighted archive and the same DOCTYPE-guarded parse, and handed to a
+`document_pictures.PictureCollector` with the block they follow. `read_document` stops there,
+still with no network: the worker reads the pictures (`document_pictures.read_pictures`) and
+`assemble` puts their words after their paragraph or sheet. A picture is extra to the text,
+so a damaged picture part costs that picture and never the document.
+
 NOTHING IN THIS MODULE LOGS. It is handed a client's business document, routinely
 carrying their customers' personal data (hard rule 6). It has no ids to log and its
 refusals carry counts and codes, never content — so the caller, which does have ids,
@@ -62,10 +69,12 @@ from __future__ import annotations
 import csv
 import datetime as dt
 import io
+import posixpath
 import re
 import zipfile
 import zlib
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
+from dataclasses import dataclass, field
 from typing import Final
 from xml.etree import ElementTree
 from xml.parsers import expat
@@ -89,8 +98,17 @@ from calevate_shared.document_ingest import (
 )
 from openpyxl.utils.exceptions import InvalidFileException
 
-#: WordprocessingML's main namespace, and the only one this reader needs.
+from apps.workers.document_pictures import PictureCollector
+
+#: WordprocessingML's main namespace, the one the body text needs.
 _W: Final = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+#: The namespaces a picture is reached through: a DrawingML `a:blip r:embed` (or a legacy
+#: VML `v:imagedata r:id`) names a relationship, and the part's `.rels` names the media file.
+_R: Final = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
+_A: Final = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
+_V: Final = "{urn:schemas-microsoft-com:vml}"
+_S: Final = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+_PACKAGE_REL: Final = "{http://schemas.openxmlformats.org/package/2006/relationships}"
 
 #: The one part of a .docx that holds the body text. Headers, footers and footnotes live
 #: in sibling parts and are DELIBERATELY not read: a page header repeated on forty pages
@@ -144,8 +162,29 @@ def _declares_doctype(raw: bytes) -> bool:
 _LAYOUT_CONTROLS: Final = str.maketrans({"\x0b": "\n", "\x0c": "\n", "\xa0": " "})
 
 
+@dataclass(slots=True)
+class DocumentParts:
+    """A document read as far as no network is needed: its blocks of text in order, and
+    the pictures that sit among them, each anchored to the block it follows."""
+
+    kind: IngestKind
+    blocks: list[str]
+    unit_count: int
+    unit_name: str
+    pictures: PictureCollector = field(default_factory=PictureCollector)
+    #: For a block with no text of its own (a sheet holding only pictures): the line its
+    #: pictures' words are put under, so a sheet name still leads them.
+    headings: dict[int, str] = field(default_factory=dict)
+
+
 def extract_document(data: bytes, kind: IngestKind) -> ExtractedText:
-    """One uploaded object → its text. Raises `DocumentRefusedError` and nothing else.
+    """One uploaded object → its text, pictures left unread. Raises `DocumentRefusedError`
+    and nothing else."""
+    return assemble(read_document(data, kind), {})
+
+
+def read_document(data: bytes, kind: IngestKind) -> DocumentParts:
+    """One uploaded object → its blocks and pictures. Raises `DocumentRefusedError`.
 
     The size gate is FIRST, before any parser sees the bytes, because every ceiling below
     it assumes an input of bounded size.
@@ -154,7 +193,7 @@ def extract_document(data: bytes, kind: IngestKind) -> ExtractedText:
         raise DocumentTooLargeError(size=len(data), limit=MAX_SOURCE_BYTES)
 
     if kind == "txt":
-        return _finish(_clean(_decode(data)), kind=kind, unit_count=1, unit_name="document")
+        return DocumentParts(kind, [_clean(_decode(data))], 1, "document")
     if kind == "csv":
         return _extract_csv(data)
     if kind == "docx":
@@ -165,10 +204,32 @@ def extract_document(data: bytes, kind: IngestKind) -> ExtractedText:
     raise UnsupportedKindError(kind)
 
 
+def assemble(parts: DocumentParts, pictures: Mapping[int, Sequence[str]]) -> ExtractedText:
+    """The document's text with each picture's words (`document_pictures.picture_block`)
+    after the block it follows; anchor -1 is before the first block."""
+    out = list(pictures.get(-1, ()))
+    for index, block in enumerate(parts.blocks):
+        read = pictures.get(index, ())
+        if block:
+            out.append(block)
+        elif read and index in parts.headings:
+            out.append(parts.headings[index])
+        out.extend(read)
+    return _finish(
+        _clean("\n\n".join(out)),
+        kind=parts.kind,
+        unit_count=parts.unit_count,
+        unit_name=parts.unit_name,
+        has_pictures=any(pictures.values()),
+    )
+
+
 # --- SHARED PLUMBING -----------------------------------------------------------------
 
 
-def _finish(text: str, *, kind: IngestKind, unit_count: int, unit_name: str) -> ExtractedText:
+def _finish(
+    text: str, *, kind: IngestKind, unit_count: int, unit_name: str, has_pictures: bool = False
+) -> ExtractedText:
     """The two checks every parser owes, in one place so none of them can skip one."""
     if not text:
         raise DocumentEmptyError(kind=kind)
@@ -183,8 +244,80 @@ def _finish(text: str, *, kind: IngestKind, unit_count: int, unit_name: str) -> 
         # A deterministic reader took text that was already text out of a container. There
         # is nothing for a human to CONFIRM that the approval gate does not already ask —
         # unlike OCR, where the question is "did the machine read this correctly at all".
-        needs_confirmation=False,
+        # Words read off a picture inside it are a model's reading, and say so.
+        needs_confirmation=has_pictures,
     )
+
+
+def _relationships(archive: zipfile.ZipFile, part: str) -> dict[str, tuple[str, str]]:
+    """A part's relationships: id → (type, path in the archive). External targets (a linked
+    picture on somebody's server) are left out: we read what is inside the file only."""
+    folder, name = posixpath.split(part)
+    rels = posixpath.join(folder, "_rels", f"{name}.rels")
+    if rels not in archive.namelist():
+        return {}
+    try:
+        root = _parse_part(archive, rels, what="document")
+    except DocumentRefusedError:
+        return {}
+    found: dict[str, tuple[str, str]] = {}
+    for rel in root.iter(f"{_PACKAGE_REL}Relationship"):
+        target = rel.get("Target") or ""
+        if rel.get("TargetMode") == "External" or not target:
+            continue
+        path = (
+            target.lstrip("/")
+            if target.startswith("/")
+            else posixpath.normpath(posixpath.join(folder, target))
+        )
+        found[rel.get("Id") or ""] = (rel.get("Type") or "", path)
+    return found
+
+
+def _pictures_in(
+    element: ElementTree.Element, rels: Mapping[str, tuple[str, str]]
+) -> Iterator[str]:
+    """The media parts `element` shows, in document order."""
+    for node in element.iter():
+        if node.tag == f"{_A}blip":
+            rel_id = node.get(f"{_R}embed")
+        elif node.tag == f"{_V}imagedata":
+            rel_id = node.get(f"{_R}id")
+        else:
+            continue
+        kind, path = rels.get(rel_id or "", ("", ""))
+        if kind.endswith("/image"):
+            yield path
+
+
+def _offer_media(
+    archive: zipfile.ZipFile,
+    paths: Iterator[str] | Sequence[str],
+    parts: DocumentParts,
+    *,
+    seen: set[str],
+    where: str,
+) -> None:
+    """Each media part, read once per document however many places show it — a logo on
+    every page is one part referenced many times, so this read is what the bomb pre-flight's
+    declared total bounds — and offered to the collector with the block it follows."""
+    for path in paths:
+        if path in seen:
+            continue
+        seen.add(path)
+        try:
+            data = archive.read(path)
+        except (
+            KeyError,
+            zipfile.BadZipFile,
+            zlib.error,
+            EOFError,
+            RuntimeError,
+            NotImplementedError,
+            OSError,
+        ):
+            continue
+        parts.pictures.offer(data, anchor=len(parts.blocks) - 1, where=where)
 
 
 def _decode(data: bytes) -> str:
@@ -329,7 +462,7 @@ def _parse_part(archive: zipfile.ZipFile, name: str, *, what: str) -> ElementTre
 _CSV_DELIMITERS: Final = (",", ";", "\t", "|")
 
 
-def _extract_csv(data: bytes) -> ExtractedText:
+def _extract_csv(data: bytes) -> DocumentParts:
     text = _decode(data)
     lines = text.splitlines()
     if not lines:
@@ -338,7 +471,7 @@ def _extract_csv(data: bytes) -> ExtractedText:
     if lines[0].count(delimiter) == 0:
         # One column, or prose someone saved with a .csv extension. Either way there are
         # no headers to bind values to, so it is text and is treated as text.
-        return _finish(_clean(text), kind="csv", unit_count=len(lines), unit_name="lines")
+        return DocumentParts("csv", [_clean(text)], len(lines), "lines")
 
     try:
         rows = list(csv.reader(lines, delimiter=delimiter))
@@ -353,7 +486,7 @@ def _extract_csv(data: bytes) -> ExtractedText:
         ) from failure
 
     rendered, kept = _render_table(rows)
-    return _finish(rendered, kind="csv", unit_count=kept, unit_name="rows")
+    return DocumentParts("csv", [rendered], kept, "rows")
 
 
 def _render_table(rows: Sequence[Sequence[object]]) -> tuple[str, int]:
@@ -388,20 +521,28 @@ def _render_table(rows: Sequence[Sequence[object]]) -> tuple[str, int]:
 # --- XLSX ----------------------------------------------------------------------------
 
 
-def _extract_xlsx(data: bytes) -> ExtractedText:
-    """Every visible sheet, each as a titled block of one line per row.
+def _extract_xlsx(data: bytes) -> DocumentParts:
+    """Every visible sheet, each as a titled block of one line per row, and its pictures.
 
     HIDDEN SHEETS ARE SKIPPED, which is a content decision rather than a technical one: a
     hidden sheet is almost always the lookup table, the old prices or the working column
     somebody hid on purpose, and publishing it would put wording in front of callers that
-    the client had deliberately taken out of view.
+    the client had deliberately taken out of view. Their pictures are skipped with them.
     """
-    # Opened and closed for the bomb pre-flight ALONE, then handed to openpyxl as bytes.
-    # openpyxl does its own `ZipFile` open and offers no hook to inspect the central
-    # directory first, so the choice is this one extra directory read (microseconds, no
-    # decompression) or trusting a stranger's archive. It is not a wasted parse: it is the
-    # only place the declared expansion is ever seen.
-    _open_ooxml(data, what="spreadsheet").close()
+    # Opened for the bomb pre-flight, then handed to openpyxl as bytes. openpyxl does its
+    # own `ZipFile` open and offers no hook to inspect the central directory first, so the
+    # choice is this one extra directory read (microseconds, no decompression) or trusting
+    # a stranger's archive. The same pre-flighted archive is where the pictures are found:
+    # openpyxl's `read_only` mode, which keeps a large workbook streaming, loads none.
+    archive = _open_ooxml(data, what="spreadsheet")
+    try:
+        return _read_xlsx(data, archive)
+    finally:
+        archive.close()
+
+
+def _read_xlsx(data: bytes, archive: zipfile.ZipFile) -> DocumentParts:
+    sheet_pictures = _sheet_pictures(archive)
     try:
         workbook = openpyxl.load_workbook(
             io.BytesIO(data),
@@ -418,38 +559,65 @@ def _extract_xlsx(data: bytes) -> ExtractedText:
             ),
         ) from failure
 
+    parts = DocumentParts("xlsx", [], 0, "rows")
+    seen: set[str] = set()
     try:
-        blocks: list[str] = []
         sheets = 0
-        rows_kept = 0
         for sheet in workbook.worksheets:
             if sheet.sheet_state != "visible":
                 continue
+            title = str(sheet.title).strip()
             rows = [
                 [_cell_text(value) for value in row]
                 for row in sheet.iter_rows(max_row=MAX_ROWS_PER_TABLE + 1, values_only=True)
             ]
             rendered, kept = _render_table(rows)
-            if not rendered:
+            pictures = sheet_pictures.get(str(sheet.title), [])
+            if not rendered and not pictures:
                 continue
-            sheets += 1
-            rows_kept += kept
-            # The sheet name leads its block: a workbook's tabs are how the client
-            # organised the knowledge ("Tiffins", "Biryani", "Delivery"), and the name is
-            # the only thing that tells a retrieved row which section it came from.
-            blocks.append(f"{str(sheet.title).strip()}\n{rendered}")
+            if rendered:
+                sheets += 1
+                parts.unit_count += kept
+                # The sheet name leads its block: a workbook's tabs are how the client
+                # organised the knowledge ("Tiffins", "Biryani", "Delivery"), and the name
+                # is the only thing that tells a retrieved row which section it came from.
+                parts.blocks.append(f"{title}\n{rendered}")
+            else:
+                parts.blocks.append("")
+                parts.headings[len(parts.blocks) - 1] = title
+            _offer_media(archive, pictures, parts, seen=seen, where=title)
     finally:
         # `read_only` holds the archive open until this is called.
         workbook.close()
 
-    if not blocks:
+    if not parts.blocks:
         raise DocumentEmptyError(kind="xlsx")
-    return _finish(
-        _clean("\n\n".join(blocks)),
-        kind="xlsx",
-        unit_count=rows_kept,
-        unit_name="rows" if sheets == 1 else f"rows across {sheets} sheets",
-    )
+    parts.unit_name = "rows" if sheets <= 1 else f"rows across {sheets} sheets"
+    return parts
+
+
+def _sheet_pictures(archive: zipfile.ZipFile) -> dict[str, list[str]]:
+    """Each sheet's picture parts by sheet name: workbook → sheet → drawing → media."""
+    try:
+        workbook = _parse_part(archive, "xl/workbook.xml", what="spreadsheet")
+    except DocumentRefusedError:
+        return {}
+    sheets = _relationships(archive, "xl/workbook.xml")
+    found: dict[str, list[str]] = {}
+    for sheet in workbook.iter(f"{_S}sheet"):
+        name = sheet.get("name")
+        _kind, sheet_part = sheets.get(sheet.get(f"{_R}id") or "", ("", ""))
+        if not name or not sheet_part:
+            continue
+        for kind, drawing in _relationships(archive, sheet_part).values():
+            if not kind.endswith("/drawing"):
+                continue
+            try:
+                root = _parse_part(archive, drawing, what="spreadsheet")
+            except DocumentRefusedError:
+                continue
+            found.setdefault(name, []).extend(_pictures_in(root, _relationships(archive, drawing)))
+    return found
 
 
 def _cell_text(value: object) -> str:
@@ -477,41 +645,43 @@ def _cell_text(value: object) -> str:
 # --- DOCX ----------------------------------------------------------------------------
 
 
-def _extract_docx(data: bytes) -> ExtractedText:
-    """The body of a Word document, in document order, tables included."""
+def _extract_docx(data: bytes) -> DocumentParts:
+    """The body of a Word document, in document order, tables and pictures included."""
     archive = _open_ooxml(data, what="Word")
     try:
-        root = _parse_part(archive, _DOCX_BODY_PART, what="Word")
+        return _read_docx(archive)
     finally:
         archive.close()
 
+
+def _read_docx(archive: zipfile.ZipFile) -> DocumentParts:
+    root = _parse_part(archive, _DOCX_BODY_PART, what="Word")
     body = root.find(f"{_W}body")
     if body is None:
         raise DocumentEmptyError(kind="docx")
 
-    blocks: list[str] = []
-    paragraphs = 0
+    # A blank line between blocks (`assemble`): in a Word document the paragraph IS the
+    # semantic unit the author chose, and `kb.service.chunk_text` splits on the blank line
+    # first — so this is what makes a chunk boundary land where the client put a break.
+    parts = DocumentParts("docx", [], 0, "paragraphs")
+    rels = _relationships(archive, _DOCX_BODY_PART)
+    seen: set[str] = set()
     for element in body:
         if element.tag == f"{_W}p":
             line = _paragraph_text(element)
             if line:
-                blocks.append(line)
-                paragraphs += 1
+                parts.blocks.append(line)
+                parts.unit_count += 1
         elif element.tag == f"{_W}tbl":
             rendered, kept = _render_table(list(_table_rows(element)))
             if rendered:
-                blocks.append(rendered)
-                paragraphs += kept
-
-    # A blank line between blocks: in a Word document the paragraph IS the semantic unit
-    # the author chose, and `kb.service.chunk_text` splits on the blank line first — so
-    # this is what makes a chunk boundary land where the client put a break.
-    return _finish(
-        _clean("\n\n".join(blocks)),
-        kind="docx",
-        unit_count=paragraphs,
-        unit_name="paragraphs",
-    )
+                parts.blocks.append(rendered)
+                parts.unit_count += kept
+        else:
+            continue
+        # A picture's words follow the paragraph or table that holds it.
+        _offer_media(archive, _pictures_in(element, rels), parts, seen=seen, where="")
+    return parts
 
 
 def _paragraph_text(paragraph: ElementTree.Element) -> str:
@@ -551,4 +721,10 @@ def _table_rows(table: ElementTree.Element) -> Iterator[list[str]]:
 
 # Re-exported so a caller catching refusals imports the base class from the module it
 # called, rather than reaching past it into the shared package for one name.
-__all__ = ["DocumentRefusedError", "extract_document"]
+__all__ = [
+    "DocumentParts",
+    "DocumentRefusedError",
+    "assemble",
+    "extract_document",
+    "read_document",
+]
