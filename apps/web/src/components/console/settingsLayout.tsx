@@ -324,8 +324,9 @@ export function SettingsLayout({
 
 /**
  * The tab list and the one panel under it. The look is the kit's underline tabs
- * (`interior/tabs`): a row of words on a hairline, the open one in ink and medium weight
- * with a brand underline, so the open tab differs by weight and line as well as colour.
+ * (`interior/tabs`): a row of words on a hairline. The open one is tinted, bold, in brand
+ * green and underlined, so a glance finds it; it differs by fill, weight and line as well
+ * as colour.
  * On a phone the row scrolls sideways inside a named `ScrollRegion` rather than wrapping
  * into a second row, and the open tab is brought into view when the page opens on it.
  */
@@ -376,18 +377,20 @@ function TabbedSections({
         label={label}
         className="-mx-4 border-b border-line px-4 [scrollbar-width:none] sm:mx-0 sm:px-0 [&::-webkit-scrollbar]:hidden"
       >
-        <div ref={listRef} {...tabs.tabListProps} aria-label={label} className="flex w-max gap-5 pr-4 sm:gap-6 sm:pr-0">
+        <div ref={listRef} {...tabs.tabListProps} aria-label={label} className="flex w-max gap-1 pr-4 sm:gap-2 sm:pr-0">
           {sections.map((section, index) => {
             const selected = section.id === active;
             return (
               <button
                 key={section.id}
                 {...tabs.getTabProps({ value: section.id, label: section.label }, index)}
-                className={`-mb-px flex h-11 shrink-0 items-center justify-center gap-1.5 border-b-2 touch:min-w-11 text-body outline-none transition-colors duration-(--duration-fast) focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-brand ${
-                  selected ? "border-brand-strong font-medium text-ink" : "border-transparent text-ink-muted hover:text-ink"
+                className={`-mb-px flex h-11 shrink-0 items-center justify-center gap-1.5 border-b-2 px-0.5 touch:min-w-11 text-body outline-none transition-colors duration-(--duration-fast) focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-brand ${
+                  selected
+                    ? "border-brand-strong font-semibold text-brand-strong"
+                    : "border-transparent text-ink-muted hover:text-ink"
                 }`}
               >
-                {section.label}
+                <span className={`rounded-md px-2.5 py-1 ${selected ? "bg-brand-soft" : ""}`}>{section.label}</span>
                 {section.badge !== undefined && (
                   <span className="rounded-full bg-warn/15 px-1.5 text-[12px] font-medium tabular-nums text-ink">
                     {section.badge}

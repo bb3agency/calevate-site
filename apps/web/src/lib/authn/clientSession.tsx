@@ -100,12 +100,17 @@ export function ClientSessionGate({
    * default) from `/auth/account`, which renders it inside `AuthPageFrame`'s `<main>`.
    */
   landmark = false,
+  /** Drawn while the session is still being restored, in place of the gate's own skeleton:
+   *  the console passes its frame so the sidebar and top bar show while it checks. */
+  pending,
 }: {
   children: ReactNode;
   landmark?: boolean;
+  pending?: ReactNode;
 }) {
   const { status, retry } = useClientSession();
   if (status === "ready") return <>{children}</>;
+  if (status === "restoring" && pending) return <>{pending}</>;
   return (
     <SessionGate
       status={status}

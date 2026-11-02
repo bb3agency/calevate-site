@@ -70,6 +70,7 @@ export function AgentHeader({
   const { href } = useClientRealm();
   const session = useClientSession();
   const pending = usePendingChanges(session, agent.id);
+  const script = useScript(session, agent.id);
   const move = useAgentLifecycle(session, agent.id);
   const undo = useUndoScript(session, agent.id);
   /* Bringing an agent back or getting it ready changes which buttons are offered, so the one
@@ -135,19 +136,47 @@ export function AgentHeader({
   // The tier it speaks in, and that tier's rate, beside the state (Clear or Studio only).
   const tierLine = deleted ? null : voiceTierLine(pending.data);
   const spendLine = spend.isSuccess && !deleted ? agentMonthLine(spend.data, agent.id) : null;
+  // The agent's main task, from its script's goal, first under the name so an owner with
+  // several agents sees at once what this one is for. Clamped: the goal may run to a
+  // paragraph, and the Script tab holds the whole of it.
+  const scriptHref = scriptTab?.href ?? href(`${base}?section=script`);
+  let taskLine: ReactNode = null;
+  if (deleted || script.isPending) taskLine = null;
+  else if (script.isError)
+    taskLine = <span className="mb-1 block">We could not read its main task just now.</span>;
+  else {
+    const goal = script.data.script.goal?.trim() ?? "";
+    taskLine = goal ? (
+      <span className="mb-1 flex items-baseline gap-1.5 text-ink">
+        <span className="shrink-0 font-medium">Main task:</span>
+        <span className="line-clamp-2" title={goal}>
+          {goal}
+        </span>
+      </span>
+    ) : (
+      <span className="mb-1 block">
+        <Link href={scriptHref} onClick={scriptTab?.onClick} className="font-medium text-brand-strong hover:underline">
+          Add its main task
+        </Link>
+      </span>
+    );
+  }
   // Three short facts, each on its own wrap unit, so a phone breaks between facts rather
   // than mid-sentence (responsive-layout-patterns).
   const detail = (
-    <span className="flex flex-wrap gap-x-3 gap-y-0.5">
-      {[stateLine, tierLine, spendLine]
-        .filter((part): part is string => Boolean(part))
-        .map((part, index) => (
-          <span key={part} className={index === 0 ? undefined : "whitespace-nowrap"}>
-            {index > 0 && <span aria-hidden className="mr-3 text-ink-faint">·</span>}
-            {part}
-          </span>
-        ))}
-    </span>
+    <>
+      {taskLine}
+      <span className="flex flex-wrap gap-x-3 gap-y-0.5">
+        {[stateLine, tierLine, spendLine]
+          .filter((part): part is string => Boolean(part))
+          .map((part, index) => (
+            <span key={part} className={index === 0 ? undefined : "whitespace-nowrap"}>
+              {index > 0 && <span aria-hidden className="mr-3 text-ink-faint">·</span>}
+              {part}
+            </span>
+          ))}
+      </span>
+    </>
   );
 
   const restoreButton = deleted && moves.includes("restore") && (

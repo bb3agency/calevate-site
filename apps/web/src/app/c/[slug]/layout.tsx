@@ -7,10 +7,11 @@ import { ToastProvider } from "@/components/arc/toast";
 import { ClientLiveUpdates } from "@/components/live/LiveUpdates";
 import { MaintenanceBanner, MaintenanceGate } from "@/components/maintenance";
 import { OfflineBanner } from "@/components/offline";
-import { MAIN_CONTENT_ID, SHELL_MAIN_CLASS, SHELL_RAIL_CLASS, Skeleton, SkipLink } from "@/components/ui";
+import { MAIN_CONTENT_ID, SHELL_MAIN_CLASS, SHELL_RAIL_CLASS, SkipLink } from "@/components/ui";
 import { ClientRealmProvider } from "@/lib/api/session";
 
 import { ClientAnnouncements } from "./ClientAnnouncements";
+import { ClientShellFallback } from "./ClientShellFallback";
 import { ClientSidebar } from "./ClientSidebar";
 import { ClientTopHeader, CreditStrip } from "./ClientTopHeader";
 import { TrialBanner } from "./TrialBanner";
@@ -64,23 +65,9 @@ export default function ClientRealmLayout({
           <SkipLink />
           <ClientRealmProvider
             slug={slug}
-            fallback={
-              // A `<main>` here too, carrying the same id: `SkipLink` above is rendered in
-              // EVERY state of this shell, so its target has to exist in every state or the
-              // control is dead exactly when the page is slowest. The gate branches get
-              // theirs from `SessionGate`'s `landmark` prop; this is the Suspense arm, which
-              // no gate reaches. Measured by axe in a real browser — `skip-link`, "the
-              // skip-link target should exist and be focusable".
-              <main
-                id={MAIN_CONTENT_ID}
-                tabIndex={-1}
-                className="flex h-full w-full items-center justify-center"
-              >
-                <div className="w-full max-w-96 px-4">
-                  <Skeleton rows={8} />
-                </div>
-              </main>
-            }
+            // The frame (sidebar, top bar, page name) while the session is checked, with the
+            // skeleton only where the page goes; its `<main>` carries the skip link's id.
+            fallback={<ClientShellFallback slug={slug} />}
           >
             {/* Every feed on every screen refetches when the change stream says it moved
                 (D-774). Inside the realm provider, so it uses this tab's session. */}

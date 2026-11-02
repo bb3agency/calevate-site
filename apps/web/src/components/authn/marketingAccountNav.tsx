@@ -30,17 +30,16 @@
 
 import { ArrowRight, LayoutDashboard } from "lucide-react";
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { createContext, useContext, type ReactNode } from "react";
 
 import { CLIENT_CONSOLE_PATH, CLIENT_SIGN_IN_PATH, clientAuthn } from "@/lib/authn/clientAuthn";
 import { useRealmSession } from "@/lib/authn/useRealmSession";
 import { clientConsoleUrl } from "@/lib/consoleOrigin";
 
-// TIGHTER BELOW `sm`, because this nav shares one row with the logo and at 320px that row
-// did not fit — measured in Chromium, 374px of content in a 320px viewport. The padding
-// and type step back up at `sm`, so nothing changes on the screens that have the room.
-const LINK =
-  "inline-flex items-center touch:min-h-11 rounded-md px-2 py-1.5 text-xs font-medium whitespace-nowrap text-ink-muted hover:bg-black/5 sm:px-3 sm:text-sm dark:hover:bg-white/5";
+// TIGHTER BELOW `sm`, because this nav shares one row with the logo and the menu button at
+// 320px. The secondary link is not in that row at all below `sm` (see `LINK_FROM_SM`).
+const LINK_FROM_SM =
+  "hidden sm:inline-flex items-center touch:min-h-11 rounded-md px-3 py-1.5 text-sm font-medium whitespace-nowrap text-ink-muted hover:bg-black/5 dark:hover:bg-white/5";
 const PRIMARY =
   "inline-flex items-center gap-1.5 touch:min-h-11 rounded-md bg-brand-strong px-2.5 py-1.5 text-xs font-semibold whitespace-nowrap text-white hover:bg-brand-strong sm:px-3 sm:text-sm";
 
@@ -59,14 +58,40 @@ export interface MarketingAccountNavProps {
   readonly ctaLabel: string;
 }
 
-export function MarketingAccountNav({ ctaHref, ctaLabel }: MarketingAccountNavProps) {
-  const { status, session } = useRealmSession(clientAuthn, "guest");
+const SignedIn = createContext(false);
 
+/**
+ * Asks once whether the visitor is signed in and tells both readers: the header row and the
+ * menu's account item. Two hooks would be two restore round trips on a marketing page.
+ */
+export function MarketingAccountProvider({ children }: { children: ReactNode }) {
+  const { status, session } = useRealmSession(clientAuthn, "guest");
   // SIGNED IN ONLY WHEN THE SERVER SAID SO. `restoring` and every failure render the
   // signed-out header: a marketing page that hid its sign-in link because a request was
   // in flight would strand somebody whose session had in fact expired, on the one page
   // that can send them to fix it.
-  const signedIn = status === "ready" && session !== null;
+  return <SignedIn.Provider value={status === "ready" && session !== null}>{children}</SignedIn.Provider>;
+}
+
+/**
+ * The secondary account link ("Sign in", or "Your account" once signed in) as a menu row.
+ * Below `sm` the header row holds only the one button, so this is where a phone finds it.
+ */
+export function MarketingAccountMenuItem({ className }: { className: string }) {
+  const signedIn = useContext(SignedIn);
+  return signedIn ? (
+    <Link href="/auth/account" className={className}>
+      Your account
+    </Link>
+  ) : (
+    <Link href={CLIENT_SIGN_IN_PATH} className={className}>
+      Sign in
+    </Link>
+  );
+}
+
+export function MarketingAccountNav({ ctaHref, ctaLabel }: MarketingAccountNavProps) {
+  const signedIn = useContext(SignedIn);
 
   // BOTH STATES ARE ALWAYS RENDERED, stacked in one grid cell, so the slot is as wide as
   // the wider of the two from the first paint and the answer landing moves nothing else in
@@ -80,7 +105,10 @@ export function MarketingAccountNav({ ctaHref, ctaLabel }: MarketingAccountNavPr
     // `landmark-unique` rule is about a screen-reader user moving between them by name.
     <nav aria-label="Account" className="grid">
       <AccountLayer shown={!signedIn}>
-        <Link href={CLIENT_SIGN_IN_PATH} className={LINK}>
+        {/* Below `sm` the row is the logo, ONE button and the menu; "Sign in" is a menu row
+            there (`MarketingAccountMenuItem`). Two account links beside a menu read as three
+            doors to a phone visitor. */}
+        <Link href={CLIENT_SIGN_IN_PATH} className={LINK_FROM_SM}>
           Sign in
         </Link>
         <Link href={ctaHref} className={PRIMARY}>
@@ -94,23 +122,24 @@ export function MarketingAccountNav({ ctaHref, ctaLabel }: MarketingAccountNavPr
             `/v1/me` read here purely to build an href.
             ABSOLUTE, because this nav renders on the APEX, which serves `/c` and refuses
             `/c/<slug>` — so the bare path reached the junction and died at its destination. */}
-        {/* "Console" below `sm`: the slot is as wide as the wider state, so this state
-            must be no wider than the signed-out one there, or the shared 320px row loses
-            the logo for every visitor. */}
+        {/* "Your console" below `sm`: the slot is as wide as the wider state, so this
+            state must be no wider than the signed-out one there, or the shared 320px row
+            loses the logo for every visitor. */}
         <Link
           href={clientConsoleUrl(CLIENT_CONSOLE_PATH)}
           className={PRIMARY}
           aria-label="Go to your console"
         >
           <LayoutDashboard aria-hidden className="hidden h-3.5 w-3.5 sm:block" />
-          <span className="sm:hidden">Console</span>
+          <span className="sm:hidden">Your console</span>
           <span className="hidden sm:inline">Go to your console</span>
         </Link>
-        {/* The account screen, reachable but secondary. NOT a sign-out: this is a marketing
-            page, and putting the one destructive session control next to a call to action
-            is how somebody ends a session they meant to open. `/auth/account` owns that. */}
-        <Link href="/auth/account" className={LINK} aria-label="Your account">
-          Account
+        {/* The account screen, reachable but secondary, and a menu row below `sm`. NOT a
+            sign-out: this is a marketing page, and putting the one destructive session
+            control next to a call to action is how somebody ends a session they meant to
+            open. `/auth/account` owns that. */}
+        <Link href="/auth/account" className={LINK_FROM_SM}>
+          Your account
         </Link>
       </AccountLayer>
     </nav>

@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { MarketingAccountNav } from "@/components/authn/marketingAccountNav";
+import { MarketingAccountNav, MarketingAccountProvider } from "@/components/authn/marketingAccountNav";
 
 import { stubApi } from "./harness";
 
@@ -13,7 +13,11 @@ import { stubApi } from "./harness";
  * header change after the page had loaded). These pin that shape and who sees what.
  */
 
-const NAV = <MarketingAccountNav ctaHref="#how" ctaLabel="See how it works" />;
+const NAV = (
+  <MarketingAccountProvider>
+    <MarketingAccountNav ctaHref="#how" ctaLabel="See how it works" />
+  </MarketingAccountProvider>
+);
 
 function layers(root: ParentNode): { out: Element; in: Element } {
   const nav = root.querySelector('nav[aria-label="Account"]');

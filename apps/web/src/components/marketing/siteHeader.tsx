@@ -40,7 +40,11 @@
 import Link from "next/link";
 import { Menu } from "lucide-react";
 
-import { MarketingAccountNav } from "@/components/authn/marketingAccountNav";
+import {
+  MarketingAccountMenuItem,
+  MarketingAccountNav,
+  MarketingAccountProvider,
+} from "@/components/authn/marketingAccountNav";
 import { BrandHeaderMark } from "@/components/brand";
 import { PUBLIC_ROUTES } from "@/lib/site";
 
@@ -110,37 +114,44 @@ export function SiteHeader() {
           ))}
         </nav>
 
-        <div className="flex items-center gap-1.5 sm:gap-2">
-          <MarketingAccountNav ctaHref={HEADER_CTA.href} ctaLabel={HEADER_CTA.label} />
+        <MarketingAccountProvider>
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            <MarketingAccountNav ctaHref={HEADER_CTA.href} ctaLabel={HEADER_CTA.label} />
 
-          {/* The menu, below `xl`. `relative` on the wrapper so the panel hangs off the
-              header rather than off the page. */}
-          <details className="group relative xl:hidden">
-            <summary
-              className="press flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-md text-ink-muted hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong touch:h-11 touch:w-11 [&::-webkit-details-marker]:hidden dark:hover:bg-white/5"
-              aria-label="Menu"
-            >
-              <Menu aria-hidden className="h-5 w-5" />
-            </summary>
-            {/* `right-0` and a fixed width: anchored to the button, never wider than the
-                narrowest phone this page is designed for. `mk-menu-panel` scales it in from
-                that corner (globals.css). */}
-            <nav
-              aria-label="Pages menu"
-              className="mk-menu-panel absolute right-0 z-dropdown mt-2 w-60 rounded-xl border border-line bg-surface p-2 shadow-raised"
-            >
-              <ul>
-                {NAV_ROUTES.map((item) => (
-                  <li key={item.href}>
-                    <Link href={item.href} className={MENU_LINK}>
-                      {item.label}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </nav>
-          </details>
-        </div>
+            {/* The menu, below `xl`. `relative` on the wrapper so the panel hangs off the
+                header rather than off the page. */}
+            <details className="group relative xl:hidden">
+              <summary
+                className="press flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-md text-ink-muted hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong touch:h-11 touch:w-11 [&::-webkit-details-marker]:hidden dark:hover:bg-white/5"
+                aria-label="Menu"
+              >
+                <Menu aria-hidden className="h-5 w-5" />
+              </summary>
+              {/* `right-0` and a fixed width: anchored to the button, never wider than the
+                  narrowest phone this page is designed for. `mk-menu-panel` scales it in from
+                  that corner (globals.css). */}
+              <nav
+                aria-label="Pages menu"
+                className="mk-menu-panel absolute right-0 z-dropdown mt-2 w-60 rounded-xl border border-line bg-surface p-2 shadow-raised"
+              >
+                <ul>
+                  {NAV_ROUTES.map((item) => (
+                    <li key={item.href}>
+                      <Link href={item.href} className={MENU_LINK}>
+                        {item.label}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+                {/* Below `sm` the header row has no room for "Sign in" / "Your account"
+                    beside the button, so it is the menu's last row there. */}
+                <div className="mt-1 border-t border-line pt-1 sm:hidden">
+                  <MarketingAccountMenuItem className={MENU_LINK} />
+                </div>
+              </nav>
+            </details>
+          </div>
+        </MarketingAccountProvider>
       </div>
     </header>
   );

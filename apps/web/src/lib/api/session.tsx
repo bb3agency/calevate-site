@@ -157,7 +157,15 @@ export function useClientSession(): Session {
   return useClientRealm().session;
 }
 
-function Resolver({ slug, children }: { slug: string; children: ReactNode }) {
+function Resolver({
+  slug,
+  pending,
+  children,
+}: {
+  slug: string;
+  pending: ReactNode;
+  children: ReactNode;
+}) {
   const params = useSearchParams();
   const viewAsRequested = params.get(VIEW_AS_PARAM) === VIEW_AS_ADMIN;
 
@@ -205,7 +213,7 @@ function Resolver({ slug, children }: { slug: string; children: ReactNode }) {
     </AdminSessionProvider>
   ) : (
     <ClientSessionProvider>
-      <ClientSessionGate landmark>
+      <ClientSessionGate landmark pending={pending}>
         {/* The client realm's code prompt (D-730): exports, integration credentials and
             outbound webhook endpoints ask for a code typed for that one action. */}
         <StepUpPrompt realm="client" />
@@ -231,7 +239,9 @@ export function ClientRealmProvider({
 }) {
   return (
     <Suspense fallback={fallback}>
-      <Resolver slug={slug}>{children}</Resolver>
+      <Resolver slug={slug} pending={fallback}>
+        {children}
+      </Resolver>
     </Suspense>
   );
 }

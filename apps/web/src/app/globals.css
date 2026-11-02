@@ -167,41 +167,15 @@
 @custom-variant touch (@media (pointer: coarse));
 
 /*
- * Pip's side panel sits BESIDE the page from `lg`, not over it. Over it, the panel hid the
- * right third of whatever the person had just asked Pip about, and a sentence there read as
- * cut off. The shell column (the header and `<main>`, whose parent is the one element
- * holding `#main-content`) gives up the panel's width; below `lg` the panel is a sheet over
- * the page, because a phone or tablet has no room for both.
+ * Pip's side panel sits OVER the page at every width (founder, 2 Nov 2026): fixed, with a
+ * shadow, so the page keeps its full width under it. Beside the page it took 26rem and
+ * crushed two-column screens into one narrow column.
+ *
+ * `page-lg` and `page-xl` are a page's own column breakpoints. They were held back while
+ * Pip sat beside the page; the page no longer narrows, so they are plain `lg` and `xl`.
  */
-@media (min-width: 64rem) {
-  body:has(> [data-copilot-side]) div:has(> #main-content) {
-    padding-right: min(26rem, 100vw);
-  }
-}
-
-/*
- * `lg` and `xl` for a PAGE's own columns. With Pip beside the page at 1280px the page
- * column is about 610px — narrower than a tablet — so a page that splits into two columns
- * at the viewport's `lg` crushed its main column (a call's name broke one letter per
- * line). These hold the split until the panel closes. A container query on `<main>` was
- * the alternative; `container-type` on the shell's scroller would make it the containing
- * block for size-dependent children, and this keys on the same selector the padding rule
- * above already uses.
- */
-@custom-variant page-lg {
-  @media (min-width: 64rem) {
-    body:not(:has(> [data-copilot-side])) & {
-      @slot;
-    }
-  }
-}
-@custom-variant page-xl {
-  @media (min-width: 80rem) {
-    body:not(:has(> [data-copilot-side])) & {
-      @slot;
-    }
-  }
-}
+@custom-variant page-lg (@media (min-width: 64rem));
+@custom-variant page-xl (@media (min-width: 80rem));
 
 .dark {
   --app: #020617;

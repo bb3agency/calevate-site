@@ -162,6 +162,7 @@ export function CopilotDock({
   // the screen's request; SENDING stays the person's (`lib/copilot/launcher.ts`).
   const [request, setRequest] = useState<{ prompt: string; nonce: number } | null>(null);
   const nonce = useRef(0);
+  const forgetRequest = useCallback(() => setRequest(null), []);
   useAssistantRequests((asked) => {
     nonce.current += 1;
     setRequest(asked.prompt ? { prompt: asked.prompt, nonce: nonce.current } : null);
@@ -333,6 +334,7 @@ export function CopilotDock({
                   onClose={closePanel}
                   placement="side"
                   request={request}
+                  onRequestTaken={forgetRequest}
                 />
               ))}
           </AnimatePresence>,

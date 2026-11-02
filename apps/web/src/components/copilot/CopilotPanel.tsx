@@ -90,6 +90,7 @@ export function CopilotPanel({
   labelledBy,
   placement = "floating",
   request = null,
+  onRequestTaken,
   quickReplies = NO_REPLIES,
   intro,
 }: {
@@ -119,6 +120,9 @@ export function CopilotPanel({
    * changes per request, so the same words asked twice still land.
    */
   request?: { prompt: string; nonce: number } | null;
+  /** Called once the request is in the box, so the dock forgets it: a request it still held
+   *  was put back into the box each time the panel opened again, after it had been sent. */
+  onRequestTaken?: () => void;
   /**
    * OPEN THIS SCREEN (D-524). Passed up to the dock rather than done here, and the split is
    * the same one the server made: this component decides WHETHER — it is the half that can
@@ -215,7 +219,8 @@ export function CopilotPanel({
   useEffect(() => {
     if (requestNonce === undefined || requestPrompt === undefined) return;
     prefill(requestPrompt);
-  }, [requestNonce, requestPrompt, prefill]);
+    onRequestTaken?.();
+  }, [requestNonce, requestPrompt, prefill, onRequestTaken]);
   const reduced = useReducedMotion();
 
   /*
