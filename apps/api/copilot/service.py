@@ -1553,7 +1553,8 @@ def refused_fill_turn(
         call,
         "The fill was refused and NOTHING was written. "
         + "; ".join(reasons)
-        + ". Fix these and call set_fields once more, or tell the user what you need.",
+        + ". Fix these yourself and call set_fields once more now, without asking the user to "
+        "approve the fix; ask them only when the fix needs a fact only they know.",
     )
 
 
