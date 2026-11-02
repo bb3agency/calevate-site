@@ -1770,3 +1770,37 @@ async def test_a_wrong_area_argument_goes_back_to_the_model_with_the_schema(
     assert result.startswith("NOTHING was done.")
     assert "`x` is not an argument" in result and '"status"' in result
     assert [e.step.status for e in events if e.step] == ["running", "refused"]
+
+
+async def test_a_malformed_tool_call_is_asked_for_once_more(
+    google_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Gemini's `MALFORMED_FUNCTION_CALL` is the model's own slip writing a call, not a
+    filter: the loop tells it what broke and takes its second answer."""
+    sent = _scripted_complete(
+        monkeypatch,
+        [
+            chat.ChatOutcome(
+                content="",
+                finish_reason="function_call_filter: MALFORMED_FUNCTION_CALL",
+                usage=None,
+            ),
+            chat.ChatOutcome(content="Done.", finish_reason="stop", usage=None),
+        ],
+    )
+    events = await _drain_google()
+
+    assert [e.text for e in events if e.text] == ["Done."]
+    assert sent[1]["messages"][-1]["content"] == service.MALFORMED_CALL_NOTE
+
+
+async def test_a_second_malformed_tool_call_is_answered_not_retried(
+    google_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    malformed = chat.ChatOutcome(
+        content="", finish_reason="function_call_filter: MALFORMED_FUNCTION_CALL", usage=None
+    )
+    _scripted_complete(monkeypatch, [malformed, malformed])
+    events = await _drain_google()
+
+    assert [e.text for e in events if e.text] == [service.NO_ANSWER_MESSAGE]

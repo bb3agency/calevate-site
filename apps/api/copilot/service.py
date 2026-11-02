@@ -304,6 +304,24 @@ EXHAUSTED_MESSAGE: Final = "I could not finish this in one go. Try asking for on
 #: that ground). Azure's content filter is likewise an ORDINARY response carrying
 #: `finish_reason: "content_filter"` and a null `content`, not an exception
 #: (`workers/chat.py::_message_of`, from openai/openai-openapi @ master).
+#: What the model is told after it wrote a tool call that could not be parsed. Gemini reports
+#: it as finish reason `MALFORMED_FUNCTION_CALL` (through the OpenAI-compatible endpoint:
+#: "function_call_filter: MALFORMED_FUNCTION_CALL"); developer reports trace it mostly to
+#: unescaped quotes and newlines in long string arguments (discuss.google.dev, "MALFORMED_
+#: FUNCTION_CALL finish reason happens too frequently", read 2 Nov 2026). Community
+#: reports, not vendor documentation.
+MALFORMED_CALL_NOTE: Final = (
+    "Your last tool call could not be read because its arguments were not valid JSON. "
+    "Make the call again with valid JSON: escape every double quote and line break inside a "
+    "string, and keep each value to what the change needs. If a change is large, make it in "
+    "smaller calls, one part of the script at a time."
+)
+
+
+def _malformed_call(outcome: chat.ChatOutcome) -> bool:
+    return "malformed_function_call" in (outcome.finish_reason or "").lower()
+
+
 NO_ANSWER_MESSAGE: Final = (
     "I couldn't put an answer together this time. Please ask me again — nothing on your "
     "screen was changed."
@@ -1939,6 +1957,7 @@ async def _run_tool_loop(
         area_surface().find_names if realm == "client" else frozenset()
     )
 
+    malformed_retried = False
     for turn_index in range(limits.max_turns):
         outcome: chat.ChatOutcome | None = None
         sent = clear_old_read_results(messages, read_names)
@@ -2077,6 +2096,15 @@ async def _run_tool_loop(
             # them a sentence. Emitted rather than retried: a contentless candidate is a
             # state the vendors document, not a transient, and another turn is another
             # paid round trip at the same odds.
+            if not outcome.content.strip() and not malformed_retried and _malformed_call(outcome):
+                # Gemini wrote a tool call it could not parse; seen in production on a long
+                # many-line script request (2 Nov 2026). Unlike a filtered or contentless
+                # candidate this is the model's own slip, so it is asked once more, told what
+                # broke. One retry only: a second failure is answered like any empty turn.
+                malformed_retried = True
+                log.warning("copilot_malformed_call_retry", extra={"turn": turn_index})
+                messages = [*messages, {"role": "user", "content": MALFORMED_CALL_NOTE}]
+                continue
             if not outcome.content.strip():
                 log.warning(
                     "copilot_empty_answer",
