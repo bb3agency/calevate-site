@@ -88,6 +88,12 @@ ALLOWED: tuple[tuple[str, frozenset[str], str], ...] = (
         "the published text itself is business-neutral",
     ),
     (
+        "apps/api/agents/retired_lines.py",
+        frozenset({"appointment", "doctor"}),
+        "the retired clinic plan lines kept only to find and remove them on live agents "
+        "(D-962); matched, never spoken or shown",
+    ),
+    (
         "scripts/check_deploy_env.py",
         frozenset({"symptom"}),
         "'symptom' of a misconfigured deploy, not a health word",

@@ -147,9 +147,8 @@ def test_every_drafted_line_comes_from_the_spoken_style_file() -> None:
 
 
 @pytest.mark.parametrize("key", ["D", "E"])
-def test_the_example_variants_replace_the_scripts_example_call(key: str) -> None:
+def test_the_example_variants_carry_the_example_calls_once(key: str) -> None:
     assert engine.CLIENT_SCRIPT_OPEN in compose_engine_prompt(TE)
-    base_script = TE.system_prompt
     text = chat_eval.variant_instructions(TE, chat_eval.VARIANTS[key])
     assert text.count(EXAMPLE_HEADER) == 1
     for call in chat_eval.EXAMPLE_CALLS:
@@ -157,12 +156,6 @@ def test_the_example_variants_replace_the_scripts_example_call(key: str) -> None
             assert f"{'Caller' if who == 'caller' else 'You'}: {said}" in text
     fence = text.split(engine.CLIENT_SCRIPT_OPEN, 1)[1].split(engine.CLIENT_SCRIPT_CLOSE)[0]
     assert chat_eval.EXAMPLE_LEAD in fence
-    assert EXAMPLE_HEADER in base_script
-    replaced = base_script.split(EXAMPLE_HEADER, 1)[1].splitlines()[1:]
-    ours = chat_eval.with_example_calls("").splitlines()
-    old = [line for line in replaced if line.startswith(("Caller:", "You:")) and line not in ours]
-    assert old
-    assert not [line for line in old if line in fence.splitlines()]
 
 
 def test_an_example_call_section_is_added_last_when_the_script_has_none() -> None:

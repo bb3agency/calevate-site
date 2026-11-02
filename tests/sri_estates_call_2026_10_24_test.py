@@ -150,7 +150,7 @@ def test_asked_only_what_business_a_recording_notice_fails_the_standing_caller()
 
 
 def test_one_goodbye_and_nothing_more() -> None:
-    assert "then one goodbye and nothing more" in VOICE_STYLE_GUIDANCE
+    assert "then one goodbye, nothing more" in VOICE_STYLE_GUIDANCE
 
 
 def test_a_second_goodbye_in_one_reply_is_flagged() -> None:

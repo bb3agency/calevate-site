@@ -1778,7 +1778,8 @@ async def test_a_signed_cashfree_doorbell_pulls_and_persists_none_of_the_record(
         )
     assert record.is_verified
     assert record.owner_id_masked == "XXXXX4321X"
-    assert "1995" not in dumped
+    # The date of birth in either spelling; a bare "1995" also matches uuid7 ids by chance.
+    assert "02-02-1995" not in dumped and "1995-02-02" not in dumped
 
 
 # ======================================================================= hard rule 1
