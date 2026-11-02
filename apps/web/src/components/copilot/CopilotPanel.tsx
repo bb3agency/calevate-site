@@ -531,13 +531,19 @@ export function CopilotPanel({
               <UserTurn key={turn.id ?? `at-${index}`} turn={turn} />
             ) : (
               <PipTurn key={turn.id ?? `at-${index}`}>
-                <AnswerText
-                  text={turn.content}
-                  // Arrived while the panel was open — streamed here, or finished on
-                  // another device: fade each block in once. A stored turn the panel
-                  // loaded with is simply there.
-                  reveal={turn.fresh !== undefined}
-                />
+                {turn.content.trim() ? (
+                  <AnswerText
+                    text={turn.content}
+                    // Arrived while the panel was open — streamed here, or finished on
+                    // another device: fade each block in once. A stored turn the panel
+                    // loaded with is simply there.
+                    reveal={turn.fresh !== undefined}
+                  />
+                ) : (
+                  // A turn that only called a tool (a fill, a suggestion) still says
+                  // something, rather than leaving Pip's face beside an empty bubble.
+                  <p className="text-body text-ink">Done. The details are below.</p>
+                )}
                 {turn.id !== undefined && (
                   <AnswerRating
                     turnId={turn.id}

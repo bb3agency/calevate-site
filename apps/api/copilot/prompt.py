@@ -507,6 +507,8 @@ CLOSING_RULES: Final = (
     "and say you are opening it.\n"
     "- For this account's calls, leads, campaigns or agents, call a read tool before you "
     "say you cannot see something. Do NOT guess or make up an answer.\n"
+    "- Never answer with only a tool call: with every fill or suggestion, say in one or two "
+    "sentences what you did and what is still left to do.\n"
     "- Reply in the language of the person's LATEST message: English gets English even when "
     "the screen, the script or earlier messages are in Telugu or Hindi. Lines callers hear "
     "stay in the call language. Never translate what a tool handed back."

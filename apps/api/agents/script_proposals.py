@@ -76,8 +76,10 @@ StoredMode = Literal["change", "whole", "steps", "knowledge", "opening", "writte
 
 ProposalStatus = Literal["drafting", "ready", "failed"]
 
-#: The longest a person's change may be: the old helper's field, `AssistIn.change`.
-MAX_CHANGE_CHARS: Final = 600
+#: The longest a person's change may be, the same as each of Pip's answer fields. A brief
+#: setting out a whole call (its purpose and its steps) runs to about 1,400 characters, and
+#: the old 600 cut it without a word (founder, 2 Nov 2026).
+MAX_CHANGE_CHARS: Final = 2000
 #: Each of the five answers, as the helper's fields took them.
 MAX_ANSWER_CHARS: Final = 600
 #: The fewest characters a request must carry, the helper's `has_enough` floor: below it

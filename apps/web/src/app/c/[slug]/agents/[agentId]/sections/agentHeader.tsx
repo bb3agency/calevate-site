@@ -27,8 +27,8 @@
  */
 
 import Link from "next/link";
-import { useState, type ReactNode } from "react";
-import { MessageSquareText } from "lucide-react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { ChevronDown, MessageSquareText, PhoneCall } from "lucide-react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { formatINR, ProblemNotice, RestrictionNote, SECONDARY_BUTTON, ToggleSwitch } from "@/components/ui";
@@ -147,12 +147,7 @@ export function AgentHeader({
   else {
     const goal = script.data.script.goal?.trim() ?? "";
     taskLine = goal ? (
-      <span className="mb-1 flex items-baseline gap-1.5 text-ink">
-        <span className="shrink-0 font-medium">Main task:</span>
-        <span className="line-clamp-2" title={goal}>
-          {goal}
-        </span>
-      </span>
+      <MainTask goal={goal} />
     ) : (
       <span className="mb-1 block">
         <Link href={scriptHref} onClick={scriptTab?.onClick} className="font-medium text-brand-strong hover:underline">
@@ -258,13 +253,15 @@ export function AgentHeader({
       {/* The state is said once, in the header line above; on a trial this row only adds
           the place a test call is made from. */}
       {!deleted && (tour || (onTrial && agent.published && agent.status === "paused")) && (
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
+        // `-ml-3` puts the first button's text on the title's left edge despite its padding.
+        <div className="-ml-3 flex flex-wrap items-center gap-x-2 gap-y-1">
           {tour}
           {onTrial && agent.published && agent.status === "paused" && (
             <Link
               href={href(`/c/${slug}`)}
-              className="inline-flex items-center text-body font-medium text-brand-strong underline-offset-2 hover:underline touch:min-h-11"
+              className="press inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-body font-medium text-brand-strong hover:bg-ink/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11 dark:hover:bg-white/5"
             >
+              <PhoneCall aria-hidden className="h-4 w-4" />
               Make a test call
             </Link>
           )}
@@ -402,4 +399,43 @@ function PutLiveButton({
 function agentMonthLine(spend: Spend, agentId: string): string {
   const row = spend.by_agent.find((entry) => entry.agent_id === agentId);
   return row ? `${formatINR(row.charged_inr)} this month` : "Nothing spent this month";
+}
+
+/**
+ * The agent's main task in one line, with "Read more" when it does not fit. The goal can run
+ * to a paragraph; the header keeps to one line until the owner asks for the rest.
+ */
+function MainTask({ goal }: { goal: string }) {
+  const [open, setOpen] = useState(false);
+  const [overflows, setOverflows] = useState(false);
+  const text = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    const node = text.current;
+    if (!node || open) return;
+    const measure = () => setOverflows(node.scrollWidth > node.clientWidth);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const watch = new ResizeObserver(measure);
+    watch.observe(node);
+    return () => watch.disconnect();
+  }, [goal, open]);
+  return (
+    <span className="mb-1 flex min-w-0 items-baseline gap-1.5 text-ink">
+      <span className="shrink-0 font-medium">Main task:</span>
+      <span ref={text} className={`min-w-0 ${open ? "" : "truncate"}`}>
+        {goal}
+      </span>
+      {(overflows || open) && (
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen((was) => !was)}
+          className="inline-flex shrink-0 items-center gap-0.5 self-start rounded-sm font-medium text-brand-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
+        >
+          {open ? "Show less" : "Read more"}
+          <ChevronDown aria-hidden className={`h-4 w-4 transition-transform ${open ? "rotate-180" : ""}`} />
+        </button>
+      )}
+    </span>
+  );
 }

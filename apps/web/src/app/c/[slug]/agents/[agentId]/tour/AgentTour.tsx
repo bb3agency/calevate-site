@@ -45,7 +45,7 @@ import { useClientSession } from "@/lib/api/session";
 import { placeCard, readSeen, SHEET_BELOW_PX, TOUR_PARAM, TOUR_STEPS, writeSeen, type Box, type Placement } from "./tourModel";
 
 const TRIGGER =
-  "press inline-flex items-center gap-1.5 rounded-sm text-body font-medium underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11";
+  "press inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-body font-medium hover:bg-ink/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11 dark:hover:bg-white/5";
 
 export function AgentTour() {
   const session = useClientSession();
@@ -88,7 +88,7 @@ export function AgentTour() {
   }, [userId]);
 
   return (
-    <div>
+    <div className="flex">
       <button
         ref={trigger}
         type="button"
