@@ -54,17 +54,14 @@ export function ResetRequestForm({ authn }: { authn: RealmAuthn }) {
             {/* Deliberately not "check your inbox for an email from us" — see the file
                 docstring. The sentence must be true whether or not the account exists. */}
             <p className="mt-1">
-              We do not say whether an account exists for an address, so this is the same
-              answer either way. Nothing else has changed about the account.
+              We show this for every address. Nothing else changed.
             </p>
           </NoticeBox>
           <p>
-            The link works once and expires an hour after it is sent. Using it ends every
-            session on the account, on every device.
+            Valid once, for 1 hour. Using it ends every session.
           </p>
           <p className="text-xs text-ink-faint">
-            No email after a few minutes? Check the spam folder, then try a different
-            address. A wrong address is more likely than a lost email.
+            No email? Check spam, then try another address.
           </p>
         </div>
       </div>

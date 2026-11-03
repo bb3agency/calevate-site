@@ -215,7 +215,7 @@ export function AdminIdleTimeoutModal({ session }: { session: AuthnSession | nul
             </span>{" "}
             remaining.
           </p>
-          <p>Anything you have typed and not saved will be lost when it does.</p>
+          <p>Unsaved typing will be lost.</p>
           {failure !== null && (
             <NoticeBox tone="warn" title="We could not extend the session">
               {/* Two sentences, because there are two causes and only one of them is the
@@ -223,11 +223,8 @@ export function AdminIdleTimeoutModal({ session }: { session: AuthnSession | nul
                   diagnose is the same defect one layer down. */}
               <p className="mt-1">
                 {isUnreachable(failure)
-                  ? "Your session has not been ended: the request did not reach Calevate. " +
-                    "Check your connection and try again before the timer runs out."
-                  : "Your session has not been ended, and Calevate refused the request " +
-                    "rather than failing to receive it. Try again before the timer runs " +
-                    "out; if it refuses again, sign out and sign back in."}
+                  ? "The request did not reach Calevate. Check your connection."
+                  : "Calevate refused it. If it fails again, sign in again."}
               </p>
             </NoticeBox>
           )}

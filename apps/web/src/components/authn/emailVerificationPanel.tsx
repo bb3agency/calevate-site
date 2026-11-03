@@ -85,7 +85,7 @@ export function EmailVerificationPanel({
     return (
       <div className="space-y-3">
         <p className="text-meta text-ink-muted">
-          We email a six-digit code to this address. It works for ten minutes.
+          We email a six-digit code, valid for 10 minutes.
         </p>
         <AuthProblemNotice error={requestCode.error} />
         <ActionButton

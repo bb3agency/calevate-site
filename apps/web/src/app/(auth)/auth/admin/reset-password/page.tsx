@@ -46,8 +46,7 @@ function AdminResetBody() {
       intro={
         <>
           <p>
-            This link works once and expires an hour after it was sent. Setting a password
-            here also ends every operator session on this account, everywhere.
+            Valid once, for 1 hour. Ends all operator sessions.
           </p>
         </>
       }
@@ -63,8 +62,7 @@ function AdminResetBody() {
         <div>
           <div className="space-y-3 text-sm text-ink-muted">
             <NoticeBox tone="ok" title="Your password has been changed">
-              Every operator session on this account has ended. Sign in with the new password
-              and the emailed code.
+              All sessions ended. Sign in with the new password and code.
             </NoticeBox>
             <Link href={ADMIN_SIGN_IN_PATH} className={`${PRIMARY_BUTTON} w-full justify-center`}>
               Go to sign-in
@@ -77,7 +75,7 @@ function AdminResetBody() {
           what="reset"
           remedy={
             <>
-              If that does not work,{" "}
+              Or{" "}
               <Link href={ADMIN_FORGOT_PATH} className="text-brand-strong underline underline-offset-2 dark:text-brand-bright">
                 ask for a new reset link
               </Link>

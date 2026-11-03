@@ -46,7 +46,7 @@ export default function ClientSignInPage() {
               heading={
                 <AuthHeading
                   title="Sign in to Calevate"
-                  lead="Welcome back. Use your Google account or the email address you signed up with."
+                  lead="Welcome back. Use Google or your email."
                 />
               }
               alternatives={<GoogleSignIn next={nextFromLocation(CLIENT_CONSOLE_PATH)} />}
@@ -57,8 +57,7 @@ export default function ClientSignInPage() {
               }}
               footer={
                 <p className="text-sm text-ink-muted">
-                  Invited by a colleague? Open the link in their email. It sets your
-                  password and adds you to their workspace in one step.
+                  Invited by a colleague? Open the link in their email.
                 </p>
               }
             />

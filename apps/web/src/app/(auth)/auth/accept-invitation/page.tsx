@@ -58,15 +58,13 @@ export default function AcceptInvitationPage() {
                   />
                 </div>
                 <p>
-                  Choosing a password here creates your Calevate account and adds you to
-                  the business that invited you, in one step. Already have an account with
-                  this address? Enter its password instead.
+                  A password creates your account and joins the business.
                 </p>
                 <p>
-                  The email address comes from the invitation itself, so there is nothing
-                  to type and nothing to get wrong. We can only name the business after you
-                  accept — an invitation names its account to its recipient and to nobody
-                  else.
+                  Already have an account? Enter its password.
+                </p>
+                <p className="text-xs text-ink-faint">
+                  Your email comes from the invitation.
                 </p>
               </>
             )}
@@ -75,7 +73,7 @@ export default function AcceptInvitationPage() {
             renderMissingToken={
               <MissingLinkCode
                 what="invitation"
-                remedy="If that does not work, ask whoever invited you to send a fresh link — they can create one from Settings → Team."
+                remedy="Or ask whoever invited you for a fresh link."
               />
             }
           />
@@ -95,14 +93,13 @@ function Joined({ result }: { result: AcceptedInvitation }) {
           {role && <p className="mt-1">{role.can}</p>}
         </NoticeBox>
         <p>You are signed in. This invite link is now used up.</p>
-        <p>Bookmark the dashboard to sign in next time.</p>
         <Link href={`/c/${result.slug}`} className={`${PRIMARY_BUTTON} w-full justify-center`}>
           Open the dashboard
         </Link>
         <p className="text-xs text-ink-faint">
-          Signed out later?{" "}
+          Next time,{" "}
           <Link href={CLIENT_SIGN_IN_PATH} className="text-brand-strong underline underline-offset-2 dark:text-brand-bright">
-            Sign in here
+            sign in
           </Link>{" "}
           with the address the invitation was sent to.
         </p>

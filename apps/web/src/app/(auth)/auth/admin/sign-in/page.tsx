@@ -42,7 +42,7 @@ export default function AdminSignInPage() {
               heading={
                 <AuthHeading
                   title="Sign in to the operator console"
-                  lead="After your password we email a six-digit code to finish signing in."
+                  lead="Password, then a six-digit code we email you."
                 />
               }
               onSignedIn={() => {

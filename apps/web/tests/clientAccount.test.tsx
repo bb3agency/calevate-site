@@ -74,7 +74,7 @@ describe("the account this session is in", () => {
     // itself against, so the two cannot disagree about what this person may do.
     expect(
       screen.getByText(
-        "You can change this account's settings and invite colleagues.",
+        "You can change settings and invite colleagues.",
       ),
     ).toBeTruthy();
   });
@@ -85,7 +85,7 @@ describe("the account this session is in", () => {
     expect(await screen.findByText("staff")).toBeTruthy();
     expect(
       screen.getByText(
-        "Settings, billing and the team are your account owner's to change.",
+        "The owner manages settings, billing and the team.",
       ),
     ).toBeTruthy();
   });
@@ -103,7 +103,7 @@ describe("the account this session is in", () => {
     // The refusal is on screen…
     expect(
       await screen.findByText(
-        /the separate read that says which account/,
+        /only the account details failed/,
       ),
     ).toBeTruthy();
     // …and nothing on the page claims an account, a role or a slug. A placeholder here is

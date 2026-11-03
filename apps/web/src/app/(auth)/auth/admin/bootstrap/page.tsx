@@ -39,14 +39,10 @@ export default function AdminBootstrapPage() {
             intro={
               <>
                 <p>
-                  This link was issued for one named address by whoever deployed this
-                  installation. Choosing a password here makes that address an operator and
-                  spends the link.
+                  Your password makes the linked address an operator.
                 </p>
-                <p>
-                  The address is not shown, and cannot be changed from this page — it is
-                  fixed inside the link. If it is wrong, ask for a new one rather than
-                  continuing.
+                <p className="text-xs text-ink-faint">
+                  The address is fixed in the link. Wrong one? Get a new link.
                 </p>
               </>
             }
@@ -55,8 +51,7 @@ export default function AdminBootstrapPage() {
               <div>
                 <div className="space-y-3 text-sm text-ink-muted">
                   <NoticeBox tone="ok" title="The first operator account is ready">
-                    Sign in with the address the link was sent to. Every operator sign-in asks
-                    for an emailed six-digit code.
+                    Sign in with this address and an emailed code.
                   </NoticeBox>
                   <Link href={ADMIN_SIGN_IN_PATH} className={`${PRIMARY_BUTTON} w-full justify-center`}>
                     Go to sign-in
@@ -67,7 +62,7 @@ export default function AdminBootstrapPage() {
             renderMissingToken={
               <MissingLinkCode
                 what="setup"
-                remedy="If that does not work, run scripts/bootstrap_admin.py again to issue a fresh link."
+                remedy="Or run scripts/bootstrap_admin.py for a fresh link."
               />
             }
           />

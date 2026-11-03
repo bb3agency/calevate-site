@@ -254,8 +254,7 @@ export function SignInForm({
           {/* The address is NOT printed back, so a shoulder-surfed screenshot of this step
               does not pair an address with the fact that it signs in here. */}
           <p className="text-sm text-ink-muted">
-            We sent a {OTP_LENGTH}-digit code to the email address on this account. It
-            works for 10 minutes.
+            We emailed a {OTP_LENGTH}-digit code. Valid for 10 minutes.
           </p>
         </div>
 
@@ -362,9 +361,10 @@ export function SignInForm({
       {signOutIncomplete && (
         <NoticeBox tone="warn" title="Signed out on this device only">
           <p className="mt-1">
-            Calevate could not be reached to end the session everywhere else, so it may
-            still be open on another device until it times out. Sign in and use
-            &ldquo;Sign out everywhere&rdquo; on your account page to end it now.
+            Other devices may stay signed in until they time out.
+          </p>
+          <p className="mt-1">
+            Sign in, then use &ldquo;Sign out everywhere&rdquo;.
           </p>
         </NoticeBox>
       )}
