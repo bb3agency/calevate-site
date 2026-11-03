@@ -197,7 +197,7 @@ export function WriteFailure({
             in the deploy channel.
           </InfoTip>
         </p>
-        {problem.remediation && <p className="mt-2 font-mono text-xs">{problem.remediation}</p>}
+        {problem.remediation && <p className="mt-2 font-mono text-meta">{problem.remediation}</p>}
       </NoticeBox>
     </div>
   );

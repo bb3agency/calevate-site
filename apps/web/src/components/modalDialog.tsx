@@ -63,10 +63,10 @@ export function ModalDialog({
         className={MODAL_PANEL}
       >
         <SheetHandle {...drag} />
-        <h2 id={titleId} className="text-[17px] font-semibold text-ink">
+        <h2 id={titleId} className="text-heading text-ink">
           {title}
         </h2>
-        <div id={bodyId} className="mt-3 space-y-3 text-sm text-ink-muted">
+        <div id={bodyId} className="mt-3 space-y-3 text-body text-ink-muted">
           {description}
         </div>
         {children}

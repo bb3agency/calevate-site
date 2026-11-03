@@ -249,14 +249,14 @@ export function StepUpPrompt({ realm = "admin" }: { realm?: "admin" | "client" }
         <div className="flex items-start justify-between gap-3">
           <h2
             id="step-up-title"
-            className="flex items-center gap-2 text-[17px] font-semibold text-ink"
+            className="flex items-center gap-2 text-heading text-ink"
           >
             <ShieldCheck aria-hidden className="h-4 w-4" />
             Confirm it is still you
           </h2>
         </div>
 
-        <div id="step-up-body" className="mt-3 space-y-3 text-sm text-ink-muted">
+        <div id="step-up-body" className="mt-3 space-y-3 text-body text-ink-muted">
           <p>
             {/* The server's own words for what is waiting, not a sentence invented here —
                 the caller knows which action it is and this panel does not. */}
@@ -331,7 +331,7 @@ export function StepUpPrompt({ realm = "admin" }: { realm?: "admin" | "client" }
               <LogOut aria-hidden className="h-4 w-4" />
               {leaving ? "Signing out…" : "Sign out"}
             </button>
-            <p className="mt-2 text-xs text-ink-faint">
+            <p className="mt-2 text-meta text-ink-faint">
               If this is not your session, sign out. Nothing you were doing has been
               applied.
             </p>

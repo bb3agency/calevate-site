@@ -27,7 +27,7 @@ const RESEND_COOLDOWN_MS = 60_000;
 /** On top of `ActionButton`'s primary look. */
 const SUBMIT = "w-full py-2.5";
 const TEXT_ACTION =
-  "inline-flex items-center gap-1.5 rounded-md text-sm font-medium text-brand-strong underline-offset-2 hover:underline disabled:cursor-not-allowed disabled:text-ink-muted disabled:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 dark:text-brand-bright touch:min-h-11";
+  "inline-flex items-center gap-1.5 rounded-md text-body font-medium text-brand-strong underline-offset-2 hover:underline disabled:cursor-not-allowed disabled:text-ink-muted disabled:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 dark:text-brand-bright touch:min-h-11";
 
 export function CreateAccountForm({ onCreated }: { onCreated: () => void }) {
   const [step, setStep] = useState<"email" | "code">("email");
@@ -101,7 +101,7 @@ export function CreateAccountForm({ onCreated }: { onCreated: () => void }) {
           <h1 className="text-balance text-2xl font-semibold tracking-tight text-ink">
             Create your Calevate account
           </h1>
-          <p className="text-sm text-ink-muted">
+          <p className="text-body text-ink-muted">
             Your free trial starts as soon as you tell us about your business.
           </p>
         </div>
@@ -138,7 +138,7 @@ export function CreateAccountForm({ onCreated }: { onCreated: () => void }) {
         <h1 className="text-balance text-2xl font-semibold tracking-tight text-ink">
           Check your email
         </h1>
-        <p className="text-sm text-ink-muted">
+        <p className="text-body text-ink-muted">
           If this address can be used for a new account, a {OTP_LENGTH}-digit code is on its
           way. It works for 10 minutes. Already have an account? We have emailed you a way to
           sign in instead.
@@ -176,7 +176,7 @@ export function CreateAccountForm({ onCreated }: { onCreated: () => void }) {
         onChange={(event) => setPassword(event.target.value)}
       />
       <AuthProblemNotice error={finish.error ?? resend.error} />
-      <p role="status" className="min-h-5 text-sm text-ink-muted">
+      <p role="status" className="min-h-5 text-body text-ink-muted">
         {finish.isPending
           ? "Creating your account…"
           : resent

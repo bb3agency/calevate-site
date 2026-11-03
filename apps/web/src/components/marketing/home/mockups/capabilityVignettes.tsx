@@ -96,7 +96,7 @@ export function QualificationVignette() {
         <StatusPill status="interested" />
       </Line>
       <span className="mk-rise mk-s3 flex items-center gap-2 px-1 text-[11px] text-ink-muted">
-        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
+        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-chart-warn" />
         Hot-lead alert sent by WhatsApp
       </span>
     </span>

@@ -75,7 +75,7 @@ function ClientRow({ client, write }: { client: ClientFiling; write: AdminAccess
           {client.unfiled > 0 ? ` · ${client.unfiled} to file` : " · all filed"}
         </span>
       </div>
-      <ul className="space-y-1 text-sm text-ink">
+      <ul className="space-y-1 text-body text-ink">
         {client.numbers.map((n) => (
           <li key={n.number} className="flex flex-wrap gap-x-4">
             <span className="tabular-nums">{formatPhone(n.number)}</span>
@@ -129,7 +129,7 @@ function MarkFiled({ client, write }: { client: ClientFiling; write: AdminAccess
       <fieldset className="space-y-1">
         <legend className={FIELD_LABEL}>Numbers you filed</legend>
         {unfiled.map((number) => (
-          <label key={number} className="flex items-center gap-3 text-sm text-ink touch:min-h-11">
+          <label key={number} className="flex items-center gap-3 text-body text-ink touch:min-h-11">
             <input
               type="checkbox"
               className="h-4 w-4 shrink-0 accent-brand-strong touch:h-5 touch:w-5"

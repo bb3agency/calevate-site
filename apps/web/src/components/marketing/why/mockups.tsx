@@ -100,7 +100,7 @@ export function DialRulesMock() {
       <span className="flex items-center justify-between gap-3">
         <span className="text-[12px] font-semibold text-ink">Progress</span>
         <Tag tone="emerald">
-          <span className="h-1.5 w-1.5 rounded-full bg-emerald-600" />
+          <span className="h-1.5 w-1.5 rounded-full bg-brand" />
           Running
         </Tag>
       </span>

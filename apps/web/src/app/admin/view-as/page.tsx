@@ -67,7 +67,7 @@ function ViewAsStart() {
     <div className="space-y-3">
       <h2 className="text-heading text-ink">Opening {slug}</h2>
       {error === null ? (
-        <p className="text-sm text-ink-muted">
+        <p className="text-body text-ink-muted">
           The client&apos;s console opens in this tab.
         </p>
       ) : (

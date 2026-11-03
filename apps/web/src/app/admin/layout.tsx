@@ -219,7 +219,7 @@ function Sidebar({
               nav in the frame the panel started sliding. */}
           {access.reason && (
             <SidebarCollapsibleBlock isCollapsed={isCollapsed}>
-              <p className="px-4 pb-1 text-xs leading-snug text-ink-faint">
+              <p className="px-4 pb-1 text-meta leading-snug text-ink-faint">
                 {access.reason}
               </p>
             </SidebarCollapsibleBlock>
@@ -625,7 +625,7 @@ function AdminMfaGate({ children }: { children: React.ReactNode }) {
       >
         <p className="mt-1">{problem.message}</p>
         {problem.remediation && <p className="mt-2">{problem.remediation}</p>}
-        <p className="mt-2 text-xs">
+        <p className="mt-2 text-meta">
           The operator console holds cross-client data and the platform
           controls, so this is required of every admin account. It is not
           something this screen can waive.

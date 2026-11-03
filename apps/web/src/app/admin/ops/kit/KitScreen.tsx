@@ -1,6 +1,7 @@
 "use client";
 
 import { PageHeader } from "@/components/console/pageHeader";
+import { SECONDARY_BUTTON_SM } from "@/components/ui";
 
 import { ChartsSection } from "./sections/charts";
 import { ContentSection } from "./sections/content";
@@ -35,7 +36,7 @@ export function KitScreen() {
           <a
             key={section.id}
             href={`#${section.id}`}
-            className="inline-flex min-h-9 items-center rounded-md border border-line bg-surface px-3 text-meta font-medium text-ink hover:bg-ink/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
+            className={SECONDARY_BUTTON_SM}
           >
             {section.label}
           </a>

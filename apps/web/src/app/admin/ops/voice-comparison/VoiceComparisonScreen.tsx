@@ -82,7 +82,7 @@ function SetupCard({ enabled }: { enabled: boolean }) {
       ) : !data ? (
         <Skeleton rows={2} label="Checking the set-up" />
       ) : (
-        <div className="space-y-3 text-sm">
+        <div className="space-y-3 text-body">
           <ul className="space-y-1">
             <li>Sarvam key stored: {data.sarvam_key_stored ? "yes" : "no"}</li>
             <li>Sarvam voices ready: {data.sarvam_ready ? "yes" : "no"}</li>
@@ -134,7 +134,7 @@ function VoicePicks({
       <legend className={FIELD_LABEL}>{legend}</legend>
       <span className={FIELD_HINT}>Up to {MAX_VOICES_PER_PROVIDER}.</span>
       {voices.length === 0 ? (
-        <p className="mt-2 text-sm text-ink-muted">None listed yet.</p>
+        <p className="mt-2 text-body text-ink-muted">None listed yet.</p>
       ) : (
         <ul className="mt-2 max-h-56 space-y-1 overflow-y-auto">
           {voices.map((voice) => {
@@ -142,7 +142,7 @@ function VoicePicks({
             const full = !checked && picked.length >= MAX_VOICES_PER_PROVIDER;
             return (
               <li key={voice.vendor_id}>
-                <label className="flex items-center gap-2 text-sm touch:min-h-11">
+                <label className="flex items-center gap-2 text-body touch:min-h-11">
                   <input
                     type="checkbox"
                     checked={checked}
@@ -288,7 +288,7 @@ function NewRoundForm({
               onChange={(event) => setSentences(event.target.value)}
             />
           </label>
-          <p className="text-sm text-ink-muted" aria-live="polite">
+          <p className="text-body text-ink-muted" aria-live="polite">
             {pairs} pair{pairs === 1 ? "" : "s"} to rate
             {tooMany
               ? ` — at most ${MAX_PAIRS}. Choose fewer voices or sentences.`
@@ -331,7 +331,7 @@ function RoundsCard({
       ) : !rounds.data ? (
         <Skeleton rows={2} label="Loading the rounds" />
       ) : rounds.data.rounds.length === 0 ? (
-        <p className="text-sm text-ink-muted">No rounds yet.</p>
+        <p className="text-body text-ink-muted">No rounds yet.</p>
       ) : (
         <ul className="divide-y divide-line">
           {rounds.data.rounds.map((round) => (
@@ -339,7 +339,7 @@ function RoundsCard({
               key={round.id}
               className="flex flex-wrap items-center justify-between gap-2 py-2"
             >
-              <span className="min-w-0 break-words text-sm">
+              <span className="min-w-0 break-words text-body">
                 {round.title}{" "}
                 <span className="text-ink-faint">
                   · {formatIST(round.created_at)} · {round.rated} of{" "}
@@ -434,7 +434,7 @@ function ClipButton({ trialId, side }: { trialId: string; side: "a" | "b" }) {
         {name}
       </button>
       {clip.error && (
-        <span className="text-xs text-danger" role="alert">
+        <span className="text-meta text-danger" role="alert">
           Could not load {name}. Press it to try again.
         </span>
       )}
@@ -470,7 +470,7 @@ function ScoreChoice({
         {SCORES.map((score) => (
           <label
             key={score}
-            className="flex items-center gap-1 text-sm touch:min-h-11"
+            className="flex items-center gap-1 text-body touch:min-h-11"
           >
             <input
               type="radio"
@@ -513,7 +513,7 @@ function PairCard({
       </h3>
       <p
         lang="te"
-        className="break-words rounded-md bg-ink/[0.03] p-3 text-base"
+        className="break-words rounded-md bg-ink/[0.03] p-3 text-transcript"
       >
         {trial.sentence}
       </p>
@@ -551,7 +551,7 @@ function PairCard({
           ).map(([value, label]) => (
             <label
               key={value}
-              className="flex items-center gap-1 text-sm touch:min-h-11"
+              className="flex items-center gap-1 text-body touch:min-h-11"
             >
               <input
                 type="radio"
@@ -634,7 +634,7 @@ function RoundPanel({
         <Reveal round={data} />
       ) : (
         <div className="space-y-6">
-          <p className="text-sm text-ink-muted" aria-live="polite">
+          <p className="text-body text-ink-muted" aria-live="polite">
             {data.rated} of {data.pairs} rated. {data.cartesia_voices} Cartesia
             and {data.sarvam_voices} Sarvam voice(s); which is which stays
             hidden until you finish.
@@ -658,7 +658,7 @@ function RoundPanel({
                 type="button"
                 aria-current={trial.id === current?.id ? "true" : undefined}
                 aria-label={`Pair ${trial.position}${trial.rated ? ", rated" : ""}`}
-                className={`h-9 min-w-9 rounded-md border px-2 text-xs touch:h-11 touch:min-w-11 ${
+                className={`h-9 min-w-9 rounded-md border px-2 text-meta touch:h-11 touch:min-w-11 ${
                   trial.id === current?.id
                     ? "border-brand text-ink"
                     : trial.rated
@@ -707,7 +707,7 @@ function Reveal({ round }: { round: ComparisonRound }) {
   }
   if (!data) return <Skeleton rows={4} label="Loading the results" />;
   return (
-    <div className="space-y-6 text-sm">
+    <div className="space-y-6 text-body">
       <ul className="space-y-2">
         {data.providers.map((p) => (
           <li key={p.provider}>
@@ -722,7 +722,7 @@ function Reveal({ round }: { round: ComparisonRound }) {
         <table className="w-full text-left">
           <caption className="sr-only">Each voice, revealed</caption>
           <thead>
-            <tr className="text-xs text-ink-muted">
+            <tr className="text-meta text-ink-muted">
               <th scope="col" className="py-1 pr-3">
                 Voice
               </th>

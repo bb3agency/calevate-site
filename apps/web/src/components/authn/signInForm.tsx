@@ -69,7 +69,7 @@ import { useCountdown } from "@/lib/authn/useCountdown";
 const SUBMIT = "w-full py-2.5";
 /** A quiet text action: the resend and the step back. */
 const TEXT_ACTION =
-  "inline-flex items-center gap-1.5 rounded-md text-sm font-medium text-brand-strong underline-offset-2 hover:underline disabled:cursor-not-allowed disabled:text-ink-muted disabled:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 dark:text-brand-bright touch:min-h-11";
+  "inline-flex items-center gap-1.5 rounded-md text-body font-medium text-brand-strong underline-offset-2 hover:underline disabled:cursor-not-allowed disabled:text-ink-muted disabled:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 dark:text-brand-bright touch:min-h-11";
 
 export interface SignInFormProps {
   /** The realm this form signs into. A literal at every call site. */
@@ -253,7 +253,7 @@ export function SignInForm({
           </h1>
           {/* The address is NOT printed back, so a shoulder-surfed screenshot of this step
               does not pair an address with the fact that it signs in here. */}
-          <p className="text-sm text-ink-muted">
+          <p className="text-body text-ink-muted">
             We sent a {OTP_LENGTH}-digit code to the email address on this account. It
             works for 10 minutes.
           </p>
@@ -277,7 +277,7 @@ export function SignInForm({
         <AuthProblemNotice error={submitCode.error ?? resend.error} />
 
         {/* Announced politely: the person asked for this and is not interrupted by it. */}
-        <p role="status" className="min-h-5 text-sm text-ink-muted">
+        <p role="status" className="min-h-5 text-body text-ink-muted">
           {checking ? "Checking the code…" : resent ? "A new code is on its way. It replaces the last one." : ""}
         </p>
 

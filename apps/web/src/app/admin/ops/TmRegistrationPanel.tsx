@@ -318,7 +318,7 @@ function Fact({ label, value, mono }: { label: string; value: string; mono?: boo
   return (
     <div className="min-w-0">
       <dt className="text-meta font-medium text-ink-muted">{label}</dt>
-      <dd className={`mt-0.5 text-sm text-ink [overflow-wrap:anywhere] ${mono ? "font-mono" : ""}`}>
+      <dd className={`mt-0.5 text-body text-ink [overflow-wrap:anywhere] ${mono ? "font-mono" : ""}`}>
         {value}
       </dd>
     </div>

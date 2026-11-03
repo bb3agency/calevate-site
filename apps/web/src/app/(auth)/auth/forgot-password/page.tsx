@@ -22,7 +22,7 @@ export default function ClientForgotPasswordPage() {
           <AuthHeading title="Reset your password" />
           <ResetRequestForm authn={clientAuthn} />
         </AuthCard>
-        <p className="mt-6 text-center text-sm text-ink-muted">
+        <p className="mt-6 text-center text-body text-ink-muted">
           <Link href={CLIENT_SIGN_IN_PATH} className="inline-flex items-center text-brand-strong underline underline-offset-2 touch:min-h-11 dark:text-brand-bright">
             Back to sign-in
           </Link>

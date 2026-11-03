@@ -208,11 +208,11 @@ export function AdminIdleTimeoutModal({ session }: { session: AuthnSession | nul
         tabIndex={-1}
         className={MODAL_PANEL}
       >
-        <h2 id="admin-idle-title" className="flex items-center gap-2 text-[17px] font-semibold text-ink">
+        <h2 id="admin-idle-title" className="flex items-center gap-2 text-heading text-ink">
           <Timer aria-hidden className="h-4 w-4" />
           Still there?
         </h2>
-        <div id="admin-idle-body" className="mt-3 space-y-3 text-sm text-ink-muted">
+        <div id="admin-idle-body" className="mt-3 space-y-3 text-body text-ink-muted">
           <p>
             This operator console signs itself out after {idleDurationLabel(idleTimeoutSeconds)}{" "}
             without activity.{" "}

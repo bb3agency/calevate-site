@@ -56,7 +56,7 @@ export default function ClientSignInPage() {
                 window.location.assign(clientSignedInDestination());
               }}
               footer={
-                <p className="text-sm text-ink-muted">
+                <p className="text-body text-ink-muted">
                   Invited by a colleague? Open the link in their email. It sets your
                   password and adds you to their workspace in one step.
                 </p>
@@ -64,7 +64,7 @@ export default function ClientSignInPage() {
             />
           </ClientGuestOnly>
         </AuthCard>
-        <p className="mt-6 text-center text-sm text-ink-muted">
+        <p className="mt-6 text-center text-body text-ink-muted">
           New to Calevate?{" "}
           <Link
             href="/signup"
