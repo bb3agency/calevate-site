@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { PhoneIncoming, PhoneOutgoing, Zap } from "lucide-react";
@@ -9,7 +8,7 @@ import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { Field } from "@/components/arc/field";
 import { Chooser, ChooserItem } from "@/components/console/chooser";
 import { IconTile } from "@/components/console/iconTile";
-import { TEXT_ACTION, TEXT_ACTION_SM } from "@/components/console/section";
+import { TEXT_ACTION } from "@/components/console/section";
 import {
   FIELD,
   FIELD_LABEL,
@@ -34,14 +33,13 @@ import { hasKey } from "@/lib/lookup";
 import { NEW_AGENT } from "../../setup/_ui/copy";
 
 /**
- * PICK A JOB, SEE THE READY AGENT, CREATE IT (founder, REDESIGN-2).
+ * PICK A JOB, NAME IT, CREATE IT (founder, REDESIGN-2; 3 Nov 2026).
  *
- * Two choices, then a read-back of what the server would make for this business: the steps
- * of its script and the details it writes down (`GET /v1/agents/starters`). The opening line
- * is the owner's to type here; left empty, it is written for this business after creation
- * (D-965) rather than shown as a line kept for every business. Creating sends `starter`, and
- * the agent is born a draft with that script saved, so the owner lands on the Script section
- * to review it before publishing.
+ * No plan is shown before the agent exists: the whole script, steps and details included, is
+ * written for this business right after creation, and the owner reviews it on the Script
+ * section they land on. `GET /v1/agents/starters` supplies only the suggested name. The
+ * opening line is the owner's to type here; left empty, it is written for this business
+ * (D-965). Creating sends `starter`; the agent is born a draft.
  */
 
 /** `AgentCreateIn.opening_line`'s limit (`call_rules.OPENING_LINE_MAX_CHARS`). */
@@ -166,8 +164,6 @@ function StarterPreviewStep({
               label: "How it opens a call",
               value: opening.trim() || "written for this business after it is created",
             },
-            { key: "steps", label: "The steps of its script", value: preview.step_titles.join("; ") },
-            { key: "captured", label: "What it writes down", value: preview.captured_details.join(", ") },
           ]
         : []),
     ],
@@ -209,7 +205,7 @@ function StarterPreviewStep({
         <IconTile icon={job.icon} />
         <div>
           <h2 className="text-title text-ink">{job.title}</h2>
-          <p className="mt-1 text-body text-ink-muted">Your agent. Change any of it later.</p>
+          <p className="mt-1 text-body text-ink-muted">We write its script for your business once you create it.</p>
         </div>
       </div>
 
@@ -235,46 +231,7 @@ function StarterPreviewStep({
             submit();
           }}
         >
-          <section aria-labelledby="starter-steps" className="space-y-2">
-            <h3 id="starter-steps" className="text-heading text-ink">
-              What it does on a call
-            </h3>
-            <p className="text-meta text-ink-muted">
-              {preview.steps_written
-                ? "Written for your business. Change any of it later."
-                : "A starting plan. We rewrite it for your business."}
-            </p>
-            <ol className="list-decimal space-y-1 pl-5 text-body text-ink marker:text-ink-muted">
-              {preview.step_titles.map((step) => (
-                <li key={step}>{step}</li>
-              ))}
-            </ol>
-          </section>
-
-          {preview.captured_details.length > 0 ? (
-            <section aria-labelledby="starter-captured" className="space-y-2">
-              <h3 id="starter-captured" className="text-heading text-ink">
-                What it writes down
-              </h3>
-              <ul className="flex flex-wrap gap-2">
-                {preview.captured_details.map((detail) => (
-                  <li key={detail} className="rounded-full border border-line px-2.5 py-1 text-meta text-ink-muted">
-                    {detail}
-                  </li>
-                ))}
-              </ul>
-              {starter.data?.business_details === false ? (
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                  <p className="text-meta text-ink-muted">Only the basics for now.</p>
-                  <Link href={href(`/c/${slug}/settings/lead-details`)} className={TEXT_ACTION_SM}>
-                    Add details for your business
-                  </Link>
-                </div>
-              ) : null}
-            </section>
-          ) : null}
-
-          <div className="space-y-5 border-t border-line pt-6">
+          <div className="space-y-5">
             <Field
               id="new-agent-name"
               className="max-w-sm"

@@ -73,15 +73,12 @@ describe("new agent from a job", () => {
     expect(calls.some((c) => c.path.includes("/starters"))).toBe(false);
   });
 
-  it("previews the server's ready agent: its steps in order and what it writes down, and no ready-made opening", async () => {
+  it("suggests the job's name and no ready-made opening", async () => {
     await renderClientPage(page, routes());
     fireEvent.click(await screen.findByRole("button", { name: /Answer my calls/ }));
 
     const opening = (await screen.findByLabelText(/How it opens a call/)) as HTMLTextAreaElement;
     expect(opening.value).toBe("");
-    const steps = screen.getByRole("heading", { name: "What it does on a call" }).parentElement!.querySelector("ol")!;
-    expect(Array.from(steps.querySelectorAll("li")).map((li) => li.textContent)).toEqual(ANSWER.step_titles);
-    for (const detail of ANSWER.captured_details) expect(screen.getByText(detail)).toBeTruthy();
     expect((screen.getByLabelText(/^Name/) as HTMLInputElement).value).toBe("Front desk");
   });
 
@@ -107,35 +104,6 @@ describe("new agent from a job", () => {
     expect(body).not.toHaveProperty("direction");
     // Left empty, the opening is written for the business after creation (D-965).
     expect(body).not.toHaveProperty("opening_line");
-  });
-
-  it("says the steps are a starting plan, and offers business details only when it has none", async () => {
-    await renderClientPage(page, routes());
-    fireEvent.click(await screen.findByRole("button", { name: /Answer my calls/ }));
-    expect(await screen.findByText("A starting plan. We rewrite it for your business.")).toBeTruthy();
-    expect(screen.queryByRole("link", { name: "Add details for your business" })).toBeNull();
-  });
-
-  it("says when the steps were written for the business", async () => {
-    const written = { ...ANSWER, steps_written: true, step_titles: ["Ask which crop", "Book a field visit"] };
-    await renderClientPage(
-      page,
-      routes({ "/v1/agents/starters": { vertical: "custom", business_details: true, starters: [written, LEADS] } }),
-    );
-    fireEvent.click(await screen.findByRole("button", { name: /Answer my calls/ }));
-    expect(await screen.findByText("Written for your business. Change any of it later.")).toBeTruthy();
-    expect(screen.getByText("Ask which crop")).toBeTruthy();
-    expect(screen.queryByText("A starting plan. We rewrite it for your business.")).toBeNull();
-  });
-
-  it("links to the business details when only the basics would be captured", async () => {
-    await renderClientPage(
-      page,
-      routes({ "/v1/agents/starters": { vertical: "custom", business_details: false, starters: [ANSWER, LEADS] } }),
-    );
-    fireEvent.click(await screen.findByRole("button", { name: /Answer my calls/ }));
-    const link = await screen.findByRole("link", { name: "Add details for your business" });
-    expect(link.getAttribute("href")).toContain("/c/acme/settings/lead-details");
   });
 
   it("sends the opening the owner typed, trimmed", async () => {
