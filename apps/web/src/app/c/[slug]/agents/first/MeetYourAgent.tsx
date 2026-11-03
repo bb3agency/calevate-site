@@ -115,10 +115,16 @@ export function MeetYourAgent({ slug }: { slug: string }) {
   const step = stage === null ? 0 : STEPS.findIndex((entry) => entry.id === STEP_OF_STAGE[stage]);
   const call = lastCall ?? calls.data?.[0] ?? null;
 
+  // The job step seeds its language from the profile once, on mount; drawn before the
+  // profile arrives it would keep Telugu for an account that chose another language. A
+  // failed profile read falls back to Telugu rather than holding the step.
+  const jobWaitsForProfile = stage === "job" && profile.isPending;
+
   let body: React.ReactNode;
   if (run.isError) body = <ProblemNotice error={run.error} onRetry={() => void run.refetch()} />;
   else if (agents.isError) body = <ProblemNotice error={agents.error} onRetry={() => void agents.refetch()} />;
-  else if (!loaded || stage === null || write.unknown) body = <Skeleton rows={6} label="Getting your agent ready…" />;
+  else if (!loaded || stage === null || write.unknown || jobWaitsForProfile)
+    body = <Skeleton rows={6} label="Getting your agent ready…" />;
   else if (!write.allowed) body = <RestrictionNote reason={write.reason} />;
   else if (pip)
     body = (

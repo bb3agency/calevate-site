@@ -202,6 +202,16 @@ export function ClientVoiceTuning({
   const audio = useRef<HTMLAudioElement>(null);
   const id = useId();
 
+  // The voice is picked beside this panel and the panel stays mounted: settings tried on the
+  // old voice, and its sample, must not be saved or played as the new one's.
+  const resetPreview = preview.reset;
+  useEffect(() => {
+    setDraft(null);
+    setSaved(false);
+    setSrc(null);
+    resetPreview();
+  }, [voiceId, resetPreview]);
+
   useEffect(() => {
     if (!preview.data) return;
     const url = URL.createObjectURL(preview.data);

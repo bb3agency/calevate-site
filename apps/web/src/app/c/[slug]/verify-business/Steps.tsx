@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Check, Clock3 } from "lucide-react";
 
 import { ActionButton, useActionFeedback, useAsyncAction } from "@/components/arc/feedback";
@@ -825,6 +825,23 @@ export function DigiLockerReturn({ session }: { session: Session }) {
   const [ref, setRef] = useState<string | null>(null);
 
   const org = session.orgSlug;
+  const { mutate } = complete;
+
+  // One settle rule for the first ask and for "Check again": a re-check that lands on an
+  // outcome must forget the run too, or the outcome greets every later visit.
+  const askAbout = useCallback(
+    (run: string) =>
+      mutate(run, {
+        onSuccess: (result) => {
+          // `pending` is the only outcome worth asking about again.
+          if (result.status !== "pending") finished(org);
+        },
+        // A refusal is final for this reference too (another account's run, an unknown one,
+        // verification switched off), so it must not greet every later visit to the page.
+        onError: () => forgetPendingRun(org),
+      }),
+    [mutate, org],
+  );
 
   useEffect(() => {
     if (asked.current) return;
@@ -833,16 +850,8 @@ export function DigiLockerReturn({ session }: { session: Session }) {
     const run = readPendingRun(org) ?? fromUrl;
     if (!run) return;
     setRef(run);
-    complete.mutate(run, {
-      onSuccess: (result) => {
-        // `pending` is the only outcome worth asking about again.
-        if (result.status !== "pending") finished(org);
-      },
-      // A refusal is final for this reference too (another account's run, an unknown one,
-      // verification switched off), so it must not greet every later visit to the page.
-      onError: () => forgetPendingRun(org),
-    });
-  }, [complete, org]);
+    askAbout(run);
+  }, [askAbout, org]);
 
   if (!ref) return null;
   if (complete.isPending) return <Skeleton rows={2} />;
@@ -856,7 +865,7 @@ export function DigiLockerReturn({ session }: { session: Session }) {
           <ActionButton
             variant="secondary"
             status={completeFeedback.status}
-            onClick={() => completeFeedback.run(ref)}
+            onClick={() => askAbout(ref)}
             successLabel="Checked"
           >
             Check again

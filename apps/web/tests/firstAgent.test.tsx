@@ -382,6 +382,35 @@ describe("the pieces and where an owner resumes", () => {
 });
 
 describe("meet your agent", () => {
+  it("picks the profile's language even when the profile arrives after the first-run read", async () => {
+    let release = () => undefined as void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/business-profile": () =>
+          new Response(
+            new ReadableStream({
+              async start(controller) {
+                await gate;
+                controller.enqueue(new TextEncoder().encode(JSON.stringify(businessProfileFixture({ languages: ["hi-IN"] }))));
+                controller.close();
+              },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+      }),
+    );
+    // The first-run read has landed (the meter counts) while the profile is still on its way.
+    expect(await screen.findByText("1 of 9 ready")).toBeTruthy();
+    release();
+    await waitFor(() =>
+      expect((screen.getByRole("radio", { name: /Hindi/ }) as HTMLInputElement).checked).toBe(true),
+    );
+  });
+
   it("opens on its job with three cards, any of them chosen, and the meter at one of nine", async () => {
     const { calls } = await renderClientPage(
       page,

@@ -195,6 +195,23 @@ describe("the DigiLocker return", () => {
     expect(await screen.findByText("DigiLocker has not finished yet")).toBeTruthy();
     expect(window.sessionStorage.getItem(pendingRunKey("acme"))).toBe("run-2");
   });
+
+  it("forgets the run when Check again lands on an outcome", async () => {
+    window.sessionStorage.setItem(pendingRunKey("acme"), "run-3");
+    let asks = 0;
+    await renderClientPage(
+      <VerifyBusinessPage />,
+      routes(OWNER, KYC_NOT_STARTED, {
+        [COMPLETE]: () => {
+          asks += 1;
+          return { status: asks === 1 ? "pending" : "replay", record: KYC_NOT_STARTED };
+        },
+      }),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Check again" }));
+    expect(await screen.findByText("That DigiLocker visit was already recorded")).toBeTruthy();
+    expect(window.sessionStorage.getItem(pendingRunKey("acme"))).toBeNull();
+  });
 });
 
 describe("DigiLocker asked for and unavailable", () => {

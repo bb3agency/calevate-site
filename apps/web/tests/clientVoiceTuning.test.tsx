@@ -1,4 +1,5 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -126,6 +127,30 @@ describe("How it sounds", () => {
     fireEvent.click(screen.getByRole("button", { name: "Hear it" }));
     await waitFor(() => expect(sent).toEqual({ speed: null, volume: null, emotion: "happy" }));
     expect(calls.some((c) => c.method === "PATCH")).toBe(false);
+  });
+
+  it("drops settings tried on one voice when another voice is picked", async () => {
+    function Switcher() {
+      const [voice, setVoice] = useState("byok:cv-1");
+      return (
+        <>
+          <button type="button" onClick={() => setVoice("byok:cv-2")}>
+            Pick another voice
+          </button>
+          <ClientVoiceTuning agentId={AGENT} voiceId={voice} />
+        </>
+      );
+    }
+    await renderClientPage(<Switcher />, { [`GET ${PATH}`]: tuning({ speed: "1.20" }) });
+    const speed = await screen.findByRole("slider", { name: "Speed" });
+    fireEvent.click(screen.getByRole("button", { name: "Reset speed to normal" }));
+    expect(speed.getAttribute("aria-valuetext")).toBe("Normal");
+    fireEvent.click(screen.getByRole("button", { name: "Pick another voice" }));
+    await waitFor(() =>
+      expect(screen.getByRole("slider", { name: "Speed" }).getAttribute("aria-valuetext")).toBe(
+        "1.2 times normal",
+      ),
+    );
   });
 
   it("says the day's samples are used up, from the server's refusal", async () => {
