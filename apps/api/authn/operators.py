@@ -38,7 +38,10 @@ together make the escalation unreachable, and each is independently testable:
 **THE "AT LEAST ONE LIVE SUPERADMIN" INVARIANT IS A CONSEQUENCE OF THOSE THREE, NOT A
 FOURTH CHECK, AND THE ABSENCE OF THE FOURTH CHECK IS DELIBERATE.** Only a superadmin can
 demote or revoke, and they cannot aim at themselves — so the actor is a live superadmin who
-is not the subject, and the platform still has one when the statement commits. A separate
+is not the subject, and the platform still has one when the statement commits. "The actor
+is a live superadmin" holds at COMMIT only because the write re-reads it under a lock on
+both rows (`_lock_pair_and_recheck_actor`); the authorisation read alone happens before the
+transaction, and two superadmins revoking each other at once would both pass it. A separate
 `SELECT count(*) ... WHERE role = 'superadmin'` guard would read as prudent and could never
 fire: an arm no request can reach is a branch no test can drive, which is the shape
 CLAUDE.md's coverage rule names. `tests/admin_operators_test.py` asserts the invariant by
@@ -127,6 +130,7 @@ from apps.api.compliance.audit import write_audit
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
+from apps.api.core.rbac import role_has
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import credential_session, untenanted_session
@@ -184,6 +188,36 @@ def _refuse_self(actor: Principal, operator_id: UUID, *, act: str) -> None:
                 "Ask another superadmin to make this change. Every change to the operator "
                 "allowlist names two different people on purpose."
             ),
+        )
+
+
+async def _lock_pair_and_recheck_actor(
+    session: AsyncSession, actor: Principal, operator_id: UUID
+) -> None:
+    """Lock the actor's and the subject's rows, then require the actor still to hold
+    `admin:operators`.
+
+    The permission was read when the request was authorised, before this transaction. Two
+    superadmins revoking or demoting each other at the same instant would both pass that
+    read and both commit, leaving no live superadmin and no break-glass path to mint one
+    (`bootstrap_first_admin` refuses while any operator is live). Locking both rows in id
+    order serialises the pair without a deadlock, and the loser re-reads an actor that has
+    just lost the authority and is refused.
+    """
+    rows = (
+        await session.execute(
+            text(
+                "SELECT id, role, deactivated_at FROM admin_users WHERE id = ANY(:ids) "
+                "ORDER BY id FOR UPDATE"
+            ),
+            {"ids": [actor.user_id, operator_id]},
+        )
+    ).all()
+    mine = next((row for row in rows if row[0] == actor.user_id), None)
+    if mine is None or mine[2] is not None or not role_has(str(mine[1]), "admin:operators"):
+        raise ProblemError.forbidden(
+            "Your own operator access changed while this request was in flight, so nothing "
+            "was changed."
         )
 
 
@@ -385,6 +419,7 @@ async def set_operator_role(
     _refuse_self(actor, operator_id, act="change the role of")
     at = now or datetime.now(UTC)
     async with credential_session() as session:
+        await _lock_pair_and_recheck_actor(session, actor, operator_id)
         changed = rowcount_of(
             await session.execute(
                 text(
@@ -441,6 +476,7 @@ async def revoke_operator(
     _refuse_self(actor, operator_id, act="revoke")
     at = now or datetime.now(UTC)
     async with credential_session() as session:
+        await _lock_pair_and_recheck_actor(session, actor, operator_id)
         revoked = rowcount_of(
             await session.execute(
                 text(

@@ -627,6 +627,41 @@ async def test_setting_the_role_an_operator_already_has_writes_nothing() -> None
     assert rows == 0, "a no-op was recorded as a role change"
 
 
+@pytest.mark.parametrize("lost", ["revoked", "demoted"])
+async def test_a_superadmin_who_lost_the_authority_mid_request_changes_nothing(lost: str) -> None:
+    """Two superadmins revoking each other at once must not leave none: the request whose
+    actor lost `admin:operators` after it was authorised is refused inside the write."""
+    actor_id = _id_of(await _make_admin())
+    other_id = _id_of(await _make_admin())
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "UPDATE admin_users SET deactivated_at = now() WHERE id = :id"
+                if lost == "revoked"
+                else "UPDATE admin_users SET role = 'operator' WHERE id = :id"
+            ),
+            {"id": actor_id},
+        )
+    stale = _principal(actor_id)  # authorised before the change landed
+    with pytest.raises(ProblemError) as revoking:
+        await operators.revoke_operator(
+            actor=stale, operator_id=other_id, reason="fixture", ip=None
+        )
+    with pytest.raises(ProblemError) as demoting:
+        await operators.set_operator_role(
+            actor=stale, operator_id=other_id, role="operator", reason="fixture", ip=None
+        )
+    assert revoking.value.status == 403 and demoting.value.status == 403
+    async with untenanted_session() as session:
+        row = (
+            await session.execute(
+                text("SELECT role, deactivated_at FROM admin_users WHERE id = :id"),
+                {"id": other_id},
+            )
+        ).one()
+    assert (row[0], row[1]) == (SUPERADMIN_ROLE, None)
+
+
 async def test_a_role_change_on_a_revoked_operator_is_a_404() -> None:
     """The other state a rowcount of 0 can mean. The CAS cannot distinguish them, so the
     read that follows it does — otherwise a promotion aimed at a revoked account would
