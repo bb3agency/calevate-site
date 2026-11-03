@@ -110,7 +110,17 @@ export default function SignupPage() {
 function SignupGate() {
   const options = useSignInOptions();
   if (options.isPending) return <Skeleton rows={4} label="Loading…" />;
-  if (!options.data?.self_serve_signup) return <SignupClosed deferred={false} />;
+  // A failed read is not a "closed" answer: telling a visitor signup is shut because the
+  // API blinked turns them away from a door that is open.
+  if (options.data === undefined) {
+    return (
+      <AuthCard>
+        <AuthHeading title="We could not open signup" />
+        <ProblemNotice error={options.error} onRetry={() => void options.refetch()} />
+      </AuthCard>
+    );
+  }
+  if (!options.data.self_serve_signup) return <SignupClosed deferred={false} />;
   return <SignupOrAccount />;
 }
 
