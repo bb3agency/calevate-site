@@ -343,7 +343,8 @@ async def close(
     summary="Undo a closure — reopen the account and cancel the scheduled erasure",
     description=(
         "Reverses a close while nothing has been deleted: the account goes back to "
-        "`active`, the scheduled erasure is cancelled, and the client is emailed to say "
+        "`active`, or to `suspended` if it was suspended when it was closed (reactivate it "
+        "separately), the scheduled erasure is cancelled, and the client is emailed to say "
         "so. Refused with 409 `tenant_already_erased` once the erasure has RUN — that is "
         "the only refusal, and it is a fact about the data rather than a clock, so a "
         "deadline that has passed while the sweep was behind is still reversible. "
@@ -377,6 +378,7 @@ async def restore(tenant_id: UUID, request: Request, principal: Closer) -> Closu
                 # audit row saying only "reopened" would leave no record anywhere of what
                 # the cancelled deadline had been.
                 summary={
+                    "reopened_as": record.status,
                     "cancelled_erase_after": (
                         before.erase_after.isoformat() if before.erase_after else None
                     ),

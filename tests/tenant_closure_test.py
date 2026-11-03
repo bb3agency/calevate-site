@@ -306,6 +306,51 @@ async def test_the_undo_reopens_the_account_cancels_the_deadline_and_says_so() -
     assert "tenant.closure_reversed" in await _audit_actions(tenant_id)
 
 
+async def _set_status(token: str, tenant_id: UUID, status: str) -> None:
+    async with _client() as http:
+        response = await http.post(
+            f"/v1/admin/tenants/{tenant_id}/status",
+            json={"status": status, "reason": "Unpaid invoice"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert response.status_code == 200, response.text
+
+
+@pytest.mark.asyncio
+async def test_undoing_the_close_of_a_suspended_account_leaves_it_suspended() -> None:
+    """Close-then-undo must not lift a suspension nobody decided to lift."""
+    token, tenant_id = await _admin(), await _tenant()
+    await _set_status(token, tenant_id, "suspended")
+    await _close(token, tenant_id, confirm=close_account_confirmation(tenant_id))
+
+    async with _client() as http:
+        response = await http.delete(
+            BASE.format(tenant_id=tenant_id), headers={"Authorization": f"Bearer {token}"}
+        )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "suspended"
+    async with tenant_session(tenant_id) as session:
+        blocker = await account_stopped_blocker(session, tenant_id=tenant_id)
+    assert blocker is not None and blocker[0] == "account_suspended"
+
+
+@pytest.mark.asyncio
+async def test_undoing_the_close_of_a_reactivated_account_reopens_it_active() -> None:
+    token, tenant_id = await _admin(), await _tenant()
+    await _set_status(token, tenant_id, "suspended")
+    await _set_status(token, tenant_id, "active")
+    await _close(token, tenant_id, confirm=close_account_confirmation(tenant_id))
+
+    async with _client() as http:
+        response = await http.delete(
+            BASE.format(tenant_id=tenant_id), headers={"Authorization": f"Bearer {token}"}
+        )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "active"
+
+
 @pytest.mark.asyncio
 async def test_the_undo_carries_no_step_up_because_it_is_the_recovery_path() -> None:
     """Deliberate asymmetry: the operator who closed the wrong client at a coffee shop has
