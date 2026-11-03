@@ -325,7 +325,7 @@ function AgentMark({ name }: { name: string | null | undefined }) {
   return (
     <span
       aria-hidden
-      className="mt-6 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-soft text-[13px] font-semibold text-brand-strong dark:bg-brand/20 dark:text-brand-bright"
+      className="mt-6 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-soft text-meta font-semibold text-brand-strong dark:bg-brand/20 dark:text-brand-bright"
     >
       {initial}
     </span>
@@ -379,7 +379,7 @@ function Bubble({
         {words}
       </span>
       {clock && (
-        <span className={`mt-0.5 block text-[12px] leading-4 tabular-nums text-ink-faint ${agent ? "" : "text-right"}`}>
+        <span className={`mt-0.5 block text-xs tabular-nums text-ink-faint ${agent ? "" : "text-right"}`}>
           {clock}
         </span>
       )}

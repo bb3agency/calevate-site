@@ -13,6 +13,7 @@ import {
   FIELD,
   FIELD_LABEL,
   MonoValue,
+  QUIET_ICON_BUTTON,
   SECONDARY_BUTTON_SM,
   formatCount,
   formatPhone,
@@ -327,7 +328,7 @@ export function ContactEditor({
             </div>
           </div>
           {checked.refusal && (
-            <p role="alert" className="text-sm font-medium text-danger">
+            <p role="alert" className="text-meta text-danger">
               {checked.refusal}
             </p>
           )}
@@ -339,7 +340,7 @@ export function ContactEditor({
       )}
 
       <p className="text-xs text-ink-muted">
-        Do-not-call numbers are never dialled. Max {MAX_CONTACTS_PER_UPLOAD.toLocaleString("en-IN")} per upload.
+        Do-not-call numbers are never dialled. Max {formatCount(MAX_CONTACTS_PER_UPLOAD)} per upload.
       </p>
       <HowItWorks title="File tips" className="mt-0" items={fileTips(agentLanguage)} />
     </section>
@@ -407,7 +408,7 @@ function ContactTable({
                   type="button"
                   onClick={() => onRemove(entry.id)}
                   aria-label={`Remove ${entry.phone || "this row"}`}
-                  className="press inline-flex h-8 w-8 items-center justify-center rounded-md text-ink-faint hover:bg-ink/[0.06] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:h-11 touch:w-11"
+                  className={`press ${QUIET_ICON_BUTTON}`}
                 >
                   <Trash2 aria-hidden className="h-3.5 w-3.5" />
                 </button>

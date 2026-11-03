@@ -36,7 +36,7 @@ export function PublishPanel({
   return (
     <section
       aria-labelledby="publish-heading"
-      className="space-y-3 rounded-lg border-2 border-brand p-4 sm:p-6"
+      className="space-y-3 rounded-card border-2 border-brand p-4 sm:p-6"
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">

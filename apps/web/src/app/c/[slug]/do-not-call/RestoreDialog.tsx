@@ -137,7 +137,7 @@ export function RestoreDialog({
                 {record.call_id && (
                   <Link
                     href={href(`/c/${session.orgSlug}/calls/${record.call_id}`)}
-                    className="mt-1 inline-block font-medium text-brand underline-offset-2 hover:underline"
+                    className="mt-1 inline-block font-medium text-brand-strong underline-offset-2 hover:underline dark:text-brand-bright"
                   >
                     {COPY.openCall}
                   </Link>

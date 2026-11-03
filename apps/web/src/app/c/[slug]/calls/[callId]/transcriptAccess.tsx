@@ -4,6 +4,7 @@ import { useMutation } from "@tanstack/react-query";
 import { Download, Eye, EyeOff } from "lucide-react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { SECONDARY_BUTTON_SM } from "@/components/ui";
 import { ApiProblem, apiRequest, type CallDetail, type Session } from "@/lib/api/client";
 import type { components } from "@/lib/api/schema";
 import { useMe } from "@/lib/api/hooks";
@@ -62,7 +63,7 @@ export function RawTranscriptControl({
             ? "Shows the full text, personal details included."
             : (access.reason ?? undefined)
         }
-        className="press inline-flex shrink-0 items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink-muted enabled:hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:min-h-11 dark:enabled:hover:bg-white/5"
+        className={`${SECONDARY_BUTTON_SM} shrink-0`}
       >
         <Icon className="h-3.5 w-3.5" />
         {pending ? "Opening…" : showRaw ? "Hide full transcript" : "Show full transcript"}
@@ -212,7 +213,7 @@ export function DownloadRecordingButton({ session, callId }: { session: Session;
         Download
       </ActionButton>
       {download.error != null && (
-        <p role="alert" className="basis-full text-meta text-warn">
+        <p role="alert" className="basis-full text-meta text-danger">
           {downloadRefusal(download.error)}
         </p>
       )}
