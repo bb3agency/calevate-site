@@ -142,8 +142,8 @@ export function PhoneNumberScreen() {
               title="Numbers your agents call out from"
               info={
                 <p>
-                  We set these numbers up for you. Calevate provides them on our own telephony
-                  account, so there is no operator account for you to open or manage.
+                  We set these up for you on our own telephony account. Nothing to open or
+                  manage.
                 </p>
               }
             >

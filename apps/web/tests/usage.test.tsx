@@ -280,7 +280,7 @@ describe("the usage panel", () => {
     await screen.findByText("Extra charges");
     const link = screen.getByRole("link", { name: "Change AI model" });
     expect(link.getAttribute("href")).toBe("/c/acme/settings/models");
-    expect(container.textContent).toContain("ran a model you chose");
+    expect(container.textContent).toContain("Charged for the AI model you chose");
   });
 
   it("does not offer the model picker from a month nothing was surcharged", async () => {

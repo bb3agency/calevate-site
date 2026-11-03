@@ -388,8 +388,7 @@ export function TeamScreen() {
           <span className="font-medium text-ink">No unused invites.</span>
           <InfoTip label="invite links" className="touch:-my-2.5">
             <p>
-              Invite links expire after 72 hours and can only be used once, by the person
-              they were sent to.
+              Links expire after 72 hours and work once, for the person invited.
             </p>
           </InfoTip>
         </p>

@@ -27,9 +27,8 @@ export function CostPerResult({ session, allowed }: { session: Session; allowed:
       description={cost.data ? `Calls billed in ${cost.data.billing_step_seconds}-second steps.` : undefined}
       info={
         <p>
-          Everything that left your credit in these days (calls, number rental, AI help),
-          divided by what you got. A booking is a call your agent marked as wanting to buy
-          or book.
+          All credit used in these days (calls, number rental, AI help), divided by
+          results. A booking is a call your agent marked as ready to buy or book.
         </p>
       }
       action={

@@ -326,8 +326,8 @@ export function teamColumns(ctx: TeamTableContext): DataColumn<TeamRow>[] {
           Role
           <InfoTip label="roles">
             <p>
-              An account always keeps at least one owner: the last one cannot be removed or
-              moved to staff. Nobody can change their own role. Ask another owner.
+              The last owner cannot be removed or made staff. To change your own role, ask
+              another owner.
             </p>
           </InfoTip>
         </span>
