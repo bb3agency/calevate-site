@@ -32,6 +32,7 @@ from apps.api.agents.starter_plans import (
     STEP_TITLE_MAX,
     Plan,
     PlanStep,
+    business_known,
     clean_plan,
     plans_to_json,
 )
@@ -133,20 +134,23 @@ def plans_from_model(raw: dict[str, Any], *, vertical: str | None) -> dict[str, 
     return plans
 
 
-async def _store(tenant_id: UUID, services: str, answer: JsonAnswer[dict[str, Plan]]) -> bool:
-    """Store the plans and meter the answer in ONE transaction, only while what the business
-    sells is still the list they were written for."""
+async def _store(tenant_id: UUID, known: str, answer: JsonAnswer[dict[str, Plan]]) -> bool:
+    """Store the plans and meter the answer in ONE transaction, only while what describes the
+    business is still what they were written from (`starter_plans.business_known`). A newer
+    description queued its own writing, which stores in its place."""
     async with tenant_session(tenant_id) as session:
-        stored = (
-            await session.execute(
-                text(
-                    "UPDATE organizations o SET starter_plans = CAST(:plans AS jsonb) "
-                    "FROM business_profiles bp WHERE o.id = :tid AND bp.tenant_id = o.id "
-                    "AND md5(bp.services::text) = :services RETURNING o.id"
-                ),
-                {"tid": tenant_id, "plans": plans_to_json(answer.value), "services": services},
-            )
-        ).first()
+        current = await business_known(session, tenant_id=tenant_id)
+        stored = None
+        if current == known:
+            stored = (
+                await session.execute(
+                    text(
+                        "UPDATE organizations SET starter_plans = CAST(:plans AS jsonb) "
+                        "WHERE id = :tid RETURNING id"
+                    ),
+                    {"tid": tenant_id, "plans": plans_to_json(answer.value)},
+                )
+            ).first()
         await crm_assist.meter_earlier(
             session, tenant_id=tenant_id, earlier=answer.earlier, feature=ASSIST_FEATURE_LEAD_FIELDS
         )
@@ -165,7 +169,10 @@ async def write_starter_steps(ctx: dict[str, Any], payload: dict[str, Any]) -> s
     """Ask the model once for every job's steps, store what came back."""
     del ctx
     tenant_id = UUID(str(payload["tenant_id"]))
-    services = str(payload["services"])
+    # A message queued before `known` existed carries none and is simply superseded.
+    known = str(payload.get("known", ""))
+    if not known:
+        return "superseded"
     try:
         description, vertical = await business_context(tenant_id)
         async with tenant_session(tenant_id) as session:
@@ -197,7 +204,7 @@ async def write_starter_steps(ctx: dict[str, Any], payload: dict[str, Any]) -> s
                 "starter_steps_refused", extra={"tenant_id": str(tenant_id), "reason": refused.code}
             )
             return "refused"
-        stored = await _store(tenant_id, services, answer)
+        stored = await _store(tenant_id, known, answer)
     except Exception:
         log.exception("starter_steps_crashed", extra={"tenant_id": str(tenant_id)})
         return "failed"

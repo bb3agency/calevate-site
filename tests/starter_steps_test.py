@@ -131,16 +131,11 @@ async def _services(tenant_id: uuid.UUID, services: str) -> None:
         )
 
 
-async def _services_hash(tenant_id: uuid.UUID) -> str:
+async def _known(tenant_id: uuid.UUID) -> str:
     async with tenant_session(tenant_id) as session:
-        return str(
-            (
-                await session.execute(
-                    text("SELECT md5(services::text) FROM business_profiles WHERE tenant_id = :t"),
-                    {"t": tenant_id},
-                )
-            ).scalar_one()
-        )
+        known = await starter_plans.business_known(session, tenant_id=tenant_id)
+    assert known is not None
+    return known
 
 
 async def _write(tenant_id: uuid.UUID, prefix: str) -> None:
@@ -221,10 +216,10 @@ async def test_steps_are_written_for_what_it_sells_and_never_for_an_older_list(
     async with tenant_session(tenant_id) as session:
         assert await starter_plans.maybe_write_starter_steps(session, tenant_id=tenant_id) is True
         assert await starter_plans.maybe_write_starter_steps(session, tenant_id=tenant_id) is False
-    older = await _services_hash(tenant_id)
+    older = await _known(tenant_id)
 
     monkeypatch.setattr(worker, "ask_json", _answer(_all_raw("Crop")))
-    payload = {"tenant_id": str(tenant_id), "services": older}
+    payload = {"tenant_id": str(tenant_id), "known": older}
     assert await worker.write_starter_steps({}, payload) == "written"
     code, body = await _starters(token, "?job=answer_calls")
     assert code == 200, body
@@ -250,7 +245,7 @@ async def test_a_refusal_stores_nothing(monkeypatch: pytest.MonkeyPatch) -> None
         raise ProblemError.business_rule("assist_answer_unusable", "Nothing usable came back.")
 
     monkeypatch.setattr(worker, "ask_json", refused)
-    payload = {"tenant_id": str(tenant_id), "services": await _services_hash(tenant_id)}
+    payload = {"tenant_id": str(tenant_id), "known": await _known(tenant_id)}
     assert await worker.write_starter_steps({}, payload) == "refused"
     code, body = await _starters(token)
     assert code == 200, body
@@ -266,3 +261,36 @@ async def test_one_business_never_sees_anothers_steps() -> None:
     assert code == 200, body
     assert body["starters"][0]["steps_written"] is False
     assert not any(t.startswith("Crop") for t in body["starters"][0]["step_titles"])
+
+
+@pytest.mark.rls
+async def test_an_owner_who_only_described_the_business_gets_both() -> None:
+    """Rytu khata (3 Nov 2026): the owner described the business in "Meet your agent" and
+    listed nothing it sells, and got neither its steps nor its detail names."""
+    from apps.api.agents.lead_fields import NAME_CORE_JOB
+    from apps.api.first_run.service import save_brief
+
+    tenant_id, _ = await _tenant("custom", "Rytu khata")
+    await _services(tenant_id, "[]")
+    async with tenant_session(tenant_id) as session:
+        assert await starter_plans.business_known(session, tenant_id=tenant_id) is None
+        await save_brief(
+            session,
+            tenant_id=tenant_id,
+            brief="We keep crop records for farmers and call them about pests and soil tests.",
+        )
+    async with tenant_session(tenant_id) as session:
+        jobs = (
+            (
+                await session.execute(
+                    text(
+                        "SELECT job FROM outbox_messages WHERE payload->>'tenant_id' = :tid "
+                        "AND job = ANY(:jobs)"
+                    ),
+                    {"tid": str(tenant_id), "jobs": [starter_plans.WRITE_STEPS_JOB, NAME_CORE_JOB]},
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert sorted(jobs) == sorted([starter_plans.WRITE_STEPS_JOB, NAME_CORE_JOB])

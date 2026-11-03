@@ -34,6 +34,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.extraction_routes import validate_fields, write_schema
+from apps.api.agents.starter_plans import business_known
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
 from apps.api.reliability.service import enqueue_outbox, enqueue_outbox_once
@@ -417,29 +418,29 @@ async def save_core_labels(
 
 
 async def maybe_name_core_details(session: AsyncSession, *, tenant_id: UUID) -> bool:
-    """Queue the one AI naming of the core details once the business says what it sells,
-    whatever its type. Does nothing once it was taken or the owner named any detail.
+    """Queue the one AI naming of the core details once anything describes the business
+    (`starter_plans.business_known`: the owner's own words or what it sells), whatever its
+    type. Does nothing once it was taken or the owner named any detail.
 
-    Deduped per list of what it sells, not per account: a naming the model refused frees
-    its claim, and the next change to that list must be able to ask again."""
-    row = (
+    Deduped per description, not per account: a naming the model refused frees its claim,
+    and the next change to what describes the business must be able to ask again."""
+    open_ = (
         await session.execute(
             text(
-                "SELECT o.core_labels_drafted_at IS NULL AND o.core_field_labels = '{}'::jsonb, "
-                "coalesce(jsonb_array_length(bp.services), 0), md5(bp.services::text) "
-                "FROM organizations o "
-                "LEFT JOIN business_profiles bp ON bp.tenant_id = o.id WHERE o.id = :tid"
+                "SELECT core_labels_drafted_at IS NULL AND core_field_labels = '{}'::jsonb "
+                "FROM organizations WHERE id = :tid"
             ),
             {"tid": tenant_id},
         )
-    ).first()
-    if row is None or not row[0] or not row[1]:
+    ).scalar()
+    known = await business_known(session, tenant_id=tenant_id) if open_ else None
+    if known is None:
         return False
     queued = await enqueue_outbox_once(
         session,
         job=NAME_CORE_JOB,
         payload={"tenant_id": str(tenant_id)},
-        dedupe_key=f"core-labels:{tenant_id}:{row[2]}",
+        dedupe_key=f"core-labels:{tenant_id}:{known}",
     )
     return queued is not None
 

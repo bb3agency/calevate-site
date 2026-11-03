@@ -26,6 +26,7 @@ from calevate_shared.call_script import STAGE_DETAIL_MAX
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.first_run.models import MIN_BRIEF_CHARS
 from apps.api.reliability.service import enqueue_outbox_once
 
 #: The ARQ job that writes the plans (`workers/starter_steps`).
@@ -106,35 +107,52 @@ async def stored_plans(
     return plans_from_row(raw, shapes)
 
 
-async def maybe_write_starter_steps(session: AsyncSession, *, tenant_id: UUID) -> bool:
-    """Queue the steps written for this business once it says what it sells, again each
-    time that changes. Deduped per list of what it sells, so one change asks once."""
+#: Whether anything describes the business, and a digest of what does: the owner's own words
+#: from "Meet your agent" (`first_runs.brief`) and the list of what it sells. Either is enough
+#: to write for it; the digest changes when either does. One expression for the enqueue side,
+#: the worker's "still current" guard and the backfill migration's copy, so the three agree.
+BUSINESS_KNOWN_SQL: Final = (
+    "SELECT (coalesce(length(btrim(fr.brief)), 0) >= :min_brief "
+    "OR coalesce(jsonb_array_length(bp.services), 0) > 0), "
+    "md5(coalesce(fr.brief, '') || '|' || coalesce(bp.services::text, '[]')) "
+    "FROM organizations o LEFT JOIN business_profiles bp ON bp.tenant_id = o.id "
+    "LEFT JOIN first_runs fr ON fr.tenant_id = o.id WHERE o.id = :tid"
+)
+
+
+async def business_known(session: AsyncSession, *, tenant_id: UUID) -> str | None:
+    """The digest of what describes the business, or None while nothing does yet."""
     row = (
         await session.execute(
-            text(
-                "SELECT coalesce(jsonb_array_length(services), 0), md5(services::text) "
-                "FROM business_profiles WHERE tenant_id = :tid"
-            ),
-            {"tid": tenant_id},
+            text(BUSINESS_KNOWN_SQL), {"tid": tenant_id, "min_brief": MIN_BRIEF_CHARS}
         )
     ).first()
-    if row is None or not row[0]:
+    return str(row[1]) if row is not None and row[0] else None
+
+
+async def maybe_write_starter_steps(session: AsyncSession, *, tenant_id: UUID) -> bool:
+    """Queue the steps written for this business once anything describes it, again each time
+    that changes. Deduped per description, so one change asks once."""
+    known = await business_known(session, tenant_id=tenant_id)
+    if known is None:
         return False
     queued = await enqueue_outbox_once(
         session,
         job=WRITE_STEPS_JOB,
-        payload={"tenant_id": str(tenant_id), "services": str(row[1])},
-        dedupe_key=f"starter-steps:{tenant_id}:{row[1]}",
+        payload={"tenant_id": str(tenant_id), "known": known},
+        dedupe_key=f"starter-steps:{tenant_id}:{known}",
     )
     return queued is not None
 
 
 __all__ = [
+    "BUSINESS_KNOWN_SQL",
     "STEP_FOCUS_MAX",
     "STEP_TITLE_MAX",
     "WRITE_STEPS_JOB",
     "Plan",
     "PlanStep",
+    "business_known",
     "clean_plan",
     "maybe_write_starter_steps",
     "plans_from_row",
