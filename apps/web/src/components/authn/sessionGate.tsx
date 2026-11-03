@@ -122,7 +122,7 @@ export function SessionGate({
   if (status === "partial") {
     return frame(
       <Card>
-        <div className="space-y-3 text-sm text-ink-muted">
+        <div className="space-y-3 text-body text-ink-muted">
           <NoticeBox
             tone="warn"
             icon={<ShieldAlert aria-hidden className="h-4 w-4" />}
@@ -146,7 +146,7 @@ export function SessionGate({
   if (status === "unreachable") {
     return frame(
       <Card>
-        <div className="space-y-3 text-sm text-ink-muted">
+        <div className="space-y-3 text-body text-ink-muted">
           {/* NOT "you are signed out" — nothing here is evidence of that (see the file
               docstring) — AND NOT "your session has not been ended" EITHER, WHICH IS WHAT
               THIS SAID (D-539).
@@ -236,7 +236,7 @@ function SignedOutRedirect({
   if (alreadyThere) {
     return frame(
       <Card>
-        <div className="space-y-3 text-sm text-ink-muted">
+        <div className="space-y-3 text-body text-ink-muted">
           <NoticeBox
             tone="stop"
             icon={<ShieldAlert aria-hidden className="h-4 w-4" />}

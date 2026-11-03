@@ -153,8 +153,8 @@ export function AnsweredMini() {
       </span>
       <span className="mk-rise mk-s1 relative block h-12 overflow-hidden rounded-lg border border-line bg-surface">
         {/* Closed hours: midnight to 9 AM, and 9 PM to midnight. */}
-        <span className="absolute inset-y-0 left-0 w-[37.5%] bg-slate-100 dark:bg-white/[0.06]" />
-        <span className="absolute inset-y-0 right-0 w-[12.5%] bg-slate-100 dark:bg-white/[0.06]" />
+        <span className="absolute inset-y-0 left-0 w-[37.5%] bg-surface-muted" />
+        <span className="absolute inset-y-0 right-0 w-[12.5%] bg-surface-muted" />
         {TICKS.map((left) => (
           <span
             key={left}
@@ -228,7 +228,7 @@ export function QualifiedMini() {
         <span
           key={status}
           className={`mk-rise mk-s${i + 1} flex items-center gap-3 rounded-lg border px-3 py-2.5 ${
-            i === 0 ? "border-amber-200 bg-surface shadow-raised" : "border-line bg-surface/80 shadow-card"
+            i === 0 ? "border-chart-warn bg-surface shadow-raised" : "border-line bg-surface/80 shadow-card"
           }`}
         >
           <Avatar name={name} className="h-7 w-7" tone={i === 0 ? "brand" : "base"} />
@@ -292,10 +292,10 @@ export function RowsMini() {
 export function CampaignBoardMock() {
   const progress = [
     { label: "connected", n: "152", w: "w-[63%]", tone: "bg-brand" },
-    { label: "no answer", n: "41", w: "w-[17%]", tone: "bg-amber-300" },
-    { label: "pending", n: "37", w: "w-[15%]", tone: "bg-slate-200" },
-    { label: "dnc blocked", n: "6", w: "w-[3%]", tone: "bg-rose-300" },
-    { label: "failed", n: "4", w: "w-[2%]", tone: "bg-slate-400" },
+    { label: "no answer", n: "41", w: "w-[17%]", tone: "bg-chart-warn" },
+    { label: "pending", n: "37", w: "w-[15%]", tone: "bg-line" },
+    { label: "dnc blocked", n: "6", w: "w-[3%]", tone: "bg-chart-danger" },
+    { label: "failed", n: "4", w: "w-[2%]", tone: "bg-chart-neutral" },
   ] as const;
   const tiles = [
     { label: "Contacts", value: "240", hint: "on this list" },
@@ -316,7 +316,7 @@ export function CampaignBoardMock() {
         <span className="flex flex-wrap items-center gap-2">
           <span className="text-[15px] font-semibold text-ink">Admissions — open day invitations</span>
           <Tag tone="emerald">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-600" />
+            <span className="h-1.5 w-1.5 rounded-full bg-brand" />
             Running
           </Tag>
         </span>
@@ -337,7 +337,7 @@ export function CampaignBoardMock() {
             <span className="text-[12px] font-semibold text-ink">Progress</span>
             <span className="text-[11px] text-ink-muted">Launched 14 Sep · up to 5 calls at a time</span>
           </span>
-          <span className="mk-rise mk-s4 flex h-2.5 overflow-hidden rounded-full bg-slate-100 dark:bg-white/[0.06]">
+          <span className="mk-rise mk-s4 flex h-2.5 overflow-hidden rounded-full bg-surface-muted">
             {progress.map(({ label, w, tone }) => (
               <span key={label} className={`block h-full ${w} ${tone}`} />
             ))}

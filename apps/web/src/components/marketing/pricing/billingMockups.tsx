@@ -1,4 +1,4 @@
-import { AlertTriangle, Layers, Receipt, Timer, Wallet } from "lucide-react";
+import { Layers, Receipt, Timer, Wallet } from "lucide-react";
 
 import { Panel, Tag, Window } from "@/components/marketing/home/mockups/kit";
 
@@ -160,12 +160,12 @@ export function SpendingLimitMock() {
 /** Overview tab, the morning the balance crosses the warning line. */
 export function LowCreditNoticeMock() {
   return (
-    <span className="mk-rise mk-s3 block rounded-xl border border-amber-200 bg-amber-50 p-4 text-[12px] text-amber-950 shadow-card dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-200">
-      <span className="flex items-start gap-2 font-semibold">
-        <AlertTriangle aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+    <span className="mk-rise mk-s3 block border-l-2 border-chart-warn bg-surface py-2 pl-3 text-[12px] text-ink shadow-card">
+      <span className="flex items-center gap-2 font-semibold">
+        <span aria-hidden className="h-2 w-2 shrink-0 rounded-full bg-chart-warn" />
         Your calling credit is running low.
       </span>
-      <span className="mt-1.5 block pl-5.5 text-amber-900 dark:text-amber-200">We email the account owner at this point too.</span>
+      <span className="mt-1 block pl-4 text-ink-muted">We email the account owner at this point too.</span>
     </span>
   );
 }

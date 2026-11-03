@@ -55,7 +55,7 @@ function ClientResetBody() {
       }
       renderSuccess={() => (
         <div>
-          <div className="space-y-3 text-sm text-ink-muted">
+          <div className="space-y-3 text-body text-ink-muted">
             <NoticeBox tone="ok" title="Your password has been changed">
               <p className="mt-1">
                 Every session on this account has been ended. Sign in again with the new

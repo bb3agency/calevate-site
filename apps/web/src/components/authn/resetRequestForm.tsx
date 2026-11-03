@@ -45,7 +45,7 @@ export function ResetRequestForm({ authn }: { authn: RealmAuthn }) {
   if (request.isSuccess) {
     return (
       <div>
-        <div className="space-y-3 text-sm text-ink-muted">
+        <div className="space-y-3 text-body text-ink-muted">
           <NoticeBox
             tone="ok"
             icon={<MailCheck aria-hidden className="h-4 w-4" />}
@@ -62,7 +62,7 @@ export function ResetRequestForm({ authn }: { authn: RealmAuthn }) {
             The link works once and expires an hour after it is sent. Using it ends every
             session on the account, on every device.
           </p>
-          <p className="text-xs text-ink-faint">
+          <p className="text-meta text-ink-faint">
             No email after a few minutes? Check the spam folder, then try a different
             address. A wrong address is more likely than a lost email.
           </p>

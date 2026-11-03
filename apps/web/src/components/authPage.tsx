@@ -75,7 +75,7 @@ export function AuthPageFrame({
             >
               <BrandWordmark height={36} />
             </Link>
-            <span className="text-xs font-medium text-ink-muted">{realmLabel}</span>
+            <span className="text-meta font-medium text-ink-muted">{realmLabel}</span>
           </header>
           <main
             className={`mx-auto flex w-full flex-1 flex-col justify-center px-5 py-10 sm:px-8 ${
@@ -84,7 +84,7 @@ export function AuthPageFrame({
           >
             {children}
           </main>
-          <footer className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 px-5 pb-6 text-xs text-ink-muted">
+          <footer className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 px-5 pb-6 text-meta text-ink-muted">
             <Link href="/legal/privacy" className="inline-flex items-center py-1 underline-offset-2 hover:underline touch:min-h-11">
               Privacy
             </Link>
@@ -117,7 +117,7 @@ export function AuthHeading({ title, lead }: { title: string; lead?: ReactNode }
   return (
     <div className="mb-6 space-y-1.5">
       <h1 className="text-balance text-2xl font-semibold tracking-tight text-ink">{title}</h1>
-      {lead ? <p className="text-sm text-ink-muted">{lead}</p> : null}
+      {lead ? <p className="text-body text-ink-muted">{lead}</p> : null}
     </div>
   );
 }

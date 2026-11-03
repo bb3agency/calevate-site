@@ -52,7 +52,7 @@ export default function AdminSignInPage() {
                 window.location.assign(adminSignedInDestination());
               }}
               footer={
-                <p className="text-sm text-ink-muted">
+                <p className="text-body text-ink-muted">
                   Operator accounts are created by invitation only.
                 </p>
               }

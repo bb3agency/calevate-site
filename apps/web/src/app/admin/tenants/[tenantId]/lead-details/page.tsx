@@ -152,7 +152,7 @@ function ReplaceAll({
         </button>
       </div>
       {replace.data && !confirming && (
-        <p role="status" className="mt-3 text-sm text-ink-muted">
+        <p role="status" className="mt-3 text-body text-ink-muted">
           {replace.data.agents_changed} agent{replace.data.agents_changed === 1 ? "" : "s"} moved
           {replace.data.agents_unchanged > 0
             ? `; ${replace.data.agents_unchanged} already had these details`

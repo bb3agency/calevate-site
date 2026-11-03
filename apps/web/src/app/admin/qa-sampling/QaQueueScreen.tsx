@@ -526,7 +526,7 @@ function SampleRow({ row, search }: { row: QaSample; search: string }) {
         {verdict ? (
           <span className="shrink-0 text-right">
             <span className="block text-meta font-medium text-ink">{verdict.label}</span>
-            <span className="block text-xs text-ink-muted">{formatIST(row.reviewed_at)}</span>
+            <span className="block text-meta text-ink-muted">{formatIST(row.reviewed_at)}</span>
           </span>
         ) : (
           <span className="inline-flex shrink-0 items-center gap-1 text-meta font-medium text-brand-strong">

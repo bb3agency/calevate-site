@@ -20,10 +20,10 @@ function Line({ who, children }: { who: "Agent" | "Caller"; children: ReactNode 
     <span className={`flex ${agent ? "justify-start" : "justify-end"}`}>
       <span
         className={`flex max-w-[88%] flex-col gap-0.5 rounded-xl px-3 py-2 ${
-          agent ? "rounded-bl-sm bg-brand-soft dark:bg-brand-strong/20" : "rounded-br-sm bg-slate-100 dark:bg-white/[0.06]"
+          agent ? "rounded-bl-sm bg-brand-soft dark:bg-brand-strong/20" : "rounded-br-sm bg-surface-muted"
         }`}
       >
-        <span className={`text-[11px] font-semibold ${agent ? "text-brand-strong dark:text-brand-bright" : "text-slate-600 dark:text-slate-300"}`}>
+        <span className={`text-[11px] font-semibold ${agent ? "text-brand-strong dark:text-brand-bright" : "text-ink-muted"}`}>
           {who}
         </span>
         <span className="text-[13px] leading-snug text-ink">{children}</span>
@@ -120,7 +120,7 @@ export function AuditLogMock() {
 export function CallingWindowMock() {
   return (
     <span className="flex flex-col gap-3">
-      <span className="mk-rise mk-s1 relative block h-10 overflow-hidden rounded-lg border border-line bg-slate-100 dark:bg-white/[0.06]">
+      <span className="mk-rise mk-s1 relative block h-10 overflow-hidden rounded-lg border border-line bg-surface-muted">
         {/* 9am to 9pm on a midnight-to-midnight ribbon, and the narrowed 10am to 7pm window inside it. */}
         <span className="absolute inset-y-0 left-[37.5%] w-1/2 bg-brand-soft dark:bg-brand-strong/20" />
         <span className="absolute inset-y-2 left-[41.7%] w-[37.5%] rounded bg-brand/45" />

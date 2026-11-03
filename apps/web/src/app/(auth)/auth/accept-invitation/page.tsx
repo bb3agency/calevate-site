@@ -90,7 +90,7 @@ function Joined({ result }: { result: AcceptedInvitation }) {
   const role = lookup(ROLE_COPY, result.role);
   return (
     <div>
-      <div className="space-y-3 text-sm text-ink-muted">
+      <div className="space-y-3 text-body text-ink-muted">
         <NoticeBox tone="ok" title={`You joined ${result.slug} as ${role?.label ?? result.role}`}>
           {role && <p className="mt-1">{role.can}</p>}
         </NoticeBox>
@@ -99,7 +99,7 @@ function Joined({ result }: { result: AcceptedInvitation }) {
         <Link href={`/c/${result.slug}`} className={`${PRIMARY_BUTTON} w-full justify-center`}>
           Open the dashboard
         </Link>
-        <p className="text-xs text-ink-faint">
+        <p className="text-meta text-ink-faint">
           Signed out later?{" "}
           <Link href={CLIENT_SIGN_IN_PATH} className="text-brand-strong underline underline-offset-2 dark:text-brand-bright">
             Sign in here

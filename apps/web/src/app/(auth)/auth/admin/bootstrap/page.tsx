@@ -53,7 +53,7 @@ export default function AdminBootstrapPage() {
             onSubmit={({ token, password }) => confirmAdminBootstrap({ token, password })}
             renderSuccess={() => (
               <div>
-                <div className="space-y-3 text-sm text-ink-muted">
+                <div className="space-y-3 text-body text-ink-muted">
                   <NoticeBox tone="ok" title="The first operator account is ready">
                     Sign in with the address the link was sent to. Every operator sign-in asks
                     for an emailed six-digit code.

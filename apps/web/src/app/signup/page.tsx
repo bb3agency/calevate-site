@@ -125,7 +125,7 @@ function SignupOrAccount() {
   ) : (
     <AuthCard>
       <CreateAccountForm onCreated={() => window.location.reload()} />
-      <p className="mt-6 text-center text-sm text-ink-muted">
+      <p className="mt-6 text-center text-body text-ink-muted">
         Already have an account?{" "}
         <Link
           href={CLIENT_SIGN_IN_PATH}
@@ -169,7 +169,7 @@ function SignupClosed({
   return (
     <AuthCard>
       <AuthHeading title={deferred ? "Not right now" : "Signing up online is closed"} />
-        <div className="space-y-3 text-sm text-ink-muted">
+        <div className="space-y-3 text-body text-ink-muted">
           <p>
             {deferred
               ? "We are not creating new accounts at this moment — the platform is running in a reduced mode. Nothing you entered was wrong; try again shortly."
@@ -200,7 +200,7 @@ function SignupClosed({
             </p>
           )}
           {!deferred && (
-            <p className="text-xs text-ink-faint">
+            <p className="text-meta text-ink-faint">
               Already have a workspace? It lives at{" "}
               <code className="rounded bg-black/5 px-1 font-mono text-ink dark:bg-white/10">
                 /c/your-slug
@@ -245,7 +245,7 @@ function ConfirmYourAddress({
   return (
     <AuthCard>
       <AuthHeading title="Confirm your email address first" />
-        <div className="space-y-3 text-sm text-ink-muted">
+        <div className="space-y-3 text-body text-ink-muted">
           <p>
             Before we create a workspace we need to know the address on your account
             reaches you. It takes one code and about a minute.
@@ -302,7 +302,7 @@ function SignupForm() {
           <h1 className="mt-3 text-2xl font-semibold tracking-tight text-ink">
             {created.name} is set up
           </h1>
-          <p className="mt-2 text-sm text-ink-muted">
+          <p className="mt-2 text-body text-ink-muted">
             Your workspace is at{" "}
             <code className="rounded bg-black/5 px-1 font-mono text-ink dark:bg-white/10">
               /c/{created.slug}
@@ -317,13 +317,13 @@ function SignupForm() {
               would be a second copy to keep in step. */}
           <ul className="space-y-2">
             {created.next_steps.map((step) => (
-              <li key={step} className="flex gap-2.5 text-sm text-ink-muted">
+              <li key={step} className="flex gap-2.5 text-body text-ink-muted">
                 <CircleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-brand" />
                 <span>{step}</span>
               </li>
             ))}
           </ul>
-          <p className="mt-3 text-xs text-ink-faint">
+          <p className="mt-3 text-meta text-ink-faint">
             Nothing is charged during your free trial.
           </p>
         </Card>
@@ -376,7 +376,7 @@ function SignupForm() {
         <h1 className="text-2xl font-semibold tracking-tight text-ink">
           Create your Calevate workspace
         </h1>
-        <p className="mt-2 text-sm text-ink-muted">
+        <p className="mt-2 text-body text-ink-muted">
           This creates the workspace for the Calevate account you are already signed in
           with, and makes you its owner. If you already belong to a workspace, open it at
           its own URL instead.
@@ -471,7 +471,7 @@ function SignupForm() {
           >
             {(props) => (
               <div className="mt-1 flex items-center gap-1">
-                <span className="font-mono text-sm text-ink-faint">/c/</span>
+                <span className="font-mono text-body text-ink-faint">/c/</span>
                 <input
                   {...props}
                   {...valid.track("slug", "Choose a web address for your workspace.")}
@@ -487,7 +487,7 @@ function SignupForm() {
             )}
           </Field>
           {mustChooseSlug ? (
-            <p className="-mt-3 text-xs text-ink-muted">
+            <p className="-mt-3 text-meta text-ink-muted">
               We cannot build a web address out of that business name, so please choose
               one — 3-40 characters of a-z, 0-9 and -.
             </p>
@@ -495,7 +495,7 @@ function SignupForm() {
             derived && (
               /* A preview, never a promise: the server checks reserved names and
                  collisions, and may hand back a different one. */
-              <p className="-mt-3 text-xs text-ink-faint">
+              <p className="-mt-3 text-meta text-ink-faint">
                 Your workspace will be at{" "}
                 <code className="font-mono">/c/{derived}</code>, unless that name is taken.
               </p>
@@ -554,7 +554,7 @@ function SignupForm() {
             <ActionButton type="submit" status={signupFeedback.status} successLabel="Created">
               Create workspace
             </ActionButton>
-            <p className="text-xs text-ink-faint">
+            <p className="text-meta text-ink-faint">
               Your free trial starts straight away: you make your first agent and give
               it test calls to your own phone. Calling your customers opens once you add
               credit and verify your business.

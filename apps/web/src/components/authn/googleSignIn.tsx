@@ -111,7 +111,7 @@ export function GoogleSignIn({
       </ActionButton>
       <AuthProblemNotice error={error} />
       {divider && (
-        <div className="flex items-center gap-3 text-xs text-ink-faint" role="separator">
+        <div className="flex items-center gap-3 text-meta text-ink-faint" role="separator">
           <span className="h-px flex-1 bg-line" />
           {divider}
           <span className="h-px flex-1 bg-line" />

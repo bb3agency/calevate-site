@@ -60,7 +60,7 @@ export function Avatar({
   return (
     <span
       className={`flex shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
-        tone === "brand" ? "bg-brand-soft dark:bg-brand-strong/20 text-brand-strong dark:text-brand-bright" : "bg-slate-100 dark:bg-white/[0.06] text-slate-600 dark:text-slate-300"
+        tone === "brand" ? "bg-brand-soft dark:bg-brand-strong/20 text-brand-strong dark:text-brand-bright" : "bg-surface-muted text-ink-muted"
       } ${className}`}
     >
       {initials}

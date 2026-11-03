@@ -233,7 +233,7 @@ const AREA_COLUMNS: DataColumn<PipAreaQuality>[] = [
 ];
 
 const TOOL_COLUMNS: DataColumn<PipToolQuality>[] = [
-  { id: "tool", header: "Tool", cell: (row) => <code className="text-xs">{row.tool}</code>, sort: { value: (row) => row.tool } },
+  { id: "tool", header: "Tool", cell: (row) => <code className="text-meta">{row.tool}</code>, sort: { value: (row) => row.tool } },
   { id: "area", header: "Area", cell: (row) => areaLabel(row.area), hideBelow: "sm" },
   {
     id: "answers",
@@ -291,7 +291,7 @@ export function PipQualityReportView({ report }: { report: PipQualityReport }) {
   return (
     <div className="space-y-10">
       {!report.complete && (
-        <p className="text-xs text-ink-muted">
+        <p className="text-meta text-ink-muted">
           This window had more answers than one report reads; the newest are shown.
         </p>
       )}
@@ -365,7 +365,7 @@ export function PipQualityReportView({ report }: { report: PipQualityReport }) {
 
       {overall.reasons.length > 0 && (
         <Section title="Why people rated answers down">
-          <ul className="space-y-1 text-sm text-ink">
+          <ul className="space-y-1 text-body text-ink">
             {overall.reasons.map((row) => (
               <li key={row.reason}>
                 {reasonLabel(row.reason)}: {formatCount(row.count)}
@@ -380,13 +380,13 @@ export function PipQualityReportView({ report }: { report: PipQualityReport }) {
         description="Example answer ids for each low score, rated-down first."
       >
         {lowGroups.length === 0 ? (
-          <p className="text-sm text-ink-muted">No area or tool is low in this window.</p>
+          <p className="text-body text-ink-muted">No area or tool is low in this window.</p>
         ) : (
           <div className="space-y-4">
             {lowGroups.map((group) => (
               <div key={group.name}>
-                <h3 className="text-sm font-medium text-ink">{group.name}</h3>
-                <ul className="mt-1 space-y-1 text-xs text-ink-muted">
+                <h3 className="text-body font-medium text-ink">{group.name}</h3>
+                <ul className="mt-1 space-y-1 text-meta text-ink-muted">
                   {group.figures.examples.map((example) => (
                     <li key={example.turn_id} className="flex flex-wrap gap-x-2">
                       <span>{WHY_LABELS[example.why]}</span>

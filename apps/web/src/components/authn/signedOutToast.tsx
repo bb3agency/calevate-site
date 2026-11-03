@@ -85,7 +85,7 @@ export function SignedOutToast({ realm, realmLabel }: SignedOutToastProps) {
         aria-hidden
         className="mt-0.5 h-4 w-4 shrink-0 text-ink-muted"
       />
-      <div className="min-w-0 flex-1 text-sm">
+      <div className="min-w-0 flex-1 text-body">
         <p className="font-medium text-ink">Your {realmLabel} session ended</p>
         <p className="mt-0.5 text-ink-muted">
           Sessions end after a period of inactivity, or when you sign out

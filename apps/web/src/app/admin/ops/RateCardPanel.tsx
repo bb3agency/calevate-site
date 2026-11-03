@@ -220,20 +220,20 @@ function RateCardTable({ card }: { card: RateCard }) {
                   volume. */}
               <th className="py-2 pr-4 text-right font-semibold">
                 Next min costs
-                <span className="block text-xs font-normal normal-case tracking-normal">
+                <span className="block text-meta font-normal normal-case tracking-normal">
                   at the margin
                 </span>
               </th>
               <th className="py-2 pr-4 text-right font-semibold">
                 Cost at {formatWholeCount(volume.measured_call_minutes)} min/mo
-                <span className="block text-xs font-normal normal-case tracking-normal">
+                <span className="block text-meta font-normal normal-case tracking-normal">
                   this month, measured
                 </span>
               </th>
               <th className="py-2 pr-4 text-right font-semibold">Margin</th>
               <th className="py-2 pr-4 text-right font-semibold">
                 Break-even
-                <span className="block text-xs font-normal normal-case tracking-normal">
+                <span className="block text-meta font-normal normal-case tracking-normal">
                   platform min/mo
                 </span>
               </th>
@@ -285,7 +285,7 @@ function RateCardTable({ card }: { card: RateCard }) {
                       cell.gross_margin_pct_at_volume !== cell.gross_margin_pct && (
                         <span
                           className={
-                            "block text-xs " +
+                            "block text-meta " +
                             (cell.below_floor_at_volume
                               ? "font-semibold text-danger"
                               : "text-ink-faint")
@@ -630,8 +630,8 @@ function CellBadge({ cell, targetPct }: { cell: RateCardCell; targetPct: string 
     <span
       className={
         verdict.tone === "thin"
-          ? "inline-flex items-center gap-1 text-xs font-medium text-warn"
-          : "inline-flex items-center gap-1 text-xs font-medium text-ink-faint"
+          ? "inline-flex items-center gap-1 text-meta font-medium text-warn"
+          : "inline-flex items-center gap-1 text-meta font-medium text-ink-faint"
       }
       title={verdict.sentence}
     >

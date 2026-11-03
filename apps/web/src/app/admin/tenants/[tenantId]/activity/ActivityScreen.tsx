@@ -84,7 +84,7 @@ const COLUMNS: DataColumn<ActivityEntry>[] = [
         <div className="flex flex-wrap items-center gap-2">
           {/* Printed as itself: the vocabulary is open, and a translation table would drop
               or mislabel the names it did not know. */}
-          <span className="break-all font-mono text-xs text-ink">{entry.action}</span>
+          <span className="break-all font-mono text-meta text-ink">{entry.action}</span>
           {entry.via_grant_id && <ViewAsMark />}
         </div>
         <p className="mt-1 text-meta text-ink-muted sm:hidden">

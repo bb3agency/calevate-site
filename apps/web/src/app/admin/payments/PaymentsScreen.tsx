@@ -126,7 +126,7 @@ export function PaymentsScreen() {
               <summary className={`${TEXT_ACTION} cursor-pointer list-none`}>
                 Events to tick in the Razorpay dashboard
               </summary>
-              <p className="mt-2 font-mono text-xs text-ink-muted">{status.data.subscribed_events.join(", ")}</p>
+              <p className="mt-2 font-mono text-meta text-ink-muted">{status.data.subscribed_events.join(", ")}</p>
             </details>
           </div>
         ) : (

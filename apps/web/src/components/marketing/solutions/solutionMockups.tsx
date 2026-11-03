@@ -232,7 +232,7 @@ export function QualificationMock() {
           <span
             key={row.name}
             className={`mk-rise mk-s${i + 1} flex items-center gap-3 border-b border-line px-4 py-2.5 text-[12px] last:border-b-0 ${
-              i === 0 ? "bg-amber-50/70 dark:bg-amber-950/40" : ""
+              i === 0 ? "bg-warn-soft dark:bg-chart-warn/10" : ""
             }`}
           >
             <span className="flex min-w-0 flex-1 items-center gap-2 sm:w-36 sm:flex-none">
@@ -261,14 +261,14 @@ export function QualificationMock() {
                 <span className="text-ink-muted">{label}</span>
                 <span className="font-semibold text-ink tabular-nums">{n}</span>
               </span>
-              <span className="block h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-white/[0.06]">
+              <span className="block h-2 overflow-hidden rounded-full bg-surface-muted">
                 <span className={`block h-full rounded-full bg-brand ${w}`} />
               </span>
             </span>
           ))}
         </Panel>
-        <Panel elevation="overlay" className="mk-rise mk-s4 flex items-center gap-3 border-amber-200 p-3">
-          <span className="h-2 w-2 shrink-0 rounded-full bg-amber-500" />
+        <Panel elevation="overlay" className="mk-rise mk-s4 flex items-center gap-3 border-chart-warn p-3">
+          <span className="h-2 w-2 shrink-0 rounded-full bg-chart-warn" />
           <span className="flex min-w-0 flex-1 flex-col">
             <span className="text-[12px] font-semibold text-ink">Hot lead · Kiran Reddy</span>
             <span className="truncate text-[11px] text-ink-muted">Wants to buy this month, site visit Saturday</span>
@@ -339,7 +339,7 @@ export function AppointmentsMock() {
             <span
               className={`flex min-w-0 flex-1 items-center gap-2 rounded-lg px-3 py-2 text-[12px] ${
                 kind === "busy"
-                  ? "bg-slate-100 dark:bg-white/[0.06] text-ink-muted"
+                  ? "bg-surface-muted text-ink-muted"
                   : kind === "new"
                     ? "border border-brand/40 bg-brand-soft/60 dark:bg-brand-strong/20 font-semibold text-ink shadow-card"
                     : "border border-dashed border-line text-ink-muted"

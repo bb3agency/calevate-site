@@ -174,7 +174,7 @@ export function SetPasswordForm<T>({
           feedback.run();
         }}
       >
-        <div className="space-y-2 text-sm text-ink-muted">{typeof intro === "function" ? intro(token) : intro}</div>
+        <div className="space-y-2 text-body text-ink-muted">{typeof intro === "function" ? intro(token) : intro}</div>
 
         {askForName && (
           <AuthField
@@ -233,7 +233,7 @@ export function SetPasswordForm<T>({
           {submitLabel}
         </ActionButton>
 
-        <p className="text-xs text-ink-faint">
+        <p className="text-meta text-ink-faint">
           The link works once. If this fails, ask for a new one rather than reloading the
           page.
         </p>
@@ -246,7 +246,7 @@ export function SetPasswordForm<T>({
 export function MissingLinkCode({ what, remedy }: { what: string; remedy: ReactNode }) {
   return (
     <div>
-      <div className="space-y-3 text-sm text-ink-muted">
+      <div className="space-y-3 text-body text-ink-muted">
         {/* Not "this link is invalid": nothing has been checked. The likeliest cause is a
             chat app or mail client wrapping a long URL across two lines, so the remedy is
             about the LINK and is one the reader can act on without involving anybody. */}
