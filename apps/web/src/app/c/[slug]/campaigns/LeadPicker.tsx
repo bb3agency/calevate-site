@@ -99,10 +99,10 @@ export function LeadPicker({ f }: { f: LeadsLensState }) {
       <HowItWorks
         className="mt-1"
         items={[
-          "These are the filters from your Leads page, and your saved views work here too.",
-          "We read each number from the lead itself; numbers already on the campaign or outside India are left out.",
-          "If the leads change before you add them, nothing is added and you are asked to check again.",
-          "A large set is added in the background; you can follow it on the card that appears.",
+          "Same filters and saved views as your Leads page.",
+          "Numbers already on the campaign or outside India are left out.",
+          "If the leads change first, nothing is added. Check again.",
+          "A large set is added in the background. Follow it on its card.",
         ]}
       />
     </div>

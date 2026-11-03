@@ -52,17 +52,15 @@ export function MetaSetupDetails({ setup }: { setup: MetaSetup }) {
       ) : (
         <div className={`${NOTICE_BASE} ${NOTICE_BAR.warn}`}>
           <p className="font-medium">
-            Read this first: lead answers are not collected yet.
+            Lead answers are not collected yet.
           </p>
           <p className="mt-1 flex items-center gap-1">
             <span>Talk to us before running ads. Nothing is lost.</span>
             <InfoTip label="why answers are not collected">
               <p>
-                We verify and record each notification Meta sends, so every delivery shows
-                below. Reading what the person typed needs a Meta Page access token for this
-                source, and we do not hold one yet. Each delivery is kept against its Meta
-                lead ID and is claimed once the token is in place. We attach it for you; it
-                takes minutes.
+                Every delivery is verified and kept below. Reading the answers needs this
+                Page&apos;s access token, which we attach for you in minutes. Kept deliveries
+                are read once it is in place.
               </p>
             </InfoTip>
           </p>

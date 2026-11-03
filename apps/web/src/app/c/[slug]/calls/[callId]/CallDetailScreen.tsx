@@ -374,7 +374,7 @@ export function CallDetailScreen({
         }
       />
 
-      <DisclosureNotice played={detail.disclosure_played} />
+      <DisclosureNotice played={detail.disclosure_played} callId={detail.id} />
 
       {/* Two columns from `lg`: the conversation is long-form reading and takes the
           width; captured details, key moments and the second reading sit beside it. In

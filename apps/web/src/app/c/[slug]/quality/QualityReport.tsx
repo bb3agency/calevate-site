@@ -181,18 +181,16 @@ export function QualityReport({ report }: { report: QaReport }) {
         >
           <ul className="mb-3 list-disc space-y-2 pl-5 text-body text-ink-muted">
             <li>
-              <strong>It is not a measure of your live calls.</strong> It is a fixed set of
-              scenarios, replayed. Your dashboard tells you how many callers booked this month.
+              <strong>Not your live calls.</strong> A fixed set of scenarios, replayed. Your
+              dashboard shows real bookings.
             </li>
             <li>
-              <strong>It contains nothing from a real call.</strong> No caller name, no number,
-              no sentence anyone said. The scenarios are written by us and the callers in them
+              <strong>Nothing from a real call.</strong> We write the scenarios; the callers
               are invented.
             </li>
             <li>
-              <strong>It is not a trend yet.</strong> This is a point measurement. Once there
-              are two reports there will be a comparison, and until then we are not going to
-              draw one from a single month.
+              <strong>Not a trend yet.</strong> A comparison appears once there are two
+              reports.
             </li>
           </ul>
         </Disclosure>

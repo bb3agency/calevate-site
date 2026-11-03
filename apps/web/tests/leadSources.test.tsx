@@ -544,7 +544,7 @@ describe("what the screen claims about a connection", () => {
     // this has to read it first, not discover it from a column of rejections.
     await showSetup();
 
-    await screen.findByText(/lead answers are not collected yet/);
+    await screen.findByText(/Lead answers are not collected yet/);
     expect(document.body.textContent).toContain("meta_access_token_missing");
     expect(document.body.textContent).not.toContain(
       "Lead answers will be collected.",

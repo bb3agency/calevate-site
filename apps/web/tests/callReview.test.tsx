@@ -405,7 +405,7 @@ describe("the rest of the screen", () => {
     await renderClientPage(page, routes(detail()));
     expect((await screen.findByText("Quantity")).closest("div")?.textContent).toContain("2 kg");
     expect(screen.queryByText("Not said")).toBeNull();
-    expect(screen.getByText("Not mentioned: Preferred time")).toBeTruthy();
+    expect(screen.getByRole("list", { name: "Not mentioned" }).textContent).toContain("Preferred time");
   });
 
   it("gives the caller's own words for a choice none of the choices fitted (D-889)", async () => {
@@ -431,7 +431,7 @@ describe("the rest of the screen", () => {
     const row = (await screen.findByText("BHK")).closest("div");
     expect(row?.textContent).toContain("“6 BHK”");
     expect(row?.textContent).toContain("Not one of the choices");
-    expect(screen.queryByText(/Not mentioned: .*BHK/)).toBeNull();
+    expect(screen.queryByRole("list", { name: "Not mentioned" })?.textContent ?? "").not.toContain("BHK");
   });
 
   it("says so in one sentence when the caller gave no details", async () => {

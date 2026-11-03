@@ -9,7 +9,7 @@ import { UNLISTED_NOTE, capturedValue, unlistedWords } from "@/lib/leadLabels";
  *
  * Only the details the caller actually said are rows (founder, 11 Oct 2026): a column of
  * "Not said" read as a form the caller refused to fill. The fields nobody mentioned fold
- * into one quiet line, so the owner still sees what the agent was listening for. A value
+ * into one quiet row of chips, so the owner still sees what the agent was listening for. A value
  * flagged for checking carries the server's note, which names the field and never repeats
  * the value.
  */
@@ -62,12 +62,17 @@ export function CapturedDetails({ detail }: { detail: CallDetail }) {
         </dl>
       )}
       {given.length > 0 && unmentioned.length > 0 && (
-        <p className="mt-3 text-meta text-ink-faint [text-wrap:pretty]">
-          Not mentioned: {unmentioned.map((field) => field.label).join(", ")}
-        </p>
+        <ul aria-label="Not mentioned" className="mt-3 flex flex-wrap items-center gap-1.5 text-meta">
+          <li className="text-ink-faint">Not mentioned:</li>
+          {unmentioned.map((field) => (
+            <li key={field.key} className="rounded-md bg-surface-muted px-2 py-0.5 text-ink-muted">
+              {field.label}
+            </li>
+          ))}
+        </ul>
       )}
       {!detail.extraction_valid && (
-        <p className="mt-3 text-meta text-warn">Some details could not be captured cleanly from this call.</p>
+        <p className="mt-3 text-meta text-warn">Some details came through unclear.</p>
       )}
     </Section>
   );

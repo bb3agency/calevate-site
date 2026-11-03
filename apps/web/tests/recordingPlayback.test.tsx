@@ -355,7 +355,7 @@ describe("the recording player", () => {
     // in words instead of watching a control that never starts.
     expect(minted()).toBe(2);
     expect(screen.getByRole("alert").textContent).toMatch(
-      /could not be reloaded/i,
+      /Playback stopped/i,
     );
   });
 
@@ -382,7 +382,7 @@ describe("the recording player", () => {
     }
 
     expect(minted()).toBe(2);
-    expect(screen.getByRole("alert").textContent).toMatch(/could not be reloaded/i);
+    expect(screen.getByRole("alert").textContent).toMatch(/Playback stopped/i);
   });
 });
 

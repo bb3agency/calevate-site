@@ -131,8 +131,8 @@ export function ArmingForms({
         <p className={FIELD_HINT}>
           A missed run is skipped, never called late.{" "}
           <Why inline>
-            A run can be missed by a fault on our side, or because the last run is still going.
-            We wait for the next one rather than call people at a different time of day.
+            A fault on our side, or the last run still going. We wait for the next run rather
+            than call at an odd hour.
           </Why>
         </p>
       </form>

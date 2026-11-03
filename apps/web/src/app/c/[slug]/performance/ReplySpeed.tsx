@@ -76,9 +76,8 @@ export function ReplySpeed({ session }: { session: Session }) {
       title="How fast your agent answered"
       info={
         <p>
-          The time from your caller finishing to the first word of the answer. The usual
-          wait is a typical call; the slow wait is the one call in ten that took longest,
-          shown once enough calls were timed. Your own test calls are left out.
+          From the caller stopping to the agent&apos;s first word. Usual: a typical call.
+          Slow: the slowest call in ten, once enough are timed. Test calls left out.
         </p>
       }
     >

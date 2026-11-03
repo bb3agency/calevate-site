@@ -5,6 +5,7 @@ import { ListPlus, UserPlus } from "lucide-react";
 
 import { Section, TEXT_ACTION } from "@/components/console/section";
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { StatusPill } from "@/components/console/statusPill";
 import { ProblemNotice, SECONDARY_BUTTON_SM, formatCount } from "@/components/ui";
 import { PlanCard } from "@/components/copilot/PlanCard";
 import { useAddContacts, useAddLeadsToCampaign } from "@/lib/api/campaigns";
@@ -147,12 +148,28 @@ function AddPeoplePanel({
         )}
       </div>
       {result && (
-        <p role="status" className="text-meta text-ink-muted">
-          Added {formatCount(result.added)}.
-          {result.duplicate > 0 && ` ${formatCount(result.duplicate)} already on the list.`}
-          {result.malformed > 0 && ` ${formatCount(result.malformed)} unreadable, skipped.`}
-          {(result.foreign ?? 0) > 0 && ` ${formatCount(result.foreign ?? 0)} outside India, skipped.`}
-        </p>
+        <div role="status">
+          <ul aria-label="What was added" className="flex flex-wrap gap-x-4 gap-y-1">
+            <li>
+              <StatusPill tone="ok">{`${formatCount(result.added)} added`}</StatusPill>
+            </li>
+            {result.duplicate > 0 && (
+              <li>
+                <StatusPill>{`${formatCount(result.duplicate)} already on the list`}</StatusPill>
+              </li>
+            )}
+            {result.malformed > 0 && (
+              <li>
+                <StatusPill tone="warn">{`${formatCount(result.malformed)} unreadable, skipped`}</StatusPill>
+              </li>
+            )}
+            {(result.foreign ?? 0) > 0 && (
+              <li>
+                <StatusPill tone="warn">{`${formatCount(result.foreign ?? 0)} outside India, skipped`}</StatusPill>
+              </li>
+            )}
+          </ul>
+        </div>
       )}
     </div>
   );
