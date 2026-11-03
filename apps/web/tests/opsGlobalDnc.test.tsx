@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import GlobalDncPage from "@/app/admin/ops/dnc/page";
 import {
+  OPS_DNC_GLOBAL_FIND_PATH,
   OPS_DNC_GLOBAL_PATH,
   RELEASE_GLOBALLY_CONFIRMATION,
   SUPPRESS_GLOBALLY_CONFIRMATION,
@@ -410,6 +411,42 @@ describe("the platform-wide do-not-call list", () => {
     });
     expect(container.textContent).toContain("this does not mean the number may be called");
     expect(container.textContent).not.toContain("No suppressed number matches that.");
+  });
+
+  it("asks the server past the clamp, with the number in a POST body", async () => {
+    const full = Array.from({ length: 500 }, (_, index) =>
+      entry({
+        id: `0192f0aa-7777-7000-8000-${String(index).padStart(12, "0")}`,
+        phone_e164: `+9198000${String(index).padStart(5, "0")}`,
+      }),
+    );
+    let found = true;
+    const { container, calls } = renderAdminPage(
+      <GlobalDncPage />,
+      routes({
+        [LIST_PATH]: full,
+        [`POST ${OPS_DNC_GLOBAL_FIND_PATH}`]: () =>
+          found
+            ? { valid: true, entry: entry({ phone_e164: "+919812349999", added_at: "2025-01-02T09:00:00Z" }) }
+            : { valid: true, entry: null },
+      }),
+    );
+    const search = await screen.findByRole("searchbox", { name: "Find a number" });
+
+    fireEvent.change(search, { target: { value: "9812349999" } });
+    fireEvent.click(await screen.findByRole("button", { name: "Search every suppression" }));
+    await waitFor(() => expect(container.textContent).toContain("Suppressed for every client since"));
+    const asked = calls.filter((call) => call.path === OPS_DNC_GLOBAL_FIND_PATH);
+    expect(asked).toHaveLength(1);
+    expect(asked[0]?.method).toBe("POST");
+    expect(JSON.parse(asked[0]?.body ?? "{}")).toEqual({ phone: "9812349999" });
+
+    // A new number clears the last answer rather than leaving it under the wrong number.
+    found = false;
+    fireEvent.change(search, { target: { value: "9812340000" } });
+    await waitFor(() => expect(container.textContent).not.toContain("Suppressed for every client since"));
+    fireEvent.click(await screen.findByRole("button", { name: "Search every suppression" }));
+    await waitFor(() => expect(container.textContent).toContain("Not on the platform-wide list."));
   });
 
   it("disables both directions for an admin without ops:manage, with the reason", async () => {

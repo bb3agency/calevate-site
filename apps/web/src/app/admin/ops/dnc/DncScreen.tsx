@@ -19,6 +19,7 @@ import {
   PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
+  SECONDARY_BUTTON,
   Skeleton,
   formatCount,
   formatIST,
@@ -26,6 +27,7 @@ import {
 } from "@/components/ui";
 import { DNC_LIST_LIMIT } from "@/lib/api/dnc";
 import {
+  useFindGlobally,
   useGlobalDncList,
   useReleaseGlobally,
   useSuppressGlobally,
@@ -79,6 +81,12 @@ export function DncScreen() {
   // The last release, acknowledged on the page: its row has left the list.
   const [released, setReleased] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  // Past the list's ceiling a miss in the filter below is no answer, so the server is asked.
+  const lookup = useFindGlobally();
+  const changeQuery = (next: string) => {
+    setQuery(next);
+    lookup.reset();
+  };
 
   // `entries.data`, never `?? []`: "the server said none" and "the server did not answer"
   // are opposite facts about our compliance posture.
@@ -239,7 +247,7 @@ export function DncScreen() {
                 inputMode="tel"
                 autoComplete="off"
                 value={query}
-                onValueChange={setQuery}
+                onValueChange={changeQuery}
                 placeholder="Find a number"
                 className="max-w-xs"
               />
@@ -256,11 +264,32 @@ export function DncScreen() {
                     : "No suppressed number matches that."
                 }
                 hint={
-                  truncated
-                    ? "Older suppressions are not searched here, so this does not mean the number may be called."
-                    : undefined
+                  !truncated
+                    ? undefined
+                    : lookup.data === undefined
+                      ? "Older suppressions are not searched here, so this does not mean the number may be called."
+                      : lookup.data.entry
+                        ? `Suppressed for every client since ${formatIST(lookup.data.entry.added_at)}.`
+                        : lookup.data.valid
+                          ? "Not on the platform-wide list."
+                          : "That does not read as a phone number."
                 }
-                onClear={() => setQuery("")}
+                action={
+                  truncated && lookup.data === undefined ? (
+                    <div className="flex flex-col items-center gap-3">
+                      {lookup.error ? <ProblemNotice error={lookup.error} /> : null}
+                      <button
+                        type="button"
+                        className={SECONDARY_BUTTON}
+                        disabled={lookup.isPending}
+                        onClick={() => lookup.mutate(query)}
+                      >
+                        {lookup.isPending ? "Searching…" : "Search every suppression"}
+                      </button>
+                    </div>
+                  ) : undefined
+                }
+                onClear={() => changeQuery("")}
                 clearLabel="Clear search"
               />
             ) : (
