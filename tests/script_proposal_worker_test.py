@@ -124,3 +124,45 @@ async def test_an_opening_suggestion_is_written_to_follow_the_introduction(
     assert stored.script.model_copy(update={"opening_line": ""}) == (
         stored.base_script.model_copy(update={"opening_line": ""})
     )
+
+
+async def test_a_failed_opening_repair_still_stores_and_charges_the_draft(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FAILS IF: an error in the optional opening repair after the draft was paid for leaves
+    the request `drafting` and the draft's spend with no meter row (hard rule 7)."""
+    tenant_id, agent_id, proposal_id = await _requested()
+    metered: list[str] = []
+
+    async def drafted(*_args: Any) -> Any:
+        return SimpleNamespace(
+            script=CallScript(opening_line="Namaste!"),
+            earlier=(),
+            model="gemini-2.5-flash-lite",
+            capability=SimpleNamespace(disclosure=None),
+        )
+
+    async def broken(*_args: Any) -> Any:
+        raise RuntimeError("opening repair failed")
+
+    async def meter_earlier(_session: Any, **_kwargs: Any) -> None:
+        metered.append("earlier")
+
+    async def meter_assist(_session: Any, **_kwargs: Any) -> None:
+        metered.append("assist")
+
+    monkeypatch.setattr(worker, "_draft", drafted)
+    monkeypatch.setattr(worker, "_opening_repaired", broken)
+    monkeypatch.setattr(worker.crm_assist, "meter_earlier", meter_earlier)
+    monkeypatch.setattr(worker.crm_assist, "meter_assist", meter_assist)
+    payload = {
+        "tenant_id": str(tenant_id),
+        "agent_id": str(agent_id),
+        "proposal_id": str(proposal_id),
+    }
+    assert await worker.draft_script_proposal({}, payload) == "ready"
+    assert metered == ["earlier", "assist"]
+    async with tenant_session(tenant_id) as session:
+        stored = await script_proposals.read_proposal(session, agent_id)
+    assert stored is not None and stored.status == "ready"
+    assert stored.script is not None and stored.script.opening_line == "Namaste!"
