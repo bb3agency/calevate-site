@@ -97,6 +97,7 @@ from apps.api.retrieval.caller_projections import (
     content_digest,
     register_projection,
 )
+from apps.api.tenancy.core_labels import core_labels
 
 #: How many leads one discovery pass may look at before it filters. Deliberately larger
 #: than the sweep's own `limit`: most candidates in a busy account are unchanged-but-touched
@@ -159,7 +160,7 @@ async def _fields_for(
     session: AsyncSession, agent_id: UUID, version: int | None
 ) -> list[ExtractionField]:
     row = (await session.execute(text(_SCHEMA_SQL), {"aid": agent_id, "ver": version})).first()
-    return with_core(row[0] if row is not None else None)
+    return with_core(row[0] if row is not None else None, await core_labels(session))
 
 
 async def _project(

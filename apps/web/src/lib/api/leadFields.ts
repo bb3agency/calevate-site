@@ -131,6 +131,31 @@ export function useSaveAgentLeadFields(
   });
 }
 
+/** The client's names for the core details, by key; a blank name is the platform's again. */
+export type CoreLabelsIn = Schemas["CoreLabelsIn"];
+
+/** Every screen that prints a core detail's name: the lists, a lead, a call, the new-agent
+ *  preview. A rename names no lead, so each family is refreshed by its prefix. */
+function refreshCoreNames(client: ReturnType<typeof useQueryClient>, org: string): Promise<unknown> {
+  return Promise.all(
+    [["leads", org], ["lead", org], ["lead-captured", org], ["calls", org], ["calls-log", org], ["call", org], ["agent-starters", org]].map(
+      (queryKey) => client.invalidateQueries({ queryKey }),
+    ),
+  );
+}
+
+export function useNameCoreDetails(session: Session): UseMutationResult<LeadFields, Error, CoreLabelsIn> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body) =>
+      apiRequest<LeadFields>(session, "/v1/lead-fields/core-labels", { method: "PUT", body }),
+    onSuccess: (data) => {
+      client.setQueryData(leadFieldsKeys.client(session.orgSlug), data);
+      return refreshCoreNames(client, session.orgSlug);
+    },
+  });
+}
+
 /** A lead's captured details, each under the name it was captured with. */
 export function useLeadCaptured(
   session: Session,
@@ -183,6 +208,20 @@ export function useAdminReplaceLeadFields(
         body,
       }),
     onSuccess: () => client.invalidateQueries({ queryKey: leadFieldsKeys.admin(tenantId) }),
+  });
+}
+
+export function useAdminNameCoreDetails(
+  tenantId: string,
+): UseMutationResult<LeadFields, Error, CoreLabelsIn> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body) =>
+      apiRequest<LeadFields>(adminSession(), `${adminPath(tenantId)}/core-labels`, {
+        method: "PUT",
+        body,
+      }),
+    onSuccess: (data) => client.setQueryData(leadFieldsKeys.admin(tenantId), data),
   });
 }
 

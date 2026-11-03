@@ -147,6 +147,7 @@ from apps.workers.copilot_transcript import (
     TRANSCRIPT_SWEEP_MINUTE,
     sweep_ended_conversations,
 )
+from apps.workers.core_labels import name_core_details
 from apps.workers.credit_expiry import expire_credit_lots, notify_credit_lapsing
 from apps.workers.dial_recall import recall_queued_dials
 from apps.workers.dispatcher import (
@@ -416,6 +417,7 @@ FUNCTIONS: list[Any] = [
         # A custom business's one AI draft of its lead fields (founder decision 15), from
         # the outbox (`agents/lead_fields.request_draft`).
         draft_lead_fields,
+        name_core_details,
         # An account brought to its business type: lead details, scripts, and the AI's
         # suggestion where nobody chose a type (D-722), from the outbox
         # (`admin/business_type.queue_apply`, migration d7a3c91e5b20).

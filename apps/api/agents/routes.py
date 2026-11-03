@@ -100,6 +100,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
 from apps.api.db.session import tenant_session
 from apps.api.engine import engine_capabilities
+from apps.api.tenancy.core_labels import core_labels
 
 #: The four outcome tags, zero-filled into every `AgentStatsOut.outcomes` so a screen never
 #: has to guard a missing key. Derived from the contract's Literal, never retyped (D-104):
@@ -223,7 +224,8 @@ async def list_starters(
     business = await starting_business_fields(
         session, tenant_id=principal.tenant_id, vertical=None if org[1] is None else str(org[1])
     )
-    labels = [field.label for field in with_core(business)]
+    named = await core_labels(session, tenant_id=principal.tenant_id)
+    labels = [field.label for field in with_core(business, named)]
     own_details = await has_business_fields(
         session, tenant_id=principal.tenant_id, vertical=None if org[1] is None else str(org[1])
     )

@@ -127,18 +127,64 @@ def business_only(
     return [f for f in (_as_field(raw) for raw in fields or ()) if f.key not in CORE_KEYS]
 
 
+#: The longest name a client may give a core detail: a column header, not a sentence.
+CORE_LABEL_MAX_CHARS: Final = 40
+
+
+def clean_core_labels(labels: Mapping[str, Any] | None) -> dict[str, str]:
+    """A client's own names for the core details, keyed by core key, as stored and served.
+
+    Only the shown name is the client's: the key and the reason the extraction model reads
+    stay the platform's, so the caller notice, the one phone-holding field and every reader
+    keep one meaning. Unknown keys, blanks and a name equal to the default are dropped (no
+    override), each name is trimmed and cut to `CORE_LABEL_MAX_CHARS`, and a name another
+    detail already uses keeps the default, so two columns never read the same."""
+    defaults = {f.key: f.label for f in CORE_LEAD_FIELDS}
+    taken = {label.casefold() for label in defaults.values()}
+    out: dict[str, str] = {}
+    for key, raw in (labels or {}).items():
+        if key not in defaults or not isinstance(raw, str):
+            continue
+        label = " ".join(raw.split())[:CORE_LABEL_MAX_CHARS].strip()
+        if not label or label == defaults[key]:
+            continue
+        folded = label.casefold()
+        if folded in taken and folded != defaults[key].casefold():
+            continue
+        taken.add(folded)
+        out[key] = label
+    return out
+
+
+def core_fields(labels: Mapping[str, str] | None = None) -> list[ExtractionField]:
+    """The core as a client sees it: each detail under the client's own name when they have
+    one (`clean_core_labels`), its key and reason unchanged."""
+    named = clean_core_labels(labels)
+    return [
+        f.model_copy(update={"label": named[f.key]}) if f.key in named else f
+        for f in CORE_LEAD_FIELDS
+    ]
+
+
 def with_core(
     fields: Iterable[ExtractionField | Mapping[str, Any]] | None,
+    labels: Mapping[str, str] | None = None,
 ) -> list[ExtractionField]:
-    """The core, then the business fields: what an extraction captures and a lead shows."""
-    return [*CORE_LEAD_FIELDS, *business_only(fields)]
+    """The core, then the business fields: what an extraction captures and a lead shows.
+
+    `labels` is the client's names for the core (`core_fields`), for what a person reads;
+    an extraction spec is built without them, so the model always reads the platform's."""
+    return [*core_fields(labels), *business_only(fields)]
 
 
 __all__ = [
     "CORE_KEYS",
+    "CORE_LABEL_MAX_CHARS",
     "CORE_LEAD_FIELDS",
     "NEED_KEY",
     "OUTPUT_KEYS",
     "business_only",
+    "clean_core_labels",
+    "core_fields",
     "with_core",
 ]

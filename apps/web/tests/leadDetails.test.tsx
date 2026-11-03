@@ -42,6 +42,7 @@ function leadFields(over: Partial<LeadFields> = {}): LeadFields {
     business_type: "custom",
     business_type_label: "Something else",
     core_fields: [field("name", "Name"), field("need", "What they want")],
+    core_default_labels: { name: "Name", need: "What they want" },
     need_key: "need",
     standard_fields: [],
     has_standard_set: false,
@@ -291,6 +292,41 @@ describe("the lead details screen", () => {
       const put = calls.find((c) => c.method === "PUT");
       expect(JSON.parse(put?.body ?? "{}").expected_version).toBe(1);
     });
+  });
+});
+
+describe("the core in the business's own words", () => {
+  it("renames a core detail and sends the usual name back as blank", async () => {
+    const { calls } = await renderClientPage(<LeadDetailsScreen />, {
+      "/v1/me": OWNER,
+      "/v1/call-outcomes": callOutcomes(),
+      "/v1/lead-fields": leadFields(),
+      "PUT /v1/lead-fields/core-labels": leadFields({
+        core_fields: [field("name", "Name"), field("need", "Crop issue")],
+      }),
+    });
+    fireEvent.click(await screen.findByRole("button", { name: /Rename/ }));
+    fireEvent.change(screen.getByRole("textbox", { name: /What they want, or why they called/ }), {
+      target: { value: "Crop issue" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save names" }));
+    await waitFor(() => {
+      const put = calls.find((c) => c.method === "PUT");
+      expect(put?.path).toBe("/v1/lead-fields/core-labels");
+      expect(JSON.parse(put?.body ?? "{}")).toEqual({ labels: { name: "", need: "Crop issue" } });
+    });
+    expect(await screen.findByText("Crop issue")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Save names" })).toBeNull();
+  });
+
+  it("offers no rename to someone who may not change the details", async () => {
+    await renderClientPage(<LeadDetailsScreen />, {
+      "/v1/me": { ...OWNER, permissions: ["org:read", "agents:read"] },
+      "/v1/call-outcomes": callOutcomes(),
+      "/v1/lead-fields": leadFields(),
+    });
+    await screen.findByRole("heading", { name: "Always captured" });
+    expect(screen.queryByRole("button", { name: /Rename/ })).toBeNull();
   });
 });
 

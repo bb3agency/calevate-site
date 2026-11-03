@@ -18747,6 +18747,35 @@
         "title": "CopilotVoteOut",
         "type": "object"
       },
+      "CoreLabelsIn": {
+        "additionalProperties": false,
+        "description": "The client's names for the core details, every one at once. A blank or omitted\ndetail shows the platform's name.",
+        "properties": {
+          "labels": {
+            "additionalProperties": {
+              "maxLength": 40,
+              "type": "string"
+            },
+            "propertyNames": {
+              "enum": [
+                "name",
+                "need",
+                "preferred_time",
+                "other_number",
+                "language",
+                "notes"
+              ]
+            },
+            "title": "Labels",
+            "type": "object"
+          }
+        },
+        "required": [
+          "labels"
+        ],
+        "title": "CoreLabelsIn",
+        "type": "object"
+      },
       "CostAttestIn": {
         "additionalProperties": false,
         "properties": {
@@ -32652,6 +32681,13 @@
             "title": "Can Draft",
             "type": "boolean"
           },
+          "core_default_labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Core Default Labels",
+            "type": "object"
+          },
           "core_fields": {
             "items": {
               "$ref": "#/components/schemas/ExtractionField"
@@ -32689,6 +32725,7 @@
           "business_type",
           "business_type_label",
           "core_fields",
+          "core_default_labels",
           "need_key",
           "standard_fields",
           "has_standard_set",
@@ -72591,6 +72628,57 @@
         "x-calevate-permission": "org:read"
       }
     },
+    "/v1/admin/tenants/{tenant_id}/lead-fields/core-labels": {
+      "put": {
+        "description": "Only the name shown on this client's screens, lists and exports changes; what each detail holds, and the instruction the call reader follows, stay the platform's. A blank name shows the platform's again. Two details may not share a name.",
+        "operationId": "admin_put_core_labels_v1_admin_tenants__tenant_id__lead_fields_core_labels_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CoreLabelsIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeadFieldsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Name one client's core lead details in its own words",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
     "/v1/admin/tenants/{tenant_id}/lead-fields/draft": {
       "post": {
         "operationId": "admin_post_draft_v1_admin_tenants__tenant_id__lead_fields_draft_post",
@@ -91591,6 +91679,45 @@
           "agents"
         ],
         "x-calevate-permission": "org:read"
+      }
+    },
+    "/v1/lead-fields/core-labels": {
+      "put": {
+        "description": "Only the name shown on this client's screens, lists and exports changes; what each detail holds, and the instruction the call reader follows, stay the platform's. A blank name shows the platform's again. Two details may not share a name.",
+        "operationId": "put_core_labels_v1_lead_fields_core_labels_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CoreLabelsIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeadFieldsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Name the details every lead carries in this business's own words",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
       }
     },
     "/v1/lead-fields/draft/review": {

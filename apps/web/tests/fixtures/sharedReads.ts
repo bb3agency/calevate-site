@@ -762,6 +762,7 @@ export const LEAD_FIELDS_CORE_ONLY = {
   business_type_label: "Your business",
   can_draft: false,
   core_fields: [],
+  core_default_labels: {},
   draft: null,
   has_standard_set: false,
   need_key: "need",

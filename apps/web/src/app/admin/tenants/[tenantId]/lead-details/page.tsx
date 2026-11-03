@@ -13,6 +13,7 @@ import { BUSINESS_TYPES, businessTypeLabel, type BusinessType } from "@/lib/busi
 import {
   useAdminDraftLeadFields,
   useAdminLeadFields,
+  useAdminNameCoreDetails,
   useAdminReplaceLeadFields,
   useAdminSaveAgentLeadFields,
   type LeadFields,
@@ -41,6 +42,8 @@ export default function TenantLeadDetailsPage({
   const save = useAdminSaveAgentLeadFields(tenantId);
   const draft = useAdminDraftLeadFields(tenantId);
   const replace = useAdminReplaceLeadFields(tenantId);
+  const nameCore = useAdminNameCoreDetails(tenantId);
+  useActionFeedback(nameCore, { errorDisplay: "inline" });
   // Inline: `LeadDetailsView` draws each write's refusal beside its own button.
   useActionFeedback(save, { errorDisplay: "inline" });
   useActionFeedback(draft, { errorDisplay: "inline" });
@@ -49,6 +52,7 @@ export default function TenantLeadDetailsPage({
     save,
     draft,
     replace,
+    nameCore,
     useSuggestions: (agentId: string) => useAdminLeadSuggestions(tenantId, agentId),
   };
 

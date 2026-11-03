@@ -22,6 +22,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.crm.schemas import CapturedFieldOut
+from apps.api.tenancy.core_labels import core_labels
 
 _VERSIONS_SQL: Final = (
     "SELECT version, fields FROM extraction_schemas WHERE agent_id = :aid "
@@ -70,7 +71,7 @@ async def captured_fields(
     )
     out: list[CapturedFieldOut] = []
     listed: set[str] = set()
-    for field in with_core(capturing):
+    for field in with_core(capturing, await core_labels(session)):
         listed.add(field.key)
         out.append(
             CapturedFieldOut(

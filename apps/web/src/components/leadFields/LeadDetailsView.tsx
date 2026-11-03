@@ -6,7 +6,8 @@
  * Founder decision 15 (10 Oct 2026): every lead carries a fixed core whatever the business,
  * plus details about THIS business — its type's standard set, or for a business that fits
  * no type, a set drafted once from its own business details. The core is shown as
- * always-on and cannot be edited; the business details are the owner's to add, rename,
+ * always-on and never removed, though the client names it in their own words (each
+ * detail's meaning stays the platform's); the business details are the owner's to add, rename,
  * retype, mark required, reorder and remove, per agent.
  *
  * The data and the four writes are passed in, so the client screen and the operator's
@@ -15,7 +16,7 @@
  */
 
 import { useMemo, useState } from "react";
-import { Lock, Plus, Save } from "lucide-react";
+import { Lock, Pencil, Plus, Save } from "lucide-react";
 import type { UseMutationResult } from "@tanstack/react-query";
 
 import { FieldEditorRow } from "@/app/c/[slug]/agents/panels/extractionRow";
@@ -33,6 +34,7 @@ import { Section, TEXT_ACTION } from "@/components/console/section";
 import { SavedTick } from "@/components/console/savedTick";
 import { useFormValidation } from "@/components/formValidation";
 import {
+  FIELD,
   FilterChip,
   PRIMARY_BUTTON,
   ProblemNotice,
@@ -42,6 +44,7 @@ import {
   formatISTStamp,
 } from "@/components/ui";
 import type {
+  CoreLabelsIn,
   DraftRequestOut,
   DraftReviewOut,
   ExtractionSchemaOut,
@@ -79,6 +82,8 @@ export interface LeadDetailsWrites {
   /** The owner's review of a finished draft: keep these keys. Client only. */
   review?: UseMutationResult<DraftReviewOut, Error, string[]>;
   replace: UseMutationResult<ReplaceOut, Error, { agent_ids?: string[] | null }>;
+  /** The client's names for the core details. */
+  nameCore: UseMutationResult<LeadFields, Error, CoreLabelsIn>;
   /** One agent's suggested changes (D-889), read and answered in this realm. A hook. */
   useSuggestions: (agentId: string) => LeadSuggestionsApi;
 }
@@ -107,7 +112,12 @@ export function LeadDetailsView({
       </p>
       {writeReason && <RestrictionNote reason={writeReason} />}
 
-      <CoreFields fields={data.core_fields} />
+      <CoreFields
+        fields={data.core_fields}
+        defaults={data.core_default_labels}
+        canWrite={canWrite}
+        rename={writes.nameCore}
+      />
 
       <Section
         title={audience === "client" ? "Details about your business" : "Details about this business"}
@@ -119,25 +129,103 @@ export function LeadDetailsView({
   );
 }
 
-function CoreFields({ fields }: { fields: LeadField[] }) {
+/** `CoreLabelsIn.labels`' limit (`lead_fields.CORE_LABEL_MAX_CHARS`). */
+const CORE_LABEL_MAX = 40;
+
+function CoreFields({
+  fields,
+  defaults,
+  canWrite,
+  rename,
+}: {
+  fields: LeadField[];
+  defaults: Record<string, string>;
+  canWrite: boolean;
+  rename: UseMutationResult<LeadFields, Error, CoreLabelsIn>;
+}) {
+  const [names, setNames] = useState<Record<string, string> | null>(null);
+  const editing = names !== null;
+  const start = () => {
+    rename.reset();
+    setNames(Object.fromEntries(fields.map((f) => [f.key, f.label])));
+  };
+  const save = () => {
+    if (!names) return;
+    // A name left as the default, or cleared, is sent blank: the platform's name again.
+    const labels: CoreLabelsIn["labels"] = Object.fromEntries(
+      fields.map((f) => {
+        const typed = (names[f.key] ?? "").trim();
+        return [f.key, typed === defaults[f.key] ? "" : typed];
+      }),
+    );
+    rename.mutate({ labels }, { onSuccess: () => setNames(null) });
+  };
   return (
     <Section
       title="Always captured"
-      description="On every call, with their number. Can't be changed."
+      description="On every call. Name them in your own words."
+      action={
+        canWrite && !editing ? (
+          <button type="button" className={TEXT_ACTION} onClick={start}>
+            <Pencil aria-hidden className="h-3.5 w-3.5" />
+            Rename
+          </button>
+        ) : undefined
+      }
     >
-      <ul className="grid grid-cols-2 gap-x-4 gap-y-3 sm:gap-x-8">
-        {fields.map((field) => (
-          <li key={field.key} className="flex min-w-0 items-start gap-2">
-            <Lock aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-faint" />
-            <span className="min-w-0">
-              <span className="block text-sm font-medium text-ink">{field.label}</span>
-              <span className="block text-xs text-ink-muted">
-                {lookup(CORE_MEANING, field.key) ?? field.label}
+      {editing ? (
+        <form
+          noValidate
+          className="space-y-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            save();
+          }}
+        >
+          <ul className="grid grid-cols-1 gap-x-8 gap-y-3 sm:grid-cols-2">
+            {fields.map((field) => (
+              <li key={field.key} className="min-w-0">
+                <label className="block">
+                  <span className="block text-meta text-ink-muted">
+                    {lookup(CORE_MEANING, field.key) ?? defaults[field.key]}
+                  </span>
+                  <input
+                    value={names[field.key] ?? ""}
+                    maxLength={CORE_LABEL_MAX}
+                    placeholder={defaults[field.key]}
+                    onChange={(event) => setNames({ ...names, [field.key]: event.target.value })}
+                    className={FIELD}
+                  />
+                </label>
+              </li>
+            ))}
+          </ul>
+          {rename.error ? <ProblemNotice error={rename.error} /> : null}
+          <div className="flex flex-wrap items-center gap-3">
+            <button type="submit" className={PRIMARY_BUTTON} disabled={rename.isPending}>
+              {rename.isPending ? "Saving…" : "Save names"}
+            </button>
+            <button type="button" className={SECONDARY_BUTTON} onClick={() => setNames(null)}>
+              Cancel
+            </button>
+            <span className="text-meta text-ink-muted">Leave one empty to use the usual name.</span>
+          </div>
+        </form>
+      ) : (
+        <ul className="grid grid-cols-2 gap-x-4 gap-y-3 sm:gap-x-8">
+          {fields.map((field) => (
+            <li key={field.key} className="flex min-w-0 items-start gap-2">
+              <Lock aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-faint" />
+              <span className="min-w-0">
+                <span className="block text-body font-medium text-ink">{field.label}</span>
+                <span className="block text-meta text-ink-muted">
+                  {lookup(CORE_MEANING, field.key) ?? field.label}
+                </span>
               </span>
-            </span>
-          </li>
-        ))}
-      </ul>
+            </li>
+          ))}
+        </ul>
+      )}
     </Section>
   );
 }

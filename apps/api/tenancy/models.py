@@ -168,6 +168,9 @@ class Organization(PKMixin, TimestampMixin, Base):
             f"AND low_balance_alert_inr <= {LOW_BALANCE_ALERT_MAX_INR})",
             name="low_balance_alert_range",
         ),
+        CheckConstraint(
+            "jsonb_typeof(core_field_labels) = 'object'", name="core_field_labels_is_object"
+        ),
     )
 
     name: Mapped[str] = mapped_column(Text, nullable=False)
@@ -237,6 +240,14 @@ class Organization(PKMixin, TimestampMixin, Base):
     #: Calevate's line (`billing.service.LOW_BALANCE_INR`). 0 turns the warning off; the
     #: empty-wallet warning is sent whatever this holds.
     low_balance_alert_inr: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    #: The client's own names for the core lead details, core key to shown name
+    #: (`lead_fields.clean_core_labels`); `{}` shows the platform's. Display only: the key
+    #: and the extraction instruction never change.
+    core_field_labels: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
+    #: When the one AI naming of those details was taken (`workers/core_labels`); NULL until.
+    core_labels_drafted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # MAY THIS ACCOUNT'S `staff` MEMBERS CURATE KNOWLEDGE — the owner-controlled half of
     # the founder's decision ("give the staff perms allowing option to owner"). FALSE for
     # every account until that account's own owner turns it on, which is why the migration

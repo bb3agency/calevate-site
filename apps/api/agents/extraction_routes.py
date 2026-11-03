@@ -44,7 +44,7 @@ from typing import Annotated
 from uuid import UUID
 
 from calevate_shared.extraction import ExtractionField, ExtractionSchemaSpec
-from calevate_shared.lead_fields import CORE_LEAD_FIELDS, OUTPUT_KEYS, business_only
+from calevate_shared.lead_fields import OUTPUT_KEYS, business_only, core_fields
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
@@ -60,6 +60,7 @@ from apps.api.core.rbac import permission_meta
 from apps.api.crm.columns import FIXED_KEYS
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
+from apps.api.tenancy.core_labels import core_labels
 
 router = APIRouter(tags=["agents"])
 
@@ -284,7 +285,7 @@ async def _write_schema(
         # resource, so a repeat is idempotent by construction and must not spend a version.
         return ExtractionSchemaOut(
             fields=fields,
-            core_fields=list(CORE_LEAD_FIELDS),
+            core_fields=core_fields(await core_labels(session)),
             version=current_version,
             changed=False,
         )
@@ -333,7 +334,10 @@ async def _write_schema(
     # an accepted suggestion), so this is the one place the live agent learns of the change.
     await queue_collect_rebuild(session, tenant_id=tenant_id, agent_id=agent_id)
     return ExtractionSchemaOut(
-        fields=fields, core_fields=list(CORE_LEAD_FIELDS), version=next_version, changed=True
+        fields=fields,
+        core_fields=core_fields(await core_labels(session)),
+        version=next_version,
+        changed=True,
     )
 
 
@@ -394,7 +398,7 @@ async def get_extraction_schema(
     version, current = await _read_current(session, agent[0])
     return ExtractionSchemaOut(
         fields=business_only(current),
-        core_fields=list(CORE_LEAD_FIELDS),
+        core_fields=core_fields(await core_labels(session)),
         version=version,
         changed=False,
     )

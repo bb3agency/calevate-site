@@ -9,6 +9,7 @@ import { useWriteAccess } from "@/lib/api/hooks";
 import {
   useReviewLeadFieldsDraft,
   useLeadFields,
+  useNameCoreDetails,
   useReplaceLeadFields,
   useSaveAgentLeadFields,
 } from "@/lib/api/leadFields";
@@ -34,6 +35,7 @@ export function LeadDetailsScreen() {
   const saveFields = useSaveAgentLeadFields(session);
   const reviewDraft = useReviewLeadFieldsDraft(session);
   const replaceFields = useReplaceLeadFields(session);
+  const nameCore = useNameCoreDetails(session);
   // The two views draw each write's busy face, saved tick and refusal beside its own
   // button, so a failure stays inline rather than being said twice in a toast.
   useActionFeedback(saveOutcomes, { errorDisplay: "inline" });
@@ -41,10 +43,12 @@ export function LeadDetailsScreen() {
   useActionFeedback(saveFields, { errorDisplay: "inline" });
   useActionFeedback(reviewDraft, { errorDisplay: "inline" });
   useActionFeedback(replaceFields, { errorDisplay: "inline" });
+  useActionFeedback(nameCore, { errorDisplay: "inline" });
   const writes = {
     save: saveFields,
     review: reviewDraft,
     replace: replaceFields,
+    nameCore,
     useSuggestions: (agentId: string) => useLeadSuggestions(session, agentId),
   };
 

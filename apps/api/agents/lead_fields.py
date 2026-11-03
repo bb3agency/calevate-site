@@ -28,7 +28,7 @@ from typing import Any, Final
 from uuid import UUID
 
 from calevate_shared.extraction import ExtractionField
-from calevate_shared.lead_fields import business_only
+from calevate_shared.lead_fields import business_only, clean_core_labels
 from scripts.seed import BUSINESS_TYPE_LABELS, CUSTOM_EXTRACTION_FIELDS, VERTICAL_TEMPLATES
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -36,7 +36,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents.extraction_routes import validate_fields, write_schema
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
-from apps.api.reliability.service import enqueue_outbox
+from apps.api.reliability.service import enqueue_outbox, enqueue_outbox_once
+from apps.api.tenancy.core_labels import core_labels
 
 #: The ARQ job that drafts the fields (`apps/workers/lead_fields_draft.JOB_NAME`).
 DRAFT_JOB: Final = "draft_lead_fields"
@@ -395,23 +396,71 @@ async def agents_with_fields(session: AsyncSession) -> list[dict[str, Any]]:
     ]
 
 
+#: The worker that names the core details for one business (`workers/core_labels`).
+NAME_CORE_JOB: Final = "name_core_details"
+
+
+async def save_core_labels(
+    session: AsyncSession, *, tenant_id: UUID, labels: dict[str, str | None]
+) -> dict[str, str]:
+    """Replace the client's names for the core details; a blank or default name is the
+    platform's again. Stamps the one AI naming as taken, so it never writes over these."""
+    named = clean_core_labels({k: v for k, v in labels.items() if v is not None})
+    await session.execute(
+        text(
+            "UPDATE organizations SET core_field_labels = CAST(:labels AS jsonb), "
+            "core_labels_drafted_at = coalesce(core_labels_drafted_at, now()) WHERE id = :tid"
+        ),
+        {"tid": tenant_id, "labels": json.dumps(named)},
+    )
+    return named
+
+
+async def maybe_name_core_details(session: AsyncSession, *, tenant_id: UUID) -> bool:
+    """Queue the one AI naming of the core details once the business says what it sells,
+    whatever its type. Does nothing once it was taken or the owner named any detail."""
+    row = (
+        await session.execute(
+            text(
+                "SELECT o.core_labels_drafted_at IS NULL AND o.core_field_labels = '{}'::jsonb, "
+                "coalesce(jsonb_array_length(bp.services), 0) FROM organizations o "
+                "LEFT JOIN business_profiles bp ON bp.tenant_id = o.id WHERE o.id = :tid"
+            ),
+            {"tid": tenant_id},
+        )
+    ).first()
+    if row is None or not row[0] or not row[1]:
+        return False
+    queued = await enqueue_outbox_once(
+        session,
+        job=NAME_CORE_JOB,
+        payload={"tenant_id": str(tenant_id)},
+        dedupe_key=f"core-labels:{tenant_id}",
+    )
+    return queued is not None
+
+
 __all__ = [
     "CUSTOM",
     "DRAFT_JOB",
     "MAX_AGENTS",
+    "NAME_CORE_JOB",
     "AgentWrite",
     "Draft",
     "Reviewed",
     "agents_with_fields",
     "business_type_label",
+    "core_labels",
     "has_business_fields",
     "has_standard_set",
+    "maybe_name_core_details",
     "maybe_request_draft",
     "read_draft",
     "refresh_field_reason",
     "replace_business_fields",
     "request_draft",
     "review_draft",
+    "save_core_labels",
     "standard_fields",
     "starting_business_fields",
     "vertical_of",

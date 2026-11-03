@@ -306,6 +306,13 @@ async def save_profile(
         from apps.api.agents.field_suggestions import queue_account
 
         await queue_account(session, tenant_id=tenant_id)
+    if "services" in changed:
+        # Once it says what it sells, any business gets its core details named for it, once
+        # (`agents/lead_fields.maybe_name_core_details`). Here, so every way a profile is
+        # saved (the screen, Pip, onboarding) queues it.
+        from apps.api.agents.lead_fields import maybe_name_core_details
+
+        await maybe_name_core_details(session, tenant_id=tenant_id)
     # The save that completes the profile is what finishes an onboarding whose owner has
     # already joined (D-695).
     await complete_onboarding_if_finished(session, tenant_id=tenant_id)

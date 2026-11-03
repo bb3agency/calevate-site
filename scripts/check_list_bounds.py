@@ -432,6 +432,12 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "GET /v1/admin/tenants/{tenant_id}/lead-fields": BoundedByConstruction(
         by="the same render as `GET /v1/lead-fields`, for one named tenant."
     ),
+    "PUT /v1/lead-fields/core-labels": BoundedByConstruction(
+        by="the same render as `GET /v1/lead-fields`, after the client names the core."
+    ),
+    "PUT /v1/admin/tenants/{tenant_id}/lead-fields/core-labels": BoundedByConstruction(
+        by="the same render as `GET /v1/lead-fields`, for one named tenant."
+    ),
     "POST /v1/admin/tenants/{tenant_id}/lead-fields/draft": BoundedByConstruction(
         by=(
             "the one draft row, whose fields are at most "

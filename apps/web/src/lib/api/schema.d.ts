@@ -3017,6 +3017,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/lead-fields/core-labels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Name one client's core lead details in its own words
+         * @description Only the name shown on this client's screens, lists and exports changes; what each detail holds, and the instruction the call reader follows, stay the platform's. A blank name shows the platform's again. Two details may not share a name.
+         */
+        put: operations["admin_put_core_labels_v1_admin_tenants__tenant_id__lead_fields_core_labels_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants/{tenant_id}/lead-fields/draft": {
         parameters: {
             query?: never;
@@ -10453,6 +10473,26 @@ export interface paths {
         /** The lead details this business captures */
         get: operations["get_lead_fields_v1_lead_fields_get"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lead-fields/core-labels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Name the details every lead carries in this business's own words
+         * @description Only the name shown on this client's screens, lists and exports changes; what each detail holds, and the instruction the call reader follows, stay the platform's. A blank name shows the platform's again. Two details may not share a name.
+         */
+        put: operations["put_core_labels_v1_lead_fields_core_labels_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -20477,6 +20517,17 @@ export interface components {
             /** Vote Reason */
             vote_reason: ("wrong" | "not_done" | "too_slow" | "misunderstood" | "other") | null;
         };
+        /**
+         * CoreLabelsIn
+         * @description The client's names for the core details, every one at once. A blank or omitted
+         *     detail shows the platform's name.
+         */
+        CoreLabelsIn: {
+            /** Labels */
+            labels: {
+                [key: string]: string;
+            };
+        };
         /** CostAttestIn */
         CostAttestIn: {
             /** Effective From */
@@ -25682,6 +25733,10 @@ export interface components {
             business_type_label: string;
             /** Can Draft */
             can_draft: boolean;
+            /** Core Default Labels */
+            core_default_labels: {
+                [key: string]: string;
+            };
             /** Core Fields */
             core_fields: components["schemas"]["ExtractionField"][];
             draft: components["schemas"]["LeadFieldsDraftOut"] | null;
@@ -42636,6 +42691,41 @@ export interface operations {
             };
         };
     };
+    admin_put_core_labels_v1_admin_tenants__tenant_id__lead_fields_core_labels_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CoreLabelsIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadFieldsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     admin_post_draft_v1_admin_tenants__tenant_id__lead_fields_draft_post: {
         parameters: {
             query?: never;
@@ -56333,6 +56423,39 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadFieldsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    put_core_labels_v1_lead_fields_core_labels_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CoreLabelsIn"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

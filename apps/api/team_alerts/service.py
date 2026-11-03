@@ -51,6 +51,7 @@ from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.api.reliability.service import enqueue_outbox, enqueue_outbox_once
 from apps.api.team_alerts.models import MAX_ADDRESS_CHARS, WHATSAPP_SLOTS
+from apps.api.tenancy.core_labels import core_labels
 from apps.workers.redaction import redact
 
 log = get_logger(__name__)
@@ -525,7 +526,7 @@ async def _agent_choices(
     outcomes, _starting = call_outcomes.outcomes_in_use(row[0])
     fields = [
         Choice(f.key, f.label, tuple(f.enum_values or ()))
-        for f in with_core(row[1])
+        for f in with_core(row[1], await core_labels(session))
         if f.type == "enum" and f.enum_values
     ]
     return [Choice(o.key, o.label) for o in outcomes], fields

@@ -2,6 +2,7 @@
 
     GET   /v1/lead-fields                        the core, the business type, each agent's
                                                  business fields and the AI draft's state
+    PUT   /v1/lead-fields/core-labels            the client's own names for the core details
     POST  /v1/lead-fields/draft/review           keep some or none of the AI draft (D-821; the
                                                  draft itself is asked of Pip)
     POST  /v1/lead-fields/replace                replace agents' business fields with the
@@ -12,6 +13,7 @@
     POST  /v1/admin/tenants/{tenant_id}/lead-fields/draft     queue the draft
     POST  /v1/admin/tenants/{tenant_id}/lead-fields/replace   replace, optionally from
                                                               another type's standard set
+    PUT   /v1/admin/tenants/{tenant_id}/lead-fields/core-labels   the same names, for an operator
 
 Editing one agent's business fields stays `PUT /v1/agents/{agent_id}/extraction-schema`
 (and its admin twin): one write path for a field list, whatever screen it is edited from.
@@ -25,7 +27,13 @@ from typing import Annotated, Literal, cast
 from uuid import UUID
 
 from calevate_shared.extraction import ExtractionField
-from calevate_shared.lead_fields import CORE_LEAD_FIELDS, NEED_KEY
+from calevate_shared.lead_fields import (
+    CORE_LABEL_MAX_CHARS,
+    CORE_LEAD_FIELDS,
+    NEED_KEY,
+    clean_core_labels,
+    core_fields,
+)
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -96,8 +104,11 @@ class LeadFieldsAgentOut(_Out):
 class LeadFieldsOut(_Out):
     business_type: str | None
     business_type_label: str
-    #: The details every lead carries, whatever the business. Never editable.
+    #: The details every lead carries, whatever the business, under this client's names.
+    #: What each holds never changes; only the name shown is the client's.
     core_fields: list[ExtractionField]
+    #: The platform's name for each core detail, by key: what a cleared name goes back to.
+    core_default_labels: dict[str, str]
     #: The core field that says what the caller wants.
     need_key: str
     #: The standard set for this business type; empty for a custom business.
@@ -152,7 +163,8 @@ async def _render(session: AsyncSession, *, tenant_id: UUID) -> LeadFieldsOut:
     return LeadFieldsOut(
         business_type=vertical,
         business_type_label=service.business_type_label(vertical),
-        core_fields=list(CORE_LEAD_FIELDS),
+        core_fields=core_fields(await service.core_labels(session, tenant_id=tenant_id)),
+        core_default_labels={f.key: f.label for f in CORE_LEAD_FIELDS},
         need_key=NEED_KEY,
         standard_fields=service.standard_fields(vertical) if standard else [],
         has_standard_set=standard,
@@ -280,6 +292,101 @@ async def post_replace(
         },
     )
     return _replace_out(written)
+
+
+CoreKey = Literal["name", "need", "preferred_time", "other_number", "language", "notes"]
+
+
+class CoreLabelsIn(BaseModel):
+    """The client's names for the core details, every one at once. A blank or omitted
+    detail shows the platform's name."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    labels: dict[CoreKey, Annotated[str, Field(max_length=CORE_LABEL_MAX_CHARS)]]
+
+
+def _checked_labels(labels: dict[str, str]) -> dict[str, str]:
+    """Refuse two details under one name rather than quietly keeping a default."""
+    defaults = {f.key: f.label for f in CORE_LEAD_FIELDS}
+    named = clean_core_labels(labels)
+    for key, raw in labels.items():
+        wanted = " ".join(raw.split())
+        if wanted and wanted != defaults[key] and key not in named:
+            raise ProblemError.business_rule(
+                "core_label_taken",
+                f"“{wanted}” is already the name of another detail.",
+                remediation="Give each detail its own name.",
+            )
+    return named
+
+
+async def _save_labels(
+    session: AsyncSession, *, tenant_id: UUID, payload: CoreLabelsIn
+) -> dict[str, str]:
+    return await service.save_core_labels(
+        session,
+        tenant_id=tenant_id,
+        labels=dict(_checked_labels({str(k): v for k, v in payload.labels.items()})),
+    )
+
+
+_CORE_LABELS_NOTE = (
+    "Only the name shown on this client's screens, lists and exports changes; what each "
+    "detail holds, and the instruction the call reader follows, stay the platform's. A blank "
+    "name shows the platform's again. Two details may not share a name."
+)
+
+
+@router.put(
+    "/core-labels",
+    response_model=LeadFieldsOut,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Name the details every lead carries in this business's own words",
+    description=_CORE_LABELS_NOTE,
+)
+async def put_core_labels(
+    payload: CoreLabelsIn, session: Session, principal: Owner, request: Request
+) -> LeadFieldsOut:
+    assert principal.tenant_id is not None
+    named = await _save_labels(session, tenant_id=principal.tenant_id, payload=payload)
+    await write_audit(
+        session,
+        action="lead_fields.core_labels_named",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="organization",
+        object_id=str(principal.tenant_id),
+        ip=client_request_ip(request),
+        summary={"named_keys": sorted(named)},
+    )
+    return await _render(session, tenant_id=principal.tenant_id)
+
+
+@admin_router.put(
+    "/core-labels",
+    response_model=LeadFieldsOut,
+    openapi_extra=permission_meta("admin:tenants"),
+    summary="Name one client's core lead details in its own words",
+    description=_CORE_LABELS_NOTE,
+)
+async def admin_put_core_labels(
+    tenant_id: UUID, payload: CoreLabelsIn, request: Request, principal: Operator
+) -> LeadFieldsOut:
+    async with tenant_session(tenant_id) as scoped:
+        await _require_tenant(scoped, tenant_id)
+        named = await _save_labels(scoped, tenant_id=tenant_id, payload=payload)
+        await write_audit(
+            scoped,
+            action="admin.lead_fields_core_labels_named",
+            actor=principal,
+            tenant_id=tenant_id,
+            object_type="organization",
+            object_id=str(tenant_id),
+            ip=client_request_ip(request),
+            summary={"named_keys": sorted(named)},
+        )
+        return await _render(scoped, tenant_id=tenant_id)
 
 
 @admin_router.get(

@@ -80,6 +80,7 @@ from apps.api.db.like import contains_pattern, suffix_pattern
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import session_tenant
 from apps.api.db.transition import transition_status
+from apps.api.tenancy.core_labels import core_labels
 
 # The SAME pass that produced `text_redacted` — see `redacted_summary`. Imported at
 # module scope unlike `apps.workers.storage` in routes.py: `redaction` is pure regex
@@ -376,11 +377,12 @@ async def captured_previews(
             {"aids": list(set(agent_of_call.values()))},
         )
     ).all()
+    named = await core_labels(session)
     fields_by_agent: dict[UUID, list[ExtractionField]] = {}
     for agent_id, fields in schema_rows:
         known = fields_by_agent.setdefault(UUID(str(agent_id)), [])
         seen = {f.key for f in known}
-        for field in with_core(fields or []):
+        for field in with_core(fields or [], named):
             if field.key not in seen:
                 known.append(field)
                 seen.add(field.key)
@@ -389,7 +391,7 @@ async def captured_previews(
         cid = UUID(str(call_id))
         if not isinstance(data, dict):
             continue
-        fields = fields_by_agent.get(agent_of_call[cid]) or with_core([])
+        fields = fields_by_agent.get(agent_of_call[cid]) or with_core([], named)
         chips: list[CapturedChipOut] = []
         for field in fields:
             if len(chips) == PREVIEW_CHIPS:
@@ -871,7 +873,7 @@ async def lead_columns(
     # The core every lead carries, then the agent's own fields (`calevate_shared.
     # lead_fields`). The core's `name` is the fixed Name column, which
     # `crm/columns.available` keeps in its own place.
-    return with_core(row[0] if row is not None else None)
+    return with_core(row[0] if row is not None else None, await core_labels(session))
 
 
 # The lead row's columns, in `_lead_out`'s order, and the join that names its owner.

@@ -146,6 +146,7 @@ BODIES: dict[str, dict[str, Any] | None] = {
     "GET /v1/admin/tenants/{tenant_id}/lead-fields": None,
     "POST /v1/admin/tenants/{tenant_id}/lead-fields/draft": None,
     "POST /v1/admin/tenants/{tenant_id}/lead-fields/replace": {},
+    "PUT /v1/admin/tenants/{tenant_id}/lead-fields/core-labels": {"labels": {"need": "Crop issue"}},
     "GET /v1/admin/tenants/{tenant_id}/business-type": None,
     "POST /v1/admin/tenants/{tenant_id}/business-type/confirm": {"business_type": "retail"},
     "POST /v1/admin/tenants/{tenant_id}/business-type/suggest": None,
