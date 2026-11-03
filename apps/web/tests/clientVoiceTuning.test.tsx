@@ -6,6 +6,7 @@ import {
   ClientVoiceTuning,
   multiplierLabel,
   positionOf,
+  snapped,
   valueOf,
 } from "@/app/c/[slug]/agents/panels/voiceTuning";
 import type { ClientVoiceTuning as Tuning } from "@/lib/api/voiceTuning";
@@ -55,6 +56,13 @@ async function mount(routes: Routes) {
 const VENDOR_WORDS = /cartesia|sonic|thinnest/i;
 
 describe("the slider scale", () => {
+  it("holds a drag that lands next to Normal on Normal", () => {
+    expect(snapped(48)).toBe(50);
+    expect(snapped(52)).toBe(50);
+    expect(snapped(47)).toBe(47);
+    expect(valueOf(snapped(49), 0.7, 1.3)).toBe(1);
+  });
+
   it("puts Normal in the middle of both uneven ranges", () => {
     expect(positionOf(1, 0.6, 1.5)).toBe(50);
     expect(positionOf(1, 0.5, 2)).toBe(50);

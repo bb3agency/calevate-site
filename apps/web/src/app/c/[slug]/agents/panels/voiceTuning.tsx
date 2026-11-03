@@ -60,6 +60,15 @@ export function valueOf(position: number, min: number, max: number, step = 0.01)
   return Math.round(Math.round(raw / step) * step * 100) / 100;
 }
 
+/** Positions either side of Normal that land on it: a drag back to the middle stopped at
+ *  0.98× or 1.02×, one position from Normal (founder, 3 Nov 2026). */
+const NORMAL_DETENT = 2;
+
+/** A dragged position, held on Normal when it lands within the detent. */
+export function snapped(position: number): number {
+  return Math.abs(position - HALF) <= NORMAL_DETENT ? HALF : position;
+}
+
 /** Hundredths with trailing zeros dropped: the slider steps in hundredths, so one decimal
  *  would make 1.05 and 1.1 read alike, while "1.10" breaks the no-needless-decimals rule. */
 function trimmed(value: number): string {
@@ -148,21 +157,24 @@ function Slider({
       max={2 * HALF}
       step={1}
       value={positionOf(value, min, max)}
-      onChange={(position) => onChange(valueOf(position, min, max, step))}
+      onChange={(position) => onChange(valueOf(snapped(position), min, max, step))}
       valueText={() => multiplierLabel(value)}
       spokenText={() => (value === NORMAL ? "Normal" : `${trimmed(value)} times normal`)}
       scale={[slower, "Normal", faster]}
       marks={[HALF]}
+      // Shown only when there is something to reset: a greyed Reset beside "Normal" read
+      // as broken (founder, 3 Nov 2026).
       labelAction={
-        <button
-          type="button"
-          className={TEXT_ACTION}
-          disabled={value === NORMAL}
-          onClick={() => onChange(NORMAL)}
-          aria-label={`Reset ${label.toLowerCase()} to normal`}
-        >
-          Reset
-        </button>
+        value === NORMAL ? undefined : (
+          <button
+            type="button"
+            className={TEXT_ACTION}
+            onClick={() => onChange(NORMAL)}
+            aria-label={`Reset ${label.toLowerCase()} to normal`}
+          >
+            Reset
+          </button>
+        )
       }
     />
   );
