@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { Info, Undo2, X } from "lucide-react";
+import { ChevronDown, Info, Undo2, X } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 
 import { AcceptChargeDialog, extraUnavailableSentence } from "@/components/aiExtraDialog";
@@ -15,7 +15,7 @@ import { PRIMARY_BUTTON, ProblemNotice, SECONDARY_BUTTON, ScrollRegion, Skeleton
 import { useAiQuota, useBuyAiExtra } from "@/lib/api/aiQuota";
 import type { Session } from "@/lib/api/client";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
-import { filledNotice, panelNotice } from "@/lib/copilot/keeping";
+import { filledNotice, filledReply, panelNotice } from "@/lib/copilot/keeping";
 import type { SurfaceHolder } from "@/lib/copilot/registry";
 import { unsavedWork } from "@/lib/copilot/unsaved";
 import { openingLine, suggestedQuestions } from "@/lib/copilot/suggestions";
@@ -297,6 +297,8 @@ export function CopilotPanel({
 
   const surface = holder.read();
   const batch = conversation.batch;
+  // The fill belongs to the latest answer; an earlier empty one is not told about it.
+  const lastAnswer = conversation.turns.findLastIndex((turn) => turn.role === "assistant");
   const { navigation, clearNavigation, asking } = conversation;
 
   // THE ASK, when leaving this screen might throw work away. `null` while there is nothing
@@ -572,9 +574,13 @@ export function CopilotPanel({
                     reveal={turn.fresh !== undefined}
                   />
                 ) : (
-                  // A turn that only called a tool (a fill, a suggestion) still says
-                  // something, rather than leaving Pip's face beside an empty bubble.
-                  <p className="text-body text-ink">Done. The details are below.</p>
+                  // A turn that only called a tool still says something rather than leaving
+                  // Pip's face beside an empty bubble: for the latest fill, what it changed.
+                  <p className="text-body text-ink">
+                    {batch !== null && index === lastAnswer
+                      ? filledReply(surface, batch.labels)
+                      : "Done."}
+                  </p>
                 )}
                 {turn.id !== undefined && (
                   <AnswerRating
@@ -735,11 +741,15 @@ export function CopilotPanel({
 
         {batch !== null && (
           <div className="border-l-2 border-brand pl-3">
-            <p className="text-xs font-medium text-ink">
-              Filled {batch.labels.length} {batch.labels.length === 1 ? "field" : "fields"}
-            </p>
-            <p className="mt-0.5 text-xs text-ink-muted">{batch.labels.join(", ")}</p>
-            <p className="mt-1 text-xs text-ink-faint">{filledNotice(surface)}</p>
+            {/* Folded: the answer above says what changed; the list is a tap away. */}
+            <details className="group">
+              <summary className="flex cursor-pointer list-none items-center gap-1 text-xs font-medium text-ink [&::-webkit-details-marker]:hidden">
+                Filled {batch.labels.length} {batch.labels.length === 1 ? "field" : "fields"}
+                <ChevronDown aria-hidden className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />
+              </summary>
+              <p className="mt-0.5 text-xs text-ink-muted">{batch.labels.join(", ")}</p>
+              <p className="mt-1 text-xs text-ink-faint">{filledNotice(surface)}</p>
+            </details>
             <button
               type="button"
               onClick={conversation.undo}

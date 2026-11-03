@@ -39,6 +39,30 @@ export function filledNotice(surface: CopilotSurface): string {
   }
 }
 
+/** "a, b and c". */
+function listed(labels: readonly string[]): string {
+  if (labels.length <= 1) return labels.join("");
+  return `${labels.slice(0, -1).join(", ")} and ${labels[labels.length - 1]}`;
+}
+
+/**
+ * Pip's reply for a turn that only filled fields. The answer in the chat says what changed;
+ * the card under it keeps the list folded with the Undo button.
+ */
+export function filledReply(surface: CopilotSurface, labels: readonly string[]): string {
+  const what = listed(labels);
+  switch (savesOf(surface)) {
+    case "autosave":
+      return `I changed ${what} in your draft. Nothing goes live until you press ${liveStepOf(surface)}.`;
+    case "immediate":
+      return `I changed ${what}. Each change is saved; Undo puts the earlier values back.`;
+    case "view":
+      return `I changed what the screen shows: ${what}.`;
+    default:
+      return `I filled in ${what}. Nothing is saved until you press this screen's own save button.`;
+  }
+}
+
 /** The empty panel's line about this screen's fields, or "" when it has none worth a line. */
 export function panelNotice(surface: CopilotSurface): string {
   switch (savesOf(surface)) {
