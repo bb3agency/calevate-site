@@ -33,6 +33,7 @@
  * entry for, and the screen would render nothing for it rather than failing to compile.
  */
 
+import type { NoticeTone } from "@/components/ui";
 import { livePoll } from "@/lib/live/liveStatus";
 import { hasKey } from "@/lib/lookup";
 import {
@@ -61,7 +62,7 @@ export type QaQueueClient = Schemas["QaQueueClient"];
 export type QaVerdict = NonNullable<QaSample["verdict"]>;
 
 /** What each verdict means to the person picking one — and what it commits us to. */
-export const VERDICTS: Record<QaVerdict, { label: string; meaning: string; tone: string }> = {
+export const VERDICTS: Record<QaVerdict, { label: string; meaning: string; tone: NoticeTone }> = {
   clean: {
     label: "Clean",
     meaning: "The agent did what it was set up to do on this call.",

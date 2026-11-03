@@ -363,7 +363,15 @@ const COLUMNS = (open: (id: string) => void): DataColumn<AlertEpisode>[] => [
         >
           <MonoValue className="break-all text-ink">{episode.code}</MonoValue>
         </button>
-        <p className="mt-0.5 text-meta text-ink-muted">{openLine(episode)}</p>
+        {/* Open episodes carry their severity's tone so the live ones stand out from the
+            stopped history below them; a stopped one is plain muted text. */}
+        {episode.cleared_at === null ? (
+          <p className="mt-0.5">
+            <StatusPill tone={severityTone(episode.severity)}>Still happening</StatusPill>
+          </p>
+        ) : (
+          <p className="mt-0.5 text-meta text-ink-muted">{openLine(episode)}</p>
+        )}
         <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-meta sm:hidden">
           <SeverityPill severity={episode.severity} />
           <span className="text-ink-muted">{formatCount(episode.occurrences)}×</span>

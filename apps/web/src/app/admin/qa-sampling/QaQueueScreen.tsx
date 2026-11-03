@@ -12,7 +12,7 @@ import { Combobox } from "@/components/arc/combobox";
 import { TEXT_ACTION } from "@/components/console/section";
 import { Pagination } from "@/components/interior/pagination";
 import { SegmentedControl } from "@/components/interior/segmented-control";
-import { ADMIN_PAGE_WIDE, PagedRows } from "@/components/admin/kit";
+import { ADMIN_PAGE_WIDE, PagedRows, StatusPill } from "@/components/admin/kit";
 import {
   FIELD,
   FIELD_LABEL,
@@ -524,8 +524,10 @@ function SampleRow({ row, search }: { row: QaSample; search: string }) {
           </span>
         </span>
         {verdict ? (
-          <span className="shrink-0 text-right">
-            <span className="block text-meta font-medium text-ink">{verdict.label}</span>
+          <span className="flex shrink-0 flex-col items-end">
+            {/* The verdict is the row's outcome, so it carries its tone: a defect is
+                found on a scan of a reviewed week without reading each label. */}
+            <StatusPill tone={verdict.tone}>{verdict.label}</StatusPill>
             <span className="block text-meta text-ink-muted">{formatIST(row.reviewed_at)}</span>
           </span>
         ) : (

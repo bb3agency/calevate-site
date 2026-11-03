@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, TrendingDown, TrendingUp } from "lucide-react";
 
 import { ADMIN_PAGE_WIDE, HAIRLINE_LIST, LIST_HEAD, StatusPill } from "@/components/admin/kit";
 import { EmptyState } from "@/components/console/emptyState";
@@ -9,6 +9,7 @@ import { InfoTip } from "@/components/console/infoTip";
 import { PageHeader } from "@/components/console/pageHeader";
 import { TEXT_ACTION } from "@/components/console/section";
 import {
+  NOTICE_BAR,
   NoticeBox,
   ProblemNotice,
   Skeleton,
@@ -158,6 +159,9 @@ export default function ClientHealthPage() {
                 {attentionHeadline(attention.length)}
               </span>
               {breaking.length > 0 && <StatusPill tone="stop">{breaking.length} broken now</StatusPill>}
+              {attention.length > breaking.length && (
+                <StatusPill tone="warn">{attention.length - breaking.length} will break</StatusPill>
+              )}
               {waiting > 0 && <StatusPill tone="neutral">{waiting} waiting on client</StatusPill>}
             </>
           ) : undefined
@@ -199,7 +203,7 @@ export default function ClientHealthPage() {
           <>
             <div
               aria-hidden
-              className={`hidden grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)_9rem_minmax(0,0.9fr)] gap-5 pb-2 sm:px-2 lg:grid ${LIST_HEAD}`}
+              className={`hidden grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)_9rem_minmax(0,0.9fr)] gap-5 border-l-2 border-transparent pb-2 pl-3 sm:pr-2 lg:grid ${LIST_HEAD}`}
             >
               <span>Client</span>
               <span>What is wrong</span>
@@ -223,7 +227,11 @@ function HealthRow({ row }: { row: ClientHealth }) {
   const status = rowStatus(row.signals);
 
   return (
-    <li className="grid grid-cols-1 gap-x-5 gap-y-3 py-4 sm:px-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)_9rem_minmax(0,0.9fr)]">
+    // The row's worst status as a left rule, so a scan down the board finds the broken
+    // accounts by colour before reading a word; the pill under the name says it in words.
+    <li
+      className={`grid grid-cols-1 gap-x-5 gap-y-3 border-l-2 py-4 pl-3 sm:pr-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)_9rem_minmax(0,0.9fr)] ${NOTICE_BAR[status.tone]}`}
+    >
       <div className="min-w-0">
         <Link
           href={`/admin/tenants/${row.tenant_id}`}
@@ -251,9 +259,22 @@ function HealthRow({ row }: { row: ClientHealth }) {
             <span className="tabular-nums text-body font-medium text-ink">
               {trend.to} <span className="text-ink-faint">vs {trend.from}</span>
             </span>
-            <span className="ml-1.5 text-ink-muted lg:ml-0 lg:block">
-              {trend.droppedPct > 0 ? `down ${trend.droppedPct}%` : `up ${Math.abs(trend.droppedPct)}%`}
-            </span>
+            {/* A differential: arrow, word and colour together. Fewer calls is the bad
+                direction on this board, so a drop is warn and a rise is success. */}
+            {trend.droppedPct === 0 ? (
+              <span className="ml-1.5 text-ink-muted lg:ml-0 lg:block">no change</span>
+            ) : (
+              <span
+                className={`ml-1.5 inline-flex items-center gap-1 font-medium lg:ml-0 lg:flex ${trend.droppedPct > 0 ? "text-warn" : "text-success"}`}
+              >
+                {trend.droppedPct > 0 ? (
+                  <TrendingDown aria-hidden className="h-3.5 w-3.5 shrink-0" />
+                ) : (
+                  <TrendingUp aria-hidden className="h-3.5 w-3.5 shrink-0" />
+                )}
+                {trend.droppedPct > 0 ? `down ${trend.droppedPct}%` : `up ${Math.abs(trend.droppedPct)}%`}
+              </span>
+            )}
           </>
         ) : (
           <span className="text-ink-muted lg:block">{trend.why}</span>
