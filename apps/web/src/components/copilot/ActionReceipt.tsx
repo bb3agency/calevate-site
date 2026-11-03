@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { CheckCircle2, Undo2 } from "lucide-react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
-import { ProblemNotice } from "@/components/ui";
+import { ProblemNotice, TONE_INK } from "@/components/ui";
 import type { Session } from "@/lib/api/client";
 import { useUndoAction } from "@/lib/api/copilot";
 import type { CopilotAction } from "@/lib/copilot/types";
@@ -55,7 +55,7 @@ export function ActionReceipt({
   return (
     <div className="border-l-2 border-brand pl-3">
       <p className="flex items-center gap-1.5 text-xs font-medium text-ink">
-        <CheckCircle2 aria-hidden className="h-3.5 w-3.5 text-ink-faint" />
+        <CheckCircle2 aria-hidden className={`h-3.5 w-3.5 ${undone !== undefined ? TONE_INK.neutral : TONE_INK.ok}`} />
         {undone !== undefined ? "Undone" : action.applied ? "Done" : "Already done"}
       </p>
       <p className="mt-0.5 text-xs text-ink">{action.title}</p>

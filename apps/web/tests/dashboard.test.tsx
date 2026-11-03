@@ -834,9 +834,8 @@ describe("the calling credit tile", () => {
     // NEVER THE FIGURE ALONE. "₹0.00" on a dashboard is a number a skimming owner reads
     // past; "calls have stopped" is not — and since D-551 the INCOMING half travels with
     // it, because a client who does not know their phone has gone quiet loses a day.
-    expect(tile?.textContent).toContain(
-      "Calls in and out stopped. Add credit",
-    );
+    expect(tile?.textContent).toContain("Calls in and out stopped");
+    expect(within(tile as HTMLElement).getByRole("link", { name: "Add credit" })).toBeTruthy();
     expect(tile?.textContent).not.toContain("still get through");
   });
 

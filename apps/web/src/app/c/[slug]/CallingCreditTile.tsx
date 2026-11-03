@@ -2,7 +2,15 @@
 
 import Link from "next/link";
 
-import { Card, PRIMARY_BUTTON_SM, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton, formatINR } from "@/components/ui";
+import {
+  Card,
+  PRIMARY_BUTTON_SM,
+  ProblemNotice,
+  SECONDARY_BUTTON_SM,
+  Skeleton,
+  formatINR,
+  type NoticeTone,
+} from "@/components/ui";
 import { Metric } from "@/components/console/metric";
 import {
   activeTrial,
@@ -80,6 +88,7 @@ export function CallingCreditTile({
             ? "warn"
             : "default"
       }
+      status={creditStatus(state, trial)}
       hint={
         <>
         {minutesLeftPhrase(wallet.data) !== null ? (
@@ -94,17 +103,29 @@ export function CallingCreditTile({
           <Link href={href} className={`${state === "stopped" ? PRIMARY_BUTTON_SM : SECONDARY_BUTTON_SM} mt-2`}>
             {trial !== null
               ? trialHint(trial)
-              : state === "stopped"
-                ? HOME.creditStoppedHint
-                : state === "low"
-                  ? HOME.creditLowHint
-                  : HOME.creditOkHint}
+              : HOME.creditAction}
           </Link>
         )}
         </>
       }
     />
   );
+}
+
+/**
+ * The credit's health in a word or two beside the figure, so the tile answers "am I fine?"
+ * before the number is read, and the button under it only has to say what to do. None
+ * during a trial: the trial line under the figure is the status then, and "healthy" would
+ * describe a wallet the trial is masking (D-536).
+ */
+function creditStatus(
+  state: ReturnType<typeof walletState>,
+  trial: WalletTrial | null,
+): { tone: NoticeTone; label: string } | undefined {
+  if (trial !== null) return undefined;
+  if (state === "stopped") return { tone: "stop", label: HOME.creditStatusStopped };
+  if (state === "low") return { tone: "warn", label: HOME.creditStatusLow };
+  return { tone: "ok", label: HOME.creditStatusHealthy };
 }
 
 /**

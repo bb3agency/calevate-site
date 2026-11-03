@@ -1,12 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, CircleAlert, Flame, MessageCircleQuestion, PhoneMissed, Wallet, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { Section } from "@/components/console/section";
 import { useEnterClass } from "@/components/live/arrivals";
-import { SECONDARY_BUTTON_SM, formatCount } from "@/components/ui";
+import { SECONDARY_BUTTON_SM, TONE_INK, formatCount, type NoticeTone } from "@/components/ui";
 import type { Dashboard } from "@/lib/api/client";
 import type { useAttention } from "@/lib/api/attention";
 import type { useKnowledgeGaps } from "@/lib/api/knowledgeGaps";
@@ -18,6 +18,16 @@ import { HOME } from "./setup/_ui/copy";
 
 /** Each row's one action, as a button a thumb can hit (`touch:min-h-11`), not a text link. */
 const ROW_ACTION = `${SECONDARY_BUTTON_SM} shrink-0`;
+
+/**
+ * Most urgent first: what has stopped, then what needs a look, then opportunities and news.
+ * The tone is also the row's glyph colour, and each kind has its own glyph, so the order
+ * and the kind read before the words (Carbon's status pattern: colour, shape and label
+ * together, never colour alone).
+ */
+const URGENCY: Record<NoticeTone, number> = { stop: 0, warn: 1, ok: 2, info: 3, neutral: 4 };
+
+type Row = { key: string; tone: NoticeTone; icon: LucideIcon; text: ReactNode; action: ReactNode };
 
 /**
  * WHAT NEEDS YOU TODAY — the first thing on the dashboard (founder, REDESIGN-2): the few
@@ -46,11 +56,14 @@ export function WhatNeedsYou({
   gaps: ReturnType<typeof useKnowledgeGaps>;
   href: (path: string) => string;
 }) {
-  const rows: { key: string; text: ReactNode; action: ReactNode }[] = [];
+  const rows: Row[] = [];
 
   if (data.hot_leads_open > 0) {
     rows.push({
       key: "hot",
+      // Green, as on the call log: a lead ready to act is good news that wants a call.
+      tone: "ok",
+      icon: Flame,
       text: (
         <>
           <span className="font-semibold tabular-nums">{formatCount(data.hot_leads_open)}</span>{" "}
@@ -76,6 +89,8 @@ export function WhatNeedsYou({
       : "/calls";
     rows.push({
       key: "missed",
+      tone: "warn",
+      icon: PhoneMissed,
       text: (
         <>
           <span className="font-semibold tabular-nums">{formatCount(missed)}</span>{" "}
@@ -110,6 +125,8 @@ export function WhatNeedsYou({
         : `/knowledge?${focus ?? QUESTIONS_TAB}`;
     rows.push({
       key: "gaps",
+      tone: "info",
+      icon: MessageCircleQuestion,
       text: (
         <>
           <span className="font-semibold tabular-nums">{formatCount(unanswered)}</span>{" "}
@@ -126,6 +143,8 @@ export function WhatNeedsYou({
     // A failed read is not an all-clear (§52): say so, with the retry.
     rows.push({
       key: "gaps",
+      tone: "neutral",
+      icon: CircleAlert,
       text: HOME.gapsFailed,
       action: (
         <button type="button" onClick={() => void gaps.refetch()} className={ROW_ACTION}>
@@ -140,6 +159,8 @@ export function WhatNeedsYou({
     if (state === "low" || state === "stopped") {
       rows.push({
         key: "credit",
+        tone: state === "stopped" ? "stop" : "warn",
+        icon: Wallet,
         // The minutes left are on the credit tile; this row says only what to do.
         text: state === "stopped" ? HOME.creditStopped : HOME.creditLow,
         action: (
@@ -150,6 +171,8 @@ export function WhatNeedsYou({
       });
     }
   }
+
+  rows.sort((a, b) => URGENCY[a.tone] - URGENCY[b.tone]);
 
   // A row that appears while the dashboard is open (a lead turned hot, credit ran low)
   // enters softly (D-774); the rows present on load do not.
@@ -169,7 +192,10 @@ export function WhatNeedsYou({
                 key={row.key}
                 className={`flex items-center justify-between gap-x-4 py-3 ${enter(row.key)}`}
               >
-                <span className="min-w-0 text-body text-ink">{row.text}</span>
+                <span className="flex min-w-0 items-center gap-2.5 text-body text-ink">
+                  <row.icon aria-hidden className={`h-4 w-4 shrink-0 ${TONE_INK[row.tone]}`} />
+                  <span className="min-w-0">{row.text}</span>
+                </span>
                 {row.action}
               </li>
             ))}

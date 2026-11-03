@@ -11,12 +11,14 @@ import { usePrefetchCall, type useCalls } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
 import { useReadAhead } from "@/lib/readAhead";
 
-import { callColumns } from "./calls/callColumns";
+import { callColumns, outcomeRowClass } from "./calls/callColumns";
 
 /**
  * The six most recent calls — the fastest route from "somebody rang" to ringing them
  * back, which is why the number is printed in full (D-436). Same row as the call log,
- * so a call reads the same on both screens; a call that comes in on a poll is marked.
+ * outcome wash included, so a call reads the same on both screens and the six rows show
+ * at a glance which ended as a lead and which never connected; a call that comes in on a
+ * poll is marked.
  */
 export function LatestCalls({
   recent,
@@ -76,6 +78,8 @@ export function LatestCalls({
             showCost: recent.data.some((call) => call.credits_used_inr !== null && call.credits_used_inr !== undefined),
           })}
           getRowId={(call) => call.id}
+          // A call still on the line has no ending yet, so it takes no ending's colour.
+          rowClassName={(call) => (call.status === "in_progress" ? "" : outcomeRowClass(call))}
           label="Latest calls"
         />
       )}

@@ -1,9 +1,9 @@
 "use client";
 
-import { Hourglass } from "lucide-react";
+import { CheckCircle2, CircleMinus, CircleX, Hourglass, type LucideIcon } from "lucide-react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
-import { ProblemNotice } from "@/components/ui";
+import { NOTICE_BAR, ProblemNotice, TONE_INK, type NoticeTone } from "@/components/ui";
 import { lookup } from "@/lib/lookup";
 import type { Session } from "@/lib/api/client";
 import { useCopilotJob } from "@/lib/api/copilot";
@@ -18,6 +18,15 @@ const STATUS_WORDS: Record<CopilotJobFrame["status"], string> = {
   done: "Finished",
   failed: "Stopped",
   cancelled: "Cancelled",
+};
+
+/** The card's rule and glyph per status: blue while it runs, green done, red failed. */
+const STATUS_LOOK: Record<CopilotJobFrame["status"], { tone: NoticeTone; icon: LucideIcon }> = {
+  queued: { tone: "info", icon: Hourglass },
+  running: { tone: "info", icon: Hourglass },
+  done: { tone: "ok", icon: CheckCircle2 },
+  failed: { tone: "stop", icon: CircleX },
+  cancelled: { tone: "neutral", icon: CircleMinus },
 };
 
 /**
@@ -37,10 +46,11 @@ export function JobCard({ session, job }: { session: Session; job: CopilotJobFra
   const current = read.data;
   const status = (current?.status ?? job.status) as CopilotJobFrame["status"];
   const running = status === "queued" || status === "running";
+  const look = lookup(STATUS_LOOK, status) ?? STATUS_LOOK.running;
   return (
-    <div className="space-y-2 border-l-2 border-line pl-3">
+    <div className={`space-y-2 border-l-2 pl-3 ${NOTICE_BAR[look.tone]}`}>
       <p className="flex items-center gap-1.5 text-xs font-medium text-ink">
-        <Hourglass aria-hidden className="h-3.5 w-3.5 text-ink-faint" />
+        <look.icon aria-hidden className={`h-3.5 w-3.5 ${TONE_INK[look.tone]}`} />
         {lookup(STATUS_WORDS, status) ?? status}
       </p>
       <p className="text-xs text-ink-muted">{current?.goal ?? job.goal}</p>
