@@ -24,7 +24,14 @@ def _link(value: str | None) -> str | None:
     value = value.strip()
     if not value:
         return None
-    if value.startswith("https://") or (value.startswith("/") and not value.startswith("//")):
+    # A browser drops tabs and newlines from a URL and reads `\` as `/` (WHATWG URL
+    # parsing), so `/\evil.example` and `/<TAB>/evil.example` both become the off-site
+    # `//evil.example` on click. Control characters are refused anywhere for that reason,
+    # and the two-character prefix is checked in both spellings, as `authn.google.safe_next`
+    # does for the sign-in return path.
+    if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in value):
+        raise ValueError("a link cannot contain tabs, line breaks or control characters")
+    if value.startswith("https://") or (value.startswith("/") and value[1:2] not in ("/", "\\")):
         return value
     raise ValueError("a link is an https:// address or a console path starting with /")
 
