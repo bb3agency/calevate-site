@@ -78,7 +78,7 @@ export function ViewAsPanel({
       className={panelFrame(placement)}
     >
       <div className="flex items-start justify-between gap-2 border-b border-line px-4 py-3">
-        <h2 id={labelledBy} className="text-sm font-semibold text-ink">
+        <h2 id={labelledBy} className="text-body font-semibold text-ink">
           {ASSISTANT_NAME} is unavailable in view-as
         </h2>
         <button

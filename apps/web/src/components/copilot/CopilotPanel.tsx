@@ -11,7 +11,7 @@ import { PipMark } from "@/components/illustration/pip";
 import { NewItemsPill } from "@/components/interior/new-items-pill";
 import { selectionSummary } from "@/lib/copilot/selection";
 import { isImeComposing } from "@/lib/imeEnter";
-import { PRIMARY_BUTTON, ProblemNotice, SECONDARY_BUTTON, ScrollRegion, Skeleton } from "@/components/ui";
+import { PRIMARY_BUTTON, ProblemNotice, SECONDARY_BUTTON, ScrollRegion, Skeleton, formatCount } from "@/components/ui";
 import { useAiQuota, useBuyAiExtra } from "@/lib/api/aiQuota";
 import type { Session } from "@/lib/api/client";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
@@ -917,7 +917,7 @@ export function CopilotPanel({
           >
             {overBy > 0
               ? tooLongLine(overBy)
-              : `${questionChars.toLocaleString("en-IN")} of ${MAX_QUESTION_CHARS.toLocaleString("en-IN")} characters`}
+              : `${formatCount(questionChars)} of ${formatCount(MAX_QUESTION_CHARS)} characters`}
           </p>
         )}
         <div className="flex items-center justify-between gap-3 pt-1">

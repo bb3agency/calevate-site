@@ -6,7 +6,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { ProgressBar } from "@/components/interior/progress-bar";
-import { NOTICE_BAR, ProblemNotice, SECONDARY_BUTTON, Skeleton, formatIST } from "@/components/ui";
+import { NOTICE_BAR, ProblemNotice, SECONDARY_BUTTON, Skeleton, formatCount, formatIST } from "@/components/ui";
 import type { Session } from "@/lib/api/client";
 import { confirmProposal } from "@/lib/api/copilot";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
@@ -212,7 +212,7 @@ function PlanBody({
               <ul className="mt-0.5 space-y-0.5">
                 {plan.exclusions.map((exclusion) => (
                   <li key={exclusion.reason} className="break-words [overflow-wrap:anywhere]">
-                    {exclusion.count.toLocaleString("en-IN")} — {exclusion.reason}
+                    {formatCount(exclusion.count)} — {exclusion.reason}
                   </li>
                 ))}
               </ul>
@@ -225,7 +225,7 @@ function PlanBody({
         <ProgressBar
           value={settled}
           max={Math.max(plan.target_count, 1)}
-          label={`${settled.toLocaleString("en-IN")} of ${plan.target_count.toLocaleString("en-IN")} done`}
+          label={`${formatCount(settled)} of ${formatCount(plan.target_count)} done`}
           pendingLabel="Working"
           completeLabel="Finishing"
         />
@@ -379,7 +379,7 @@ function TargetList({ session, plan }: { session: Session; plan: CopilotPlanOut 
               <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-ink-muted">
                 <span>
                   {offset + 1}–{Math.min(offset + PLAN_TARGET_PAGE, page.data.total)} of{" "}
-                  {page.data.total.toLocaleString("en-IN")}
+                  {formatCount(page.data.total)}
                 </span>
                 {offset > 0 && (
                   <button

@@ -31,6 +31,7 @@ import { DailySummaryOffer } from "./DailySummaryOffer";
 import { DailyCalls } from "./DailyCalls";
 import { FirstAgentInvite } from "./FirstAgentInvite";
 import { HeldNumberNotice } from "./HeldNumberNotice";
+import { ReadFailedRow } from "./homeNotices";
 import { LatestCalls } from "./LatestCalls";
 import { LineNotice } from "./LineNotice";
 import { OutcomeSplit } from "./OutcomeSplit";
@@ -294,12 +295,15 @@ export function DashboardScreen({ slug }: { slug: string }) {
       <div className="space-y-4 empty:hidden">
         <LineNotice session={session} href={href(`/c/${slug}/settings/line-protection`)} />
         {numbers.isError ? (
-          <p className="flex items-center justify-between gap-3 rounded-md bg-surface-muted px-4 py-2.5 text-body text-ink-muted">
+          <ReadFailedRow
+            action={
+              <button type="button" onClick={() => void numbers.refetch()} className={`${SECONDARY_BUTTON_SM} shrink-0`}>
+                {HOME.tryAgain}
+              </button>
+            }
+          >
             {HOME.numbersFailed}
-            <button type="button" onClick={() => void numbers.refetch()} className={`${SECONDARY_BUTTON_SM} shrink-0`}>
-              {HOME.tryAgain}
-            </button>
-          </p>
+          </ReadFailedRow>
         ) : numbers.data ? (
           <HeldNumberNotice numbers={numbers.data} topUpHref={href(`/c/${slug}/billing?tab=credits`)} />
         ) : null}

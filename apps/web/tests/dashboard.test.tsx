@@ -722,7 +722,7 @@ describe("the money tile says which kind of nothing it is showing", () => {
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("We could not read your usage");
     const tile = alert.closest("section");
-    expect(tile?.querySelector("h2")?.textContent).toBe("Spend this month");
+    expect(tile?.querySelector("h3")?.textContent).toBe("Spend this month");
     // SCOPED TO THIS TILE, not to the page: the calling-credit tile beside it is a
     // different read that succeeded, and its balance is not this tile's failure.
     expect(tile?.textContent).not.toContain("₹");
@@ -1363,7 +1363,8 @@ describe("proof on the home screen (D-944)", () => {
   it("shows the owner the rupees per new lead from the server's string", async () => {
     await renderClientPage(page, routes({ "/v1/me": OWNER_WITH_BILLING }));
     expect(await screen.findByText("Cost per new lead, 7 days")).toBeTruthy();
-    expect(screen.getByText("₹30")).toBeTruthy();
+    // The label also heads the loading row, so wait for the figure itself.
+    expect(await screen.findByText("₹30")).toBeTruthy();
     expect(screen.getByRole("link", { name: /4 leads for ₹120/ }).getAttribute("href")).toBe(
       "/c/acme/billing?tab=usage",
     );

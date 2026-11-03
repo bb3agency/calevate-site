@@ -4,6 +4,7 @@ import Link from "next/link";
 import { ArrowRight, CircleCheck } from "lucide-react";
 
 import { Checklist, type ChecklistItem } from "@/components/console/checklist";
+import { TEXT_ACTION_SM } from "@/components/console/section";
 import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/components/ui";
 import { useAgents } from "@/lib/api/agents";
 import { STEPS, stepStates, type BusinessProfile, type StepId } from "@/lib/api/businessProfile";
@@ -36,7 +37,7 @@ export function SetupDone({
         <button
           type="button"
           onClick={() => onOpen(step.id)}
-          className="inline-flex items-center gap-1 rounded-sm text-meta font-medium text-brand-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
+          className={TEXT_ACTION_SM}
         >
           {states[step.id] === "skipped" ? "Answer now" : "Open"}
           <ArrowRight aria-hidden className="h-3.5 w-3.5" />

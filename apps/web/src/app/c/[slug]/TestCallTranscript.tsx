@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { useActionFeedback } from "@/components/arc/feedback";
+import { TEXT_ACTION_SM } from "@/components/console/section";
 import { ProblemNotice, Skeleton } from "@/components/ui";
 import { useCall, useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
@@ -74,7 +75,7 @@ export function TestCallTranscript({ callId }: { callId: string }) {
         playhead={null}
         onSeek={() => undefined}
       />
-      <Link href={callHref} className="text-meta font-medium text-brand-strong hover:underline">
+      <Link href={callHref} className={TEXT_ACTION_SM}>
         Open this call
       </Link>
     </div>

@@ -37,7 +37,7 @@ export function GoLiveInvite({ session, href }: { session: Session; href: (path:
   return (
     <section
       aria-labelledby="go-live-invite"
-      className="flex flex-col gap-4 rounded-card border border-brand/40 bg-surface p-5 shadow-card sm:flex-row sm:items-center"
+      className="flex flex-col gap-4 rounded-card border border-brand/30 bg-surface p-5 shadow-card sm:flex-row sm:items-center"
     >
       <div className="min-w-0 flex-1">
         <h2 id="go-live-invite" className="flex items-center gap-2 text-heading text-ink">
