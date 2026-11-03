@@ -276,6 +276,12 @@ async def create_routine(
     enabled: bool,
     now: datetime,
 ) -> RoutineRow:
+    # Count and insert under one per-person lock, as `jobs.create_job` does: two saves at one
+    # under the cap would otherwise each read room for themselves and both insert.
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:lock, 0))"),
+        {"lock": f"copilot-routines:{user_id}"},
+    )
     count = (
         await session.execute(
             text("SELECT count(*) FROM copilot_routines WHERE user_id = :uid"), {"uid": user_id}

@@ -574,5 +574,38 @@ async def test_a_notice_that_reached_nobody_is_retried_and_the_restore_still_goe
     assert (await _notice_state(row_id, tenant_id))[2] is not None
 
 
+async def test_a_notice_another_tick_is_sending_is_skipped_not_sent_twice() -> None:
+    """Two ticks overlapping (one overran its minute) must not both notify one incident."""
+    import asyncio
+
+    from apps.workers import healer
+
+    tenant_id, agent_id, _ = await _org("notice-race")
+    incident_id = await _incident(tenant_id=tenant_id, agent_id=agent_id)
+    async with tenant_session(tenant_id) as session:
+        row_id = await protection.client_incident(
+            session,
+            tenant_id=tenant_id,
+            incident_id=incident_id,
+            agent_id=agent_id,
+            kind="line_protected",
+        )
+        await session.execute(
+            text(
+                "UPDATE heal_client_incidents SET protection = 'forwarded', "
+                "opened_at = now() - interval '2 hours' WHERE id = :id"
+            ),
+            {"id": row_id},
+        )
+
+    async with tenant_session(tenant_id) as first_tick:
+        await first_tick.execute(
+            text("SELECT 1 FROM heal_client_incidents WHERE id = :id FOR UPDATE"),
+            {"id": row_id},
+        )
+        assert await asyncio.wait_for(healer._notify_tenant(tenant_id), timeout=10) == 0
+    assert await _notice_state(row_id, tenant_id) == (None, None, None)
+
+
 def _unused(_: Any) -> None:  # pragma: no cover - keeps the import list honest for mypy
     return None

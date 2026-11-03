@@ -567,6 +567,35 @@ async def test_a_crashed_consumer_does_not_poison_an_event_key_forever() -> None
     assert len(rows) == 1 and rows[0][1] == "processed"
 
 
+async def test_a_repeat_delivery_does_not_extend_a_dead_claims_lease() -> None:
+    """The lease runs from the claim, not from the latest repeat: a vendor retrying inside
+    the lease must not keep a crashed claim looking alive past it."""
+    ek = key("repeat-lease")
+    digest = rel.body_hash({"type": "call.completed"})
+    async with untenanted_session() as session:
+        await rel.claim_inbox_event(session, provider=PROVIDER, event_key=ek, payload_hash=digest)
+    await _age_inbox(ek, minutes=6)
+    async with untenanted_session() as session:
+        repeat = await rel.claim_inbox_event(
+            session, provider=PROVIDER, event_key=ek, payload_hash=digest
+        )
+    assert repeat.state == "duplicate"
+
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "UPDATE webhook_inbox_events SET updated_at = updated_at - interval '5 minutes' "
+                "WHERE provider = :p AND event_key = :k"
+            ),
+            {"p": PROVIDER, "k": ek},
+        )
+    async with untenanted_session() as session:
+        later = await rel.claim_inbox_event(
+            session, provider=PROVIDER, event_key=ek, payload_hash=digest
+        )
+    assert later.state == "claimed", "eleven minutes after a dead claim, the retry takes it"
+
+
 async def test_a_failed_event_is_reclaimable_but_only_by_one_retry() -> None:
     ek = key("failed-retry")
     digest = rel.body_hash({"status": "completed"})

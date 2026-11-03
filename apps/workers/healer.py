@@ -1302,7 +1302,10 @@ async def _notify_tenant(tenant_id: UUID) -> int:
                     "JOIN heal_incidents i ON i.id = ci.incident_id "
                     "LEFT JOIN agents a ON a.id = ci.agent_id WHERE ci.notified_at IS NULL "
                     "OR (ci.state = 'resolved' AND ci.restored_notified_at IS NULL "
-                    "AND ci.notified_by IS DISTINCT FROM 'dashboard') ORDER BY ci.opened_at"
+                    "AND ci.notified_by IS DISTINCT FROM 'dashboard') ORDER BY ci.opened_at "
+                    # A tick that overruns the minute meets the next one here: without the
+                    # claim both read the same unstamped rows and mail the owner twice.
+                    "FOR UPDATE OF ci SKIP LOCKED"
                 )
             )
         ).all()

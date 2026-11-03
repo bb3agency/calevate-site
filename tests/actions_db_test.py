@@ -7,7 +7,9 @@ file runs beside the other suites on the shared Postgres.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
+from collections.abc import Awaitable, Callable
 from uuid import UUID
 
 import pytest
@@ -18,6 +20,7 @@ from apps.api.agents import lifecycle as agent_lifecycle
 from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import create_org_with_receptionist
 
 
@@ -310,3 +313,86 @@ async def test_a_mutation_through_the_wrong_agent_changes_nothing() -> None:
         assert await service.set_enabled(s, agent_id=agent_a, tool_id=tool_a, enabled=False)
         assert await service.delete_tool(s, agent_id=agent_a, tool_id=tool_a)
         assert await service.get_agent_tool(s, agent_id=agent_a, tool_id=tool_a) is None
+
+
+async def _race(*saves: Callable[[AsyncSession], Awaitable[object]], tenant: UUID) -> list[bool]:
+    """Each save in its own transaction, all opened before any of them counts."""
+    barrier = asyncio.Barrier(len(saves))
+
+    async def one(save: Callable[[AsyncSession], Awaitable[object]]) -> bool:
+        try:
+            async with tenant_session(tenant) as s:
+                await s.execute(text("SELECT 1"))
+                await barrier.wait()
+                await save(s)
+        except ProblemError:
+            return False
+        return True
+
+    return list(await asyncio.gather(*(one(save) for save in saves)))
+
+
+@pytest.mark.asyncio
+async def test_two_credentials_racing_for_the_last_place_keep_the_cap() -> None:
+    tenant = await _tenant("cred-cap")
+    async with tenant_session(tenant) as s:
+        for index in range(creds.MAX_CREDENTIALS_PER_TENANT - 1):
+            await creds.create_credential(
+                s, tenant_id=tenant, kind="custom_api", label=f"k{index}", secret="v-123456"
+            )
+
+    def save(label: str) -> Callable[[AsyncSession], Awaitable[object]]:
+        return lambda s: creds.create_credential(
+            s, tenant_id=tenant, kind="custom_api", label=label, secret="v-123456"
+        )
+
+    assert sorted(await _race(save("left"), save("right"), tenant=tenant)) == [False, True]
+    async with tenant_session(tenant) as s:
+        kept = (await s.execute(text("SELECT count(*) FROM integration_credentials"))).scalar()
+    assert kept == creds.MAX_CREDENTIALS_PER_TENANT
+
+
+@pytest.mark.asyncio
+async def test_two_actions_racing_for_the_last_place_keep_the_cap() -> None:
+    tenant = await _tenant("tool-cap")
+    async with tenant_session(tenant) as s:
+        agent, tool = await _agent_with_tool(s, tenant, name="Capped")
+        await s.execute(
+            text(
+                "INSERT INTO action_tools (id, tenant_id, agent_id, kind, provider, name, "
+                "description, enabled, trigger, pre_call_message, credential_id, config, "
+                "params, created_at, updated_at) SELECT gen_random_uuid(), tenant_id, agent_id, "
+                "kind, provider, name || '_' || n, description, enabled, trigger, "
+                "pre_call_message, credential_id, config, params, now(), now() "
+                "FROM action_tools, generate_series(1, :n) AS n WHERE id = :id"
+            ),
+            {"id": tool, "n": service.MAX_TOOLS_PER_AGENT - 2},
+        )
+
+    def save(name: str) -> Callable[[AsyncSession], Awaitable[object]]:
+        return lambda s: service.create_tool(
+            s,
+            tenant_id=tenant,
+            agent_id=agent,
+            kind="custom_api",
+            provider=None,
+            name=name,
+            description="when asked about it",
+            trigger="during_call",
+            pre_call_message=None,
+            credential_id=None,
+            params=[{"name": "order_id", "source": "ai", "type": "string", "description": "id"}],
+            config={"method": "GET", "url": "https://api.example.com/o"},
+        )
+
+    assert sorted(await _race(save("get_left"), save("get_right"), tenant=tenant)) == [
+        False,
+        True,
+    ]
+    async with tenant_session(tenant) as s:
+        kept = (
+            await s.execute(
+                text("SELECT count(*) FROM action_tools WHERE agent_id = :a"), {"a": agent}
+            )
+        ).scalar()
+    assert kept == service.MAX_TOOLS_PER_AGENT

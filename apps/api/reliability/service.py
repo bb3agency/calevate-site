@@ -1223,10 +1223,15 @@ async def claim_inbox_event(
     # Make the retry visible: the activity view's "deduplicated" count is this
     # counter, and without it a vendor retrying fifteen times looks like one quiet
     # arrival and a client concluding that events vanish.
+    #
+    # A `processing` row keeps its `updated_at`: that column is the claim's lease clock, and
+    # bumping it on every repeat would let a vendor's retries keep a dead claim looking
+    # alive, so the retry that should re-claim it is answered "duplicate" instead.
     await session.execute(
         text(
             "UPDATE webhook_inbox_events SET duplicate_count = duplicate_count + 1, "
-            "updated_at = now() WHERE id = :id"
+            "updated_at = CASE WHEN status = 'processing' THEN updated_at ELSE now() END "
+            "WHERE id = :id"
         ),
         {"id": found_id},
     )
