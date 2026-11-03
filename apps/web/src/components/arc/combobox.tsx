@@ -26,6 +26,8 @@ import clsx from "clsx";
 
 
 
+import { isImeComposing } from "@/lib/imeEnter";
+
 import { FIELD_FLUSH, Field } from "./field";
 
 export type ComboboxOption = {
@@ -115,6 +117,7 @@ export function Combobox({
     setActive(next);
   };
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (isImeComposing(event)) return;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       if (!open) {

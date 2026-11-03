@@ -2290,3 +2290,86 @@ describe("a message too long to send", () => {
     expect(schemas.CopilotAskIn.properties.question.maxLength).toBe(MAX_QUESTION_CHARS);
   });
 });
+
+describe("typing through an input method", () => {
+  it("does not send when Enter only picks the IME's candidate word", async () => {
+    const { held, asks } = renderHeld();
+    const box = screen.getByLabelText("Your question about this screen") as HTMLTextAreaElement;
+    fireEvent.change(box, { target: { value: "namaskaram" } });
+    await act(async () => {
+      fireEvent.keyDown(box, { key: "Enter", isComposing: true });
+      fireEvent.keyDown(box, { key: "Enter", keyCode: 229 });
+    });
+    expect(asks.length).toBe(0);
+    expect(box.value).toBe("namaskaram");
+    await act(async () => {
+      fireEvent.keyDown(box, { key: "Enter" });
+    });
+    await waitFor(() => expect(asks.length).toBe(1));
+    held.release();
+  });
+});
+
+describe("the side panel on a phone", () => {
+  function SideMount() {
+    const holder = useCopilotSurfaceHolder();
+    if (holder === null) return null;
+    return (
+      <CopilotPanel
+        session={SESSION}
+        holder={holder}
+        realm="client"
+        labelledBy="t-panel"
+        placement="side"
+        onClose={() => {}}
+      />
+    );
+  }
+
+  function mountSide(panelLeft: number) {
+    stubCopilot({ chunks: [] });
+    render(
+      withQuery(
+        <>
+          <DraftScreen />
+          <SideMount />
+        </>,
+      ),
+    );
+    const panel = screen.getByRole("dialog");
+    panel.getBoundingClientRect = () =>
+      ({
+        left: panelLeft,
+        right: window.innerWidth,
+        width: window.innerWidth - panelLeft,
+        top: 0,
+        bottom: 800,
+        height: 800,
+        x: panelLeft,
+        y: 0,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    return panel;
+  }
+
+  it("keeps Tab inside while it covers the whole page", () => {
+    const panel = mountSide(0);
+    const items = Array.from(panel.querySelectorAll<HTMLElement>("button:not([disabled]), textarea"));
+    const last = items[items.length - 1];
+    last.focus();
+    fireEvent.keyDown(last, { key: "Tab" });
+    // FAILS IF: Tab leaves for the form hidden under the panel.
+    expect(panel.contains(document.activeElement)).toBe(true);
+    (screen.getByLabelText("Opens") as HTMLElement).focus();
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: "Tab", shiftKey: true });
+    expect(panel.contains(document.activeElement)).toBe(true);
+  });
+
+  it("lets Tab leave for the form beside it on a wide screen", () => {
+    mountSide(400);
+    const opens = screen.getByLabelText("Opens") as HTMLElement;
+    opens.focus();
+    fireEvent.keyDown(opens, { key: "Tab" });
+    expect(document.activeElement).toBe(opens);
+  });
+});

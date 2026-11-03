@@ -7,6 +7,7 @@ import { Disclosure, FIELD, FIELD_HINT, FIELD_LABEL, QUIET_ICON_BUTTON, formatCo
 import { InfoTip } from "@/components/console/infoTip";
 import { TEXT_ACTION, TEXT_ACTION_DANGER } from "@/components/console/section";
 import type { ScriptContext } from "@/lib/api/script";
+import { isImeComposing } from "@/lib/imeEnter";
 import { sameLanguage, useBusinessSuggestions } from "@/lib/useVerticalExamples";
 
 import { chars, issuesFor, sectionDetail, type Issue, type Limits, type Section } from "./scriptModel";
@@ -453,7 +454,7 @@ function CollectEditor({
               placeholder={`For example: ${ideas[0] ?? "best time to call back"}`}
               onChange={(e) => setTyped(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") {
+                if (e.key === "Enter" && !isImeComposing(e)) {
                   e.preventDefault();
                   add(typed);
                 }

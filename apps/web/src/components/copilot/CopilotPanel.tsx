@@ -10,6 +10,7 @@ import { ConfirmDialog } from "@/components/confirmDialog";
 import { PipMark } from "@/components/illustration/pip";
 import { NewItemsPill } from "@/components/interior/new-items-pill";
 import { selectionSummary } from "@/lib/copilot/selection";
+import { isImeComposing } from "@/lib/imeEnter";
 import { PRIMARY_BUTTON, ProblemNotice, SECONDARY_BUTTON, ScrollRegion, Skeleton } from "@/components/ui";
 import { useAiQuota, useBuyAiExtra } from "@/lib/api/aiQuota";
 import type { Session } from "@/lib/api/client";
@@ -26,7 +27,7 @@ import {
   questionOverBy,
   tooLongLine,
 } from "@/lib/copilot/questionLimit";
-import { pressedInAnotherLayer } from "@/lib/focusTrap";
+import { pressedInAnotherLayer, tabbablesWithin } from "@/lib/focusTrap";
 import { useCopilotConversation, type CopilotTurn } from "@/lib/copilot/useCopilotConversation";
 
 import { AnswerText } from "./answerText";
@@ -61,7 +62,8 @@ import {
  * so they can read an answer, Tab back into the form, change a value and ask again.
  * `useFocusTrap` would make that impossible — the first Tab out of the panel would be
  * pulled back in — so it is deliberately not used here, and this paragraph is why the
- * next reader should not "fix" the omission.
+ * next reader should not "fix" the omission. The one exception is a phone, where the side
+ * panel covers the whole page and there is nothing beside it to Tab back into.
  *
  * What is kept from the modal contract is the part that costs nothing: Escape closes, and
  * closing returns focus to the launcher that opened it. What is given up is Tab
@@ -195,6 +197,36 @@ export function CopilotPanel({
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
+
+  // ON A PHONE THERE IS NO PAGE BESIDE IT. Below `sm` the side panel is full width (see
+  // `panelFrame`), so a Tab out of it lands on a header button hidden under it and focus
+  // vanishes. Tab cycles inside only while the panel covers the viewport's width — read at
+  // the key press, so a wide screen keeps the "Tab back into the form" design above. A
+  // dialog opened from the panel handles its own Tab.
+  useEffect(() => {
+    if (placement !== "side") return undefined;
+    const onKeyDown = (event: KeyboardEvent) => {
+      const own = panel.current;
+      if (event.key !== "Tab" || !own || pressedInAnotherLayer(event, own)) return;
+      const box = own.getBoundingClientRect();
+      if (box.width === 0 || box.left > 0 || box.right < window.innerWidth) return;
+      const items = tabbablesWithin(own);
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (!first || !last) return;
+      const at = document.activeElement;
+      const inside = own.contains(at);
+      if (event.shiftKey && (at === first || !inside)) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (at === last || !inside)) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [placement]);
 
   // Focus the ask box when the panel opens — it is the only thing anybody opens this for.
   // Not on the assistant's own page, where the panel is one region among several and
@@ -850,7 +882,7 @@ export function CopilotPanel({
           onKeyDown={(event) => {
             // Enter sends, Shift+Enter is a newline — the convention every chat surface
             // uses, and the reason the control is a textarea rather than an input.
-            if (event.key === "Enter" && !event.shiftKey) {
+            if (event.key === "Enter" && !event.shiftKey && !isImeComposing(event)) {
               event.preventDefault();
               // NOT WHILE AN ANSWER IS ARRIVING. The button below was already guarded on
               // `asking`; this handler was not, so a person drafting their next question
