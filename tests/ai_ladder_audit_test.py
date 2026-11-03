@@ -170,6 +170,27 @@ async def test_a_refusal_after_gemini_answered_carries_what_gemini_cost(
     assert refused.value.earlier[0].usage is not None
 
 
+async def test_the_repair_shows_the_model_its_own_answer_before_the_problems(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FAILS IF: the repair asks the model to fix "these problems" and change nothing else in
+    an answer it is not shown, so it writes a fresh answer with fresh problems."""
+    asked: list[list[dict[str, Any]]] = []
+
+    async def _complete(leg: chat.ChatLeg, messages: Sequence[Any], **kw: Any) -> Any:
+        asked.append([dict(m) for m in messages])
+        return _outcome('{"ok": true}' if len(asked) > 1 else '{"ok": false, "kept": "x"}')
+
+    monkeypatch.setattr(chat, "complete", _complete)
+    answer = await script_assist.ask_json("d", "i", parse=_strict_parse, tenant_leg=GOOGLE_LEG)
+
+    assert answer.value is True and len(asked) == 2
+    assert asked[1][:2] == asked[0]
+    assert asked[1][2]["role"] == "assistant"
+    assert json.loads(asked[1][2]["content"]) == {"ok": False, "kept": "x"}
+    assert asked[1][3]["role"] == "user" and "ok: must be true" in asked[1][3]["content"]
+
+
 async def test_a_repair_that_never_reached_the_provider_keeps_the_first_spend_known(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

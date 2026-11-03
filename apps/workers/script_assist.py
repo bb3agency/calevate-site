@@ -34,6 +34,7 @@ an Azure answer Azure counted, its `usage`; it charges nothing.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from functools import partial
@@ -714,6 +715,18 @@ class _RawJson:
     service_tier: chat.ServiceTier = "standard"
 
 
+@dataclass(frozen=True, slots=True)
+class Repair:
+    """The second turn of the one repair: the leg's own answer, then what broke the rules.
+
+    The answer travels back rather than the request being sent alone with the note: told to
+    fix "these problems" and change "nothing else" in an answer it cannot see, a model writes
+    a fresh answer with fresh problems, and the repair then fails as often as the first try."""
+
+    answer: str
+    note: str
+
+
 def _strict(schema_name: str, schema: dict[str, object]) -> dict[str, object]:
     return {
         "type": "json_schema",
@@ -731,6 +744,7 @@ async def _json_via_azure(
     timeout_s: float = ASSIST_TIMEOUT_S,
     deadline: float | None = None,
     health_leg: provider_health.AiLeg = "script",
+    repair: Repair | None = None,
 ) -> _RawJson | None:
     """Ask Azure OpenAI for one JSON answer, or None if it holds no credential or did not
     answer.
@@ -760,6 +774,7 @@ async def _json_via_azure(
         timeout_s=timeout_s,
         deadline=deadline,
         health_leg=health_leg,
+        repair=repair,
     )
 
 
@@ -775,6 +790,7 @@ async def _json_via_google(
     deadline: float | None = None,
     health_leg: provider_health.AiLeg = "script",
     flex: chat.FlexRequest | None = None,
+    repair: Repair | None = None,
 ) -> _RawJson | None:
     """The account's own Gemini model on D-478's leg, or None without the key or an answer.
 
@@ -805,6 +821,7 @@ async def _json_via_google(
         deadline=deadline,
         health_leg=health_leg,
         flex=flex,
+        repair=repair,
     )
 
 
@@ -821,15 +838,23 @@ async def _json_via_leg(
     deadline: float | None = None,
     health_leg: provider_health.AiLeg = "script",
     flex: chat.FlexRequest | None = None,
+    repair: Repair | None = None,
 ) -> _RawJson | None:
     """One JSON answer from a paid leg (Azure or the account's Gemini), or None when it
     refused, could not be reached, or the assist's time budget left no room to ask.
 
-    `flex` applies to the first ask only; a degraded re-ask goes on the standard tier."""
+    `flex` applies to the first ask only; a degraded re-ask goes on the standard tier.
+    `repair` continues the conversation: the leg's own earlier answer as its turn, then
+    what was wrong with it."""
     messages = [
         {"role": "system", "content": instruction},
         {"role": "user", "content": description},
     ]
+    if repair is not None:
+        messages += [
+            {"role": "assistant", "content": repair.answer},
+            {"role": "user", "content": repair.note},
+        ]
 
     async def ask(fmt: Mapping[str, Any], tier: chat.FlexRequest | None = None) -> chat.ChatOutcome:
         return await chat.complete(
@@ -1152,11 +1177,13 @@ async def ask_json[T](
             else None
         )
 
-        async def paid_answer(text: str, tier: chat.FlexRequest | None = None) -> _RawJson | None:
+        async def paid_answer(
+            tier: chat.FlexRequest | None = None, repair: Repair | None = None
+        ) -> _RawJson | None:
             if model is not None:
                 return await _json_via_google(
                     model,
-                    text,
+                    description,
                     instruction,
                     response_format,
                     max_tokens=max_tokens,
@@ -1165,9 +1192,10 @@ async def ask_json[T](
                     deadline=paid_until,
                     health_leg=health_leg,
                     flex=tier,
+                    repair=repair,
                 )
             return await _json_via_azure(
-                text,
+                description,
                 instruction,
                 response_format,
                 max_tokens=max_tokens,
@@ -1175,9 +1203,10 @@ async def ask_json[T](
                 timeout_s=timeout_s,
                 deadline=paid_until,
                 health_leg=health_leg,
+                repair=repair,
             )
 
-        paid = await paid_answer(description, asked)
+        paid = await paid_answer(asked)
         value, problems = _parsed_with_problems(parse, paid.data if paid is not None else None)
         spent = paid.usage if paid is not None else None
         tier: chat.ServiceTier = paid.service_tier if paid is not None else "standard"
@@ -1186,8 +1215,12 @@ async def ask_json[T](
             # ONE REPAIR on the same leg, told what was wrong, before the fallback. A long
             # structured answer that breaks one validation rule is usually right everywhere
             # else, and the fallback leg is slower and weaker at exactly this kind of answer.
+            assert paid is not None and paid.data is not None  # problems come from its parse
             repaired = await paid_answer(
-                f"{description}\n\n{REPAIR_NOTE.format(problems=problems)}"
+                repair=Repair(
+                    answer=json.dumps(paid.data, ensure_ascii=False),
+                    note=REPAIR_NOTE.format(problems=problems),
+                )
             )
             if repaired is not None:
                 # A repair that never reached the provider cost nothing: the first
