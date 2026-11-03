@@ -31,10 +31,11 @@ from apps.api.agents.starter_plans import (
     STEP_FOCUS_MAX,
     STEP_TITLE_MAX,
     Plan,
+    PlanStep,
     clean_plan,
     plans_to_json,
 )
-from apps.api.agents.starters import CATALOGUE, JOB_LABEL, STARTER_JOBS, vertical_of
+from apps.api.agents.starters import CATALOGUE, JOB_LABEL, STARTER_JOBS, StarterJob, vertical_of
 from apps.api.billing.ai_quota import new_assist_ref
 from apps.api.billing.models import ASSIST_FEATURE_LEAD_FIELDS
 from apps.api.core.errors import ProblemError
@@ -51,7 +52,9 @@ log = get_logger(__name__)
 JOB_NAME: Final = "write_starter_steps"
 
 WRITE_TIMEOUT_S: Final = 40.0
-WRITE_MAX_TOKENS: Final = 1400
+# The script writer's budget: seventeen steps of JSON plus a reasoning model's thinking
+# outgrew 1400 on a real account, and a cut-off answer is no answer.
+WRITE_MAX_TOKENS: Final = 4096
 
 #: Pinned by `tests/starter_steps_test.py`: same steps, the business's words.
 SYSTEM_PROMPT: Final = (
@@ -64,6 +67,7 @@ SYSTEM_PROMPT: Final = (
     f"job. Focus: at most {STEP_FOCUS_MAX} characters, or empty when the step needs none. "
     "Use only what the business says about itself: never invent a product, price, offer, "
     "discount, place, person or time, and never write what the agent says aloud. "
+    "Plain words: no symbols or markdown, and keep the plan's own word for a booking. "
     "Return ONLY JSON with one key per job, each a list of "
     '{"title": str, "focus": str} in step order.'
 )
@@ -95,21 +99,37 @@ def _schema() -> dict[str, Any]:
     }
 
 
+def _kept(job: StarterJob, plan: Plan, *, trade: str) -> Plan | None:
+    """`plan` with any line that breaks the rules of text a client reads
+    (`business_copy.screen_text_problems`) put back: a title to the platform's for that step,
+    a focus to none. One "appointment" in a property office's seventeen steps costs that one
+    title, not the whole answer. None when a put-back title collides with another."""
+    clinic = trade == "clinic"
+    ours = CATALOGUE[(trade, job)].steps
+    kept: list[PlanStep] = []
+    for i, (step, platform) in enumerate(zip(plan, ours, strict=True)):
+        title = step.title
+        if screen_text_problems(f"{job}.{i}.title", title, clinic=clinic):
+            title = platform.title
+        focus = step.focus
+        if screen_text_problems(f"{job}.{i}.focus", focus, clinic=clinic):
+            focus = ""
+        kept.append(PlanStep(title=title, focus=focus))
+    titles = [s.title.casefold() for s in kept]
+    return tuple(kept) if len(set(titles)) == len(titles) else None
+
+
 def plans_from_model(raw: dict[str, Any], *, vertical: str | None) -> dict[str, Plan] | None:
-    """Every job's plan, cleaned; None unless all of them fit their job's shape and keep the
-    rules of text a client reads (`business_copy.screen_text_problems`), so the ladder's next
-    leg gets its chance rather than half a set, or a broken one, being stored."""
+    """Every job's plan, cleaned; None unless all of them fit their job's shape, so the
+    ladder's next leg gets its chance rather than half a set being stored."""
     trade = vertical_of(vertical)
     plans: dict[str, Plan] = {}
     for job in STARTER_JOBS:
         plan = clean_plan(raw.get(job), steps=len(CATALOGUE[(trade, job)].steps))
-        if plan is None:
+        kept = None if plan is None else _kept(job, plan, trade=trade)
+        if kept is None:
             return None
-        for i, step in enumerate(plan):
-            for part, value in (("title", step.title), ("focus", step.focus)):
-                if screen_text_problems(f"{job}.{i}.{part}", value, clinic=trade == "clinic"):
-                    return None
-        plans[job] = plan
+        plans[job] = kept
     return plans
 
 

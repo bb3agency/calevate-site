@@ -96,13 +96,27 @@ def test_the_model_answer_is_all_jobs_or_none() -> None:
     assert worker.plans_from_model(partial, vertical=None) is None
     # The rules of every AI-written line a client reads: no provider, no medical words
     # outside a clinic, no markdown.
-    for broken in ("Ask what Gemini thinks", "Book the doctor", "**Close**"):
+    # A line that breaks those is put back, not the whole answer lost: a title to the
+    # platform's own for that step, a focus to none.
+    platform = starters.starter_for("custom", "answer_calls").steps[0].title
+    for broken in ("Ask what Gemini thinks", "Book an appointment", "**Close**"):
         bad = _all_raw()
         bad["answer_calls"][0]["title"] = broken
-        assert worker.plans_from_model(bad, vertical=None) is None
+        bad["answer_calls"][1]["focus"] = broken
+        plans = worker.plans_from_model(bad, vertical=None)
+        assert plans is not None
+        assert plans["answer_calls"][0].title == platform
+        assert plans["answer_calls"][1].focus == ""
+        assert plans["answer_calls"][2].title == bad["answer_calls"][2]["title"]
     medical = _all_raw()
-    medical["answer_calls"][0]["title"] = "Book the doctor"
-    assert worker.plans_from_model(medical, vertical="clinic") is not None
+    medical["answer_calls"][0]["title"] = "Book an appointment"
+    plans = worker.plans_from_model(medical, vertical="clinic")
+    assert plans is not None and plans["answer_calls"][0].title == "Book an appointment"
+    # A put-back title that collides with another step's is no plan at all.
+    clash = _all_raw()
+    clash["answer_calls"][0]["title"] = "**x**"
+    clash["answer_calls"][1]["title"] = platform
+    assert worker.plans_from_model(clash, vertical=None) is None
 
 
 async def _services(tenant_id: uuid.UUID, services: str) -> None:
