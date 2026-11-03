@@ -179,11 +179,11 @@ describe("the text shimmer's band", () => {
 });
 
 /**
- * The status tones (warn, danger) carry text and icons, so they are held to the text
+ * The status tones (warn, danger, success, info) carry text and icons, so they are held to the text
  * threshold on the surfaces they are painted on, including their own tinted ground.
  */
 describe("the status tones", () => {
-  for (const tone of ["warn", "danger"]) {
+  for (const tone of ["warn", "danger", "success", "info"]) {
     for (const ground of ["surface", "app", `${tone}-soft`]) {
       it(`renders --${tone} on --${ground} at AA`, () => {
         expect(contrast(token(":root {", tone), token(":root {", ground))).toBeGreaterThanOrEqual(
