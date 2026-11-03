@@ -11,8 +11,8 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
-from collections.abc import AsyncIterator, Callable, Sequence
-from typing import Any
+from collections.abc import AsyncGenerator, AsyncIterator, Callable, Sequence
+from typing import Any, cast
 
 import httpx
 import pytest
@@ -388,7 +388,7 @@ async def test_a_consumer_that_stops_early_can_still_meter_the_completed_turns(
         ],
     )
     paid = service.PaidTurns()
-    run = service.run_copilot(PAYLOAD, paid=paid)
+    run = cast(AsyncGenerator[Any, None], service.run_copilot(PAYLOAD, paid=paid))
     async for event in run:
         if event.text is not None:
             break
