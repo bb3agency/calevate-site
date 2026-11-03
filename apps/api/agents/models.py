@@ -1311,13 +1311,21 @@ class PhoneNumber(PKMixin, TimestampMixin, Base):
         CheckConstraint(
             f"provider IS NULL OR provider IN {get_args(NumberProvider)!r}", name="provider_carrier"
         ),
+        # Unique among LIVE numbers only: a released number keeps its row for the rental
+        # history, and a table-wide UNIQUE would stop anyone renting it again (e3c7a1f9b542).
+        Index(
+            "uq_phone_numbers_e164_live",
+            "e164",
+            unique=True,
+            postgresql_where=text("released_at IS NULL"),
+        ),
     )
 
     tenant_id: Mapped[UUID] = mapped_column(
         ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
     )
     agent_id: Mapped[UUID | None] = mapped_column(ForeignKey("agents.id", ondelete="SET NULL"))
-    e164: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    e164: Mapped[str] = mapped_column(Text, nullable=False)
     series: Mapped[str] = mapped_column(String, nullable=False, server_default="standard")
     #: Who holds this number (`calevate_shared.carrier.NumberProvider`), or NULL when it is
     #: held by none this platform dials through (migrations c8f5d1b74a30, b5e1d7c3a906).

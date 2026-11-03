@@ -4645,7 +4645,8 @@ async def provision_number(
     not ours to guess. Misclassification here is what the ₹2/₹5/₹10 lakh ladder under the
     2025 TCCCPR amendments is for (`docs/legal/phone-number-research.md:23`).
 
-    The number is globally unique (`phone_numbers.e164`), and the collision is caught
+    A live number is unique across tenants (`uq_phone_numbers_e164_live`; a released row
+    does not hold it), and the collision is caught
     from the UNIQUE INDEX rather than by probing first — deliberately. A probe runs
     under this tenant's RLS, which hides another tenant's rows, so it would report
     "available" for exactly the number that is not, and the insert would then surface

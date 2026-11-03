@@ -173,13 +173,14 @@ async def buy_number(
         text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
         {"key": f"number-buy:{e164}"},
     )
-    # UNDER THE LOCK, and against the globally UNIQUE column rather than this tenant's
-    # rows: RLS hides another tenant's number, so a scoped probe would report "available"
-    # for exactly the number that is not. `count(*)` on a unique column is the database's
-    # answer, not the session's — the same reasoning `provision_number` gives for letting
-    # the constraint be the authority.
+    # UNDER THE LOCK. This probe runs under the tenant's RLS, so it sees only this tenant's
+    # live numbers; another tenant's live number is refused by `uq_phone_numbers_e164_live`
+    # at the INSERT in `provision_number`. A released row does not hold the number.
     held = (
-        await session.execute(text("SELECT 1 FROM phone_numbers WHERE e164 = :e"), {"e": e164})
+        await session.execute(
+            text("SELECT 1 FROM phone_numbers WHERE e164 = :e AND released_at IS NULL"),
+            {"e": e164},
+        )
     ).first()
     if held is not None:
         raise ProblemError.conflict(

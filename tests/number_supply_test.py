@@ -411,6 +411,46 @@ async def test_releasing_gives_the_number_back_and_stops_the_meter(authorized: N
     assert bought.engine_number_ref not in held
 
 
+async def test_a_released_number_can_be_bought_again_and_is_live_once(authorized: None) -> None:
+    """A released row keeps its history and no longer holds the number: the client who
+    released it can buy it back. While that new row is live, no other tenant can record it."""
+    tenant_id = await _tenant()
+    offer = await _offer(uuid.uuid4().hex[:6])
+
+    async def buy(session: Any) -> number_supply.BoughtNumber:
+        return await number_supply.buy_number(
+            session,
+            get_engine(),
+            tenant_id=tenant_id,
+            e164=offer.e164,
+            country="IN",
+            provider=offer.provider,
+            monthly_rental_usd=offer.monthly_price_usd,
+            agent_id=None,
+            purpose=None,
+        )
+
+    async with tenant_session(tenant_id) as session:
+        first = await buy(session)
+        await number_supply.release_number(session, get_engine(), number_id=first.number_id)
+        again = await buy(session)
+    assert again.number_id != first.number_id
+
+    other = await _tenant()
+    async with tenant_session(other) as session:
+        with pytest.raises(ProblemError) as raised:
+            await agents_service.provision_number(
+                session,
+                tenant_id=other,
+                e164=offer.e164,
+                series="standard",
+                agent_id=None,
+                provider="exotel",
+                purpose=None,
+            )
+    assert raised.value.code == "number_taken"
+
+
 async def test_a_clients_own_connection_cannot_be_released_here(authorized: None) -> None:
     """Model B is not withdrawn and is still half the product. "Releasing" a number the
     client holds in their own name would delete our record of a connection the vendor

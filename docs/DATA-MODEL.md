@@ -452,7 +452,7 @@ pipecat_agents(id, tenant_id → organizations RESTRICT, agent_id → agents RES
   -- (ux_pipecat_agents_agent_variant, D-663). FORCEd tenant RLS until the drop.
   -- `agent_config_versions` and `agent_config_attestations` (append-only) and
   -- `pipecat_kb_objects` were written only for that engine too and go in the same release.
-phone_numbers(id, tenant_id, agent_id, e164 UNIQUE, series ENUM[140,160,standard],
+phone_numbers(id, tenant_id, agent_id, e164 UNIQUE WHERE released_at IS NULL, series ENUM[140,160,standard],
   provider, engine_number_ref, dlt_status ENUM[pending,registered,blocked], purpose TEXT,
   engine_owned BOOL NOT NULL DEFAULT false, purchase_price_usd NUMERIC(12,4),
   monthly_rental_usd NUMERIC(12,4), released_at TIMESTAMPTZ,
