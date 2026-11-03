@@ -75,6 +75,7 @@ from calevate_shared.engine import (
     compose_first_utterance,
     memory_goodbye_rule,
     neutralise_markers,
+    quoted_client_words,
 )
 
 from apps.api.core.errors import ProblemError
@@ -378,7 +379,7 @@ def judge(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapshot) -> Pub
     # notices are said on either side of its opening line (D-865), so `cfg.opening_line`
     # alone is no longer one stretch of the quote.
     prompt_disclosure = (
-        snapshot.carries_prompt_marker(neutralise_markers(compose_first_utterance(cfg)))
+        snapshot.carries_prompt_marker(quoted_client_words(compose_first_utterance(cfg)))
         if cfg.opening_line.strip()
         else None
     )

@@ -159,6 +159,25 @@ def test_a_per_language_prompt_without_the_rule_is_drift() -> None:
     assert verdict.state == "not_applied"
 
 
+def test_a_script_quoting_the_markers_does_not_stand_in_for_a_cut_off_tail() -> None:
+    """A client who writes both marker sentences into their script, held by an engine that
+    cut everything after the script: the platform blocks are gone, and the client's quote of
+    their markers must not read back as them."""
+    cfg = _cfg(f"Be polite. {TRUTHFUL_ANSWER_MARKER} {CONFIDENTIALITY_MARKER}")
+    full = compose_engine_prompt(cfg)
+    cut = full[: full.index(CLIENT_SCRIPT_CLOSE) + len(CLIENT_SCRIPT_CLOSE)]
+    cut_inside = full[: full.index(CLIENT_SCRIPT_CLOSE)]
+
+    assert carries_truthful_answer_floor(full) and carries_confidentiality_rule(full)
+    for held in (cut, cut_inside):
+        assert not carries_truthful_answer_floor(held)
+        assert not carries_confidentiality_rule(held)
+        verdict = judge(FakeEngine(), cfg, _snapshot(cfg, prompt=held))
+        assert verdict.truthful_answer_applied is False
+        assert verdict.confidentiality_applied is False
+        assert verdict.state == "not_applied"
+
+
 def test_a_drift_on_several_properties_names_them_all() -> None:
     cfg = _cfg()
     stripped = compose_engine_prompt(cfg).split(CONFIDENTIALITY_MARKER)[0]
