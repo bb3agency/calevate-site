@@ -74,6 +74,7 @@ from apps.api.core.logging import (
     REDACT_KEYS,
     get_logger,
     redact_mapping,
+    redact_query,
     redact_text,
 )
 from apps.api.core.settings import get_settings
@@ -151,9 +152,10 @@ def scrub_event(
         # Only populated under `send_default_pii=True` — which is off, and which is a
         # one-word edit away from being on.
         request.pop("cookies", None)
-        # Query strings carry lead search filters, which can be a phone suffix.
+        # Query strings carry search terms (a name, a phone suffix) that `redact_text`
+        # cannot recognise, so only the parameter names survive.
         if isinstance(request.get("query_string"), str):
-            request["query_string"] = redact_text(request["query_string"])
+            request["query_string"] = redact_query(request["query_string"])
 
     for frame_holder in _iter_stacktraces(event):
         variables = frame_holder.get("vars")

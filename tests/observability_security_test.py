@@ -375,6 +375,17 @@ def test_a_meta_verify_token_in_the_query_string_is_masked() -> None:
     assert "VTOKEN123" not in scrubbed["request"]["query_string"]
 
 
+def test_a_search_term_in_the_query_string_never_reaches_the_tracker() -> None:
+    """A name and a phone SUFFIX are what a GET search carries, and neither is shaped like
+    anything `redact_text` masks."""
+    event = {"request": {"query_string": "q=Priya%20Kumar&phone=43210&limit=50"}}
+    scrubbed = scrub_event(event)
+    assert scrubbed is not None
+    query = scrubbed["request"]["query_string"]
+    assert "Priya" not in query and "43210" not in query
+    assert query == "q=[redacted]&phone=[redacted]&limit=[redacted]"
+
+
 def test_a_lead_push_token_is_masked_in_the_access_line_and_the_tracker() -> None:
     """IndiaMART and the property portals cannot send a header, so a push source's secret
     rides in `?token=` (`ingest/portals.TOKEN_PARAM`), and uvicorn's access line renders the
