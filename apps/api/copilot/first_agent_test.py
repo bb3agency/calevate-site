@@ -170,6 +170,25 @@ async def test_the_opening_line_is_replaced_and_undo_puts_the_old_one_back() -> 
     assert await _opening(tenant_id, agent_id) == before
 
 
+async def test_only_the_fields_it_changes_and_one_opening_for_an_agent_that_calls() -> None:
+    """Pip on Gemini (3 Nov 2026) sent only the fields it meant to change, and its line "for
+    the calls it places" to an agent that only places calls; both used to be refused."""
+    tenant_id, _slug, token = await _make_tenant()
+    receipt = await _run(
+        tenant_id, token, "agent_create", _create("Varsha", "outbound", "call_leads")
+    )
+    agent_id = UUID(receipt.object_id)
+    line = "Hello, I am calling from Rytu Khata about the Chrome extension. Is now a good time?"
+    receipt = await _run(
+        tenant_id,
+        token,
+        "agent_edit",
+        {"agent_id": str(agent_id), "outbound_opening_line": line},
+    )
+    assert receipt.applied is True
+    assert await _opening(tenant_id, agent_id) == line
+
+
 async def test_a_blank_opening_line_is_refused() -> None:
     tenant_id, _slug, token = await _make_tenant()
     agent_id = await _starter_agent(tenant_id, token)

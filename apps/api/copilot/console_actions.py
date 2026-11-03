@@ -1641,6 +1641,16 @@ async def _plan_agent_edit_common(
 ) -> tuple[_AgentEditArgs, Plan]:
     parsed = parse_args(_AgentEditArgs, args)
     current = await _agent_settings(session, parsed.agent_id)
+    if (
+        parsed.outbound_opening_line is not None
+        and parsed.opening_line is None
+        and current["direction"] != "both"
+    ):
+        # An agent that only places calls (or only answers) has one opening, `opening_line`;
+        # a line written "for the calls it places" is that one, not a request to refuse.
+        parsed = parsed.model_copy(
+            update={"opening_line": parsed.outbound_opening_line, "outbound_opening_line": None}
+        )
     name, _status = await _agent_name_status(session, parsed.agent_id)
     was, becomes = _describe_edit(parsed, current)
     if not becomes:

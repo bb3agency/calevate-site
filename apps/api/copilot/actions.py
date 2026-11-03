@@ -470,9 +470,15 @@ def parse_args[M: BaseModel](model: type[M], args: Mapping[str, Any]) -> M:
 
     Pydantic's own message is not forwarded: it names internal field paths and can quote the
     offending VALUE, and this string becomes both a log line and a prompt.
+
+    A field the call leaves out is sent as null, which every optional field reads as "leave
+    it": the schemas mark every property required (`action_schema`, the strict convention),
+    but only OpenAI's strict mode enforces that, and a model on another provider names just
+    the fields it means to change. A field that cannot be null is still refused by name.
     """
+    filled = {name: None for name, field in model.model_fields.items() if field.is_required()}
     try:
-        return model.model_validate(dict(args))
+        return model.model_validate(filled | dict(args))
     except ValidationError as exc:
         fields = sorted({str(error["loc"][0]) for error in exc.errors() if error["loc"]})
         named = ", ".join(f"`{field}`" for field in fields) or "the arguments"
