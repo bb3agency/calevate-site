@@ -32,6 +32,8 @@ import type {
   CallOutcomesAgent,
   LeadMove,
 } from "@/lib/api/callOutcomes";
+import { OutcomeDot } from "@/app/c/[slug]/calls/callColumns";
+import { businessOutcomeKind } from "@/lib/callReview";
 import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 import { examplesFor, type VerticalExamples } from "@/lib/verticalExamples";
 
@@ -225,7 +227,12 @@ function OutcomesEditor({
             return (
               <li key={row.uid} className="py-3">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-medium text-ink-muted">Outcome {index + 1}</span>
+                  {/* The dot the call log draws for calls filed here, so the colour is learnt
+                      where it is chosen; the lead stage below says it in words. */}
+                  <span className="inline-flex items-center gap-1.5 text-xs font-medium text-ink-muted">
+                    <OutcomeDot kind={businessOutcomeKind(row.key, row.lead_status)} />
+                    Outcome {index + 1}
+                  </span>
                   <div className="flex shrink-0 items-center gap-1">
                     <button type="button" onClick={() => move(index, -1)} disabled={disabled || index === 0} aria-label={`Move ${named} up`} className={SECONDARY_BUTTON_SM}>
                       <ChevronUp aria-hidden className="h-4 w-4" />
