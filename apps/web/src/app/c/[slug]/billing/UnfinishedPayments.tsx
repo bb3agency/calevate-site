@@ -114,35 +114,29 @@ const OUTCOMES: Record<string, { icon: ReactNode; title: string; line: string; b
     title: "Still settling",
     line: "Don't pay again yet.",
     body:
-      "We have not heard back about this payment yet. If it went through, your credit is " +
-      "added automatically — you do not need to keep this page open, and you should not " +
-      "pay again yet.",
+      "No answer from your bank yet. If it went through, credit is added automatically. " +
+      "You can leave this page.",
   },
   authorized: {
     icon: <Clock className="h-4 w-4" aria-hidden />,
     title: "Verifying",
     line: "Bank approved it. Don't pay again.",
     // No vendor named in client copy (D-679).
-    body:
-      "Your bank has approved this payment and we are completing it. Your credit is " +
-      "added automatically within minutes.",
+    body: "We are completing it. Credit is added within minutes.",
   },
   unfinished: {
     icon: <HelpCircle className="h-4 w-4" aria-hidden />,
     title: "Never finished",
     line: "Nothing was charged.",
     body:
-      "This payment was started but never completed, so nothing was charged and no credit " +
-      "was added. If your bank shows the amount taken, send us the reference below and we " +
-      "will trace it.",
+      "No credit was added. If your bank shows the money taken, send us the reference " +
+      "below.",
   },
   failed: {
     icon: <CircleAlert className="h-4 w-4" aria-hidden />,
     title: "Did not go through",
     line: "Nothing was charged.",
-    body:
-      "Your bank did not complete this payment, so nothing was charged and no credit was " +
-      "added. You can try again with the same or a different payment method.",
+    body: "No credit was added. Try again with any payment method.",
   },
   captured: {
     icon: <CircleCheck className="h-4 w-4" aria-hidden />,
@@ -180,7 +174,7 @@ function AttemptRow({ attempt }: { attempt: TopUpAttempt }) {
       <Why label="Details">
         <p>
           {copy?.body ??
-            "We do not have a final answer about this payment yet. Send us the reference below and we will check it."}
+            "Send us the reference below and we will check it."}
         </p>
       </Why>
       <p className="mt-1 text-meta text-ink-muted">

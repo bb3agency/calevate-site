@@ -351,8 +351,8 @@ export function AutoRechargePanel({
           }}
           onConfirm={() => withdraw.mutate(undefined, { onSuccess: () => setWithdrawing(false) })}
         >
-          Automatic top-ups stop, and your credit is no longer refilled when it runs low. To
-          turn them on again you approve a payment method again.
+          Your credit stops refilling when it runs low. To restart, approve a payment
+          method again.
         </ConfirmDialog>
       )}
     </Disclosure>

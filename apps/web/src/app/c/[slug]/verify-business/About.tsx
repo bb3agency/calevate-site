@@ -100,17 +100,13 @@ function WhatItAffects() {
   return (
     <ul className={LIST}>
       <Affected icon={PhoneIncoming} tone="ok" claim="Incoming calls: unaffected, on every plan.">
-        Your agent answers the phone exactly as before. Nothing on this page can stop it: the
-        check only ever runs before we dial out, and somebody who rang you started that call
-        themselves.
+        The check only runs before we dial out.
       </Affected>
       <Affected icon={PhoneOutgoing} claim="Outgoing calls: stopped, on every plan.">
-        Campaigns will not launch and one-off outgoing calls are refused, naming this
-        verification or the no-cold-calls pledge as the reason, until both are done.
+        Campaigns and one-off calls wait until this and the no-cold-calls pledge are done.
       </Affected>
       <Affected icon={PhoneOff} claim="A new phone number: blocked on every account, without exception.">
-        The obligation attaches to the connection itself, so it applies whoever you are and
-        whatever you pay us. Numbers you already have keep working.
+        The rule applies to every connection. Numbers you already have keep working.
       </Affected>
     </ul>
   );
@@ -147,27 +143,25 @@ function PhoneNumbers({ verified }: { verified: boolean }) {
   return (
     <div className="space-y-3">
       <p className="text-sm text-ink-muted">
-        Calevate provides your calling number. It is connected on our own telephony account, and we
-        look after the connection, so there is no operator account for you to open.
+        Calevate provides your calling number. It runs on our own telephony account, so there
+        is no operator account for you to open.
       </p>
       <ul className={LIST}>
         <li>
           <span className={LEAD_IN}>
             Your part is passing our business verification (<Term id="kyc" />).
           </span>{" "}
-          Indian telecom rules require the business behind every calling number to be
-          identified, and the steps above are that check.
+          Indian telecom rules require it for every calling number.
         </li>
         <li>
           <span className={LEAD_IN}>Then keep your caller details accurate.</span> If your
-          business name, address or the person who signs for it changes, tell your account
-          manager, so the details held against your number stay true.
+          business name, address or signatory changes, tell your account manager.
         </li>
       </ul>
       {!verified && (
         <p className="text-sm text-ink-muted">
-          Your verification is still outstanding. Numbers you already have keep working,
-          and calls coming in are never affected.
+          Your verification is still outstanding. Existing numbers and incoming calls keep
+          working.
         </p>
       )}
     </div>

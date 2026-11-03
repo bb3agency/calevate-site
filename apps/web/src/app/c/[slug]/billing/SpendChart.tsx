@@ -73,9 +73,8 @@ export function SpendOverTime({ session, allowed }: { session: Session; allowed:
       title="Spending"
       info={
         <p>
-          What left your calling credit each day, in Indian Standard Time: calls, phone
-          number rental, extra AI help you accepted, and any correction we made. Money you
-          added is not spending, so it is not drawn here.
+          Credit used each day (IST): calls, number rental, extra AI help and any
+          correction. Top-ups are not shown.
         </p>
       }
       action={

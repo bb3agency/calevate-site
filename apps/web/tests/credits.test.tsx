@@ -1248,7 +1248,8 @@ describe("payments that did not finish", () => {
     );
 
     await screen.findByText("Did not go through");
-    await screen.findByText(/nothing was charged and no credit was added/);
+    await screen.findByText("Nothing was charged.");
+    await screen.findByText(/No credit was added/);
     await screen.findByText("CAL-2608-0007");
     // The retry is a button, and it opens the one place a payment starts.
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
@@ -1275,8 +1276,9 @@ describe("payments that did not finish", () => {
     // about our system rather than reassurance, and it is the thing a client who closed
     // the tab mid-payment most needs to read.
     await screen.findByText("Still settling");
-    await screen.findByText(/your credit is added automatically/);
-    await screen.findByText(/should not pay again yet/);
+    await screen.findByText(/credit is added automatically/);
+    await screen.findByText(/You can leave this page/);
+    await screen.findByText("Don't pay again yet.");
     // A payment that may still land offers no retry.
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
   });

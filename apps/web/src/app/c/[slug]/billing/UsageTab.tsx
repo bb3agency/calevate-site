@@ -133,8 +133,8 @@ export function UsageTab({
                 </a>
                 <Why>
                   <p>
-                    You have reached your spending cap for this month. If the limit on your
-                    plan is the one you have reached, talk to us.
+                    This month&apos;s cap is reached. If it is your plan&apos;s limit, talk to
+                    us.
                   </p>
                 </Why>
               </div>
@@ -363,8 +363,8 @@ function ModelUpgradeLink({ slug }: { slug: string }) {
       </Link>
       <Why>
         <p>
-          The AI model upgrade is charged for the minutes your agents ran a model you chose.
-          You can also change it on a single agent from Agents.
+          Charged per minute your agents ran on it. You can also change it per agent, in
+          Agents.
         </p>
       </Why>
     </div>
@@ -483,10 +483,8 @@ function SpendLimit({ session }: { session: Session }) {
         <p className="text-meta text-ink-muted">Leave empty to use your plan&apos;s limit.</p>
         <Why label="How this works">
           <p>
-            Leave a box empty to remove your own limit and fall back on your plan&apos;s. A
-            limit below what you have already spent this month takes effect immediately —
-            outgoing calls stop for the rest of the month, and you can raise it again here
-            at any time.
+            A limit below this month&apos;s spend applies at once: outgoing calls stop until
+            you raise it here.
           </p>
         </Why>
 

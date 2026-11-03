@@ -120,12 +120,9 @@ export function WhatCallsCost({
       hideLabel="Hide"
     >
       {/* The per-minute rates themselves are on "Clear or Studio" above, from the server's
-          comparison; this panel explains how they are charged. */}
-      <p className="text-body text-ink-muted">
-        Calling is charged out of your credit as you use it, and 1 credit is ₹1.
-      </p>
-
-      <div className="mt-3 border-t border-line/60">
+          comparison; this panel explains how they are charged. The subtitle already says
+          1 credit = ₹1, so no lead paragraph repeats it. */}
+      <div className="border-t border-line/60">
         <Fact
           icon={<Waves className="h-4 w-4" aria-hidden />}
           claim={
@@ -140,45 +137,36 @@ export function WhatCallsCost({
               (`app/c/[slug]/agents/panels/delivery.tsx`). Never send them to an account
               manager for a control two clicks away on a screen they already have. The card
               is NAMED so the sentence points at something a reader can find. */}
-          The voice belongs to the agent, not to the account: a receptionist
-          that answers all day and an outbound campaign can speak with different
-          voices, and each call is charged at its own agent&rsquo;s rate. You
-          choose it yourself on the agent&rsquo;s own screen, under &ldquo;How
-          it sounds, and how long a call may run&rdquo;. Neither is a cut-down
-          version of the other — what you hear in a demo is what your customers
-          hear at three in the morning. {notOfferedSentence(card, labels)}
+          The voice belongs to the agent, not to the account, and each call is
+          charged at its agent&rsquo;s rate. You choose it yourself on the
+          agent&rsquo;s screen, under &ldquo;How it sounds, and how long a call
+          may run&rdquo;.{" "}
+          {notOfferedSentence(card, labels)}
         </Fact>
 
         <Fact
           icon={<Lock className="h-4 w-4" aria-hidden />}
           claim="The rates you buy at are fixed on that purchase"
         >
-          Each time you add credit, the two per-minute rates shown for that
-          purchase are fixed on it and stay with that credit until you have
-          spent it. If we change our rate card later, credit you already own is
-          untouched. Your calls are charged against your oldest credit first, so
-          when you top up at a better rate you finish the older credit before
-          you reach it — the list above shows exactly what is left at each
-          price. Moving an agent to the other voice costs you nothing and
-          changes none of your credit: the same purchase is drawn down, at the
-          other rate that was fixed on it when you bought it.
+          The two per-minute rates shown when you buy stay with that credit
+          until it is spent, even if our prices change. Your oldest credit is
+          used first. Moving an agent to the other voice costs you nothing: the
+          same purchase is drawn down at its other fixed rate.
         </Fact>
 
         <Fact
           icon={<Clock3 className="h-4 w-4" aria-hidden />}
           claim="Calls are billed in 30-second steps"
         >
-          Each call is rounded up to the next 30 seconds: a 10-second call is
-          charged as half a minute, a 40-second call as one minute, and a
-          three-minute call as exactly three.
+          Rounded up: a 10-second call costs half a minute, a 40-second call
+          one minute.
         </Fact>
 
         <Fact
           icon={<PhoneMissed className="h-4 w-4" aria-hidden />}
           claim="A call nobody answers costs nothing"
         >
-          Ringing out, engaged, or a number that never picks up: there is no
-          talk time, so there is nothing to charge and no entry appears in your
+          No answer, engaged or unreachable: no charge, and no entry in your
           history.
         </Fact>
 
@@ -193,10 +181,9 @@ export function WhatCallsCost({
               a correction we post is another (`WhereItWent`&rsquo;s "Corrections" row), and
               that panel is two cards below this one. Without the card (staff, or still
               loading) the term is not stated rather than guessed. */}
-          Your calls run it down, and so do the monthly rent for your phone
-          numbers
-          {card?.number_inr_per_month ? ` (${formatINR(card.number_inr_per_month)} a month each)` : ""} and a
-          block of extra dashboard AI if you accept one — nothing else does.{" "}
+          Calls, the monthly rent for your phone numbers
+          {card?.number_inr_per_month ? ` (${formatINR(card.number_inr_per_month)} each)` : ""} and
+          any extra dashboard AI you accept use it — nothing else does.{" "}
           {months ? (
             <>
               Each purchase lasts {months} months from the day it is added, and
@@ -206,17 +193,15 @@ export function WhatCallsCost({
               expire.{" "}
             </>
           ) : null}
-          If we ever billed you wrongly, the correction is posted here too, where
-          you can see it.
+          If we ever bill you wrongly, the correction shows here too.
         </Fact>
 
         <Fact
           icon={<ReceiptText className="h-4 w-4" aria-hidden />}
           claim="No GST, and no tax invoice"
         >
-          {GST_STATUS_SENTENCE} The price you see is the price you pay, and a
-          business that needs to claim input tax credit on this spend will not be
-          able to.
+          {GST_STATUS_SENTENCE} The price you see is what you pay. Input tax
+          credit cannot be claimed on it.
         </Fact>
       </div>
     </Disclosure>
