@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { PhoneIncoming, PhoneOutgoing, Zap } from "lucide-react";
@@ -8,7 +9,7 @@ import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { Field } from "@/components/arc/field";
 import { Chooser, ChooserItem } from "@/components/console/chooser";
 import { IconTile } from "@/components/console/iconTile";
-import { TEXT_ACTION } from "@/components/console/section";
+import { TEXT_ACTION, TEXT_ACTION_SM } from "@/components/console/section";
 import {
   FIELD,
   FIELD_LABEL,
@@ -238,6 +239,7 @@ function StarterPreviewStep({
             <h3 id="starter-steps" className="text-heading text-ink">
               What it does on a call
             </h3>
+            <p className="text-meta text-ink-muted">A starting plan. We rewrite it for your business.</p>
             <ol className="list-decimal space-y-1 pl-5 text-body text-ink marker:text-ink-muted">
               {preview.step_titles.map((step) => (
                 <li key={step}>{step}</li>
@@ -257,6 +259,14 @@ function StarterPreviewStep({
                   </li>
                 ))}
               </ul>
+              {starter.data?.business_details === false ? (
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <p className="text-meta text-ink-muted">Only the basics for now.</p>
+                  <Link href={href(`/c/${slug}/settings/lead-details`)} className={TEXT_ACTION_SM}>
+                    Add details for your business
+                  </Link>
+                </div>
+              ) : null}
             </section>
           ) : null}
 

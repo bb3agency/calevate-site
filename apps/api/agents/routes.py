@@ -73,7 +73,7 @@ from apps.api.agents.languages import (
     client_language_tags,
     reply_languages_refusal,
 )
-from apps.api.agents.lead_fields import starting_business_fields
+from apps.api.agents.lead_fields import has_business_fields, starting_business_fields
 from apps.api.agents.llm_tiers import engine_model_from_client, resolve_agent_tier
 from apps.api.agents.models import (
     CALL_CAP_MAX_S,
@@ -181,6 +181,9 @@ class StartersOut(BaseModel):
     #: The business type these starters are written for: the account's own, or `custom`
     #: when the account has none the catalogue knows.
     vertical: str
+    #: False when a new agent would capture only the core details: a custom business whose
+    #: owner has not kept the details drafted for it yet (Settings, Lead details).
+    business_details: bool
     starters: list[StarterPreviewOut]
 
 
@@ -221,9 +224,13 @@ async def list_starters(
         session, tenant_id=principal.tenant_id, vertical=None if org[1] is None else str(org[1])
     )
     labels = [field.label for field in with_core(business)]
+    own_details = await has_business_fields(
+        session, tenant_id=principal.tenant_id, vertical=None if org[1] is None else str(org[1])
+    )
     jobs = starters.STARTER_JOBS if job is None else (job,)
     return StartersOut(
         vertical=vertical,
+        business_details=own_details,
         starters=[
             StarterPreviewOut(
                 job=each.job,
@@ -702,10 +709,11 @@ async def create_agent_route(
             created_by=principal.user_id,
             notes="Opening line written at creation",
         )
-    elif payload.starter is not None:
-        # The starter leaves the openings empty; they are written for this business by the
-        # proposal job and reviewed on the Script page (D-965).
-        await script_proposals.request_written_opening(
+    if payload.starter is not None:
+        # The job's steps are only a placeholder: the whole script, steps included, is
+        # written for this business by the proposal job and reviewed on the Script page.
+        # An opening typed above is kept as typed.
+        await script_proposals.request_written_script(
             session,
             tenant_id=principal.tenant_id,
             agent_id=agent_id,

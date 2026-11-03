@@ -3003,7 +3003,7 @@ const CLIENT_SCREENS: Screen[] = [
     element: () => <NewAgentPage params={slug} />,
     routes: {
       "/v1/me": ME,
-      "/v1/agents/starters": { vertical: "clinic", starters: [] },
+      "/v1/agents/starters": { vertical: "clinic", business_details: true, starters: [] },
       "/v1/agents/lanes": {
         precedence_rule: "Script decides content.",
         lanes: [],

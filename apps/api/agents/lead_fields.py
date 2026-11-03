@@ -126,6 +126,17 @@ async def starting_business_fields(
     return standard_fields(CUSTOM)
 
 
+async def has_business_fields(
+    session: AsyncSession, *, tenant_id: UUID, vertical: str | None
+) -> bool:
+    """Does a new agent start with details about THIS kind of business, or only the core?
+    False for a custom business whose owner has not kept a draft yet (D-821)."""
+    if has_standard_set(vertical):
+        return True
+    draft = await read_draft(session, tenant_id=tenant_id)
+    return draft is not None and draft.status == "done" and draft.reviewed and bool(draft.fields)
+
+
 async def request_draft(
     session: AsyncSession, *, tenant_id: UUID, requested_by: UUID | None
 ) -> Draft:
@@ -393,6 +404,7 @@ __all__ = [
     "Reviewed",
     "agents_with_fields",
     "business_type_label",
+    "has_business_fields",
     "has_standard_set",
     "maybe_request_draft",
     "read_draft",

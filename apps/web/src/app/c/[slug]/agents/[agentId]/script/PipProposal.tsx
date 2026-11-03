@@ -131,6 +131,9 @@ export function PipProposal({
         {proposal.mode === "opening" && (
           <p className="text-meta text-ink-muted">An opening line for after your agent says who it is.</p>
         )}
+        {proposal.mode === "starter" && (
+          <p className="text-meta text-ink-muted">Your script, written for your business. Keep what fits.</p>
+        )}
         {proposal.mode === "written" && (
           <p className="text-meta text-ink-muted">An opening line written for your business, in {languageName(language)}.</p>
         )}

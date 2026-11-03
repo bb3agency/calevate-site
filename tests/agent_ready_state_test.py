@@ -220,7 +220,7 @@ async def test_the_opening_line_in_the_new_language_is_queued_as_a_suggestion() 
 
 async def test_an_agent_made_from_a_starter_has_no_ready_made_opening_and_one_is_queued() -> None:
     """D-965: the starter's opening is the same for every business of a type, so the new agent
-    carries none and its openings are written for the business as a suggestion."""
+    carries none and its whole script is written for the business as a suggestion."""
     tenant_id, _, token = await _tenant()
     code, body = await _post(token, "/v1/agents", {"name": "Second", "starter": "answer_calls"})
     assert code == 201, body
@@ -230,7 +230,7 @@ async def test_an_agent_made_from_a_starter_has_no_ready_made_opening_and_one_is
         proposal = await script_proposals.read_proposal(session, agent_id)
     assert (saved.script.opening_line, saved.script.outbound_opening_line) == ("", "")
     assert saved.script.stages, "the rest of the starter is kept"
-    assert proposal is not None and (proposal.mode, proposal.status) == ("written", "drafting")
+    assert proposal is not None and (proposal.mode, proposal.status) == ("starter", "drafting")
 
 
 # --- 3. a save over the platform's recompiles -------------------------------------------

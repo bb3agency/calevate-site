@@ -48327,7 +48327,8 @@
               "steps",
               "knowledge",
               "opening",
-              "written"
+              "written",
+              "starter"
             ],
             "title": "Mode",
             "type": "string"
@@ -50588,6 +50589,10 @@
       "StartersOut": {
         "additionalProperties": false,
         "properties": {
+          "business_details": {
+            "title": "Business Details",
+            "type": "boolean"
+          },
           "starters": {
             "items": {
               "$ref": "#/components/schemas/StarterPreviewOut"
@@ -50602,6 +50607,7 @@
         },
         "required": [
           "vertical",
+          "business_details",
           "starters"
         ],
         "title": "StartersOut",

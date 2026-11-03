@@ -59,11 +59,11 @@ async def _opening(tenant_id: UUID, agent_id: UUID) -> str:
 
 
 async def _written_suggestion(tenant_id: UUID, agent_id: UUID) -> str | None:
-    """The status of the agent's `written` opening suggestion, if one is waiting."""
+    """The status of the agent's `starter` whole-script suggestion, if one is waiting."""
     row = await _one(
         tenant_id,
         "SELECT script_proposal->>'status' FROM agents "
-        "WHERE id = :a AND script_proposal->>'mode' = 'written'",
+        "WHERE id = :a AND script_proposal->>'mode' = 'starter'",
         a=agent_id,
     )
     return None if row is None else str(row[0])
@@ -89,7 +89,7 @@ async def test_a_job_gives_the_new_agent_its_ready_made_script_and_details() -> 
         a=agent_id,
     )
     assert (row[0], row[1]) == ("inbound", "draft")
-    # No ready-made opening; one is written for the business as a suggestion (D-965).
+    # No ready-made opening; the whole script is written for the business as a suggestion.
     assert await _opening(tenant_id, agent_id) == ""
     assert await _written_suggestion(tenant_id, agent_id) == "drafting"
 

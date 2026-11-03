@@ -244,13 +244,14 @@ async def _execute_agent_create(
             session, tenant_id=actor.tenant_id, agent_id=agent_id, direction="both"
         )
     if parsed.job is not None:
-        # The starter leaves the openings empty; they are written for this business by the
-        # proposal job, after the direction is final, and reviewed on the Script page (D-965).
-        await script_proposals.request_written_opening(
+        # The job's steps are only a placeholder: the whole script, steps and openings, is
+        # written for this business by the proposal job, after the direction is final, and
+        # reviewed on the Script page.
+        await script_proposals.request_written_script(
             session, tenant_id=actor.tenant_id, agent_id=agent_id, requested_by=actor.user_id
         )
     opening = (
-        " Its opening line is being written for your business; keep it on the Script tab."
+        " Its script is being written for your business; keep it on the Script tab."
         if parsed.job is not None
         else ""
     )

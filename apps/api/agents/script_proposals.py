@@ -72,7 +72,12 @@ OPENING_MODE: Final = "opening"
 #: ready-made starter, whose openings are left empty rather than the same for every business.
 #: A stored mode for `knowledge`'s reason.
 WRITTEN_MODE: Final = "written"
-StoredMode = Literal["change", "whole", "steps", "knowledge", "opening", "written"]
+#: `starter`: the whole script written for this business when an agent is made from a job,
+#: so its steps, objections and ending are the business's own rather than the job's list
+#: kept for every business. An opening the owner typed at creation is kept as typed.
+#: A stored mode for `knowledge`'s reason.
+STARTER_MODE: Final = "starter"
+StoredMode = Literal["change", "whole", "steps", "knowledge", "opening", "written", "starter"]
 
 ProposalStatus = Literal["drafting", "ready", "failed"]
 
@@ -215,6 +220,22 @@ async def request_opening_proposal(
         tenant_id=tenant_id,
         agent_id=agent_id,
         mode=OPENING_MODE,
+        change=None,
+        answers={},
+        requested_by=requested_by,
+    )
+
+
+async def request_written_script(
+    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID, requested_by: UUID | None
+) -> ScriptProposal:
+    """Ask for a new agent's whole script written for this business (`STARTER_MODE`), as
+    `request_proposal` asks for any other."""
+    return await _request(
+        session,
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        mode=STARTER_MODE,
         change=None,
         answers={},
         requested_by=requested_by,
@@ -506,6 +527,7 @@ __all__ = [
     "PROPOSAL_JOB",
     "PROPOSAL_MODES",
     "STALE_NOTE",
+    "STARTER_MODE",
     "SUGGEST_JOB",
     "WRITTEN_MODE",
     "ProposalMode",
@@ -520,6 +542,7 @@ __all__ = [
     "request_proposal",
     "request_text",
     "request_written_opening",
+    "request_written_script",
     "store_failed",
     "store_ready",
     "working_script",

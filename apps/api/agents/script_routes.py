@@ -1297,8 +1297,9 @@ class ScriptProposalOut(BaseModel):
     #: hand-written script turned into steps) or `knowledge` (what files added to the
     #: knowledge tell callers, worked into the current script, D-923) or `opening` (the
     #: opening line written to follow the agent's introduction, D-865) or `written` (the
-    #: opening lines written for this business in the agent's main language, D-965).
-    mode: Literal["change", "whole", "steps", "knowledge", "opening", "written"]
+    #: opening lines written for this business in the agent's main language, D-965) or
+    #: `starter` (a new agent's whole script written for this business).
+    mode: Literal["change", "whole", "steps", "knowledge", "opening", "written", "starter"]
     #: The files a `knowledge` suggestion was written from, by name.
     documents: list[str]
     #: `drafting` until it is written (poll), then `ready`, or `failed` with `note`.

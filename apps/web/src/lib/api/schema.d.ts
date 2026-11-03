@@ -31447,7 +31447,7 @@ export interface components {
              * Mode
              * @enum {string}
              */
-            mode: "change" | "whole" | "steps" | "knowledge" | "opening" | "written";
+            mode: "change" | "whole" | "steps" | "knowledge" | "opening" | "written" | "starter";
             /** Note */
             note: string | null;
             /** Request */
@@ -32369,6 +32369,8 @@ export interface components {
         };
         /** StartersOut */
         StartersOut: {
+            /** Business Details */
+            business_details: boolean;
             /** Starters */
             starters: components["schemas"]["StarterPreviewOut"][];
             /** Vertical */

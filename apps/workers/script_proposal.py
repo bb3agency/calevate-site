@@ -200,6 +200,17 @@ async def _draft(
         return await draft_script(
             brief, tenant_leg=tenant_leg, quota_exhausted=exhausted, instruction=CONVERT_INSTRUCTION
         )
+    if proposal.mode == script_proposals.STARTER_MODE:
+        drafted = await draft_script(context, tenant_leg=tenant_leg, quota_exhausted=exhausted)
+        # An opening already on the agent was typed by the owner at creation: theirs, kept.
+        kept = {
+            field: line
+            for field, _placed in _OPENINGS
+            if (line := str(getattr(base, field)).strip())
+        }
+        if not kept:
+            return drafted
+        return replace(drafted, script=drafted.script.model_copy(update=kept))
     if proposal.mode == "whole":
         return await draft_script(
             replace(context, answers=tuple(proposal.answers.items())),

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -34,6 +35,8 @@ from apps.api.copilot.identity import VENDOR_WORDS
 from apps.api.core.errors import ProblemError, install_error_handlers
 from apps.api.core.rbac import assert_policy_registry_complete
 from apps.api.db.session import tenant_session, untenanted_session
+from apps.workers import script_proposal as proposal_worker
+from apps.workers.script_assist import ScriptDraft
 from calevate_shared.call_script import (
     STANDARD_VARIABLES,
     CallScript,
@@ -347,6 +350,7 @@ async def test_the_preview_is_the_callers_own_business_type() -> None:
     code, body = await _starters(token)
     assert code == 200, body
     assert body["vertical"] == "real_estate"
+    assert body["business_details"] is True
     assert [s["job"] for s in body["starters"]] == ["answer_calls", "call_new_leads", "call_leads"]
     receptionist = body["starters"][0]
     assert receptionist["direction"] == "inbound"
@@ -400,10 +404,14 @@ async def test_a_neighbour_sees_none_of_the_starter_rows() -> None:
     code, preview = await _starters(token_b)
     assert code == 200, preview
     assert preview["vertical"] == "custom"
+    # A custom business with no kept details captures only the core, and is told so.
+    assert preview["business_details"] is False
 
 
 @pytest.mark.rls
-async def test_an_opening_typed_at_creation_is_the_agents_own_and_none_is_written() -> None:
+async def test_an_opening_typed_at_creation_is_kept_and_the_script_is_written_around_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     tenant_id, token = await _tenant("custom", "Rytu Khata")
     line = "Hello, this is Rytu Khata calling about your farm records. Is now a good time?"
     code, body = await _create(
@@ -416,7 +424,33 @@ async def test_an_opening_typed_at_creation_is_the_agents_own_and_none_is_writte
     assert CallScript.model_validate(row[5]).opening_line == line
     async with tenant_session(tenant_id) as session:
         asked = await script_proposals.read_proposal(session, agent_id)
-    assert asked is None, "an opening was queued for writing over the owner's own"
+    # The job's steps are a placeholder: the whole script is written for the business.
+    assert asked is not None and asked.mode == script_proposals.STARTER_MODE
+
+    async def drafted(_brief: Any, **_kwargs: Any) -> ScriptDraft:
+        written = asked.base_script.model_copy(
+            update={"goal": "Help farmers keep their crop accounts", "opening_line": ""}
+        )
+        return ScriptDraft(
+            script=written,
+            capability=SimpleNamespace(disclosure=None),  # type: ignore[arg-type]
+            model="gemini-2.5-flash-lite",
+            earlier=(),
+        )
+
+    async def meter(*_args: Any, **_kwargs: Any) -> None:
+        return None
+
+    monkeypatch.setattr(proposal_worker, "draft_script", drafted)
+    monkeypatch.setattr(proposal_worker.crm_assist, "meter_earlier", meter)
+    monkeypatch.setattr(proposal_worker.crm_assist, "meter_assist", meter)
+    payload = {"tenant_id": str(tenant_id), "agent_id": str(agent_id), "proposal_id": str(asked.id)}
+    assert await proposal_worker.draft_script_proposal({}, payload) == "ready"
+    async with tenant_session(tenant_id) as session:
+        ready = await script_proposals.read_proposal(session, agent_id)
+    assert ready is not None and ready.script is not None
+    assert ready.script.goal == "Help farmers keep their crop accounts"
+    assert ready.script.opening_line == line, "the owner's typed opening was written over"
 
     code, blank = await _create(
         token, {"name": "Leads 2", "starter": "call_leads", "opening_line": " "}
@@ -424,7 +458,7 @@ async def test_an_opening_typed_at_creation_is_the_agents_own_and_none_is_writte
     assert code == 201, blank
     async with tenant_session(tenant_id) as session:
         queued = await script_proposals.read_proposal(session, uuid.UUID(blank["id"]))
-    assert queued is not None, "a blank opening must still be written for the business"
+    assert queued is not None and queued.mode == script_proposals.STARTER_MODE
 
     code, refused = await _create(token, {"name": "Bare", "opening_line": line})
     assert code == 422, refused
