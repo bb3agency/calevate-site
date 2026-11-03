@@ -8,8 +8,10 @@ see it, and the approval preview the inbox reads.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
@@ -232,6 +234,49 @@ async def test_one_person_keeps_a_bounded_number_of_routines() -> None:
         refused = await http.post("/v1/copilot/routines", json=_BODY, headers=_headers(token, slug))
     assert refused.status_code == 409
     assert refused.json()["type"].endswith("/copilot_routine_limit")
+
+
+async def test_two_saves_racing_for_the_last_place_keep_the_cap() -> None:
+    tenant_id, _slug, token = await _make_tenant()
+    user_id = _user_of(token)
+
+    async def create(session: Any, name: str) -> None:
+        await routines.create_routine(
+            session,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            name=name,
+            instruction="tidy my leads",
+            days=routines.EVERY_DAY,
+            at_minute=600,
+            enabled=False,
+            now=datetime.now(UTC),
+        )
+
+    async with tenant_session(tenant_id) as session:
+        for index in range(routines.MAX_ROUTINES_PER_USER - 1):
+            await create(session, f"r{index}")
+    barrier = asyncio.Barrier(2)
+
+    async def save(name: str) -> bool:
+        try:
+            async with tenant_session(tenant_id) as session:
+                await session.execute(text("SELECT 1"))
+                await barrier.wait()
+                await create(session, name)
+        except ProblemError:
+            return False
+        return True
+
+    outcomes = await asyncio.gather(save("left"), save("right"))
+    assert sorted(outcomes) == [False, True]
+    async with tenant_session(tenant_id) as session:
+        kept = (
+            await session.execute(
+                text("SELECT count(*) FROM copilot_routines WHERE user_id = :u"), {"u": user_id}
+            )
+        ).scalar_one()
+    assert kept == routines.MAX_ROUTINES_PER_USER
 
 
 # --- RLS and the person -------------------------------------------------------------------

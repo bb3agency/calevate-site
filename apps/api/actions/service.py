@@ -602,7 +602,12 @@ async def create_tool(
     await _assert_lead_fields(session, agent_id=agent_id, params=parsed_params)
     # A per-agent ceiling so the tool list a tenant can mint (and that every Actions-tab read
     # materialises) cannot grow without bound. Counted under RLS, so it is this tenant's own
-    # tools for this agent. Checked before the INSERT rather than trusting the UI.
+    # tools for this agent. Checked before the INSERT rather than trusting the UI, and under a
+    # per-agent lock so two adds at one under the ceiling cannot both read room for themselves.
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:lock, 0))"),
+        {"lock": f"action-tools:{agent_id}"},
+    )
     existing = (
         await session.execute(
             text("SELECT count(*) FROM action_tools WHERE agent_id = :aid"), {"aid": agent_id}

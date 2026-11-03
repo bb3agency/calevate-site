@@ -144,6 +144,12 @@ async def create_credential(
     """
     _refuse_bad_kind(kind)
     _refuse_empty(secret)
+    # Count and insert under one per-account lock: two saves at one under the cap would
+    # otherwise each read room for themselves and both insert.
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:lock, 0))"),
+        {"lock": f"integration-credentials:{tenant_id}"},
+    )
     existing = (
         await session.execute(text("SELECT count(*) FROM integration_credentials"))
     ).scalar_one()
