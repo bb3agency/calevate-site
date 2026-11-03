@@ -43,6 +43,8 @@ from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
 from apps.api.engine.thinnest_workspace import in_workspace
+from apps.api.forwarding.service import published_numbers
+from apps.api.ingest.service import normalize_phone
 from apps.api.reliability.engine_intake_keys import open_delivery
 from apps.api.reliability.service import mark_inbox_failed, mark_inbox_processed
 from apps.workers.redaction import redact
@@ -65,7 +67,7 @@ _RETRY_AFTER_S: Final = (30.0, 120.0)
 _ROUTE_SQL: Final = (
     "SELECT tenant_id FROM engine_agent_routes WHERE engine = :engine AND engine_agent_ref = :ref"
 )
-_CALL_SQL: Final = "SELECT id FROM calls WHERE engine_call_id = :ecid"
+_CALL_SQL: Final = "SELECT id, direction FROM calls WHERE engine_call_id = :ecid"
 
 
 def _unreadable(detail: str) -> ProblemError:
@@ -152,7 +154,17 @@ async def _record(payload: dict[str, Any]) -> str:
         _unattributable(ground="no_phone", engine_call_id=engine_call_id, tenant_id=tenant_id)
         return "unattributable"
     async with tenant_session(tenant_id) as session:
-        call_id = (await session.execute(text(_CALL_SQL), {"ecid": engine_call_id})).scalar()
+        call = (await session.execute(text(_CALL_SQL), {"ecid": engine_call_id})).first()
+        call_id = call[0] if call is not None else None
+        if (call is None or call[1] == "inbound") and normalize_phone(phone) in (
+            await published_numbers(session)
+        ):
+            # A forwarded call that showed the business's own number (D-746): the person who
+            # asked is not that number, and filing it would put the business on its own list.
+            _unattributable(
+                ground="caller_number_hidden", engine_call_id=engine_call_id, tenant_id=tenant_id
+            )
+            return "unattributable"
         try:
             record = await record_call_optout(
                 session,

@@ -410,3 +410,27 @@ async def test_a_notice_blip_is_retried(
         await engine_signals.ingest_engine_notice({"job_try": 1}, payload)
     with pytest.raises(ConnectionError):
         await engine_signals.ingest_engine_notice({"job_try": 3}, payload)
+
+
+async def test_the_business_number_a_forwarded_call_showed_is_never_filed(
+    alerts: list[tuple[str, dict[str, Any]]],
+) -> None:
+    """D-746: on a forwarded call that showed the client's own published number, the person
+    who opted out is not that number."""
+    from tests.forwarding_fixtures import add_line, give_calevate_number
+
+    tenant_id, agent_id, ref = await _route()
+    await give_calevate_number(tenant_id, agent_id)
+    line = await add_line(tenant_id)
+    engine_call_id = f"call_{uuid.uuid4()}"
+
+    payload = _payload(ref, engine_call_id, phone=line.e164.lstrip("+"))
+    assert await engine_signals.ingest_engine_opt_out({}, payload) == "unattributable"
+    assert [code for code, _ in alerts] == ["in_call_optout_unattributable"]
+    async with tenant_session(tenant_id) as session:
+        listed = (
+            await session.execute(
+                text("SELECT count(*) FROM dnc_list WHERE phone_e164 = :p"), {"p": line.e164}
+            )
+        ).scalar_one()
+    assert listed == 0
