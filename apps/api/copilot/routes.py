@@ -467,6 +467,8 @@ async def ask_copilot(
     #: The proposal card as one line, for the transcript when the answer had no text.
     proposal_line = ""
     acted: list[str] = []
+    #: Each action's own receipt sentence, for an answer that ran actions and said nothing.
+    acted_said: list[str] = []
     #: The screen this answer opened, by NAME, or None. One at most (D-524). It is on the
     #: audit row because "the assistant moved me" is a thing a person may later ask about,
     #: and the `copilot.ask` row is the only record of it — navigation writes no row of its
@@ -811,6 +813,7 @@ async def ask_copilot(
                 # written inside `run_immediate`, in the same transaction as the change, so
                 # the record does not depend on this route reaching its meter.
                 acted.append(event.action.tool)
+                acted_said.append(event.action.detail)
                 yield ServerSentEvent(event="action", data=event.action)
             if event.navigate is not None:
                 # A SCREEN CHANGE (D-524). The NAME is kept for the audit row, not the
@@ -828,6 +831,19 @@ async def ask_copilot(
                 yield ServerSentEvent(event="job", data=event.job)
             if event.spend is not None:
                 spends.append(event.spend)
+        # AN ANSWER THAT ONLY ACTED still says so in words. The prompt asks for a sentence
+        # with every fill and action and a model sometimes sends none; without one the
+        # transcript stored nothing (`transcript.append_turn` keeps no empty turn), so a
+        # reloaded conversation showed the question with no reply (founder, 3 Nov 2026).
+        if not "".join(answer_parts).strip() and not proposal_line:
+            labels = {field.id: field.label for field in payload.fields}
+            said = service.silent_answer_line(
+                fields=[labels.get(field_id, field_id) for field_id in filled],
+                actions=acted_said,
+            )
+            if said:
+                answer_parts.append(said)
+                yield ServerSentEvent(event="text", data=CopilotTextEvent(delta=said))
         completed = True
     except ProblemError as refusal:
         # The selector refused before a request was made — `assist_unavailable` is raised

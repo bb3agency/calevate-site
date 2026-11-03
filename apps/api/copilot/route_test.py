@@ -237,6 +237,36 @@ async def test_a_fill_reaches_the_browser_and_is_metered_at_the_published_price(
     assert {meta.get("feature") for _, _, _, meta in rows} == {"copilot"}
 
 
+async def test_an_answer_that_only_filled_says_what_it_changed(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A model that fills and says nothing (founder, 3 Nov 2026): the reply is written from
+    what happened, so the chat and the stored conversation both show one."""
+    _tenant_id, slug, token = await _make_tenant()
+    _fake_provider(
+        monkeypatch,
+        content="",
+        arguments=json.dumps(
+            {"because": "set the opening time", "items": [{"field_id": "open", "value": "09:00"}]}
+        ),
+        usage=chat.TokenUsage(prompt_tokens=10, output_tokens=10),
+    )
+
+    async with _client() as http:
+        events = await _events(http, token, slug)
+
+    assert [name for name, _ in events] == ["fill", "text", "done"]
+    assert events[1][1] == {"delta": "I changed Opens."}
+
+
+def test_a_silent_answer_names_each_field_once_and_each_receipt() -> None:
+    assert service.silent_answer_line(fields=[], actions=[]) == ""
+    assert (
+        service.silent_answer_line(fields=["Goal", "Stage 1", "Goal"], actions=["Agent renamed."])
+        == "I changed Goal and Stage 1. Agent renamed."
+    )
+
+
 async def test_the_audit_row_records_the_act_and_the_log_line_carries_no_content(
     azure_only: None, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:

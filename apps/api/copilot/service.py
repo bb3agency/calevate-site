@@ -284,6 +284,20 @@ def _standby_timeout(remaining_s: float) -> float:
 #: in it, never a spinner that stops.
 EXHAUSTED_MESSAGE: Final = "I could not finish this in one go. Try asking for one thing at a time."
 
+
+def silent_answer_line(*, fields: Sequence[str], actions: Sequence[str]) -> str:
+    """What an answer that only filled fields or ran actions says, from what happened: the
+    labels it filled and each action's own receipt sentence, never the model's account of
+    them. Empty when it did neither."""
+    said: list[str] = []
+    if fields:
+        named = list(dict.fromkeys(fields))
+        listed = named[0] if len(named) == 1 else f"{', '.join(named[:-1])} and {named[-1]}"
+        said.append(f"I changed {listed}.")
+    said.extend(line.strip() for line in actions if line.strip())
+    return " ".join(said)
+
+
 #: Said when a model TURN ENDED WITH NO ANSWER IN IT — the defect this constant exists for.
 #:
 #: **A TURN THAT PRODUCES NO TEXT USED TO END THE RUN IN SILENCE**, and the observed symptom
@@ -3245,6 +3259,7 @@ __all__ = [
     "refused_fill_turn",
     "refused_proposal_turn",
     "run_copilot",
+    "silent_answer_line",
     "standby_change_refusal",
     "streamed_turn",
     "tool_array",
