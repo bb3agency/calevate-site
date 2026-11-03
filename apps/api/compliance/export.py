@@ -68,6 +68,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
+from calevate_shared.extraction import ascii_digits
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -122,7 +123,9 @@ def subject_ref(phone_e164: str) -> str:
 
 
 def _digits(value: str) -> str:
-    return "".join(character for character in value if character.isdigit())
+    # ASCII whatever the script, so the subject's number written in Telugu digits is
+    # still recognised as theirs.
+    return ascii_digits(value)
 
 
 def mask_foreign_numbers(value: str | None, *, subject_phone: str) -> str | None:

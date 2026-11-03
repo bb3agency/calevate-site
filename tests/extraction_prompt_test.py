@@ -333,7 +333,16 @@ def test_a_punctuated_phone_number_is_stored_as_one_clean_dialable_form() -> Non
     """THE BUG: a phone value was validated for placement but never normalised, so
     `+91 99999-99999` reached the Leads column verbatim. All four spellings of one number
     now collapse to the single E.164 form, with no digit added or dropped."""
-    for typed in ("+91 99999-99999", "099999 99999", "919999999999", "99999 99999"):
+    # The last two are Telugu and Devanagari digits: DNC and lead matching compare stored
+    # strings, so the number must be stored in ASCII whatever script the model wrote.
+    for typed in (
+        "+91 99999-99999",
+        "099999 99999",
+        "919999999999",
+        "99999 99999",
+        "౯౯౯౯౯ ౯౯౯౯౯",
+        "+९१ ९९९९९-९९९९९",
+    ):
         outcome = validate_extraction(SPEC, {"callback_number": typed})
         assert outcome.data["callback_number"] == "+919999999999", typed
         assert "callback_number" not in outcome.needs_review, typed

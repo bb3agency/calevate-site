@@ -451,7 +451,7 @@ async def test_the_subjects_own_number_survives_the_export_in_every_form_it_is_w
     stored spelling would blank the other two.
     """
     subject = "+919876511002"
-    for spelling in ("+919876511002", "919876511002", "9876511002"):
+    for spelling in ("+919876511002", "919876511002", "9876511002", "౯౮౭౬౫౧౧౦౦౨"):
         masked = mask_foreign_numbers(
             f"Caller confirmed {spelling} is the right number.", subject_phone=subject
         )
