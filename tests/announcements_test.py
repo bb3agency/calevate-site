@@ -17,8 +17,10 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
+from apps.api.announcements.schemas import AnnouncementIn, AnnouncementUpdateIn
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
+from pydantic import ValidationError
 from sqlalchemy import text
 from tests.api_security_test import _make_tenant
 from tests.conftest import mark_paid_for_tests
@@ -35,6 +37,32 @@ async def _end_every_announcement_afterwards() -> AsyncIterator[None]:
         await session.execute(
             text("UPDATE platform_announcements SET ended_at = now() WHERE ended_at IS NULL")
         )
+
+
+@pytest.mark.parametrize(
+    "link",
+    [
+        "//evil.example/x",
+        "/\\evil.example/x",
+        "/\t/evil.example/x",
+        "/\n\\evil.example",
+        "/billing\r\nX: y",
+        "http://evil.example",
+        "javascript:alert(1)",
+    ],
+)
+def test_a_link_that_a_browser_reads_as_another_site_is_refused(link: str) -> None:
+    with pytest.raises(ValidationError):
+        AnnouncementIn(message="x", link_url=link)
+    with pytest.raises(ValidationError):
+        AnnouncementUpdateIn(link_url=link)
+
+
+def test_console_paths_and_https_links_still_pass() -> None:
+    assert AnnouncementIn(message="x", link_url=" /billing ").link_url == "/billing"
+    assert AnnouncementIn(message="x", link_url="https://calevate.tech/a").link_url == (
+        "https://calevate.tech/a"
+    )
 
 
 def _client() -> httpx.AsyncClient:
