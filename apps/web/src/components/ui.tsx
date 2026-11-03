@@ -462,28 +462,47 @@ export const DISCLOSURE_LIST = "divide-y divide-line rounded-card border border-
  * than none at all. `hint` carries what we can actually say, and the prop arrives
  * when the endpoint does.
  */
+/** A StatTile medallion per status: the tone's soft ground under its text-token glyph. */
+const STAT_MEDALLION: Record<NoticeTone, string> = {
+  ok: "bg-success-soft text-success",
+  info: "bg-info-soft text-info",
+  warn: "bg-warn-soft text-warn",
+  stop: "bg-danger-soft text-danger",
+  neutral: "bg-surface-muted text-ink-muted",
+};
+
 export function StatTile({
   label,
   value,
   hint,
   icon,
   tone = "soft",
+  status,
 }: {
   label: string;
   value: string | number | null | undefined;
   hint?: ReactNode;
   icon?: ReactNode;
   tone?: "soft" | "strong";
+  /**
+   * What the figure means for the reader, when it means something: the medallion takes the
+   * tone's colour, and the caller's `hint` says the same thing in words (WCAG 1.4.1).
+   * Without it the medallion stays brand, so a row of neutral figures is not a rainbow.
+   */
+  status?: NoticeTone;
 }) {
   return (
     <div className="@container flex items-start gap-3 rounded-card border border-line bg-surface p-4 sm:gap-4 sm:p-5">
       {icon && (
         <div
+          data-tone={status}
           className={clsx(
             "flex h-10 w-10 shrink-0 items-center justify-center rounded-full",
-            tone === "strong"
-              ? "bg-brand-strong text-white"
-              : "bg-brand-soft text-brand-strong",
+            status
+              ? STAT_MEDALLION[status]
+              : tone === "strong"
+                ? "bg-brand-strong text-white"
+                : "bg-brand-soft text-brand-strong",
           )}
         >
           {icon}
@@ -980,11 +999,16 @@ export function RestrictionNote({ reason }: { reason: string | null }) {
 }
 
 /**
- * The four tones a status can carry: cleared, needs a look, refused, nothing on file.
- * They are the vocabulary the API already speaks about a client's own state, so the
+ * The tones a status can carry: cleared, under way, needs a look, refused, nothing on
+ * file. They are the vocabulary the API already speaks about a client's own state, so the
  * colours live here rather than being re-picked per screen.
+ *
+ * `info` is "moving, nothing to do": a task running, a call ringing. It is blue rather
+ * than grey because grey already means "nothing on file", and an owner scanning a list
+ * should tell "still going" from "never started" without reading (Atlassian's lozenge
+ * keeps the same split: `inprogress` blue, `default` grey).
  */
-export type NoticeTone = "ok" | "warn" | "stop" | "neutral";
+export type NoticeTone = "ok" | "info" | "warn" | "stop" | "neutral";
 
 /**
  * The tone of a notice is its LEFT RULE and nothing else. Chart fills, not text tokens:
@@ -992,9 +1016,24 @@ export type NoticeTone = "ok" | "warn" | "stop" | "neutral";
  */
 export const NOTICE_BAR: Record<NoticeTone, string> = {
   ok: "border-brand",
+  info: "border-series-2",
   warn: "border-chart-warn",
   stop: "border-chart-danger",
   neutral: "border-chart-neutral",
+};
+
+/**
+ * An ICON's ink per tone: the glyph beside the words, so a scan finds what needs a look
+ * by colour and by shape. Text tokens, held to 4.5:1 (`tests/contrastTokens.test.ts`),
+ * because a 16px glyph has to read on its own ground as a non-text mark at 3:1 and the
+ * fills (`--chart-warn` is 1.7:1 on white) do not.
+ */
+export const TONE_INK: Record<NoticeTone, string> = {
+  ok: "text-success",
+  info: "text-info",
+  warn: "text-warn",
+  stop: "text-danger",
+  neutral: "text-ink-faint",
 };
 
 /** The matching status dot, for a caller that wants one beside a title. Defined beside

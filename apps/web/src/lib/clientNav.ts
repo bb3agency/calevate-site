@@ -75,6 +75,12 @@ export interface NavItem {
    * claim §52 exists to stop the shell making.
    */
   badge?: number;
+  /**
+   * How urgent the count is: `stop` (red) for something that blocks the account, as an
+   * unsigned agreement does; `warn` (amber) for work waiting on a person. Red on every
+   * badge would make a routine queue read like a blocked account.
+   */
+  badgeTone?: "warn" | "stop";
 }
 
 export interface NavGroup {

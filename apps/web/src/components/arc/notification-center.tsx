@@ -35,7 +35,8 @@ export type NotificationItem = {
   href?: string | null;
   /** When it happened, ISO; shown in IST. */
   at?: string;
-  tone?: "default" | "warn" | "danger";
+  /** The row's dot: done (`success`), news (`info`), needs a look, failed, or plain. */
+  tone?: "default" | "success" | "info" | "warn" | "danger";
   /** Not yet seen by this person: the title is bold and "New" is said before it. */
   unread?: boolean;
 };
@@ -76,6 +77,8 @@ export type NotificationCenterProps = {
 
 const TONE_DOT: Record<NonNullable<NotificationItem["tone"]>, string> = {
   default: "bg-ink-faint",
+  success: "bg-brand",
+  info: "bg-series-2",
   warn: "bg-warn",
   danger: "bg-danger",
 };

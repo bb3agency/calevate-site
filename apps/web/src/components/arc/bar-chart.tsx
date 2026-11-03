@@ -45,6 +45,13 @@ export type BarChartProps = ChartStateProps & {
   stacked?: boolean;
   /** Print each bar's value at its tip (horizontal) — for a short ranked list. */
   showValues?: boolean;
+  /**
+   * One fill class per category (`bg-series-2`), for a one-series horizontal list whose
+   * categories already own a colour elsewhere: the dashboard's outcome split takes each
+   * ending's call-log dot, so "Did not connect" is the same red on both screens. The
+   * category's words stay beside every bar, so the colour is never the only signal.
+   */
+  categoryFills?: string[];
   height?: number;
   formatTick?: (value: number) => string;
   labelColumn?: string;
@@ -71,6 +78,7 @@ export function BarChart({
   orientation = "vertical",
   stacked = false,
   showValues = false,
+  categoryFills,
   height = 200,
   formatTick = formatCompact,
   labelColumn = "Category",
@@ -109,7 +117,15 @@ export function BarChart({
           text={text}
         />
       ) : (
-        <Rows categories={categories} series={series} stacked={stacked} peak={peak} showValues={showValues} text={text} />
+        <Rows
+          categories={categories}
+          series={series}
+          stacked={stacked}
+          peak={peak}
+          showValues={showValues}
+          text={text}
+          categoryFills={categoryFills}
+        />
       )}
     </ChartFrame>
   );
@@ -221,6 +237,7 @@ function Rows({
   peak,
   showValues,
   text,
+  categoryFills,
 }: {
   categories: string[];
   series: BarSeries[];
@@ -228,7 +245,9 @@ function Rows({
   peak: number;
   showValues: boolean;
   text: (s: BarSeries, i: number) => string;
+  categoryFills?: string[];
 }) {
+  const fill = (i: number) => (series.length === 1 ? categoryFills?.[i] : undefined);
   return (
     <ul className="space-y-2.5">
       {categories.map((c, i) => (
@@ -241,8 +260,8 @@ function Rows({
                 return share > 0 ? (
                   <span
                     key={s.label}
-                    className={clsx("block h-3 rounded-e-[4px]", stacked && si > 0 && "rounded-s-none")}
-                    style={{ width: `${share * 100}%`, background: seriesColor(si), maxWidth: "100%" }}
+                    className={clsx("block h-3 rounded-e-[4px]", stacked && si > 0 && "rounded-s-none", fill(i))}
+                    style={{ width: `${share * 100}%`, background: fill(i) ? undefined : seriesColor(si), maxWidth: "100%" }}
                   />
                 ) : null;
               })}

@@ -7,6 +7,7 @@ import { StatusPillShell } from "./statusPillShell";
 /** The status dot per tone: chart fills, a mark beside words, so not held to 4.5:1. */
 export const NOTICE_DOT: Record<NoticeTone, string> = {
   ok: "bg-brand",
+  info: "bg-series-2",
   warn: "bg-chart-warn",
   stop: "bg-chart-danger",
   neutral: "bg-chart-neutral",
@@ -15,6 +16,7 @@ export const NOTICE_DOT: Record<NoticeTone, string> = {
 /** The word's ink per tone. Only a refusal is coloured; the dot carries every other tone. */
 const WORD_TONES: Record<NoticeTone, string> = {
   ok: "text-ink",
+  info: "text-ink",
   warn: "text-ink",
   stop: "text-danger",
   neutral: "text-ink-muted",
