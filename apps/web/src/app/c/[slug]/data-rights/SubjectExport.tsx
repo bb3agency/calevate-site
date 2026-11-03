@@ -62,7 +62,7 @@ export function SubjectExport({ session }: { session: Session }) {
 
   return (
     <div>
-      <p className="flex flex-wrap items-center gap-x-1 text-sm text-ink-muted">
+      <p className="flex flex-wrap items-center gap-x-1 text-body text-ink-muted">
         {COPY.exportIntro}
         <WhyTip about="the export file" label="What is in it?">
           <p>{COPY.exportWhy}</p>

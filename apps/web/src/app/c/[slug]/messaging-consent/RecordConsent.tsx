@@ -41,7 +41,7 @@ export function RecordConsent({ form }: { form: ConsentForm }) {
 
   return (
     <div>
-      <p className="text-sm text-ink-muted">{COPY.recordIntro}</p>
+      <p className="text-body text-ink-muted">{COPY.recordIntro}</p>
 
       <form className="mt-4 space-y-4" noValidate onSubmit={valid.onSubmit(form.submit)}>
         <Field label={COPY.numberLabel} htmlFor="consent-phone">
@@ -182,7 +182,7 @@ export function RecordConsent({ form }: { form: ConsentForm }) {
       )}
       {record.data && (
         <div className="mt-4">
-          <p className="mb-2 text-sm font-medium text-ink">{COPY.nowStands}</p>
+          <p className="mb-2 text-body font-medium text-ink">{COPY.nowStands}</p>
           <Verdict state={record.data} />
         </div>
       )}
@@ -201,7 +201,7 @@ function Field({
 }) {
   return (
     <div>
-      <label htmlFor={htmlFor} className="text-sm font-medium text-ink">
+      <label htmlFor={htmlFor} className="text-body font-medium text-ink">
         {label}
       </label>
       <div className="mt-1">{children}</div>

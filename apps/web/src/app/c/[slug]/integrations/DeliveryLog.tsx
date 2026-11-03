@@ -8,6 +8,7 @@ import {
   SECONDARY_BUTTON_SM,
   ScrollRegion,
   Skeleton,
+  formatCount,
   formatIST,
 } from "@/components/ui";
 import { EmptySketch } from "@/components/console/emptySketch";
@@ -97,7 +98,7 @@ export function DeliveryLog({
         />
       ) : deliveries.data.length ? (
         <ScrollRegion label="Delivery log" className="-mx-4 px-4 sm:mx-0 sm:px-0">
-          <table className="w-full min-w-[500px] text-sm">
+          <table className="w-full min-w-[500px] text-body">
           <thead>
             <tr className="text-left text-xs text-ink-faint">
               <th className="pb-2 font-semibold">Event</th>
@@ -191,7 +192,7 @@ export function DeliveryLog({
       {openPayload && (
         <div className="mt-4 border-t border-line pt-4">
           <div className="flex items-center gap-2">
-            <h3 className="text-sm font-medium text-ink">
+            <h3 className="text-body font-semibold text-ink">
               What we sent
             </h3>
             <button
@@ -218,7 +219,7 @@ export function DeliveryLog({
               {payload.data.truncated && (
                 <p className="mt-2 text-xs text-warn">
                   Only the first part of this body is kept. The full body was{" "}
-                  {payload.data.original_bytes.toLocaleString("en-IN")} bytes.
+                  {formatCount(payload.data.original_bytes)} bytes.
                 </p>
               )}
               {/* Focusable for the same reason every `ScrollRegion` is, on the other

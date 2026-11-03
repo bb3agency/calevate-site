@@ -4,7 +4,7 @@ import { CircleAlert, CircleDashed, TriangleAlert } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { FlashValue } from "@/components/console/valueFlash";
-import { formatINR, hasNonZeroDigit } from "@/components/ui";
+import { formatCountOf, formatINR, hasNonZeroDigit } from "@/components/ui";
 import {
   activeTrial,
   trialEndsAt,
@@ -189,7 +189,7 @@ const BEYOND = "Lasts over a year at this pace";
 export function runwayLine(runway: Runway): string | null {
   if (runway.beyond_horizon) return BEYOND;
   if (runway.basis !== "projected" || runway.days === null) return null;
-  return `About ${runway.days.toLocaleString("en-IN")} ${runway.days === 1 ? "day" : "days"} left`;
+  return `About ${formatCountOf(runway.days, "day")} left`;
 }
 
 const NOTICE_TONES = {

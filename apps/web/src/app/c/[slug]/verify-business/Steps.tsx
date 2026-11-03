@@ -253,7 +253,7 @@ function Step({
           </h3>
           <StatusPill tone={next ? "warn" : PILL_TONE[status.state]}>{next ? "Next" : status.word}</StatusPill>
         </div>
-        {status.state !== "done" && <p className="mt-0.5 max-w-prose text-sm text-ink-muted">{needed}</p>}
+        {status.state !== "done" && <p className="mt-0.5 max-w-prose text-body text-ink-muted">{needed}</p>}
         <div className="mt-3">{children}</div>
       </div>
     </li>
@@ -293,7 +293,7 @@ function SavedDetails({ record }: { record: KycRecord }) {
     { label: "Registered as", value: entityTypeLabel(record.entity_type) },
     { label: "GSTIN", value: record.gst_registered ? record.gstin : record.gst_registered === false ? "Not registered for GST" : null },
   ].filter((row) => row.value);
-  if (rows.length === 0) return <p className="text-sm text-ink">Checked by our team.</p>;
+  if (rows.length === 0) return <p className="text-body text-ink">Checked by our team.</p>;
   return (
     <dl className="grid max-w-md grid-cols-2 gap-x-4 gap-y-3">
       {rows.map((row) => (
@@ -488,7 +488,7 @@ function BusinessDocument({ session, record, access }: { session: Session; recor
   const reviewing = inReview(record);
   const replaceable = !record.is_verified && !reviewing;
 
-  if (!current && record.is_verified) return <p className="text-sm text-ink">Checked by our team.</p>;
+  if (!current && record.is_verified) return <p className="text-body text-ink">Checked by our team.</p>;
 
   return (
     <div className="space-y-3">
@@ -518,16 +518,16 @@ function BusinessDocument({ session, record, access }: { session: Session; recor
           }
         />
       ) : record.gst_registered === null ? (
-        <p className="text-sm text-ink-muted">Finish step 1 first.</p>
+        <p className="text-body text-ink-muted">Finish step 1 first.</p>
       ) : (
-        <p className="text-sm text-ink">
+        <p className="text-body text-ink">
           {record.gst_registered
             ? "Upload the GST registration certificate."
             : "Upload the Incorporation or Udyam certificate."}
         </p>
       )}
       {openError instanceof ViewerBlockedError ? (
-        <p role="alert" className="text-sm text-danger">
+        <p role="alert" className="text-body text-danger">
           {openError.message}
         </p>
       ) : (
@@ -575,7 +575,7 @@ function OwnerStep({ session, record, access }: { session: Session; record: KycR
   if (locked && !record.digilocker_outstanding) {
     return (
       <div className="space-y-1">
-        <p className="text-sm text-ink">
+        <p className="text-body text-ink">
           {record.is_verified
             ? "Your business is verified."
             : "In review. We will tell you when it is done."}
@@ -589,12 +589,12 @@ function OwnerStep({ session, record, access }: { session: Session; record: KycR
     );
   }
   if (!record.digilocker_outstanding && !ready) {
-    return <p className="text-sm text-ink-muted">Opens after steps 1 and 2.</p>;
+    return <p className="text-body text-ink-muted">Opens after steps 1 and 2.</p>;
   }
   return (
     <div className="max-w-md space-y-4">
       {record.digilocker_outstanding && record.digilocker_required_reason && (
-        <p className="text-sm text-ink">
+        <p className="text-body text-ink">
           <span className="font-semibold">Why we asked:</span> {record.digilocker_required_reason}
         </p>
       )}
@@ -637,13 +637,13 @@ function ManualPath({ session, record, access }: { session: Session; record: Kyc
     <div className="space-y-4">
       {/* What we collect and why stays in view at the point of collection, in short lines;
           the full wording is one tap away. */}
-      <div className="space-y-1 text-sm text-ink">
+      <div className="space-y-1 text-body text-ink">
         <p>A clear photo or scan of the PAN card. No Aadhaar.</p>
         <p>We check it with the Income Tax Department.</p>
         {record.self_verification_available && <p>For Aadhaar, use DigiLocker instead.</p>}
       </div>
       <Disclosure variant="inline" headingLevel={4} title="How we use it" showLabel="Open" hideLabel="Close">
-        <p className="pt-2 text-sm text-ink-muted">
+        <p className="pt-2 text-body text-ink-muted">
           We check the PAN, the name and the date of birth with the Income Tax Department. We
           keep only a masked form, like XXXXX1234X. The PAN card file is deleted as soon as our
           review is done, and after 30 days if it is not reviewed.
@@ -711,18 +711,18 @@ function DigiLockerPath({ session, record, access }: { session: Session; record:
     // request (`kyc.KycState.digilocker_outstanding`): an uploaded ID cannot, so pointing
     // the client at the upload would send them round in a circle.
     return record.digilocker_outstanding ? (
-      <div className="space-y-1 text-sm text-ink">
+      <div className="space-y-1 text-body text-ink">
         <p>DigiLocker is down for now. Please contact us.</p>
         <p className="text-ink-muted">A PAN upload cannot replace this check.</p>
       </div>
     ) : (
-      <p className="text-sm text-ink">DigiLocker is not ready yet. Upload the PAN card instead.</p>
+      <p className="text-body text-ink">DigiLocker is not ready yet. Upload the PAN card instead.</p>
     );
   }
   return (
     <div className="space-y-3">
       {/* What we receive is said at the point of consent, in short lines. */}
-      <div className="space-y-1 text-sm text-ink">
+      <div className="space-y-1 text-body text-ink">
         <p>You sign in on DigiLocker&apos;s page and share one record.</p>
         <p>We get only the result, the name and a masked number.</p>
         <p className="text-ink-muted">Never the document itself.</p>
@@ -775,20 +775,20 @@ function PledgeBody({ session, pledge, access }: { session: Session; pledge: Out
     <div className="space-y-3">
       {/* The server separates the pledge and the disclosure with a blank line (D-762). A rule
           on the left, not a grey box: a box inside the step adds no level to the hierarchy. */}
-      <blockquote className="max-w-prose whitespace-pre-line border-l-2 border-line pl-4 text-sm text-ink">
+      <blockquote className="max-w-prose whitespace-pre-line border-l-2 border-line pl-4 text-body text-ink">
         {pledge.pledge_text}
       </blockquote>
       {pledge.is_current ? (
-        <p className="text-sm text-ink">{acceptedOn ? `Accepted on ${acceptedOn}.` : "Accepted."}</p>
+        <p className="text-body text-ink">{acceptedOn ? `Accepted on ${acceptedOn}.` : "Accepted."}</p>
       ) : (
         <div className="space-y-3">
           {pledge.accepted_version !== null && (
-            <p className="text-sm text-ink">
+            <p className="text-body text-ink">
               The pledge changed since version {pledge.accepted_version}. Please accept again.
             </p>
           )}
           <RestrictionNote reason={access.reason} />
-          <label className="flex items-start gap-3 text-sm text-ink touch:min-h-11">
+          <label className="flex items-start gap-3 text-body text-ink touch:min-h-11">
             <input
               type="checkbox"
               className="mt-0.5 h-4 w-4 shrink-0 accent-brand-strong touch:h-5 touch:w-5"

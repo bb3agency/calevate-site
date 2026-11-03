@@ -30,7 +30,7 @@ export function ShortNotice({ session, values }: { session: Session; values: Bla
 
   return (
     <section aria-labelledby="short-notice-heading" className="space-y-3">
-      <h2 id="short-notice-heading" className="text-section font-semibold text-ink">
+      <h2 id="short-notice-heading" className="text-heading text-ink">
         {COPY.heading}
       </h2>
       <div role="radiogroup" aria-label={COPY.languageLabel} className="flex flex-wrap gap-2">

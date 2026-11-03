@@ -150,7 +150,7 @@ export function Erasure({
             )}
             {preview.error != null && <ProblemNotice error={preview.error} />}
             {preview.data !== undefined && preview.error == null && (
-              <div className="text-sm text-ink" aria-live="polite">
+              <div className="text-body text-ink" aria-live="polite">
                 {preview.data.counts.calls +
                   preview.data.counts.leads +
                   preview.data.counts.transcript_turns +
@@ -215,7 +215,7 @@ export function Erasure({
           not an error, and telling the client it was would send them chasing a fault
           that does not exist. */}
       {file.data?.already_open === true && (
-        <p className="mt-3 text-sm text-ink-muted">{COPY.alreadyOpen}</p>
+        <p className="mt-3 text-body text-ink-muted">{COPY.alreadyOpen}</p>
       )}
     </div>
   );

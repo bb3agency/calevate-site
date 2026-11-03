@@ -31,7 +31,7 @@ export function PhoneNumbersNext() {
               : "Verify your business first.";
   return (
     <Card title="Phone numbers in your business's name">
-      <p className="text-sm text-ink">{sentence}</p>
+      <p className="text-body text-ink">{sentence}</p>
       <Link href={href(`/c/${session.orgSlug}/phone-number`)} className={`mt-3 ${SECONDARY_BUTTON_SM}`}>
         Go to phone numbers
       </Link>

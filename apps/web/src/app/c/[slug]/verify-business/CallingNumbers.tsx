@@ -88,7 +88,7 @@ function DeclarationBody({
   if (confirmed && !editing) {
     return (
       <div className="space-y-3">
-        <ul className="space-y-1 text-sm text-ink">
+        <ul className="space-y-1 text-body text-ink">
           {data.declared_clis.map((number) => (
             <li key={number} className="tabular-nums">
               {formatPhone(number)}
@@ -218,7 +218,7 @@ function DeclarationForm({
           </p>
         )}
         {candidates.map((number) => (
-          <label key={number} className="flex items-center gap-3 text-sm text-ink touch:min-h-11">
+          <label key={number} className="flex items-center gap-3 text-body text-ink touch:min-h-11">
             <input
               type="checkbox"
               className="h-4 w-4 shrink-0 accent-brand-strong touch:h-5 touch:w-5"
@@ -230,14 +230,14 @@ function DeclarationForm({
           </label>
         ))}
         {missing.length > 0 && (
-          <p className="text-sm text-warn">
+          <p className="text-body text-warn">
             {missing.length === 1
               ? "An agent's number is unticked. Its calls will be refused."
               : `${missing.length} agent numbers are unticked. Their calls stop.`}
           </p>
         )}
       </fieldset>
-      <label className="flex items-start gap-3 text-sm text-ink touch:min-h-11">
+      <label className="flex items-start gap-3 text-body text-ink touch:min-h-11">
         <input
           type="checkbox"
           className="mt-0.5 h-4 w-4 shrink-0 accent-brand-strong touch:h-5 touch:w-5"

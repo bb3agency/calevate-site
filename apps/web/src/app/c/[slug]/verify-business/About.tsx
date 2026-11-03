@@ -146,7 +146,7 @@ function Affected({
 function PhoneNumbers({ verified }: { verified: boolean }) {
   return (
     <div className="space-y-3">
-      <p className="text-sm text-ink-muted">
+      <p className="text-body text-ink-muted">
         Calevate provides your calling number. It is connected on our own telephony account, and we
         look after the connection, so there is no operator account for you to open.
       </p>
@@ -165,7 +165,7 @@ function PhoneNumbers({ verified }: { verified: boolean }) {
         </li>
       </ul>
       {!verified && (
-        <p className="text-sm text-ink-muted">
+        <p className="text-body text-ink-muted">
           Your verification is still outstanding. Numbers you already have keep working,
           and calls coming in are never affected.
         </p>
@@ -205,7 +205,7 @@ function OnFile({ record }: { record: KycRecord }) {
     <div data-section="on-file">
       <dl className="divide-y divide-line">
         {present.map((row) => (
-          <div key={row.label} className="flex flex-wrap justify-between gap-x-4 gap-y-0.5 py-2 text-sm first:pt-0 last:pb-0">
+          <div key={row.label} className="flex flex-wrap justify-between gap-x-4 gap-y-0.5 py-2 text-body first:pt-0 last:pb-0">
             <dt className="text-ink-muted">{row.label}</dt>
             <dd className="min-w-0 font-semibold text-ink [overflow-wrap:anywhere]">
               {row.mono ? <MonoValue>{row.value}</MonoValue> : row.value}
