@@ -86,6 +86,37 @@ export interface IdleTimeoutOptions {
   /** Called on activity, at most once per `activeEveryMs`, and never while the warning is up. */
   onActive?: () => void;
   activeEveryMs?: number;
+  /**
+   * A `localStorage` key every tab of this realm shares. The session is one per browser,
+   * not one per tab, so an operator working in one tab must not be signed out by the timer
+   * of another tab they left in the background: activity is written here, a tab about to
+   * warn or sign out reads it first, and a tab showing the warning drops it when another
+   * tab reports activity. Without a key each tab measures only itself.
+   */
+  crossTabKey?: string;
+  /** Called when activity in another tab ends this tab's warning; the caller hides it. */
+  onActiveElsewhere?: () => void;
+}
+
+/** How often activity is written to the shared key: `mousemove` fires far faster. */
+const SHARE_EVERY_MS = 5_000;
+
+function readShared(key: string | undefined): number {
+  if (!key) return 0;
+  try {
+    return Number(window.localStorage.getItem(key)) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+function writeShared(key: string | undefined, at: number): void {
+  if (!key) return;
+  try {
+    window.localStorage.setItem(key, String(at));
+  } catch {
+    // Storage blocked (private mode, policy): this tab then times itself alone.
+  }
 }
 
 export interface IdleTimeoutControls {
@@ -109,13 +140,16 @@ export function useIdleTimeout({
   enabled,
   onActive,
   activeEveryMs = 60_000,
+  crossTabKey,
+  onActiveElsewhere,
 }: IdleTimeoutOptions): IdleTimeoutControls {
   // Callbacks through refs so a caller re-creating them every render does not tear down
   // and rebuild the timers on every render — which would mean the idle clock restarted
   // continuously and the warning never fired at all.
-  const handlers = useRef({ onWarning, onLogout, onActive });
-  handlers.current = { onWarning, onLogout, onActive };
+  const handlers = useRef({ onWarning, onLogout, onActive, onActiveElsewhere });
+  handlers.current = { onWarning, onLogout, onActive, onActiveElsewhere };
   const lastActiveReport = useRef(0);
+  const lastShared = useRef(0);
 
   const warningShown = useRef(false);
   const timers = useRef<{ warning?: ReturnType<typeof setTimeout>; logout?: ReturnType<typeof setTimeout> }>({});
@@ -148,42 +182,73 @@ export function useIdleTimeout({
       return;
     }
 
-    const schedule = (): void => {
+    const schedule = (delayMs: number = warningAfterMs): void => {
       clearTimers();
       timers.current.warning = setTimeout(() => {
+        // Another tab may have seen the operator after this tab last did.
+        const idleFor = Date.now() - readShared(crossTabKey);
+        if (idleFor < warningAfterMs) {
+          schedule(warningAfterMs - idleFor);
+          return;
+        }
         warningShown.current = true;
+        const warnedAt = Date.now();
         handlers.current.onWarning();
         timers.current.logout = setTimeout(() => {
           warningShown.current = false;
+          if (readShared(crossTabKey) > warnedAt) {
+            handlers.current.onActiveElsewhere?.();
+            schedule();
+            return;
+          }
           handlers.current.onLogout();
         }, logoutAfterWarningMs);
-      }, warningAfterMs);
+      }, delayMs);
     };
-    scheduleRef.current = schedule;
+    scheduleRef.current = () => schedule();
 
     const onActivity = (): void => {
       // Sticky warning: see the file docstring. Once the prompt is up, nothing below it
       // counts — not the pointer crossing it, and not the click on its own button. Only
       // `resume()` reopens the clock, and only the logout timer closes it the other way.
+      // Nor is it shared: a tab under its prompt does not vouch for the others.
       if (warningShown.current) return;
       schedule();
       const now = Date.now();
+      if (now - lastShared.current >= SHARE_EVERY_MS) {
+        lastShared.current = now;
+        writeShared(crossTabKey, now);
+      }
       if (now - lastActiveReport.current >= activeEveryMs) {
         lastActiveReport.current = now;
         handlers.current.onActive?.();
       }
     };
 
+    // Activity in another tab: that tab was not under a prompt (it shares nothing while it
+    // is), so the operator is present and this tab's clock, or its warning, starts over.
+    // The active tab already tells the server; this one does not repeat it.
+    const onStorage = (event: StorageEvent): void => {
+      if (!crossTabKey || event.key !== crossTabKey || event.newValue === null) return;
+      if (warningShown.current) {
+        warningShown.current = false;
+        handlers.current.onActiveElsewhere?.();
+      }
+      schedule();
+    };
+
     schedule();
     for (const event of ACTIVITY_EVENTS) {
       window.addEventListener(event, onActivity, { passive: true });
     }
+    window.addEventListener("storage", onStorage);
     return () => {
       for (const event of ACTIVITY_EVENTS) window.removeEventListener(event, onActivity);
+      window.removeEventListener("storage", onStorage);
       clearTimers();
       scheduleRef.current = undefined;
     };
-  }, [enabled, warningAfterMs, logoutAfterWarningMs, activeEveryMs, clearTimers]);
+  }, [enabled, warningAfterMs, logoutAfterWarningMs, activeEveryMs, crossTabKey, clearTimers]);
 
   return { resume };
 }

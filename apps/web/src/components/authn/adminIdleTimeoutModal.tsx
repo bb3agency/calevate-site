@@ -62,6 +62,9 @@ import { useIdleTimeout } from "@/lib/authn/useIdleTimeout";
  */
 export const ADMIN_IDLE_LOGOUT_MS = 5 * 60 * 1000;
 
+/** Where the operator's last activity in any tab is shared; see `useIdleTimeout`. */
+export const ADMIN_IDLE_ACTIVITY_KEY = "calevate.admin.idle.last-activity";
+
 /** "30 minutes", "12 hours", "1 hour": an idle bound in words, from the server's seconds. */
 export function idleDurationLabel(idleTimeoutSeconds: number): string {
   if (idleTimeoutSeconds % 3600 === 0) {
@@ -133,6 +136,11 @@ export function AdminIdleTimeoutModal({ session }: { session: AuthnSession | nul
     },
     onLogout: endSession,
     enabled,
+    crossTabKey: ADMIN_IDLE_ACTIVITY_KEY,
+    onActiveElsewhere: () => {
+      setFailure(null);
+      setDeadline(null);
+    },
     onActive: () => {
       void adminAuthn.readSession().catch((error: unknown) => {
         // Already ended on the server: say so now rather than at the next warning.
