@@ -68,6 +68,11 @@ export function EndpointList({
             {!endpoint.active && (
               <StatusPill>Off</StatusPill>
             )}
+            {/* A sheet with no Google credential fails every delivery. The Key column says so
+                in faint text and is hidden on a phone, so the failure is marked here too. */}
+            {endpoint.active && endpoint.kind === SHEET_KIND && !endpoint.secret_fingerprint && (
+              <StatusPill tone="stop">Not connected</StatusPill>
+            )}
           </div>
         </div>
         </div>

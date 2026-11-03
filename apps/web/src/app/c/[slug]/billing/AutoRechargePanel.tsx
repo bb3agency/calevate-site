@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { RefreshCw } from "lucide-react";
 
 import { TEXT_ACTION_DANGER } from "@/components/console/section";
+import { StatusPill } from "@/components/console/statusPill";
 import { ActionButton, useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
 import { MoneyInput } from "@/components/arc/money-input";
 import { ConfirmDialog } from "@/components/confirmDialog";
@@ -179,7 +180,13 @@ export function AutoRechargePanel({
     <Disclosure
       title="Auto top-up"
       icon={<RefreshCw className="h-4 w-4" />}
-      status={data.enabled ? "On" : "Off"}
+      /* Off by the owner's choice is a quiet state; off because a payment failed is one to
+         look at, and the warn dot says so before the panel is opened. */
+      status={
+        <StatusPill tone={data.enabled ? "ok" : data.disabled_reason ? "warn" : "neutral"}>
+          {data.enabled ? "On" : "Off"}
+        </StatusPill>
+      }
       subtitle={
         data.enabled
           ? `Adds ${formatPayableINR(data.amount_inr)} when credit falls below ${formatINR(data.threshold_inr)}`

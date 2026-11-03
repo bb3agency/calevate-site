@@ -161,6 +161,7 @@ export function VerificationSteps({
           {done === statuses.length ? "All done" : `${done} of ${statuses.length} done`}
         </span>
       </div>
+      <StepStrip statuses={statuses} nextId={nextId} />
       {!locked && <RestrictionNote reason={access.write.reason ?? access.upload.reason} />}
       <ol className="space-y-0">
         <Step
@@ -213,6 +214,32 @@ export function VerificationSteps({
         </Step>
       </ol>
     </section>
+  );
+}
+
+/**
+ * One segment per step, coloured as the step's own marker is: done, with us, next, still to
+ * do. Hidden from assistive tech because "N of 4 done" above and each step's word already say
+ * it; the strip is for the eye on a phone, where the four steps are a long scroll apart.
+ */
+function StepStrip({ statuses, nextId }: { statuses: StepStatus[]; nextId: StepId | undefined }) {
+  return (
+    <div aria-hidden className="flex gap-1">
+      {statuses.map((status) => (
+        <span
+          key={status.id}
+          className={`h-1.5 flex-1 rounded-full ${
+            status.state === "done"
+              ? "bg-brand"
+              : status.state === "waiting"
+                ? "bg-chart-neutral"
+                : status.id === nextId
+                  ? "bg-chart-warn"
+                  : "bg-ink/[0.08]"
+          }`}
+        />
+      ))}
+    </div>
   );
 }
 

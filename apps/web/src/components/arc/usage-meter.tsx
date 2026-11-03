@@ -18,6 +18,8 @@
 import type { ReactNode } from "react";
 import clsx from "clsx";
 
+import { StatusPill } from "@/components/console/statusPill";
+
 import { seriesColor } from "./chart-core";
 
 export type UsageSegment = { label: string; value: number };
@@ -47,6 +49,11 @@ export type UsageMeterProps = {
   /** `inline`: a short bar and the caption on one line, for toolbars. */
   variant?: "block" | "inline";
   noLimitText?: string;
+  /**
+   * The state as a word beside the title once the bar changes colour: `near` from `warnAt`,
+   * `over` past the limit. Without it an amber bar says "nearly full" by colour alone.
+   */
+  stateWords?: { near: string; over: string };
   className?: string;
 };
 
@@ -64,6 +71,7 @@ export function UsageMeter({
   hint,
   variant = "block",
   noLimitText = "No limit",
+  stateWords,
   className,
 }: UsageMeterProps) {
   const unlimited = !(limit > 0);
@@ -80,6 +88,13 @@ export function UsageMeter({
     caption ??
     (unlimited ? `${usedText} used · ${noLimitText}` : limitText ? `${usedText} of ${limitText} used` : `${usedText} used`);
   const spoken = valueText ?? (typeof words === "string" ? words : `${usedText} used`);
+  const near = !unlimited && !over && share >= warnAt;
+  const state =
+    stateWords && over ? (
+      <StatusPill tone={overTone === "danger" ? "stop" : "warn"}>{stateWords.over}</StatusPill>
+    ) : stateWords && near ? (
+      <StatusPill tone="warn">{stateWords.near}</StatusPill>
+    ) : null;
   const parts = segments?.filter((s) => s.value > 0).slice(0, 4) ?? [];
   const partsTotal = parts.reduce((sum, s) => sum + s.value, 0);
 
@@ -122,7 +137,10 @@ export function UsageMeter({
   return (
     <div className={clsx("min-w-0 space-y-2", className)}>
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
-        <p className="text-body font-medium text-ink">{label}</p>
+        <p className="inline-flex flex-wrap items-center gap-x-2.5 text-body font-medium text-ink">
+          {label}
+          {state}
+        </p>
         <p className={clsx("text-meta tabular-nums", over ? (overTone === "danger" ? "font-medium text-danger" : "font-medium text-warn") : "text-ink-muted")}>
           {words}
         </p>
