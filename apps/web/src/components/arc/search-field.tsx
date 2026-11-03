@@ -21,6 +21,7 @@ import { Search, X } from "lucide-react";
 import clsx from "clsx";
 
 import { FIELD_INLINE_ICON, FIELD_LABEL } from "@/components/ui";
+import { isImeComposing } from "@/lib/imeEnter";
 
 export type SearchFieldProps = Omit<InputHTMLAttributes<HTMLInputElement>, "type" | "value" | "onChange"> & {
   label: string;
@@ -119,7 +120,7 @@ export const SearchField = forwardRef<HTMLInputElement, SearchFieldProps>(functi
           onChange={(event) => onValueChange(event.target.value)}
           onKeyDown={(event) => {
             onKeyDown?.(event);
-            if (event.defaultPrevented) return;
+            if (event.defaultPrevented || isImeComposing(event)) return;
             if (event.key === "Escape" && value !== "") {
               // Escape empties the box first; a second Escape is left to the page.
               event.preventDefault();

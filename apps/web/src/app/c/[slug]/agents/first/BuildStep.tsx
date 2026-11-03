@@ -10,6 +10,7 @@ import type { Agent } from "@/lib/api/agents";
 import { useBuildAgent, useRenameAgent, type FirstRun, type FirstRunBuildStep } from "@/lib/api/firstRun";
 import { useClientSession } from "@/lib/api/session";
 import { languageLabel, leftOutLines, voicePickNote } from "@/lib/firstAgent";
+import { isImeComposing } from "@/lib/imeEnter";
 
 import { OpeningLine } from "./OpeningLine";
 import { StepScreen } from "./shell";
@@ -289,7 +290,7 @@ function Rename({ agent }: { agent: Agent }) {
           onChange={(event) => setName(event.target.value)}
           onKeyDown={(event) => {
             // The step's own form would take Enter as "Hear it".
-            if (event.key === "Enter") {
+            if (event.key === "Enter" && !isImeComposing(event)) {
               event.preventDefault();
               if (clean && !rename.isPending) rename.mutate({ name: clean }, { onSuccess: () => setEditing(false) });
             }

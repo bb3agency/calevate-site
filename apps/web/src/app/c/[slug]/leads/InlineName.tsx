@@ -6,6 +6,7 @@ import { Pencil } from "lucide-react";
 
 import type { Lead } from "@/lib/api/leads";
 import { calledTimes, leadTitle } from "@/lib/leadLabels";
+import { isImeComposing } from "@/lib/imeEnter";
 import type { ReadAheadProps } from "@/lib/readAhead";
 
 /**
@@ -92,6 +93,7 @@ export function InlineName({
           onChange={(e) => setDraft(e.target.value)}
           onBlur={commit}
           onKeyDown={(e) => {
+            if (isImeComposing(e)) return;
             if (e.key === "Enter") {
               e.preventDefault();
               commit();

@@ -16,6 +16,7 @@ import { X } from "lucide-react";
 import clsx from "clsx";
 
 import { formatCount } from "@/components/ui";
+import { isImeComposing } from "@/lib/imeEnter";
 
 import { Field } from "./field";
 
@@ -82,6 +83,7 @@ export function TagInput({
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (isImeComposing(event)) return;
     if (event.key === "Enter" || event.key === ",") {
       event.preventDefault();
       add(active >= 0 && matches[active] ? matches[active] : draft);

@@ -16,6 +16,7 @@ import { createPortal } from "react-dom";
 import { Search } from "lucide-react";
 
 import { useFocusTrap } from "@/lib/focusTrap";
+import { isImeComposing } from "@/lib/imeEnter";
 
 const BOUNDARY = /[\s\-_/.:]/;
 
@@ -141,7 +142,7 @@ export function CommandPalette({
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
       jump((activeIndex < 0 ? 0 : activeIndex) - 1);
-    } else if (event.key === "Enter") {
+    } else if (event.key === "Enter" && !isImeComposing(event)) {
       event.preventDefault();
       const target = flat[activeIndex];
       if (target) onSelect(target);
