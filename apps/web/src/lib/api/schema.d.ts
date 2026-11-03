@@ -32421,6 +32421,8 @@ export interface components {
             name_suggestion: string;
             /** Step Titles */
             step_titles: string[];
+            /** Steps Written */
+            steps_written: boolean;
         };
         /** StartersOut */
         StartersOut: {

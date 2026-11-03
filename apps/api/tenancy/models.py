@@ -171,6 +171,7 @@ class Organization(PKMixin, TimestampMixin, Base):
         CheckConstraint(
             "jsonb_typeof(core_field_labels) = 'object'", name="core_field_labels_is_object"
         ),
+        CheckConstraint("jsonb_typeof(starter_plans) = 'object'", name="starter_plans_is_object"),
     )
 
     name: Mapped[str] = mapped_column(Text, nullable=False)
@@ -248,6 +249,11 @@ class Organization(PKMixin, TimestampMixin, Base):
     )
     #: When the one AI naming of those details was taken (`workers/core_labels`); NULL until.
     core_labels_drafted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: Each ready-made job's steps rewritten for this business (`agents/starter_plans`);
+    #: `{}` shows the platform's.
+    starter_plans: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
     # MAY THIS ACCOUNT'S `staff` MEMBERS CURATE KNOWLEDGE — the owner-controlled half of
     # the founder's decision ("give the staff perms allowing option to owner"). FALSE for
     # every account until that account's own owner turns it on, which is why the migration

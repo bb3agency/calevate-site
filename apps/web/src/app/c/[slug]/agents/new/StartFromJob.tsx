@@ -239,7 +239,11 @@ function StarterPreviewStep({
             <h3 id="starter-steps" className="text-heading text-ink">
               What it does on a call
             </h3>
-            <p className="text-meta text-ink-muted">A starting plan. We rewrite it for your business.</p>
+            <p className="text-meta text-ink-muted">
+              {preview.steps_written
+                ? "Written for your business. Change any of it later."
+                : "A starting plan. We rewrite it for your business."}
+            </p>
             <ol className="list-decimal space-y-1 pl-5 text-body text-ink marker:text-ink-muted">
               {preview.step_titles.map((step) => (
                 <li key={step}>{step}</li>

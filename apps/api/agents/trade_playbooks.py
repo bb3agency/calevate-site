@@ -32,7 +32,10 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Final, Protocol
+from typing import TYPE_CHECKING, Final, Protocol
+
+if TYPE_CHECKING:
+    from apps.api.agents.starter_plans import Plan
 
 #: The business type a plan falls back to: never the clinic (D-722).
 NEUTRAL_TRADE: Final = "custom"
@@ -370,22 +373,40 @@ _JOBS_OF_DIRECTION: Final[Mapping[str, tuple[str, ...]]] = {
 }
 
 
-def playbook_guidance(trade: str | None, direction: str) -> str:
+def playbook_guidance(
+    trade: str | None, direction: str, plans: Mapping[str, Plan] | None = None
+) -> str:
     """The plan as the script writer reads it: a skeleton to adapt to the owner's business,
-    with no spoken words of its own (D-962)."""
+    with no spoken words of its own (D-962). With the business's own steps (`plans`, the
+    ones the owner saw before creating the agent), the writer keeps their titles."""
     # Imported here, not at the top: `agents/starters` builds its catalogue from this module
     # at import, so a module-level import back would be a cycle.
     from apps.api.agents.starters import TRADES, vertical_of
 
     vertical = vertical_of(trade)
     blocks: list[str] = []
+    value_title = VALUE_STEP_TITLE
     for job in _JOBS_OF_DIRECTION.get(direction, ("answer_calls",)):
         plan = playbook_for(vertical, job, TRADES[vertical])
-        lines = [f"Step plan for this kind of business ({job.replace('_', ' ')}):"]
-        lines += [
-            f"{i}. {step.title}: {step.instruction} Done when: {step.exit_when}"
-            for i, step in enumerate(plan.steps, 1)
-        ]
+        mine = (plans or {}).get(job)
+        if mine is not None and len(mine) == len(plan.steps):
+            lines = [
+                f"Step plan for this business ({job.replace('_', ' ')}). Use these step "
+                "titles as written:"
+            ]
+            for i, (step, own) in enumerate(zip(plan.steps, mine, strict=True), 1):
+                focus = f" For this business: {own.focus}" if own.focus else ""
+                lines.append(
+                    f"{i}. {own.title}: {step.instruction}{focus} Done when: {step.exit_when}"
+                )
+                if step.title == VALUE_STEP_TITLE:
+                    value_title = own.title
+        else:
+            lines = [f"Step plan for this kind of business ({job.replace('_', ' ')}):"]
+            lines += [
+                f"{i}. {step.title}: {step.instruction} Done when: {step.exit_when}"
+                for i, step in enumerate(plan.steps, 1)
+            ]
         lines.append(
             "Objections this business meets: "
             + " ".join(f'"{said}" {does}' for said, does in plan.objections)
@@ -394,7 +415,7 @@ def playbook_guidance(trade: str | None, direction: str) -> str:
     blocks.append(
         "Adapt the plan to what the owner told you: their products, their words, their "
         "outcome. Keep one short question a turn. Write each stage's example line yourself, "
-        f"for THIS business, in the call language (none for {VALUE_STEP_TITLE!r}): the plan "
+        f"for THIS business, in the call language (none for {value_title!r}): the plan "
         "gives no words, so no line any business could use."
     )
     return "\n\n".join(blocks)

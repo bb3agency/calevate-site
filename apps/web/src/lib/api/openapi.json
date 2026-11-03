@@ -50611,6 +50611,10 @@
             },
             "title": "Step Titles",
             "type": "array"
+          },
+          "steps_written": {
+            "title": "Steps Written",
+            "type": "boolean"
           }
         },
         "required": [
@@ -50618,6 +50622,7 @@
           "direction",
           "name_suggestion",
           "step_titles",
+          "steps_written",
           "captured_details"
         ],
         "title": "StarterPreviewOut",

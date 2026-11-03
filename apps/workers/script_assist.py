@@ -38,7 +38,7 @@ import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from functools import partial
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final
 
 import httpx
 from calevate_shared.call_script import (
@@ -120,6 +120,9 @@ from apps.workers.extraction import (
     time_left,
 )
 from apps.workers.model_tiers import FlexAllowance
+
+if TYPE_CHECKING:
+    from apps.api.agents.starter_plans import Plan
 
 log = get_logger(__name__)
 
@@ -527,6 +530,9 @@ class ScriptBrief:
     #: The owner's facts (business profile, pinned and known facts), each one line: the only
     #: figures and claims a spoken line may carry.
     facts: tuple[str, ...] = ()
+    #: The business's own steps per job (`agents/starter_plans`), the ones the owner saw
+    #: before creating the agent; the writer keeps their titles.
+    step_plans: tuple[tuple[str, Plan], ...] = ()
 
     def lint_context(self) -> LintContext:
         """What the draft's lines are checked against (`agents/script_lint`)."""
@@ -1336,7 +1342,7 @@ async def draft_script(
         converting = instruction == CONVERT_INSTRUCTION
         if not converting:
             # D-856: a new script starts from the trade's step plan, the starters' skeleton.
-            plan = playbook_guidance(full.business_type, full.direction)
+            plan = playbook_guidance(full.business_type, full.direction, dict(full.step_plans))
             description = f"{description}\n{plan}"
         parse = partial(
             drafted_script,

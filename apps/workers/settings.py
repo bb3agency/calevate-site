@@ -335,6 +335,7 @@ from apps.workers.retention import (
 )
 from apps.workers.retired_line_strip import strip_retired_example_lines
 from apps.workers.script_proposal import draft_script_proposal, suggest_scripts_from_document
+from apps.workers.starter_steps import write_starter_steps
 from apps.workers.studio_voice_key import (
     push_studio_voice_key,
     push_studio_voice_key_to_workspace,
@@ -419,6 +420,7 @@ FUNCTIONS: list[Any] = [
         # the outbox (`agents/lead_fields.request_draft`).
         draft_lead_fields,
         name_core_details,
+        write_starter_steps,
         # An account brought to its business type: lead details, scripts, and the AI's
         # suggestion where nobody chose a type (D-722), from the outbox
         # (`admin/business_type.queue_apply`, migration d7a3c91e5b20).

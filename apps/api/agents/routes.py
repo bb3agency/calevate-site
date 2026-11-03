@@ -89,6 +89,7 @@ from apps.api.agents.publishing import (
 )
 from apps.api.agents.schemas import AgentOut
 from apps.api.agents.service import publish_agent
+from apps.api.agents.starter_plans import stored_plans
 from apps.api.agents.starters import StarterJob
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.caller_memory import CALLER_MEMORY_ATTESTATION, CALLER_MEMORY_ATTESTATIONS
@@ -172,6 +173,9 @@ class StarterPreviewOut(BaseModel):
     name_suggestion: str
     #: The script's steps, as short titles in call order.
     step_titles: list[str]
+    #: True when those steps were written for this business; false shows the job's own
+    #: steps until they are (they are written once the business says what it sells).
+    steps_written: bool
     #: The labels of the details the agent captures into each lead.
     captured_details: list[str]
 
@@ -230,6 +234,9 @@ async def list_starters(
         session, tenant_id=principal.tenant_id, vertical=None if org[1] is None else str(org[1])
     )
     jobs = starters.STARTER_JOBS if job is None else (job,)
+    plans = await stored_plans(
+        session, tenant_id=principal.tenant_id, shapes=starters.JOB_STEP_COUNTS
+    )
     return StartersOut(
         vertical=vertical,
         business_details=own_details,
@@ -238,7 +245,8 @@ async def list_starters(
                 job=each.job,
                 direction=starters.JOB_DIRECTION[each.job],
                 name_suggestion=each.name_suggestion,
-                step_titles=[step.title for step in each.steps],
+                step_titles=[step.title for step in each.planned(plans.get(each.job)).steps],
+                steps_written=each.job in plans,
                 captured_details=labels,
             )
             for each in (starters.starter_for(vertical, j) for j in jobs)

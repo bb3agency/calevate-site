@@ -40,6 +40,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import script_builder
 from apps.api.agents.capability_manifest import manifest_for, owner_facts
+from apps.api.agents.starter_plans import stored_plans
+from apps.api.agents.starters import JOB_STEP_COUNTS
 from apps.api.agents.write_guard import archived_refusal
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
@@ -512,6 +514,9 @@ async def brief_for(session: AsyncSession, tenant_id: UUID, agent_id: UUID) -> S
         introduced=introduces_itself(ai_notice=str(row[5]), language=language),
         capabilities=await manifest_for(session, tenant_id=tenant_id, agent_id=agent_id),
         facts=await owner_facts(session, tenant_id=tenant_id, agent_id=agent_id),
+        step_plans=tuple(
+            (await stored_plans(session, tenant_id=tenant_id, shapes=JOB_STEP_COUNTS)).items()
+        ),
     )
 
 

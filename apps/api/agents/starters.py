@@ -42,7 +42,7 @@ from __future__ import annotations
 
 import contextlib
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Final, Literal, get_args
 from uuid import UUID
 
@@ -67,6 +67,7 @@ from apps.api.agents.extraction_routes import validate_fields, write_schema
 from apps.api.agents.lead_fields import starting_business_fields
 from apps.api.agents.models import AgentDirection
 from apps.api.agents.script_builder import rewrite_script, save_agent_script
+from apps.api.agents.starter_plans import Plan, stored_plans, with_focus
 from apps.api.agents.trade_playbooks import playbook_for
 from apps.api.core.errors import ProblemError
 from apps.api.tenancy.business_copy import read_state as read_business_copy
@@ -324,6 +325,22 @@ class Starter:
     objections: tuple[tuple[str, str], ...]
     ending: str
 
+    def planned(self, plan: Plan | None) -> Starter:
+        """This starter with the business's own steps (`agents/starter_plans`): each
+        step's title in its words and its focus after the platform's instruction. The
+        instruction and "done when" stay ours."""
+        if plan is None or len(plan) != len(self.steps):
+            return self
+        steps = tuple(
+            StarterStep(
+                title=mine.title,
+                instruction=with_focus(step.instruction, mine.focus),
+                exit_when=step.exit_when,
+            )
+            for step, mine in zip(self.steps, plan, strict=True)
+        )
+        return replace(self, steps=steps)
+
     def opening_for(
         self, business: str, language: str = PREVIEW_LANGUAGE, *, introduced: bool = False
     ) -> str:
@@ -503,6 +520,13 @@ CATALOGUE: Final[Mapping[tuple[str, StarterJob], Starter]] = {
     for job in STARTER_JOBS
 }
 
+#: Each job's step count, which a business's written plan must match (`starter_plans`).
+JOB_STEP_COUNTS: Final[Mapping[str, int]] = {
+    job: len(CATALOGUE[(next(iter(TRADES)), job)].steps) for job in STARTER_JOBS
+}
+if any(len(s.steps) != JOB_STEP_COUNTS[s.job] for s in CATALOGUE.values()):
+    raise RuntimeError("a job's steps differ in count between business types")
+
 
 def starter_for(vertical_template: str | None, job: StarterJob) -> Starter:
     return CATALOGUE[(vertical_of(vertical_template), job)]
@@ -587,6 +611,7 @@ def starter_script(
     *,
     business: str,
     language: str = STARTER_LANGUAGE,
+    plans: Mapping[str, Plan] | None = None,
 ) -> CallScript:
     """The ready-made script for one job, or for the several one agent does (D-863).
 
@@ -596,16 +621,21 @@ def starter_script(
     objections are both jobs', each once."""
     jobs = starter_jobs(job)
     vertical = vertical_of(vertical_template)
+    written = plans or {}
+
+    def starter(each: StarterJob) -> Starter:
+        return CATALOGUE[(vertical, each)].planned(written.get(each))
+
     if len(jobs) == 1:
-        return CATALOGUE[(vertical, jobs[0])].call_script(business=business, language=language)
+        return starter(jobs[0]).call_script(business=business, language=language)
     answering = "answer_calls" in jobs
     calling = tuple(j for j in jobs if JOB_DIRECTION[j] == "outbound")
-    first = CATALOGUE[(vertical, jobs[0])].call_script(business=business, language=language)
+    first = starter(jobs[0]).call_script(business=business, language=language)
     parts: list[tuple[str, CallScript]] = []
     if answering:
         parts.append(("inbound", first))
     if calling:
-        base = CATALOGUE[(vertical, calling[-1])].call_script(business=business, language=language)
+        base = starter(calling[-1]).call_script(business=business, language=language)
         if len(calling) > 1:
             # The list's own needs step (index 2 of the shared shape), told about new enquiries.
             stages = list(base.stages)
@@ -674,9 +704,10 @@ async def apply_starter(
     )
     validate_fields(fields)
     await write_schema(session, agent_id=agent_id, fields=fields)
+    plans = await stored_plans(session, tenant_id=tenant_id, shapes=JOB_STEP_COUNTS)
     script = await _with_business_lines(
         session,
-        starter_script(vertical_template, jobs, business=business, language=language),
+        starter_script(vertical_template, jobs, business=business, language=language, plans=plans),
         jobs,
         language,
     )
@@ -771,7 +802,12 @@ def _canonical(script: CallScript) -> dict[str, Any]:
 
 
 def starter_vertical_of(
-    stored: Mapping[str, Any], *, job: StarterJob, business: str, language: str
+    stored: Mapping[str, Any],
+    *,
+    job: StarterJob,
+    business: str,
+    language: str,
+    plan: Plan | None = None,
 ) -> str | None:
     """The business type whose starter wrote `stored`, if nobody has changed its structure.
 
@@ -779,16 +815,19 @@ def starter_vertical_of(
     owner edits and a recompile (`recompile_collect`) writes new versions without touching
     it. The spoken words (openings, example lines, example call) are written for the business
     and are not compared (D-962). A starter written under an earlier business name or an
-    earlier catalogue wording does not match, and is treated as edited.
+    earlier catalogue wording does not match, and is treated as edited. With `plan`, the
+    starter as written with the business's own steps matches too.
     """
     try:
         script = _canonical(CallScript.model_validate(stored))
     except ValueError:
         return None
     for vertical in TRADES:
-        candidate = CATALOGUE[(vertical, job)].call_script(business=business, language=language)
-        if _canonical(candidate) == script:
-            return vertical
+        starter = CATALOGUE[(vertical, job)]
+        for each in (starter, starter.planned(plan)):
+            candidate = each.call_script(business=business, language=language)
+            if _canonical(candidate) == script:
+                return vertical
     return None
 
 
@@ -820,13 +859,14 @@ async def replace_unedited_starter(
     if row is None or row[4] is None or row[5] or row[6] or not isinstance(row[2], dict):
         return None
     business, language = str(row[3]), str(row[1])
+    plans = await stored_plans(session, tenant_id=tenant_id, shapes=JOB_STEP_COUNTS)
     found = next(
         (
             (job, vertical)
             for job in JOBS_OF_DIRECTION.get(str(row[0]), ())
             if (
                 vertical := starter_vertical_of(
-                    row[2], job=job, business=business, language=language
+                    row[2], job=job, business=business, language=language, plan=plans.get(job)
                 )
             )
             is not None
@@ -842,7 +882,11 @@ async def replace_unedited_starter(
     held = CallScript.model_validate(row[2])
     # The new type's structure, with the openings the agent already has (written for this
     # business, not for its old type) and the business's example lines for the new steps.
-    script = CATALOGUE[(target, job)].call_script(business=business, language=language)
+    script = (
+        CATALOGUE[(target, job)]
+        .planned(plans.get(job))
+        .call_script(business=business, language=language)
+    )
     script = script.model_copy(
         update={
             "opening_line": held.opening_line,
@@ -863,6 +907,7 @@ __all__ = [
     "JOBS_OF_DIRECTION",
     "JOB_DIRECTION",
     "JOB_LABEL",
+    "JOB_STEP_COUNTS",
     "LINES_OF_JOB",
     "LINE_SETS",
     "NEUTRAL_VERTICAL",
