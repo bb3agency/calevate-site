@@ -348,6 +348,22 @@ describe("new agent: step 3, the script written for the business", () => {
     expect(await screen.findByRole("heading", { name: "What it writes down" })).toBeTruthy();
   });
 
+  it("asks again for the script when Try again is pressed", async () => {
+    const { calls } = await renderClientPage(
+      page,
+      routes({
+        [`${BASE}/script/proposal`]: { proposal: proposal("failed") },
+        [`POST ${BASE}/script/proposal/starter`]: proposal("drafting"),
+      }),
+    );
+    await toScript();
+    fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
+    await waitFor(() =>
+      expect(calls.some((c) => c.method === "POST" && c.url.endsWith("/script/proposal/starter"))).toBe(true),
+    );
+    expect(await screen.findByRole("heading", { name: "Writing your script" })).toBeTruthy();
+  });
+
   it("sends a suggestion still waiting to the Script tab to be used", async () => {
     await renderClientPage(page, routes({ [`${BASE}/script/proposal`]: { proposal: proposal("ready") } }));
     await toScript();

@@ -590,6 +590,19 @@ export function useFixScriptLines(
   });
 }
 
+/** Ask again for the whole script written for the business, after the first try failed. */
+export function useRewriteStarterScript(
+  session: Session,
+  agentId: string,
+): UseMutationResult<ScriptProposal, Error, void> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiRequest<ScriptProposal>(session, `${base(agentId)}/proposal/starter`, { method: "POST" }),
+    onSuccess: (proposal) => client.setQueryData(proposalKey(session.orgSlug, agentId), proposal),
+  });
+}
+
 /** The fixed script into the draft, and the suggestion it came from cleared. */
 export function useKeepFixedScript(
   session: Session,

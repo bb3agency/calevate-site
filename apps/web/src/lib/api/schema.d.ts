@@ -4573,6 +4573,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agents/{agent_id}/script/proposal/starter": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Write the agent's whole script for this business again
+         * @description The new-agent flow's "Try again" after the script written at creation failed. Queues the same whole-script suggestion `POST /v1/agents` with a `starter` does; poll `GET .../proposal`. A draft agent still on its untouched starter takes it at once, as at creation.
+         */
+        post: operations["rewrite_starter_script_v1_agents__agent_id__script_proposal_starter_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents/{agent_id}/script/proposal/{proposal_id}": {
         parameters: {
             query?: never;
@@ -45551,6 +45571,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PendingProposalOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    rewrite_starter_script_v1_agents__agent_id__script_proposal_starter_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScriptProposalOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

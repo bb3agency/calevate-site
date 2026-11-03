@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { TextShimmer } from "@/components/arc/text-shimmer";
 import { PRIMARY_BUTTON, ProblemNotice, SECONDARY_BUTTON } from "@/components/ui";
-import type { CallScript } from "@/lib/api/script";
-import { useClientRealm } from "@/lib/api/session";
+import { useRewriteStarterScript, type CallScript } from "@/lib/api/script";
+import { useClientRealm, useClientSession } from "@/lib/api/session";
 
 import type { ScriptWriting } from "./scriptWriting";
 import { SetupStep, SkipButton } from "./setupStep";
@@ -32,6 +33,44 @@ const WRITING_PARTS = [
   "Writing how it opens a call",
   "Checking every line it will say",
 ] as const;
+
+/** The write failed: ask again (it is the same request creation made), or write it oneself. */
+function ScriptFailed({
+  agentId,
+  note,
+  scriptTab,
+  onBack,
+  onSkip,
+}: {
+  agentId: string;
+  note: string | null;
+  scriptTab: string;
+  onBack: () => void;
+  onSkip: () => void;
+}) {
+  const again = useRewriteStarterScript(useClientSession(), agentId);
+  const feedback = useActionFeedback(again, { errorDisplay: "inline" });
+  return (
+    <SetupStep
+      title="We couldn't write the script"
+      hint={note ?? "Try again, or write it on the Script tab."}
+      onBack={onBack}
+      actions={
+        <>
+          <ActionButton status={feedback.status} pendingLabel="Asking…" onClick={() => again.mutate()}>
+            Try again
+          </ActionButton>
+          <Link href={scriptTab} className={SECONDARY_BUTTON}>
+            Write it yourself
+          </Link>
+          <SkipButton onSkip={onSkip} />
+        </>
+      }
+    >
+      {again.error ? <ProblemNotice error={again.error} /> : null}
+    </SetupStep>
+  );
+}
 
 export function ScriptStep({
   slug,
@@ -134,21 +173,7 @@ export function ScriptStep({
         </SetupStep>
       );
     case "failed":
-      return (
-        <SetupStep
-          title="We couldn't write the script"
-          hint={writing.note ?? "Write it on the Script tab, or skip for now."}
-          onBack={onBack}
-          actions={
-            <>
-              <Link href={scriptTab} className={PRIMARY_BUTTON}>
-                Write it yourself
-              </Link>
-              <SkipButton onSkip={onSkip} />
-            </>
-          }
-        />
-      );
+      return <ScriptFailed agentId={agentId} note={writing.note} scriptTab={scriptTab} onBack={onBack} onSkip={onSkip} />;
     case "unread":
       return (
         <SetupStep title="Your script" onBack={onBack} actions={<SkipButton onSkip={onSkip} />}>

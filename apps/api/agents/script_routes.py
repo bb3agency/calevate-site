@@ -1436,6 +1436,35 @@ async def save_script_draft(
     return DraftSavedOut(saved_at=saved_at)
 
 
+@router.post(
+    "/proposal/starter",
+    response_model=ScriptProposalOut,
+    status_code=202,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Write the agent's whole script for this business again",
+    description=(
+        'The new-agent flow\'s "Try again" after the script written at creation failed. '
+        "Queues the same whole-script suggestion `POST /v1/agents` with a `starter` does; "
+        "poll `GET .../proposal`. A draft agent still on its untouched starter takes it at "
+        "once, as at creation."
+    ),
+)
+async def rewrite_starter_script(
+    agent_id: UUID, session: Session, principal: ScriptWriter
+) -> ScriptProposalOut:
+    assert principal.tenant_id is not None
+    # Spends the dashboard AI allowance like any suggestion Pip writes.
+    assert_view_as_may(principal, "billing.ai_assist")
+    await require_ai_assist(session, tenant_id=principal.tenant_id)
+    proposal = await script_proposals.request_written_script(
+        session,
+        tenant_id=principal.tenant_id,
+        agent_id=agent_id,
+        requested_by=principal.user_id,
+    )
+    return _proposal_out(proposal)
+
+
 class FixLinesIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

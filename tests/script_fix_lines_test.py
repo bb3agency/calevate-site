@@ -55,3 +55,24 @@ async def test_the_flagged_lines_are_sent_to_be_fixed_and_a_clean_script_is_refu
     assert proposal is not None
     # Made from the draft on screen, which is now the working copy.
     assert proposal.base_script.stages[0].sounds_like == "Is now a good time? Shall I go on?"
+
+
+@pytest.mark.rls
+async def test_a_failed_written_script_can_be_asked_for_again() -> None:
+    tenant_id, token = await _tenant("custom", "Rytu Khata")
+    code, body = await _create(token, {"name": "Varsha", "starter": "call_leads"})
+    assert code == 201, body
+    agent_id = uuid.UUID(body["id"])
+    async with tenant_session(tenant_id) as session:
+        first = await script_proposals.read_proposal(session, agent_id)
+        assert first is not None
+        await script_proposals.store_failed(
+            session, agent_id=agent_id, proposal_id=first.id, note="x"
+        )
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:
+        response = await http.post(
+            f"/v1/agents/{agent_id}/script/proposal/starter",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert response.status_code == 202, response.text
+    assert (response.json()["mode"], response.json()["status"]) == ("starter", "drafting")
