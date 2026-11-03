@@ -4459,6 +4459,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agents/{agent_id}/script/fix-lines": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Fix the lines the script check found, before putting it live
+         * @description "Fix them first" on Put it live. Saves `script` as the working copy, runs the same check as `POST .../check` on it and asks for a suggestion that fixes exactly those lines and changes nothing else; poll `GET .../proposal` until it is `ready`. Refused with `script_has_nothing_to_fix` when the check finds nothing.
+         */
+        post: operations["fix_script_lines_v1_agents__agent_id__script_fix_lines_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents/{agent_id}/script/opening-line": {
         parameters: {
             query?: never;
@@ -23147,6 +23167,10 @@ export interface components {
             questions: components["schemas"]["QuestionsOut"];
             /** Recordings Left */
             recordings_left: number;
+        };
+        /** FixLinesIn */
+        FixLinesIn: {
+            script: components["schemas"]["CallScript"];
         };
         /** FlagStateOut */
         FlagStateOut: {
@@ -45329,6 +45353,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DraftSavedOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    fix_script_lines_v1_agents__agent_id__script_fix_lines_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FixLinesIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScriptProposalOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

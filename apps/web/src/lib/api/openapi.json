@@ -25567,6 +25567,19 @@
         "title": "FirstRunOut",
         "type": "object"
       },
+      "FixLinesIn": {
+        "additionalProperties": false,
+        "properties": {
+          "script": {
+            "$ref": "#/components/schemas/CallScript"
+          }
+        },
+        "required": [
+          "script"
+        ],
+        "title": "FixLinesIn",
+        "type": "object"
+      },
       "FlagStateOut": {
         "additionalProperties": false,
         "properties": {
@@ -76568,6 +76581,57 @@
           }
         },
         "summary": "Autosave the working copy (no version, never reaches a call)",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/agents/{agent_id}/script/fix-lines": {
+      "post": {
+        "description": "\"Fix them first\" on Put it live. Saves `script` as the working copy, runs the same check as `POST .../check` on it and asks for a suggestion that fixes exactly those lines and changes nothing else; poll `GET .../proposal` until it is `ready`. Refused with `script_has_nothing_to_fix` when the check finds nothing.",
+        "operationId": "fix_script_lines_v1_agents__agent_id__script_fix_lines_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FixLinesIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScriptProposalOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Fix the lines the script check found, before putting it live",
         "tags": [
           "agents"
         ],

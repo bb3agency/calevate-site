@@ -50,7 +50,7 @@ import { LiveBadge, liveState } from "../../AgentBadge";
 import { LifecycleError, MOVE_COPY } from "../../AgentLifecycle";
 import { stagedScript, voiceTierLine } from "../../panels/publishing";
 import { PromoWarning } from "../script/PromoWarning";
-import { PutLiveDialog, usePutLive, type ScriptLink } from "../script/PutLive";
+import { PutLiveDialog, usePutLive } from "../script/PutLive";
 import { TRY_IT_ANCHOR } from "../tour/tourModel";
 import { hasUnpublished, workingCopy } from "../script/scriptDraft";
 
@@ -242,7 +242,6 @@ export function AgentHeader({
                     canWrite={write.allowed}
                     reason={write.reason}
                     voiceLine={tierLine}
-                    scriptLink={{ href: scriptTab?.href ?? href(`${base}?section=script`), onClick: scriptTab?.onClick }}
                   />
                 )}
               </>
@@ -328,13 +327,11 @@ function PutLiveButton({
   canWrite,
   reason,
   voiceLine,
-  scriptLink,
 }: {
   agent: Agent;
   canWrite: boolean;
   reason: string | null;
   voiceLine: string | null;
-  scriptLink: ScriptLink;
 }) {
   const session = useClientSession();
   const script = useScript(session, agent.id);
@@ -366,7 +363,6 @@ function PutLiveButton({
       {asking && (
         <PutLiveDialog
           agentId={agent.id}
-          scriptLink={scriptLink}
           live={out.script}
           draft={local}
           agentOn={agent.published && agent.status === "live"}

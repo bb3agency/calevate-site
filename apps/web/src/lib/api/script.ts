@@ -571,6 +571,47 @@ export function useClearProposal(
 }
 
 /**
+ * "Fix them first" on Put it live: the draft on screen becomes the working copy and a
+ * suggestion is asked for that fixes exactly the lines the check found. Polled through
+ * `useScriptProposal`; `useKeepFixedScript` puts the result into the draft.
+ */
+export function useFixScriptLines(
+  session: Session,
+  agentId: string,
+): UseMutationResult<ScriptProposal, Error, CallScript> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (script: CallScript) =>
+      apiRequest<ScriptProposal>(session, `${base(agentId)}/fix-lines`, {
+        method: "POST",
+        body: { script },
+      }),
+    onSuccess: (proposal) => client.setQueryData(proposalKey(session.orgSlug, agentId), proposal),
+  });
+}
+
+/** The fixed script into the draft, and the suggestion it came from cleared. */
+export function useKeepFixedScript(
+  session: Session,
+  agentId: string,
+): UseMutationResult<void, Error, { proposalId: string; script: CallScript }> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ proposalId, script }) => {
+      await apiRequest<DraftSavedOut>(session, `${base(agentId)}/draft`, {
+        method: "PUT",
+        body: { script },
+      });
+      await apiRequest<void>(session, `${base(agentId)}/proposal/${proposalId}`, { method: "DELETE" });
+    },
+    onSuccess: () => {
+      client.setQueryData(proposalKey(session.orgSlug, agentId), null);
+      invalidateScript(client, session, agentId);
+    },
+  });
+}
+
+/**
  * Ask for the opening line written to follow the agent's own introduction (D-865): the
  * repair for switching the AI notice on over an opening that already says who is calling.
  * The answer is an `opening` suggestion, polled through `useScriptProposal`.

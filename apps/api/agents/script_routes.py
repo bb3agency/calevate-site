@@ -1436,6 +1436,60 @@ async def save_script_draft(
     return DraftSavedOut(saved_at=saved_at)
 
 
+class FixLinesIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: The draft on screen, saved as the working copy so the fix is made to what was checked.
+    script: CallScript
+
+
+@router.post(
+    "/fix-lines",
+    response_model=ScriptProposalOut,
+    status_code=202,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Fix the lines the script check found, before putting it live",
+    description=(
+        '"Fix them first" on Put it live. Saves `script` as the working copy, runs the same '
+        "check as `POST .../check` on it and asks for a suggestion that fixes exactly those "
+        "lines and changes nothing else; poll `GET .../proposal` until it is `ready`. "
+        "Refused with `script_has_nothing_to_fix` when the check finds nothing."
+    ),
+)
+async def fix_script_lines(
+    agent_id: UUID, payload: FixLinesIn, session: Session, principal: ScriptWriter
+) -> ScriptProposalOut:
+    assert principal.tenant_id is not None
+    assert principal.user_id is not None
+    # Spends the dashboard AI allowance like any suggestion Pip writes.
+    assert_view_as_may(principal, "billing.ai_assist")
+    await require_ai_assist(session, tenant_id=principal.tenant_id)
+    script = upgrade_to_v2(payload.script)
+    context = await lint_context_for(session, tenant_id=principal.tenant_id, agent_id=agent_id)
+    found = [plain(problem) for problem in script_problems(script, replace(context, promo=False))]
+    if not found:
+        raise ProblemError.conflict(
+            "script_has_nothing_to_fix",
+            "The check finds nothing to fix in this script.",
+            remediation="Put it live as it is.",
+        )
+    await script_builder.save_draft(session, agent_id, payload.script)
+    change = (
+        "Fix only these problems the script check found, and change nothing else: "
+        + " ".join(found)
+    )[: script_proposals.MAX_CHANGE_CHARS]
+    proposal = await script_proposals.request_proposal(
+        session,
+        tenant_id=principal.tenant_id,
+        agent_id=agent_id,
+        mode="change",
+        change=change,
+        answers={},
+        requested_by=principal.user_id,
+    )
+    return _proposal_out(proposal)
+
+
 class PublishIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

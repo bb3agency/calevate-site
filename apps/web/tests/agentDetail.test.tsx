@@ -1619,14 +1619,23 @@ describe("putting a waiting script live from the header", () => {
     expect(JSON.parse(posted?.body ?? "{}")).toEqual({ expected_version: 9 });
   });
 
-  it("sends 'Fix it first' to the Script tab, since the header's dialog is opened away from it", async () => {
-    // Closing the dialog alone left the owner on Overview with no script to fix.
-    await renderClientPage(
+  it("fixes the flagged lines in place and says so while it works", async () => {
+    // Founder, 3 Nov 2026: "Fix them first" fixes them, with a message while it does.
+    const { calls } = await renderClientPage(
       page,
       routes({
         "/v1/agents/agent-1/pending": STAGED,
         "/v1/agents/agent-1/script": WAITING_SCRIPT,
         "POST /v1/agents/agent-1/script/check": { warnings: ["Ask one question at a time."] },
+        "POST /v1/agents/agent-1/script/fix-lines": {
+          id: "fix-1",
+          mode: "change",
+          status: "drafting",
+          note: null,
+          base_script: WAITING_SCRIPT.script,
+          script: null,
+        },
+        "/v1/agents/agent-1/script/proposal": { proposal: null },
       }),
     );
     const open = await screen.findByRole("button", { name: "Put it live" });
@@ -1636,12 +1645,13 @@ describe("putting a waiting script live from the header", () => {
     });
     const dialog = await screen.findByRole("dialog", { name: "Put these changes live?" });
     await within(dialog).findByText("1 line to fix first");
-    const fix = within(dialog).getByRole("link", { name: "Fix it first" });
-    expect(fix.getAttribute("href")).toContain("section=script");
     await act(async () => {
-      fireEvent.click(fix);
+      fireEvent.click(within(dialog).getByRole("button", { name: "Fix it first" }));
     });
-    expect(screen.queryByRole("dialog", { name: "Put these changes live?" })).toBeNull();
+    expect(await within(dialog).findByText("Fixing 1 line…")).toBeTruthy();
+    const sent = calls.find((c) => c.method === "POST" && c.url.includes("/script/fix-lines"));
+    expect(JSON.parse(sent?.body ?? "{}")).toHaveProperty("script");
+    expect(within(dialog).getByRole("button", { name: "Put it live" }).hasAttribute("disabled")).toBe(true);
   });
 
   it("offers Try again when the line check fails", async () => {
