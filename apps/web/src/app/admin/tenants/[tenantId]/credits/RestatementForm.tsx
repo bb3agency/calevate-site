@@ -15,6 +15,7 @@ import { WriteFailure } from "@/app/admin/writeFailure";
 import type { useAdminAccess } from "@/app/admin/access";
 import {
   restatementAmountProblem,
+  sameRupees,
   type Credits,
   type RestatementResult,
   type useRecordRestatement,
@@ -83,7 +84,7 @@ export function RestatementForm({
   const total = draft.total.trim();
   const totalProblem = total === "" ? null : restatementAmountProblem(draft.total);
   const totalReady = total !== "" && totalProblem === null;
-  const confirmed = totalReady && draft.confirm.trim() === total;
+  const confirmed = totalReady && sameRupees(draft.confirm, total);
   const reason = draft.reason.trim();
   const reasonReady = reason.length >= 3;
   const ready =

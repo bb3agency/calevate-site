@@ -30,8 +30,11 @@ export function WalletSummary({
   const minutes = minutesLine(tenant);
   return (
     <section aria-label="Wallet" className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-4">
-        <div className="grid min-w-0 flex-1 grid-cols-2 gap-x-8 gap-y-4 lg:grid-cols-4">
+      {/* Each figure gets a column wide enough to stay on one line, and the columns wrap
+          whole; the buttons sit under them. Squeezed four across beside the buttons, a
+          balance broke mid-number ("₹1,00 / 0.00", founder, 3 Nov 2026). */}
+      <div className="space-y-4">
+        <div className="grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-[repeat(auto-fit,minmax(14rem,1fr))]">
           <Metric
             label="Minutes left"
             value={minutes ?? (tenant.plan_tier === "managed" ? "Moving to credits" : "—")}
@@ -54,7 +57,7 @@ export function WalletSummary({
           <Metric label="Paid for, lifetime" value={formatINRExact(wallet.paid_inr)} />
           <Metric label="Given, lifetime" value={formatINRExact(wallet.granted_inr)} />
         </div>
-        <div className="flex w-full flex-wrap gap-2 sm:w-auto [&>*]:max-sm:flex-1">{actions}</div>
+        <div className="flex flex-wrap justify-end gap-2 [&>*]:max-sm:flex-1">{actions}</div>
       </div>
 
       {/* `is_low` is the SERVER's verdict (`billing.service.LOW_BALANCE_INR`), displayed and

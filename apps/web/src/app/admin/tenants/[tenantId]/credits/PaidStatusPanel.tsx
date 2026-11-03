@@ -23,7 +23,9 @@ import {
   grantAmountProblem,
   grantCeilingProblem,
   mintGrantRef,
+  sameRupees,
   toTwoDecimals,
+  typedRupees,
 } from "@/lib/api/credits";
 import { lookup } from "@/lib/lookup";
 import { useMakePaid, usePaidStatus, type MakePaidResult, type PaidStatus } from "@/lib/api/paidStatus";
@@ -141,7 +143,7 @@ function MakePaidForm({
     amount === "" ? null : (grantAmountProblem(amount) ?? grantCeilingProblem(amount));
   const giving = amount !== "" && amountProblem === null;
   const confirmWord = giving ? toTwoDecimals(amount) : "";
-  const confirmed = !giving || confirm.trim() === confirmWord;
+  const confirmed = !giving || sameRupees(confirm, confirmWord);
   const reasonReady = reason.trim().length >= 3;
   const ready =
     write.allowed && reasonReady && amountProblem === null && confirmed && !make.data;
@@ -155,7 +157,7 @@ function MakePaidForm({
         if (!ready) return;
         make.mutate({
           reason,
-          grant: giving ? { amountInr: amount, amountConfirmation: confirm, grantRef } : null,
+          grant: giving ? { amountInr: amount, amountConfirmation: typedRupees(confirm) ?? confirm, grantRef } : null,
         });
       }}
     >

@@ -19,7 +19,9 @@ import {
   isLargeGrant,
   grantCeilingProblem,
   mintGrantRef,
+  sameRupees,
   toTwoDecimals,
+  typedRupees,
   useGrantCredits,
   type Credits,
   type GrantResult,
@@ -103,7 +105,7 @@ export function GrantPanel({
   // carries: `5000` and `5000.00` are the same grant and must confirm the same way, or
   // the ceremony would refuse the calls it exists to permit.
   const confirmWord = amountReady ? toTwoDecimals(amount) : "";
-  const confirmed = amountReady && confirm.trim() === confirmWord;
+  const confirmed = amountReady && sameRupees(confirm, confirmWord);
   const reasonReady = reason.trim().length >= 3;
   const ready = write.allowed && amountReady && confirmed && reasonReady;
 
@@ -146,7 +148,7 @@ export function GrantPanel({
           event.preventDefault();
           if (!ready) return;
           grant.mutate(
-            { amountInr: amount, reason: reason.trim(), grantRef, amountConfirmation: confirm },
+            { amountInr: amount, reason: reason.trim(), grantRef, amountConfirmation: typedRupees(confirm) ?? confirm },
             {
               onSuccess: () => {
                 setAmountInr("");

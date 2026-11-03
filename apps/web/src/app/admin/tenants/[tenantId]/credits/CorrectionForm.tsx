@@ -17,6 +17,7 @@ import {
   adjustmentAmountProblem,
   correctableEntries,
   creditReasonLabel,
+  sameRupees,
   takesCreditAway,
   type AdjustmentResult,
   type Credits,
@@ -91,7 +92,7 @@ export function CorrectionForm({
   const amount = draft.amount.trim();
   const amountProblem = amount === "" ? null : adjustmentAmountProblem(draft.amount);
   const amountReady = amount !== "" && amountProblem === null;
-  const confirmed = amountReady && draft.confirm.trim() === amount;
+  const confirmed = amountReady && sameRupees(draft.confirm, amount);
   const reason = draft.reason.trim();
   const reasonReady = reason.length >= 3;
   const ready =

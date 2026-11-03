@@ -652,6 +652,24 @@ export function toTwoDecimals(raw: string): string {
   return `${whole || "0"}.${`${fraction}00`.slice(0, 2)}`;
 }
 
+/**
+ * A typed rupee figure as two-decimal digits, or null when it is not one. Forgiving of how a
+ * person types it ("1000", "1,000", "₹1000.5"), so re-keying an amount asks for the AMOUNT,
+ * not its exact spelling (founder, 3 Nov 2026: "ignore those paise while entering").
+ */
+export function typedRupees(raw: string): string | null {
+  const match = /^(-?)(\d+)(?:\.(\d{0,2}))?$/.exec(raw.replace(/[₹,\s]/g, ""));
+  if (!match) return null;
+  const [, sign, whole, fraction = ""] = match;
+  return `${sign}${whole.replace(/^0+(?=\d)/, "")}.${`${fraction}00`.slice(0, 2)}`;
+}
+
+/** Whether a re-keyed amount is the same figure as `expected`, however each is spelled. */
+export function sameRupees(typed: string, expected: string): boolean {
+  const mine = typedRupees(typed);
+  return mine !== null && mine === typedRupees(expected);
+}
+
 /** The same shape check as the other money fields, said for a GIFT. */
 export function grantAmountProblem(raw: string): string | null {
   switch (rupeeFault(raw)) {
