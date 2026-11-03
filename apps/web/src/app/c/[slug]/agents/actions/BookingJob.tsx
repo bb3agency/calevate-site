@@ -152,7 +152,7 @@ function TryIt({
 
   return (
     <div>
-      <h4 className="text-body font-medium text-ink">Try it</h4>
+      <h4 className="text-body font-semibold text-ink">Try it</h4>
       <p className="mt-0.5 text-meta text-ink-muted">
         Pick a time to check your calendar. Nothing is booked.
       </p>

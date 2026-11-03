@@ -73,7 +73,7 @@ export function TeamAlertsPanel({ agent }: { agent: Pick<Agent, "id"> }) {
 function Contacts({ data, canWrite, reason }: { data: TeamContacts; canWrite: boolean; reason: string | null }) {
   return (
     <div className="space-y-3">
-      <h4 className="text-sm font-semibold text-ink">Where to send</h4>
+      <h4 className="text-body font-semibold text-ink">Where to send</h4>
       {data.contacts.length === 0 ? (
         <p className="text-sm text-ink-muted">No team address yet. Add the email your team reads.</p>
       ) : (
@@ -349,7 +349,7 @@ function When({
         });
       }}
     >
-      <h4 className="text-sm font-semibold text-ink">When this agent tells them</h4>
+      <h4 className="text-body font-semibold text-ink">When this agent tells them</h4>
       {rule.sends_to === null ? (
         <p role="status" className="text-sm text-warn">
           Nothing is sent until an address is confirmed.

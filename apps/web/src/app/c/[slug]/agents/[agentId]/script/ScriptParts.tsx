@@ -186,7 +186,7 @@ export function ScriptParts({
         )}
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2">
           <div className="min-w-0">
-            <h4 className="text-body font-medium text-ink">Quick facts</h4>
+            <h4 className="text-body font-semibold text-ink">Quick facts</h4>
             <p className="text-meta text-ink-muted">Prices and timings, shared by all your agents.</p>
           </div>
           <Link href={knowledgeHref} className={TEXT_ACTION}>

@@ -58,9 +58,9 @@ export function LeadSuggestions({
   const count = suggestions.length;
 
   return (
-    <section aria-labelledby="lead-suggestions-heading" className="rounded-md border border-line px-3 py-3 sm:px-4">
+    <section aria-labelledby="lead-suggestions-heading" className="rounded-card border border-line p-4">
       <div className="flex items-baseline justify-between gap-3">
-        <h3 id="lead-suggestions-heading" className="text-sm font-medium text-ink">
+        <h3 id="lead-suggestions-heading" className="text-body font-semibold text-ink">
           {count ? `Suggested changes (${count})` : "Suggested changes"}
         </h3>
         {canWrite && !reading && (
