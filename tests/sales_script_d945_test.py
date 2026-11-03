@@ -375,6 +375,9 @@ def test_a_weekday_must_fall_on_its_date() -> None:
     # Early January reads December as the one just gone; 31 February is no date at all.
     assert wrong_weekday("Thursday, 31 December", date(2027, 1, 2)) is None
     assert wrong_weekday("Monday, 31 February", friday) is None
+    # 29 Feb 2028 is a Tuesday; 2027 has no 29 February and must not end the search.
+    assert wrong_weekday("Monday, 29 February", date(2028, 2, 10)) == "Monday, 29 February"
+    assert wrong_weekday("Tuesday, 29 February", date(2028, 2, 10)) is None
     turns = [Turn("When?", "Monday, 1 November at 11, or another time that suits you?")]
     kinds = [p.kind for p in conversation_problems(turns, today=friday)]
     assert kinds == ["wrong_weekday"] and "wrong_weekday" in JOB_KINDS
