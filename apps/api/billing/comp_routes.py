@@ -36,6 +36,7 @@ from pydantic import Field, field_validator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.admin.service import tenant_exists
 from apps.api.billing.comp_notices import owe_comp_notices
 from apps.api.billing.credit_routes import (
     GrantIn,
@@ -55,6 +56,7 @@ from apps.api.core.rbac import permission_meta
 from apps.api.core.schemas import Strict as _Strict
 from apps.api.core.stepup import StepUpGate
 from apps.api.db.session import tenant_session
+from apps.api.tenancy.closure import CLOSED_STATUS
 
 log = get_logger(__name__)
 
@@ -106,6 +108,25 @@ def make_paid_confirmation(tenant_id: UUID, grant_inr: Decimal | None) -> str:
     """The step-up string, bound to the client and to the credit added with it."""
     amount = to_paise(grant_inr) if grant_inr is not None else Decimal("0.00")
     return f"convert_to_paid:{tenant_id}:{amount}"
+
+
+async def _refuse_closed(scoped: AsyncSession, tenant_id: UUID) -> None:
+    """Making a closed or erased account paid would owe it a voice workspace and mail its
+    owner about a gift on an account that is shut, so it is refused: 404 once erased (the
+    one definition of a live client, `admin.service.tenant_exists`), 409 while closed."""
+    if not await tenant_exists(scoped, tenant_id):
+        raise ProblemError.not_found("Client")
+    status = (
+        await scoped.execute(
+            text("SELECT status FROM organizations WHERE id = :tid"), {"tid": tenant_id}
+        )
+    ).scalar_one()
+    if status == CLOSED_STATUS:
+        raise ProblemError.conflict(
+            "account_closed",
+            "This account is closed, so it cannot be made paid.",
+            remediation="Undo the closure on the client's page first, then make it paid.",
+        )
 
 
 async def _status(scoped: AsyncSession, tenant_id: UUID) -> PaidStatusOut:
@@ -161,7 +182,7 @@ async def get_paid_status(tenant_id: UUID, request: Request, principal: PaidRead
         "never as a payment. Optionally adds credit in the same step. Requires "
         "`X-Confirm-Action: convert_to_paid:<tenant_id>:<grant amount to two decimals, or "
         "0.00>`. The client is told and every super admin is emailed. 409 when the account "
-        "is already paid."
+        "is already paid or is closed (undo the closure first)."
     ),
 )
 async def make_paid(
@@ -186,6 +207,7 @@ async def make_paid(
         # order (`caps.lock_tenant_spend_state`), so the reverse here deadlocks against a
         # call finishing at the same moment.
         await lock_tenant_credits(scoped, tenant_id)
+        await _refuse_closed(scoped, tenant_id)
         before = await _status(scoped, tenant_id)
         unlocked = await on_complimentary_conversion(
             scoped, tenant_id=tenant_id, reason=payload.reason

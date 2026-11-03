@@ -588,10 +588,60 @@ async def set_value(
     """
     _refuse_unmanaged(key)
     _refuse_env_shadowed(key)
-    stored = validated_value(key, value)
-    # WHERE THE LANGUAGE LEG RUNS is gated on a filed attestation, before the lock and the
-    # read: the refusal depends only on the incoming value and a repo file, so it fails fast
-    # and never holds the per-key lock. Only this one key carries the gate.
+    stored = await _gated_value(session, key, validated_value(key, value))
+    # The lock comes FIRST — before the read whose result the precondition is checked
+    # against — or the check-then-write is not atomic and the precondition is decoration.
+    await _lock_key(session, key)
+    current = await _current(session, key)
+    await _refuse_stale(session, key, expected=expected_revision, current=current)
+
+    if _is_noop(key, current=current, incoming=stored):
+        log.info("platform_config_write_noop", extra={"config_key": key})
+        return WriteResult(
+            key=key,
+            old=current.value,
+            new=current.value,
+            version=await _version(session),
+            revision=current.revision,
+            recorded=False,
+        )
+
+    await session.execute(
+        text(
+            "INSERT INTO platform_settings (key, value, updated_by, note) "
+            "VALUES (:k, CAST(:v AS jsonb), :by, :note) "
+            "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, "
+            "updated_by = EXCLUDED.updated_by, note = EXCLUDED.note, updated_at = now()"
+        ),
+        # `json.dumps` rather than handing psycopg the Python object: the column is
+        # jsonb and the value may be a bare string ("88.50"), which has to arrive as a
+        # JSON string rather than as a bare SQL text literal.
+        {"k": key, "v": _json(stored), "by": actor_id, "note": note},
+    )
+    run_id = await _apply_to_live_agents(session, key, actor_id)
+    # Read AFTER the write and on the same connection, so it reflects the trigger's bump
+    # inside this transaction rather than a version another request produced.
+    return WriteResult(
+        key=key,
+        old=current.value,
+        new=stored,
+        version=await _version(session),
+        revision=await _revision(session, key),
+        live_apply_run_id=run_id,
+    )
+
+
+async def _gated_value(session: AsyncSession, key: str, stored: Any) -> Any:
+    """Refuse a value a key's own business gate refuses; return the value to store.
+
+    Shared by a set and a revert, because a revert puts the code default in force and that
+    default must pass the same gate: reverting `thinnest_clear_voice_band` to `studio`
+    would otherwise sell Clear on a band the last refresh proved is not listed.
+
+    Runs before the per-key lock: every refusal depends only on the value and live reads
+    that do not need it, so it fails fast and never holds the lock.
+    """
+    # WHERE THE LANGUAGE LEG RUNS is gated on a filed attestation.
     if key == _RESOURCE_KEY:
         _assert_resource_attested(stored)
     # Credit may lapse no sooner than the Terms promise (D-840, Terms 6.1).
@@ -645,46 +695,7 @@ async def set_value(
         from apps.api.agents.own_model import assert_own_model_default_offerable
 
         await assert_own_model_default_offerable(stored)
-    # The lock comes FIRST — before the read whose result the precondition is checked
-    # against — or the check-then-write is not atomic and the precondition is decoration.
-    await _lock_key(session, key)
-    current = await _current(session, key)
-    await _refuse_stale(session, key, expected=expected_revision, current=current)
-
-    if _is_noop(key, current=current, incoming=stored):
-        log.info("platform_config_write_noop", extra={"config_key": key})
-        return WriteResult(
-            key=key,
-            old=current.value,
-            new=current.value,
-            version=await _version(session),
-            revision=current.revision,
-            recorded=False,
-        )
-
-    await session.execute(
-        text(
-            "INSERT INTO platform_settings (key, value, updated_by, note) "
-            "VALUES (:k, CAST(:v AS jsonb), :by, :note) "
-            "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, "
-            "updated_by = EXCLUDED.updated_by, note = EXCLUDED.note, updated_at = now()"
-        ),
-        # `json.dumps` rather than handing psycopg the Python object: the column is
-        # jsonb and the value may be a bare string ("88.50"), which has to arrive as a
-        # JSON string rather than as a bare SQL text literal.
-        {"k": key, "v": _json(stored), "by": actor_id, "note": note},
-    )
-    run_id = await _apply_to_live_agents(session, key, actor_id)
-    # Read AFTER the write and on the same connection, so it reflects the trigger's bump
-    # inside this transaction rather than a version another request produced.
-    return WriteResult(
-        key=key,
-        old=current.value,
-        new=stored,
-        version=await _version(session),
-        revision=await _revision(session, key),
-        live_apply_run_id=run_id,
-    )
+    return stored
 
 
 async def clear_value(
@@ -708,13 +719,11 @@ async def clear_value(
     await _refuse_stale(session, key, expected=expected_revision, current=current)
     if current.revision == 0:
         return None
-    # A revert of the resource key would put the CODE DEFAULT back in force, which is the
-    # unset value — so it is gated the same way a set is: reverting to a resource the
-    # attestation does not name (here, none at all) silently changes where calls are
-    # processed. Gated after the no-op check so reverting a key that has no row is free.
-    if key == _RESOURCE_KEY:
-        default = Settings.model_fields[_RESOURCE_KEY].get_default(call_default_factory=True)
-        _assert_resource_attested(default)
+    # A revert puts the CODE DEFAULT back in force, so it is gated the same way a set is
+    # (`_gated_value`). Gated after the no-op check so reverting a key that has no row is free.
+    await _gated_value(
+        session, key, Settings.model_fields[key].get_default(call_default_factory=True)
+    )
     await session.execute(text("DELETE FROM platform_settings WHERE key = :k"), {"k": key})
     run_id = await _apply_to_live_agents(session, key, actor_id)
     return WriteResult(

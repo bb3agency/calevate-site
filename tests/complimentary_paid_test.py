@@ -181,6 +181,22 @@ async def test_an_account_already_paid_is_refused_and_unchanged() -> None:
     assert len(await _notices(tenant_id)) == 1
 
 
+async def test_a_closed_account_is_not_made_paid() -> None:
+    """A closed account would be owed a workspace and its owner mailed about a gift."""
+    from apps.api.tenancy.closure import close_account
+
+    superadmin = await _admin("superadmin")
+    tenant_id = await _tenant()
+    async with tenant_session(tenant_id) as session:
+        await close_account(session, tenant_id=tenant_id, reason="client left", closed_by=None)
+    confirm = make_paid_confirmation(tenant_id, None)
+    refused = await _post(_paid_path(tenant_id), superadmin, {"reason": "deal"}, confirm)
+    assert refused.status_code == 409 and refused.json()["type"].endswith("/account_closed")
+    sql = "SELECT first_paid_at FROM organizations WHERE id = :t"
+    assert await _scalar(tenant_id, sql) is None
+    assert await _notices(tenant_id) == []
+
+
 async def test_credit_in_the_same_step_is_granted_and_told_once() -> None:
     superadmin = await _admin("superadmin")
     tenant_id = await _tenant()

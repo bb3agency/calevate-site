@@ -422,13 +422,41 @@ async def close_account(
     return _record(tenant_id, row)
 
 
+#: The audit actions `admin/routes.set_tenant_status` writes, the only writer of `suspended`.
+_SUSPENSION_ACTIONS: Final = ("tenant.suspended", "tenant.active")
+
+
+async def reopen_status(session: AsyncSession, *, tenant_id: UUID) -> str:
+    """The status a reopened account returns to: `suspended` if it was suspended when it
+    was closed, otherwise `active`.
+
+    Reopening into `active` unconditionally would lift a suspension (unpaid, compliance
+    lapsed) as a side effect of closing and undoing, and outbound dialling would resume
+    with nobody having decided it should. `organizations` keeps no pre-closure status, so
+    the last suspend/reactivate row in the audit ledger answers it: a closed account cannot
+    change status (`set_tenant_status` refuses `churned`), so that row is the state the
+    close was entered from.
+    """
+    last = (
+        await session.execute(
+            text(
+                "SELECT action FROM audit_log WHERE tenant_id = :tid AND action = ANY(:acts) "
+                "ORDER BY at DESC, id DESC LIMIT 1"
+            ),
+            {"tid": tenant_id, "acts": list(_SUSPENSION_ACTIONS)},
+        )
+    ).scalar_one_or_none()
+    return "suspended" if last == "tenant.suspended" else "active"
+
+
 async def restore_account(
-    session: AsyncSession, *, tenant_id: UUID, to_status: str = "active"
+    session: AsyncSession, *, tenant_id: UUID, to_status: str | None = None
 ) -> ClosureRecord:
     """Undo a close while the window is open. Does not commit.
 
     Clears `closed_at`, `erase_after`, the reason and the operator, and puts the account
-    back into `to_status`. Returns the resulting state.
+    back into `to_status`, by default the status it was closed from (`reopen_status`).
+    Returns the resulting state.
 
     **THE ONE REFUSAL, AND IT IS NOT A CLOCK.** `deleted_at IS NOT NULL` — the erasure ran
     — is refused by name, and nothing else is. A deadline that has PASSED without the
@@ -464,6 +492,8 @@ async def restore_account(
         )
     if not current.is_closed:
         return current
+    if to_status is None:
+        to_status = await reopen_status(session, tenant_id=tenant_id)
 
     row = (
         await session.execute(
@@ -610,5 +640,6 @@ __all__ = [
     "due_erasures",
     "read_closure",
     "record_erasure_attempt",
+    "reopen_status",
     "restore_account",
 ]
