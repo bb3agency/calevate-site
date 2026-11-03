@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { PhoneIncoming, PhoneOutgoing, Zap } from "lucide-react";
 
@@ -25,7 +24,7 @@ import {
   type StarterJob,
 } from "@/lib/api/agents";
 import { useWriteAccess } from "@/lib/api/hooks";
-import { useClientRealm, useClientSession } from "@/lib/api/session";
+import { useClientSession } from "@/lib/api/session";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
 import { hasKey } from "@/lib/lookup";
@@ -33,11 +32,11 @@ import { hasKey } from "@/lib/lookup";
 import { NEW_AGENT } from "../../setup/_ui/copy";
 
 /**
- * PICK A JOB, NAME IT, CREATE IT (founder, REDESIGN-2; 3 Nov 2026).
+ * STEP 1 OF THE NEW-AGENT FLOW: PICK A JOB, NAME IT, CREATE IT (founder, 3 Nov 2026).
  *
  * No plan is shown before the agent exists: the whole script, steps and details included, is
- * written for this business right after creation, and the owner reviews it on the Script
- * section they land on. `GET /v1/agents/starters` supplies only the suggested name. The
+ * written for this business right after creation, and the owner reviews it on the flow's
+ * Script step (`./ScriptStep.tsx`). `GET /v1/agents/starters` supplies only the suggested name. The
  * opening line is the owner's to type here; left empty, it is written for this business
  * (D-965). Creating sends `starter`; the agent is born a draft.
  */
@@ -69,7 +68,18 @@ export const JOBS: { job: StarterJob; title: string; line: string; icon: typeof 
 /** The language a new agent starts in unless the owner picks another (Telugu-first, BRD §1). */
 const DEFAULT_LANGUAGE: AgentLanguage = "te-IN";
 
-export function StartFromJob({ slug, onBlank }: { slug: string; onBlank: () => void }) {
+/** What the next steps need of the agent just made. */
+export type CreatedAgent = { id: string; name: string };
+
+export function StartFromJob({
+  slug,
+  onBlank,
+  onCreated,
+}: {
+  slug: string;
+  onBlank: () => void;
+  onCreated: (agent: CreatedAgent) => void;
+}) {
   const [job, setJob] = useState<StarterJob | null>(null);
   const chosen = JOBS.find((j) => j.job === job);
 
@@ -98,21 +108,21 @@ export function StartFromJob({ slug, onBlank }: { slug: string; onBlank: () => v
     );
   }
 
-  return <StarterPreviewStep slug={slug} job={chosen} onBack={() => setJob(null)} />;
+  return <StarterPreviewStep slug={slug} job={chosen} onBack={() => setJob(null)} onCreated={onCreated} />;
 }
 
 function StarterPreviewStep({
   slug,
   job,
   onBack,
+  onCreated,
 }: {
   slug: string;
   job: (typeof JOBS)[number];
   onBack: () => void;
+  onCreated: (agent: CreatedAgent) => void;
 }) {
   const session = useClientSession();
-  const { href } = useClientRealm();
-  const router = useRouter();
   const [language, setLanguage] = useState<AgentLanguage>(DEFAULT_LANGUAGE);
   const [opening, setOpening] = useState("");
   const starter = useStarters(session);
@@ -180,7 +190,7 @@ function StarterPreviewStep({
 
   const submit = () => {
     setTried(true);
-    // A created agent is on its way to its own page: a second press would make a second one.
+    // A created agent moves the flow on to its voice: a second press would make a second one.
     if (!write.allowed || !preview || nameProblem || create.isPending || create.isSuccess) return;
     create.mutate(
       {
@@ -191,7 +201,7 @@ function StarterPreviewStep({
         ...(opening.trim() ? { opening_line: opening.trim() } : {}),
       },
       {
-        onSuccess: (agent) => router.push(href(`/c/${slug}/agents/${agent.id}?section=script&from=starter`)),
+        onSuccess: (agent) => onCreated({ id: agent.id, name: agent.name }),
       },
     );
   };

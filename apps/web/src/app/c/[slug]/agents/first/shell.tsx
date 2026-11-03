@@ -128,6 +128,7 @@ export function StepRail({
   current,
   onGo,
   layout = "column",
+  canGo = () => true,
 }: {
   /** Four steps: the narrow shape is four columns. */
   steps: readonly { id: string; label: string }[];
@@ -136,6 +137,9 @@ export function StepRail({
   /** Wide: a column beside the content, or one row above it joined by lines, which
    *  leaves the content the width a step's cards need. */
   layout?: "column" | "row";
+  /** Whether a finished step can be gone back to; a step whose work cannot be redone
+   *  (the new-agent flow's first, which created the agent) is shown done, not offered. */
+  canGo?: (step: number) => boolean;
 }) {
   const row = layout === "row";
   const look = row ? ROW : COLUMN;
@@ -178,7 +182,7 @@ export function StepRail({
                 <span aria-hidden className={`${ROW.line} ${done || here ? "bg-brand-strong" : "bg-line"}`} />
               ) : null}
               <span aria-hidden className={`${look.bar} h-1 rounded-full ${done || here ? "bg-brand-strong" : "bg-line"}`} />
-              {done ? (
+              {done && canGo(index) ? (
                 <button
                   type="button"
                   onClick={() => onGo(index)}
@@ -188,7 +192,10 @@ export function StepRail({
                   <span className="sr-only">, done. Go back to it</span>
                 </button>
               ) : (
-                <span className={`${look.step} gap-2.5 px-1 py-1 touch:min-h-11`}>{tile}</span>
+                <span className={`${look.step} gap-2.5 px-1 py-1 touch:min-h-11`}>
+                  {tile}
+                  {done ? <span className="sr-only">, done</span> : null}
+                </span>
               )}
             </li>
           );
