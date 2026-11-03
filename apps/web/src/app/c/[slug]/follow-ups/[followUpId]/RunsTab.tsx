@@ -7,7 +7,7 @@ import { useActionFeedback } from "@/components/arc/feedback";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import { EmptyState } from "@/components/console/emptyState";
-import { StatusPill } from "@/components/console/statusPill";
+import { STATE_DOT, StatusPill } from "@/components/console/statusPill";
 import { LoadMore } from "@/components/interior/load-more";
 import { ProblemNotice, SECONDARY_BUTTON_SM, Skeleton, formatIST, type NoticeTone } from "@/components/ui";
 import {
@@ -99,7 +99,11 @@ export function RunsTab({ followUp, canStop }: { followUp: FollowUpOut; canStop:
       header: "Status",
       flash: (run) => run.status,
       cell: (run) => (
-        <StatusPill tone={run.goal_reached ? "ok" : (lookup(RUN_TONES, run.status) ?? "neutral")}>
+        <StatusPill
+          tone={run.goal_reached ? "ok" : (lookup(RUN_TONES, run.status) ?? "neutral")}
+          // A reached goal is the success green; a lead waiting for its next step, the waiting blue.
+          dot={run.goal_reached ? STATE_DOT.done : run.status === "waiting" ? STATE_DOT.waiting : undefined}
+        >
           {run.goal_reached ? "Reached goal" : runStatusWords(run.status)}
         </StatusPill>
       ),

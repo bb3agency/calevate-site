@@ -3,7 +3,7 @@
 import Link from "next/link";
 
 import type { FollowUpActions, FollowUpTarget } from "@/components/calls/followUpActions";
-import { MonoValue, formatCount, formatIST, formatPhone } from "@/components/ui";
+import { MonoValue, StageDot, formatCount, formatIST, formatPhone } from "@/components/ui";
 import { useWriteAccess } from "@/lib/api/hooks";
 import {
   useLeadRowEdit,
@@ -191,13 +191,17 @@ export function useLeadRowKit({
       case "status":
         return (
           <span className="block">
-            <StatusSelect
-              value={lead.status}
-              label={`Status for ${lead.name ?? lead.phone_e164}`}
-              disabled={rows.pendingFor(lead.id) || readOnly}
-              onChange={(next) => rows.edit(lead.id, { status: next })}
-              className={`${INLINE_EDIT} hover:border-line`}
-            />
+            {/* The stage's dot beside its select, so the column reads by colour too. */}
+            <span className="flex items-center gap-1 pl-1">
+              <StageDot stage={lead.status} />
+              <StatusSelect
+                value={lead.status}
+                label={`Status for ${lead.name ?? lead.phone_e164}`}
+                disabled={rows.pendingFor(lead.id) || readOnly}
+                onChange={(next) => rows.edit(lead.id, { status: next })}
+                className={`${INLINE_EDIT} hover:border-line`}
+              />
+            </span>
             <span className="block px-1 text-meta text-ink-faint">{stageSetBy(lead.status_set_by)}</span>
           </span>
         );

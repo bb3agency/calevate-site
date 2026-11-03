@@ -10,7 +10,7 @@ import { SearchField } from "@/components/arc/search-field";
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import { EmptyState } from "@/components/console/emptyState";
 import { TEXT_ACTION_SM } from "@/components/console/section";
-import { StatusPill } from "@/components/console/statusPill";
+import { STATE_DOT, StatusPill } from "@/components/console/statusPill";
 import { Pagination } from "@/components/interior/pagination";
 import {
   Skeleton,
@@ -100,7 +100,9 @@ export function ContactResults({
       header: "Outcome",
       cell: (row) => (
         <div className="space-y-0.5">
-          <StatusPill tone={OUTCOME_TONE[row.outcome]}>{OUTCOME_WORDS[row.outcome]}</StatusPill>
+          <StatusPill tone={OUTCOME_TONE[row.outcome]} dot={row.outcome === "not_called" ? STATE_DOT.draft : undefined}>
+            {OUTCOME_WORDS[row.outcome]}
+          </StatusPill>
           {row.will_retry && row.next_attempt_at ? (
             <p className="text-meta text-ink-muted">Next try {formatIST(row.next_attempt_at)}</p>
           ) : null}

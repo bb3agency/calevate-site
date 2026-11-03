@@ -17,7 +17,7 @@ import type { ReactNode } from "react";
 
 import { lookup } from "@/lib/lookup";
 import { InfoTip } from "@/components/console/infoTip";
-import { NOTICE_DOT, StatusPill } from "@/components/console/statusPill";
+import { NOTICE_DOT, STATE_DOT, StatusPill } from "@/components/console/statusPill";
 import { TEXT_ACTION } from "@/components/console/section";
 
 import { MAIN_CONTENT_ID } from "@/lib/mainContent";
@@ -556,6 +556,33 @@ const LEAD_STATUS_TONES: Record<string, NoticeTone> = {
   lost: "neutral",
 };
 
+/**
+ * One dot per lead stage, so a column of stages reads at a glance (founder, Nov 2026: colour
+ * that helps). The colours are the call log's outcome dots where the meaning is the same
+ * (`calls/callColumns.OUTCOME_DOT`): hot is the green of "ready to act", interested the
+ * blue of an interested caller, lost the orange of "said no". A new lead nobody has worked
+ * is a hollow ring, and a won one the success green. The word still carries the stage.
+ */
+export const LEAD_STAGE_DOT: Record<string, string> = {
+  new: STATE_DOT.draft,
+  contacted: "bg-ink-faint",
+  interested: "bg-series-2",
+  hot: NOTICE_DOT.ok,
+  won: STATE_DOT.done,
+  lost: "bg-series-3",
+};
+
+/** A lead's stage as its dot alone, for a control that already says the stage in words. */
+export function StageDot({ stage }: { stage: string }) {
+  return (
+    <span
+      aria-hidden
+      data-stage={stage}
+      className={clsx("size-1.5 shrink-0 rounded-full", lookup(LEAD_STAGE_DOT, stage) ?? NOTICE_DOT.neutral)}
+    />
+  );
+}
+
 const CALL_STATUS_TONES: Record<string, NoticeTone> = {
   completed: "ok",
   in_progress: "neutral",
@@ -588,7 +615,7 @@ export function StatusBadge({
 }) {
   const tones = kind === "lead" ? LEAD_STATUS_TONES : CALL_STATUS_TONES;
   return (
-    <StatusPill tone={lookup(tones, value) ?? "neutral"}>
+    <StatusPill tone={lookup(tones, value) ?? "neutral"} dot={kind === "lead" ? lookup(LEAD_STAGE_DOT, value) : undefined}>
       {sentenceCase(value)}
     </StatusPill>
   );
