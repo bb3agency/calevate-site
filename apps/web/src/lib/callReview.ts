@@ -200,6 +200,19 @@ type CallOutcomeFields = Pick<CallSummary, "status" | "outcome_tag"> & {
 };
 
 /**
+ * The kind of ending one of the business's own outcomes files a call under, from its key and
+ * how far it moves the lead. Shared by the call log and the outcomes editor, so the colour an
+ * owner picks in the editor is the colour the log then draws.
+ */
+export function businessOutcomeKind(
+  key: string | null | undefined,
+  leadStatus: string | null | undefined,
+): OutcomeKind {
+  if (key === SAID_NO_KEY) return "said_no";
+  return lookup(LEAD_MOVE_KIND, leadStatus) ?? "neutral";
+}
+
+/**
  * How a call ended, for a list row: the words and the kind of ending. "Needs you" is NOT an
  * outcome here — it is a request for a person, shown beside the outcome by `needsAttention`,
  * because filed under it a call that booked a site visit read the same as one where the
@@ -220,9 +233,7 @@ export function callOutcome(call: CallOutcomeFields): { words: string; kind: Out
   if (call.outcome_tag && fact) return { words: outcomeLabel(call.outcome_tag) ?? call.outcome_tag, kind: fact };
   const label = call.business_outcome_label?.trim();
   if (label) {
-    if (call.business_outcome === SAID_NO_KEY) return { words: label, kind: "said_no" };
-    const kind = lookup(LEAD_MOVE_KIND, call.business_outcome_lead_status) ?? "neutral";
-    return { words: label, kind };
+    return { words: label, kind: businessOutcomeKind(call.business_outcome, call.business_outcome_lead_status) };
   }
   if (call.status === "completed") {
     // `needs_you` reads as the conversation it was; the request is `needsAttention`'s to say.

@@ -74,6 +74,14 @@
   --danger: #be123c;
   --danger-soft: #fff1f2;
   --danger-line: #fecdd3;
+  /* `success` (done, confirmed, live) and `info` (neutral news, in progress) complete the
+     set so a status reads by colour as well as by word; same 4.5:1 rule as above. */
+  --success: #166534;
+  --success-soft: #f0fdf4;
+  --success-line: #bbf7d0;
+  --info: #1d4ed8;
+  --info-soft: #eff6ff;
+  --info-line: #bfdbfe;
 
   /* CHART FILLS. Categorical marks only (bars, legend dots), never text, so they are not
      held to 4.5:1; they sit beside a text legend that carries the meaning. */
@@ -218,6 +226,12 @@
   --color-danger: var(--danger);
   --color-danger-soft: var(--danger-soft);
   --color-danger-line: var(--danger-line);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-success-line: var(--success-line);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-info-line: var(--info-line);
   --color-chart-warn: var(--chart-warn);
   --color-chart-danger: var(--chart-danger);
   --color-chart-neutral: var(--chart-neutral);

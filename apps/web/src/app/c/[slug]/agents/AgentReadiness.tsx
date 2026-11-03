@@ -14,7 +14,8 @@ import clsx from "clsx";
 import Link from "next/link";
 
 import { Gauge, READINESS_BANDS, type GaugeBand } from "@/components/arc/gauge";
-import { Disclosure, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton } from "@/components/ui";
+import { NOTICE_DOT } from "@/components/console/statusPill";
+import { Disclosure, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton, type NoticeTone } from "@/components/ui";
 import { Why } from "@/components/why";
 import { useAgentReadiness, type AgentReadiness } from "@/lib/api/readiness";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
@@ -49,6 +50,26 @@ export function ReadinessScore({ score }: { score: number | null | undefined }) 
       <span aria-hidden>·</span>
       <span className="sr-only">out of 100,</span>
       {band?.label}
+    </span>
+  );
+}
+
+/** A part's tone: full is done, nothing is the gap to close first, anything between is partial. */
+export function partTone(points: number, max: number): NoticeTone {
+  if (max <= 0 || points >= max) return "ok";
+  return points <= 0 ? "stop" : "warn";
+}
+
+/**
+ * One part of the score as a short bar in its tone, so the part that costs the most points is
+ * found by colour before the numbers are read. Decorative: "N of M" beside it is the fact.
+ */
+function PartMeter({ points, max }: { points: number; max: number }) {
+  const share = max > 0 ? Math.min(1, Math.max(0, points / max)) : 1;
+  const tone = partTone(points, max);
+  return (
+    <span aria-hidden data-tone={tone} className="block h-1 w-16 overflow-hidden rounded-full bg-surface-muted">
+      <span className={clsx("block h-full rounded-full", NOTICE_DOT[tone])} style={{ width: `${share * 100}%` }} />
     </span>
   );
 }
@@ -129,8 +150,11 @@ export function AgentReadinessPanel({ agentId, slug }: { agentId: string; slug: 
                     <span className="block text-body text-ink">{part.label}</span>
                     <span className="block text-meta text-ink-muted">{part.detail}</span>
                   </span>
-                  <span className="shrink-0 text-meta font-medium tabular-nums text-ink">
-                    {part.points} of {part.max_points}
+                  <span className="flex shrink-0 flex-col items-end gap-1">
+                    <span className="text-meta font-medium tabular-nums text-ink">
+                      {part.points} of {part.max_points}
+                    </span>
+                    <PartMeter points={part.points} max={part.max_points} />
                   </span>
                 </li>
               ))}

@@ -17,6 +17,7 @@ import {
   SECONDARY_BUTTON_SM,
   Skeleton,
   formatCount,
+  type NoticeTone,
 } from "@/components/ui";
 import { useKbUploads, type KbUpload, type useKbNotes } from "@/lib/api/kb";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
@@ -32,8 +33,9 @@ import {
   type PinnedNotYetOn,
 } from "@/lib/api/teach";
 
-import { NotesList } from "./NotesList";
+import { NotesList, noteTone } from "./NotesList";
 import { UploadRow } from "./UploadList";
+import { uploadState } from "./uploadCopy";
 
 
 function matches(query: string, ...values: (string | null | undefined)[]): boolean {
@@ -142,9 +144,12 @@ export function WhatItKnows({
   return (
     <div className="space-y-10">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-meta text-ink-muted">
-          {formatCount(total)} {total === 1 ? "thing" : "things"} · all agents use them
-        </p>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <p className="text-meta text-ink-muted">
+            {formatCount(total)} {total === 1 ? "thing" : "things"} · all agents use them
+          </p>
+          <NeedsYouTally tones={[...current.map((u) => uploadState(u).tone), ...notes.map((n) => noteTone(n.state))]} />
+        </div>
         <SearchField
           label="Search what your agents know"
           hideLabel
@@ -238,6 +243,31 @@ export function WhatItKnows({
         </Group>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * The rows that are not reaching the agents, counted by kind beside the total, so an owner
+ * sees there is something to open without scrolling every group. Only waiting and broken
+ * rows are counted, and only when there are some: a row of "0" chips would say nothing.
+ */
+export function NeedsYouTally({ tones }: { tones: NoticeTone[] }) {
+  const waiting = tones.filter((tone) => tone === "warn").length;
+  const broken = tones.filter((tone) => tone === "stop").length;
+  if (waiting === 0 && broken === 0) return null;
+  return (
+    <ul aria-label="Not in use yet" className="flex flex-wrap items-center gap-x-3 gap-y-1">
+      {broken > 0 && (
+        <li>
+          <StatusPill tone="stop">{formatCount(broken)} not working</StatusPill>
+        </li>
+      )}
+      {waiting > 0 && (
+        <li>
+          <StatusPill tone="warn">{formatCount(waiting)} waiting</StatusPill>
+        </li>
+      )}
+    </ul>
   );
 }
 

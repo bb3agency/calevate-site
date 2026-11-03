@@ -35,6 +35,11 @@ const STATE_COPY: Record<string, { label: string; tone: NoticeTone }> = {
   removed: { label: "Removed", tone: "neutral" },
 };
 
+/** A note's tone, as its row's badge draws it; neutral for a state this build does not know. */
+export function noteTone(state: string): NoticeTone {
+  return lookup(STATE_COPY, state)?.tone ?? "neutral";
+}
+
 /**
  * NOTES THE OWNER TYPED, with the three things they can do to one: rename it, remove it
  * (versions are kept, so the toast offers Undo) and put a removed one back. The buttons call
