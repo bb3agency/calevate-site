@@ -2251,6 +2251,18 @@ async def _maybe_record_opt_out(
     if signal is None:
         return "none"
     subject = snapshot.from_e164 if snapshot.direction == "inbound" else snapshot.to_e164
+    if subject and snapshot.direction == "inbound":
+        # A forwarded call that showed the business's own number (D-746, marked by STEP 1e):
+        # suppressing it would put the business on its own list and leave the caller, who
+        # did ask, dialable. It is the unattributable case.
+        async with tenant_session(tenant_id) as session:
+            hidden = (
+                await session.execute(
+                    text("SELECT caller_id_hidden FROM calls WHERE id = :cid"), {"cid": call_id}
+                )
+            ).scalar()
+        if hidden:
+            subject = None
     if not subject:
         # A completed call whose other end we cannot key. Loud, because the caller DID
         # ask and this is the one failure on this path that leaves them dialable.

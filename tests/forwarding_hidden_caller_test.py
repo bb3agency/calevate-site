@@ -140,3 +140,83 @@ async def test_the_lead_takes_the_call_back_number_or_is_not_filed() -> None:
         )
         is None
     )
+
+
+async def _dnc_count(tenant_id: UUID, phone: str) -> int:
+    async with tenant_session(tenant_id) as session:
+        return int(
+            (
+                await session.execute(
+                    text("SELECT count(*) FROM dnc_list WHERE phone_e164 = :p"), {"p": phone}
+                )
+            ).scalar_one()
+        )
+
+
+async def test_an_in_call_opt_out_never_suppresses_the_business_number(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """While the call is live the row is not marked yet: the locator classifies it."""
+    from apps.api.engine.thinnest_actions import LiveCall
+    from apps.api.worker import in_call_tools
+    from apps.api.worker.engine_actions import ActionRoute, call_locator
+    from calevate_shared.worker_api import CallerIdentityIn, OptOutToolIn
+
+    monkeypatch.setattr(in_call_tools, "alert", lambda *a, **k: None)
+    tenant_id, agent_id, _ = await make_client("inoptout")
+    await give_calevate_number(tenant_id, agent_id)
+    line = await add_line(tenant_id)
+    route = ActionRoute(tenant_id=tenant_id, agent_id=agent_id)
+    hidden = LiveCall(
+        engine_call_id=f"in_{uuid.uuid4()}", direction="inbound", phone=line.e164, reference=None
+    )
+    out = await in_call_tools.record_opt_out_for(
+        tenant_id,
+        OptOutToolIn(caller=CallerIdentityIn(state="known", e164=line.e164)),
+        locate=call_locator(route, hidden, line.e164),
+    )
+    assert out.status == "not_recorded" and out.reason == "caller_number_hidden"
+    assert await _dnc_count(tenant_id, line.e164) == 0
+
+    # A caller whose own number came through is still suppressed.
+    caller = "+919700000071"
+    shown = LiveCall(
+        engine_call_id=f"in_{uuid.uuid4()}", direction="inbound", phone=caller, reference=None
+    )
+    out = await in_call_tools.record_opt_out_for(
+        tenant_id,
+        OptOutToolIn(caller=CallerIdentityIn(state="known", e164=caller)),
+        locate=call_locator(route, shown, caller),
+    )
+    assert out.status == "recorded"
+    assert await _dnc_count(tenant_id, caller) == 1
+
+
+async def test_a_spoken_opt_out_on_a_hidden_call_never_suppresses_the_business_number(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from calevate_shared.engine import ExecutionSnapshot
+    from calevate_shared.events import TranscriptTurn
+
+    alerts: list[str] = []
+    monkeypatch.setattr(pipeline, "alert", lambda _cat, code, **_k: alerts.append(code))
+    tenant_id, agent_id, _ = await make_client("postoptout")
+    await give_calevate_number(tenant_id, agent_id)
+    line = await add_line(tenant_id)
+    call_id = await _hidden_call(tenant_id, agent_id, line.e164)
+    turns = [TranscriptTurn(call_id=str(call_id), idx=0, speaker="caller", text="Stop calling me.")]
+    snapshot = ExecutionSnapshot(
+        engine_call_id=f"in_{call_id}",
+        direction="inbound",
+        status="completed",
+        raw_status="ended",
+        terminal=True,
+        billable_ready=True,
+        from_e164=line.e164,
+        transcript=turns,
+    )
+    signal = pipeline.detect_opt_out(turns)
+    assert signal is not None
+    outcome = await pipeline._maybe_record_opt_out(tenant_id, call_id, snapshot, signal)
+    assert outcome == "unattributable" and alerts == ["opt_out_unattributable"]
+    assert await _dnc_count(tenant_id, line.e164) == 0

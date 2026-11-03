@@ -103,6 +103,8 @@ from apps.api.engine.thinnest_actions import (
     ThinnestActions,
     thinnest_actions,
 )
+from apps.api.forwarding.service import published_numbers
+from apps.api.forwarding.testing import classify_caller
 from apps.api.ingest.service import normalize_phone
 from apps.api.reliability.engine_actions import (
     ACTION_ENGINES,
@@ -367,16 +369,25 @@ async def resolve_live_call(
     return call
 
 
-_CALL_COLUMNS: Final = "id, agent_id, direction, from_e164, to_e164"
+_CALL_COLUMNS: Final = "id, agent_id, direction, from_e164, to_e164, caller_id_hidden"
 
 
-def _tool_call(row: Any) -> ToolCall:
+async def _tool_call(session: AsyncSession, row: Any) -> ToolCall:
+    """The row as a `ToolCall`. An inbound call is hidden when the network showed one of the
+    client's published numbers (D-746): the pipeline marks the row only after the call, so
+    while it is live the number is classified here, by the rule the pipeline uses."""
+    direction = str(row[2])
+    hidden = bool(row[5])
+    if direction == "inbound" and not hidden and row[3]:
+        published = await published_numbers(session)
+        hidden = classify_caller(str(row[3]), published=published) == "business_number_shown"
     return ToolCall(
         id=UUID(str(row[0])),
         agent_id=UUID(str(row[1])),
-        direction=str(row[2]),
+        direction=direction,
         from_e164=row[3],
         to_e164=row[4],
+        caller_hidden=hidden,
     )
 
 
@@ -432,7 +443,7 @@ def call_locator(route: ActionRoute, live: LiveCall, phone_e164: str) -> CallLoc
         # or one agent's secret could act on another agent's call in the same account.
         if row is None or UUID(str(row[1])) != route.agent_id:
             raise _CallNotMatchedError
-        return _tool_call(row)
+        return await _tool_call(session, row)
 
     return locate
 
@@ -688,7 +699,9 @@ async def client_action(
         args=args,
         call=CallFacts(
             call_ref=live.engine_call_id,
-            caller_e164=phone,
+            # A hidden caller's shown number is the business's own (D-746): an action must not
+            # message it or file a CRM record under it as if it were the caller.
+            caller_e164=None if located.caller_hidden else phone,
             direction=live.direction,
             call_id=located.id,
         ),

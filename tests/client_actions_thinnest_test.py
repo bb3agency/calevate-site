@@ -284,6 +284,30 @@ async def test_a_live_call_runs_the_action_with_the_vendors_number_for_the_calle
     assert rows == [(agent_id,)]
 
 
+async def test_a_hidden_caller_reaches_the_action_with_no_number(
+    vendor: FakeThinnest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D-746: a forwarded call that showed the client's own published number."""
+    from tests.forwarding_fixtures import add_line, give_calevate_number
+
+    tenant_id, agent_id, ref, secret = await _published(vendor)
+    await _add_tool(tenant_id, agent_id, "look_up_order")
+    await give_calevate_number(tenant_id, agent_id)
+    line = await add_line(tenant_id)
+    call_id, row = _live(ref, phone=line.e164.lstrip("+"))
+    vendor.live.append(row)
+    seen: dict[str, Any] = {}
+
+    async def _fake(session: Any, **kw: Any) -> ExecutionResult:
+        seen.update(kw)
+        return ExecutionResult(ok=True, payload={"found": False}, status="not_found")
+
+    monkeypatch.setattr(in_call, "execute_action", _fake)
+    response = await _post_client("look_up_order", ref, secret, {"order_no": "A1"}, call_id=call_id)
+    assert response.status_code == 200
+    assert seen["call"].caller_e164 is None
+
+
 async def test_a_switched_off_action_answers_that_it_cannot_be_done(
     vendor: FakeThinnest,
 ) -> None:

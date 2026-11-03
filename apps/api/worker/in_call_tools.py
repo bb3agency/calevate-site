@@ -97,6 +97,9 @@ class ToolCall:
     direction: str
     from_e164: str | None
     to_e164: str | None
+    #: A forwarded call that showed the client's own published number instead of the
+    #: caller's (D-746): `from_e164` is then the business, never the person on the line.
+    caller_hidden: bool = False
 
 
 #: How a tool finds its call row inside the tenant session it writes in. The engine's
@@ -117,8 +120,12 @@ def _subject(call: ToolCall, caller: CallerIdentityIn) -> tuple[str | None, str]
     only when it says `known`, the one state that means a number was really read.
 
     It never invents a number: substituting the agent's own line would file the
-    suppression against ourselves.
+    suppression against ourselves. For the same reason a hidden caller has no number here:
+    the one the network showed is the business's own, so a "don't call me again" would put
+    the business on its own do-not-call list and a call-back would ring the business.
     """
+    if call.caller_hidden:
+        return None, "caller_number_hidden"
     stored = call.from_e164 if call.direction == "inbound" else call.to_e164
     if stored:
         return stored, ""
