@@ -12,6 +12,19 @@ export const NOTICE_DOT: Record<NoticeTone, string> = {
   neutral: "bg-chart-neutral",
 };
 
+/**
+ * Dots for the states the four tones cannot tell apart, all on the tone's own word ink:
+ * something that will happen by itself (a scheduled call, a waiting step) is blue, and
+ * something nobody has started (a draft) is a hollow ring, so "not started" and "waiting"
+ * no longer read as the same grey as "finished". Carbon's status pattern: gray for drafts
+ * and not started, blue for workflow in progress.
+ */
+export const STATE_DOT = {
+  waiting: "bg-info",
+  draft: "border border-ink-faint bg-transparent",
+  done: "bg-success",
+} as const;
+
 /** The word's ink per tone. Only a refusal is coloured; the dot carries every other tone. */
 const WORD_TONES: Record<NoticeTone, string> = {
   ok: "text-ink",
@@ -36,10 +49,13 @@ export function StatusPill({
   tone = "neutral",
   wrap = false,
   size = "meta",
+  dot,
   children,
   className = "",
 }: {
   tone?: NoticeTone;
+  /** The dot's own colour when the tone's dot would merge two states (`STATE_DOT`, a stage). */
+  dot?: string;
   /** Let a phrase wrap instead of overflowing a narrow row (a setting's state at 320px). */
   wrap?: boolean;
   /** `mini` is the marketing mockups' scaled-down console, nothing else. */
@@ -54,7 +70,7 @@ export function StatusPill({
       state={`${tone}\u0000${word}`}
       className={`inline-flex items-center font-medium ${size === "mini" ? "gap-1 text-[11px] leading-4" : "gap-1.5 text-meta"} ${wrap ? "min-w-0 max-w-full [overflow-wrap:anywhere]" : "shrink-0 whitespace-nowrap"} ${WORD_TONES[tone]} ${className}`}
     >
-      <span aria-hidden className={`size-1.5 shrink-0 rounded-full ${NOTICE_DOT[tone]}`} />
+      <span aria-hidden className={`size-1.5 shrink-0 rounded-full ${dot ?? NOTICE_DOT[tone]}`} />
       {children}
     </StatusPillShell>
   );

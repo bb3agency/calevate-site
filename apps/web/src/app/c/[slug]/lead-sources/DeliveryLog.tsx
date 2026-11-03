@@ -12,7 +12,7 @@ import { deliveryRowKeys } from "@/lib/leadSourceRows";
 import { lookup } from "@/lib/lookup";
 
 import { sourceLabel } from "./sourceKinds";
-import { StatusPill } from "@/components/console/statusPill";
+import { STATE_DOT, StatusPill } from "@/components/console/statusPill";
 import type { NoticeTone } from "@/components/ui";
 
 const OUTCOME_TONE: Record<string, NoticeTone> = {
@@ -56,7 +56,11 @@ export function DeliveryLog({ activity }: { activity: ReturnType<typeof useInges
       flash: ({ item }) => item.outcome,
       cell: ({ item }) => (
         <div className="max-w-xs space-y-1">
-          <StatusPill tone={lookup(OUTCOME_TONE, item.outcome) ?? "neutral"} className="capitalize">
+          <StatusPill
+            tone={lookup(OUTCOME_TONE, item.outcome) ?? "neutral"}
+            dot={item.outcome === "processing" ? STATE_DOT.waiting : undefined}
+            className="capitalize"
+          >
             {item.outcome}
           </StatusPill>
           {item.error && <p className="text-meta text-danger">{item.error}</p>}

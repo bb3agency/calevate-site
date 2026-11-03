@@ -25,6 +25,8 @@ export type SegmentedOption = {
   label: string;
   /** A figure shown after the label, e.g. how many rows this option holds. */
   count?: string;
+  /** A colour class for a 6px dot before the label, when each option is a coloured state. */
+  dot?: string;
   disabled?: boolean;
 };
 
@@ -145,6 +147,7 @@ export function SegmentedControl({
                     : "font-medium text-ink-muted hover:text-ink"
               }`}
             >
+              {option.dot ? <span aria-hidden className={`size-1.5 shrink-0 rounded-full ${option.dot}`} /> : null}
               {option.label}
               {option.count !== undefined && (
                 <span

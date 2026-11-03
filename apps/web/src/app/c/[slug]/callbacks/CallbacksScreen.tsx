@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { CalendarClock, PhoneOff, ShieldCheck } from "lucide-react";
+import { CalendarClock, CircleAlert, Clock, PhoneOff, ShieldCheck } from "lucide-react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { SelectionBar } from "@/components/arc/filter-toolbar";
@@ -41,7 +41,7 @@ import { useClientRealm } from "@/lib/api/session";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
 import { lookup } from "@/lib/lookup";
-import { StatusPill } from "@/components/console/statusPill";
+import { STATE_DOT, StatusPill } from "@/components/console/statusPill";
 import type { NoticeTone } from "@/components/ui";
 
 /**
@@ -84,6 +84,41 @@ const TONE: Record<string, NoticeTone> = {
   missed: "warn",
   failed: "warn",
 };
+
+/** How far ahead "soon" reaches: within the hour, the owner can still act before it rings. */
+const SOON_MINUTES = 60;
+
+/**
+ * When a waiting call-back rings, said only when it matters: within the hour ("In 25 min",
+ * the waiting blue) or past its time ("Overdue", the warning tone, the call log's word for a
+ * late call back). Anything later says nothing beyond the time beside it.
+ */
+export function dueSoon(
+  row: Pick<ScheduledCallback, "status" | "held" | "requested_at">,
+  now: Date = new Date(),
+): { overdue: boolean; words: string } | null {
+  if (row.status !== "scheduled" || row.held) return null;
+  const due = Date.parse(row.requested_at);
+  if (!Number.isFinite(due)) return null;
+  const minutes = Math.ceil((due - now.getTime()) / 60_000);
+  if (minutes < 0) return { overdue: true, words: "Overdue" };
+  if (minutes <= SOON_MINUTES) return { overdue: false, words: minutes <= 1 ? "Any moment" : `In ${minutes} min` };
+  return null;
+}
+
+function DueMark({ row }: { row: ScheduledCallback }) {
+  const due = dueSoon(row);
+  if (!due) return null;
+  const Icon = due.overdue ? CircleAlert : Clock;
+  return (
+    <span
+      className={`inline-flex items-center gap-1 whitespace-nowrap text-meta font-medium ${due.overdue ? "text-warn" : "text-info"}`}
+    >
+      <Icon aria-hidden className="h-3.5 w-3.5 shrink-0" />
+      {due.words}
+    </span>
+  );
+}
 
 /** Peer views of one list (D-655): the live promises, or every one. */
 /** The checks every call-back passes before it rings: a compliance control, always shown. */
@@ -208,7 +243,10 @@ export function CallbacksScreen() {
             {formatPhone(row.phone_e164)}
           </MonoValue>
           {/* Below `sm` the time column is dropped, so it rides under the number. */}
-          <p className="text-meta text-ink-muted sm:hidden">{formatIST(row.requested_at)}</p>
+          <p className="flex flex-wrap items-center gap-x-2 text-meta text-ink-muted sm:hidden">
+            {formatIST(row.requested_at)}
+            <DueMark row={row} />
+          </p>
         </div>
       ),
     },
@@ -217,7 +255,12 @@ export function CallbacksScreen() {
       header: "Asked for",
       sort: { value: (row) => row.requested_at, kind: "time" },
       hideBelow: "sm",
-      cell: (row) => <span className="whitespace-nowrap text-ink">{formatIST(row.requested_at)}</span>,
+      cell: (row) => (
+        <span className="flex flex-col items-start">
+          <span className="whitespace-nowrap text-ink">{formatIST(row.requested_at)}</span>
+          <DueMark row={row} />
+        </span>
+      ),
     },
     {
       id: "status",
@@ -226,7 +269,11 @@ export function CallbacksScreen() {
       flash: (row) => row.status,
       cell: (row) => (
         <div className="max-w-md space-y-1">
-          <StatusPill tone={row.held ? "warn" : (lookup(TONE, row.status) ?? "neutral")} wrap>
+          <StatusPill
+            tone={row.held ? "warn" : (lookup(TONE, row.status) ?? "neutral")}
+            dot={!row.held && row.status === "scheduled" ? STATE_DOT.waiting : undefined}
+            wrap
+          >
             {row.held ? "On hold" : (lookup(HEADINGS, row.status) ?? row.status)}
           </StatusPill>
           {row.explanation && <p className="text-meta text-ink-muted">{row.explanation}</p>}

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import { EmptyState } from "@/components/console/emptyState";
 import { PageHeader } from "@/components/console/pageHeader";
-import { StatusPill } from "@/components/console/statusPill";
+import { STATE_DOT, StatusPill } from "@/components/console/statusPill";
 import { ProblemNotice, RestrictionNote, Skeleton, formatCount } from "@/components/ui";
 import { useFollowUps, type FollowUpSummaryOut } from "@/lib/api/followUps";
 import { useMe, useWriteAccess } from "@/lib/api/hooks";
@@ -99,7 +99,7 @@ export function FollowUpsScreen() {
       flash: (row) => row.status,
       cell: (row) => (
         <span className="inline-flex flex-col items-end gap-0.5 sm:items-start">
-          <StatusPill tone={lookup(STATUS_TONES, row.status) ?? "neutral"}>
+          <StatusPill tone={lookup(STATUS_TONES, row.status) ?? "neutral"} dot={row.status === "draft" ? STATE_DOT.draft : undefined}>
             {lookup(STATUS_WORDS, row.status) ?? row.status}
           </StatusPill>
           {row.has_unpublished_changes && row.status !== "draft" && (

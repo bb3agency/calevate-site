@@ -1,4 +1,4 @@
-import { StatusPill } from "@/components/console/statusPill";
+import { STATE_DOT, StatusPill } from "@/components/console/statusPill";
 import type { NoticeTone } from "@/components/ui";
 import type { PauseReason } from "@/lib/api/campaigns";
 import { lookup } from "@/lib/lookup";
@@ -20,6 +20,9 @@ const TONE: Record<string, NoticeTone> = {
   completed: "neutral",
   cancelled: "neutral",
 };
+
+/** A draft still needs you and a scheduled campaign will start by itself: two dots, not one grey. */
+const DOT: Record<string, string> = { draft: STATE_DOT.draft, scheduled: STATE_DOT.waiting };
 
 /** The words a status is shown in. `cancelled` is what Stop does, so it reads Stopped. */
 const WORDS: Record<string, string> = { cancelled: "Stopped" };
@@ -45,7 +48,7 @@ export function CampaignStatusPill({
   }
   const label = lookup(WORDS, status) ?? status.replace(/_/g, " ");
   return (
-    <StatusPill tone={lookup(TONE, status) ?? "neutral"}>
+    <StatusPill tone={lookup(TONE, status) ?? "neutral"} dot={lookup(DOT, status)}>
       {label.charAt(0).toUpperCase() + label.slice(1)}
     </StatusPill>
   );

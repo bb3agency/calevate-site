@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 
 import { useActionFeedback } from "@/components/arc/feedback";
 import { useFollowUpActions } from "@/components/calls/followUpActions";
-import { FilterChip, ProblemNotice, RestrictionNote, Skeleton, formatCount } from "@/components/ui";
+import { FilterChip, LEAD_STAGE_DOT, ProblemNotice, RestrictionNote, Skeleton, formatCount } from "@/components/ui";
 import { InfoTip } from "@/components/console/infoTip";
 import { TEXT_ACTION } from "@/components/console/section";
 import { AskAssistant } from "@/components/copilot/AskAssistant";
@@ -272,6 +272,7 @@ export function LeadsScreen() {
             ...STATUSES.map((s) => ({
               value: s,
               label: stageLabel(s),
+              dot: LEAD_STAGE_DOT[s],
               count: leads.data ? formatCount(stageCount(s)) : undefined,
             })),
           ]}

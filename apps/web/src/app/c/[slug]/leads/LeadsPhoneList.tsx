@@ -3,11 +3,12 @@
 import Link from "next/link";
 
 import { SwipeActions } from "@/components/arc/swipe-actions";
-import { MonoValue, formatIST, formatPhone } from "@/components/ui";
+import { MonoValue, StageDot, formatIST, formatPhone } from "@/components/ui";
 import { needsAttention, outcomeWords } from "@/lib/callReview";
 import { leadNextStep } from "@/lib/leadLabels";
 
 import { CallControl } from "./CallControl";
+import { stageLabel } from "./StatusSelect";
 import { cellValue } from "./leadsTable";
 import type { LeadRowKit } from "./leadRowKit";
 
@@ -57,10 +58,16 @@ export function LeadsPhoneList({ kit }: { kit: LeadRowKit }) {
                     {details ? <span className="block truncate text-meta text-ink-faint">{details}</span> : null}
                   </span>
                   <span className="flex max-w-[42%] shrink-0 flex-col items-end text-right">
-                    <span className={`text-meta font-medium ${warn ? "text-warn" : "text-ink"} ${outcome ? "" : "capitalize"}`}>
-                      {outcome ?? lead.status}
+                    <span className={`text-meta font-medium ${warn ? "text-warn" : "text-ink"}`}>
+                      {outcome ?? <StageWord stage={lead.status} />}
                     </span>
                     <span className="text-meta tabular-nums text-ink-faint">{when}</span>
+                    {/* The stage as well once a call heads the column, so every row says it. */}
+                    {outcome ? (
+                      <span className="text-meta text-ink-muted">
+                        <StageWord stage={lead.status} />
+                      </span>
+                    ) : null}
                   </span>
                 </span>
               </Link>
@@ -75,5 +82,15 @@ export function LeadsPhoneList({ kit }: { kit: LeadRowKit }) {
         );
       })}
     </ul>
+  );
+}
+
+/** A stage in words with its dot ("● Hot"), the same mark as the table's stage column. */
+function StageWord({ stage }: { stage: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <StageDot stage={stage} />
+      {stageLabel(stage)}
+    </span>
   );
 }

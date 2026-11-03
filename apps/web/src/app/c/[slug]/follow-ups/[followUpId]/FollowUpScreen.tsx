@@ -6,7 +6,7 @@ import { useState } from "react";
 import { useActionFeedback } from "@/components/arc/feedback";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { PageHeader } from "@/components/console/pageHeader";
-import { StatusPill } from "@/components/console/statusPill";
+import { STATE_DOT, StatusPill } from "@/components/console/statusPill";
 import { AskAssistant } from "@/components/copilot/AskAssistant";
 import { Tabs } from "@/components/interior/tabs";
 import {
@@ -114,7 +114,7 @@ export function FollowUpScreen({ followUpId }: { followUpId: string }) {
         back={back}
         title={data.name}
         status={
-          <StatusPill tone={lookup(STATUS_TONES, data.status) ?? "neutral"}>
+          <StatusPill tone={lookup(STATUS_TONES, data.status) ?? "neutral"} dot={data.status === "draft" ? STATE_DOT.draft : undefined}>
             {lookup(STATUS_WORDS, data.status) ?? data.status}
           </StatusPill>
         }
