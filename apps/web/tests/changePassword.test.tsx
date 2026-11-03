@@ -133,7 +133,7 @@ describe("the client realm's account screen", () => {
     // The person whose phone is about to be signed out has to be told while they can
     // still decide not to — a warning after the click is an explanation, not a choice.
     expect(
-      await screen.findByText(/ends every other session on this account/),
+      await screen.findByText(/Signs out your other devices/),
     ).toBeTruthy();
   });
 
