@@ -208,6 +208,28 @@ async def test_put_live_refuses_a_draft_changed_after_the_card() -> None:
     assert moved.value.code == "script_changed_elsewhere"
 
 
+async def test_put_live_after_a_failed_push_sends_pip_to_apply_the_saved_version() -> None:
+    """FAILS IF: after a put-live saved the version and cleared the draft but the push did
+    not finish ("Press Put it live again"), Pip's put-live says there is nothing to put live
+    instead of pointing at the apply that finishes it, as the Script page does."""
+    tenant_id, _slug, token = await _make_tenant()
+    agent_id = await _agent(tenant_id)
+    await _version(tenant_id, agent_id, "Live.")
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE agents SET engine_agent_ref = 'ag_staged_test' WHERE id = :a"),
+            {"a": agent_id},
+        )
+    await _version(tenant_id, agent_id, "Saved, not live yet.")
+    assert await _staged(tenant_id, agent_id)
+    with pytest.raises(write_tools.WriteRefusedError) as refused:
+        await _propose(
+            tenant_id, token, "agent_script_put_live", {"agent_id": str(agent_id), "summary": "x"}
+        )
+    assert "agent_changes_apply" in refused.value.reason
+    assert "nothing to put live" not in refused.value.reason
+
+
 async def test_discard_drops_a_saved_change_callers_never_heard() -> None:
     tenant_id, _slug, token = await _make_tenant()
     agent_id = await _agent(tenant_id)

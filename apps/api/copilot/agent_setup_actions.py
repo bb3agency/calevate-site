@@ -303,12 +303,20 @@ async def _plan_put_live(session: AsyncSession, actor: ToolActor, args: Mapping[
         raise WriteRefusedError("`summary` was blank: say in a few words what changed")
     name, status = await _name_status(session, parsed.agent_id)
     draft = await script_builder.read_draft(session, parsed.agent_id)
+    saved, heard = await _versions(session, parsed.agent_id)
     if draft is None:
+        # A put-live whose push failed has already saved the version and cleared the draft
+        # (`script_publish.put_draft_live`), and its refusal says "put it live again"; the
+        # Script page finishes that through apply, so Pip is sent there too.
+        if saved is not None and saved != heard:
+            raise WriteRefusedError(
+                f"the changes are already saved as version {saved} but callers do not hear "
+                "them yet, so use `agent_changes_apply` to put that version live"
+            )
         raise WriteRefusedError(
             "this agent's script has no unpublished changes, so there is nothing to put live"
         )
     await script_builder.refuse_if_too_long(session, parsed.agent_id, draft.script)
-    saved, heard = await _versions(session, parsed.agent_id)
     live = status == "live"
     return Plan(
         object_id=str(parsed.agent_id),
