@@ -672,6 +672,35 @@ class CopilotSpend:
     unused: bool = False
 
 
+@dataclass(slots=True)
+class PaidTurns:
+    """The paid turns of a run that no `spend` event has handed over yet.
+
+    `spend` is emitted at the END of a run, so a consumer that stops early — a browser that
+    closed the panel, a background job cancelled between steps — never receives it, and
+    the turns already completed (each a paid provider round trip) would reach no ledger
+    (hard rule 7). The consumer passes one of these in and, when it stops early, meters
+    `outstanding()`. `_answer_stream` points it at the answering leg's turns; `run_copilot`
+    clears it as it hands over a `spend` event, so nothing is metered twice."""
+
+    turns: list[chat.ChatOutcome] | None = None
+    capability: AssistCapability | None = None
+    model: str | None = None
+
+    def outstanding(self) -> CopilotSpend | None:
+        """What the completed turns cost, once, or None when there is nothing unmetered."""
+        if not self.turns or self.capability is None:
+            return None
+        spend = CopilotSpend(
+            usage=_sum_usage(self.turns),
+            capability=self.capability,
+            model=self.model,
+            unused=True,
+        )
+        self.turns = None
+        return spend
+
+
 @dataclass(frozen=True, slots=True)
 class CopilotEvent:
     """One step of an answer. Exactly one of the members is set.
@@ -2811,6 +2840,7 @@ async def _answer_stream(
     limits: RunLimits = INTERACTIVE_LIMITS,
     allow_azure: bool = True,
     attached: attachments.Attached = attachments.NOTHING_ATTACHED,
+    paid: PaidTurns | None = None,
 ) -> AsyncIterator[CopilotEvent]:
     """Answer one copilot question. THE RUN of SUBJECT → GATE → RUN → METER.
 
@@ -2940,6 +2970,8 @@ async def _answer_stream(
         # THE TURNS THIS LEG COMPLETED, HELD OUT HERE SO A FAILURE STILL HAS THEM. See
         # `_run_tool_loop`: the list is the caller's precisely because the failure path is.
         turns: list[chat.ChatOutcome] = []
+        if paid is not None:
+            paid.turns, paid.capability, paid.model = turns, capability, model
         try:
             async with asyncio.timeout_at(deadline):
                 async for event in _run_tool_loop(
@@ -3048,8 +3080,11 @@ async def run_copilot(
     limits: RunLimits = INTERACTIVE_LIMITS,
     allow_azure: bool = True,
     attached: attachments.Attached = attachments.NOTHING_ATTACHED,
+    paid: PaidTurns | None = None,
 ) -> AsyncIterator[CopilotEvent]:
     """`_answer_stream`, with the two identity controls around it (`copilot/identity.py`).
+
+    `paid` is for a consumer that may stop before the run ends: see `PaidTurns`.
 
     THIS IS THE ONE CHOKEPOINT AND THAT IS WHY IT IS HERE rather than in either route.
     Both realms' routes consume this generator and neither composes an answer of its own,
@@ -3092,6 +3127,7 @@ async def run_copilot(
         limits=limits,
         allow_azure=allow_azure,
         attached=attached,
+        paid=paid,
     )
     try:
         async for event in inner:
@@ -3112,6 +3148,10 @@ async def run_copilot(
                 tail = egress.close()
                 if tail:
                     yield CopilotEvent(text=tail)
+                # Cleared at the hand-over itself, so a consumer that stops on the tail
+                # above still meters these turns, and one that takes the spend never twice.
+                if paid is not None:
+                    paid.turns = None
             yield event
     except Exception:
         # `Exception` AND NOT `BaseException`, which is not a stylistic choice: a browser
@@ -3193,6 +3233,7 @@ __all__ = [
     "CopilotEvent",
     "CopilotSpend",
     "FillRefusedError",
+    "PaidTurns",
     "RunLimits",
     "ToolContext",
     "asks_for_a_change",

@@ -344,7 +344,16 @@ async def draft_script_proposal(ctx: dict[str, Any], payload: dict[str, Any]) ->
         await _fail(tenant_id, agent_id, proposal_id, script_proposals.FAILED_NOTE)
         return "failed"
 
-    script, opening_spends = await _opening_repaired(tenant_id, agent_id, proposal, draft.script)
+    try:
+        script, opening_spends = await _opening_repaired(
+            tenant_id, agent_id, proposal, draft.script
+        )
+    except Exception:
+        # The draft is already paid for: a failure in the optional opening repair must not
+        # lose its meter row (hard rule 7) nor leave the request `drafting` until it goes
+        # stale. The proposal is stored as drafted, for the owner to review.
+        log.exception("script_proposal_opening_crashed", extra={"agent_id": str(agent_id)})
+        script, opening_spends = draft.script, []
     unplaced = (
         unplaced_lines(proposal.base_script.raw_override or "", draft.script)
         if proposal.mode == "steps"

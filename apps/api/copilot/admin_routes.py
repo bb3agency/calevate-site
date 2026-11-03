@@ -401,6 +401,8 @@ async def ask_admin_copilot(
     # before it streamed anything is re-selected under `provider_unavailable=True`, and the
     # first leg's tokens were paid for whether or not the second answered.
     spends: list[service.CopilotSpend] = []
+    #: The turns completed before a disconnect stopped the run short of its `spend` event.
+    paid = service.PaidTurns()
     filled: tuple[str, ...] = ()
     proposed: str | None = None
     acted: list[str] = []
@@ -463,6 +465,8 @@ async def ask_admin_copilot(
         if recorded:
             return
         recorded = True
+        if (unhanded := paid.outstanding()) is not None:
+            spends.append(unhanded)
         if principal.user_id is None:
             return
         if not spends:
@@ -602,6 +606,7 @@ async def ask_admin_copilot(
             tenant_leg=model_tiers.tier_leg(model_tiers.route_tier(payload.question)),
             allow_azure=get_settings().copilot_azure_fallback,
             attached=attached,
+            paid=paid,
             # `require_platform_ai` RAISES at the brake, so this is False on every path that
             # reaches here. Written as the read so the caller stays correct if the gate ever
             # learns to answer instead of raise.
