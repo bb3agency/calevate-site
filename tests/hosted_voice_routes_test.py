@@ -1350,6 +1350,51 @@ async def test_clear_cannot_move_to_a_band_the_last_refresh_did_not_list(
     assert stored == 0
 
 
+async def test_reverting_clear_to_its_default_band_is_gated_like_setting_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The revert puts the code default (`studio`) in force, so a revert onto a band the
+    last refresh did not list is refused and the stored `premium` row stays."""
+    from apps.api.ops import config_service
+
+    async def _premium_only(_: Any) -> dict[str, int]:
+        return {"premium": 2}
+
+    monkeypatch.setattr(hosted_voices, "count_listed_bands", _premium_only)
+    _, admin_id = await _admin()
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "INSERT INTO platform_settings (key, value, updated_by, note) "
+                "VALUES ('thinnest_clear_voice_band', CAST(:v AS jsonb), :by, 'test') "
+                "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value"
+            ),
+            {"v": '"premium"', "by": admin_id},
+        )
+        revision = (
+            await session.execute(
+                text("SELECT revision FROM platform_settings WHERE key = :k"),
+                {"k": "thinnest_clear_voice_band"},
+            )
+        ).scalar_one()
+        with pytest.raises(ProblemError) as raised:
+            await config_service.clear_value(
+                session,
+                key="thinnest_clear_voice_band",
+                actor_id=admin_id,
+                expected_revision=int(revision),
+            )
+        still = (
+            await session.execute(
+                text("SELECT value FROM platform_settings WHERE key = :k"),
+                {"k": "thinnest_clear_voice_band"},
+            )
+        ).scalar_one_or_none()
+        await session.rollback()
+    assert raised.value.code == "voice_band_not_listed"
+    assert still == "premium"
+
+
 @pytest.mark.parametrize(
     ("bands", "band"),
     [({}, "studio"), ({"premium": 2, "studio": 1}, "studio"), ({"premium": 2}, "premium")],
