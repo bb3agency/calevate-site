@@ -606,7 +606,21 @@ def _with_nulls(parameters: Mapping[str, Any], args: Mapping[str, Any]) -> dict[
         nested = _object_schema(properties.get(key, {}))
         if isinstance(value, dict) and nested is not None:
             filled[key] = _with_nulls(nested, value)
+        item = _object_schema(_array_items(properties.get(key, {})))
+        if isinstance(value, list) and item is not None:
+            filled[key] = [
+                _with_nulls(item, entry) if isinstance(entry, dict) else entry for entry in value
+            ]
     return filled
+
+
+def _array_items(schema: Mapping[str, Any]) -> Mapping[str, Any]:
+    """The item schema of an array property (itself, or its array alternative), else {}."""
+    for option in [schema, *schema.get("anyOf", ())]:
+        items = option.get("items")
+        if option.get("type") == "array" and isinstance(items, Mapping):
+            return items
+    return {}
 
 
 def _object_schema(schema: Mapping[str, Any]) -> Mapping[str, Any] | None:

@@ -2232,12 +2232,21 @@ _CAPTURE_FIELDS_PROPERTIES: Final[dict[str, Any]] = {
         "type": "array",
         "items": {
             "type": "object",
+            # Only `label` is needed: the rest may be null and default as the Fields tab's
+            # form does (`_CaptureField`). Marked required-but-nullable because strict
+            # schemas cannot say "may be absent" (`actions.action_schema`); a non-null
+            # `reason` used to read as "ask the person why", which stalled the change.
             "properties": {
-                "key": {"type": "string", "description": "lower_snake_case, e.g. budget"},
+                "key": {
+                    "anyOf": [{"type": "string"}, {"type": "null"}],
+                    "description": "lower_snake_case, e.g. budget; null makes it from the label",
+                },
                 "label": {"type": "string"},
+                # No `enum` here: the area check would refuse "boolean" or "select" before
+                # `_TYPE_SPELLINGS` could read them.
                 "type": {
-                    "type": "string",
-                    "enum": ["text", "number", "bool", "enum", "date"],
+                    "anyOf": [{"type": "string"}, {"type": "null"}],
+                    "description": "text, number, bool, enum or date; null is text",
                 },
                 "enum_values": {
                     "anyOf": [
@@ -2245,8 +2254,14 @@ _CAPTURE_FIELDS_PROPERTIES: Final[dict[str, Any]] = {
                         {"type": "null"},
                     ]
                 },
-                "reason": {"type": "string", "description": "Why the business needs it."},
-                "required": {"type": "boolean"},
+                "reason": {
+                    "anyOf": [{"type": "string"}, {"type": "null"}],
+                    "description": (
+                        "What the agent listens for, written by you from the person's ask and "
+                        "the agent's purpose. Never ask the person for it."
+                    ),
+                },
+                "required": {"anyOf": [{"type": "boolean"}, {"type": "null"}]},
             },
             "required": ["key", "label", "type", "enum_values", "reason", "required"],
             "additionalProperties": False,

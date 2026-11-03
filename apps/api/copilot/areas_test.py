@@ -82,6 +82,30 @@ def test_an_omitted_nullable_argument_is_sent_as_null() -> None:
     }
 
 
+def test_a_capture_field_named_by_its_label_alone_is_not_refused() -> None:
+    surface = copilot_service.area_surface()
+    wire_name = next(
+        name for name, acts in surface.actions.items() if "agent_capture_fields_set" in acts
+    )
+    resolved = surface.resolve(
+        _call(
+            wire_name,
+            {
+                "action": "agent_capture_fields_set",
+                "args": {
+                    "agent_id": "A1",
+                    "fields": [{"label": "App installed", "type": "boolean"}, {"label": "Notes"}],
+                },
+            },
+        )
+    )
+    blanks = {"key": None, "enum_values": None, "reason": None, "required": None}
+    assert json.loads(resolved.arguments)["fields"] == [
+        {**blanks, "label": "App installed", "type": "boolean"},
+        {**blanks, "label": "Notes", "type": None},
+    ]
+
+
 def test_a_non_area_call_passes_through_unchanged() -> None:
     call = _call("set_fields", {"because": "x", "items": []})
     assert copilot_service.area_surface().resolve(call) is call
