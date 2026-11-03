@@ -3,11 +3,12 @@
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 
-import { NOTICE_BAR, NOTICE_BASE, SECONDARY_BUTTON_SM } from "@/components/ui";
+import { SECONDARY_BUTTON_SM } from "@/components/ui";
 
 import type { Session } from "@/lib/api/client";
 import { useLineIncidents } from "@/lib/api/healer";
 
+import { HOME_NOTICE_LINK, ReadFailedRow } from "./homeNotices";
 import { HOME } from "./setup/_ui/copy";
 
 /**
@@ -21,12 +22,15 @@ export function LineNotice({ session, href }: { session: Session; href: string }
   const incidents = useLineIncidents(session);
   if (incidents.isError) {
     return (
-      <p className="flex items-center justify-between gap-3 rounded-md bg-surface-muted px-4 py-2.5 text-body text-ink-muted">
+      <ReadFailedRow
+        action={
+          <Link href={href} className={`${SECONDARY_BUTTON_SM} shrink-0`}>
+            {HOME.lineAction}
+          </Link>
+        }
+      >
         {HOME.lineFailed}
-        <Link href={href} className={`${SECONDARY_BUTTON_SM} shrink-0`}>
-          {HOME.lineAction}
-        </Link>
-      </p>
+      </ReadFailedRow>
     );
   }
   if (!incidents.data) return null;
@@ -37,7 +41,7 @@ export function LineNotice({ session, href }: { session: Session; href: string }
   return (
     <Link
       href={href}
-      className={`${NOTICE_BASE} ${NOTICE_BAR.warn} flex items-start justify-between gap-3 transition-colors duration-(--duration-fast) ease-out hover:bg-ink/[0.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2`}
+      className={`${HOME_NOTICE_LINK} items-start`}
     >
       <span className="flex min-w-0 items-start gap-2">
         <span className="min-w-0">

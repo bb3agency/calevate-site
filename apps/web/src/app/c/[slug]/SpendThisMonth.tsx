@@ -2,12 +2,11 @@
 
 import Link from "next/link";
 
-import { Card, ProblemNotice, Skeleton, formatCount, formatDecimal, formatINR } from "@/components/ui";
+import { ProblemNotice, Skeleton, formatCount, formatDecimal, formatINR } from "@/components/ui";
 import { Metric } from "@/components/console/metric";
 import type { UsagePanel, useUsage } from "@/lib/api/hooks";
 
-/** Inside the dashboard's money block, which already draws the outline. */
-const FLAT = "rounded-none border-0 shadow-none";
+import { MoneyRowPending } from "./moneyRow";
 
 /**
  * What this month has cost so far — `month_charges_inr`, the SERVER's total of retainer,
@@ -25,19 +24,19 @@ export function SpendThisMonth({
 }) {
   if (usage.isLoading) {
     return (
-      <Card density="compact" title="Spend this month" className={FLAT}>
+      <MoneyRowPending label="Spend this month">
         <Skeleton rows={2} />
-      </Card>
+      </MoneyRowPending>
     );
   }
   if (usage.error || !usage.data) {
     return (
-      <Card density="compact" title="Spend this month" className={FLAT}>
+      <MoneyRowPending label="Spend this month">
         <ProblemNotice
           error={usage.error ?? new Error("Your spend did not load.")}
           onRetry={() => void usage.refetch()}
         />
-      </Card>
+      </MoneyRowPending>
     );
   }
   return (

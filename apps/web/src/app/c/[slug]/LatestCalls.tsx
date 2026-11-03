@@ -46,18 +46,14 @@ export function LatestCalls({
       }
     >
       {recent.isLoading ? (
-        <div className="p-3">
-          <Skeleton rows={5} />
-        </div>
+        <Skeleton rows={5} />
       ) : recent.error || !recent.data ? (
         /* Both non-answers — a refusal and a paused (offline) query — are this arm, so
            "No calls yet" is only ever printed over a list the server sent (§52). */
-        <div className="p-3">
-          <ProblemNotice
-            error={recent.error ?? new Error("The latest calls did not load.")}
-            onRetry={() => void recent.refetch()}
-          />
-        </div>
+        <ProblemNotice
+          error={recent.error ?? new Error("The latest calls did not load.")}
+          onRetry={() => void recent.refetch()}
+        />
       ) : !recent.data.length ? (
         <EmptyState
           illustration={<EmptySketch kind="calls" />}

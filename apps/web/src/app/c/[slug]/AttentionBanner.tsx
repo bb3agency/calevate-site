@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 
-import { formatCount, NOTICE_BAR, NOTICE_BASE, SECONDARY_BUTTON_SM } from "@/components/ui";
+import { formatCount, SECONDARY_BUTTON_SM } from "@/components/ui";
 import type { useAttention } from "@/lib/api/attention";
 
+import { HOME_NOTICE_LINK, ReadFailedRow } from "./homeNotices";
 import { HOME } from "./setup/_ui/copy";
 
 /**
@@ -28,18 +29,21 @@ export function AttentionBanner({
       offer the client neither the action nor a reason for its absence (BUILD-LOG
       §52), so the failure says what it could not read and offers the retry. */}
   {attention.isError ? (
-    <p className="flex items-center justify-between gap-3 rounded-md bg-surface-muted px-4 py-2.5 text-body text-ink-muted">
+    <ReadFailedRow
+      action={
+        <button type="button" onClick={() => void attention.refetch()} className={`${SECONDARY_BUTTON_SM} shrink-0`}>
+          {HOME.tryAgain}
+        </button>
+      }
+    >
       {HOME.queueFailed}
-      <button type="button" onClick={() => void attention.refetch()} className={`${SECONDARY_BUTTON_SM} shrink-0`}>
-        {HOME.tryAgain}
-      </button>
-    </p>
+    </ReadFailedRow>
   ) : (
     attention.data &&
     attention.data.total > 0 && (
       <Link
         href={href}
-        className={`${NOTICE_BASE} ${NOTICE_BAR.warn} flex items-center justify-between gap-3 touch:min-h-11 transition-colors duration-(--duration-fast) ease-out hover:bg-ink/[0.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2`}
+        className={`${HOME_NOTICE_LINK} items-center`}
       >
         <span className="flex items-center gap-2">
           <span>

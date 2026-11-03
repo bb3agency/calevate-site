@@ -8,6 +8,10 @@ import type { Session } from "@/lib/api/client";
 import { useMe } from "@/lib/api/hooks";
 import { useCostPerResult } from "@/lib/api/proof";
 
+import { MoneyRowPending } from "./moneyRow";
+
+const LABEL = "Cost per new lead, 7 days";
+
 /**
  * Rupees per new lead over the last 7 days (D-944), inside the home screen's money block.
  * Owner-only like every spend figure: a session without `billing:read` renders nothing and
@@ -21,19 +25,25 @@ export function CostPerLead({ session, href }: { session: Session; href: string 
   if (!allowed) return null;
   if (cost.error) {
     return (
-      <div className="py-4">
+      <MoneyRowPending label={LABEL}>
         <ProblemNotice error={cost.error} onRetry={() => void cost.refetch()} />
-      </div>
+      </MoneyRowPending>
     );
   }
-  if (!cost.data) return <Skeleton rows={2} label="Working out your cost per lead" />;
+  if (!cost.data) {
+    return (
+      <MoneyRowPending label={LABEL}>
+        <Skeleton rows={2} label="Working out your cost per lead" />
+      </MoneyRowPending>
+    );
+  }
   // An answer without the 7-day window has nothing to show here; a skeleton would spin forever.
   const week = cost.data.windows.find((w) => w.days === 7);
   if (!week) return null;
   return (
     <Metric
       className="py-4"
-      label="Cost per new lead, 7 days"
+      label={LABEL}
       value={week.per_lead_inr == null ? "No leads yet" : formatINR(week.per_lead_inr)}
       hint={
         <Link
