@@ -33,7 +33,8 @@ import { SettingRow, SettingRows } from "@/components/console/settingRow";
 import { StatusPill } from "@/components/console/statusPill";
 import type { Me } from "@/lib/api/client";
 import { useUnscopedMe } from "@/lib/api/hooks";
-import { CLIENT_SIGN_IN_PATH, clientAuthn } from "@/lib/authn/clientAuthn";
+import { CLIENT_CONSOLE_PATH, CLIENT_SIGN_IN_PATH, clientAuthn } from "@/lib/authn/clientAuthn";
+import { clientConsoleUrl } from "@/lib/consoleOrigin";
 import {
   ClientSessionGate,
   ClientSessionProvider,
@@ -48,9 +49,10 @@ export default function ClientAccountPage() {
           <div>
             {/* `/c` rather than `/c/<slug>`, even when the slug is on screen: `/c` is the
                 junction that resolves "which console is mine" and already renders every
-                failure of that question, including the read this page could not make. */}
+                failure of that question, including the read this page could not make.
+                Absolute: on the apex the junction is served but `/c/<slug>` is refused. */}
             <header className="space-y-3">
-              <Link href="/c" className={BACK_LINK}>
+              <Link href={clientConsoleUrl(CLIENT_CONSOLE_PATH)} className={BACK_LINK}>
                 <ArrowLeft aria-hidden className="h-3.5 w-3.5" />
                 Back to your console
               </Link>

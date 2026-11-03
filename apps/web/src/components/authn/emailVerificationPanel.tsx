@@ -78,6 +78,9 @@ export function EmailVerificationPanel({
 
   const resend = () => {
     if (requestCode.isPending || cooldown > 0) return;
+    // A refusal of the previous code is about a code this resend replaces, and the notice
+    // below shows the verify error first: left in place it would hide a failed resend.
+    verify.reset();
     requestFeedback.run();
   };
 

@@ -32,9 +32,19 @@ import { ArrowRight, LayoutDashboard } from "lucide-react";
 import Link from "next/link";
 import { createContext, useContext, type ReactNode } from "react";
 
-import { CLIENT_CONSOLE_PATH, CLIENT_SIGN_IN_PATH, clientAuthn } from "@/lib/authn/clientAuthn";
+import {
+  CLIENT_ACCOUNT_PATH,
+  CLIENT_CONSOLE_PATH,
+  CLIENT_SIGN_IN_PATH,
+  clientAuthn,
+} from "@/lib/authn/clientAuthn";
 import { useRealmSession } from "@/lib/authn/useRealmSession";
 import { clientConsoleUrl } from "@/lib/consoleOrigin";
+
+// Absolute for the same reason as the console link: this header renders on the apex, and
+// the API credentials the apex for `/v1/auth/` and `/v1/public/` only, so the account
+// page's `/v1/me` read is refused there and the page could only show an error.
+const ACCOUNT_HREF = clientConsoleUrl(CLIENT_ACCOUNT_PATH);
 
 // TIGHTER BELOW `sm`, because this nav shares one row with the logo and the menu button at
 // 320px. The secondary link is not in that row at all below `sm` (see `LINK_FROM_SM`).
@@ -80,7 +90,7 @@ export function MarketingAccountProvider({ children }: { children: ReactNode }) 
 export function MarketingAccountMenuItem({ className }: { className: string }) {
   const signedIn = useContext(SignedIn);
   return signedIn ? (
-    <Link href="/auth/account" className={className}>
+    <Link href={ACCOUNT_HREF} className={className}>
       Your account
     </Link>
   ) : (
@@ -138,7 +148,7 @@ export function MarketingAccountNav({ ctaHref, ctaLabel }: MarketingAccountNavPr
             sign-out: this is a marketing page, and putting the one destructive session
             control next to a call to action is how somebody ends a session they meant to
             open. `/auth/account` owns that. */}
-        <Link href="/auth/account" className={LINK_FROM_SM}>
+        <Link href={ACCOUNT_HREF} className={LINK_FROM_SM}>
           Your account
         </Link>
       </AccountLayer>

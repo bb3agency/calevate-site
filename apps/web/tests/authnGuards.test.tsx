@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   AdminIdleTimeoutModal,
+  ADMIN_IDLE_ACTIVITY_KEY,
   ADMIN_IDLE_LOGOUT_MS,
   idleWarningAfterMs,
 } from "@/components/authn/adminIdleTimeoutModal";
@@ -48,6 +49,7 @@ const unauthorized = () =>
 
 beforeEach(() => {
   adminAuthn.reset();
+  window.localStorage.removeItem(ADMIN_IDLE_ACTIVITY_KEY);
 });
 
 afterEach(() => {
@@ -471,6 +473,56 @@ describe("§5.6 — the idle modal re-checks the SERVER'S answer before extendin
       view.container.textContent,
       "the idle clock never restarted, so this console can no longer time itself out",
     ).toContain("Still there?");
+  });
+
+  /**
+   * One session per browser, many tabs. A background tab's own clock must not end the
+   * session of an operator who is working in another tab.
+   */
+  it("does not warn or sign out while the operator is active in another tab", async () => {
+    vi.useFakeTimers();
+    const calls = stubApi({ "POST /v1/auth/admin/logout": { revoked: 1 } });
+    const view = render(<AdminIdleTimeoutModal session={ADMIN_SESSION} />);
+
+    // The other tab reports activity shortly before this tab's warning would fire.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(idleWarningAfterMs(ADMIN_SESSION.idle_timeout_seconds) - 60_000);
+      window.localStorage.setItem(ADMIN_IDLE_ACTIVITY_KEY, String(Date.now()));
+      await vi.advanceTimersByTimeAsync(60_000 + ADMIN_IDLE_LOGOUT_MS + 10);
+    });
+    expect(view.container.textContent).not.toContain("Still there?");
+    expect(calls.some((c) => c.path.endsWith("/logout"))).toBe(false);
+  });
+
+  it("drops its warning when another tab reports activity", async () => {
+    vi.useFakeTimers();
+    const calls = stubApi({ "POST /v1/auth/admin/logout": { revoked: 1 } });
+    const view = render(<AdminIdleTimeoutModal session={ADMIN_SESSION} />);
+
+    await warn();
+    expect(view.container.textContent).toContain("Still there?");
+    await act(async () => {
+      const at = String(Date.now());
+      window.localStorage.setItem(ADMIN_IDLE_ACTIVITY_KEY, at);
+      window.dispatchEvent(new StorageEvent("storage", { key: ADMIN_IDLE_ACTIVITY_KEY, newValue: at }));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(view.container.textContent).not.toContain("Still there?");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ADMIN_IDLE_LOGOUT_MS + 10);
+    });
+    expect(calls.some((c) => c.path.endsWith("/logout"))).toBe(false);
+  });
+
+  it("still signs out when every tab is idle", async () => {
+    vi.useFakeTimers();
+    const calls = stubApi({ "POST /v1/auth/admin/logout": { revoked: 1 } });
+    render(<AdminIdleTimeoutModal session={ADMIN_SESSION} />);
+    await warn();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ADMIN_IDLE_LOGOUT_MS + 10);
+    });
+    expect(calls.some((c) => c.path.endsWith("/logout"))).toBe(true);
   });
 
   it("runs no timers at all when there is no session to protect", () => {

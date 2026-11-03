@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import SignupPage from "@/app/signup/page";
 import { resolvePlaceholders } from "@/lib/legal/placeholders";
 
-import { stubApi } from "./harness";
+import { problem, stubApi } from "./harness";
 
 /**
  * Signup on a deployment that does NOT open accounts online (D-703).
@@ -46,6 +46,15 @@ describe("signup with the kill switch off", () => {
     const mail = resolvePlaceholders("{{SUPPORT_EMAIL}}");
     const link = screen.getByRole("link", { name: mail });
     expect(link.getAttribute("href")).toBe(`mailto:${mail}`);
+  });
+
+  it("does not call signup closed when it could not read the switch", async () => {
+    stubApi({
+      "GET /v1/auth/client/sign-in-options": problem(503, { title: "Service unavailable" }),
+    });
+    await mount();
+    expect(await screen.findByText("We could not open signup")).toBeTruthy();
+    expect(screen.queryByText("Signing up online is closed")).toBeNull();
   });
 
   it("promises no turnaround it cannot keep", async () => {
