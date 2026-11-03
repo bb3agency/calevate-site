@@ -103,9 +103,12 @@ export function RateCardPanel({
       <div>
         <h3 className="text-heading text-ink">Rate card — six packs, two voices</h3>
         <p className="text-meta text-ink-muted">
-          What a minute sells for on each voice, per pack. A new card takes effect on a date
-          you choose at least a month out, every client on a wallet is emailed when you
-          record it, and credit already bought keeps the rates it was bought at.
+          What a minute sells for on each voice, per pack.{" "}
+          <InfoTip label="rate card changes">
+            A new card takes effect on a date you choose at least a month out, every client on
+            a wallet is emailed when you record it, and credit already bought keeps the rates
+            it was bought at.
+          </InfoTip>
         </p>
       </div>
 
@@ -365,11 +368,8 @@ function RateCardTable({ card }: { card: RateCard }) {
           }
         >
           <p className="mt-1">
-            Nothing is blocked — every one of these clears the floor the write path refuses
-            below, which is the cost of the next minute at the margin. What they do not clear
-            is what a minute ACTUALLY cost this month, because a monthly subscription spread
-            over few minutes is dear. Each rung&apos;s break-even column says how many Studio
-            minutes a month the platform needs before it stops losing money on that rung.
+            Nothing is blocked: each clears the marginal-cost floor, not this month&apos;s
+            actual cost per minute. The break-even column shows the Studio minutes needed.
           </p>
           <ul className="mt-2 list-disc space-y-1 pl-5">
             {underAtVolume.map((cell) => (

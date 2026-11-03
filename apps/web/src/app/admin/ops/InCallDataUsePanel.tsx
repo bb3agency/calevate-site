@@ -37,14 +37,19 @@ export function InCallDataUsePanel({ access }: { access: Access }) {
   }
 
   return (
-    <Section title="In-call data use">
-      <div className="space-y-4">
-        <p className="text-body text-ink-muted">
+    <Section
+      title="In-call data use"
+      description="Our own model stays off until its vendor terms are recorded here."
+      info={
+        <p>
           When our own model answers calls, what every caller says goes through our key on every
           turn. Read the account&apos;s tier and log-sharing setting in the vendor&apos;s own
           console and record them here. Our own model cannot be switched on until this is
           attested.
         </p>
+      }
+    >
+      <div className="space-y-4">
         {query.error != null && <ProblemNotice error={query.error} onRetry={() => void query.refetch()} />}
         {query.error == null && !query.data && <Skeleton rows={2} label="Reading the in-call attestation" />}
         {query.data && (

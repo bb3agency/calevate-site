@@ -212,11 +212,8 @@ export function NumberPricePanel() {
             <div className="flex gap-3 border-l-2 border-danger py-1 pl-4 text-body">
               <Phone aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-muted" />
               <p className="text-ink-muted">
-                Every client who buys a number from now on is charged this on the day they buy
-                it and again on each monthly renewal date: from the client&apos;s calling credit.
-                Nothing is charged while an account is in its
-                trial or after it is closed. Numbers already bought keep the price they were
-                sold at.
+                Charged from calling credit on purchase and each monthly renewal. Not during a
+                trial or after closure. Numbers already bought keep their price.
               </p>
             </div>
 

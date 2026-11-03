@@ -115,9 +115,11 @@ export function DashboardDataUsePanel({
   }
 
   return (
-    <Section title="Dashboard AI data-use">
-      <div className="space-y-4">
-        <p className="text-body text-ink-muted">
+    <Section
+      title="Dashboard AI data-use"
+      description="Record whether each vendor may train on our dashboard data."
+      info={
+        <p>
           Gemini is the main model for Pip and every dashboard assist (reading photos,
           summaries, suggestions, drafts); Azure is used only if it is configured, and the
           standby answers last. Until Google is recorded here as not training on our data,
@@ -128,6 +130,9 @@ export function DashboardDataUsePanel({
           answer on our own model has its own attestation, In-call data use, which is the
           one our own model needs.
         </p>
+      }
+    >
+      <div className="space-y-4">
 
         {query.error && (
           <ProblemNotice error={query.error} onRetry={() => query.refetch()} />
@@ -140,9 +145,7 @@ export function DashboardDataUsePanel({
             title="We could not read the data-use attestations"
           >
             <p className="mt-1">
-              This panel will not show invented eligibility when it could not read the real
-              answer. Pip routed on a guessed data-use position is the mistake that
-              would cause. The error above says what stopped the read.
+              Nothing is shown rather than a guess. The error above says why.
             </p>
           </NoticeBox>
         )}

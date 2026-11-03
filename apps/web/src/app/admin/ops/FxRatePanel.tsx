@@ -138,9 +138,11 @@ export function FxRatePanel() {
   }
 
   return (
-    <Section title="Exchange rate">
-      <div className="space-y-4">
-        <p className="text-body text-ink-muted">
+    <Section
+      title="Exchange rate"
+      description="The US dollar to rupee rate for vendor costs, checked every five minutes."
+      info={
+        <p>
           Your voice and model vendors bill in US dollars; everything you charge
           and record is in rupees. This is the rate in between. It is checked
           automatically every five minutes against a published reference rate,
@@ -149,6 +151,9 @@ export function FxRatePanel() {
           under <MonoValue>usd_inr_rate</MonoValue> is used only before any rate
           has been published, or while you have the override switched on.
         </p>
+      }
+    >
+      <div className="space-y-4">
 
         {query.error && (
           <ProblemNotice error={query.error} onRetry={() => query.refetch()} />
@@ -161,10 +166,7 @@ export function FxRatePanel() {
             title="We could not read the exchange rate"
           >
             <p className="mt-1">
-              This panel will not show a rate it could not read. A made-up
-              figure here reads exactly like a real one. The error above says
-              what stopped the read. Billing itself is unaffected by this
-              screen: the server keeps converting at whatever rate it last had.
+              Nothing is shown rather than a guess. Billing keeps the last rate it had.
             </p>
           </NoticeBox>
         )}

@@ -17,8 +17,7 @@ export function AuthShowcase() {
           Every call answered. Every lead written down.
         </p>
         <p className="text-sm text-ink-muted">
-          Your agent picks up in your customer&apos;s language and fills in the details
-          your team asked for.
+          Answers in your customer&apos;s language. Notes every lead.
         </p>
       </div>
       <div role="img" aria-label="A live call with a business's agent, and the lead it captured" className="flex flex-col gap-3">

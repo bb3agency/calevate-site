@@ -143,8 +143,7 @@ export function SidebarSignOut({ authn, signInPath, isCollapsed }: SidebarSignOu
           </button>
         }
       >
-        Calevate could not be reached, so this session may still be open elsewhere until it
-        times out.
+        Calevate was unreachable. Other devices may stay signed in.
       </NoticeBox>
     )}
     </div>

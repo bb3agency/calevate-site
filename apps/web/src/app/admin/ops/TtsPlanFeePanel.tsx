@@ -59,12 +59,17 @@ export function TtsPlanFeePanel({ access }: { access: Access }) {
   const shown = fees.data?.month ?? month ?? "";
 
   return (
-    <Section title="Voice plan fee">
-      <div className="space-y-4">
-        <p className="text-body text-ink-muted">
+    <Section
+      title="Voice plan fee"
+      description="A voice vendor's monthly plan bill, from its invoice."
+      info={
+        <p>
           What a voice vendor on a monthly plan billed us for a month, from its invoice. The
           spend board compares it with what our calls used.
         </p>
+      }
+    >
+      <div className="space-y-4">
 
         <label className="block max-w-xs">
           <span className={FIELD_LABEL}>Billing month</span>

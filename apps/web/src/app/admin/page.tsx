@@ -125,8 +125,8 @@ function createAccess(
     return {
       allowed: false,
       reason:
-        "Creating a client is disabled because the directory could not be read: we cannot " +
-        "tell you whether this business is already on the platform.",
+        "Creating a client is off: the directory could not be read, so duplicates cannot " +
+        "be checked.",
     };
   }
   if (query.isLoading) return { allowed: false, reason: null };

@@ -416,7 +416,7 @@ describe("§5.7 defect 9 — a dropped connection and a dead session are differe
     expect(view.container.textContent).toContain(
       "We could not check your session",
     );
-    expect(view.container.textContent).toContain(
+    expect(view.container.textContent?.toLowerCase()).toContain(
       "we do not know whether your session is still good",
     );
     expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();

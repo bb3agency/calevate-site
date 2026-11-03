@@ -183,7 +183,7 @@ export function SetPasswordForm<T>({
             maxLength={200}
             value={name}
             onChange={(event) => setName(event.target.value)}
-            hint="Shown to colleagues on your account. You can change it later."
+            hint="Shown to colleagues. You can change it later."
           />
         )}
 
@@ -234,8 +234,7 @@ export function SetPasswordForm<T>({
         </ActionButton>
 
         <p className="text-meta text-ink-faint">
-          The link works once. If this fails, ask for a new one rather than reloading the
-          page.
+          The link works once. If this fails, ask for a new one.
         </p>
       </form>
     </div>
@@ -252,12 +251,11 @@ export function MissingLinkCode({ what, remedy }: { what: string; remedy: ReactN
             about the LINK and is one the reader can act on without involving anybody. */}
         <NoticeBox tone="warn" title={`This ${what} link is missing its code`}>
           <p className="mt-1">
-            A {what} link ends with a long code. This one arrived without it, so there is
-            nothing here to open. It does not mean the link has been used or has expired.
+            The end of the link got cut off. It may still be valid.
           </p>
         </NoticeBox>
         <p>
-          Open it from the original message rather than retyping it, and copy all of it.
+          Open it from the original message, or copy all of it.
           {" "}
           {remedy}
         </p>

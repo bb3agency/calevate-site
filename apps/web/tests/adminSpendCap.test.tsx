@@ -286,7 +286,7 @@ describe("the spend-cap recompute", () => {
       "This client only — it re-derives the flag, it does not lift the cap",
     );
     expect(container.textContent).toContain(
-      "raise the ceiling first if that is the fix",
+      "so raise the ceiling first",
     );
     expect(container.textContent).toContain("never affects inbound calls");
   });

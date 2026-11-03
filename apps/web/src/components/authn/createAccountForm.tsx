@@ -102,7 +102,7 @@ export function CreateAccountForm({ onCreated }: { onCreated: () => void }) {
             Create your Calevate account
           </h1>
           <p className="text-body text-ink-muted">
-            Your free trial starts as soon as you tell us about your business.
+            Your free trial starts once you add your business.
           </p>
         </div>
         <GoogleSignIn />
@@ -139,9 +139,10 @@ export function CreateAccountForm({ onCreated }: { onCreated: () => void }) {
           Check your email
         </h1>
         <p className="text-body text-ink-muted">
-          If this address can be used for a new account, a {OTP_LENGTH}-digit code is on its
-          way. It works for 10 minutes. Already have an account? We have emailed you a way to
-          sign in instead.
+          If this address is new, a {OTP_LENGTH}-digit code is on its way.
+        </p>
+        <p className="text-body text-ink-muted">
+          Already have an account? We emailed a sign-in link instead.
         </p>
       </div>
       <OtpInput

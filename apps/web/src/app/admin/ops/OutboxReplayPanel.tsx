@@ -119,14 +119,11 @@ export function OutboxReplayPanel({
           // `apps/web/tests/ops.test.tsx`, and worth the note: a panel with two voices needs
           // both of them changed, and the one beside the control is the one that counts.
           sized.deferred > 0
-          ? `No message has failed yet, so there is nothing to resend — but ${formatCount(sized.deferred)} ` +
-            "are waiting to retry on their own (shown above). Resending only helps messages that " +
-            "have already failed; these need the queue to come back."
-          : "Nothing is stuck, so there is nothing to resend. Running it anyway would record a " +
-            "resend in the activity log that never actually happened."
+          ? `Nothing has failed, so there is nothing to resend. ${formatCount(sized.deferred)} ` +
+            "are retrying on their own (shown above)."
+          : "Nothing is stuck, so there is nothing to resend."
         : !scopeChosen
-          ? "Choose what to resend first. There is no default, because the default would be " +
-            "the biggest possible action."
+          ? "Choose what to resend first. There is no default."
           : null;
 
   return (

@@ -41,8 +41,7 @@ function ClientResetBody() {
       submitLabel="Set my new password"
       intro={
         <p>
-          This link works once and expires an hour after it was sent. Setting a password
-          here also signs you out everywhere else, on every device.
+          Valid once, for 1 hour. Signs out your other devices.
         </p>
       }
       deadLink={{
@@ -58,8 +57,7 @@ function ClientResetBody() {
           <div className="space-y-3 text-body text-ink-muted">
             <NoticeBox tone="ok" title="Your password has been changed">
               <p className="mt-1">
-                Every session on this account has been ended. Sign in again with the new
-                password.
+                Signed out everywhere. Sign in with the new password.
               </p>
             </NoticeBox>
             <Link href={CLIENT_SIGN_IN_PATH} className={`${PRIMARY_BUTTON} w-full justify-center`}>
@@ -73,7 +71,7 @@ function ClientResetBody() {
           what="reset"
           remedy={
             <>
-              If that does not work,{" "}
+              Or{" "}
               <Link href={CLIENT_FORGOT_PATH} className="text-brand-strong underline underline-offset-2 dark:text-brand-bright">
                 ask for a new reset link
               </Link>

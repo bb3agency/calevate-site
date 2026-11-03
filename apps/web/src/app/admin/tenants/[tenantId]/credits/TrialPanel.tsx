@@ -97,6 +97,13 @@ export function TrialPanel({
   return (
     <Section
       title="Trial period"
+      info={
+        <p>
+          A client that has not paid places test calls from the shared trial number and
+          nothing else until its first top-up, which ends the trial. For a client that has
+          paid, a trial only means its wallet is not debited.
+        </p>
+      }
       action={
         <span className="flex flex-wrap gap-2">
           <button type="button" className={SECONDARY_BUTTON_SM} onClick={() => setMode("start")}>
@@ -111,10 +118,7 @@ export function TrialPanel({
       }
     >
       <p className="text-meta text-ink-muted">
-        Days and free test-call minutes on us. A client that has not paid places test calls
-        from the shared trial number and nothing else until its first top-up, which ends the
-        trial. For a client that has paid, a trial only means its wallet is not debited.
-        Every minute is still metered and we still pay for it.
+        Free days and test-call minutes. Every minute is still metered and paid by us.
       </p>
 
       {state === null ? (

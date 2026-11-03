@@ -89,7 +89,7 @@ describe("the switch on the operator's own account page", () => {
     await renderPage({ "GET /v1/auth/admin/session": OFF });
     const toggle = await screen.findByRole("switch", { name: LABEL });
     expect((toggle as HTMLInputElement).checked).toBe(false);
-    expect(screen.getByText(/less secure on a shared device/i)).toBeTruthy();
+    expect(screen.getByText(/avoid on a shared device/i)).toBeTruthy();
     expect(screen.getByText(sessionLifetime(OFF))).toBeTruthy();
   });
 

@@ -88,8 +88,7 @@ export function SignedOutToast({ realm, realmLabel }: SignedOutToastProps) {
       <div className="min-w-0 flex-1 text-body">
         <p className="font-medium text-ink">Your {realmLabel} session ended</p>
         <p className="mt-0.5 text-ink-muted">
-          Sessions end after a period of inactivity, or when you sign out
-          everywhere. Sign in again to pick up where you left off.
+          Sign in again to pick up where you left off.
         </p>
       </div>
       <button

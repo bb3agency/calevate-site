@@ -31,8 +31,8 @@ export const STAY_SIGNED_IN_DAYS = 14;
 export function sessionLifetime(session: AuthnSession | null): string {
   const idle = session ? idleDurationLabel(session.idle_timeout_seconds) : "30 minutes";
   return session?.stay_signed_in
-    ? `"Stay signed in" is on: a session ends after ${idle} without activity, and after ${STAY_SIGNED_IN_DAYS} days regardless. You are warned a few minutes before an idle session ends.`
-    : `A session ends after ${idle} without activity, and after 8 hours regardless. You are warned a few minutes before an idle session ends.`;
+    ? `Ends after ${idle} idle, or ${STAY_SIGNED_IN_DAYS} days at most.`
+    : `Ends after ${idle} idle, or 8 hours at most.`;
 }
 
 export function StaySignedInRow({
@@ -59,7 +59,7 @@ export function StaySignedInRow({
     <div className="space-y-3 py-3.5">
       <ToggleSwitch
         label={`Stay signed in on this device for up to ${STAY_SIGNED_IN_DAYS} days`}
-        hint="Less secure on a shared device: anyone who opens this browser can use your operator account until you sign out."
+        hint="Avoid on a shared device: anyone here can use your account."
         checked={session.stay_signed_in}
         disabled={saving}
         onChange={change}

@@ -182,8 +182,8 @@ function SignupClosed({
         <div className="space-y-3 text-body text-ink-muted">
           <p>
             {deferred
-              ? "We are not creating new accounts at this moment — the platform is running in a reduced mode. Nothing you entered was wrong; try again shortly."
-              : "Calevate does not open accounts online yet. Every workspace is set up by hand with you, so there is nothing to fill in here — and nothing you have done is wrong."}
+              ? "New accounts are paused. Nothing you entered was wrong."
+              : "Every workspace is set up by hand with you."}
           </p>
           {/* The server's sentence wins when there is one; it knows why THIS request was
               refused. The fallback is only for the build-time closure, where no request
@@ -211,11 +211,10 @@ function SignupClosed({
           )}
           {!deferred && (
             <p className="text-meta text-ink-faint">
-              Already have a workspace? It lives at{" "}
+              Already have a workspace? Open{" "}
               <code className="rounded bg-black/5 px-1 font-mono text-ink dark:bg-white/10">
                 /c/your-slug
-              </code>{" "}
-              — the URL we gave you.
+              </code>.
             </p>
           )}
           {onRetry && (
@@ -257,8 +256,7 @@ function ConfirmYourAddress({
       <AuthHeading title="Confirm your email address first" />
         <div className="space-y-3 text-body text-ink-muted">
           <p>
-            Before we create a workspace we need to know the address on your account
-            reaches you. It takes one code and about a minute.
+            It takes one emailed code.
           </p>
           {/* The server's sentence when it gave one — it knows why THIS request was
               refused. The fallback covers only the shape where none arrived. */}
@@ -316,9 +314,7 @@ function SignupForm() {
             Your workspace is at{" "}
             <code className="rounded bg-black/5 px-1 font-mono text-ink dark:bg-white/10">
               /c/{created.slug}
-            </code>{" "}
-            and you are its {created.role}. The URL is permanent — it cannot be changed
-            later.
+            </code>. You are its {created.role}.
           </p>
         </div>
 
@@ -387,9 +383,7 @@ function SignupForm() {
           Create your Calevate workspace
         </h1>
         <p className="mt-2 text-body text-ink-muted">
-          This creates the workspace for the Calevate account you are already signed in
-          with, and makes you its owner. If you already belong to a workspace, open it at
-          its own URL instead.
+          You will be its owner.
         </p>
       </div>
 
@@ -476,7 +470,7 @@ function SignupForm() {
           <Field
             id={FIELD_IDS.slug}
             label="Workspace URL"
-            hint="Permanent once created — it cannot be changed later."
+            hint="Cannot be changed later."
             error={valid.message("slug") ?? fieldMessage(fields, "slug")}
           >
             {(props) => (
@@ -498,8 +492,7 @@ function SignupForm() {
           </Field>
           {mustChooseSlug ? (
             <p className="-mt-3 text-meta text-ink-muted">
-              We cannot build a web address out of that business name, so please choose
-              one — 3-40 characters of a-z, 0-9 and -.
+              Choose a web address: 3-40 characters of a-z, 0-9 and -.
             </p>
           ) : (
             derived && (
@@ -515,7 +508,7 @@ function SignupForm() {
           <Field
             id={FIELD_IDS.vertical_template}
             label="Kind of business"
-            hint="Sets the questions your agent asks and the columns your leads land in."
+            hint="Shapes your agent's questions and lead columns."
             error={valid.message("vertical_template") ?? fieldMessage(fields, "vertical_template")}
           >
             {(props) => (
@@ -565,9 +558,10 @@ function SignupForm() {
               Create workspace
             </ActionButton>
             <p className="text-meta text-ink-faint">
-              Your free trial starts straight away: you make your first agent and give
-              it test calls to your own phone. Calling your customers opens once you add
-              credit and verify your business.
+              Free trial starts now, with test calls to your phone.
+            </p>
+            <p className="text-meta text-ink-faint">
+              Calling customers opens after credit and verification.
             </p>
           </div>
         </form>

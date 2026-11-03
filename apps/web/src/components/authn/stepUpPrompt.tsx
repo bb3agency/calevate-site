@@ -280,7 +280,7 @@ export function StepUpPrompt({ realm = "admin" }: { realm?: "admin" | "client" }
               <>
                 {/* The address is not printed back, for the reason `SignInForm` gives:
                     a shoulder-surfed screen should not carry an operator's address. */}
-                <p>We have sent a six-digit code to the address on file for this account.</p>
+                <p>We emailed a six-digit code to this account&apos;s address.</p>
                 <OtpInput
                   label="Six-digit code"
                   length={OTP_LENGTH}
@@ -332,8 +332,7 @@ export function StepUpPrompt({ realm = "admin" }: { realm?: "admin" | "client" }
               {leaving ? "Signing out…" : "Sign out"}
             </button>
             <p className="mt-2 text-meta text-ink-faint">
-              If this is not your session, sign out. Nothing you were doing has been
-              applied.
+              Not your session? Sign out. Nothing has been applied.
             </p>
           </div>
         </div>

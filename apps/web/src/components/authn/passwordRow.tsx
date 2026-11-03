@@ -52,7 +52,7 @@ export function revokedSentence(revoked: number): string {
 function lengthHint(length: number, floor: number): { text: string; met: boolean } {
   if (length === 0) {
     return {
-      text: `At least ${floor} characters. Three or four unrelated words work well.`,
+      text: `At least ${floor} characters. Try 3-4 unrelated words.`,
       met: false,
     };
   }
@@ -228,7 +228,7 @@ export function PasswordRow({ realm, changePassword }: PasswordRowProps) {
 
           {/* Before the button, not after the click: the cost lands on other devices. */}
           <p className="text-meta text-ink-muted">
-            Saving ends every other session on this account. This browser stays signed in.
+            Signs out your other devices. This one stays signed in.
           </p>
 
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2">

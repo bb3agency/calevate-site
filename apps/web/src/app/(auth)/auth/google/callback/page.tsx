@@ -78,7 +78,7 @@ export default function GoogleCallbackPage() {
             <div className="space-y-4">
               <AuthHeading
                 title="Google sign-in was cancelled"
-                lead="Nothing was changed. You can try again or use your email address."
+                lead="Nothing was changed. Try again or use your email."
               />
               <Link href={CLIENT_SIGN_IN_PATH} className={`${PRIMARY_BUTTON} w-full justify-center`}>
                 Back to sign-in
@@ -98,8 +98,7 @@ export default function GoogleCallbackPage() {
             <div className="space-y-4">
               <AuthHeading title="You are signed in" />
               <NoticeBox tone="warn" title="The invitation was for another email address">
-                You have not joined. Open the invitation again and choose the Google account for
-                the address it was sent to.
+                Not joined. Reopen it with the Google account it went to.
               </NoticeBox>
               <a href={view.destination} className={`${PRIMARY_BUTTON} w-full justify-center`}>
                 Continue

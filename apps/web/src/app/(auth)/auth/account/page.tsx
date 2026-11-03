@@ -109,7 +109,7 @@ function ClientAccountBody() {
         <SessionsSection
           authn={clientAuthn}
           signInPath={CLIENT_SIGN_IN_PATH}
-          lifetime="A session ends after 12 hours without activity, and after 14 days regardless."
+          lifetime="Ends after 12 hours idle, or 14 days at most."
           everywhereHint="Your phone, other browsers, and this one."
           everywhereConsequence="Every session on this account ends, on every device, including this one. You will need your password to sign in again."
         />
@@ -155,8 +155,7 @@ function AccountRows({ me }: { me: UseQueryResult<Me> }) {
       <div className="space-y-3">
         <AuthProblemNotice error={me.error} />
         <p className="text-meta text-ink-muted">
-          Your sign-in is fine. This is the separate read that says which account it belongs
-          to.{" "}
+          Your sign-in is fine; only the account details failed.{" "}
           <button type="button" className={TEXT_ACTION} onClick={() => void me.refetch()}>
             Try again
           </button>
@@ -170,8 +169,7 @@ function AccountRows({ me }: { me: UseQueryResult<Me> }) {
   if (!organization && !role) {
     return (
       <p className="text-body text-ink-muted">
-        This sign-in is not attached to an account yet. Ask whoever invited you to send the
-        invitation again.
+        Not linked to an account yet. Ask for a new invitation.
       </p>
     );
   }
@@ -187,8 +185,8 @@ function AccountRows({ me }: { me: UseQueryResult<Me> }) {
           // so this sentence and those controls cannot disagree.
           hint={
             permissions.includes("org:manage")
-              ? "You can change this account's settings and invite colleagues."
-              : "Settings, billing and the team are your account owner's to change."
+              ? "You can change settings and invite colleagues."
+              : "The owner manages settings, billing and the team."
           }
         />
       )}
