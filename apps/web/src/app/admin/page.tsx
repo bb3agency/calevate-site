@@ -514,7 +514,11 @@ function ClientRow({ tenant }: { tenant: TenantSummary }) {
           ]}
         />
       </div>
-      <div className="col-start-2 row-start-1 text-body text-ink">
+      {/* A trial is the one plan an operator acts on (convert it), so it alone takes the
+          info tone; the label still says it in words. */}
+      <div
+        className={`col-start-2 row-start-1 text-body ${tenant.plan_tier === "trial" ? "font-medium text-info" : "text-ink"}`}
+      >
         <span className="sr-only">Plan: </span>
         {planLabel(tenant.plan_tier)}
       </div>

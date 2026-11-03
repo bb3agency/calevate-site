@@ -34,9 +34,12 @@ export function CreditLeft({ credit, compact = false }: { credit: Credit; compac
   const tiers = credit.minutes_left && credit.minutes_left.length > 0 ? credit.minutes_left : null;
   const rupees = credit.credit_inr === null ? null : formatINRExact(credit.credit_inr);
   const overdrawn = credit.credit_inr !== null && credit.credit_inr.trim().startsWith("-");
+  // Every quality at zero minutes: the client cannot place a call, which is the fact an
+  // operator scanning the roster is looking for, so it takes the warn tone.
+  const empty = tiers !== null && tiers.every((tier) => tier.minutes <= 0);
   return (
     <span className={compact ? "inline" : "block"}>
-      <span className="tabular-nums text-ink">
+      <span className={`tabular-nums ${empty ? "font-medium text-warn" : "text-ink"}`}>
         {tiers
           ? tiers.map((tier, index) => (
               // One quality's figure never breaks across a line: "Studio 80 / min" read as
@@ -52,9 +55,11 @@ export function CreditLeft({ credit, compact = false }: { credit: Credit; compac
       </span>
       {rupees && (
         <span
-          className={`tabular-nums ${compact ? "ml-2" : "block"} text-meta ${overdrawn ? "text-danger" : "text-ink-muted"}`}
+          className={`tabular-nums ${compact ? "ml-2" : "block"} text-meta ${overdrawn ? "font-medium text-danger" : "text-ink-muted"}`}
         >
-          {overdrawn && <span className="sr-only">Overdrawn: </span>}
+          {/* Visible, not screen-reader only: red alone is not a state a sighted
+              colour-blind operator can read (WCAG 1.4.1). */}
+          {overdrawn && "Overdrawn: "}
           {rupees}
         </span>
       )}

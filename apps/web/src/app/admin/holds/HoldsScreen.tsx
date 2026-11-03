@@ -5,7 +5,7 @@ import { ArrowRight } from "lucide-react";
 
 import { ADMIN_PAGE_WIDE, HAIRLINE_LIST, LIST_HEAD, StatusPill } from "@/components/admin/kit";
 import { TEXT_ACTION } from "@/components/console/section";
-import { NoticeBox, ProblemNotice, Skeleton, formatIST } from "@/components/ui";
+import { NOTICE_BAR, NoticeBox, ProblemNotice, Skeleton, formatIST } from "@/components/ui";
 import { EmptyState } from "@/components/console/emptyState";
 import { InfoTip } from "@/components/console/infoTip";
 import { PageHeader } from "@/components/console/pageHeader";
@@ -166,7 +166,7 @@ function HoldList({ rows, now }: { rows: HeldTenant[]; now: number }) {
     <div>
       <div
         aria-hidden
-        className={`hidden pb-2 sm:px-2 ${LIST_HEAD} ${GRID}`}
+        className={`hidden border-l-2 border-transparent pb-2 pl-3 sm:pr-2 ${LIST_HEAD} ${GRID}`}
       >
         <span>Client</span>
         <span>Waiting</span>
@@ -194,7 +194,9 @@ function HoldRow({ row, now }: { row: HeldTenant; now: number }) {
   const unknown = row.holds.filter((rule) => holdRule(rule) === null);
 
   return (
-    <li className={`space-y-2 py-3 sm:px-2 md:space-y-0 ${GRID}`}>
+    // How long the client has waited, as a left rule: a week-old hold reads by colour on a
+    // scan, and the wait pill beside the name says it in words.
+    <li className={`space-y-2 border-l-2 py-3 pl-3 sm:pr-2 md:space-y-0 ${NOTICE_BAR[band]} ${GRID}`}>
       <div className="min-w-0">
         <Link
           href={`/admin/tenants/${row.tenant_id}`}
