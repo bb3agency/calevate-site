@@ -527,7 +527,7 @@ async def test_the_trial_number_is_never_recorded_against_a_client(numbers: _Num
                 purpose=None,
             )
     assert refused.value.code in {
-        "engine_number_is_trial_number",
+        "engine_number_is_platform_line",
         "number_provider_not_on_this_engine",
     }
 
@@ -720,7 +720,7 @@ def platform_numbers(monkeypatch: pytest.MonkeyPatch) -> list[str]:
         return {"918045678902"}
 
     monkeypatch.setattr(numbers_module, "vendor_numbers", listed)
-    monkeypatch.setattr(trial_number, "_recorded_digits", recorded)
+    monkeypatch.setattr(trial_number, "recorded_number_digits", recorded)
     monkeypatch.setattr(get_settings(), "engine", "thinnest")
     return held
 

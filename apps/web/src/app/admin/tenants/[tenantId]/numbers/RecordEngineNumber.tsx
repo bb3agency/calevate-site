@@ -128,6 +128,8 @@ function recordedSentence(recorded: RecordedEngineNumber): string {
       : recorded.platform_attachment === "other_workspace"
         ? " It is held in the platform account and the agent lives in the client's own workspace, so nobody answers it."
         : "";
-  const held = recorded.platform_held ? " Held in the platform account (testing only)." : "";
+  const held = recorded.platform_held
+    ? " Still in Calevate's account: move it into the client's workspace for their agents to use it."
+    : "";
   return `Recorded. ${price}${platform}${held}`;
 }

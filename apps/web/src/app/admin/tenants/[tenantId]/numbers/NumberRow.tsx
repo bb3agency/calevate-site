@@ -101,7 +101,7 @@ export function NumberRow({
           {number.released ? " · released — no longer charged" : ""}
         </span>
         {number.platform_held && (
-          <StatusPill tone="warn">Held in the platform account (testing only)</StatusPill>
+          <StatusPill tone="warn">Calevate&apos;s number, not moved yet</StatusPill>
         )}
         {/* A number the voice platform holds is released from its workspace panel
             (`EngineNumberActions`), the one path that also checks which workspace holds it.

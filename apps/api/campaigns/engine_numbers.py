@@ -292,12 +292,12 @@ async def record_engine_number(
     provider = engine_number_provider()
     if provider is None:
         raise _refuse_off_engine()
-    if is_trial_number(e164) or is_trial_number(engine_number_ref):
+    if is_platform_line(e164) or is_platform_line(engine_number_ref):
         raise ProblemError.conflict(
-            "engine_number_is_trial_number",
-            "This number is the shared number free-trial test calls ring from, so it cannot "
-            "be recorded against a client.",
-            remediation="Record another number, or set a different shared trial number first.",
+            "engine_number_is_platform_line",
+            "This number is one Calevate's own test calls ring from (free-trial or forwarding "
+            "tests), so it cannot be given to a client.",
+            remediation="Pick another number, or set a different test number in the console first.",
         )
     held = await held_number(e164, own_workspace=await resolve_workspace(session, tenant_id))
     vendor_ref = held.engine_number_ref or held.e164
@@ -587,8 +587,8 @@ async def reconcile_engine_number_attachments() -> NumberReconciliation:
         for number_id, e164, ref, held in rows:
             handle = str(ref or e164)
             key = _key(scope_of(handle), handle)
-            if scope_of(handle) is None and is_trial_number(handle):
-                # The shared trial number is the platform's, lent per test call (D-697).
+            if scope_of(handle) is None and is_platform_line(handle):
+                # A platform line is ours, lent per test call (D-697, D-746).
                 # Recorded against a client, the sweep would re-point it under a live call.
                 _alarm_trial_number_recorded(tenant_id)
                 continue
@@ -699,9 +699,17 @@ def trial_number_ref() -> str | None:
     return digits(number) if number else None
 
 
-def is_trial_number(e164_or_ref: str | None) -> bool:
-    trial = trial_number_ref()
-    return bool(trial and e164_or_ref) and digits(str(e164_or_ref)) == trial
+def platform_lines() -> frozenset[str]:
+    """The digits of every number Calevate's own test calls ring from: the shared free-trial
+    number (D-697) and the forwarding test's second number (D-746). Each is lent per test
+    call, so none may ever be a client's number."""
+    settings = get_settings()
+    numbers = (settings.trial_caller_number, settings.forwarding_test_second_number)
+    return frozenset(digits(number) for number in numbers if number)
+
+
+def is_platform_line(e164_or_ref: str | None) -> bool:
+    return bool(e164_or_ref) and digits(str(e164_or_ref)) in platform_lines()
 
 
 #: What anybody who rings the shared trial number back hears (founder, 11 Oct 2026). English:
@@ -991,7 +999,7 @@ async def forward_agent_numbers(
     """
     forwarded = 0
     for number_id, ref in await _agent_numbers(session, agent_id):
-        if is_trial_number(ref):
+        if is_platform_line(ref):
             continue
         try:
             await thinnest_numbers().set_forward(ref, phone_e164)
@@ -1147,12 +1155,12 @@ async def move_into_client_workspace(
             remediation="Buy a number for this client from its Numbers page.",
         )
     current = str(row[0])
-    if is_trial_number(current) or is_trial_number(str(row[2])):
+    if is_platform_line(current) or is_platform_line(str(row[2])):
         raise ProblemError.conflict(
-            "engine_number_is_trial_number",
-            "This number is the shared number free-trial test calls ring from, so it stays in "
-            "the platform account.",
-            remediation="Move another number, or set a different shared trial number first.",
+            "engine_number_is_platform_line",
+            "This number is one Calevate's own test calls ring from (free-trial or forwarding "
+            "tests), so it stays in the platform account.",
+            remediation="Move another number, or set a different test number in the console first.",
         )
     target = await resolve_workspace(session, tenant_id)
     if target is None:
@@ -1207,11 +1215,12 @@ __all__ = [
     "forward_agent_numbers",
     "held_number",
     "is_platform_held",
-    "is_trial_number",
+    "is_platform_line",
     "lend_trial_line",
     "live_tenants",
     "move_into_client_workspace",
     "numbers_can_forward",
+    "platform_lines",
     "price_recorded_number",
     "queue_number_move",
     "read_business_details",

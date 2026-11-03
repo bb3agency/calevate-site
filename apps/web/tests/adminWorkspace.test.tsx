@@ -23,7 +23,7 @@ import { renderAdminRoute, routeParams } from "./adminRoute";
  *   lever that fixes it.
  * - The operator buys with the client's price AND our cost in view.
  * - "Release" and "Release our record" are separate acts, each confirmed.
- * - A number held in the platform account is flagged as testing only.
+ * - A number held in the platform account is flagged as Calevate's.
  * - The ops summary warns when the plan has one workspace or fewer left.
  */
 
@@ -361,9 +361,9 @@ describe("one release path for a number the voice platform holds", () => {
 });
 
 describe("the engine numbers list", () => {
-  it("flags a number held in the platform account as testing only", async () => {
+  it("flags a number held in the platform account as Calevate's", async () => {
     await render(workspace());
-    expect(await screen.findByText("Held in the platform account (testing only)")).toBeTruthy();
+    expect((await screen.findAllByText(/^Calevate's number/)).length).toBeGreaterThan(0);
   });
 
   it("releases a number for good after a warning that the month is not refunded", async () => {

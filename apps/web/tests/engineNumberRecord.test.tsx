@@ -228,7 +228,7 @@ describe("what recording a rented number did to the client's account", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Record this number" }));
     fireEvent.click(screen.getByRole("button", { name: "Record" }));
     expect(await screen.findByText(/nobody answers it/)).toBeTruthy();
-    expect(screen.getByText(/Held in the platform account \(testing only\)\./)).toBeTruthy();
+    expect(screen.getByText(/Still in Calevate's account/)).toBeTruthy();
   });
 });
 

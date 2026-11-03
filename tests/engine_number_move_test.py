@@ -273,15 +273,16 @@ async def test_a_move_that_never_clears_alarms_once_its_attempts_run_out(
     assert raised == ["engine_number_move_failed"]
 
 
-async def test_the_shared_trial_number_never_moves(
-    vendor: MovingVendor, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("setting", ["trial_caller_number", "forwarding_test_second_number"])
+async def test_a_number_calevate_test_calls_ring_from_never_moves(
+    vendor: MovingVendor, monkeypatch: pytest.MonkeyPatch, setting: str
 ) -> None:
     tenant_id, number_id, number, _workspace, _scoped = await _platform_held_number(vendor)
-    monkeypatch.setattr(get_settings(), "trial_caller_number", f"+{number}")
+    monkeypatch.setattr(get_settings(), setting, f"+{number}")
     with pytest.raises(ProblemError) as refused:
         async with tenant_session(tenant_id) as session:
             await engine_numbers.move_into_client_workspace(
                 session, tenant_id=tenant_id, number_id=number_id
             )
-    assert refused.value.code == "engine_number_is_trial_number"
+    assert refused.value.code == "engine_number_is_platform_line"
     assert vendor.moves == []

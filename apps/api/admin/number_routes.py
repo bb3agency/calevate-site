@@ -60,6 +60,7 @@ from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
 from apps.api.engine.hosted_platform import engine_number_console
 from apps.api.engine.thinnest_numbers import digits
+from apps.api.ops.trial_number import recorded_number_digits
 from apps.api.tenancy.engine_workspace import resolve_workspace
 
 router = APIRouter(prefix="/v1/admin/numbers", tags=["admin"])
@@ -640,10 +641,20 @@ async def tenant_engine_numbers(
     if own_workspace is not None:
         held.extend((n, False) for n in await engine_numbers.vendor_numbers(own_workspace))
     held.extend((n, True) for n in await engine_numbers.vendor_numbers(None))
+    # A platform number is offered only while it is free: never one Calevate's own test
+    # calls ring from (`engine_numbers.platform_lines`), never one another client holds.
+    elsewhere = await recorded_number_digits() - set(recorded)
     numbers: list[EngineNumberOut] = []
     other = 0
     answering: set[str] = set()
     for number, platform_held in held:
+        if platform_held and engine_numbers.is_platform_line(
+            number.engine_number_ref or number.e164
+        ):
+            continue
+        if platform_held and digits(number.e164) in elsewhere:
+            other += 1
+            continue
         ref = number.answering_agent_ref
         if ref is not None and ref not in ours:
             other += 1

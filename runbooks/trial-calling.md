@@ -35,7 +35,7 @@ write the number itself into a ticket, a commit or a log; the console shows it t
 1. **Record it as platform-held.** Do nothing on any client's page: a number held in our
    developer workspace and recorded against no client IS platform-held. Do not use a client's
    **Record this number**; recording it against a client is refused
-   (`engine_number_is_trial_number`) once it is the trial number, and before that it would
+   (`engine_number_is_platform_line`) once it is the trial number, and before that it would
    make it that client's.
 2. **Select it.** Ops console → Calling limits → **Shared trial number** panel. It lists, live
    from the voice platform (`GET /phone-numbers` in the developer workspace), only the numbers

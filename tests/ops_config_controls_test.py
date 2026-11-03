@@ -279,7 +279,7 @@ async def test_trial_number_choices_carry_their_label_and_agents(
         return {"ag_front": "Reception"}
 
     monkeypatch.setattr(numbers_module, "vendor_numbers", listed)
-    monkeypatch.setattr(trial_number, "_recorded_digits", recorded)
+    monkeypatch.setattr(trial_number, "recorded_number_digits", recorded)
     monkeypatch.setattr(trial_number, "_agent_names", names)
 
     (only,) = await trial_number.trial_number_candidates(with_names=True)

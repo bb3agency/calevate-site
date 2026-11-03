@@ -63,7 +63,7 @@ def _digits(value: str) -> str:
     return "".join(ch for ch in value if ch.isdigit())
 
 
-async def _recorded_digits() -> set[str]:
+async def recorded_number_digits() -> set[str]:
     """The digits of every number recorded against a client, across every tenant, each read
     in that tenant's own session (the directory read is the only wider one)."""
     from apps.api.campaigns.engine_numbers import live_tenants
@@ -106,7 +106,7 @@ async def trial_number_candidates(*, with_names: bool = False) -> list[TrialNumb
     from apps.api.campaigns.engine_numbers import vendor_numbers
 
     held = await vendor_numbers(None)
-    recorded = await _recorded_digits()
+    recorded = await recorded_number_digits()
     free = [number for number in held if _digits(number.e164) not in recorded]
     refs = {
         ref
@@ -306,6 +306,7 @@ __all__ = [
     "TRIAL_NUMBER_KEY",
     "TrialNumberCandidate",
     "assert_trial_number_selectable",
+    "recorded_number_digits",
     "router",
     "trial_number_candidates",
 ]

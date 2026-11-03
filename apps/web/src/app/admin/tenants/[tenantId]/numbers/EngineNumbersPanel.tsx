@@ -62,7 +62,9 @@ export function EngineNumbersPanel({
                 <span className="text-meta text-ink-muted">{number.provider}</span>
               )}
               {number.platform_held && (
-                <StatusPill tone="warn">Held in the platform account (testing only)</StatusPill>
+                <StatusPill tone={number.number_id ? "warn" : "info"}>
+                  {number.number_id ? "Calevate's number, not moved yet" : "Calevate's number, free to give"}
+                </StatusPill>
               )}
               <span className="ml-auto text-ink-muted">
                 {number.agent_name
@@ -99,8 +101,8 @@ export function EngineNumbersPanel({
       {data.other_numbers > 0 && (
         <p className="text-meta text-ink-muted">
           {data.other_numbers === 1
-            ? "One more number on the account is answered by another client's agent and is not shown."
-            : `${data.other_numbers} more numbers on the account are answered by other clients' agents and are not shown.`}
+            ? "One more number belongs to another client and is not shown."
+            : `${data.other_numbers} more numbers belong to other clients and are not shown.`}
         </p>
       )}
 

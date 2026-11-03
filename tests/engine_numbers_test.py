@@ -317,6 +317,33 @@ async def test_a_number_the_platform_does_not_hold_or_another_client_answers_is_
     assert vendor.patches == []
 
 
+async def test_a_calevate_number_is_offered_only_while_no_client_and_no_test_call_uses_it(
+    vendor: FakeVendor, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Founder, 3 Nov 2026: a Calevate number given to one client is that client's alone, and
+    never one free-trial or forwarding test calls ring from."""
+    admin_id, headers = await _admin()
+    await _attested(admin_id)
+    tenant_id, _agent_id, _ref = await _client_with_agent()
+    neighbour, _their_agent, _their_ref = await _client_with_agent()
+    trial, forwarding, given, free = _number(), _number(), _number(), _number()
+    for number in (trial, forwarding, given, free):
+        vendor.hold(number)
+    monkeypatch.setattr(get_settings(), "trial_caller_number", f"+{trial}")
+    monkeypatch.setattr(get_settings(), "forwarding_test_second_number", f"+{forwarding}")
+    assert (await _record(neighbour, {"e164": f"+{given}"}, headers)).status_code == 201
+
+    page = await _get(f"/v1/admin/numbers/tenants/{tenant_id}/engine", headers)
+    listed = {n["e164"] for n in page.json()["numbers"]}
+    assert f"+{free}" in listed
+    assert not listed & {f"+{trial}", f"+{forwarding}", f"+{given}"}
+    assert page.json()["other_numbers"] >= 1
+
+    for line in (trial, forwarding):
+        refused = await _record(tenant_id, {"e164": f"+{line}"}, headers)
+        assert (refused.status_code, _code(refused)) == (409, "engine_number_is_platform_line")
+
+
 async def test_the_record_route_refuses_off_the_engine(monkeypatch: pytest.MonkeyPatch) -> None:
     _admin_id, headers = await _admin()
     tenant_id, _agent_id, _ref = await _client_with_agent()
