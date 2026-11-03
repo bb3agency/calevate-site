@@ -1116,7 +1116,8 @@ CRON_JOBS = [
         traced_job(follow_up_tick),
         walk=bounded(
             "one admin read (`follow_up_scan`, an in-database loop), then one tenant_session "
-            "per account with work, at most `follow_ups.TENANTS_PER_TICK`"
+            "per account with work, at most `follow_ups.TENANTS_PER_TICK`, resuming after "
+            "the last one handled"
         ),
         second={FOLLOW_UP_TICK_SECOND},
         max_tries=WORKER_MAX_TRIES,
