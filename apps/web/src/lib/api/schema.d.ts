@@ -1235,7 +1235,7 @@ export interface paths {
         put?: never;
         /**
          * Record a number the voice platform holds for this client, price it, attach it
-         * @description For a number rented in the voice platform's own console. Refused with `engine_number_not_held` when the platform does not hold it, `engine_number_answered_by_other_client` when another client's agent answers it, `number_taken` when it is already recorded, and `number_price_not_attested` for a rented number while no monthly price is attested. A rented number's first month is collected now and it renews monthly from today.
+         * @description For a number rented in the voice platform's own console. Refused with `engine_number_not_held` when the platform does not hold it, `engine_number_answered_by_other_client` when another client's agent answers it, `number_taken` when it is already recorded, and `number_price_not_attested` for a rented number while no monthly price is attested. A rented number's first month is collected now and it renews monthly from today. A number Calevate's own test calls ring from (the shared free-trial number, the forwarding test's second number) is taken off that use first, so free trials place no test call until another is set; refused with `trial_call_on_number` while a test call is on it.
          */
         post: operations["record_tenant_engine_number_v1_admin_numbers_tenants__tenant_id__engine_record_post"];
         delete?: never;
@@ -22373,6 +22373,11 @@ export interface components {
             platform_held: boolean;
             /** Provider */
             provider: string | null;
+            /**
+             * Test Line
+             * @default false
+             */
+            test_line: boolean;
             /** Unassigned */
             unassigned: boolean;
         };

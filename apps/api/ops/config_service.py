@@ -428,7 +428,7 @@ async def _current(session: AsyncSession, key: str) -> _Current:
     return _Current(value=None, revision=0) if row is None else _Current(row[0], int(row[1]))
 
 
-async def _revision(session: AsyncSession, key: str) -> int:
+async def current_revision(session: AsyncSession, key: str) -> int:
     return (await _current(session, key)).revision
 
 
@@ -626,7 +626,7 @@ async def set_value(
         old=current.value,
         new=stored,
         version=await _version(session),
-        revision=await _revision(session, key),
+        revision=await current_revision(session, key),
         live_apply_run_id=run_id,
     )
 
@@ -768,6 +768,7 @@ __all__ = [
     "Sentinel",
     "WriteResult",
     "clear_value",
+    "current_revision",
     "propagate",
     "read_rows",
     "read_sentinel",

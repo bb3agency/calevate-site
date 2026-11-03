@@ -281,6 +281,7 @@ async def record_engine_number(
     purpose: str | None,
     series: str | None = None,
     engine_number_ref: str | None = None,
+    platform_line_released: bool = False,
 ) -> RecordedEngineNumber:
     """Record a number the voice platform holds against `tenant_id`, price it, attach it.
 
@@ -292,7 +293,11 @@ async def record_engine_number(
     provider = engine_number_provider()
     if provider is None:
         raise _refuse_off_engine()
-    if is_platform_line(e164) or is_platform_line(engine_number_ref):
+    # `platform_line_released`: the caller has just taken it off test use and committed that,
+    # which this process's settings may not show yet (`admin.number_routes`).
+    if not platform_line_released and (
+        is_platform_line(e164) or is_platform_line(engine_number_ref)
+    ):
         raise ProblemError.conflict(
             "engine_number_is_platform_line",
             "This number is one Calevate's own test calls ring from (free-trial or forwarding "

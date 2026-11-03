@@ -66,6 +66,11 @@ export function EngineNumbersPanel({
                   {number.number_id ? "Calevate's number, not moved yet" : "Calevate's number, free to give"}
                 </StatusPill>
               )}
+              {number.test_line && !number.number_id && (
+                <p className="w-full text-meta text-warn">
+                  Free-trial test calls ring from it. Giving it stops them until you set another.
+                </p>
+              )}
               <span className="ml-auto text-ink-muted">
                 {number.agent_name
                   ? `Answered by ${number.agent_name}`

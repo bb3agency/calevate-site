@@ -28,11 +28,11 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Annotated, Literal
+from typing import Annotated, Final, Literal
 from uuid import UUID
 
 from calevate_shared.engine import ProvisionedNumber
-from fastapi import APIRouter, Depends, Header, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -56,10 +56,11 @@ from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
 from apps.api.core.settings import get_settings
 from apps.api.core.stepup import StepUpGate
-from apps.api.db.session import tenant_session
+from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
 from apps.api.engine.hosted_platform import engine_number_console
 from apps.api.engine.thinnest_numbers import digits
+from apps.api.ops.config_service import current_revision, propagate, set_value
 from apps.api.ops.trial_number import recorded_number_digits
 from apps.api.tenancy.engine_workspace import resolve_workspace
 
@@ -542,6 +543,9 @@ class EngineNumberOut(BaseModel):
     #: be recorded for this client for testing only, and answers only an agent that still
     #: lives there (D-693).
     platform_held: bool = False
+    #: Calevate's own test calls ring from it (the shared free-trial number, the forwarding
+    #: test's second number). Giving it to this client takes it off that use.
+    test_line: bool = False
 
 
 class EngineAgentOut(BaseModel):
@@ -641,21 +645,22 @@ async def tenant_engine_numbers(
     if own_workspace is not None:
         held.extend((n, False) for n in await engine_numbers.vendor_numbers(own_workspace))
     held.extend((n, True) for n in await engine_numbers.vendor_numbers(None))
-    # A platform number is offered only while it is free: never one Calevate's own test
-    # calls ring from (`engine_numbers.platform_lines`), never one another client holds.
+    # A platform number is offered unless another client holds it. One Calevate's own test
+    # calls ring from (`engine_numbers.platform_lines`) is offered too, marked `test_line`.
     elsewhere = await recorded_number_digits() - set(recorded)
     numbers: list[EngineNumberOut] = []
     other = 0
     answering: set[str] = set()
     for number, platform_held in held:
-        if platform_held and engine_numbers.is_platform_line(
+        test_line = platform_held and engine_numbers.is_platform_line(
             number.engine_number_ref or number.e164
-        ):
-            continue
+        )
         if platform_held and digits(number.e164) in elsewhere:
             other += 1
             continue
-        ref = number.answering_agent_ref
+        # A test line is answered by Calevate's own never-answering line agent, which is no
+        # client's: it is offered (giving it takes it off test use), not counted as theirs.
+        ref = None if test_line else number.answering_agent_ref
         if ref is not None and ref not in ours:
             other += 1
             continue
@@ -672,6 +677,7 @@ async def tenant_engine_numbers(
                 unassigned=ref is None,
                 number_id=recorded.get(digits(number.engine_number_ref or number.e164)),
                 platform_held=platform_held,
+                test_line=test_line,
             )
         )
     return EngineNumbersOut(
@@ -738,13 +744,17 @@ class RecordedEngineNumberOut(BaseModel):
         "`engine_number_answered_by_other_client` when another client's agent answers it, "
         "`number_taken` when it is already recorded, and `number_price_not_attested` for a "
         "rented number while no monthly price is attested. A rented number's first month is "
-        "collected now and it renews monthly from today."
+        "collected now and it renews monthly from today. A number Calevate's own test calls "
+        "ring from (the shared free-trial number, the forwarding test's second number) is "
+        "taken off that use first, so free trials place no test call until another is set; "
+        "refused with `trial_call_on_number` while a test call is on it."
     ),
 )
 async def record_tenant_engine_number(
     tenant_id: UUID,
     payload: RecordEngineNumberIn,
     request: Request,
+    tasks: BackgroundTasks,
     principal: NumberOperator,
     step_up: StepUpGate,
     x_confirm_action: Annotated[str | None, Header()] = None,
@@ -755,6 +765,18 @@ async def record_tenant_engine_number(
     async with tenant_session(tenant_id) as scoped:
         if not await service.tenant_exists(scoped, tenant_id):
             raise ProblemError.not_found("Client")
+    released = False
+    if engine_numbers.is_platform_line(payload.e164):
+        # ANY NUMBER MAY BE GIVEN TO A CLIENT, the one Calevate's test calls ring from too
+        # (founder, 3 Nov 2026). Giving it takes it off that use first, committed before
+        # the record, so it is never both a client's line and a test line: free trials
+        # place no test call until another number is set.
+        await _release_platform_line(request, principal, payload.e164)
+        tasks.add_task(propagate)
+        released = True
+    async with tenant_session(tenant_id) as scoped:
+        if not await service.tenant_exists(scoped, tenant_id):
+            raise ProblemError.not_found("Client")
         recorded = await engine_numbers.record_engine_number(
             scoped,
             tenant_id=tenant_id,
@@ -762,6 +784,7 @@ async def record_tenant_engine_number(
             direction=payload.direction,
             agent_id=payload.agent_id,
             purpose=payload.purpose,
+            platform_line_released=released,
         )
         await write_audit(
             scoped,
@@ -787,6 +810,65 @@ async def record_tenant_engine_number(
         platform_held=recorded.platform_held,
         first_period=recorded.first_period,
     )
+
+
+#: The console settings that name a number Calevate's own test calls ring from.
+_PLATFORM_LINE_KEYS: Final = ("trial_caller_number", "forwarding_test_second_number")
+
+
+async def calls_on_platform_lines(session: AsyncSession) -> int:
+    """Test calls ringing from a platform line now, under the trial line's own lock."""
+    from apps.api.agents.service import TRIAL_LINE_LOCK_KEY
+    from apps.api.compliance.trial_access import trial_line_horizon
+    from apps.api.forwarding.testing import forwarding_legs_in_use
+
+    await session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": TRIAL_LINE_LOCK_KEY})
+    trials = (
+        await session.execute(
+            text("SELECT trial_lines_in_use(make_interval(secs => :horizon))"),
+            {"horizon": trial_line_horizon().total_seconds()},
+        )
+    ).scalar_one()
+    return int(trials) + await forwarding_legs_in_use(session)
+
+
+async def _release_platform_line(request: Request, principal: Principal, e164: str) -> None:
+    """Take `e164` off every test use, in its own committed transaction, audited as the
+    console's own setting change. Refused while a test call is on it: re-pointing a line
+    under a live call is undocumented (`agents.service._hold_trial_line`)."""
+    if principal.user_id is None:
+        raise ProblemError.forbidden("A number can be given only by a named operator.")
+    async with untenanted_session() as glob:
+        in_use = await calls_on_platform_lines(glob)
+        if in_use:
+            raise ProblemError.conflict(
+                "trial_call_on_number",
+                "A free-trial test call is on this number right now.",
+                remediation="Try again in a few minutes, once it ends.",
+            )
+        settings = get_settings()
+        for key in _PLATFORM_LINE_KEYS:
+            named = getattr(settings, key)
+            if not named or digits(named) != digits(e164):
+                continue
+            result = await set_value(
+                glob,
+                key=key,
+                value=None,
+                note="Given to a client",
+                actor_id=principal.user_id,
+                expected_revision=await current_revision(glob, key),
+            )
+            if result.recorded:
+                await write_audit(
+                    glob,
+                    action="platform.config_set",
+                    actor=principal,
+                    object_type="platform_settings",
+                    object_id=key,
+                    ip=client_request_ip(request),
+                    summary={"config_key": key, "reason": "Given to a client"},
+                )
 
 
 class BusinessDetailsOut(BaseModel):

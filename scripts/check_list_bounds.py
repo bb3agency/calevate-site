@@ -983,6 +983,12 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
         "`unplaced`, lines of one hand-written script (`raw_override`, at most 20,000 "
         "characters; only lines of three words or more are listed)."
     ),
+    "POST /v1/agents/{agent_id}/script/fix-lines": BoundedByConstruction(
+        by="the same one suggestion as `GET .../script/proposal`, queued rather than read."
+    ),
+    "POST /v1/agents/{agent_id}/script/proposal/starter": BoundedByConstruction(
+        by="the same one suggestion as `GET .../script/proposal`, queued rather than read."
+    ),
     "POST /v1/agents/{agent_id}/script/opening-line/after-introduction": BoundedByConstruction(
         by="the same one suggestion as `GET .../script/proposal`, queued rather than read."
     ),

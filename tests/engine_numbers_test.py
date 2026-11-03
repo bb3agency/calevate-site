@@ -19,6 +19,7 @@ from typing import Any
 
 import httpx
 import pytest
+from apps.api.admin import number_routes
 from apps.api.campaigns import engine_numbers, number_catalog
 from apps.api.campaigns.number_pricing import record_attested_price_inr
 from apps.api.core.settings import get_settings
@@ -334,14 +335,35 @@ async def test_a_calevate_number_is_offered_only_while_no_client_and_no_test_cal
     assert (await _record(neighbour, {"e164": f"+{given}"}, headers)).status_code == 201
 
     page = await _get(f"/v1/admin/numbers/tenants/{tenant_id}/engine", headers)
-    listed = {n["e164"] for n in page.json()["numbers"]}
-    assert f"+{free}" in listed
-    assert not listed & {f"+{trial}", f"+{forwarding}", f"+{given}"}
+    listed = {n["e164"]: n for n in page.json()["numbers"]}
+    assert f"+{given}" not in listed
     assert page.json()["other_numbers"] >= 1
+    assert listed[f"+{free}"]["test_line"] is False
+    # Any number may be given, a test line too (founder, 3 Nov 2026): it is offered, marked.
+    assert listed[f"+{trial}"]["test_line"] is True
+    assert listed[f"+{forwarding}"]["test_line"] is True
 
-    for line in (trial, forwarding):
-        refused = await _record(tenant_id, {"e164": f"+{line}"}, headers)
-        assert (refused.status_code, _code(refused)) == (409, "engine_number_is_platform_line")
+    async def busy(_session: Any) -> int:
+        return 1
+
+    async def idle(_session: Any) -> int:
+        return 0
+
+    monkeypatch.setattr(number_routes, "calls_on_platform_lines", busy)
+    refused = await _record(tenant_id, {"e164": f"+{trial}"}, headers)
+    assert (refused.status_code, _code(refused)) == (409, "trial_call_on_number")
+
+    monkeypatch.setattr(number_routes, "calls_on_platform_lines", idle)
+    given_trial = await _record(tenant_id, {"e164": f"+{trial}"}, headers)
+    assert given_trial.status_code == 201, given_trial.text
+    # Taken off test use first: free trials place no test call until another is set.
+    async with untenanted_session() as session:
+        stored = (
+            await session.execute(
+                text("SELECT value FROM platform_settings WHERE key = 'trial_caller_number'")
+            )
+        ).scalar_one()
+    assert stored is None
 
 
 async def test_the_record_route_refuses_off_the_engine(monkeypatch: pytest.MonkeyPatch) -> None:
