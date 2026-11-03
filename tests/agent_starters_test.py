@@ -23,7 +23,7 @@ import uuid
 from typing import Any
 
 import pytest
-from apps.api.agents import starters
+from apps.api.agents import script_proposals, starters
 from apps.api.agents.routes import router as agents_router
 from apps.api.compliance.disclosure import (
     AI_DISCLOSURE_TEMPLATES,
@@ -350,7 +350,6 @@ async def test_the_preview_is_the_callers_own_business_type() -> None:
     assert [s["job"] for s in body["starters"]] == ["answer_calls", "call_new_leads", "call_leads"]
     receptionist = body["starters"][0]
     assert receptionist["direction"] == "inbound"
-    assert "Skyline Homes" in receptionist["opening_line"]
     assert receptionist["step_titles"][3] == "Offer a site visit"
     assert receptionist["captured_details"] == [
         *(f.label for f in CORE_LEAD_FIELDS),
@@ -401,5 +400,31 @@ async def test_a_neighbour_sees_none_of_the_starter_rows() -> None:
     code, preview = await _starters(token_b)
     assert code == 200, preview
     assert preview["vertical"] == "custom"
-    assert all("Alpha Care" not in s["opening_line"] for s in preview["starters"])
-    assert all("Beta Traders" in s["opening_line"] for s in preview["starters"])
+
+
+@pytest.mark.rls
+async def test_an_opening_typed_at_creation_is_the_agents_own_and_none_is_written() -> None:
+    tenant_id, token = await _tenant("custom", "Rytu Khata")
+    line = "Hello, this is Rytu Khata calling about your farm records. Is now a good time?"
+    code, body = await _create(
+        token, {"name": "Leads", "starter": "call_leads", "opening_line": f"  {line}  "}
+    )
+    assert code == 201, body
+    agent_id = uuid.UUID(body["id"])
+    row = await _agent_rows(tenant_id, agent_id)
+    assert row is not None
+    assert CallScript.model_validate(row[5]).opening_line == line
+    async with tenant_session(tenant_id) as session:
+        asked = await script_proposals.read_proposal(session, agent_id)
+    assert asked is None, "an opening was queued for writing over the owner's own"
+
+    code, blank = await _create(
+        token, {"name": "Leads 2", "starter": "call_leads", "opening_line": " "}
+    )
+    assert code == 201, blank
+    async with tenant_session(tenant_id) as session:
+        queued = await script_proposals.read_proposal(session, uuid.UUID(blank["id"]))
+    assert queued is not None, "a blank opening must still be written for the business"
+
+    code, refused = await _create(token, {"name": "Bare", "opening_line": line})
+    assert code == 422, refused

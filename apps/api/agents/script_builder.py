@@ -761,6 +761,7 @@ async def replace_opening_line(
     opening_line: str,
     created_by: UUID | None,
     placed: bool = False,
+    notes: str | None = None,
 ) -> ReplacedOpening:
     """Put a new opening line into the script callers hear and keep the rest of it (D-846).
 
@@ -835,7 +836,8 @@ async def replace_opening_line(
         tenant_id=tenant_id,
         agent_id=agent_id,
         script=script.model_copy(update={field: line}),
-        notes="Opening line for calls it places changed" if placed else "Opening line shortened",
+        notes=notes
+        or ("Opening line for calls it places changed" if placed else "Opening line shortened"),
         created_by=created_by,
     )
     draft = await read_draft(session, agent_id)

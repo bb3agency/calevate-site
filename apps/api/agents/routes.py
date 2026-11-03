@@ -57,7 +57,8 @@ from pydantic.config import JsonDict
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents import lifecycle, roster, script_proposals, starters
+from apps.api.agents import lifecycle, roster, script_builder, script_proposals, starters
+from apps.api.agents.call_rules import OPENING_LINE_MAX_CHARS
 
 # The languages the product sells, imported rather than respelled. `OfferedLanguage` and
 # not the bare `Literal`: same OpenAPI enum, and a refusal written for the person holding
@@ -168,8 +169,6 @@ class StarterPreviewOut(BaseModel):
     direction: AgentDirection
     #: A name to prefill; the owner may change it. `POST /v1/agents` still takes `name`.
     name_suggestion: str
-    #: The first thing the agent says, with this account's business name filled in.
-    opening_line: str
     #: The script's steps, as short titles in call order.
     step_titles: list[str]
     #: The labels of the details the agent captures into each lead.
@@ -192,8 +191,9 @@ class StartersOut(BaseModel):
     summary="Preview the ready-made agents for this account's business type",
     description=(
         "What `POST /v1/agents` with `starter` would create, for YOUR account's business "
-        "type: the suggested name, the opening line, the script's step titles and the "
-        "details the agent captures. `job` narrows it to one job; omitted, every job is "
+        "type: the suggested name, the script's step titles and the details the agent "
+        "captures. There is no opening line here: it is written for the business after the "
+        "agent is created (D-965). `job` narrows it to one job; omitted, every job is "
         'returned ("Answer my calls" first). Every job is open on a free trial: a test call '
         "rings the owner from any ready agent (D-853, D-855). Nothing is created by this read."
     ),
@@ -201,9 +201,6 @@ class StartersOut(BaseModel):
 async def list_starters(
     session: Session,
     job: StarterJob | None = Query(None),
-    # The language the new agent will speak, so the preview's greeting is the one it will be
-    # created with; omitted, English.
-    language: OfferedLanguage | None = Query(None),
     principal: Principal = Depends(requires("agents:read")),
 ) -> StartersOut:
     """Read-only, and only ever for the caller's own account: the business type comes from
@@ -232,7 +229,6 @@ async def list_starters(
                 job=each.job,
                 direction=starters.JOB_DIRECTION[each.job],
                 name_suggestion=each.name_suggestion,
-                opening_line=each.opening_for(str(org[0]), language or starters.PREVIEW_LANGUAGE),
                 step_titles=[step.title for step in each.steps],
                 captured_details=labels,
             )
@@ -490,6 +486,9 @@ class AgentCreateIn(BaseModel):
     )
     #: The cost-runaway guard. `null` means the platform default (600s), never unlimited.
     max_call_duration_s: int | None = Field(default=None, ge=CALL_CAP_MIN_S, le=CALL_CAP_MAX_S)
+    #: The owner's own first words, with `starter` only. Omitted or blank: one is written for
+    #: this business after creation (D-965), never a line kept for every business.
+    opening_line: str | None = Field(default=None, max_length=OPENING_LINE_MAX_CHARS)
 
     @model_validator(mode="after")
     def _name_is_not_blank(self) -> AgentCreateIn:
@@ -503,6 +502,10 @@ class AgentCreateIn(BaseModel):
             self.language_primary if "language_primary" in self.model_fields_set else None
         )
         _check_reply_languages(self.reply_languages, sent_primary)
+        if self.opening_line is not None:
+            self.opening_line = self.opening_line.strip() or None
+        if self.opening_line is not None and self.starter is None:
+            raise ValueError("opening_line needs a starter: an agent with no script has none")
         return self
 
     @property
@@ -689,7 +692,17 @@ async def create_agent_route(
         starter=payload.starter,
         created_by=principal.user_id,
     )
-    if payload.starter is not None:
+    if payload.opening_line is not None:
+        # The owner's own words, under the same checks as changing the line on the Script page.
+        await script_builder.replace_opening_line(
+            session,
+            tenant_id=principal.tenant_id,
+            agent_id=agent_id,
+            opening_line=payload.opening_line,
+            created_by=principal.user_id,
+            notes="Opening line written at creation",
+        )
+    elif payload.starter is not None:
         # The starter leaves the openings empty; they are written for this business by the
         # proposal job and reviewed on the Script page (D-965).
         await script_proposals.request_written_opening(

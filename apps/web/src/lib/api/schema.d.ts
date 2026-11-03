@@ -2438,7 +2438,7 @@ export interface paths {
         post: operations["close_v1_admin_tenants__tenant_id__closure_post"];
         /**
          * Undo a closure — reopen the account and cancel the scheduled erasure
-         * @description Reverses a close while nothing has been deleted: the account goes back to `active`, the scheduled erasure is cancelled, and the client is emailed to say so. Refused with 409 `tenant_already_erased` once the erasure has RUN — that is the only refusal, and it is a fact about the data rather than a clock, so a deadline that has passed while the sweep was behind is still reversible. Reopening an account that is not closed returns its current state unchanged.
+         * @description Reverses a close while nothing has been deleted: the account goes back to `active`, or to `suspended` if it was suspended when it was closed (reactivate it separately), the scheduled erasure is cancelled, and the client is emailed to say so. Refused with 409 `tenant_already_erased` once the erasure has RUN — that is the only refusal, and it is a fact about the data rather than a clock, so a deadline that has passed while the sweep was behind is still reversible. Reopening an account that is not closed returns its current state unchanged.
          */
         delete: operations["restore_v1_admin_tenants__tenant_id__closure_delete"];
         options?: never;
@@ -3210,7 +3210,7 @@ export interface paths {
         put?: never;
         /**
          * Make a client's account paid without a payment (super admin)
-         * @description Moves the account from the free trial to a paid account from any state: a running trial is converted, an ended one keeps its data, an account with none simply becomes paid. Unlocks what a first payment unlocks; recorded as complimentary, never as a payment. Optionally adds credit in the same step. Requires `X-Confirm-Action: convert_to_paid:<tenant_id>:<grant amount to two decimals, or 0.00>`. The client is told and every super admin is emailed. 409 when the account is already paid.
+         * @description Moves the account from the free trial to a paid account from any state: a running trial is converted, an ended one keeps its data, an account with none simply becomes paid. Unlocks what a first payment unlocks; recorded as complimentary, never as a payment. Optionally adds credit in the same step. Requires `X-Confirm-Action: convert_to_paid:<tenant_id>:<grant amount to two decimals, or 0.00>`. The client is told and every super admin is emailed. 409 when the account is already paid or is closed (undo the closure first).
          */
         post: operations["make_paid_v1_admin_tenants__tenant_id__paid_post"];
         delete?: never;
@@ -3617,7 +3617,7 @@ export interface paths {
         };
         /**
          * Preview the ready-made agents for this account's business type
-         * @description What `POST /v1/agents` with `starter` would create, for YOUR account's business type: the suggested name, the opening line, the script's step titles and the details the agent captures. `job` narrows it to one job; omitted, every job is returned ("Answer my calls" first). Every job is open on a free trial: a test call rings the owner from any ready agent (D-853, D-855). Nothing is created by this read.
+         * @description What `POST /v1/agents` with `starter` would create, for YOUR account's business type: the suggested name, the script's step titles and the details the agent captures. There is no opening line here: it is written for the business after the agent is created (D-965). `job` narrows it to one job; omitted, every job is returned ("Answer my calls" first). Every job is open on a free trial: a test call rings the owner from any ready agent (D-853, D-855). Nothing is created by this read.
          */
         get: operations["list_starters_v1_agents_starters_get"];
         put?: never;
@@ -14854,6 +14854,8 @@ export interface components {
             max_call_duration_s?: number | null;
             /** Name */
             name: string;
+            /** Opening Line */
+            opening_line?: string | null;
             /** Reply Languages */
             reply_languages?: ("te-IN" | "hi-IN" | "en-IN" | "ta-IN" | "kn-IN" | "ml-IN" | "mr-IN")[] | null;
             /** Starter */
@@ -32362,8 +32364,6 @@ export interface components {
             job: "answer_calls" | "call_new_leads" | "call_leads";
             /** Name Suggestion */
             name_suggestion: string;
-            /** Opening Line */
-            opening_line: string;
             /** Step Titles */
             step_titles: string[];
         };
@@ -43778,7 +43778,6 @@ export interface operations {
         parameters: {
             query?: {
                 job?: ("answer_calls" | "call_new_leads" | "call_leads") | null;
-                language?: ("te-IN" | "hi-IN" | "en-IN" | "ta-IN" | "kn-IN" | "ml-IN" | "mr-IN") | null;
             };
             header?: never;
             path?: never;

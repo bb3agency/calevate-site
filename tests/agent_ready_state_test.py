@@ -37,7 +37,6 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.teach import pinned as pinned_store
 from apps.api.tenancy import business_profile as bp
 from calevate_shared.call_script import CallScript
-from calevate_shared.spoken_style import opening_in
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
@@ -141,30 +140,6 @@ async def test_a_trial_answer_only_agent_can_be_readied_but_not_switched_on() ->
     code, body = await _post(token, f"/v1/agents/{agent_id}/activate")
     assert (code, _code(body)) == (422, "trial_inbound_unavailable"), body
     assert (await _agent(tenant_id, agent_id)).status == "paused"
-
-
-async def test_the_starter_preview_greets_in_the_language_asked_for() -> None:
-    _, _, token = await _tenant()
-    async with AsyncClient(transport=ASGITransport(app=_app()), base_url="http://api") as http:
-        english = (
-            await http.get("/v1/agents/starters", headers={"Authorization": f"Bearer {token}"})
-        ).json()
-        telugu = (
-            await http.get(
-                "/v1/agents/starters?language=te-IN",
-                headers={"Authorization": f"Bearer {token}"},
-            )
-        ).json()
-        refused = await http.get(
-            "/v1/agents/starters?language=xx-YY", headers={"Authorization": f"Bearer {token}"}
-        )
-    expected = opening_in("te-IN", "inbound")
-    assert expected is not None
-    assert english["starters"][0]["opening_line"].startswith("Hello")
-    assert telugu["starters"][0]["opening_line"] == expected.replace(
-        "{business}", "Lifecycle Clinic"
-    )
-    assert refused.status_code == 422
 
 
 # --- 2. a language change ---------------------------------------------------------------

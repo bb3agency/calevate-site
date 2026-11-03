@@ -10,8 +10,8 @@ import { problem, renderClientPage } from "./harness";
  * NEW AGENT: PICK A JOB, GET A READY AGENT (founder, REDESIGN-2).
  *
  * The page opens on two jobs; choosing one reads back what the server would make
- * (`GET /v1/agents/starters?language=…`, keyed on the language picker); "Create agent" sends `starter` with the name the owner
- * kept or typed, and lands on the new agent's Script section to review it.
+ * (`GET /v1/agents/starters`); "Create agent" sends `starter` with the name the owner kept or
+ * typed, and the opening line only when the owner typed one, then lands on the Script section.
  */
 
 const nav = vi.hoisted(() => ({ pushed: [] as string[] }));
@@ -35,7 +35,6 @@ const ANSWER = {
   job: "answer_calls",
   direction: "inbound",
   name_suggestion: "Front desk",
-  opening_line: "Hello, you have reached Lakeview Properties. How can I help you today?",
   step_titles: [
     "Greet the caller",
     "Find out what they need",
@@ -53,13 +52,12 @@ const LEADS = {
   job: "call_leads",
   direction: "outbound",
   name_suggestion: "Follow-up caller",
-  opening_line: "Hello, this is Lakeview Properties calling.",
 };
 
 function routes(over: Record<string, unknown> = {}) {
   return {
     "/v1/me": OWNER_ME,
-    "/v1/agents/starters?language=te-IN": { vertical: "real_estate", starters: [ANSWER, LEADS] },
+    "/v1/agents/starters": { vertical: "real_estate", starters: [ANSWER, LEADS] },
     ...over,
   };
 }
@@ -74,29 +72,12 @@ describe("new agent from a job", () => {
     expect(calls.some((c) => c.path.includes("/starters"))).toBe(false);
   });
 
-  it("previews the greeting in the language picked, the one the agent is created with", async () => {
-    const hindi = "नमस्ते जी, Lakeview Properties में call करने के लिए thank you.";
-    const { calls } = await renderClientPage(
-      page,
-      routes({
-        "/v1/agents/starters?language=hi-IN": {
-          vertical: "real_estate",
-          starters: [{ ...ANSWER, opening_line: hindi }, LEADS],
-        },
-      }),
-    );
-    fireEvent.click(await screen.findByRole("button", { name: /Answer my calls/ }));
-    await screen.findByText(ANSWER.opening_line);
-    fireEvent.change(screen.getByLabelText("Language"), { target: { value: "hi-IN" } });
-    expect(await screen.findByText(hindi)).toBeTruthy();
-    expect(calls.some((c) => c.path === "/v1/agents/starters?language=hi-IN")).toBe(true);
-  });
-
-  it("previews the server's ready agent: its opening line, its steps in order and what it writes down", async () => {
+  it("previews the server's ready agent: its steps in order and what it writes down, and no ready-made opening", async () => {
     await renderClientPage(page, routes());
     fireEvent.click(await screen.findByRole("button", { name: /Answer my calls/ }));
 
-    expect(await screen.findByText(ANSWER.opening_line)).toBeTruthy();
+    const opening = (await screen.findByLabelText(/How it opens a call/)) as HTMLTextAreaElement;
+    expect(opening.value).toBe("");
     const steps = screen.getByRole("heading", { name: "What it does on a call" }).nextElementSibling!;
     expect(Array.from(steps.querySelectorAll("li")).map((li) => li.textContent)).toEqual(ANSWER.step_titles);
     for (const detail of ANSWER.captured_details) expect(screen.getByText(detail)).toBeTruthy();
@@ -123,6 +104,24 @@ describe("new agent from a job", () => {
     });
     // The job sets the direction on the server; the client sends none.
     expect(body).not.toHaveProperty("direction");
+    // Left empty, the opening is written for the business after creation (D-965).
+    expect(body).not.toHaveProperty("opening_line");
+  });
+
+  it("sends the opening the owner typed, trimmed", async () => {
+    const { calls } = await renderClientPage(
+      page,
+      routes({ "POST /v1/agents": { id: "agent-9", name: "Front desk" } }),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: /Answer my calls/ }));
+    fireEvent.change(await screen.findByLabelText(/How it opens a call/), {
+      target: { value: "  Hello, Lakeview Properties here. Looking to buy or rent?  " },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create agent" }));
+
+    await waitFor(() => expect(calls.some((c) => c.method === "POST")).toBe(true));
+    const body = JSON.parse(calls.find((c) => c.method === "POST")?.body ?? "{}");
+    expect(body.opening_line).toBe("Hello, Lakeview Properties here. Looking to buy or rent?");
   });
 
   it("refuses an empty name in place and sends nothing", async () => {

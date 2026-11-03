@@ -35,12 +35,16 @@ import { NEW_AGENT } from "../../setup/_ui/copy";
 /**
  * PICK A JOB, SEE THE READY AGENT, CREATE IT (founder, REDESIGN-2).
  *
- * Two choices, then a read-back of what the server would make for this business: its
- * opening line, the steps of its script and the details it writes down
- * (`GET /v1/agents/starters`). Creating sends `starter`, and the agent is born a draft with
- * that script saved, so the owner lands on the Script section to review it before
- * publishing. Nothing here is generated in the browser; the preview is the server's.
+ * Two choices, then a read-back of what the server would make for this business: the steps
+ * of its script and the details it writes down (`GET /v1/agents/starters`). The opening line
+ * is the owner's to type here; left empty, it is written for this business after creation
+ * (D-965) rather than shown as a line kept for every business. Creating sends `starter`, and
+ * the agent is born a draft with that script saved, so the owner lands on the Script section
+ * to review it before publishing.
  */
+
+/** `AgentCreateIn.opening_line`'s limit (`call_rules.OPENING_LINE_MAX_CHARS`). */
+const OPENING_MAX_CHARS = 120;
 
 export const JOBS: { job: StarterJob; title: string; line: string; icon: typeof PhoneIncoming }[] = [
   {
@@ -111,8 +115,8 @@ function StarterPreviewStep({
   const { href } = useClientRealm();
   const router = useRouter();
   const [language, setLanguage] = useState<AgentLanguage>(DEFAULT_LANGUAGE);
-  /* Keyed on the picker, so the greeting shown is the one the agent is created with. */
-  const starter = useStarters(session, language);
+  const [opening, setOpening] = useState("");
+  const starter = useStarters(session);
   const create = useCreateAgent(session);
   const createFeedback = useActionFeedback(create, { errorDisplay: "inline" });
   /* `org:manage` is what POST /v1/agents requires (the owner's permission). */
@@ -144,13 +148,23 @@ function StarterPreviewStep({
             value: language,
             options: LANGUAGE_CHOICES.map(({ value, label }) => ({ value, label })),
           },
+          {
+            id: "new-agent-opening",
+            label: "How it opens a call (optional; empty means written for the business)",
+            type: "text",
+            value: opening,
+          },
         ]
       : [],
     facts: [
       { key: "job", label: "The job chosen", value: job.title },
       ...(preview
         ? [
-            { key: "opening_line", label: "How it opens a call", value: preview.opening_line },
+            {
+              key: "opening_line",
+              label: "How it opens a call",
+              value: opening.trim() || "written for this business after it is created",
+            },
             { key: "steps", label: "The steps of its script", value: preview.step_titles.join("; ") },
             { key: "captured", label: "What it writes down", value: preview.captured_details.join(", ") },
           ]
@@ -161,9 +175,10 @@ function StarterPreviewStep({
         const text = asText(item.value);
         if (item.field_id === "new-agent-name") setName(text);
         else if (item.field_id === "new-agent-language" && hasKey(LANGUAGE_NAMES, text)) setLanguage(text);
+        else if (item.field_id === "new-agent-opening") setOpening(text.slice(0, OPENING_MAX_CHARS));
       }
     },
-    unsaved: typedName !== null || language !== DEFAULT_LANGUAGE,
+    unsaved: typedName !== null || language !== DEFAULT_LANGUAGE || opening !== "",
   });
 
   const submit = () => {
@@ -176,6 +191,7 @@ function StarterPreviewStep({
         // The job decides the direction on the server, so none is sent.
         starter: job.job,
         language_primary: language,
+        ...(opening.trim() ? { opening_line: opening.trim() } : {}),
       },
       {
         onSuccess: (agent) => router.push(href(`/c/${slug}/agents/${agent.id}?section=script&from=starter`)),
@@ -218,15 +234,6 @@ function StarterPreviewStep({
             submit();
           }}
         >
-          <section aria-labelledby="starter-opening" className="space-y-2">
-            <h3 id="starter-opening" className="text-heading text-ink">
-              How it opens a call
-            </h3>
-            <blockquote className="border-l-2 border-line pl-4 text-body text-ink">
-              {preview.opening_line}
-            </blockquote>
-          </section>
-
           <section aria-labelledby="starter-steps" className="space-y-2">
             <h3 id="starter-steps" className="text-heading text-ink">
               What it does on a call
@@ -288,6 +295,23 @@ function StarterPreviewStep({
                 ))}
               </select>
             </label>
+            <Field
+              id="new-agent-opening"
+              className="max-w-xl"
+              label="How it opens a call (optional)"
+              hint="Leave empty and we write one for your business."
+            >
+              {(control) => (
+                <textarea
+                  {...control}
+                  rows={2}
+                  value={opening}
+                  maxLength={OPENING_MAX_CHARS}
+                  onChange={(event) => setOpening(event.target.value)}
+                  className={FIELD}
+                />
+              )}
+            </Field>
           </div>
 
           {create.error ? <ProblemNotice error={create.error} /> : null}

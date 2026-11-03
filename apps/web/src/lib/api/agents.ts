@@ -29,7 +29,6 @@
  */
 
 import {
-  keepPreviousData,
   useMutation,
   useQuery,
   useQueryClient,
@@ -74,7 +73,7 @@ export const agentKeys = {
   archived: (org: string) => ["agents-archived", org] as const,
   stats: (org: string) => ["agent-stats", org] as const,
   /** What a ready-made agent for one job would be, for this account's business type. */
-  starters: (org: string, language: AgentLanguage) => ["agent-starters", org, language] as const,
+  starters: (org: string) => ["agent-starters", org] as const,
   /** Whether the agent can be tried yet, and its test runs (`GET .../script/tests`). */
   tests: (org: string, agentId: string) => ["script-tests", org, agentId] as const,
   one: (org: string, agentId: string) => ["agent", org, agentId] as const,
@@ -396,18 +395,15 @@ export type StarterPreview = components["schemas"]["StarterPreviewOut"];
 export type StartersOut = components["schemas"]["StartersOut"];
 
 /**
- * THE READY-MADE AGENTS, BEFORE THEY EXIST: for each job, its suggested name, the opening
- * line in `language` (the one the agent will be created speaking), the script's step titles,
- * the details it captures, and why the job is locked on this account if it is.
+ * THE READY-MADE AGENTS, BEFORE THEY EXIST: for each job, its suggested name, the script's
+ * step titles and the details it captures. No opening line: that is the owner's to type at
+ * creation, or written for the business after it (D-965).
  * `GET /v1/agents/starters` creates nothing; `useCreateAgent` with `starter` does.
  */
-export function useStarters(session: Session, language: AgentLanguage): UseQueryResult<StartersOut> {
+export function useStarters(session: Session): UseQueryResult<StartersOut> {
   return useQuery({
-    queryKey: agentKeys.starters(session.orgSlug, language),
-    queryFn: () =>
-      apiRequest<StartersOut>(session, `/v1/agents/starters?language=${encodeURIComponent(language)}`),
-    // A language change keeps the last preview on screen until its own greeting arrives.
-    placeholderData: keepPreviousData,
+    queryKey: agentKeys.starters(session.orgSlug),
+    queryFn: () => apiRequest<StartersOut>(session, "/v1/agents/starters"),
     staleTime: AGENT_STALE_MS,
   });
 }
