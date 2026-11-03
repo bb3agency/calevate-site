@@ -9,6 +9,7 @@ import { NumberField } from "@/components/arc/number-field";
 import { StatsBand } from "@/components/arc/stats-band";
 import { UsageMeter } from "@/components/arc/usage-meter";
 import { Section } from "@/components/console/section";
+import { StatusPill } from "@/components/console/statusPill";
 import {
   Disclosure,
   FIELD,
@@ -25,7 +26,7 @@ import {
   hasNonZeroDigit,
 } from "@/components/ui";
 import { isPrepaid } from "@/lib/api/billing";
-import { useCaps, useSetCaps } from "@/lib/api/caps";
+import { useCaps, useSetCaps, type Caps } from "@/lib/api/caps";
 import { useClientRealm } from "@/lib/api/session";
 import { useUsage, useWriteAccess } from "@/lib/api/hooks";
 import { formatBillingMonth } from "@/lib/billingMonth";
@@ -199,6 +200,7 @@ export function UsageTab({
                   usedText={`${formatDecimal(data.minutes_used)} min`}
                   limitText={`${formatCount(data.included_minutes)} min`}
                   overTone="warn"
+                  stateWords={{ near: "Nearly used", over: "Extra minutes" }}
                   hint={
                     hasNonZeroDigit(data.overage_minutes)
                       ? `Minutes past your plan are charged at ${formatINR(data.overage_rate_inr)} each.`
@@ -214,6 +216,7 @@ export function UsageTab({
                   usedText={`${formatDecimal(data.minutes_used)} min`}
                   limitText={`${formatCount(data.cap_minutes)} min`}
                   overTone="danger"
+                  stateWords={{ near: "Near the cap", over: "Cap reached" }}
                   hint="Outgoing calls pause here. Incoming still work."
                 />
               ) : null}
@@ -415,6 +418,7 @@ function SpendLimit({ session }: { session: Session }) {
     <Section
       title="Your spending limit"
       description="Outgoing calls stop at it. Incoming never do."
+      action={<LimitState caps={current} />}
     >
       <dl className="divide-y divide-line border-y border-line text-body">
         <Row
@@ -435,6 +439,22 @@ function SpendLimit({ session }: { session: Session }) {
           }
         />
       </dl>
+
+      {/* The rupee half of the limit as a bar. The minutes half is the "Monthly cap" meter
+          above; a rupee cap had only a sentence. `Number()` sizes the bar only — every
+          figure read is the server's string through `formatINR`. */}
+      {current.effective_cap_spend_inr !== null && !current.trial_active && (
+        <UsageMeter
+          className="mt-5"
+          label="Spend against your limit"
+          used={Number(current.spend_used_inr)}
+          limit={Number(current.effective_cap_spend_inr)}
+          usedText={formatINR(current.spend_used_inr)}
+          limitText={formatINR(current.effective_cap_spend_inr)}
+          overTone="danger"
+          stateWords={{ near: "Near your limit", over: "Limit reached" }}
+        />
+      )}
 
       <div className="mt-6 space-y-3">
         <RestrictionNote reason={write.reason} />
@@ -506,6 +526,19 @@ function SpendLimit({ session }: { session: Session }) {
     </Section>
     </div>
   );
+}
+
+/**
+ * The limit's state as one word beside the heading. "Reached" is the server's `capped`, the
+ * flag the dial gate reads, never a comparison made here; how close the month is to the limit
+ * is the meter's job, so this word does not guess at it.
+ */
+function LimitState({ caps }: { caps: Caps }) {
+  if (caps.capped) return <StatusPill tone="stop">Limit reached</StatusPill>;
+  if (caps.effective_cap_minutes === null && caps.effective_cap_spend_inr === null) {
+    return <StatusPill>No limit</StatusPill>;
+  }
+  return <StatusPill tone="ok">Within limit</StatusPill>;
 }
 
 /** "no limit", "500 minutes", "₹5,000.00", or both — never an empty cell. */

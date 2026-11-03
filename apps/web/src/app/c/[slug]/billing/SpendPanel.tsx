@@ -95,6 +95,9 @@ export function SpendPanel({
  * see `undefined` cannot make one out of it.
  */
 function SpendBreakdown({ data, slug }: { data: Spend; slug: string }) {
+  /* The costliest agent's charge, which sizes every row's bar. `Number()` here draws a bar
+     and is never printed: each figure a person reads is the server's string. */
+  const topCharge = Math.max(0, ...data.by_agent.map((agent) => Number(agent.charged_inr) || 0));
   const basis = lookup(CHARGE_BASIS_COPY, data.charge_basis) ?? {
     label: "What each call added to this month",
     hint: "",
@@ -167,6 +170,7 @@ function SpendBreakdown({ data, slug }: { data: Spend; slug: string }) {
                     key={agent.agent_id ?? "unattributed"}
                     agent={agent}
                     slug={slug}
+                    top={topCharge}
                   />
                 ))}
               </tbody>
@@ -260,7 +264,7 @@ function Residual({ data }: { data: Spend }) {
 const ROW_LINK =
   "font-medium text-ink underline underline-offset-2 hover:text-brand-strong after:absolute after:inset-0 focus-visible:outline-none focus-visible:after:rounded-md focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-brand";
 
-function AgentRow({ agent, slug }: { agent: AgentCharge; slug: string }) {
+function AgentRow({ agent, slug, top }: { agent: AgentCharge; slug: string; top: number }) {
   const { href } = useClientRealm();
   return (
     <tr className={`relative ${CARD.row}`}>
@@ -282,8 +286,23 @@ function AgentRow({ agent, slug }: { agent: AgentCharge; slug: string }) {
       </td>
       <td data-label="Charge" className={`px-4 py-3 text-right font-semibold tabular-nums sm:px-6 ${CARD.field}`}>
         {formatINR(agent.charged_inr)}
+        <ShareBar value={Number(agent.charged_inr) || 0} top={top} />
       </td>
     </tr>
+  );
+}
+
+/**
+ * Each agent's charge as a bar against the costliest one, so the agent that spent the month is
+ * found by eye before the figures are read. Decorative: the figure beside it is the fact, so
+ * the bar is hidden from assistive tech rather than announced as a second number.
+ */
+function ShareBar({ value, top }: { value: number; top: number }) {
+  if (!(top > 0) || !(value > 0)) return null;
+  return (
+    <span aria-hidden className="mt-1.5 ml-auto block h-1 w-full max-w-24 overflow-hidden rounded-full bg-ink/[0.08]">
+      <span className="block h-full rounded-full bg-brand" style={{ width: `${Math.min(1, value / top) * 100}%` }} />
+    </span>
   );
 }
 

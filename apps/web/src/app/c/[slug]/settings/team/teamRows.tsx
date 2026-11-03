@@ -7,6 +7,7 @@ import { InfoTip } from "@/components/console/infoTip";
 import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
 import { RowMenu } from "@/components/arc/menu";
 import { TEXT_ACTION_DANGER } from "@/components/console/section";
+import { StatusPill } from "@/components/console/statusPill";
 import { FIELD_INLINE, NoticeBox, formatIST } from "@/components/ui";
 import { lookup } from "@/lib/lookup";
 import {
@@ -151,8 +152,11 @@ function NameCell({ row, ctx }: { row: TeamRow; ctx: TeamTableContext }) {
     return (
       <span className="block min-w-0">
         <span className="break-all font-mono text-ink">{row.invitation.email}</span>
-        <span className="block text-meta text-ink-muted">
-          Invited · expires {formatIST(row.invitation.expires_at)}
+        {/* "Invited" is a state the row is in until they accept, so it reads as one beside
+            a member's name would; the expiry is its detail. */}
+        <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-meta text-ink-muted">
+          <StatusPill>Invited</StatusPill>
+          <span>expires {formatIST(row.invitation.expires_at)}</span>
         </span>
       </span>
     );

@@ -5,6 +5,7 @@ import { BellRing } from "lucide-react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { TEXT_ACTION } from "@/components/console/section";
+import { StatusPill } from "@/components/console/statusPill";
 import { Disclosure, FIELD, FIELD_HINT, ProblemNotice, formatINR, hasNonZeroDigit } from "@/components/ui";
 import type { Session } from "@/lib/api/client";
 import { rupeeFault } from "@/lib/api/credits";
@@ -43,9 +44,11 @@ export function LowBalanceAlertPanel({ session, wallet }: { session: Session; wa
       title="Low-credit email"
       icon={<BellRing className="h-4 w-4" />}
       status={
-        hasNonZeroDigit(wallet.low_balance_threshold_inr)
-          ? `Below ${formatINR(wallet.low_balance_threshold_inr)}`
-          : "Off"
+        hasNonZeroDigit(wallet.low_balance_threshold_inr) ? (
+          <StatusPill tone="ok">Below {formatINR(wallet.low_balance_threshold_inr)}</StatusPill>
+        ) : (
+          <StatusPill>Off</StatusPill>
+        )
       }
       subtitle="Emails the owner when credit drops below this"
       showLabel="Change"
