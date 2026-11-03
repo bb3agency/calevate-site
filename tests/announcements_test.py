@@ -244,3 +244,15 @@ async def test_the_bell_merges_sources_and_its_read_mark_only_moves_forward() ->
         assert (
             await session.execute(text("SELECT count(*) FROM notification_reads"))
         ).scalar() == 1
+
+
+async def test_a_read_mark_without_an_offset_is_refused_not_a_crash() -> None:
+    """`2026-11-03T10:00:00` names no instant; comparing it with the server's aware clock
+    raised `TypeError`, which answered 500 to a malformed request."""
+    _tenant_id, slug, token = await _make_tenant()
+    headers = {"Authorization": f"Bearer {token}", "X-Org-Slug": slug}
+    async with _client() as http:
+        naive = await http.post(
+            "/v1/notifications/seen", headers=headers, json={"through": "2026-11-03T10:00:00"}
+        )
+    assert naive.status_code == 422, naive.text

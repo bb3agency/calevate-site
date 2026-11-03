@@ -33,6 +33,7 @@ import json
 import re
 import secrets
 import time
+import unicodedata
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -107,7 +108,7 @@ HELD_FOR_RELEASE_RULE = "held_for_release"
 # E.164-ish: our market is India, but a webhook may carry 10 digits with no prefix.
 _INDIA_PREFIX = "+91"
 # E.164 proper: a leading +, a non-zero country digit, 8-15 digits in total.
-_E164 = re.compile(r"^\+[1-9]\d{7,14}$")
+_E164 = re.compile(r"^\+[1-9][0-9]{7,14}$")
 # The field names we read a number and a name out of when a source has no mapping
 # (docs/WEBHOOKS.md §2.2). They are consumed into their own columns, so they must not
 # also be copied into the free-form `data` blob.
@@ -166,7 +167,12 @@ def normalize_phone(raw: str) -> str | None:
     # else is a malformed number, not a number we should clean up and dial.
     if text.count("+") > 1 or ("+" in text and not text.startswith("+")):
         return None
-    digits = "".join(c for c in text if c.isdigit())
+    # Any script's decimal digits, written as ASCII. A Telugu or Devanagari keyboard can
+    # emit its own digits, and `isdigit()` alone kept them as they were: `\d` matches them
+    # too, so `+91` + Telugu digits was stored as a valid number that never equals the
+    # same number typed in ASCII, and a DNC entry in one form did not suppress a lead in
+    # the other.
+    digits = "".join(str(unicodedata.decimal(c)) for c in text if c.isdecimal())
 
     if text.startswith("+"):
         # The sender named a country; we take their word for it but not their typos.

@@ -260,6 +260,15 @@ def test_a_range_ending_in_the_future_is_refused() -> None:
         service.resolve_window(days=service.MAX_RANGE_DAYS + 1, to=None)
 
 
+def test_a_range_ending_near_the_first_date_is_refused_not_an_overflow() -> None:
+    """`to=0001-01-05` used to step back past `date.min` and answer 500."""
+    with pytest.raises(ProblemError) as refused:
+        service.resolve_window(days=30, to=date(1, 1, 5))
+    assert refused.value.code == "analytics_range_too_early"
+    window = service.resolve_window(days=30, to=service.EARLIEST_RANGE_END)
+    assert window.previous().start < window.start
+
+
 async def test_the_routes_answer_for_the_session_tenant_only() -> None:
     """Hard rule 1 through the router: tenant B's calls never reach tenant A's charts."""
     _tenant_a, slug_a, token_a = await _make_tenant()

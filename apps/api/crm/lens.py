@@ -50,7 +50,12 @@ def day_start(day: date) -> datetime:
 
 
 def day_after(day: date) -> datetime:
-    """00:00 in India on the day after `day`: the exclusive end of a range ending `day`."""
+    """00:00 in India on the day after `day`: the exclusive end of a range ending `day`.
+
+    `date.max` has no day after it, and `+ timedelta` would raise a 500 on a date a
+    client can send; a range ending then has no end, so the bound is the last instant."""
+    if day == date.max:
+        return datetime.max.replace(tzinfo=IST)
     return day_start(day + timedelta(days=1))
 
 
