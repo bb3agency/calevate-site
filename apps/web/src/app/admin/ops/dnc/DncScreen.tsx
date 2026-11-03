@@ -83,6 +83,8 @@ export function DncScreen() {
   const [query, setQuery] = useState("");
   // Past the list's ceiling a miss in the filter below is no answer, so the server is asked.
   const lookup = useFindGlobally();
+  // The answer and any failure are shown in place under the search, so no toast.
+  const lookupFeedback = useActionFeedback(lookup, { errorDisplay: "inline" });
   const changeQuery = (next: string) => {
     setQuery(next);
     lookup.reset();
@@ -281,10 +283,10 @@ export function DncScreen() {
                       <button
                         type="button"
                         className={SECONDARY_BUTTON}
-                        disabled={lookup.isPending}
-                        onClick={() => lookup.mutate(query)}
+                        disabled={lookupFeedback.status === "pending"}
+                        onClick={() => lookupFeedback.run(query)}
                       >
-                        {lookup.isPending ? "Searching…" : "Search every suppression"}
+                        {lookupFeedback.status === "pending" ? "Searching…" : "Search every suppression"}
                       </button>
                     </div>
                   ) : undefined
