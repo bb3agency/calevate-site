@@ -56,8 +56,8 @@ export function PatientCallerRow({
               ))}
             </ul>
             <p className="mt-2">
-              You can change any of these afterwards in the rows below. If the caller is
-              following along on a screen, also turn on the setting for that.
+              Change any of these in the rows below. Callers following on a screen? Turn that
+              setting on too.
             </p>
           </>
         }

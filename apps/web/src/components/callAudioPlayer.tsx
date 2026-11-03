@@ -11,6 +11,7 @@ import {
   VolumeX,
 } from "lucide-react";
 
+import { TEXT_ACTION_SM } from "@/components/console/section";
 import { SECONDARY_BUTTON_SM, formatClock } from "@/components/ui";
 
 /**
@@ -245,12 +246,16 @@ export function CallAudioPlayer({
       {failed && (
         <p
           role="alert"
-          className="border-l-2 border-chart-warn bg-surface py-1 pl-3 text-xs text-ink"
+          className="flex flex-wrap items-center gap-x-2 border-l-2 border-chart-warn bg-surface py-1 pl-3 text-xs text-ink"
         >
-          <span>
-            This recording stopped playing and could not be reloaded. Reload the page to try
-            again — the audio itself is still stored.
-          </span>
+          <span>Playback stopped. The recording is still saved.</span>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className={TEXT_ACTION_SM}
+          >
+            Reload page
+          </button>
         </p>
       )}
 

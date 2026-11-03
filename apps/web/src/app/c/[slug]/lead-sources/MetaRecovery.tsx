@@ -4,6 +4,7 @@ import { RotateCcw } from "lucide-react";
 
 import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
 import { InfoTip } from "@/components/console/infoTip";
+import { StatusPill } from "@/components/console/statusPill";
 import {
   NOTICE_BAR,
   NOTICE_BASE,
@@ -58,10 +59,9 @@ export function MetaRecovery({
         <span>Fetch them now, before Meta stops resending.</span>
         <InfoTip label="recovering leads">
           <p>
-            If a lead arrived before your Page access token was in place, we kept it against
-            its Meta lead ID but could not fetch what the person typed. Meta stops resending
-            after about a day and a half. Each one goes through the same checks a live lead
-            does, including whether you may call them.
+            Leads that arrived before the Page access token was in place. Meta stops
+            resending after about a day and a half. Each gets the same checks as a live
+            lead, including whether you may call them.
           </p>
         </InfoTip>
       </p>
@@ -104,14 +104,24 @@ export function MetaRecovery({
           <p className="font-medium">
             {formatCount(result.accepted)} of {formatCount(result.candidates)} recovered.
           </p>
+          {/* Every non-accepted bucket is named, because a run that recovered 2 of 5 and
+              said only "2 recovered" is the shape that makes someone press again and
+              again. `deferred` is the one with an action attached, so it keeps a sentence. */}
+          {(result.refused > 0 || result.duplicate > 0) && (
+            <ul className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
+              {result.refused > 0 && (
+                <li>
+                  <StatusPill tone="stop">{`${formatCount(result.refused)} refused, see each row`}</StatusPill>
+                </li>
+              )}
+              {result.duplicate > 0 && (
+                <li>
+                  <StatusPill>{`${formatCount(result.duplicate)} already in`}</StatusPill>
+                </li>
+              )}
+            </ul>
+          )}
           <p className="mt-1">
-            {/* Every non-accepted bucket is named, because a run that recovered 2 of 5 and
-                said only "2 recovered" is the shape that makes someone press again and
-                again. `deferred` is the one with an action attached, so it says so. */}
-            {result.refused > 0 &&
-              `${formatCount(result.refused)} couldn't be used — see each row. `}
-            {result.duplicate > 0 &&
-              `${formatCount(result.duplicate)} had already landed. `}
             {result.deferred > 0
               ? `${formatCount(result.deferred)} could not be fetched just now. Try again soon.`
               : "Recovered leads are in Leads."}
