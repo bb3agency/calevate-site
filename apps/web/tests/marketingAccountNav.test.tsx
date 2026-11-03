@@ -1,6 +1,9 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { render, screen } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { MarketingAccountNav, MarketingAccountProvider } from "@/components/authn/marketingAccountNav";
 
@@ -55,5 +58,41 @@ describe("the marketing header's account slot", () => {
     expect(out.classList.contains("invisible")).toBe(true);
     expect(signedIn.hasAttribute("inert")).toBe(false);
     expect(signedIn.classList.contains("visible")).toBe(true);
+  });
+});
+
+describe("the signed-in account links, on the apex", () => {
+  // The apex is credentialed for `/v1/auth/` and `/v1/public/` only, so `/auth/account`
+  // served there cannot read `/v1/me`; both of its doors must point at the client console.
+  const ORIGIN = "https://app.example.test";
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it("sends 'Your account' to the client console's origin, header and menu alike", async () => {
+    vi.stubEnv("NEXT_PUBLIC_CLIENT_CONSOLE_ORIGIN", ORIGIN);
+    vi.resetModules();
+    const nav = await import("@/components/authn/marketingAccountNav");
+    stubApi({});
+    render(
+      <nav.MarketingAccountProvider>
+        <nav.MarketingAccountNav ctaHref="#how" ctaLabel="See how it works" />
+        <nav.MarketingAccountMenuItem className="" />
+      </nav.MarketingAccountProvider>,
+    );
+    await screen.findByRole("link", { name: /Go to your console/ });
+    const account = screen.getAllByRole("link", { name: "Your account" });
+    expect(account).toHaveLength(2);
+    for (const link of account) {
+      expect(link.getAttribute("href")).toBe(`${ORIGIN}/auth/account`);
+    }
+  });
+
+  it("gives the account page a back link that leaves the apex", () => {
+    const text = readFileSync(join(process.cwd(), "src/app/(auth)/auth/account/page.tsx"), "utf8");
+    expect(text).toContain("href={clientConsoleUrl(CLIENT_CONSOLE_PATH)}");
+    expect(text).not.toMatch(/href="\/c"/);
   });
 });
