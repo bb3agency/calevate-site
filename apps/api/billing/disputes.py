@@ -87,6 +87,44 @@ def _escalated(phase: str | None, *, was: str | None) -> bool:
     return phase in ESCALATION_PHASES and phase != was
 
 
+def _round_suffixes(dispute: DisputeFacts) -> list[str]:
+    """The ledger-ref suffix of every round up to this event's phase, oldest first.
+
+    A won chargeback challenged again under the same dispute id is a new ROUND: the first
+    round's hold was already given back by its release, so the escalation must be able to
+    hold (and, if lost, keep) the money again. Keyed on the dispute id alone, the escalation
+    found the first round's hold, wrote nothing, and a dispute lost at pre-arbitration left
+    the client holding credit the bank had taken back. The chargeback round keeps the bare
+    `<kind>:<dispute id>` so rows already on the ledger keep their meaning.
+    """
+    if dispute.phase not in ESCALATION_PHASES:
+        return [""]
+    reached = ESCALATION_PHASES.index(dispute.phase)
+    return ["", *(f":{phase}" for phase in ESCALATION_PHASES[: reached + 1])]
+
+
+async def _round_entries(
+    session: AsyncSession, *, tenant_id: UUID, dispute: DisputeFacts
+) -> list[tuple[str, bool, bool]]:
+    """`(suffix, held, released)` for every round up to this one, oldest first."""
+    rounds: list[tuple[str, bool, bool]] = []
+    for suffix in _round_suffixes(dispute):
+        held = await find_entry_by_ref(
+            session,
+            tenant_id=tenant_id,
+            reason="adjustment",
+            ref=f"{DISPUTE_HOLD_KIND}:{dispute.dispute_id}{suffix}",
+        )
+        released = await find_entry_by_ref(
+            session,
+            tenant_id=tenant_id,
+            reason="adjustment",
+            ref=f"{DISPUTE_RELEASE_KIND}:{dispute.dispute_id}{suffix}",
+        )
+        rounds.append((suffix, held is not None, released is not None))
+    return rounds
+
+
 @dataclass(frozen=True, slots=True)
 class DisputeFacts:
     """OUR normalized dispute, read from `payload.dispute.entity`."""
@@ -357,9 +395,12 @@ async def record_operator_decision(
 
 
 async def _hold(session: AsyncSession, *, tenant_id: UUID, dispute: DisputeFacts) -> bool:
-    ref = f"{DISPUTE_HOLD_KIND}:{dispute.dispute_id}"
-    if await find_entry_by_ref(session, tenant_id=tenant_id, reason="adjustment", ref=ref):
+    rounds = await _round_entries(session, tenant_id=tenant_id, dispute=dispute)
+    # This round already held, or an earlier round's hold was never released and still
+    # holds this money: holding again would take it twice.
+    if rounds[-1][1] or any(held and not released for _, held, released in rounds):
         return False
+    ref = f"{DISPUTE_HOLD_KIND}:{dispute.dispute_id}{rounds[-1][0]}"
     paid = await find_topup(session, tenant_id=tenant_id, ref=dispute.payment_id)
     if paid is None and await _is_fee_payment(session, payment_id=dispute.payment_id):
         # A platform-fee payment never reached the wallet (D-707), so a chargeback on it is
@@ -422,17 +463,25 @@ async def _is_fee_payment(session: AsyncSession, *, payment_id: str) -> bool:
 
 
 async def _release(session: AsyncSession, *, tenant_id: UUID, dispute: DisputeFacts) -> bool:
+    # The newest round whose hold is still taken: normally this event's own, but a won
+    # escalation whose opening event never reached us releases the round that did hold.
+    open_rounds = [
+        suffix
+        for suffix, held, released in await _round_entries(
+            session, tenant_id=tenant_id, dispute=dispute
+        )
+        if held and not released
+    ]
+    if not open_rounds:
+        return False
     hold = await find_entry_by_ref(
         session,
         tenant_id=tenant_id,
         reason="adjustment",
-        ref=f"{DISPUTE_HOLD_KIND}:{dispute.dispute_id}",
+        ref=f"{DISPUTE_HOLD_KIND}:{dispute.dispute_id}{open_rounds[-1]}",
     )
-    ref = f"{DISPUTE_RELEASE_KIND}:{dispute.dispute_id}"
-    if hold is None or await find_entry_by_ref(
-        session, tenant_id=tenant_id, reason="adjustment", ref=ref
-    ):
-        return False
+    assert hold is not None, "the round was read as held in this transaction"
+    ref = f"{DISPUTE_RELEASE_KIND}:{dispute.dispute_id}{open_rounds[-1]}"
     # What the hold actually took: its own row, less any lapsed credit the hold was met
     # from and that a compensating row already gave back.
     restated = (
