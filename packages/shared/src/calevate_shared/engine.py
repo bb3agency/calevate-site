@@ -2685,9 +2685,13 @@ CLIENT_SCRIPT_CLOSE: Final = "--- END CLIENT SCRIPT ---"
 
 #: Three or more hyphens with text after them, and text followed by three or more hyphens:
 #: the two halves of every marker the platform writes (`--- NAME ---`). A run on a line of
-#: its own (a divider) touches no text and is left alone.
-_MARKER_OPENING: Final = re.compile(r"-{3,}(?=[ \t]*\w)")
-_MARKER_CLOSING: Final = re.compile(r"(\w[ \t]*)-{3,}")
+#: its own (a divider) touches no text and is left alone. The gap is any spacing on the
+#: line, not only space and tab: a no-break, em or zero-width space between the hyphens and
+#: the word renders as our marker to a model and would otherwise pass untouched.
+_ZERO_WIDTH: Final = "".join(map(chr, (0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF)))
+_MARKER_GAP: Final = rf"(?:[^\S\r\n]|[{_ZERO_WIDTH}])*"
+_MARKER_OPENING: Final = re.compile(rf"-{{3,}}(?={_MARKER_GAP}\w)")
+_MARKER_CLOSING: Final = re.compile(rf"(\w{_MARKER_GAP})-{{3,}}")
 
 
 def neutralise_markers(text: str) -> str:

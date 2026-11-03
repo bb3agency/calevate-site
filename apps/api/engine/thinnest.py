@@ -3758,6 +3758,9 @@ class ThinnestEngine:
             try:
                 return await self._post_knowledge(ref, source.title, parts[0])
             except _KnowledgeIngestFailedError as failed:
+                # The vendor kept the document it could not index. Left on the agent it is a
+                # loose document `list_kb` reports as out of sync, and every retry adds one.
+                await self._remove_parts(ref, [failed.handle])
                 log.warning("thinnest_kb_ingest_failed", extra={"kb_handle": failed.handle})
                 raise _ingest_failed() from None
         group = uuid.uuid4().hex[:12]
