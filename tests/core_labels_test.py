@@ -194,9 +194,14 @@ async def test_a_refused_naming_may_be_asked_again(monkeypatch: pytest.MonkeyPat
         raise ProblemError.business_rule("assist_answer_unusable", "Nothing usable came back.")
 
     monkeypatch.setattr(worker, "ask_json", refused)
-    assert await worker.name_core_details({}, {"tenant_id": str(tenant_id)}) == "refused"
     async with tenant_session(tenant_id) as session:
         assert await lead_fields.maybe_name_core_details(session, tenant_id=tenant_id) is True
+    assert await worker.name_core_details({}, {"tenant_id": str(tenant_id)}) == "refused"
+    # The next change to what it sells asks again; the first message does not block it.
+    await _services(tenant_id, '[{"name": "Crop records"}, {"name": "Soil tests"}]')
+    async with tenant_session(tenant_id) as session:
+        assert await lead_fields.maybe_name_core_details(session, tenant_id=tenant_id) is True
+    assert await _queued(tenant_id) == 2
 
 
 @pytest.mark.rls

@@ -418,12 +418,16 @@ async def save_core_labels(
 
 async def maybe_name_core_details(session: AsyncSession, *, tenant_id: UUID) -> bool:
     """Queue the one AI naming of the core details once the business says what it sells,
-    whatever its type. Does nothing once it was taken or the owner named any detail."""
+    whatever its type. Does nothing once it was taken or the owner named any detail.
+
+    Deduped per list of what it sells, not per account: a naming the model refused frees
+    its claim, and the next change to that list must be able to ask again."""
     row = (
         await session.execute(
             text(
                 "SELECT o.core_labels_drafted_at IS NULL AND o.core_field_labels = '{}'::jsonb, "
-                "coalesce(jsonb_array_length(bp.services), 0) FROM organizations o "
+                "coalesce(jsonb_array_length(bp.services), 0), md5(bp.services::text) "
+                "FROM organizations o "
                 "LEFT JOIN business_profiles bp ON bp.tenant_id = o.id WHERE o.id = :tid"
             ),
             {"tid": tenant_id},
@@ -435,7 +439,7 @@ async def maybe_name_core_details(session: AsyncSession, *, tenant_id: UUID) -> 
         session,
         job=NAME_CORE_JOB,
         payload={"tenant_id": str(tenant_id)},
-        dedupe_key=f"core-labels:{tenant_id}",
+        dedupe_key=f"core-labels:{tenant_id}:{row[2]}",
     )
     return queued is not None
 

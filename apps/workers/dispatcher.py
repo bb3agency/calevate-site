@@ -82,6 +82,10 @@ STALL_WINDOW_HOURS = 24
 #: two-minute lease lapses, rather than being relabelled one message at a time.
 POISON_PAYLOAD = (SerializationError, TypeError, ValueError)
 
+#: The ctx key `settings.startup` fills with the job names this release runs, so the
+#: dispatcher hands out only what a worker of the same release will answer to.
+REGISTERED_JOBS = "registered_jobs"
+
 
 async def dispatch_outbox(ctx: dict[str, Any]) -> str:
     """Runs every few seconds. Publishes claimed rows; failures walk to the DLQ.
@@ -118,7 +122,7 @@ async def dispatch_outbox(ctx: dict[str, Any]) -> str:
     """
     published = 0
     async with untenanted_session() as session:
-        batch = await claim_outbox_batch(session)
+        batch = await claim_outbox_batch(session, jobs=ctx.get(REGISTERED_JOBS))
         for index, message in enumerate(batch):
             try:
                 job_id = await enqueue(

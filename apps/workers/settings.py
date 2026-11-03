@@ -152,6 +152,7 @@ from apps.workers.credit_expiry import expire_credit_lots, notify_credit_lapsing
 from apps.workers.dial_recall import recall_queued_dials
 from apps.workers.dispatcher import (
     ERASURE_PROBE_MINUTE,
+    REGISTERED_JOBS,
     dispatch_outbox,
     report_overdue_erasures,
     report_stalled_pipeline,
@@ -1937,6 +1938,7 @@ def install_arq_terminal_alerter(logger_name: str = "arq.worker") -> bool:
 
 async def startup(ctx: dict[str, Any]) -> None:
     observability = await _boot("workers")
+    ctx[REGISTERED_JOBS] = frozenset(getattr(fn, "__name__", "") for fn in FUNCTIONS)
     # Main worker only: one process queues the platform walk per deploy, and the bulk
     # worker starting alongside it would only ask for the same walk again.
     await apply_platform_prompt_on_start()

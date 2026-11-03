@@ -660,6 +660,76 @@ async def test_a_leased_message_is_not_handed_to_a_second_dispatcher() -> None:
     assert attempts == 2 and status == "pending"
 
 
+async def test_a_job_this_release_does_not_run_waits_for_the_one_that_does() -> None:
+    """A migration queues before the deploy swaps containers. The old dispatcher must not
+    hand the new job to the old worker, which drops it as "function not found"; and once no
+    release has come for it, it goes to the DLQ rather than waiting forever."""
+    from apps.workers.settings import FUNCTIONS
+
+    known = {fn.__name__ for fn in FUNCTIONS}
+    message_id = uuid7()
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "INSERT INTO outbox_messages (id, queue, job, payload, status, attempt_count, "
+                "created_at, updated_at) VALUES (:id, 'default', 'job_from_a_later_release', "
+                "'{}'::jsonb, 'pending', 0, now(), now())"
+            ),
+            {"id": message_id},
+        )
+
+    async with untenanted_session() as session:
+        batch = await rel.claim_outbox_batch(session, jobs=known)
+    assert message_id not in {m.id for m in batch}
+    assert await _outbox_row(message_id) == ("pending", 0, False)
+
+    async with untenanted_session() as session:
+        await session.execute(
+            text("UPDATE outbox_messages SET created_at = now() - :age WHERE id = :id"),
+            {"id": message_id, "age": rel.OUTBOX_UNKNOWN_JOB_GRACE + timedelta(minutes=1)},
+        )
+    async with untenanted_session() as session:
+        await rel.claim_outbox_batch(session, jobs=known)
+        last_error = (
+            await session.execute(
+                text("SELECT last_error FROM outbox_messages WHERE id = :id"), {"id": message_id}
+            )
+        ).scalar_one()
+    status, attempts, _ = await _outbox_row(message_id)
+    await _retire(message_id)
+    assert (status, attempts) == ("failed", 0)
+    assert last_error == "no worker runs job job_from_a_later_release"
+
+
+async def test_the_dispatcher_claims_only_what_its_release_registers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from apps.workers import dispatcher
+    from apps.workers import settings as worker_settings
+
+    async def booted(_service: str) -> str:
+        return "local"
+
+    async def nothing(*_args: Any, **_kwargs: Any) -> None:
+        return None
+
+    monkeypatch.setattr(worker_settings, "_boot", booted)
+    monkeypatch.setattr(worker_settings, "apply_platform_prompt_on_start", nothing)
+    ctx: dict[str, Any] = {}
+    await worker_settings.startup(ctx)
+    assert "name_core_details" in ctx[dispatcher.REGISTERED_JOBS]
+
+    seen: list[Any] = []
+
+    async def claim(_session: AsyncSession, *, jobs: Any = None) -> list[Any]:
+        seen.append(jobs)
+        return []
+
+    monkeypatch.setattr(dispatcher, "claim_outbox_batch", claim)
+    await dispatcher.dispatch_outbox(ctx)
+    assert seen == [ctx[dispatcher.REGISTERED_JOBS]]
+
+
 async def test_a_message_that_keeps_killing_its_worker_reaches_the_dlq() -> None:
     """The end of the walk. `mark_outbox_failed` is the only other route to the DLQ and
     it is a route only a worker that SURVIVED can take, so a durable bump on its own

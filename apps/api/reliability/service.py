@@ -20,6 +20,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Literal
@@ -77,6 +78,12 @@ CLAIM_LEASE = timedelta(minutes=10)
 # time and the job is enqueued twice with the SAME `job_id_for(job, message.id)`, which
 # ARQ dedupes. The lease is a liveness mechanism, not the exactly-once one.
 OUTBOX_CLAIM_LEASE = timedelta(minutes=2)
+
+# A message whose job this release does not run is left for the release that does: a
+# migration queues before the deploy swaps containers, and the old dispatcher handing a
+# new job to the old worker loses it to arq's "function not found". Past this age no
+# release is coming for it, so it goes to the DLQ, where it is visible and replayable.
+OUTBOX_UNKNOWN_JOB_GRACE = timedelta(minutes=30)
 
 
 def body_hash(payload: Any) -> str:
@@ -546,7 +553,7 @@ def _claim_engine(session: AsyncSession) -> AsyncEngine:
 
 
 async def claim_outbox_batch(
-    session: AsyncSession, *, limit: int = OUTBOX_BATCH
+    session: AsyncSession, *, limit: int = OUTBOX_BATCH, jobs: Collection[str] | None = None
 ) -> list[OutboxMessageRow]:
     """Oldest-first claim by conditional UPDATE, **committed on its own connection**.
 
@@ -579,16 +586,23 @@ async def claim_outbox_batch(
     transaction share `created_at` to the microsecond — so each rescan breaks the tie
     differently and the batch comes back larger than `limit`. Here that is a latency
     spike rather than corruption, but `limit` should mean what it says.
+
+    `jobs` is what the calling release runs; a message for any other job is left pending
+    (see `OUTBOX_UNKNOWN_JOB_GRACE`). `None` claims every job.
     """
+    known = None if jobs is None else sorted(jobs)
     engine = _claim_engine(session)
     async with engine.begin() as conn:
         await _dead_letter_exhausted_claims(conn)
+        if known is not None:
+            await _dead_letter_unknown_jobs(conn, known)
         rows = (
             await conn.execute(
                 text(
                     "WITH picked AS MATERIALIZED ("
                     "  SELECT id FROM outbox_messages WHERE status = 'pending' "
                     "  AND (locked_until IS NULL OR locked_until <= now()) "
+                    "  AND (CAST(:jobs AS text[]) IS NULL OR job = ANY(CAST(:jobs AS text[]))) "
                     "  ORDER BY created_at, id LIMIT :limit FOR UPDATE SKIP LOCKED"
                     ") "
                     "UPDATE outbox_messages o SET attempt_count = o.attempt_count + 1, "
@@ -596,12 +610,35 @@ async def claim_outbox_batch(
                     "WHERE o.id = picked.id "
                     "RETURNING o.id, o.job, o.payload, o.attempt_count"
                 ),
-                {"limit": limit, "lease": OUTBOX_CLAIM_LEASE},
+                {"limit": limit, "lease": OUTBOX_CLAIM_LEASE, "jobs": known},
             )
         ).all()
     return [
         OutboxMessageRow(id=r[0], job=r[1], payload=r[2] or {}, attempt_count=r[3]) for r in rows
     ]
+
+
+async def _dead_letter_unknown_jobs(conn: AsyncConnection, known: list[str]) -> None:
+    """Retire pending messages no release has claimed within the grace: a retired job, or
+    a rollback onto a release that predates it. Replayable from the DLQ like any other."""
+    retired = (
+        await conn.execute(
+            text(
+                "UPDATE outbox_messages SET status = 'failed', locked_until = NULL, "
+                "last_error = 'no worker runs job ' || job, updated_at = now() "
+                "WHERE status = 'pending' AND NOT (job = ANY(CAST(:jobs AS text[]))) "
+                "AND created_at < now() - :grace RETURNING job"
+            ),
+            {"jobs": known, "grace": OUTBOX_UNKNOWN_JOB_GRACE},
+        )
+    ).all()
+    if retired:
+        alert(
+            "OUTBOX_DISPATCH",
+            "outbox_unknown_job",
+            detail=f"{len(retired)} message(s) for job(s) no worker runs: "
+            f"{', '.join(sorted({r[0] for r in retired}))[:160]}",
+        )
 
 
 async def _dead_letter_exhausted_claims(conn: AsyncConnection) -> None:
