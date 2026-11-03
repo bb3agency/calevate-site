@@ -1535,12 +1535,15 @@ def _index_of(word: str, groups: tuple[tuple[str, ...], ...]) -> int:
 
 def _date_near(today: date, month: int, day: int) -> date | None:
     """The first `day` of `month` no more than a month before `today`: a date said on a call
-    is at most a few weeks back and otherwise ahead. None for a day that month lacks."""
+    is at most a few weeks back and otherwise ahead. None for a day that month lacks.
+
+    A year that lacks the day is skipped, not taken as the answer: 29 February is missing
+    from last year when this one is a leap year."""
     for year in (today.year - 1, today.year, today.year + 1):
         try:
             found = date(year, month, day)
         except ValueError:
-            return None
+            continue
         if found >= today - timedelta(days=31):
             return found
     return None

@@ -99,6 +99,19 @@ describe("the admin client page's account facts", () => {
     expect(wire).not.toContain("1234");
   });
 
+  it("dates each step on the India day it happened, not the UTC one", () => {
+    // 18:29:59Z is still the 9th in India; 18:30:00Z is IST midnight of the 10th.
+    const kyc: AdminKyc = {
+      ...VERIFIED_KYC,
+      verified_at: "2026-10-09T18:29:59Z",
+      pledge_accepted_at: "2026-10-09T18:30:00Z",
+    };
+    const facts = accountFacts(tenant, reads({ kyc: { data: kyc } }));
+    const byKey = Object.fromEntries(facts.map((fact) => [fact.key, fact.value]));
+    expect(byKey.kyc).toBe("verified; path: document review; verified on 2026-10-09");
+    expect(byKey.pledge).toBe("accepted on 2026-10-10");
+  });
+
   it("says what onboarding is still waiting for", () => {
     expect(lifecycleFact(tenant, reads())).toBe(
       "onboarding; still to do: business profile has no address",

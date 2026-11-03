@@ -16,7 +16,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 
-import { formatINRExact } from "@/components/ui";
+import { formatINRExact, formatISTInput } from "@/components/ui";
 import { lookup } from "@/lib/lookup";
 
 import { adminSession, viewAsSession, type TenantSummary } from "@/lib/api/admin";
@@ -44,6 +44,14 @@ export interface AccountReads {
   profile: Read<AdminBusinessProfile>;
 }
 
+/**
+ * The India calendar day an instant falls on (D-709). The API sends UTC instants, so their
+ * first ten characters are the UTC date, a day early for anything done before 05:30 IST.
+ */
+function istDay(instant: string): string {
+  return formatISTInput(instant).split("T")[0] || instant;
+}
+
 function unread(read: Read<unknown>): string {
   return read.isError ? "could not be read" : "still loading";
 }
@@ -69,7 +77,7 @@ export function kycFact(kyc: Read<AdminKyc>): string {
         : null;
   const parts = [status];
   if (path) parts.push(`path: ${path}`);
-  if (record.is_verified && record.verified_at) parts.push(`verified on ${record.verified_at.slice(0, 10)}`);
+  if (record.is_verified && record.verified_at) parts.push(`verified on ${istDay(record.verified_at)}`);
   if (record.digilocker_outstanding) parts.push("a DigiLocker check is still required");
   return parts.join("; ");
 }
@@ -81,7 +89,7 @@ export function pledgeFact(kyc: Read<AdminKyc>): string {
   if (record.pledge_accepted_version !== record.pledge_current_version) {
     return "accepted an older version; the current one is not accepted yet";
   }
-  return `accepted${record.pledge_accepted_at ? ` on ${record.pledge_accepted_at.slice(0, 10)}` : ""}`;
+  return `accepted${record.pledge_accepted_at ? ` on ${istDay(record.pledge_accepted_at)}` : ""}`;
 }
 
 export function trialFact(trial: Read<TrialStatus | null>, wallet: Read<Wallet>): string {
@@ -96,7 +104,7 @@ export function trialFact(trial: Read<TrialStatus | null>, wallet: Read<Wallet>)
       t.free_minutes === null ? "" : `, ${t.minutes_used} of ${t.free_minutes} free minutes used`;
     return `trial running${left}${minutes}${paid}`;
   }
-  return `trial ${t.status}${t.ended_at ? ` on ${t.ended_at.slice(0, 10)}` : ""}${paid}`;
+  return `trial ${t.status}${t.ended_at ? ` on ${istDay(t.ended_at)}` : ""}${paid}`;
 }
 
 export function creditFact(tenant: TenantSummary, wallet: Read<Wallet>): string {
