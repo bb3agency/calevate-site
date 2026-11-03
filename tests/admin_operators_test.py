@@ -351,6 +351,41 @@ async def test_the_platform_always_keeps_a_live_superadmin() -> None:
     assert live and live >= 1
 
 
+@pytest.mark.parametrize("act", ["demote", "revoke"])
+async def test_an_actor_demoted_since_their_request_was_authorised_is_refused(act: str) -> None:
+    """The losing half of two superadmins demoting each other at once: its principal still
+    says superadmin, but the row says otherwise by the time it writes. Without the re-check
+    under the lock both writes commit and no live superadmin is left."""
+    first_id = await _make_operator(SUPERADMIN_ROLE)
+    second_id = await _make_operator(SUPERADMIN_ROLE)
+    await operators.set_operator_role(
+        actor=_principal(first_id),
+        operator_id=second_id,
+        role="operator",
+        reason="fixture",
+        ip=None,
+    )
+    stale = _principal(second_id)  # authorised before the demotion above committed
+    with pytest.raises(ProblemError) as refused:
+        if act == "demote":
+            await operators.set_operator_role(
+                actor=stale, operator_id=first_id, role="operator", reason="race", ip=None
+            )
+        else:
+            await operators.revoke_operator(
+                actor=stale, operator_id=first_id, reason="race", ip=None
+            )
+    assert refused.value.status == 403
+    async with untenanted_session() as session:
+        row = (
+            await session.execute(
+                text("SELECT role, deactivated_at FROM admin_users WHERE id = :id"),
+                {"id": first_id},
+            )
+        ).one()
+    assert row[0] == SUPERADMIN_ROLE and row[1] is None
+
+
 # ------------------------------------------------- 2. authority is re-read every request
 
 

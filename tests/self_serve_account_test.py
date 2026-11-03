@@ -286,6 +286,42 @@ async def test_linking_google_reclaims_an_unproved_account(
     assert subject is not None and subject.email_verified_at is not None
 
 
+async def test_an_unproved_account_created_in_the_race_window_is_reclaimed_too(
+    monkeypatch: pytest.MonkeyPatch, planted: list[str]
+) -> None:
+    """The unproved account appears between `finish`'s read and its insert, so the insert
+    loses to it and the raced arm links. That arm must reclaim exactly as the read arm does,
+    or the squatter's password and session survive the merge."""
+    from apps.api.authn.credentials import set_password
+    from apps.api.authn.invitations import _find_or_create_user
+    from apps.api.authn.sessions import issue_session
+
+    email = _address("raced")
+    planted.append(email)
+    user_id, _ = await _find_or_create_user(email=email, name=None, at=datetime.now(UTC))
+    async with credential_session() as session:
+        await set_password(
+            session, realm="client", subject_id=user_id, password=GOOD_PASSWORD, email=email
+        )
+        squatter = await issue_session(session, realm="client", subject_id=user_id)
+
+    real_resolve = google.resolve_by_email
+    calls = 0
+
+    async def resolve_after_the_race(realm: str, address: str) -> Any:
+        nonlocal calls
+        calls += 1
+        return None if calls == 1 else await real_resolve(realm, address)
+
+    monkeypatch.setattr(google, "resolve_by_email", resolve_after_the_race)
+    signed_in, _ = await _sign_in(monkeypatch, email=email)
+
+    assert signed_in.subject_id == user_id
+    assert signed_in.linked is True and signed_in.reclaimed is True
+    assert not await has_password("client", user_id)
+    assert (await verify_session(token=squatter.token, realm="client")).session is None
+
+
 async def test_an_address_google_does_not_host_neither_links_nor_creates(
     monkeypatch: pytest.MonkeyPatch, planted: list[str]
 ) -> None:
