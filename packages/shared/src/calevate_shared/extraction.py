@@ -12,6 +12,7 @@ the generated client. Three copies of "what a field is" would be three ways to d
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections.abc import Sequence
 from datetime import date
 from typing import Any, Final, Literal
@@ -391,10 +392,22 @@ def is_phone_field(field: ExtractionField) -> bool:
 #: An Indian mobile is ten digits opening 6-9 (TRAI's mobile number range). This is the
 #: whole shape the product dials, so it is what "a phone number we can canonicalise"
 #: means and what a captured number is judged dialable against (`needs_review`, below).
-_INDIAN_MOBILE_RE = re.compile(r"^[6-9]\d{9}$")
+_INDIAN_MOBILE_RE = re.compile(r"^[6-9][0-9]{9}$")
 
 #: The canonical stored form: E.164 with the +91 the product is scoped to.
-_CANONICAL_MOBILE_RE = re.compile(r"^\+91[6-9]\d{9}$")
+_CANONICAL_MOBILE_RE = re.compile(r"^\+91[6-9][0-9]{9}$")
+
+
+def ascii_digits(raw: str) -> str:
+    """Every decimal digit of `raw`, in any script, as ASCII `0-9`; everything else dropped.
+
+    Not `str.isdigit()` alone: it is true for Telugu `౯` and Devanagari `९`, so a number a
+    model wrote in Telugu digits kept them, and DNC and lead matching compare stored strings,
+    so it never matched the same number in ASCII. `isdigit()` is also true for `²`, which is
+    not a decimal digit (`unicodedata.decimal` refuses it) and is dropped.
+    """
+    values = (unicodedata.decimal(c, None) for c in raw)
+    return "".join(str(value) for value in values if value is not None)
 
 
 def normalize_phone(raw: str) -> str:
@@ -422,7 +435,7 @@ def normalize_phone(raw: str) -> str:
     `coerce_value` and never reaches here.
     """
     has_plus = raw.strip().startswith("+")
-    digits = "".join(c for c in raw if c.isdigit())
+    digits = ascii_digits(raw)
     if len(digits) == 11 and digits.startswith("0") and _INDIAN_MOBILE_RE.match(digits[1:]):
         digits = digits[1:]
     if len(digits) == 12 and digits.startswith("91") and _INDIAN_MOBILE_RE.match(digits[2:]):
@@ -932,6 +945,7 @@ __all__ = [
     "OutcomeTag",
     "Sentiment",
     "ValidationOutcome",
+    "ascii_digits",
     "build_extraction_prompt",
     "clean_moment_candidates",
     "clean_unlisted",

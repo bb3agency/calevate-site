@@ -104,6 +104,26 @@ async def test_a_developer_workspace_holding_no_key_still_fans_out(
     assert engine.installed == [] and len(fanned) == 1
 
 
+async def test_an_unreadable_developer_workspace_pages_and_still_fans_out(
+    stored_key: dict[str, str | None],
+    fanned: list[dict[str, Any]],
+    alarms: list[tuple[str, str]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    use_studio_workspace(monkeypatch)
+    engine = HostingEngine(key_state=HELD)
+
+    async def _unreadable() -> Any:
+        raise ProblemError(kind="dependency", code="engine_unavailable", title="x", detail="x")
+
+    monkeypatch.setattr(engine, "own_key_state", _unreadable)
+    with selected(engine):
+        result = await studio_voice_key.push_studio_voice_key({}, {})
+    assert result == "developer=failed workspaces=1"
+    assert [code for code, _ in alarms] == ["studio_voice_key_push_failed"]
+    assert len(fanned) == 1
+
+
 async def test_nothing_is_pushed_without_a_key_or_on_an_engine_hosting_no_voices(
     stored_key: dict[str, str | None], fanned: list[dict[str, Any]]
 ) -> None:

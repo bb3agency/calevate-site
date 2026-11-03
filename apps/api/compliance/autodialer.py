@@ -48,6 +48,7 @@ from datetime import date, datetime
 from typing import Final, Literal
 from uuid import UUID
 
+from calevate_shared.extraction import ascii_digits
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -331,7 +332,7 @@ def declared_cli(raw: str) -> str | None:
     from apps.api.agents.models import series_for_e164
     from apps.api.ingest.service import normalize_phone
 
-    digits = "".join(c for c in raw if c.isdigit())
+    digits = ascii_digits(raw)
     if len(digits) == 10 and not raw.strip().startswith("+"):
         header = "+91" + digits
         if series_for_e164(header) in {"140", "160"}:

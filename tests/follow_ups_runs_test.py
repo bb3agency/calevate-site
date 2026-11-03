@@ -12,6 +12,7 @@ from uuid import UUID
 import pytest
 from apps.api.callbacks import service as callbacks
 from apps.api.compliance.service import add_to_dnc
+from apps.api.core.redis import get_redis
 from apps.api.crm import service as crm
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
@@ -20,6 +21,7 @@ from apps.api.follow_ups import runner, service
 from apps.api.whatsapp.webhooks import extract_events
 from apps.workers import follow_ups as worker
 from apps.workers.callbacks import dispatch_due_callbacks
+from apps.workers.fleet_walk import FLEET_CURSOR_KEY
 from apps.workers.retention import ANONYMIZED_PHONE, _erase_follow_up_runs, sweep_tenant
 from sqlalchemy import text
 from tests.callback_dispatch_test import _dialable_tenant
@@ -1101,6 +1103,45 @@ async def test_the_tick_queues_due_runs_and_the_call_ended_job_moves_them(
     assert result.startswith("moved=1")
     assert any(q[1].get("run_id") == str(run_b) for q in queued)
     del phone_b
+
+
+async def test_the_tick_reaches_every_account_with_work_past_its_per_tick_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The scan answers in id order and uuid7 ids sort oldest first, so a capped read handed
+    every tick the same oldest accounts. The next tick must start after the last one done."""
+    accounts = sorted((uuid7() for _ in range(3)), key=str)
+    rows = [(tenant, True, False, True) for tenant in accounts]
+
+    class _Directory:
+        async def __aenter__(self) -> _Directory:
+            return self
+
+        async def __aexit__(self, *exc: object) -> None:
+            return None
+
+        async def execute(self, *_args: Any, **_kw: Any) -> Any:
+            class _Result:
+                def all(self) -> list[tuple[Any, ...]]:
+                    return list(rows)
+
+            return _Result()
+
+    handled: list[UUID] = []
+
+    async def _tenant_tick(tenant_id: UUID, **_kw: Any) -> int:
+        handled.append(tenant_id)
+        return 0
+
+    monkeypatch.setattr(worker, "admin_session", _Directory)
+    monkeypatch.setattr(worker, "_tenant_tick", _tenant_tick)
+    monkeypatch.setattr(worker, "TENANTS_PER_TICK", 2)
+    await get_redis().delete(FLEET_CURSOR_KEY.format(walk="follow_up_tick"))
+
+    await worker.follow_up_tick({})
+    assert handled == accounts[:2]
+    await worker.follow_up_tick({})
+    assert handled[2:] == [accounts[2], accounts[0]]
 
 
 async def test_the_lead_clock_forgets_a_settled_runs_number_and_leaves_an_open_one() -> None:

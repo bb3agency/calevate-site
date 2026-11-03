@@ -18,7 +18,7 @@ Ids only in every log line (hard rule 6).
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Final
 from uuid import UUID
 
@@ -31,6 +31,7 @@ from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES, enqueue, job_id_for, job_try
 from apps.api.db.session import admin_session, tenant_session
 from apps.api.follow_ups import runner
+from apps.workers.fleet_walk import WalkBudget, resumed_walk
 
 log = get_logger(__name__)
 
@@ -38,18 +39,24 @@ log = get_logger(__name__)
 #: through the calling file's own constants).
 DRIVE_JOB: Final = "drive_follow_up_run"
 CALL_ENDED_JOB: Final = "follow_up_call_ended"
-#: At most this many accounts and runs per account are handled per tick; the rest are next
-#: minute's, oldest first.
+#: At most this many accounts and runs per account are handled per tick; the next tick
+#: resumes after the last account handled (`fleet_walk.resumed_walk`), so every account with
+#: work is reached in turn.
 TENANTS_PER_TICK: Final = 200
 RUNS_PER_TENANT: Final = 50
+#: The tick fires every minute; stopping inside it keeps one tick from running into the next.
+TICK_BUDGET: Final = timedelta(seconds=45)
 #: Orphans and `max_days` are slow clocks: every tenth minute is plenty.
 SLOW_SWEEP_EVERY_MIN: Final = 10
 RETRY_BACKOFF_S: Final[tuple[float, ...]] = (30.0, 120.0)
 #: The second of every minute the tick fires, clear of the outbox dispatcher's tens.
 TICK_SECOND: Final = 25
 
+# No LIMIT: `follow_up_scan` walks every organisation in id order before it returns, so a
+# LIMIT saves no work and, with ids being uuid7, would hand every tick the same oldest
+# accounts and never reach the newest once that many hold a dated Follow-up or an open run.
 _SCAN_SQL: Final = (
-    "SELECT scanned_tenant_id, has_due, has_dates, has_open FROM follow_up_scan(:stale) LIMIT :n"
+    "SELECT scanned_tenant_id, has_due, has_dates, has_open FROM follow_up_scan(:stale)"
 )
 
 assert DRIVE_JOB == runner.DRIVE_JOB and CALL_ENDED_JOB == runner.CALL_ENDED_JOB
@@ -89,15 +96,18 @@ async def follow_up_tick(ctx: dict[str, Any]) -> str:
     slow = now.minute % SLOW_SWEEP_EVERY_MIN == 0
     async with admin_session() as directory:
         rows = (
-            await directory.execute(
-                text(_SCAN_SQL),
-                {"stale": runner.STALE_CLAIM.total_seconds(), "n": TENANTS_PER_TICK},
-            )
+            await directory.execute(text(_SCAN_SQL), {"stale": runner.STALE_CLAIM.total_seconds()})
         ).all()
-    queued = failed = 0
-    for tenant, has_due, has_dates, has_open in rows:
-        if not (has_due or has_dates or (slow and has_open)):
-            continue
+    work = [row for row in rows if row[1] or row[2] or (slow and row[3])]
+    queued = failed = handled = 0
+    budget = WalkBudget(TICK_BUDGET)
+    async for tenant, has_due, has_dates, has_open in resumed_walk(
+        "follow_up_tick", work, budget, key=lambda row: str(row[0])
+    ):
+        # Checked before the account is handled, so the cursor stops on the last one done.
+        if handled >= TENANTS_PER_TICK:
+            break
+        handled += 1
         try:
             queued += await _tenant_tick(
                 UUID(str(tenant)),

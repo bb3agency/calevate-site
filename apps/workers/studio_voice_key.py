@@ -95,6 +95,23 @@ def _push_failed(code: str, *, where: str, tenant_id: str | None = None) -> None
     )
 
 
+async def _push_to_developer(engine: HostsVoices, key: str) -> str:
+    """Replace the developer workspace's held key: `pushed`, `failed` or `not_held`.
+
+    The state READ is inside the same guard as the write. A refusal reading it would
+    otherwise raise out of the rotation before the fan-out, and arq does not retry a
+    `ProblemError`, so every Studio client workspace would keep the old key with no alarm.
+    """
+    try:
+        if (await engine.own_key_state()).voice_provider != STUDIO_VOICE_PROVIDER:
+            return "not_held"
+        await engine.install_own_voice_key(provider=STUDIO_VOICE_PROVIDER, api_key=key, model=None)
+    except ProblemError as exc:
+        _push_failed(exc.code, where="our developer workspace")
+        return "failed"
+    return "pushed"
+
+
 async def push_studio_voice_key(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     """Replace the developer workspace's held key and fan out one push per Studio client
     workspace. Returns what it did."""
@@ -105,16 +122,7 @@ async def push_studio_voice_key(ctx: dict[str, Any], payload: dict[str, Any]) ->
     key = await _current_key()
     if not key:
         return "no_key"
-    developer = "not_held"
-    if (await engine.own_key_state()).voice_provider == STUDIO_VOICE_PROVIDER:
-        try:
-            await engine.install_own_voice_key(
-                provider=STUDIO_VOICE_PROVIDER, api_key=key, model=None
-            )
-            developer = "pushed"
-        except ProblemError as exc:
-            _push_failed(exc.code, where="our developer workspace")
-            developer = "failed"
+    developer = await _push_to_developer(engine, key)
     workspaces = await studio_workspaces()
     async with untenanted_session() as session:
         for row in workspaces:

@@ -505,6 +505,8 @@ def test_a_header_and_a_mobile_normalise_and_junk_is_refused() -> None:
     assert declared_cli("not a number") is None
     # A bare 140-series header is accepted as issued, which `normalize_phone` alone refuses.
     assert declared_cli("1401234567") == "+911401234567"
+    # The same header typed in Telugu digits is stored as the same ASCII number.
+    assert declared_cli("౧౪౦౧౨౩౪౫౬౭") == "+911401234567"
 
 
 async def test_numbers_are_kept_once_in_the_order_given_and_cover_readiness(
