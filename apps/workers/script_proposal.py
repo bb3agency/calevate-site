@@ -382,6 +382,13 @@ async def draft_script_proposal(ctx: dict[str, Any], payload: dict[str, Any]) ->
             unplaced=unplaced,
             disclosure=draft.capability.disclosure,
         )
+        applied = (
+            stored
+            and proposal.mode == script_proposals.STARTER_MODE
+            and await script_proposals.apply_untouched_starter(
+                session, tenant_id=tenant_id, agent_id=agent_id, proposal=proposal, script=script
+            )
+        )
         spends: list[ScriptDraft | JsonAnswer[str] | ProblemError | None] = [
             draft,
             *opening_spends,
@@ -407,8 +414,15 @@ async def draft_script_proposal(ctx: dict[str, Any], payload: dict[str, Any]) ->
             )
     log.info(
         "script_proposal_written",
-        extra={"agent_id": str(agent_id), "mode": proposal.mode, "stored": stored},
+        extra={
+            "agent_id": str(agent_id),
+            "mode": proposal.mode,
+            "stored": stored,
+            "applied": applied,
+        },
     )
+    if applied:
+        return "applied"
     return "ready" if stored else "not_pending"
 
 

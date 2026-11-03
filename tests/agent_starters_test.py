@@ -24,7 +24,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from apps.api.agents import script_proposals, starters
+from apps.api.agents import script_builder, script_proposals, starters
 from apps.api.agents.routes import router as agents_router
 from apps.api.compliance.disclosure import (
     AI_DISCLOSURE_TEMPLATES,
@@ -445,12 +445,41 @@ async def test_an_opening_typed_at_creation_is_kept_and_the_script_is_written_ar
     monkeypatch.setattr(proposal_worker.crm_assist, "meter_earlier", meter)
     monkeypatch.setattr(proposal_worker.crm_assist, "meter_assist", meter)
     payload = {"tenant_id": str(tenant_id), "agent_id": str(agent_id), "proposal_id": str(asked.id)}
-    assert await proposal_worker.draft_script_proposal({}, payload) == "ready"
+    # A draft agent still on its untouched starter takes the written script at once, so its
+    # page shows the business's goal, not the job's (founder, 3 Nov 2026).
+    assert await proposal_worker.draft_script_proposal({}, payload) == "applied"
     async with tenant_session(tenant_id) as session:
-        ready = await script_proposals.read_proposal(session, agent_id)
-    assert ready is not None and ready.script is not None
-    assert ready.script.goal == "Help farmers keep their crop accounts"
-    assert ready.script.opening_line == line, "the owner's typed opening was written over"
+        assert await script_proposals.read_proposal(session, agent_id) is None
+    row = await _agent_rows(tenant_id, agent_id)
+    assert row is not None
+    applied = CallScript.model_validate(row[5])
+    assert applied.goal == "Help farmers keep their crop accounts"
+    assert applied.opening_line == line, "the owner's typed opening was written over"
+
+    # Once the owner has changed the script, the written one waits as a suggestion.
+    code, edited = await _create(token, {"name": "Edited", "starter": "call_leads"})
+    assert code == 201, edited
+    edited_id = uuid.UUID(edited["id"])
+    async with tenant_session(tenant_id) as session:
+        asked = await script_proposals.read_proposal(session, edited_id)
+        assert asked is not None
+        await script_builder.save_agent_script(
+            session,
+            tenant_id=tenant_id,
+            agent_id=edited_id,
+            script=asked.base_script.model_copy(update={"goal": "The owner's own goal"}),
+            notes="owner edit",
+            created_by=None,
+        )
+    payload = {
+        "tenant_id": str(tenant_id),
+        "agent_id": str(edited_id),
+        "proposal_id": str(asked.id),
+    }
+    assert await proposal_worker.draft_script_proposal({}, payload) == "ready"
+    row = await _agent_rows(tenant_id, edited_id)
+    assert row is not None
+    assert CallScript.model_validate(row[5]).goal == "The owner's own goal"
 
     code, blank = await _create(
         token, {"name": "Leads 2", "starter": "call_leads", "opening_line": " "}

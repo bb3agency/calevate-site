@@ -460,6 +460,51 @@ async def store_failed(
     )
 
 
+async def apply_untouched_starter(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    agent_id: UUID,
+    proposal: ScriptProposal,
+    script: CallScript,
+) -> bool:
+    """Put a new agent's written script (`STARTER_MODE`) on it at once, instead of leaving it
+    a suggestion, while that is safe: the agent is still a draft, so no caller hears it, and
+    its script is still the starter it was made with, untouched, with nothing autosaved. Until
+    then the agent showed the job's generic goal and steps as its own (founder, 3 Nov 2026).
+    False leaves the suggestion for the owner, as before."""
+    row = (
+        await session.execute(
+            text(
+                "SELECT status, script_draft IS NULL FROM agents "
+                "WHERE id = :aid AND deleted_at IS NULL FOR UPDATE"
+            ),
+            {"aid": agent_id},
+        )
+    ).first()
+    if row is None or row[0] != "draft" or not row[1]:
+        return False
+    current = upgrade_to_v2((await script_builder.load_agent_script(session, agent_id)).script)
+    if current != proposal.base_script:
+        return False
+    await script_builder.save_agent_script(
+        session,
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        script=script,
+        notes="Script written for the business",
+        created_by=None,
+    )
+    await session.execute(
+        text(
+            "UPDATE agents SET script_proposal = NULL "
+            "WHERE id = :aid AND script_proposal->>'id' = :pid"
+        ),
+        {"aid": agent_id, "pid": str(proposal.id)},
+    )
+    return True
+
+
 async def discard(session: AsyncSession, *, agent_id: UUID, proposal_id: UUID) -> bool:
     """Clear this proposal (kept into the draft, or not wanted). False when it is no longer
     the agent's pending one, which is the same outcome to the person: it is gone."""
