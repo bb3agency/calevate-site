@@ -842,16 +842,21 @@ async def test_numbers_are_listed_and_never_bought() -> None:
 async def test_failed_knowledge_indexing_is_not_reported_as_attached() -> None:
     from calevate_shared.engine import KBSourceRef
 
-    handler, _ = _recorder(
+    handler, seen = _recorder(
         {
             ("POST", "/agents/ag_1/knowledge"): httpx.Response(
                 201, json={"id": "doc_1", "status": "failed", "error": "x"}
-            )
+            ),
+            ("DELETE", "/agents/ag_1/knowledge/doc_1"): httpx.Response(204),
         }
     )
     with pytest.raises(ProblemError) as raised:
         await _engine(handler).attach_kb("ag_1", KBSourceRef(kb_id="k", title="t", text="x"))
     assert raised.value.code == "engine_kb_ingest_failed"
+    # The unindexed document the vendor kept is removed, not left as a loose document.
+    assert ("DELETE", "/api/v1/agents/ag_1/knowledge/doc_1") in [
+        (r.method, r.url.path) for r in seen
+    ]
 
 
 @pytest.mark.parametrize("blank", ["", "  \n\n  "])
