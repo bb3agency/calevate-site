@@ -44,7 +44,7 @@ export function TestCallTranscript({ callId }: { callId: string }) {
   if (turns.length === 0) {
     return (
       <p role="status" className="text-meta text-ink-muted">
-        Your test call has ended. What was said appears here once it is ready.
+        Call ended. The transcript appears here shortly.
       </p>
     );
   }

@@ -33,8 +33,7 @@ function PipLocked() {
     <div className="space-y-2 px-4 py-4" data-testid="pip-locked">
       <h3 className="text-body font-semibold text-ink">{ASSISTANT_NAME} is off for this account</h3>
       <p className="text-body text-ink-muted">
-        The account owner needs to turn {ASSISTANT_NAME} on first. They can do it from this
-        panel: when they open {ASSISTANT_NAME}, it asks them.
+        The account owner needs to turn {ASSISTANT_NAME} on first. It asks them when they open it.
       </p>
     </div>
   );

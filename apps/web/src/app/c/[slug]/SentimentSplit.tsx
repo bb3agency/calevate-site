@@ -24,7 +24,7 @@ export function SentimentSplit({ split }: { split: Record<string, number> }) {
       centerValue={formatCount(total)}
       centerLabel={total === 1 ? "call rated" : "calls rated"}
       size={140}
-      empty="We haven't rated how callers sounded in the last 7 days yet."
+      empty="No calls rated in the last 7 days."
     />
   );
 }

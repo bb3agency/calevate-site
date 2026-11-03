@@ -286,13 +286,13 @@ export function TrialChipView({
             limit={callsToday.cap}
             usedText={formatCount(callsToday.used)}
             limitText={formatCount(callsToday.cap)}
-            hint={callsToday.used >= callsToday.cap ? "That is today's limit. More open tomorrow." : undefined}
+            hint={callsToday.used >= callsToday.cap ? "Today's limit. More tomorrow." : undefined}
           />
         ) : null}
         <p className="text-ink-muted">
           {!running.testCallsOnly
-            ? "Calls are on us until then: nothing is taken from your calling credit, and an empty balance does not stop your agents."
-            : "Answering calls, campaigns, your own number and business verification open once you add credit."}
+            ? "Free until then. Your credit isn't used."
+            : "Add credit to open calls in, campaigns, your number and verification."}
         </p>
         {asksForCredit && (
           <Link href={creditsHref} className={`${PRIMARY_BUTTON} w-full justify-center`}>

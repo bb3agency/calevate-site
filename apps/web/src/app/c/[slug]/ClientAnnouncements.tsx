@@ -57,7 +57,7 @@ export function ClientAnnouncements({ slug }: { slug: string }) {
               toasts.toast({
                 kind: "info",
                 title: "Only the account can dismiss this",
-                description: "You are viewing as this account, so the announcement stays for its people to read.",
+                description: "It stays for this account's people to read.",
               })
           : () => feedback.run(current.id)
       }

@@ -8,7 +8,7 @@ export const AI_ASSIST_COPY = {
   loading: "Loading this month's AI help",
   used: "AI help used",
   usedTip:
-    "AI help is the help built into this console: rewriting a summary, answering a question about a call, and preparing files you add for your agents. We pay for it up to the allowance.",
+    "Rewriting summaries, answering questions about calls, preparing files for your agents. Paid by us up to your allowance.",
   noneLeft: "none left this month",
   notIncluded: "No AI help is included on your plan.",
   meterLabel: "Share of this month's included AI help used",
@@ -26,10 +26,10 @@ export const AI_ASSIST_COPY = {
   rowAvailable: "Available this month",
   neverAffected: "Calls, campaigns and leads are never affected.",
   overNothing: "Nothing is charged. What you send is still being prepared.",
-  overWhy: "Most of it is from preparing what you added. We will be in touch before anything changes.",
+  overWhy: "Mostly from preparing what you added. We'll tell you before anything changes.",
 
   pausedTitle: "AI help is paused right now",
-  pausedTip: "We paused AI help across the platform while we check unusually high usage. It comes back on its own.",
+  pausedTip: "Paused for everyone while we check unusually high use. It comes back on its own.",
   pausedBody: "Calls and leads carry on. Nothing has been charged.",
   finishedTitle: "This month's AI help is finished",
   finishedBody: "It starts again next month.",
