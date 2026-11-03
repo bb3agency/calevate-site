@@ -107,6 +107,15 @@ def test_nothing_else_loosened_and_a_country_is_still_never_guessed() -> None:
     assert normalize_phone("+91+9876543210") is None
 
 
+def test_a_number_typed_in_telugu_digits_is_the_same_number_in_ascii() -> None:
+    """A Telugu keyboard's own digits are the same number, so they must reach the same
+    E.164 string: a DNC entry and a lead are matched on that string by equality."""
+    telugu = "".join(chr(0x0C66 + int(d)) for d in "9876543210")
+    devanagari = "".join(chr(0x0966 + int(d)) for d in "9876543210")
+    assert normalize_phone(telugu) == "+919876543210"
+    assert normalize_phone("+91 " + devanagari) == "+919876543210"
+
+
 # --- 2. the consequence that made it worth fixing -----------------------------
 
 

@@ -62,6 +62,8 @@ from apps.api.crm.performance import CONNECTED_SQL, IST_ZONE
 #: keeps every aggregate here inside one year of one account's rows.
 MAX_RANGE_DAYS: Final = 366
 DEFAULT_RANGE_DAYS: Final = 30
+#: The earliest `to` a range may end on: before this platform held any call.
+EARLIEST_RANGE_END: Final = date(2020, 1, 1)
 
 #: The bin widths the ridgeline offers, in seconds, and how many bins every group gets.
 #: Twenty bins at 30 s covers ten minutes, the length past which a phone enquiry is rare;
@@ -147,6 +149,16 @@ def resolve_window(*, days: int, to: date | None, now: datetime | None = None) -
             title="That range is too long",
             detail=f"A range covers 1 to {MAX_RANGE_DAYS} days.",
             remediation=f"Send `days` between 1 and {MAX_RANGE_DAYS}.",
+        )
+    if end < EARLIEST_RANGE_END:
+        # A window and the one before it (`Window.previous`) step back up to two ranges
+        # from `end`; near `date.min` that subtraction raises `OverflowError`, a 500.
+        raise ProblemError(
+            kind="validation",
+            code="analytics_range_too_early",
+            title="That range is too early",
+            detail=f"`to` is before {EARLIEST_RANGE_END.isoformat()}, when no call exists.",
+            remediation="Send a later `to` (YYYY-MM-DD, IST), or leave it out.",
         )
     return Window(start=end - timedelta(days=days - 1), end=end)
 

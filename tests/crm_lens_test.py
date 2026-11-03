@@ -237,6 +237,15 @@ async def test_a_backwards_range_and_a_question_are_refused(world: dict[str, obj
     assert asked.value.code == "lens_ask_not_a_set"
 
 
+async def test_a_range_ending_on_the_last_date_has_no_end(world: dict[str, object]) -> None:
+    """`date.max` has no day after it; stepping past it raised `OverflowError`, a 500."""
+    tenant, monday = world["tenant"], world["monday"]
+    assert isinstance(tenant, uuid.UUID) and isinstance(monday, date)
+    found = await _ids(tenant, LeadLensIn(created_from=monday, created_to=date.max))
+    assert {world["late"], world["tue"]} <= found
+    assert lens.day_after(date.max) > lens.day_start(date.max)
+
+
 async def test_another_tenants_rows_never_match(world: dict[str, object]) -> None:
     other, _, _ = await _make_tenant()
     assert await _ids(other, LeadLensIn(last_outcome="missed")) == set()
