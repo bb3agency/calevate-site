@@ -24,6 +24,7 @@ import { useState, type ReactNode } from "react";
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { RadioGroup } from "@/components/arc/radio-group";
 import { ConfirmDialog } from "@/components/confirmDialog";
+import { LoadMore } from "@/components/interior/load-more";
 import {
   FIELD,
   FIELD_HINT,
@@ -495,14 +496,16 @@ function BuyOwnNumber({ canBuy }: { canBuy: boolean }) {
               ))}
             </ul>
             {available.hasNextPage && (
-              <button
-                type="button"
-                className={SECONDARY_BUTTON_SM}
-                disabled={available.isFetchingNextPage}
-                onClick={() => void available.fetchNextPage()}
-              >
-                {available.isFetchingNextPage ? "Loading…" : "Load more"}
-              </button>
+              <LoadMore
+                auto={false}
+                hasMore={available.hasNextPage}
+                onLoad={async () => {
+                  const result = await available.fetchNextPage();
+                  if (result.isError) throw result.error;
+                  return result.hasNextPage;
+                }}
+                className="py-1"
+              />
             )}
           </>
         ))}

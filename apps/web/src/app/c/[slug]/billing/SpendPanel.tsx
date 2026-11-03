@@ -147,7 +147,7 @@ function SpendBreakdown({ data, slug }: { data: Spend; slug: string }) {
 
       <Section title="By agent">
         {data.by_agent.length === 0 ? (
-          <div className="p-6">
+          <div className="p-4 sm:p-6">
             <EmptyState illustration={<EmptySketch kind="deliveries" />}
               message="No calls this month"
               hint="Each agent's share will show here."
@@ -192,7 +192,7 @@ function SpendBreakdown({ data, slug }: { data: Spend; slug: string }) {
         }
       >
         {data.top_calls.length === 0 ? (
-          <div className="p-6">
+          <div className="p-4 sm:p-6">
             <EmptyState illustration={<EmptySketch kind="deliveries" />}
               message="No calls this month"
               hint="Costliest calls will show here first."

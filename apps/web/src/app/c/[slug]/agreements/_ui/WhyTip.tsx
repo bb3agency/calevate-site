@@ -44,7 +44,7 @@ export function WhyTip({
         </button>
       }
     >
-      <div className="space-y-2 text-[13px] text-ink-muted">{children}</div>
+      <div className="space-y-2 text-meta text-ink-muted">{children}</div>
     </Popover>
   );
 }

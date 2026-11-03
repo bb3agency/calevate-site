@@ -48,7 +48,7 @@ export default function BreachPlaybookPage() {
       <ol className="space-y-4">
         {BREACH_STEPS.map((step, index) => (
           <li key={step.title} className="rounded-card border border-line bg-surface px-4 py-3">
-            <h2 className="text-section font-semibold text-ink">
+            <h2 className="text-heading text-ink">
               {index + 1}. {step.title}{" "}
               {step.why && (
                 <WhyTip about={step.title} label="Why?">

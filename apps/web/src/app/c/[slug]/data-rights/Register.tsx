@@ -135,7 +135,7 @@ function RegisterRow({
     <div className="px-4 py-3.5">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="flex items-center gap-2 text-sm font-semibold text-ink">
+          <p className="flex items-center gap-2 text-body font-semibold text-ink">
             {missingProof ? (
               <ShieldAlert aria-hidden className="h-4 w-4 text-warn" />
             ) : done ? (
@@ -232,7 +232,7 @@ function RequestDetail({ request }: { request: DeletionRequest }) {
 
   return (
     <div>
-      {!done && <p className="text-sm text-ink-muted">{COPY.running}</p>}
+      {!done && <p className="text-body text-ink-muted">{COPY.running}</p>}
 
       {done && request.proof === null && (
         <div className="mt-3">
@@ -280,7 +280,7 @@ function Certificate({ proof, requestId }: { proof: ErasureProof; requestId: str
   return (
     <div className="mt-3 rounded-md bg-surface-muted p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold text-ink">{COPY.certificateHeading}</h3>
+        <h3 className="text-body font-semibold text-ink">{COPY.certificateHeading}</h3>
         <button
           type="button"
           onClick={() => downloadJson(proof, `erasure-certificate-${requestId}.json`)}

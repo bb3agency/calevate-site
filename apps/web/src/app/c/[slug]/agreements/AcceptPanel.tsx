@@ -82,7 +82,7 @@ export function AcceptPanel({ readiness }: { readiness: LegalReadiness }) {
   return (
     <form
       noValidate
-      className="mt-5 rounded-card border border-line bg-surface p-4 sm:p-5"
+      className="mt-5 rounded-card border border-line bg-surface p-4 sm:p-6"
       onSubmit={(event) => {
         event.preventDefault();
         if (ticked && !accept.isPending) void submit();

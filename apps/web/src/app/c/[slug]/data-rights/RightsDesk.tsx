@@ -96,7 +96,7 @@ export function RightsDesk({
   return (
     <section aria-labelledby="rights-desk-heading" className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 id="rights-desk-heading" className="text-section font-semibold text-ink">
+        <h2 id="rights-desk-heading" className="text-heading text-ink">
           {COPY.heading}{" "}
           <WhyTip about="the 90-day clock" label="Why?">
             <p>{COPY.why}</p>

@@ -34,12 +34,12 @@ export function DltDetails({ registration }: { registration: PeRegistration }) {
         </h2>
         <StatusPill tone="neutral">Not needed to make calls</StatusPill>
       </div>
-      <p className="text-sm font-semibold text-ink">{verdict}</p>
+      <p className="text-body font-semibold text-ink">{verdict}</p>
       {/* Kept for the record, and outgoing calls do not depend on it (D-692), so the detail
           is one tap away rather than a screen of statuses nobody acts on. */}
       <Disclosure variant="inline" headingLevel={3} title="Details" showLabel="Open" hideLabel="Close">
         <div className="space-y-3 pt-2">
-          <p className="text-sm text-ink-muted">
+          <p className="text-body text-ink-muted">
             {registration.is_active
               ? "Kept on record. Outgoing calls do not depend on it."
               : "Not needed for outgoing calls, which depend on your verified business and the no-cold-calls pledge. Kept here for the record."}
@@ -62,7 +62,7 @@ function DltStatuses({ registration }: { registration: PeRegistration }) {
   const entity = peStatusCopy(registration.status);
   const link = tmLinkCopy(registration.tm_link_status);
   return (
-    <dl className="space-y-3 text-sm">
+    <dl className="space-y-3 text-body">
       <div>
         <dt className="font-semibold text-ink">
           Your business as a{" "}
@@ -160,7 +160,7 @@ function DltOnFile({ registration }: { registration: PeRegistration }) {
       {present.map((row) => (
         <div
           key={row.label}
-          className="flex flex-wrap justify-between gap-2 py-2 text-sm first:pt-0 last:pb-0"
+          className="flex flex-wrap justify-between gap-2 py-2 text-body first:pt-0 last:pb-0"
         >
           <dt className="text-ink-muted">{row.label}</dt>
           <dd className="font-semibold text-ink">
