@@ -635,7 +635,7 @@ async def _dead_letter_unknown_jobs(conn: AsyncConnection, known: list[str]) -> 
     if retired:
         alert(
             "OUTBOX_DISPATCH",
-            "outbox_unknown_job",
+            "outbox_dead_letter",
             detail=f"{len(retired)} message(s) for job(s) no worker runs: "
             f"{', '.join(sorted({r[0] for r in retired}))[:160]}",
         )
