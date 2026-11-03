@@ -323,7 +323,7 @@ export function Handover({ agent }: { agent: Agent }) {
 
       {data.recent.length > 0 && (
         <div className="mt-5">
-          <h4 className="text-sm font-semibold text-ink">Recent handovers</h4>
+          <h4 className="text-body font-semibold text-ink">Recent handovers</h4>
           <ul className="mt-2 space-y-2 text-sm">
             {data.recent.map((attempt) => (
               <li key={attempt.id} className="border-b border-line py-2 last:border-b-0">

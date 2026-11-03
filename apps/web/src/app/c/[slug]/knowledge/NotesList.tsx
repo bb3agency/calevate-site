@@ -8,7 +8,9 @@ import { InlineEdit } from "@/components/arc/inline-edit";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { StatusPill } from "@/components/console/statusPill";
 import {
+  Disclosure,
   ProblemNotice,
+  SECONDARY_BUTTON_SM,
   Skeleton,
   formatCount,
   formatIST,
@@ -148,7 +150,7 @@ function NoteRow({
           type="button"
           onClick={onToggle}
           aria-expanded={open}
-          className="press shrink-0 rounded-md px-2 py-1 text-xs font-medium text-ink-muted hover:bg-ink/[0.05] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
+          className={`${SECONDARY_BUTTON_SM} shrink-0`}
         >
           {open ? "Hide" : "Preview"}
         </button>
@@ -157,7 +159,7 @@ function NoteRow({
             type="button"
             onClick={() => setConfirming(true)}
             aria-label={`Remove ${note.name}`}
-            className="press inline-flex shrink-0 items-center justify-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-ink-muted hover:bg-danger/[0.08] hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11 touch:min-w-11"
+            className={`${SECONDARY_BUTTON_SM} shrink-0 justify-center touch:min-w-11`}
           >
             <Trash2 aria-hidden className="h-3.5 w-3.5" />
             <span className="max-sm:sr-only">Remove</span>
@@ -213,25 +215,13 @@ function Preview({ chunks }: { chunks: ReturnType<typeof useKbChunks> }) {
 
 function RemovedNotes({ notes, canWrite }: { notes: KbNote[]; canWrite: boolean }) {
   return (
-    <details className="group rounded-lg border border-line">
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2.5 text-sm font-medium text-ink-muted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11 [&::-webkit-details-marker]:hidden">
-        <span className="flex items-baseline gap-1.5">
-          <span>Removed notes</span>
-          <span className="tabular-nums text-ink-faint">· {formatCount(notes.length)}</span>
-        </span>
-        <span aria-hidden className="text-xs text-ink-faint group-open:hidden">
-          Show
-        </span>
-        <span aria-hidden className="hidden text-xs text-ink-faint group-open:inline">
-          Hide
-        </span>
-      </summary>
-      <ul className="divide-y divide-line border-t border-line">
+    <Disclosure title="Removed notes" status={formatCount(notes.length)} headingLevel={4}>
+      <ul className="-my-3 divide-y divide-line">
         {notes.map((note) => (
           <RemovedRow key={note.id} note={note} canWrite={canWrite} />
         ))}
       </ul>
-    </details>
+    </Disclosure>
   );
 }
 
@@ -244,7 +234,7 @@ function RemovedRow({ note, canWrite }: { note: KbNote; canWrite: boolean }) {
     successDescription: "Your agents use it again within a minute.",
   });
   return (
-    <li className="px-3 py-3">
+    <li className="py-3">
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
         <div className="min-w-0">
           <p className="break-words text-sm text-ink [overflow-wrap:anywhere]">{note.name}</p>

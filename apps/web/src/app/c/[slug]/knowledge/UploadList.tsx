@@ -277,7 +277,7 @@ function ExtractedText({ upload, onDone }: { upload: KbUpload; onDone: () => voi
           title={approve.reason ?? undefined}
           onClick={() => confirm.mutate(upload.id, { onSuccess: onDone })}
         >
-          <CheckCircle2 aria-hidden className="h-3 w-3" />
+          <CheckCircle2 aria-hidden className="h-3.5 w-3.5" />
           Yes, this is right
         </ActionButton>
         <button
@@ -285,7 +285,7 @@ function ExtractedText({ upload, onDone }: { upload: KbUpload; onDone: () => voi
           onClick={() => setConfirmingDiscard(true)}
           className={SECONDARY_BUTTON_SM}
         >
-          <Trash2 aria-hidden className="h-3 w-3" />
+          <Trash2 aria-hidden className="h-3.5 w-3.5" />
           Throw this away
         </button>
       </div>

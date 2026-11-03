@@ -122,7 +122,7 @@ export function ToolDetail({
       </div>
 
       <div>
-        <h4 className="text-body font-medium text-ink">Try it</h4>
+        <h4 className="text-body font-semibold text-ink">Try it</h4>
         <div className="mt-2">
           <TestPanel tool={tool} agentId={agentId} session={session} />
         </div>

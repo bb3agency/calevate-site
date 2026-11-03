@@ -235,7 +235,7 @@ function DraftOffer({
 }) {
   const failed = data.draft?.status === "failed";
   return (
-    <div className="rounded-md border border-line px-4 py-4">
+    <div className="rounded-card border border-line p-4">
       <p className="text-sm font-medium text-ink">
         {failed ? "The details could not be drafted last time." : "Nothing here yet."}
       </p>
@@ -295,9 +295,9 @@ function DraftReview({
   const count = kept.size;
   const owner = audience === "client" && review !== undefined;
   return (
-    <section aria-labelledby="draft-review-heading" className="space-y-3 rounded-md border border-line px-4 py-4">
+    <section aria-labelledby="draft-review-heading" className="space-y-3 rounded-card border border-line p-4">
       <div>
-        <h3 id="draft-review-heading" className="text-sm font-medium text-ink">
+        <h3 id="draft-review-heading" className="text-body font-semibold text-ink">
           {draft.fields.length === 1 ? "1 drafted detail" : `${draft.fields.length} drafted details`}
         </h3>
         <p className="mt-1 text-sm text-ink-muted">

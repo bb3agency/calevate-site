@@ -60,7 +60,7 @@ export function TaughtRules({
 
   return (
     <section aria-labelledby="taught-heading" className="rounded-card border border-line px-4 py-3">
-      <h3 id="taught-heading" className="text-sm font-semibold text-ink">
+      <h3 id="taught-heading" className="text-body font-semibold text-ink">
         Rules you taught
       </h3>
       <p className="mt-1 text-meta text-ink-muted">
