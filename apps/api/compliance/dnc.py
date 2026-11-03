@@ -819,8 +819,12 @@ async def add_global_numbers(
     }
     fresh = [phone for phone in unique if phone not in existing]
 
+    added = 0
     if fresh:
-        await session.execute(
+        # `added` is the statement's rowcount, for `add_numbers`' reason: two operators
+        # pasting the same regulator list at once both read "nothing suppressed yet", and
+        # `len(fresh)` would let both report the suppressions only one of them made.
+        result = await session.execute(
             text(
                 "INSERT INTO dnc_list (id, tenant_id, phone_e164, scope, source, added_at, "
                 "created_at) VALUES (:id, NULL, :phone, 'global', :source, now(), now()) "
@@ -828,6 +832,7 @@ async def add_global_numbers(
             ),
             [{"id": uuid7(), "phone": phone, "source": source} for phone in fresh],
         )
+        added = rowcount_of(result)
         # D-428(b), and `tenant_id=None` is load-bearing rather than absent: a global
         # entry outranks every tenant's own list, so the recall has to reach every
         # tenant's queue rather than one.
@@ -870,10 +875,10 @@ async def add_global_numbers(
             log.info("dnc_global_cancelled_callbacks", extra={"cancelled": cancelled})
 
     # Counts only (hard rule 6), and no tenant id — there isn't one.
-    log.info("dnc_global_added", extra={"added": len(fresh), "source": source})
+    log.info("dnc_global_added", extra={"added": added, "source": source})
     return AddResult(
-        added=len(fresh),
-        already_suppressed=len(unique) - len(fresh),
+        added=added,
+        already_suppressed=len(unique) - added,
         malformed=malformed,
     )
 

@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import uuid
 
+from apps.api.compliance.dnc_recall import DNC_RECALL_JOB, RECALL_CAUSE_CONSENT
 from apps.api.compliance.models import CALLBACK_CONSENT_WITHDRAWN_REASON
 from apps.api.db.session import tenant_session
 from apps.api.ingest.routes import SECRET_HEADER
@@ -96,6 +97,43 @@ async def test_it_stops_only_the_person_who_declined() -> None:
 
     assert (await _row(tenant_id, theirs))["status"] == "cancelled"
     assert (await _row(tenant_id, other))["status"] == "scheduled"
+
+
+async def _recalls_queued(tenant_id: uuid.UUID) -> list[dict]:
+    async with tenant_session(tenant_id) as session:
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT payload FROM outbox_messages WHERE job = :job "
+                    "AND payload->>'tenant_id' = :t"
+                ),
+                {"job": DNC_RECALL_JOB, "t": str(tenant_id)},
+            )
+        ).all()
+    return [dict(row[0]) for row in rows]
+
+
+async def test_a_form_decline_recalls_dials_already_queued_at_the_platform() -> None:
+    """The gate stops the next dial; a dial a campaign already handed to the voice
+    platform is only stopped by the recall, as for a withdrawal recorded through the
+    consent route."""
+    tenant_id, _agent_id, webhook_id = await _tenant_with_ingest(mapping=_CONSENT_MAPPING)
+    phone = "+919876540006"
+
+    await _submit(webhook_id, phone=phone, agreed="false")
+
+    queued = await _recalls_queued(tenant_id)
+    assert len(queued) == 1, "a form decline left no recall for a dial already queued"
+    assert queued[0]["phones"] == [phone]
+    assert queued[0]["cause"] == RECALL_CAUSE_CONSENT
+
+
+async def test_an_affirmed_form_recalls_nothing() -> None:
+    tenant_id, _agent_id, webhook_id = await _tenant_with_ingest(mapping=_CONSENT_MAPPING)
+
+    await _submit(webhook_id, phone="+919876540007", agreed="true")
+
+    assert await _recalls_queued(tenant_id) == []
 
 
 async def test_a_dial_already_in_flight_is_left_alone() -> None:
