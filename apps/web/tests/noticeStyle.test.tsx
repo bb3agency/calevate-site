@@ -30,7 +30,7 @@ function classesUnder(root: Element): string[] {
 }
 
 describe("NoticeBox", () => {
-  const tones: NoticeTone[] = ["ok", "warn", "stop", "neutral"];
+  const tones: NoticeTone[] = ["ok", "info", "warn", "stop", "neutral"];
 
   it.each(tones)("is a tone rule on white with ink text, never a tinted card (%s)", (tone) => {
     const { container } = render(

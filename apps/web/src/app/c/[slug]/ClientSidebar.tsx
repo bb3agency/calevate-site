@@ -21,6 +21,7 @@ import {
 import { Avatar } from "@/components/ui";
 import { clientAuthn, CLIENT_ACCOUNT_PATH, CLIENT_SIGN_IN_PATH } from "@/lib/authn/clientAuthn";
 import { useAgreementsReadiness } from "@/lib/api/agreements";
+import { useAttention } from "@/lib/api/attention";
 import { useMe } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
 import { clientNavigation, type NavGroup, type NavItem } from "@/lib/clientNav";
@@ -43,6 +44,12 @@ export function currentItem(groups: NavGroup[], pathname: string): NavItem | und
   );
 }
 
+/** A badge's fill: the text tokens, so the white count on them keeps 4.5:1. */
+const BADGE_FILL: Record<NonNullable<NavItem["badgeTone"]>, string> = {
+  warn: "bg-warn",
+  stop: "bg-danger",
+};
+
 export function ClientSidebar({
   slug,
   isMobileOpen,
@@ -63,10 +70,16 @@ export function ClientSidebar({
   // list can disagree with the gate that refuses the dial.
   const readiness = useAgreementsReadiness(session);
   const outstanding = readiness.data?.outstanding_documents;
+  // The header bell's own query (same key), so the queue's count costs no request here.
+  const waiting = useAttention(session).data?.total;
   const groups = clientNavigation(slug).map((group) => ({
     ...group,
-    items: group.items.map((item) =>
-      item.href.endsWith("/agreements") ? { ...item, badge: outstanding } : item,
+    items: group.items.map((item): NavItem =>
+      item.href.endsWith("/agreements")
+        ? { ...item, badge: outstanding, badgeTone: "stop" }
+        : item.href.endsWith("/attention")
+          ? { ...item, badge: waiting, badgeTone: "warn" }
+          : item,
     ),
   }));
   // The SAME entry the header names — see `currentItem`. Identity comparison rather than
@@ -92,7 +105,19 @@ export function ClientSidebar({
             : "text-ink-muted hover:bg-ink/[0.04] hover:text-ink"
         }`}
       >
-        <Icon className={`h-4 w-4 shrink-0 ${active ? "text-brand" : "text-ink-faint"}`} />
+        <span className="relative flex shrink-0">
+          <Icon className={`h-4 w-4 shrink-0 ${active ? "text-brand" : "text-ink-faint"}`} />
+          {/* The collapsed rail fades the count out with the label, so the icon keeps a
+              dot in the badge's colour: the rail still says something is waiting. */}
+          {item.badge !== undefined && item.badge > 0 && (
+            <span
+              aria-hidden
+              className={`absolute -right-1 -top-1 size-2 rounded-full ring-2 ring-surface ${BADGE_FILL[item.badgeTone ?? "stop"]} ${
+                isCollapsed ? "opacity-0 lg:opacity-100" : "opacity-0"
+              }`}
+            />
+          )}
+        </span>
         {/* MOUNTED IN BOTH STATES, faded and clipped rather than removed — see
             `components/sidebarCollapse.tsx`. It used to be `{!isCollapsed && …}`, which
             both popped (the label vanished a frame before anything moved) and took all 21
@@ -105,7 +130,7 @@ export function ClientSidebar({
         {item.badge !== undefined && item.badge > 0 && (
           <span
             aria-label={`${item.badge} outstanding`}
-            className={`flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-danger px-1.5 text-[10px] font-bold text-white ${sidebarFadeClass(
+            className={`flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[10px] font-bold text-white ${BADGE_FILL[item.badgeTone ?? "stop"]} ${sidebarFadeClass(
               isCollapsed,
             )}`}
           >

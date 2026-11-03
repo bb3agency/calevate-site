@@ -20,6 +20,12 @@ export type DonutSegment = {
   value: number;
   /** Exact text for the legend and table (money via `formatINR`); defaults to the count. */
   display?: string;
+  /**
+   * A CSS colour for a part whose MEANING has a colour (a caller who sounded upset is the
+   * console's red, wherever it ranks), instead of the series slot its rank would give it.
+   * Leave it out for parts that are only categories.
+   */
+  color?: string;
 };
 
 export type DonutChartProps = ChartStateProps & {
@@ -103,7 +109,7 @@ export function DonutChart({
                   cy={size / 2}
                   r={r}
                   fill="none"
-                  stroke={seriesColor(i)}
+                  stroke={s.color ?? seriesColor(i)}
                   strokeWidth={hover === i ? stroke + 4 : stroke}
                   strokeDasharray={`${dash} ${circumference - dash}`}
                   strokeDashoffset={-offset}
@@ -126,7 +132,7 @@ export function DonutChart({
         <ul className="min-w-0 grow basis-48 space-y-1.5">
           {parts.map((s, i) => (
             <li key={s.label} className="flex items-center gap-2 text-meta" onPointerEnter={() => setHover(i)} onPointerLeave={() => setHover(null)}>
-              <span aria-hidden className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: seriesColor(i) }} />
+              <span aria-hidden className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: s.color ?? seriesColor(i) }} />
               <span className="min-w-0 flex-1 break-words text-ink">{s.label}</span>
               <span className="tabular-nums text-ink">{text(s)}</span>
               <span className="w-10 text-right tabular-nums text-ink-muted">{share(s.value, total)}</span>

@@ -15,10 +15,11 @@ import { JobProgress } from "../JobProgress";
 import { PlanCard } from "../PlanCard";
 
 const STATUS: Record<string, { words: string; tone: NoticeTone }> = {
-  queued: { words: "Starting", tone: "neutral" },
-  running: { words: "Working", tone: "ok" },
-  done: { words: "Finished", tone: "neutral" },
-  failed: { words: "Stopped", tone: "warn" },
+  // Moving is blue, finished green, failed red: the same reading as the panel's task card.
+  queued: { words: "Starting", tone: "info" },
+  running: { words: "Working", tone: "info" },
+  done: { words: "Finished", tone: "ok" },
+  failed: { words: "Stopped", tone: "stop" },
   cancelled: { words: "Cancelled", tone: "neutral" },
 };
 

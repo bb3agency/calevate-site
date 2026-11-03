@@ -35,10 +35,13 @@ import { currentItem } from "./ClientSidebar";
 import { HOME } from "./setup/_ui/copy";
 import { TrialChip, trialView } from "./TrialBanner";
 
-/** Failures read red, things slowing down read amber, news and good news stay neutral. */
+/**
+ * Failures read red, things slowing down read amber, good news green and news blue, so a
+ * glance down the bell's list sorts "done" from "needs you" before any title is read.
+ */
 const TONE: Record<Notification["tone"], NotificationItem["tone"]> = {
-  info: "default",
-  success: "default",
+  info: "info",
+  success: "success",
   warning: "warn",
   critical: "danger",
 };

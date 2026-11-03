@@ -3,7 +3,7 @@
 import { useId, useState } from "react";
 import { ArrowRight, Check, ChevronDown, CircleAlert, CircleHelp } from "lucide-react";
 
-import { NOTICE_BAR, SECONDARY_BUTTON_SM } from "@/components/ui";
+import { NOTICE_BAR, SECONDARY_BUTTON_SM, TONE_INK } from "@/components/ui";
 
 import type { CopilotCheck, CopilotCheckFix, CopilotDiagnosis } from "@/lib/copilot/types";
 
@@ -114,7 +114,7 @@ function CheckRow({ check }: { check: CopilotCheck }) {
       <span className="flex items-center gap-1.5 text-ink">
         <Icon
           aria-hidden
-          className={`h-3.5 w-3.5 shrink-0 ${check.status === "problem" ? "text-chart-warn" : "text-ink-faint"}`}
+          className={`h-3.5 w-3.5 shrink-0 ${TONE_INK[check.status === "problem" ? "warn" : check.status === "ok" ? "ok" : "neutral"]}`}
         />
         <span className="sr-only">{STATUS_WORDS[check.status]}: </span>
         {check.label}

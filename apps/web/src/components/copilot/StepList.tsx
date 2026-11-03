@@ -3,6 +3,7 @@
 import { useId, useState } from "react";
 import { Check, ChevronDown, CircleMinus, Loader2, RotateCcw } from "lucide-react";
 
+import { TONE_INK } from "@/components/ui";
 import type { CopilotStep } from "@/lib/copilot/types";
 
 /**
@@ -78,10 +79,12 @@ export function StepList({ steps, answer = "" }: { steps: CopilotStep[]; answer?
         onClick={() => setOpen((value) => !value)}
         className="press inline-flex items-center gap-1.5 rounded-sm hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
       >
+        {/* The summary's glyph carries the outcome's colour so a reader sees "something
+            did not finish" without opening the list; the steps inside stay quiet. */}
         {problems > 0 ? (
-          <CircleMinus aria-hidden className="h-3.5 w-3.5 text-ink-faint" />
+          <CircleMinus aria-hidden className={`h-3.5 w-3.5 ${TONE_INK.warn}`} />
         ) : (
-          <Check aria-hidden className="h-3.5 w-3.5 text-ink-faint" />
+          <Check aria-hidden className={`h-3.5 w-3.5 ${TONE_INK.ok}`} />
         )}
         {summary}
         <ChevronDown aria-hidden className={`h-3.5 w-3.5 transition-transform duration-(--duration-fast) ${open ? "rotate-180" : ""}`} />

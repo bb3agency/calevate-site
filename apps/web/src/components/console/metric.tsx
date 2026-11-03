@@ -2,6 +2,9 @@
 
 import type { ReactNode } from "react";
 
+import type { NoticeTone } from "@/components/ui";
+
+import { StatusPill } from "./statusPill";
 import { FlashValue } from "./valueFlash";
 
 const VALUE_TONES = {
@@ -42,6 +45,7 @@ export function Metric({
   flashValue,
   hint,
   tone = "default",
+  status,
   delta,
   trend,
   className = "",
@@ -51,6 +55,12 @@ export function Metric({
   flashValue?: string | null;
   hint?: ReactNode;
   tone?: keyof typeof VALUE_TONES;
+  /**
+   * The figure's health in a word or two beside it ("Running low", "Healthy"): the
+   * state a skimming reader takes from the tile before the number, as a dot and a word
+   * rather than a tinted card, so it reads without colour.
+   */
+  status?: { tone: NoticeTone; label: string };
   delta?: MetricDelta;
   /** A `Sparkline` (or any small figure) beside the value. */
   trend?: ReactNode;
@@ -73,6 +83,7 @@ export function Metric({
           {compared === undefined ? value : <FlashValue value={compared}>{value}</FlashValue>}
         </p>
         {trend ? <div className="mb-1.5 shrink-0">{trend}</div> : null}
+        {status ? <StatusPill tone={status.tone} className="mb-1.5">{status.label}</StatusPill> : null}
       </div>
       {delta ? (
         <p
