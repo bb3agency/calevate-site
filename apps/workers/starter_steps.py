@@ -41,6 +41,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.crm import assist as crm_assist
 from apps.api.db.session import tenant_session
+from apps.api.tenancy.business_copy import screen_text_problems
 from apps.workers.lead_fields_draft import business_context
 from apps.workers.script_assist import JsonAnswer, ask_json
 
@@ -95,14 +96,19 @@ def _schema() -> dict[str, Any]:
 
 
 def plans_from_model(raw: dict[str, Any], *, vertical: str | None) -> dict[str, Plan] | None:
-    """Every job's plan, cleaned; None unless all of them fit their job's shape, so the
-    ladder's next leg gets its chance rather than half a set being stored."""
+    """Every job's plan, cleaned; None unless all of them fit their job's shape and keep the
+    rules of text a client reads (`business_copy.screen_text_problems`), so the ladder's next
+    leg gets its chance rather than half a set, or a broken one, being stored."""
     trade = vertical_of(vertical)
     plans: dict[str, Plan] = {}
     for job in STARTER_JOBS:
         plan = clean_plan(raw.get(job), steps=len(CATALOGUE[(trade, job)].steps))
         if plan is None:
             return None
+        for i, step in enumerate(plan):
+            for part, value in (("title", step.title), ("focus", step.focus)):
+                if screen_text_problems(f"{job}.{i}.{part}", value, clinic=trade == "clinic"):
+                    return None
         plans[job] = plan
     return plans
 

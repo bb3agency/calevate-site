@@ -254,6 +254,22 @@ def _strings(copy: GeneratedCopy) -> list[tuple[str, str, bool]]:
     return out
 
 
+def screen_text_problems(path: str, value: str, *, clinic: bool) -> list[str]:
+    """The rules every AI-written string a client reads keeps, whatever feature wrote it: no
+    markdown or emoji, no provider (D-679), and medical words only for a clinic (D-731).
+    Names the path and the rule, never the text (hard rule 6)."""
+    problems: list[str] = []
+    if _MARKDOWN.search(value):
+        problems.append(f"{path}: no markdown, bullets or symbols")
+    if _EMOJI.search(value):
+        problems.append(f"{path}: no emoji")
+    if provider_words(value):
+        problems.append(f"{path}: names a technology company")
+    if not clinic and CLINIC_WORDS.search(value):
+        problems.append(f"{path}: medical words, and this business is of another type")
+    return problems
+
+
 def copy_problems(copy: GeneratedCopy, *, clinic: bool, language: str | None = None) -> list[str]:
     """Every rule a string breaks, as `path: rule`. Names paths, rules and the spoken-style
     list's own words (an example line's textbook words, in `language`), never the text,
@@ -266,14 +282,7 @@ def copy_problems(copy: GeneratedCopy, *, clinic: bool, language: str | None = N
                 problems.append(f"{path}: two rules, one per line, nothing else")
         elif len(lines) > 1:
             problems.append(f"{path}: one line, no line breaks")
-        if _MARKDOWN.search(value):
-            problems.append(f"{path}: no markdown, bullets or symbols")
-        if _EMOJI.search(value):
-            problems.append(f"{path}: no emoji")
-        if provider_words(value):
-            problems.append(f"{path}: names a technology company")
-        if not clinic and CLINIC_WORDS.search(value):
-            problems.append(f"{path}: medical words, and this business is of another type")
+        problems += screen_text_problems(path, value, clinic=clinic)
         if spoken and (worded := textbook_problem(path, value, language)):
             problems.append(worded)
         if spoken and _NOT_SPOKEN.search(value):
@@ -412,4 +421,5 @@ __all__ = [
     "provider_words",
     "queue_generation",
     "read_state",
+    "screen_text_problems",
 ]

@@ -36,7 +36,7 @@ COUNTS = starters.JOB_STEP_COUNTS
 
 def _raw(job: str, prefix: str = "Step") -> list[dict[str, str]]:
     return [
-        {"title": f"{prefix} {i} of {job}", "focus": f"focus {i}"}
+        {"title": f"{prefix} {i} of {job.replace('_', ' ')}", "focus": f"focus {i}"}
         for i in range(1, COUNTS[job] + 1)
     ]
 
@@ -94,6 +94,15 @@ def test_the_model_answer_is_all_jobs_or_none() -> None:
     partial = _all_raw()
     partial["call_leads"] = partial["call_leads"][:-1]
     assert worker.plans_from_model(partial, vertical=None) is None
+    # The rules of every AI-written line a client reads: no provider, no medical words
+    # outside a clinic, no markdown.
+    for broken in ("Ask what Gemini thinks", "Book the doctor", "**Close**"):
+        bad = _all_raw()
+        bad["answer_calls"][0]["title"] = broken
+        assert worker.plans_from_model(bad, vertical=None) is None
+    medical = _all_raw()
+    medical["answer_calls"][0]["title"] = "Book the doctor"
+    assert worker.plans_from_model(medical, vertical="clinic") is not None
 
 
 async def _services(tenant_id: uuid.UUID, services: str) -> None:
