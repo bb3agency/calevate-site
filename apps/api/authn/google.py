@@ -512,6 +512,11 @@ async def finish(
                 if raced is None:
                     raise _google_refused()
                 subject_id = raced.subject_id
+                # The racing row may be an unproved one (an invitation redeemed with a
+                # password in the gap), so it gets the reclaim the `existing` arm gives.
+                if raced.email_verified_at is None:
+                    await _reclaim_unproved(subject_id, at)
+                    reclaimed = True
                 linked = True
             else:
                 created = True
