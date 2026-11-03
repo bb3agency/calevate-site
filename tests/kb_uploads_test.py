@@ -574,6 +574,7 @@ async def test_removing_an_upload_withdraws_the_vendors_copy_and_then_the_bytes(
         await uploads.remove_upload(
             session, tenant_id=tenant_id, upload_id=uuid.UUID(str(row["id"]))
         )
+    await _run_object_deletion(row["id"])
 
     async with tenant_session(tenant_id) as session:
         assert (
@@ -600,6 +601,69 @@ async def test_removing_an_upload_withdraws_the_vendors_copy_and_then_the_bytes(
     # none of the client's words. What must be gone is everything under the upload prefix.
     leftover = [key for key in s3.objects if key.startswith(f"{KB_UPLOAD_PREFIX}/")]
     assert leftover == [], "the client's document is still in the bucket"
+
+
+def test_a_links_default_name_never_carries_its_userinfo() -> None:
+    """The default name is a label on screens and the platform's title for the page, so a
+    `user:password@` in the pasted address must not become part of it."""
+    name = uploads._name_from_url("https://shop:hunter2@menu.example/today")
+    assert name == "menu.example today"
+    assert "hunter2" not in name
+
+
+async def _run_object_deletion(upload_id: object) -> None:
+    """Run the object deletion `remove_upload` queued, as the outbox relay would."""
+    async with untenanted_session() as session:
+        payload = (
+            await session.execute(
+                text(
+                    "SELECT payload FROM outbox_messages WHERE job = :job "
+                    "AND payload->>'upload_id' = :u"
+                ),
+                {"job": uploads.DELETE_KB_UPLOAD_OBJECTS_JOB, "u": str(upload_id)},
+            )
+        ).scalar_one()
+    await kb_ingest.delete_kb_upload_objects({"job_try": 1}, dict(payload))
+
+
+async def test_removing_an_upload_touches_no_object_before_the_rows_commit(
+    s3: FakeS3, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An object store has no rollback. Deleting the bytes inside the removal's transaction
+    meant a storage fault rolled back our rows after the vendor's copy was withdrawn (the
+    screen calling live a document no agent holds), and a failure after the deletion left
+    rows naming objects that were gone. The removal now touches no object at all; the
+    deletion is queued with the rows and runs after they commit."""
+    from apps.workers import storage
+
+    tenant_id, agent_id = await _tenant_with_published_agent()
+    row = await _upload_pdf(tenant_id, agent_id, auto_approve=True)
+    async with tenant_session(tenant_id) as session:
+        await service.publish_source(
+            session, tenant_id=tenant_id, source_id=uuid.UUID(str(row["source_id"]))
+        )
+
+    async def storage_down(keys: object) -> int:
+        raise storage.StorageUnavailableError("down")
+
+    working = storage.delete_objects
+    monkeypatch.setattr(storage, "delete_objects", storage_down)
+    async with tenant_session(tenant_id) as session:
+        await uploads.remove_upload(
+            session, tenant_id=tenant_id, upload_id=uuid.UUID(str(row["id"]))
+        )
+    async with tenant_session(tenant_id) as session:
+        assert (
+            await session.execute(
+                text("SELECT count(*) FROM kb_sources WHERE id = :s"), {"s": row["source_id"]}
+            )
+        ).scalar() == 0, "a storage fault undid a removal the vendor had already applied"
+    assert any(key.startswith(f"{KB_UPLOAD_PREFIX}/") for key in s3.objects)
+
+    monkeypatch.setattr(storage, "delete_objects", working)
+    await _run_object_deletion(row["id"])
+    leftover = [key for key in s3.objects if key.startswith(f"{KB_UPLOAD_PREFIX}/")]
+    assert leftover == [], "the queued deletion did not remove the client's document"
 
 
 # --- 7. The sweep re-drives exactly what the model says is retryable -----------------

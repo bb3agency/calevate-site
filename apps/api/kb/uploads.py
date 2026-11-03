@@ -87,6 +87,9 @@ log = get_logger(__name__)
 #: does not answer to it succeeds, DLQs and reports green everywhere.
 INGEST_KB_SOURCE_JOB: Final = "ingest_kb_source"
 
+#: Deletes a removed upload's objects once the removal has committed (`remove_upload`).
+DELETE_KB_UPLOAD_OBJECTS_JOB: Final = "delete_kb_upload_objects"
+
 #: The largest list this module will return in one response (D-302). A client mints these
 #: rows one per document they upload and nothing prunes them, so the length is
 #: caller-controlled — `list_sources`' ceiling, for its reason and with its number.
@@ -659,7 +662,9 @@ def _name_from_url(url: str) -> str:
     host is always in it.
     """
     without_scheme = url.split("://", 1)[-1]
-    host = without_scheme.split("/", 1)[0]
+    # Without any `user:password@` userinfo: the name is a label on two screens and the
+    # title the voice platform files the page under, and a credential is neither.
+    host = without_scheme.split("/", 1)[0].rsplit("@", 1)[-1]
     tail = without_scheme.rstrip("/").rsplit("/", 1)[-1] if "/" in without_scheme else ""
     tail = tail.split("?", 1)[0].split("#", 1)[0]
     return f"{host} {tail}".strip() if tail and tail != host else host
@@ -847,11 +852,14 @@ async def remove_upload(session: AsyncSession, *, tenant_id: UUID, upload_id: UU
     it under a name this module does not know is removed too. A deletion that removes only
     the keys it remembers is how a client's document survives its own deletion.
 
-    THE OBJECTS GO LAST AND OUTSIDE THE TRANSACTION, which is deliberate: an object store
-    has no rollback, so a failure after the DELETE would leave objects with no rows (a
-    prefix sweep still reaches them) while a failure before it would leave rows with no
-    objects (a client sees a document they cannot open). The first is recoverable and
-    invisible; the second is a broken screen.
+    THE OBJECTS GO AFTER THE COMMIT, through the outbox (`DELETE_KB_UPLOAD_OBJECTS_JOB`).
+    An object store has no rollback, so deleting them here would run before this
+    transaction commits: a later failure (the audit row, the commit itself) would leave
+    rows naming objects that are gone, a document the client sees and cannot open. And a
+    storage outage raising here would roll back our rows after the vendor's copy was
+    already withdrawn, so the screen would go on calling live a document no agent holds.
+    Queued in this transaction, the deletion happens exactly when the rows are gone, and a
+    storage fault is retried by the job rather than undoing the withdrawal.
     """
     row = (
         await session.execute(
@@ -865,18 +873,16 @@ async def remove_upload(session: AsyncSession, *, tenant_id: UUID, upload_id: UU
 
     await withdraw_source(session, tenant_id=tenant_id, source_id=source_id)
     await session.execute(text("DELETE FROM kb_sources WHERE id = :sid"), {"sid": source_id})
-
-    from apps.workers.storage import delete_objects, kb_upload_prefix, keys_under
-
-    prefix = kb_upload_prefix(tenant_id=tenant_id, upload_id=upload_id)
-    removed = await delete_objects(await keys_under(prefix))
-    log.info(
-        "kb_upload_removed",
-        extra={"upload_id": str(upload_id), "source_id": str(source_id), "objects": removed},
+    await enqueue_outbox(
+        session,
+        job=DELETE_KB_UPLOAD_OBJECTS_JOB,
+        payload={"tenant_id": str(tenant_id), "upload_id": str(upload_id)},
     )
+    log.info("kb_upload_removed", extra={"upload_id": str(upload_id), "source_id": str(source_id)})
 
 
 __all__ = [
+    "DELETE_KB_UPLOAD_OBJECTS_JOB",
     "INGEST_KB_SOURCE_JOB",
     "MAX_UPLOADS_PAGE",
     "MAX_UPLOAD_BYTES",

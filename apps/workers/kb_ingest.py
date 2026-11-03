@@ -94,7 +94,7 @@ from apps.workers.document_ocr import OcrImage, PaidOcrUnusableError, ocr_images
 from apps.workers.document_pictures import read_pictures
 from apps.workers.document_text import assemble, read_document
 from apps.workers.fleet_walk import WalkCursor
-from apps.workers.storage import read_kb_object
+from apps.workers.storage import delete_objects, kb_upload_prefix, keys_under, read_kb_object
 
 log = get_logger(__name__)
 
@@ -546,6 +546,21 @@ async def ingest_kb_source(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
         return "superseded"
     log.info("kb_ingest_published", extra={"source_id": str(source_id), "version": version})
     return f"published:v{version}"
+
+
+async def delete_kb_upload_objects(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
+    """Delete every object of one removed upload, by its prefix (`uploads.remove_upload`).
+
+    Enqueued through the outbox in the removal's transaction, so it runs only once the rows
+    are gone. A storage fault raises for arq to retry; a repeat lists nothing and is a no-op.
+    """
+    tenant_id = UUID(str(payload["tenant_id"]))
+    upload_id = UUID(str(payload["upload_id"]))
+    removed = await delete_objects(
+        await keys_under(kb_upload_prefix(tenant_id=tenant_id, upload_id=upload_id))
+    )
+    log.info("kb_upload_objects_deleted", extra={"upload_id": str(upload_id), "objects": removed})
+    return f"deleted:{removed}"
 
 
 async def publish_kb_source(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
@@ -1268,6 +1283,7 @@ __all__ = [
     "RESCRAPE_AFTER",
     "RETRY_STALLED_AFTER",
     "SWEEP_MINUTES",
+    "delete_kb_upload_objects",
     "fetch_page",
     "ingest_kb_source",
     "link_http_client",

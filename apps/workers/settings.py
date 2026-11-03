@@ -231,7 +231,12 @@ from apps.workers.kb_embeddings import EMBED_MINUTES, embed_knowledge_chunks
 from apps.workers.kb_gloss import GLOSS_MINUTES, write_knowledge_glosses
 from apps.workers.kb_index_sync import INDEX_SYNC_MINUTES, sync_knowledge_index
 from apps.workers.kb_ingest import SWEEP_MINUTES as KB_UPLOAD_SWEEP_MINUTES
-from apps.workers.kb_ingest import ingest_kb_source, publish_kb_source, sweep_kb_uploads
+from apps.workers.kb_ingest import (
+    delete_kb_upload_objects,
+    ingest_kb_source,
+    publish_kb_source,
+    sweep_kb_uploads,
+)
 from apps.workers.kb_orphans import ORPHAN_SWEEP_HOUR, ORPHAN_SWEEP_MINUTE, sweep_kb_orphans
 from apps.workers.kb_read import read_kb_upload
 from apps.workers.kb_reconciliation import KB_SWEEP_MINUTES, sweep_kb_drift
@@ -635,6 +640,8 @@ FUNCTIONS: list[Any] = [
         # D-893 L8. Read one saved PDF or link again ("Read it again", the backfill script),
         # enqueued through the OUTBOX (`kb/reading.py`).
         read_kb_upload,
+        # A removed upload's objects, deleted after the removal commits (`kb/uploads.py`).
+        delete_kb_upload_objects,
         # D-538. Queued in the SAME transaction as the closure it announces, so a client
         # is never told about a closure that rolled back and a closure never commits with
         # nobody told. Registered here because an unregistered job name is a DLQ
