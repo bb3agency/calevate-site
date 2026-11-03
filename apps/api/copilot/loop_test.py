@@ -371,6 +371,43 @@ async def test_a_multi_turn_answer_is_metered_as_one_summed_quantity(
     assert spend.usage == chat.TokenUsage(prompt_tokens=250, output_tokens=30)
 
 
+async def test_a_consumer_that_stops_early_can_still_meter_the_completed_turns(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FAILS IF: a browser that closes the panel (or a job cancelled) after a paid turn but
+    before the run's closing `spend` leaves that turn on no ledger (hard rule 7), or a run
+    that finished hands its turns over twice."""
+    refused = json.dumps(
+        {"because": "set the opening time", "items": [{"field_id": "status", "value": "x"}]}
+    )
+    _scripted(
+        monkeypatch,
+        [
+            _turn(arguments=refused, usage=chat.TokenUsage(prompt_tokens=100, output_tokens=10)),
+            _turn(content="Nine.", usage=chat.TokenUsage(prompt_tokens=150, output_tokens=20)),
+        ],
+    )
+    paid = service.PaidTurns()
+    run = service.run_copilot(PAYLOAD, paid=paid)
+    async for event in run:
+        if event.text is not None:
+            break
+    await run.aclose()
+    spend = paid.outstanding()
+    assert spend is not None and spend.unused
+    assert spend.usage == chat.TokenUsage(prompt_tokens=100, output_tokens=10)
+    assert paid.outstanding() is None
+
+    _scripted(
+        monkeypatch,
+        [_turn(content="Nine.", usage=chat.TokenUsage(prompt_tokens=5, output_tokens=1))],
+    )
+    finished = service.PaidTurns()
+    events = [event async for event in service.run_copilot(PAYLOAD, paid=finished)]
+    assert events[-1].spend is not None
+    assert finished.outstanding() is None
+
+
 async def test_one_unreported_turn_records_the_reported_part_marked_incomplete(
     azure_only: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:

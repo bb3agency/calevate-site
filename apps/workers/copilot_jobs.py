@@ -106,6 +106,8 @@ async def run_copilot_job(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     )
     live = await live_state_block(tenant_id, viewer_for(role=str(role), route=job.screen_route))
     spends: list[service.CopilotSpend] = []
+    #: The turns completed before a cancellation stopped the run short of its `spend` event.
+    paid = service.PaidTurns()
     answer: list[str] = []
     status, code = "done", None
     try:
@@ -127,6 +129,7 @@ async def run_copilot_job(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
             seed=f"copilot-job:{job_id}",
             ip=None,
             limits=service.job_limits(job_id),
+            paid=paid,
         ):
             entries: list[dict[str, Any]] = []
             if event.text is not None:
@@ -165,6 +168,8 @@ async def run_copilot_job(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     finally:
         # THE METER, on every way out — `copilot/routes.py`'s rule: a completed model turn is
         # money spent whether or not the job finished.
+        if (unhanded := paid.outstanding()) is not None:
+            spends.append(unhanded)
         if spends:
             async with tenant_session(tenant_id) as session:
                 for spent in spends:

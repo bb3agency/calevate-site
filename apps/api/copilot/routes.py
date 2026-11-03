@@ -460,6 +460,8 @@ async def ask_copilot(
     # because `record_ai_assist_usage`'s idempotency is keyed on it and two spends sharing
     # one ref would silently collapse into the first.
     spends: list[service.CopilotSpend] = []
+    #: The turns completed before a disconnect stopped the run short of its `spend` event.
+    paid = service.PaidTurns()
     filled: tuple[str, ...] = ()
     proposed: str | None = None
     #: The proposal card as one line, for the transcript when the answer had no text.
@@ -519,6 +521,8 @@ async def ask_copilot(
         if recorded:
             return
         recorded = True
+        if (unhanded := paid.outstanding()) is not None:
+            spends.append(unhanded)
         # An answer that was only a proposal card has no words of its own; its card's title
         # and summary stand in, so a reloaded conversation shows what Pip did instead of a
         # question with no reply (which reads as the question having been sent twice).
@@ -744,6 +748,7 @@ async def ask_copilot(
             allow_azure=get_settings().copilot_azure_fallback,
             # What the attached files contribute, read above for this one call (D-781).
             attached=attached,
+            paid=paid,
             # WHO IS ASKING, for the read tools — the RETRIEVAL PORT INCLUDED. The tenant
             # id is what scopes the RLS session each tool opens for itself AND what scopes
             # the retrieval cache's keyspace; the role is what `tools.run_read_tool` judges
