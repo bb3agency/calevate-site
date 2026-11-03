@@ -24,22 +24,28 @@ import { asText, noFill } from "@/lib/copilot/types";
 import { DIRECTIONS, DirectionPicker } from "../DirectionChoice";
 import { CallCapField, ComplianceFloor, callCapProblem } from "./BuildAgentForm";
 import { CreatedPanel } from "./CreatedPanel";
-import { StartFromJob } from "./StartFromJob";
+import { NewAgentSteps } from "./NewAgentSteps";
+import { NewAgentRail } from "./setupStep";
+import { StartFromJob, type CreatedAgent } from "./StartFromJob";
 import { NEW_AGENT } from "../../setup/_ui/copy";
 
 /**
- * NEW AGENT: PICK A JOB, GET A READY AGENT (founder, REDESIGN-2). The screen opens on the
- * two jobs (`StartFromJob`); the agent it makes already has a script, an opening line and
- * the details it captures, for the owner to review. Starting from nothing is one quiet link
+ * NEW AGENT IN FOUR STEPS (founder, 3 Nov 2026): Job, Voice, Script, Notes, then a finish
+ * screen. Step 1 (`StartFromJob`) creates the agent, so the steps after it edit an existing
+ * draft and each can be skipped (`NewAgentSteps`). Starting from nothing is one quiet link
  * away and is the flow below, unchanged, because it is the only way to make an agent that
  * does both jobs or to set a call limit up front.
  */
 export function BuildAgent({ slug }: { slug: string }) {
   const [blank, setBlank] = useState(false);
-  return blank ? (
-    <BlankAgentFlow slug={slug} onBack={() => setBlank(false)} />
-  ) : (
-    <StartFromJob slug={slug} onBlank={() => setBlank(true)} />
+  const [created, setCreated] = useState<CreatedAgent | null>(null);
+  if (blank) return <BlankAgentFlow slug={slug} onBack={() => setBlank(false)} />;
+  if (created) return <NewAgentSteps slug={slug} agent={created} />;
+  return (
+    <div className="space-y-6">
+      <NewAgentRail current={0} />
+      <StartFromJob slug={slug} onBlank={() => setBlank(true)} onCreated={setCreated} />
+    </div>
   );
 }
 

@@ -99,6 +99,7 @@ export function EngineVoiceList({
   previewSession,
   audience,
   held = null,
+  rungNote,
 }: {
   catalogue: UseQueryResult<EngineCatalogue>;
   /** The agent's own voice when the list does not offer it (`useHeldVoice`), shown selected. */
@@ -112,6 +113,8 @@ export function EngineVoiceList({
   control?: SaveControl;
   /** The session the preview clips are read through: the reader's own, or view-as. */
   previewSession?: Session;
+  /** One line under a rung's heading, such as this account's rate for it. */
+  rungNote?: (rung: "clear" | "studio") => ReactNode;
 }) {
   const [picked, setPicked] = useState<string | null>(null);
   const loaded = loadedState(catalogue, "voices");
@@ -178,6 +181,7 @@ export function EngineVoiceList({
                 {rung.label} voices
               </h3>
               <p className="text-meta text-ink-muted">{rung.blurb}</p>
+              {rungNote?.(rung.value)}
               {studioClosed && (
                 <p className="mt-2 text-body text-ink-muted">
                   {data.studio_note ?? "Studio voices are not available on this account yet."}
@@ -595,7 +599,18 @@ export function TenantEngineModels({
 }
 
 /** The voices, through a client's own session. A client never sees the models (D-679). */
-export function ClientEngineVoices({ session, agentId }: { session: Session; agentId: string }) {
+export function ClientEngineVoices({
+  session,
+  agentId,
+  onSaved,
+  rungNote,
+}: {
+  session: Session;
+  agentId: string;
+  /** Runs after a voice is saved: the new-agent flow moves on to its next step. */
+  onSaved?: () => void;
+  rungNote?: (rung: "clear" | "studio") => ReactNode;
+}) {
   const agent = useAgent(session, agentId);
   const save = useUpdateAgent(session, agentId);
   const feedback = useActionFeedback(save, { errorDisplay: "inline", successToast: "Voice saved" });
@@ -608,9 +623,10 @@ export function ClientEngineVoices({ session, agentId }: { session: Session; age
       held={held}
       voiceId={voiceId}
       modelId={agent.data?.engine_model_id ?? null}
-      control={agent.data ? saveControl(save, feedback.status, null, "engine_voice_id") : undefined}
+      control={agent.data ? saveControl(save, feedback.status, null, "engine_voice_id", onSaved) : undefined}
       previewSession={session}
       audience="client"
+      rungNote={rungNote}
     />
   );
 }
