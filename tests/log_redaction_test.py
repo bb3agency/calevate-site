@@ -294,6 +294,53 @@ def test_a_traceback_keeps_its_frames_and_withholds_every_message() -> None:
     # why the value under test is held in a variable the way real code holds one.
 
 
+def test_an_indented_message_line_is_withheld_with_its_type_line() -> None:
+    """pydantic puts `input_value='…'` on an INDENTED line under the type line, and a
+    `__notes__` entry is a bare word at column 0; neither is a frame."""
+    from pydantic import BaseModel
+
+    class Lead(BaseModel):
+        age: int
+
+    # Held in variables: CPython renders each frame's SOURCE line, so a literal would leak
+    # through the frames this test means to keep.
+    spoken, note = "Priya Kumar", "Priya"
+    try:
+        try:
+            Lead(age=spoken)
+        except ValueError as exc:
+            exc.add_note(note)
+            raise
+    except ValueError:
+        rendered = redact_exception("".join(traceback.format_exception(*sys.exc_info())))
+
+    assert "Priya" not in rendered
+    assert "input_value" not in rendered
+    assert rendered.rstrip().endswith("ValidationError: [message withheld]")
+    assert any(line.lstrip().startswith('File "') for line in rendered.splitlines())
+
+
+def test_an_exception_group_withholds_every_member_message() -> None:
+    name = "Priya"
+
+    def inner() -> None:
+        raise ValueError(name)
+
+    try:
+        try:
+            inner()
+        except ValueError as first:
+            raise ExceptionGroup(name, [first, KeyError(name)]) from first
+    except ExceptionGroup:
+        rendered = redact_exception("".join(traceback.format_exception(*sys.exc_info())))
+
+    assert "Priya" not in rendered
+    assert "| ValueError: [message withheld]" in rendered
+    assert "| KeyError: [message withheld]" in rendered
+    assert "| ExceptionGroup: [message withheld]" in rendered
+    assert "in inner" in rendered, "the sub-exception's frames still say where"
+
+
 def test_a_runaway_traceback_is_bounded_and_keeps_the_end() -> None:
     """A recursion error renders a thousand identical frames. The cap keeps the head
     (where the request entered) and the TAIL, because the tail is where the exception

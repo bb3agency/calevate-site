@@ -202,8 +202,14 @@ _TRACEBACK_BANNERS = frozenset(
         "Traceback (most recent call last):",
         "During handling of the above exception, another exception occurred:",
         "The above exception was the direct cause of the following exception:",
+        "Exception Group Traceback (most recent call last):",
     }
 )
+#: An exception group's left margin (`  | `, `  + `, nested `    | `), which CPython puts
+#: in front of every line of the group, frames and messages alike.
+_GROUP_MARGIN_RE = re.compile(r"\A(?:[ ]*[|+] )+")
+#: A group's separator between sub-exceptions: `+-+---- 1 ----`, `+---- 2 ----`, `+----`.
+_GROUP_SEPARATOR_RE = re.compile(r"\A[ ]*\+-")
 _DOTTED_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*\Z")
 #: What replaces an exception message everywhere one would otherwise be rendered — the
 #: log traceback here and `observability.scrub_event`'s `exception.values[].value`. One
@@ -244,7 +250,7 @@ def redact_exception(rendered: str) -> str:
     of the `raise` is right there above the withheld message, so `raise ValueError(f"…
     {turn}")` tells the operator exactly what happened without the turn in it.
     """
-    lines = rendered.splitlines()
+    lines = _redact_traceback_lines(rendered.splitlines())
     if len(lines) > _MAX_TRACEBACK_LINES:
         elided = len(lines) - _TRACEBACK_HEAD_LINES - _TRACEBACK_TAIL_LINES
         lines = [
@@ -252,22 +258,43 @@ def redact_exception(rendered: str) -> str:
             f"  …[{elided} traceback lines elided]",
             *lines[-_TRACEBACK_TAIL_LINES:],
         ]
-    kept = (_redact_traceback_line(line) for line in lines)
-    return "\n".join(line for line in kept if line is not None)
+    return "\n".join(lines)
 
 
-def _redact_traceback_line(line: str) -> str | None:
-    """One traceback line, or None for a line that is part of a withheld message."""
-    if not line or line[:1].isspace() or line in _TRACEBACK_BANNERS:
-        return _mask(line)
-    type_name, separator, _message = line.partition(": ")
-    if _DOTTED_NAME_RE.match(type_name):
-        return f"{type_name}: {MESSAGE_WITHHELD}" if separator else type_name
-    # A column-0 line that is not a banner and does not START with a dotted type name is
-    # a continuation of the message above it — SQLAlchemy's `[SQL: …]` block, a
-    # `DETAIL:` line from the server. The type line already says the message was
-    # withheld, so these are dropped rather than annotated one by one.
-    return None
+def _redact_traceback_lines(lines: list[str]) -> list[str]:
+    """The traceback with every exception message dropped, read as a sequence.
+
+    A message is everything from its `Type: …` line to the next banner or group
+    separator, INDENTATION INCLUDED. Judging each line alone by its indent is what let
+    messages through: pydantic renders `input_value='…'` on an indented line under the
+    type line, a `__notes__` entry is a bare word that looks like a type name, and inside
+    an exception group every line, message or frame, sits behind the `  | ` margin.
+    Frames only ever appear before the type line of their own exception, so nothing kept
+    is lost by dropping the rest.
+    """
+    kept: list[str] = []
+    in_message = False
+    for line in lines:
+        margin_match = _GROUP_MARGIN_RE.match(line)
+        margin = margin_match.group(0) if margin_match else ""
+        body = line[len(margin) :]
+        if body in _TRACEBACK_BANNERS or _GROUP_SEPARATOR_RE.match(body):
+            in_message = False
+            kept.append(_mask(line))
+            continue
+        if not body.strip():
+            kept.append(margin.rstrip())
+            continue
+        if in_message:
+            continue
+        if body[:1].isspace():
+            kept.append(_mask(line))
+            continue
+        in_message = True
+        type_name, separator, _message = body.partition(": ")
+        if _DOTTED_NAME_RE.match(type_name):
+            kept.append(f"{margin}{type_name}: {MESSAGE_WITHHELD}" if separator else line)
+    return kept
 
 
 def redact_mapping(data: dict[str, Any], *, depth: int = 0) -> dict[str, Any]:
@@ -413,6 +440,41 @@ class _ArqJobDetailFilter(logging.Filter):
         return True
 
 
+def redact_query(query: str) -> str:
+    """A query string with its parameter NAMES kept and every value withheld.
+
+    Values are withheld rather than masked because the searches that still ride a GET
+    (`?q=` on campaign contacts and the directories, `?f=` facet filters) match a person's
+    name or the last digits of a number, and `redact_text` sees neither: a name is not
+    phone-shaped and a suffix is shorter than its nine-digit floor. The names stay so a
+    reader can still tell which filters a request carried.
+    """
+    names = (part.partition("=")[0] for part in query.split("&") if part)
+    return "&".join(f"{redact_text(name)}={REDACTED}" for name in names)
+
+
+#: uvicorn's access-line template (`protocols/http/{h11,httptools}_impl.py`); the third
+#: argument is the request target, query string included.
+UVICORN_ACCESS_TEMPLATE = '%s - "%s %s HTTP/%s" %d'
+
+
+class _AccessLineQueryFilter(logging.Filter):
+    """Withhold the query-string values from uvicorn's access line (see `redact_query`)."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if (
+            record.msg == UVICORN_ACCESS_TEMPLATE
+            and isinstance(args, tuple)
+            and len(args) == 5
+            and isinstance(args[2], str)
+        ):
+            path, separator, query = args[2].partition("?")
+            if separator:
+                record.args = (args[0], args[1], f"{path}?{redact_query(query)}", *args[3:])
+        return True
+
+
 def configure_logging(level: str = "INFO") -> None:
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(JsonFormatter())
@@ -423,6 +485,9 @@ def configure_logging(level: str = "INFO") -> None:
     for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
         logging.getLogger(name).handlers = [handler]
         logging.getLogger(name).propagate = False
+    access = logging.getLogger("uvicorn.access")
+    if not any(isinstance(f, _AccessLineQueryFilter) for f in access.filters):
+        access.addFilter(_AccessLineQueryFilter())
 
     # The `arq` CLI installs its own plain-text StreamHandler on `arq` before the worker's
     # `startup` runs (`arq.logs.default_log_config`), which printed every job line a second
@@ -461,10 +526,12 @@ __all__ = [
     "MESSAGE_WITHHELD",
     "REDACTED",
     "REDACT_KEYS",
+    "UVICORN_ACCESS_TEMPLATE",
     "configure_logging",
     "get_logger",
     "redact_exception",
     "redact_mapping",
+    "redact_query",
     "redact_text",
     "safe_extra",
 ]
