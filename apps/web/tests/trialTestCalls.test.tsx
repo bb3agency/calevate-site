@@ -101,8 +101,8 @@ describe("the trial in the shell on a test-calls-only trial", () => {
     const text = panel.textContent ?? "";
     expect(text).toContain("10 Oct, 10:58 pm IST");
     expect(text).toContain("26 of 30");
-    expect(text).toContain("Answering calls, campaigns, your own number and business verification open once you add credit.");
-    expect(text).not.toContain("Calls are on us until then");
+    expect(text).toContain("Add credit to open calls in, campaigns, your number and verification.");
+    expect(text).not.toContain("Free until then");
     expect(screen.getByRole("link", { name: "Add credit" }).getAttribute("href")).toBe(CREDITS);
   });
 

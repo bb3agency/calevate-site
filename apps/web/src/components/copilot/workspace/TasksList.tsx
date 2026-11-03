@@ -66,7 +66,7 @@ export function TasksList({
           <EmptyState
             illustration={<EmptySketch kind="chat" />}
             message="No tasks yet."
-            hint="Ask for something bigger than one answer — or set up a routine — and it runs here in the background."
+            hint="Bigger requests and routines run here in the background."
           />
         )}
       </div>

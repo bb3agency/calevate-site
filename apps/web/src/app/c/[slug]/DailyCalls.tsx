@@ -34,7 +34,7 @@ export function DailyCalls({ days }: { days: Dashboard["daily_7d"] }) {
       series={shown.map((cls) => ({ label: cls.label, values: days.map((day) => day[cls.key]) }))}
       stacked
       height={180}
-      empty="No calls in the last 7 days. Each day appears here as it happens."
+      empty="No calls in the last 7 days."
     />
   );
 }

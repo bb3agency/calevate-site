@@ -62,7 +62,7 @@ export function LatestCalls({
         <EmptyState
           illustration={<EmptySketch kind="calls" />}
           message="No calls yet."
-          hint="They appear here a couple of minutes after a call ends."
+          hint="Calls show here a few minutes after they end."
         />
       ) : (
         <DataTable

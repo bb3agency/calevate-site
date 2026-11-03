@@ -226,8 +226,8 @@ export function TrialCallCard({
           <Why label={TRIAL.howItWorks}>
             <p>
               {paid
-                ? "It rings from your agent's own number once it has one, and from a shared Calevate number until then. Test calls are billed like any call."
-                : "Pick an agent and type an Indian number. It rings that number from a shared Calevate number and opens with its usual greeting."}
+                ? "Rings from your agent's number, or a shared one until then. It's billed like any call."
+                : "Pick an agent, type an Indian number. It rings from a shared number with its usual greeting."}
             </p>
             {trial.ends_at && !paid ? <p>Your trial ends {formatIST(trial.ends_at)} IST.</p> : null}
             <p>
@@ -378,7 +378,7 @@ export function TrialCallCard({
             tone="neutral"
             title={TRIAL.goLive}
             action={<RowLink href={creditsHref}>{TRIAL.goLiveAction}</RowLink>}
-            info="Adding credit ends the trial and opens business verification, your own phone number, answering calls and campaigns."
+            info="Ends the trial. Opens verification, your number, calls in and campaigns."
           />
         )}
       </div>

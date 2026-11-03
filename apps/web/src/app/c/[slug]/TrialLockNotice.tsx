@@ -10,7 +10,7 @@ export const TRIAL_LOCK_COPY = {
   numbers: {
     title: "Your own phone number comes after the trial",
     body: "Test calls ring from a shared Calevate number until then.",
-    info: "Add credit, then verify your business, and you can buy a number in your business's name.",
+    info: "Add credit, verify your business, then buy a number in its name.",
   },
   campaigns: {
     title: "Campaigns open once you add credit",
@@ -25,7 +25,7 @@ export const TRIAL_LOCK_COPY = {
   agents: {
     title: "Your agents can place test calls during the trial",
     body: "Answering calls needs your own number, after the trial.",
-    info: "Your own number comes after you add credit and verify your business. Until then, set an agent to place calls and try it from your dashboard.",
+    info: "Add credit and verify your business first. Until then, test an agent that places calls.",
   },
 } as const;
 

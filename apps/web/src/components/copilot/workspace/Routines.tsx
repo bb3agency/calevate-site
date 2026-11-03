@@ -89,7 +89,7 @@ export function Routines({ session }: { session: Session }) {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="max-w-prose text-sm text-ink-muted">
-          Every change a routine would make waits in Approvals for your click.
+          A routine changes nothing until you approve it.
         </p>
         <button type="button" onClick={() => setEditing("new")} className={PRIMARY_BUTTON}>
           <Plus aria-hidden className="h-4 w-4" />
@@ -200,8 +200,7 @@ export function Routines({ session }: { session: Session }) {
           onCancel={() => setDeleting(null)}
           onConfirm={() => remove.mutate(deleting.id, { onSuccess: () => setDeleting(null) })}
         >
-          It stops running. Tasks it already started finish, and what they did stays in the
-          activity log.
+          It stops running. Started tasks finish; the activity log keeps what they did.
         </ConfirmDialog>
       )}
     </div>
@@ -387,8 +386,7 @@ function RoutineEditor({
             <div>
               <dt className="text-ink-faint">What waits for you</dt>
               <dd className="text-ink">
-                Every change it would make, from a lead&apos;s status to a new campaign, waits in
-                Approvals until you approve it. Nothing changes on its own.
+                Every change waits in Approvals for you.
               </dd>
             </div>
           </dl>

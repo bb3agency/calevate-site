@@ -49,7 +49,7 @@ export function ApprovalsInbox({ session }: { session: Session }) {
       <EmptyState
         illustration={<EmptySketch kind="attention" />}
         message="Nothing is waiting for you."
-        hint="When a task or routine needs to call someone, spend money or make a change that can't be undone, it waits here."
+        hint="Calls, spending and changes that can't be undone wait here for you."
       />
       </>
     );

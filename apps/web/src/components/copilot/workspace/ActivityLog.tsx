@@ -73,7 +73,7 @@ export function ActivityLog({ session, realm }: { session: Session; realm: Realm
       <EmptyState
         illustration={<EmptySketch kind="chat" />}
         message={`${ASSISTANT_NAME} hasn't done anything yet.`}
-        hint="Every change it makes appears here, with an Undo while one is possible."
+        hint="Every change shows here, with Undo while possible."
       />
     );
   }

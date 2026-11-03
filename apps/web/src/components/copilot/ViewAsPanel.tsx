@@ -97,12 +97,10 @@ export function ViewAsPanel({
             cannot do — so the sentence had to stop saying "read-only", which is no longer
             true and would have read as a fault rather than as a rule. */}
         <p className="text-xs text-ink-muted">
-          Asking {ASSISTANT_NAME} would spend this client&apos;s own AI allowance, so it is
-          refused inside a view-as session even though the rest of this console works.
+          It would spend this client&apos;s AI allowance, so it is off in a view-as session.
         </p>
         <p className="text-xs text-ink-muted">
-          The client can use it normally on this screen. To ask about platform state, use
-          {ASSISTANT_NAME} in the admin console.
+          For platform questions, use {ASSISTANT_NAME} in the admin console.
         </p>
       </div>
     </div>
