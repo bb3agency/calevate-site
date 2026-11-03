@@ -52,6 +52,7 @@ from apps.api.agents.write_guard import assert_agent_writable
 from apps.api.callbacks.service import RETRY_AFTER, cancel_for_phones
 from apps.api.callbacks.service import book as book_callback
 from apps.api.compliance import service as compliance_service
+from apps.api.compliance.dnc_recall import RECALL_CAUSE_CONSENT, enqueue_dnc_recall
 from apps.api.compliance.models import (
     CALLBACK_CONSENT_WITHDRAWN_REASON,
     INQUIRY_CONSENT_WINDOW_DAYS,
@@ -1105,6 +1106,12 @@ async def _record_dial_consent_declined(
             "'callback', 'declined', 'web_form_optin', now(), now())"
         ),
         {"id": uuid7(), "tid": tenant_id, "phone": phone_e164},
+    )
+    # And a dial already handed to the voice platform (a campaign contact claimed this
+    # tick) is called off, as `consent_routes.record_call` does for the same refusal:
+    # `check_dispatch` only stops the NEXT dial, so without this a queued one still rings.
+    await enqueue_dnc_recall(
+        session, tenant_id=tenant_id, phones=[phone_e164], cause=RECALL_CAUSE_CONSENT
     )
     cancelled = await cancel_for_phones(
         session, phones=[phone_e164], reason=CALLBACK_CONSENT_WITHDRAWN_REASON

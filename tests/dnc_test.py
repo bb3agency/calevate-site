@@ -246,6 +246,47 @@ async def test_two_operators_pasting_one_list_do_not_both_claim_they_suppressed_
         assert added + already == len(phones), (added, already)
 
 
+async def test_concurrent_global_adds_never_both_claim_the_same_suppression() -> None:
+    """The platform-wide writer reports what its INSERT did, like the tenant one above.
+
+    Same deterministic interleaving: both ops sessions read "not yet suppressed" before
+    either commits, the loser's INSERT waits on `uq_dnc_list_global_phone` and does
+    nothing. Reporting `len(fresh)` let both operators read "N suppressed".
+    """
+    phones = [_number(), _number()]
+    barrier = asyncio.Barrier(2)
+
+    async def add() -> tuple[int, int]:
+        async with untenanted_session() as session:
+            await session.execute(text("SELECT 1"))
+            await barrier.wait()
+            result = await dnc.add_global_numbers(
+                session, raw_numbers=list(phones), source="regulator"
+            )
+            await session.commit()
+        return result.added, result.already_suppressed
+
+    first, second = await asyncio.gather(add(), add())
+
+    async with untenanted_session() as session:
+        rows = int(
+            (
+                await session.execute(
+                    text(
+                        "SELECT count(*) FROM dnc_list WHERE tenant_id IS NULL "
+                        "AND phone_e164 = ANY(:phones)"
+                    ),
+                    {"phones": phones},
+                )
+            ).scalar_one()
+        )
+
+    assert rows == len(phones)
+    assert first[0] + second[0] == rows, (first, second)
+    for added, already in (first, second):
+        assert added + already == len(phones), (added, already)
+
+
 async def test_a_number_already_suppressed_globally_is_not_added_again() -> None:
     """The unique constraint is (tenant_id, phone_e164), so a tenant row shadowing a
     global one would NOT conflict — it would be a second row saying the same thing and
