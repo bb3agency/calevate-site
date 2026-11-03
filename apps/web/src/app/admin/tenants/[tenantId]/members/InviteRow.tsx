@@ -121,11 +121,8 @@ export function InviteRow({
       >
         <div className="space-y-4">
           <p className="text-body text-ink-muted">
-            Sends the link to a DIFFERENT address on the same invitation. Use it when the
-            address on file cannot receive mail — a client who mistyped it at signup can be
-            reached no other way, because every self-service recovery mails that same
-            mailbox. This records what you assert, not a verified address: nothing has
-            proved this new mailbox, and it does not become proved by the link being used.
+            Sends this invitation to a DIFFERENT address, for a mistyped or dead mailbox.
+            The new address is your assertion: using the link does not verify it.
           </p>
           <div>
             <label htmlFor={`resend-email-${invite.id}`} className={FIELD_LABEL}>

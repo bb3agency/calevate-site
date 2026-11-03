@@ -120,11 +120,9 @@ export function EndTrialForm({
             This ends {clientName}&apos;s trial now and starts a fresh counting period
           </p>
           <p className="mt-1 text-ink-muted">
-            From this instant their own usage figures count from zero, exactly as they do
-            on the 1st of a month. Nothing is deleted — every ledger keeps every row; what
-            moves is the window their screens count over. If their wallet is empty, their
-            outgoing calls stop and their agents stop answering incoming ones from the next
-            call onwards, so record the payment above first if there is one.
+            Their usage figures restart from zero, as on the 1st. Nothing is deleted. With
+            an empty wallet, outgoing calls and answering stop from the next call, so record
+            any payment above first.
           </p>
           <p className="mt-1 text-ink-muted">
             <span className="font-semibold">Converted</span> keeps this client&apos;s

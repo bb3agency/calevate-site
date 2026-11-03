@@ -39,10 +39,8 @@ function StoreHealth({ config }: { config: ConfigList }) {
         title="This process has never read the configuration store"
       >
         <p className="mt-1">
-          It is running on environment variables and code defaults. Values below are what
-          it is using, but nothing set from this console is in force here, and a change
-          you make now may not appear. Check that the database is reachable before
-          treating this screen as the platform&apos;s configuration.
+          It runs on environment variables and code defaults; console changes are not in
+          force here. Check the database is reachable.
         </p>
       </NoticeBox>
     );
@@ -54,10 +52,7 @@ function StoreHealth({ config }: { config: ConfigList }) {
         title="The last refresh of the configuration failed"
       >
         <p className="mt-1">
-          The values below are the last ones read successfully, so they are real rather
-          than invented, but a change made recently may not have reached this process. It
-          keeps serving them deliberately: a configuration lookup must never be able to
-          take the phone system down.
+          Showing the last ones read successfully. A recent change may not be in force yet.
         </p>
       </NoticeBox>
     );
@@ -73,9 +68,7 @@ export function ConfigUnreadable() {
       title="We could not read the platform configuration"
     >
       <p className="mt-1">
-        This screen will not show you values it did not receive. The error above says what
-        stopped the read. Nothing here has changed, and the settings currently in force are
-        unaffected by this screen failing to load.
+        Nothing is shown rather than a guess. The settings in force are unaffected.
       </p>
     </NoticeBox>
   );

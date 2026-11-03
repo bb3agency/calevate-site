@@ -117,12 +117,17 @@ export function LedgerUnreadable() {
  */
 export function CorrectionCard() {
   return (
-    <Section title="If a credit was wrong">
+    <Section
+      title="If a credit was wrong"
+      info={
+        <p>
+          The database refuses any edit or deletion on this ledger. The wrong entry stays as
+          evidence that it happened.
+        </p>
+      }
+    >
       <p className="text-body text-ink-muted">
-        Nothing on this ledger is edited or deleted, ever — that is a firm rule, and the
-        database enforces it. The wrong entry stays where it is, because it is the
-        evidence that it happened. The balance is repaired by adding ONE opposite entry
-        that cancels it.
+        Never edit or delete: add ONE opposite entry that cancels it.
       </p>
       <ul className="mt-3 space-y-3 text-body text-ink-muted">
         <li>

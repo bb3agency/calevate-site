@@ -172,15 +172,12 @@ export function TermsForm({
   return (
     <div className="space-y-4">
       <p className="text-meta text-ink-muted">
-        Every client buys prepaid credits at the list price, so there is no setup fee,
-        retainer, included minutes or overage rate to agree here any more. What you set is
-        this client&apos;s ceilings and AI model surcharge.
+        Set this client&apos;s ceilings and AI model surcharge. Credits are prepaid at list
+        price, so there is no setup fee, retainer or overage.
       </p>
       <p className="text-meta text-ink-muted">
-        This records a NEW dated agreement. Leave the dates empty for terms that apply now
-        and until further notice; set a start date to prepare a change that takes effect
-        then and not before. A date inside a closed billing month is refused — that
-        statement has already been rendered.
+        Records a NEW dated agreement. Empty dates apply now; a start date schedules it. A
+        date in a closed billing month is refused.
       </p>
 
       <form

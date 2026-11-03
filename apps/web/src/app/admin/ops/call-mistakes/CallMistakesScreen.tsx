@@ -163,7 +163,7 @@ export function CallMistakesScreen() {
 
   return (
     <div className="max-w-6xl space-y-8 pb-12">
-      <PageHeader description="What agents got wrong on real calls, across every account. Each is a platform rule we fix; mark it fixed once the rule changes, and a call showing it again counts as it coming back." />
+      <PageHeader description="What agents got wrong on real calls, across every account." />
       {access.refused ? (
         <RestrictionNote reason={access.reason} />
       ) : board.error ? (
@@ -171,7 +171,15 @@ export function CallMistakesScreen() {
       ) : !data ? (
         <Skeleton rows={5} label="Loading the call mistakes" />
       ) : (
-        <Section title={`Mistakes on real calls, last ${data.window_days} days`}>
+        <Section
+          title={`Mistakes on real calls, last ${data.window_days} days`}
+          info={
+            <p>
+              Each is a platform rule we fix. Mark it fixed once the rule changes; a call
+              showing it again counts as it coming back.
+            </p>
+          }
+        >
           <DataTable
             rows={data.items}
             columns={columns}

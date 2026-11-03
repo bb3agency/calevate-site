@@ -124,12 +124,19 @@ export function ModelPricingPanel({
   return (
     <Section
       title="Model prices"
-      description="The price per million tokens that billing charges for each model, in US dollars, or in rupees where the vendor bills in rupees. A model becomes available to customers only once its vendor key is installed and its price is confirmed."
+      description="What billing charges per million tokens for each model."
       info={
-        <p>
-          Enter what your own vendor invoice or dashboard says — that figure is the only one
-          that&apos;s true for your account.
-        </p>
+        <>
+          <p>
+            In US dollars, or in rupees where the vendor bills in rupees. A model becomes
+            available to customers only once its vendor key is installed and its price is
+            confirmed.
+          </p>
+          <p className="mt-2">
+            Enter what your own vendor invoice or dashboard says — that figure is the only one
+            that&apos;s true for your account.
+          </p>
+        </>
       }
     >
       <div className="space-y-4">
@@ -145,9 +152,7 @@ export function ModelPricingPanel({
             title="We could not read the model prices"
           >
             <p className="mt-1">
-              This panel will not show invented figures when it could not read
-              the real ones. Billing from a guessed price is the mistake that
-              would cause. The error above says what stopped the read.
+              Nothing is shown rather than a guess. The error above says why.
             </p>
           </NoticeBox>
         )}

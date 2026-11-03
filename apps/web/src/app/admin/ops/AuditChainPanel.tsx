@@ -63,10 +63,8 @@ function WeaklyAttestedNote({ count }: { count: number }) {
         {formatCount(count)} {count === 1 ? "entry" : "entries"} verified under a retired
         signing key.
       </span>{" "}
-      Those rows are intact — they are not tampered with — but they were signed before this
-      deployment had its own private signing key, when the key was a value anyone with the
-      source code could read. Treat them as weaker evidence than the rest: if you are
-      exporting this log for a dispute or an audit, say where that earlier period ends.
+      Intact, but weaker evidence: signed before this deployment had a private key. Say
+      where that period ends when exporting for a dispute or audit.
     </p>
   );
 }

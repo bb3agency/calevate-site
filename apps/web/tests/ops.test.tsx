@@ -2114,7 +2114,7 @@ describe("the audit chain verification", () => {
       "812 entries verified under a retired signing key",
     );
     // Still intact — the caveat must not be written as a failure.
-    expect(container.textContent).toContain("they are not tampered with");
+    expect(container.textContent).toContain("Intact, but weaker evidence");
   });
 
   it("says nothing about retired keys when there are none", async () => {
@@ -2494,7 +2494,7 @@ describe("the platform configuration panel", () => {
       "This process has never read the configuration store",
     );
     expect(container.textContent).toContain(
-      "nothing set from this console is in force here",
+      "console changes are not in force here",
     );
   });
 

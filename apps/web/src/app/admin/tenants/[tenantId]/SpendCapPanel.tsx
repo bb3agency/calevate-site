@@ -218,11 +218,9 @@ export function SpendCapPanel({
                   This client only — it re-derives the flag, it does not lift the cap
                 </h3>
                 <p className="mt-1 text-ink-muted">
-                  It compares the minutes and spend ALREADY metered this month against the
-                  ceiling in force now. A client still over that ceiling stays stopped, so
-                  raise the ceiling first if that is the fix — this is the second half of
-                  that job, not a substitute for it. It never moves a counter, never
-                  touches another client, and never affects inbound calls.
+                  Re-checks this month&apos;s metered usage against today&apos;s ceiling; a
+                  client still over it stays stopped, so raise the ceiling first. Never moves
+                  a counter, touches another client, and never affects inbound calls.
                 </p>
               </div>
             </div>
