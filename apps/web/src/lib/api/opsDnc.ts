@@ -84,6 +84,29 @@ export function useGlobalDncList(): UseQueryResult<GlobalDncEntry[]> {
   });
 }
 
+/** `valid: false` when the text does not read as a phone number; `entry: null` when it is not suppressed. */
+export type GlobalDncFound = Schemas["GlobalFindOut"];
+
+export const OPS_DNC_GLOBAL_FIND_PATH = `${OPS_DNC_GLOBAL_PATH}/find`;
+
+/**
+ * Ask the server whether ONE number is suppressed platform-wide, past the list's ceiling.
+ *
+ * The list stops at its newest `DNC_LIST_LIMIT` rows, so a miss in the screen's own filter
+ * is not an answer once it is clamped; this asks the key. A mutation rather than a query
+ * because the number is personal data: the API takes it in a POST body to keep it out of
+ * access logs, and a query would also keep it in the cache key.
+ */
+export function useFindGlobally() {
+  return useMutation({
+    mutationFn: (phone: string) =>
+      apiRequest<GlobalDncFound>(adminSession(), OPS_DNC_GLOBAL_FIND_PATH, {
+        method: "POST",
+        body: { phone },
+      }),
+  });
+}
+
 export interface GlobalSuppressInput {
   numbers: string[];
   source: GlobalDncSource;

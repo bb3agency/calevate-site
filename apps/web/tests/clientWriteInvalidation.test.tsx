@@ -3,6 +3,8 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
+import { ACCEPTANCES_PATH, useAcceptAgreement } from "@/lib/api/agreements";
+import { creditPacksKey, useCreditPacks } from "@/lib/api/billing";
 import type { Session } from "@/lib/api/client";
 import { useEngineCatalogue } from "@/lib/api/engineCatalogue";
 import { queryKeys, useCallBack, useCallLead } from "@/lib/api/hooks";
@@ -205,5 +207,31 @@ describe("the voice catalogue", () => {
     expect(cached).toHaveLength(2);
     expect(cached.some((k) => k.includes("acme"))).toBe(true);
     expect(cached.some((k) => k.includes("zenith"))).toBe(true);
+  });
+});
+
+describe("the credit-pack card", () => {
+  it("is cached per account, because whether bought credit lapses is (D-900)", async () => {
+    stubApi({ "/v1/billing/topups/packs": { packs: [], credit_expiry_months: null } });
+    const { client, wrapper } = harness();
+    const one = renderHook(() => useCreditPacks({ orgSlug: "acme" }), { wrapper });
+    await waitFor(() => expect(one.result.current.isSuccess).toBe(true));
+    const other = renderHook(() => useCreditPacks({ orgSlug: "zenith" }), { wrapper });
+    await waitFor(() => expect(other.result.current.isSuccess).toBe(true));
+    const cached = client
+      .getQueryCache()
+      .findAll({ queryKey: ["billing", "credit-packs"] })
+      .map((query) => JSON.stringify(query.queryKey));
+    expect(cached).toEqual([key("billing", "credit-packs", "acme"), key("billing", "credit-packs", "zenith")]);
+  });
+
+  it("is re-read when the owner accepts an agreement, which can start that lapse", async () => {
+    stubApi({ [`POST ${ACCEPTANCES_PATH}`]: { may_operate: true } });
+    const { wrapper, keys } = harness();
+    const { result } = renderHook(() => useAcceptAgreement(SESSION), { wrapper });
+    await act(async () => {
+      await result.current.mutateAsync({ slug: "terms", version: "1", statementVersion: "1" });
+    });
+    await expectInvalidated(keys, [JSON.stringify(creditPacksKey("acme"))]);
   });
 });

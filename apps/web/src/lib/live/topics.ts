@@ -295,6 +295,9 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "business-copy",
     "admin/business-copy",
     "legal-readiness",
+    // The pack card states whether credit bought now lapses, which an accepted Terms
+    // (`legal_acceptances`) decides (D-900).
+    "billing",
     // A campaign's launch check and the number-purchase step both wait on verified KYC,
     // and the purchase step on the trial and first payment, all of which announce `account`.
     "campaign-check",
