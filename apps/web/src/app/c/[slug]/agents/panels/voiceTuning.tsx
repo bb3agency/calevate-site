@@ -267,8 +267,8 @@ export function ClientVoiceTuning({
         <InfoTip label="How it sounds">
           <p>
             {studio
-              ? "Normal is the voice as it was made. The voice treats these as guidance, so listen before relying on one."
-              : "Normal is the voice's own pace. Loudness and emotion can be set when the agent speaks a Studio voice."}
+              ? "Normal is the voice as made. These are guidance only, so listen first."
+              : "Normal is the voice's own pace. Loudness and emotion need a Studio voice."}
           </p>
         </InfoTip>
       </div>

@@ -334,19 +334,15 @@ export const ACCEPT_ATTRIBUTE = ACCEPTED_EXTENSIONS.join(",");
  * does not reach them.
  */
 export const READ_KINDS_LINE = "PDF, Word, Excel, CSV, text, or a photo of a list.";
-export const READ_KINDS_SENTENCE =
-  "Send what you already have: a PDF, a Word document, an Excel or CSV sheet, a text file, or a " +
-  "photo of a printed price list or menu. We read it, and every one of your agents uses what it says.";
+export const READ_KINDS_SENTENCE = "Every agent uses what your file or photo says.";
 
 /** Said beside the file control: scanned pages are read too (`apps/workers/kb_read.py`). */
 export const PDF_LINE = "Scanned PDF pages are read too.";
-export const PDF_NOTE =
-  "We read every page of a PDF, scanned pages too, and your agents use its words. Each one shows how the reading went.";
+export const PDF_NOTE = "Every PDF page is read, scans too. Rows show the result.";
 
 /** Said beside the link control: the agents read the page itself (D-868). */
 export const LINK_LINE = "Your agents read that one page.";
-export const LINK_NOTE =
-  "We send that one page to your agents and keep a copy you and Pip can open. If it can't be read, its row says why.";
+export const LINK_NOTE = "You and Pip can open a copy. A failed read says why.";
 
 /** `apps/api/kb/uploads.MAX_UPLOAD_BYTES`, said the way the refusal says it. */
 export const MAX_UPLOAD_MB = 20;

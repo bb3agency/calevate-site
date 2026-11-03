@@ -544,7 +544,7 @@ describe("which voice callers are actually hearing", () => {
     // The rate is on screen; how it is struck is one tap away, behind the ⓘ.
     fireEvent.click(screen.getByRole("button", { name: "About Voice quality and rate" }));
     expect(
-      await screen.findByText("You have 1 later purchase behind it, each at the rates it was bought at.", { exact: false }),
+      await screen.findByText("You have 1 later purchase behind it, each at its own rate.", { exact: false }),
     ).toBeTruthy();
     expect(container.textContent).not.toMatch(/sarvam|cartesia/i);
   });
@@ -820,7 +820,7 @@ describe("the numbers come from the server", () => {
     // The fix is a button on the row, to Billing.
     expect(screen.getByRole("link", { name: "Add credit" }).getAttribute("href")).toBe("/c/acme/billing");
     fireEvent.click(screen.getByRole("button", { name: "About Voice quality" }));
-    expect(await screen.findByText(/The credit pack you buy fixes the rate you pay/)).toBeTruthy();
+    expect(await screen.findByText(/The credit pack you buy sets it/)).toBeTruthy();
     expect(container.textContent).not.toContain(
       "We cannot put a per-minute price on this voice for your account right now.",
     );

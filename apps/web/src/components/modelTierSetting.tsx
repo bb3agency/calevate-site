@@ -208,9 +208,8 @@ function IncludedModel({ note }: { note: string | null | undefined }) {
       </p>
       <InfoTip label="the language model">
         <p>
-          Calevate picks the language model your agents think with. It is part
-          of the price of each minute, so there is nothing to choose and nothing
-          extra to pay.
+          Calevate picks it, and it is part of each minute&apos;s price. Nothing to
+          choose, nothing extra to pay.
         </p>
       </InfoTip>
     </div>

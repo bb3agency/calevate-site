@@ -157,9 +157,8 @@ type AskPick = "after" | "never";
 type PhrasePick = "standard" | "own";
 
 const SILENCE_INFO =
-  "When the caller says nothing for a while, the agent asks whether they are still there. " +
-  "If the silence goes on, it puts the phone down, so a call nobody is on does not keep " +
-  "running and being charged.";
+  "If the caller goes quiet, it asks if they are still there. If the silence goes on, it " +
+  "hangs up, so an empty call is not charged.";
 
 /**
  * The waits are whole seconds, step 1: the Calevate default of 8 s is on no coarser grid that
@@ -478,9 +477,8 @@ export function FillerLinesRow({
         hint={hint}
         info={
           <p>
-            While the agent checks something, such as a detail about your business, it
-            says a short line so the caller is not left in silence. Use the standard lines, in
-            the caller&apos;s language, or write your own.
+            Short lines it says while it checks something, so the caller is not left in
+            silence. Use ours, in the caller&apos;s language, or write your own.
           </p>
         }
         value={fillerSummary(effective)}

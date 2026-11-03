@@ -272,9 +272,8 @@ export function PauseRow({
         hint={sourceHint ?? sourceLabel(source)}
         info={
           <p>
-            The quiet after the caller&apos;s last words before the agent replies. A short pause
-            answers quickly but can cut in while someone is reading out a phone number. A longer
-            one waits for them, and every reply comes that much later.
+            Short: replies fast, but may cut in while someone reads out a number. Long: waits
+            for them, but every reply comes later.
           </p>
         }
         value={pauseLabel(effective)}
@@ -369,9 +368,8 @@ export function PauseRow({
 
 /** The trade-off, in plain words, for the ⓘ. */
 const HANG_UP_INFO =
-  "When the agent has finished, it puts the phone down instead of waiting for the caller " +
-  "to. With this off, a finished call stays connected until the caller hangs up, and " +
-  "every minute it stays connected is charged to your account.";
+  "On: it hangs up when it has finished. Off: the call stays connected, and charged by the " +
+  "minute, until the caller hangs up.";
 
 export function HangUpRow({
   idPrefix,
@@ -502,11 +500,9 @@ export function openingWaitsLine(waitMs: number = STANDARD_OPENING_WAIT_MS): str
 const OPENING_SPEAKS_LINE = "Your agent speaks as soon as the call connects.";
 
 const OPENING_WAITS_INFO =
-  "On, the agent lets the person who picks up speak first and opens right after their first " +
-  "words, so it does not talk over their hello. A plain hello is not answered a second time. " +
-  "If they say nothing, it opens after the wait set below. This suits an agent that calls " +
-  "people. Off, the agent speaks the moment the call connects, which suits people calling " +
-  "your business.";
+  "On: it lets them say hello first, then speaks, or after the wait below if they stay " +
+  "quiet. Suits calls it makes. Off: it speaks as soon as the call connects. Suits calls " +
+  "to your business.";
 
 /**
  * Whether the agent's first words wait for the person's hello (D-871). The agent's own
@@ -604,9 +600,8 @@ export function OpeningWaitsRow({
 type ReaskPick = "after" | "never";
 
 const REASK_INFO =
-  "When the agent asks something and hears nothing back, it asks the same question once more " +
-  "after this wait. A short wait helps when an answer was too soft to hear. A caller busy " +
-  "on their phone needs longer, or never, so the question is not repeated over them.";
+  "No answer? It asks once more after this wait. Short helps when a reply was too soft to " +
+  "hear. Longer, or never, suits callers busy on their phone.";
 
 /**
  * How long before an unanswered question is asked again (D-907): never, or a wait on whole
@@ -759,8 +754,8 @@ export function ReaskRow({
 const OPENING_WAIT_LINE = "If nobody speaks, your agent opens after this.";
 
 const OPENING_WAIT_INFO =
-  "A short wait opens sooner when the person stays quiet, but can talk over a slow hello. " +
-  "A long wait gives them time to answer, and leaves a silence before the agent speaks.";
+  "Short: opens sooner, but may talk over a slow hello. Long: gives them time, but leaves " +
+  "a silence first.";
 
 /**
  * How long a waiting opening waits through silence (D-901), shown under "Wait for them to say

@@ -41,21 +41,6 @@ const ALLOWED: { file: string; startsWith: string; why: string }[] = [
     startsWith: "Generate a token with business management",
     why: "names the three exact permissions Meta lists",
   },
-  {
-    file: "knowledge/uploadCopy.ts",
-    startsWith: "Send what you already have",
-    why: "READ_KINDS_SENTENCE, shown only inside the File view's ⓘ",
-  },
-  {
-    file: "knowledge/uploadCopy.ts",
-    startsWith: "We read every page of a PDF",
-    why: "PDF_NOTE, shown only inside the File view's ⓘ",
-  },
-  {
-    file: "knowledge/uploadCopy.ts",
-    startsWith: "We send that one page to your",
-    why: "LINK_NOTE, shown only inside the Link view's ⓘ",
-  },
 ];
 
 describe("default copy on the knowledge, lead-sources and integrations screens", () => {

@@ -139,8 +139,8 @@ export function VoiceNow({
           !engineVoice && !voice.live && !noneSet ? (
             <p>
               {published
-                ? "The calling system has a voice for this agent, but we have no record of which one. Choosing one below settles it."
-                : "Nothing is on the calling system yet, so no caller hears a voice at all."}
+                ? "We can't tell which voice is on its calls. Choose one below to settle it."
+                : "It is not on calls yet, so no caller hears a voice."}
             </p>
           ) : undefined
         }
@@ -168,10 +168,10 @@ export function VoiceNow({
           info={
             <p>
               {tier.inr_per_min === null
-                ? "You have no credit left, so nothing sets a per-minute price for this voice yet. The credit pack you buy fixes the rate you pay on it."
+                ? "No credit left, so no rate yet. The credit pack you buy sets it."
                 : tier.further_open_lots === 0
-                  ? "What a minute on this voice costs against your current credit."
-                  : `What a minute on this voice costs against your oldest unspent credit. You have ${tier.further_open_lots} later purchase${tier.further_open_lots === 1 ? "" : "s"} behind it, each at the rates it was bought at.`}
+                  ? "A minute on this voice, at your current credit's rate."
+                  : `A minute on this voice, at your oldest credit's rate. You have ${tier.further_open_lots} later purchase${tier.further_open_lots === 1 ? "" : "s"} behind it, each at its own rate.`}
             </p>
           }
           value={
@@ -207,8 +207,8 @@ export function WorstCaseCost({ state }: { state: PendingState }) {
       info={
         <p>
           {state.worst_case_call_cost_inr === null
-            ? "Nothing on your account prices a minute yet, so we cannot put a number on it. The credit pack you buy sets that rate."
-            : "A call that runs the full limit, at the dearest per-minute rate your account can be charged. Almost every call ends long before this."}
+            ? "No rate on your account yet, so no figure. The credit pack you buy sets the rate."
+            : "A call that runs the full limit, at the dearest per-minute rate your account can be charged."}
         </p>
       }
       /* Null is "we cannot say", NOT zero. The figure stays a string: `formatINR` formats

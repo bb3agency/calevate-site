@@ -157,7 +157,7 @@ export function canonical(fields: AgentExtractionField[]): string {
  */
 export function clientValidationError(rows: DraftRow[]): string | null {
   if (rows.some((row) => row.isNew && !KEY_RE.test(effectiveKey(row)))) {
-    return "One variable's id is not a valid name — use a letter, then letters, numbers or underscores.";
+    return "An id must start with a letter, then letters, numbers or _.";
   }
   if (rows.some((row) => row.type === "enum" && parseEnumValues(row.enumText).length === 0)) {
     return "A “one of a set list” variable needs at least one option.";
