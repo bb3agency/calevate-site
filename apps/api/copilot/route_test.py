@@ -259,6 +259,28 @@ async def test_an_answer_that_only_filled_says_what_it_changed(
     assert events[1][1] == {"delta": "I changed Opens."}
 
 
+async def test_an_answer_whose_every_change_was_refused_says_nothing_changed(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pip told the founder "I have updated the script" while every fill was refused
+    (Varsha, 3 Nov 2026). The refusal's reason now closes any such answer."""
+    _tenant_id, slug, token = await _make_tenant()
+    _fake_provider(
+        monkeypatch,
+        content="I have updated it.",
+        arguments=json.dumps(
+            {"because": "set the opening time", "items": [{"field_id": "status", "value": "live"}]}
+        ),
+        usage=chat.TokenUsage(prompt_tokens=10, output_tokens=10),
+    )
+    async with _client() as http:
+        events = await _events(http, token, slug)
+
+    assert "fill" not in [name for name, _ in events]
+    said = "".join(data["delta"] for name, data in events if name == "text")
+    assert "Nothing was changed:" in said
+
+
 def test_a_silent_answer_names_each_field_once_and_each_receipt() -> None:
     assert service.silent_answer_line(fields=[], actions=[]) == ""
     assert (

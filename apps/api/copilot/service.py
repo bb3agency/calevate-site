@@ -285,6 +285,13 @@ def _standby_timeout(remaining_s: float) -> float:
 EXHAUSTED_MESSAGE: Final = "I could not finish this in one go. Try asking for one thing at a time."
 
 
+def unchanged_line(reason: str) -> str:
+    """The sentence that ends an answer whose every change was refused: the refusal's own
+    reason, so the person is never told a change was made that was not."""
+    said = reason.strip().rstrip(".")
+    return f"\n\nNothing was changed: {said}." if said else "\n\nNothing was changed."
+
+
 def silent_answer_line(*, fields: Sequence[str], actions: Sequence[str]) -> str:
     """What an answer that only filled fields or ran actions says, from what happened: the
     labels it filled and each action's own receipt sentence, never the model's account of
@@ -2290,6 +2297,13 @@ async def _run_tool_loop(
                 # surfacing the first refusal — makes the copilot fail at the thing it
                 # exists to do whenever it guesses one field id wrong.
                 messages = refused_fill_turn(messages, outcome, call, refused.reasons)
+                # And the person sees it refused, as every other refused call is shown: the
+                # turn's text has already streamed and may claim the change was made.
+                # Without its arguments: a refused value never reaches the browser.
+                step = _step_end(
+                    call, status="refused", detail="; ".join(refused.reasons), started_at=None
+                )
+                yield CopilotEvent(step=step.model_copy(update={"args": ""}))
                 continue
 
             yield CopilotEvent(fill=items)
@@ -3263,5 +3277,6 @@ __all__ = [
     "standby_change_refusal",
     "streamed_turn",
     "tool_array",
+    "unchanged_line",
     "validate_fill",
 ]

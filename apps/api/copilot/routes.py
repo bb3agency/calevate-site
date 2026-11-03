@@ -469,6 +469,8 @@ async def ask_copilot(
     acted: list[str] = []
     #: Each action's own receipt sentence, for an answer that ran actions and said nothing.
     acted_said: list[str] = []
+    #: Why each write the model tried was refused: a fill or an action, never a read.
+    refused_writes: list[str] = []
     #: The screen this answer opened, by NAME, or None. One at most (D-524). It is on the
     #: audit row because "the assistant moved me" is a thing a person may later ask about,
     #: and the `copilot.ask` row is the only record of it — navigation writes no row of its
@@ -808,6 +810,15 @@ async def ask_copilot(
                 # arguments and result, so it is also the one frame that must never be
                 # logged or stored (hard rule 6); it is neither.
                 yield ServerSentEvent(event="step", data=event.step)
+                if (
+                    event.step.status in ("refused", "failed")
+                    and event.step.detail
+                    and (
+                        event.step.tool == prompt_module.SET_FIELDS_TOOL_NAME
+                        or write_tools.is_write_tool(event.step.tool)
+                    )
+                ):
+                    refused_writes.append(event.step.detail)
             if event.action is not None:
                 # A TIER 1 ACTION THAT HAS ALREADY HAPPENED (D-500). Its `audit_log` row was
                 # written inside `run_immediate`, in the same transaction as the change, so
@@ -844,6 +855,13 @@ async def ask_copilot(
             if said:
                 answer_parts.append(said)
                 yield ServerSentEvent(event="text", data=CopilotTextEvent(delta=said))
+        # A CHANGE THAT DID NOT HAPPEN IS SAID TO HAVE NOT HAPPENED. A model whose every write
+        # was refused has answered "I have updated it" (founder, Varsha, 3 Nov 2026); the
+        # refusal's own reason closes the answer whenever nothing it tried went through.
+        if refused_writes and not (filled or acted or proposal_line or started_job):
+            truth = service.unchanged_line(refused_writes[-1])
+            answer_parts.append(truth)
+            yield ServerSentEvent(event="text", data=CopilotTextEvent(delta=truth))
         completed = True
     except ProblemError as refusal:
         # The selector refused before a request was made — `assist_unavailable` is raised
