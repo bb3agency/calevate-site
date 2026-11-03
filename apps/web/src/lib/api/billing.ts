@@ -167,14 +167,24 @@ export function useConfirmTopUp(session: Session) {
 }
 
 /**
+ * Keyed by account: the rates are the platform's, but `credit_expiry_months` is this
+ * account's (D-900 — credit lapses only once its owner has accepted the Terms that say so),
+ * so a slug-less key showed one account's lapse line on another after a switch or a view-as.
+ */
+export function creditPacksKey(orgSlug: string) {
+  return ["billing", "credit-packs", orgSlug] as const;
+}
+
+/**
  * The prepaid credit-pack rate card, priced at the live list rate server-side. A read that
- * changes only when the catalogue or the list rate does, so it is cached for the session.
+ * changes only when the catalogue, the list rate or this account's accepted Terms do, so it
+ * is cached for the session and refreshed by `useAcceptAgreement`.
  * The effective rate and talk time are computed by the server (hard rule 7 reaches the
  * browser: no decimal arithmetic on money here) and rendered as sent.
  */
 export function useCreditPacks(session: Session) {
   return useQuery({
-    queryKey: ["billing", "credit-packs"],
+    queryKey: creditPacksKey(session.orgSlug),
     queryFn: () => apiRequest<CreditPacks>(session, "/v1/billing/topups/packs"),
     staleTime: Infinity,
   });

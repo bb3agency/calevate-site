@@ -38,6 +38,7 @@
 
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
+import { creditPacksKey } from "./billing";
 import { apiRequest, type Session } from "./client";
 import type { components } from "./schema";
 
@@ -107,6 +108,9 @@ export function useAcceptAgreement(session: Session) {
     onSuccess: (next) => {
       client.setQueryData(agreementsKey(session.orgSlug), next);
       void client.invalidateQueries({ queryKey: agreementsKey(session.orgSlug) });
+      // Accepting the Terms is what makes credit bought from now on lapse (D-900), and the
+      // pack card states that term; it is otherwise cached for the session.
+      void client.invalidateQueries({ queryKey: creditPacksKey(session.orgSlug) });
     },
   });
 }
