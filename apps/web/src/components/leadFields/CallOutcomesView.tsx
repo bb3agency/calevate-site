@@ -127,7 +127,7 @@ export function CallOutcomesView({
     <Section
       title="How calls end"
       description="How each agent sorts your calls."
-      info="Besides Missed, Hung up early, Call-back booked, Transferred and Needs you, which are decided from what happened on the call, each agent sorts its calls into outcomes of your business. Each one moves the lead up to the stage you choose; it never marks a lead won or lost."
+      info="Missed, Hung up early, Call-back booked, Transferred and Needs you come from what happened on the call. Your own outcomes move the lead to the stage you pick, never to won or lost."
     >
       {!agent ? (
         <p className="text-sm text-ink-muted">No agents yet. Outcomes appear here once you create one.</p>

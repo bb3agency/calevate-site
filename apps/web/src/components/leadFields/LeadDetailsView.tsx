@@ -242,10 +242,9 @@ function DraftOffer({
       <p className="mt-1 max-w-prose text-sm text-ink-muted [text-wrap:pretty]">
         {audience === "client" ? ASSISTANT_NAME : "Calevate"} can draft these for you.{" "}
         <Why inline label="How it works">
-          From the business details: what {audience === "client" ? "you sell" : "it sells"}, the
-          questions callers ask and what your agents already know. You keep the ones that fit before
-          any agent gets them, and they are not drafted again. For the best draft, fill in the business
-          profile first.
+          Drafted from what {audience === "client" ? "you sell" : "it sells"}, what callers ask and
+          what your agents know. You keep the ones that fit before any agent gets them. Fill in the
+          business profile first for a better draft.
         </Why>
       </p>
       {draft?.error && (
@@ -600,7 +599,7 @@ function AgentEditor({
             {agent.name} will write down {freshLabel} from the next call:{" "}
             {fresh.map((field) => field.label).join(", ")}.
           </p>
-          <p>Answers already captured stay on their leads and calls, under their old names.</p>
+          <p>Past answers keep their old names on leads and calls.</p>
         </ConfirmDialog>
       )}
     </form>

@@ -303,7 +303,7 @@ function StarterPreviewStep({
               Create agent
             </ActionButton>
             <p className="text-meta text-ink-muted">
-              It is created as a draft and switched off. You can get it ready and try it in the chat; nobody hears it until you switch it on.
+              Starts switched off. Callers hear it once you switch it on.
             </p>
           </div>
         </form>

@@ -99,11 +99,10 @@ export function CallCapChoice({ agentId, state }: { agentId: string; state: Pend
         }
         info={
           <p>
-            A limit on how long a single call may go on, the guard against one call that
-            never ends. It cannot change a word the agent says. Leave it empty to use the
-            standard limit
-            {lanes.data ? ` (${formatCallCap(lanes.data.call_cap_default_s)})` : ""}; there is
-            no way to make a call unlimited, deliberately.
+            A safety limit on one call. It never changes what the agent says. Leave it empty
+            for the standard limit
+            {lanes.data ? ` (${formatCallCap(lanes.data.call_cap_default_s)})` : ""}. No call
+            can be unlimited.
           </p>
         }
         value={formatCallCap(state.effective_call_cap_s)}

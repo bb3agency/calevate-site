@@ -158,8 +158,8 @@ export function SectionEditor({
             <legend className={`${FIELD_LABEL} flex items-center gap-1`}>
               How should it handle this step?
               <InfoTip label="exact words" align="start">
-                Only the opening line is said word for word every time. With exact words it keeps
-                to your line as closely as it can, but it may change a word or two.
+                Only the opening line is always word for word. Exact words stay close to your
+                line, but a word or two may change.
               </InfoTip>
             </legend>
             <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">

@@ -295,7 +295,7 @@ export function ImprovementReview({
       <HowItWorks
         className="mt-0"
         items={[
-          "Each fix is one small change. Script changes go into your draft; callers hear them only after you put them live.",
+          "Each fix is one small change. Callers hear script changes only once you put them live.",
           ...(improvement.base === "live" ? ["Made from the script callers hear now."] : []),
           ...(improvement.tested ? [] : ["Not tested yet. Put the ones you keep live, then test again to check them."]),
           ...(facts.length > 0 ? ["Facts you keep are live for every agent at once."] : []),
