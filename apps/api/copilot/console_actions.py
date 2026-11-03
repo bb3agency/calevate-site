@@ -43,6 +43,7 @@ deadlock the inner one. The compare-and-swap is then the service's own lock.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -52,7 +53,7 @@ from uuid import UUID, uuid4
 from calevate_shared.call_script import opening_line_of, outbound_opening_of
 from calevate_shared.languages import offered_language_tags
 from calevate_shared.spoken_guard import textbook_problem
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -2006,15 +2007,50 @@ AGENT_EDIT_LIVE: Final = ActionTool(
 )
 
 
+#: The type names a model writes for the five a field may have.
+_TYPE_SPELLINGS: Final = {
+    "string": "text",
+    "str": "text",
+    "boolean": "bool",
+    "yes/no": "bool",
+    "yes_no": "bool",
+    "integer": "number",
+    "int": "number",
+    "float": "number",
+    "choice": "enum",
+    "select": "enum",
+    "options": "enum",
+    "datetime": "date",
+}
+
+
 class _CaptureField(BaseModel):
+    """One detail as Pip names it. Only the label is required: a model on a provider that
+    does not enforce the strict schema leaves out what it considers obvious (founder, 3 Nov
+    2026, "`fields` was missing or the wrong shape" four times over), so the key is made
+    from the label and the rest default the way the Fields tab's form does."""
+
     model_config = ConfigDict(extra="forbid")
 
-    key: str
+    key: str = ""
     label: str
-    type: Literal["text", "number", "bool", "enum", "date"]
-    enum_values: list[str] | None
-    reason: str
-    required: bool
+    type: Literal["text", "number", "bool", "enum", "date"] = "text"
+    enum_values: list[str] | None = None
+    reason: str = ""
+    required: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def _as_written(cls, raw: Any) -> Any:
+        if not isinstance(raw, dict):
+            return raw
+        fixed = {k: v for k, v in raw.items() if v is not None}
+        kind = str(fixed.get("type", "text")).strip().lower()
+        fixed["type"] = _TYPE_SPELLINGS.get(kind, kind)
+        if not fixed.get("key"):
+            slug = re.sub(r"[^a-z0-9]+", "_", str(fixed.get("label", "")).lower()).strip("_")
+            fixed["key"] = re.sub(r"^[^a-z]+", "", slug)[:40].rstrip("_")
+        return fixed
 
 
 class _CaptureFieldsArgs(BaseModel):

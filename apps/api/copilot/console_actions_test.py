@@ -28,7 +28,7 @@ from tests.lead_dial_routes_test import (  # reuse, never re-implement
     _settle_calls,
 )
 
-from apps.api.copilot import action_log, write_tools
+from apps.api.copilot import action_log, console_actions, write_tools
 from apps.api.copilot.account_actions import ACCOUNT_ACTIONS
 from apps.api.copilot.agent_setup_actions import AGENT_SETUP_ACTIONS
 from apps.api.copilot.agent_tool_actions import AGENT_TOOL_ACTIONS
@@ -756,6 +756,41 @@ async def test_capture_fields_are_replaced_and_undo_restores_the_old_list() -> N
         )
     )[0]
     assert [f["key"] for f in fields] == [f["key"] for f in prior["fields"]]
+
+
+async def test_capture_fields_named_only_by_label_are_taken() -> None:
+    """Pip on Gemini (founder, Varsha, 3 Nov 2026) named the details by label with its own
+    type words and nothing else, and every attempt was refused as the wrong shape."""
+    tenant_id, _slug, token = await _make_tenant()
+    agent_id = await _draft_agent(tenant_id)
+    fields = [
+        {"label": "App installed", "type": "boolean"},
+        {"label": "Using it", "type": "yes/no", "reason": "Whether they use the app now"},
+        {"label": "Purpose", "type": "string"},
+        {"label": "Satisfied", "type": "select", "enum_values": ["Yes", "Somewhat", "No"]},
+        {"label": "Suggestions"},
+    ]
+    receipt = await _run(
+        tenant_id, token, "agent_capture_fields_set", {"agent_id": str(agent_id), "fields": fields}
+    )
+    assert receipt.applied is True
+    _status, _tier, _prior, result = await _action_row(tenant_id, receipt.action_id)
+    assert [(f["key"], f["type"]) for f in result["fields"]] == [
+        ("app_installed", "bool"),
+        ("using_it", "bool"),
+        ("purpose", "text"),
+        ("satisfied", "enum"),
+        ("suggestions", "text"),
+    ]
+
+
+def test_a_refusal_names_the_item_it_could_not_read() -> None:
+    with pytest.raises(write_tools.WriteRefusedError) as refused:
+        write_tools.parse_args(
+            console_actions._CaptureFieldsArgs,
+            {"agent_id": str(uuid.uuid4()), "fields": [{"label": "Ok"}, {"type": "text"}]},
+        )
+    assert "`fields.1.label`" in refused.value.reason
 
 
 async def test_a_live_agents_capture_fields_need_a_click() -> None:

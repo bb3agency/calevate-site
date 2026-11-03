@@ -34,6 +34,7 @@ from uuid import UUID
 
 from calevate_shared.call_script import CallScript, upgrade_to_v2
 from calevate_shared.engine import introduces_itself
+from calevate_shared.lead_fields import business_only
 from calevate_shared.spoken_style import style_for
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -79,6 +80,8 @@ WRITTEN_MODE: Final = "written"
 #: kept for every business. An opening the owner typed at creation is kept as typed.
 #: A stored mode for `knowledge`'s reason.
 STARTER_MODE: Final = "starter"
+#: The job that drafts a new agent's details from its script (`workers/agent_fields_draft`).
+AGENT_FIELDS_JOB: Final = "draft_agent_fields"
 StoredMode = Literal["change", "whole", "steps", "knowledge", "opening", "written", "starter"]
 
 ProposalStatus = Literal["drafting", "ready", "failed"]
@@ -502,7 +505,33 @@ async def apply_untouched_starter(
         ),
         {"aid": agent_id, "pid": str(proposal.id)},
     )
+    # Its details follow from this script (`workers/agent_fields_draft`), over the set it
+    # started with only while that set is untouched.
+    await enqueue_outbox_once(
+        session,
+        job=AGENT_FIELDS_JOB,
+        payload={
+            "tenant_id": str(tenant_id),
+            "agent_id": str(agent_id),
+            "fields": await agent_own_fields(session, agent_id),
+        },
+        dedupe_key=f"agent-fields:{agent_id}",
+    )
     return True
+
+
+async def agent_own_fields(session: AsyncSession, agent_id: UUID) -> list[dict[str, Any]]:
+    """The details this agent writes down beyond the core, as stored."""
+    row = (
+        await session.execute(
+            text(
+                "SELECT es.fields FROM agents a LEFT JOIN extraction_schemas es "
+                "ON es.id = a.extraction_schema_id WHERE a.id = :aid AND a.deleted_at IS NULL"
+            ),
+            {"aid": agent_id},
+        )
+    ).first()
+    return [field.model_dump(mode="json") for field in business_only(row[0] if row else None)]
 
 
 async def discard(session: AsyncSession, *, agent_id: UUID, proposal_id: UUID) -> bool:
@@ -566,6 +595,7 @@ async def brief_for(session: AsyncSession, tenant_id: UUID, agent_id: UUID) -> S
 
 
 __all__ = [
+    "AGENT_FIELDS_JOB",
     "DRAFTING_STALE_AFTER",
     "FAILED_NOTE",
     "KNOWLEDGE_MODE",

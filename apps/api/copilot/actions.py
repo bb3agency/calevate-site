@@ -480,8 +480,12 @@ def parse_args[M: BaseModel](model: type[M], args: Mapping[str, Any]) -> M:
     try:
         return model.model_validate(filled | dict(args))
     except ValidationError as exc:
-        fields = sorted({str(error["loc"][0]) for error in exc.errors() if error["loc"]})
-        named = ", ".join(f"`{field}`" for field in fields) or "the arguments"
+        # The whole path (`fields.2.type`), so the model can mend the one item it got wrong
+        # rather than resend the list blind; still names only, never a value.
+        paths = sorted(
+            {".".join(str(part) for part in error["loc"]) for error in exc.errors() if error["loc"]}
+        )
+        named = ", ".join(f"`{path}`" for path in paths[:8]) or "the arguments"
         raise WriteRefusedError(f"{named} was missing or the wrong shape") from exc
 
 

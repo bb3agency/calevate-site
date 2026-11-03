@@ -110,6 +110,7 @@ from apps.workers.account_closure import (
 )
 from apps.workers.account_closure import notify_account_closed, sweep_due_erasures
 from apps.workers.action_audit import record_action_invocation
+from apps.workers.agent_fields_draft import draft_agent_fields
 from apps.workers.agent_moves import move_agents_to_workspace, sweep_agent_moves
 from apps.workers.agent_test_cases import run_agent_test_cases
 from apps.workers.agent_test_conversations import (
@@ -421,6 +422,7 @@ FUNCTIONS: list[Any] = [
         draft_lead_fields,
         name_core_details,
         write_starter_steps,
+        draft_agent_fields,
         # An account brought to its business type: lead details, scripts, and the AI's
         # suggestion where nobody chose a type (D-722), from the outbox
         # (`admin/business_type.queue_apply`, migration d7a3c91e5b20).
