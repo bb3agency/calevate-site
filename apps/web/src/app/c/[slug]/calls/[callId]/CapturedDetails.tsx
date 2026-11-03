@@ -43,10 +43,10 @@ export function CapturedDetails({ detail }: { detail: CallDetail }) {
             const review = detail.extraction_needs_review?.[field.key];
             return (
               <div key={field.key} className="min-w-0 space-y-0.5">
-                <dt className="text-[11px] font-semibold uppercase tracking-wider text-ink-muted [overflow-wrap:anywhere]">
+                <dt className="text-meta text-ink-muted [overflow-wrap:anywhere]">
                   {field.label}
                   {!field.current && (
-                    <span className="block text-meta font-normal normal-case tracking-normal text-ink-faint">No longer asked</span>
+                    <span className="block text-meta text-ink-faint">No longer asked</span>
                   )}
                 </dt>
                 <dd className="min-w-0 break-words text-body font-medium text-ink">

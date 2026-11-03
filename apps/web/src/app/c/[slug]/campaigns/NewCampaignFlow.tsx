@@ -286,7 +286,7 @@ export function NewCampaignFlow({
                   <div className="space-y-6">
                     {s.content}
                     {problem ? (
-                      <p role="alert" className="text-body text-danger">
+                      <p role="alert" className="text-meta text-danger">
                         {problem}
                       </p>
                     ) : null}

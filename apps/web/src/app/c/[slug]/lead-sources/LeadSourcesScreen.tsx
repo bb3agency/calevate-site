@@ -212,7 +212,7 @@ export function LeadSourcesScreen() {
         onDrop={dropFeedback.run}
       />
 
-      <h2 className="pt-2 text-base font-semibold text-ink">Where leads come from</h2>
+      <h2 className="pt-2 text-heading text-ink">Where leads come from</h2>
       <SourcesList
         sources={sources}
         agents={agents.data}

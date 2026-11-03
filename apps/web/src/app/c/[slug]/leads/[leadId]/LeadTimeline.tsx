@@ -72,7 +72,7 @@ export function LeadTimeline({
   return (
       <section className="space-y-2">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-sm font-semibold text-ink">History</h2>
+          <h2 className="text-heading text-ink">History</h2>
           {/* No count until there IS one. "0 events" printed while the request is in
               flight is a statement about this lead, and it is the wrong one. */}
           {timeline.data && timelineTotal !== undefined && (

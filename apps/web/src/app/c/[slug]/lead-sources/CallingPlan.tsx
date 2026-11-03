@@ -324,7 +324,7 @@ export function CallingPlan({
                       type="button"
                       aria-label={`Remove ${day}`}
                       disabled={!canWrite}
-                      className="rounded p-0.5 text-ink-faint hover:text-ink touch:min-h-11 touch:min-w-11"
+                      className="rounded p-0.5 text-ink-faint hover:text-ink disabled:cursor-not-allowed disabled:hover:text-ink-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11 touch:min-w-11"
                       onClick={() => set({ holidays: holidays.filter((d) => d !== day) })}
                     >
                       <X aria-hidden className="h-3 w-3" />

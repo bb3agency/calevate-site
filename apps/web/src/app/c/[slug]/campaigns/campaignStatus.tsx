@@ -1,5 +1,5 @@
 import { StatusPill } from "@/components/console/statusPill";
-import type { NoticeTone } from "@/components/ui";
+import { formatCount, type NoticeTone } from "@/components/ui";
 import type { PauseReason } from "@/lib/api/campaigns";
 import { lookup } from "@/lib/lookup";
 
@@ -60,7 +60,7 @@ export function ReachBar({ reached, total }: { reached: number; total: number })
   return (
     <div className="space-y-1 sm:min-w-[8.5rem]">
       <p className="whitespace-nowrap text-xs tabular-nums text-ink-muted">
-        {reached.toLocaleString("en-IN")} of {total.toLocaleString("en-IN")} reached
+        {formatCount(reached)} of {formatCount(total)} reached
       </p>
       {total > 0 && (
         <div aria-hidden className="h-1 overflow-hidden rounded-full bg-ink/[0.07]">

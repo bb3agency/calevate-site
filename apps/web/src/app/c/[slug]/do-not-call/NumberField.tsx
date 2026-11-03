@@ -234,7 +234,7 @@ function AddResult({ result }: { result: { added: number; already_suppressed: nu
         {counts.map((count) => (
           <div key={count.label} title={count.hint}>
             <dt className="text-meta text-ink-muted">{count.label}</dt>
-            <dd className="text-[18px] font-semibold tabular-nums text-ink">{formatCount(count.value)}</dd>
+            <dd className="text-heading tabular-nums text-ink">{formatCount(count.value)}</dd>
           </div>
         ))}
       </dl>

@@ -173,7 +173,7 @@ export function EditCampaignScreen({ slug, campaignId }: { slug: string; campaig
         </Section>
         <div className="space-y-3 border-t border-line pt-6">
           {problem && (
-            <p role="alert" className="text-body text-danger">
+            <p role="alert" className="text-meta text-danger">
               {problem}
             </p>
           )}
