@@ -86,6 +86,7 @@ export function resultsFixture(over: Partial<CampaignResults> = {}): CampaignRes
     sentiment: {},
     leads: 0,
     hot_leads: 0,
+    interested_leads: 0,
     recent_leads: [],
     opt_outs: 0,
     credits_spent_inr: "0.00",

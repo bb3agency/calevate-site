@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { use, useEffect, useState } from "react";
 
+import { useActionFeedback } from "@/components/arc/feedback";
 import { EmptySketch } from "@/components/console/emptySketch";
 import { EmptyState } from "@/components/console/emptyState";
 import { PageHeader } from "@/components/console/pageHeader";
@@ -63,10 +64,14 @@ export default function AttentionPage({ params }: { params: Promise<{ slug: stri
   const feed = useNotifications(session, BELL_ROWS);
   const markSeen = useMarkNotificationsSeen(session);
   const mayMark = useWriteAccess(session, "leads:write", "mark notifications read").allowed;
-  const newestUnseen = (unseenAttention(feed.data) ?? 0) > 0
-    ? feed.data?.items.find((item) => item.source === "attention")?.occurred_at
+  // Nothing is marked until the feed has arrived: a failed read leaves the badge as it was.
+  const unseen = feed.data ? unseenAttention(feed.data) : undefined;
+  const newestUnseen = feed.data && unseen
+    ? feed.data.items.find((item) => item.source === "attention")?.occurred_at
     : undefined;
-  const { mutate: mark } = markSeen;
+  // A failed mark is not worth a toast on a page the owner opened to read: the badge simply
+  // stays, as it does when the bell's own mark fails.
+  const { run: mark } = useActionFeedback(markSeen, { errorDisplay: "inline" });
   useEffect(() => {
     if (newestUnseen && mayMark) mark(newestUnseen);
   }, [newestUnseen, mayMark, mark]);

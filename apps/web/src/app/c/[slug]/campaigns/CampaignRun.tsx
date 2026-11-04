@@ -168,21 +168,25 @@ function LinesInUse({ progress, onCallNow }: { progress: CampaignProgress; onCal
 function OnACallNow({ campaignId, count }: { campaignId: string; count: number }) {
   const { session } = useClientRealm();
   const now = useCallingNow(session, campaignId, true);
-  const people = now.data?.items ?? [];
   // The list is a moment behind the count; it says so rather than showing an empty box.
+  if (now.error || !now.data || now.data.items.length === 0) {
+    return (
+      <div className="min-w-0 space-y-1">
+        <h3 className="text-[13px] font-medium text-ink-muted">On a call now</h3>
+        <p className="text-meta text-ink-muted">{now.error ? "Couldn't load who is on a call." : "Connecting…"}</p>
+      </div>
+    );
+  }
+  const people = now.data.items;
   return (
     <div className="min-w-0 space-y-1">
       <h3 className="text-[13px] font-medium text-ink-muted">On a call now</h3>
-      {people.length === 0 ? (
-        <p className="text-meta text-ink-muted">{now.isError ? "Couldn't load who is on a call." : "Connecting…"}</p>
-      ) : (
-        <ul className="divide-y divide-line">
-          {people.map((person) => (
-            <OnACallRow key={person.id} person={person} />
-          ))}
-        </ul>
-      )}
-      {people.length > 0 && count > people.length ? (
+      <ul className="divide-y divide-line">
+        {people.map((person) => (
+          <OnACallRow key={person.id} person={person} />
+        ))}
+      </ul>
+      {count > people.length ? (
         <p className="text-meta text-ink-muted">and {formatCount(count - people.length)} more</p>
       ) : null}
     </div>

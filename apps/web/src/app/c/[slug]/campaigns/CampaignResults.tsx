@@ -95,9 +95,9 @@ export function ResultFigures({ results }: { results: ResultsRead }) {
         />
       )}
       <Metric
-        label="Leads"
-        value={formatCount(r.leads)}
-        hint={r.hot_leads ? `${formatCount(r.hot_leads)} hot` : "None marked hot yet"}
+        label="Interested"
+        value={formatCount(r.interested_leads)}
+        hint={r.hot_leads ? `${formatCount(r.hot_leads)} hot` : "None hot yet"}
       />
       <Metric
         label="Average call"
