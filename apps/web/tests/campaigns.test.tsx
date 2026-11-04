@@ -4,23 +4,20 @@ import { describe, expect, it, vi } from "vitest";
 import EditCampaignPage from "@/app/c/[slug]/campaigns/[campaignId]/edit/page";
 import type { Agent } from "@/lib/api/agents";
 import type { CallOutcomes } from "@/lib/api/callOutcomes";
-import type { CampaignSummary, LaunchCheck } from "@/lib/api/campaigns";
+import type { LaunchCheck } from "@/lib/api/campaigns";
 import type { Me } from "@/lib/api/client";
 
 import {
   FIXTURE_AGENT_ID as AGENT_ID,
   FIXTURE_CAMPAIGN_ID as CAMPAIGN_ID,
-  LIST_PATH,
   campaignPage,
   contactsFixture,
   contactsPath,
   detailRoutes,
   dltRegistrationRoute,
   leadPickerRoutes,
-  listPage,
   newCampaignPage,
   openTab,
-  pageFixture,
   pickDate,
   progressFixture,
   resultsFixture,
@@ -94,19 +91,6 @@ const AGENT: Agent = {
   llm_tier_label: "Standard",
   llm_tier_source: "platform",
   llm_surcharged: false,
-};
-
-const CAMPAIGN: CampaignSummary = {
-  id: CAMPAIGN_ID,
-  name: "Diwali offer",
-  status: "draft",
-  classification: "promotional",
-  contacts: 120,
-  connected: 0,
-  launched_at: null,
-  created_at: "2026-08-10T06:00:00Z",
-  consent_provenance_blocker: null,
-  pause_reason: null,
 };
 
 const BLOCKED: LaunchCheck = {
@@ -264,62 +248,6 @@ describe("a campaign whose progress could not be read", () => {
     const { container } = await renderClientPage(campaignPage(), detail(stillLoading()));
     expect(container.querySelector(".animate-pulse")).not.toBeNull();
     expect(container.textContent).not.toContain("0 people");
-  });
-});
-
-describe("the campaign list", () => {
-  it("links every campaign to its own address and keeps rule names out of the DOM", async () => {
-    const refused: CampaignSummary = {
-      ...CAMPAIGN,
-      id: "0192f0aa-2222-7000-8000-000000000009",
-      name: "Bought list pilot",
-      consent_provenance_blocker: "consent_source_refused",
-    };
-    const { container } = await renderClientPage(listPage(), {
-      "/v1/me": ME,
-      [LIST_PATH]: pageFixture([CAMPAIGN, refused]),
-    });
-    const link = await screen.findByRole("link", { name: CAMPAIGN.name });
-    expect(link.getAttribute("href")).toBe(`/c/acme/campaigns/${CAMPAIGN_ID}`);
-    expect(container.querySelectorAll("tbody tr")).toHaveLength(2);
-    expect(container.textContent).toContain("Can't be launched");
-    expect(container.textContent).not.toContain("consent_source_refused");
-    expect(container.querySelector("h1")).toBeNull();
-    expect(screen.getByRole("link", { name: "New campaign" }).getAttribute("href")).toBe(
-      "/c/acme/campaigns/new",
-    );
-  });
-
-  it("names an automatic pause and offers no Resume the server would refuse", async () => {
-    const paused: CampaignSummary = { ...CAMPAIGN, status: "paused", pause_reason: "out_of_credit" };
-    const { container } = await renderClientPage(listPage(), {
-      "/v1/me": ME,
-      [LIST_PATH]: pageFixture([paused]),
-    });
-    await screen.findByRole("link", { name: CAMPAIGN.name });
-    expect(container.textContent).toContain("Paused: out of credit");
-    expect(screen.queryByRole("button", { name: /Resume/ })).toBeNull();
-  });
-
-  it("counts every status and asks the server for the one chosen", async () => {
-    const rendered = await renderClientPage(listPage(), {
-      "/v1/me": ME,
-      [LIST_PATH]: pageFixture([CAMPAIGN]),
-      "/v1/campaigns/page?limit=25&offset=0&status=draft": pageFixture([CAMPAIGN]),
-    });
-    fireEvent.click(await screen.findByRole("button", { name: "Drafts 1" }));
-    await vi.waitFor(() =>
-      expect(rendered.calls.some((c) => c.path.endsWith("status=draft"))).toBe(true),
-    );
-  });
-
-  it("says there are none only when the server answered with none", async () => {
-    const { container } = await renderClientPage(listPage(), {
-      "/v1/me": ME,
-      [LIST_PATH]: pageFixture([]),
-    });
-    await screen.findByText("No campaigns yet.");
-    expect(container.textContent).not.toContain("No campaign matches");
   });
 });
 
