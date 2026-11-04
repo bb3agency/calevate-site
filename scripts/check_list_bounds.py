@@ -175,7 +175,6 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "POST /v1/team-alerts/contacts": _TEAM_CONTACTS,
     "POST /v1/team-alerts/contacts/{contact_id}/code": _TEAM_CONTACTS,
     "POST /v1/team-alerts/contacts/{contact_id}/verify": _TEAM_CONTACTS,
-    "POST /v1/team-alerts/contacts/{contact_id}/default": _TEAM_CONTACTS,
     "GET /v1/agents/{agent_id}/team-alert": _TEAM_RULE,
     "PUT /v1/agents/{agent_id}/team-alert": _TEAM_RULE,
     "GET /v1/calls/live": BoundedByConstruction(
