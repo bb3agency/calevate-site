@@ -323,3 +323,23 @@ async def test_approved_business_details_queue_the_move_of_a_number_waiting_for_
         ).scalar_one()
     # Once, on the reading that first says accepted; the second reading changes nothing.
     assert queued == 1
+
+
+async def test_the_daily_walk_queues_a_number_still_waiting_for_an_approved_client(
+    vendor: MovingVendor,
+) -> None:
+    """An already-approved client never turns `accepted` again, so a number recorded for it
+    and never moved is caught by the daily walk instead."""
+    from apps.api.campaigns.engine_business_details import queue_waiting_moves
+
+    tenant_id, number_id, _number, _workspace, _scoped = await _platform_held_number(vendor)
+    async with tenant_session(tenant_id) as session:
+        assert await queue_waiting_moves(session, tenant_id=tenant_id) == 1
+        await session.execute(
+            text(
+                "UPDATE phone_numbers SET engine_number_ref = engine_number_ref || '@org_c' "
+                "WHERE id = :id"
+            ),
+            {"id": number_id},
+        )
+        assert await queue_waiting_moves(session, tenant_id=tenant_id) == 0

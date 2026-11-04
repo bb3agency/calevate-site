@@ -94,7 +94,7 @@ async def store_business_details(
         )
     ).scalar()
     if details.status == "accepted" and before != "accepted":
-        await _queue_waiting_moves(session, tenant_id=tenant_id)
+        await queue_waiting_moves(session, tenant_id=tenant_id)
     await session.execute(
         text(
             "UPDATE tenant_engine_workspaces SET business_status = :status, "
@@ -123,7 +123,7 @@ _WAITING_MOVES_SQL: Final = (
 )
 
 
-async def _queue_waiting_moves(session: AsyncSession, *, tenant_id: UUID) -> int:
+async def queue_waiting_moves(session: AsyncSession, *, tenant_id: UUID) -> int:
     from apps.api.campaigns.engine_numbers import MOVE_NUMBER_JOB, is_platform_line
 
     rows = (await session.execute(text(_WAITING_MOVES_SQL))).all()
@@ -245,6 +245,7 @@ __all__ = [
     "SUBMIT_JOB",
     "AuditSent",
     "queue_business_details_submission",
+    "queue_waiting_moves",
     "refresh_business_details",
     "store_business_details",
     "submit_business_details",

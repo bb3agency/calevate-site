@@ -43,6 +43,7 @@ from sqlalchemy import text
 from apps.api.agents.service import retire_in_call_actions
 from apps.api.billing.first_payment import PAID_TENANT_SQL
 from apps.api.campaigns.engine_business_details import (
+    queue_waiting_moves,
     refresh_business_details,
     submit_business_details,
 )
@@ -397,6 +398,12 @@ async def _business_details_leg(tenant_id: UUID, tally: dict[str, int]) -> None:
         async with tenant_session(tenant_id) as session:
             await enqueue_outbox(session, job=SUBMIT_JOB, payload={"tenant_id": str(tenant_id)})
         tally["resent"] += 1
+    if details.status == "accepted":
+        # A Calevate number recorded for an already-approved client and never moved (the
+        # record step's move refused or predates it): the reading that turns `accepted`
+        # queues these too, but only once, so the daily walk catches any left behind.
+        async with tenant_session(tenant_id) as session:
+            tally["moves_queued"] += await queue_waiting_moves(session, tenant_id=tenant_id)
 
 
 async def _clone_leg(
@@ -477,7 +484,15 @@ async def sweep_engine_workspaces(ctx: dict[str, Any]) -> str:
         return "not_applicable"
     engine = get_engine()
     tally = dict.fromkeys(
-        ("changed", "resent", "unreadable", "clones_forgotten", "call_lines_repaired"), 0
+        (
+            "changed",
+            "resent",
+            "unreadable",
+            "clones_forgotten",
+            "call_lines_repaired",
+            "moves_queued",
+        ),
+        0,
     )
     report = WalkReport()
     async for visit in walk_workspaces("engine_workspaces", include_developer=False, report=report):
