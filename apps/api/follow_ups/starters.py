@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.follow_ups import definition as d
 
 NIL: Final = UUID(int=0)
-Need = Literal["outbound_agent", "whatsapp_template", "team_address"]
+Need = Literal["outbound_agent", "whatsapp_template"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,7 +38,6 @@ class _Account:
     agent: UUID | None
     template: UUID | None
     owner: UUID | None
-    has_team_address: bool
     has_call_new_leads: bool
 
 
@@ -64,15 +63,6 @@ async def _account(session: AsyncSession) -> _Account:
             "SELECT m.user_id FROM memberships m JOIN users u ON u.id = m.user_id "
             "WHERE m.role = 'owner' AND u.deactivated_at IS NULL ORDER BY m.created_at LIMIT 1",
         ),
-        has_team_address=(
-            await session.execute(
-                text(
-                    "SELECT 1 FROM team_alert_contacts WHERE is_default AND removed_at IS NULL "
-                    "AND verified_at IS NOT NULL LIMIT 1"
-                )
-            )
-        ).first()
-        is not None,
         has_call_new_leads=(
             await session.execute(
                 text("SELECT 1 FROM follow_ups WHERE starter = 'call_new_leads' LIMIT 1")
@@ -96,7 +86,6 @@ def build(account: _Account) -> list[Starter]:
         have: dict[Need, bool] = {
             "outbound_agent": account.agent is not None,
             "whatsapp_template": account.template is not None,
-            "team_address": account.has_team_address,
         }
         return [k for k in kinds if not have[k]]
 
@@ -146,7 +135,7 @@ def build(account: _Account) -> list[Starter]:
             ),
             settings=d.Settings(goal="interested"),
             available=True,
-            needs=needs("outbound_agent", "whatsapp_template", "team_address"),
+            needs=needs("outbound_agent", "whatsapp_template"),
         ),
         Starter(
             key="missed_call_callback",

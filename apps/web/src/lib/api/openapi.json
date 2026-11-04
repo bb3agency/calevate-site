@@ -26843,8 +26843,7 @@
             "items": {
               "enum": [
                 "outbound_agent",
-                "whatsapp_template",
-                "team_address"
+                "whatsapp_template"
               ],
               "type": "string"
             },
@@ -52696,6 +52695,10 @@
       "TeamAlertChoiceOut": {
         "additionalProperties": false,
         "properties": {
+          "hot": {
+            "title": "Hot",
+            "type": "boolean"
+          },
           "key": {
             "title": "Key",
             "type": "string"
@@ -52715,7 +52718,8 @@
         "required": [
           "key",
           "label",
-          "values"
+          "values",
+          "hot"
         ],
         "title": "TeamAlertChoiceOut",
         "type": "object"
@@ -52723,18 +52727,6 @@
       "TeamAlertRuleIn": {
         "additionalProperties": false,
         "properties": {
-          "contact_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Contact Id"
-          },
           "in_call": {
             "default": false,
             "title": "In Call",
@@ -52764,18 +52756,6 @@
       "TeamAlertRuleOut": {
         "additionalProperties": false,
         "properties": {
-          "contact_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Contact Id"
-          },
           "fields": {
             "items": {
               "$ref": "#/components/schemas/TeamAlertChoiceOut"
@@ -52812,25 +52792,16 @@
             "title": "Outcomes",
             "type": "array"
           },
-          "sends_to": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Sends To"
+          "team_addresses": {
+            "title": "Team Addresses",
+            "type": "integer"
           }
         },
         "required": [
-          "contact_id",
           "on_outcomes",
           "on_fields",
           "in_call",
-          "sends_to",
+          "team_addresses",
           "in_call_live",
           "outcomes",
           "fields"
@@ -52909,10 +52880,6 @@
             "title": "Id",
             "type": "string"
           },
-          "is_default": {
-            "title": "Is Default",
-            "type": "boolean"
-          },
           "verified": {
             "title": "Verified",
             "type": "boolean"
@@ -52934,7 +52901,6 @@
           "id",
           "channel",
           "address",
-          "is_default",
           "verified",
           "whatsapp_account_id"
         ],
@@ -53169,18 +53135,6 @@
       "TellTeamStep": {
         "additionalProperties": false,
         "properties": {
-          "contact_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Contact Id"
-          },
           "id": {
             "pattern": "^[a-z][a-z0-9_]{0,15}$",
             "title": "Id",
@@ -53221,18 +53175,6 @@
       "TellTeamStepOut": {
         "additionalProperties": false,
         "properties": {
-          "contact_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Contact Id"
-          },
           "id": {
             "pattern": "^[a-z][a-z0-9_]{0,15}$",
             "title": "Id",
@@ -100126,46 +100068,6 @@
           }
         },
         "summary": "Email a new code to a team address",
-        "tags": [
-          "team-alerts"
-        ],
-        "x-calevate-permission": "org:manage"
-      }
-    },
-    "/v1/team-alerts/contacts/{contact_id}/default": {
-      "post": {
-        "operationId": "default_team_contact_v1_team_alerts_contacts__contact_id__default_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "contact_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Contact Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TeamContactsOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "Make a team address the one agents use unless they name another",
         "tags": [
           "team-alerts"
         ],

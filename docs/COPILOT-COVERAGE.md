@@ -119,7 +119,7 @@ D-935 troubleshooting and line-protection healer, D-936 proactive notes, D-937 P
 | settings | Switch an action (or all) on/off | agents_do:agent_action_switch | confirm | COVERED |
 | settings | Remove an in-call action | agents_do:agent_action_remove | confirm | COVERED |
 | settings | Run an in-call action once with sample values | (none) | confirm | MISSING |
-| settings | When the agent tells the team about a caller | agents_do:agent_team_alert_set | confirm | BUILT (D-938) |
+| settings | What besides hot leads the agent tells the hot-lead list | agents_do:agent_team_alert_set | confirm | BUILT (D-938, D-967) |
 | delivery | Details it writes down (draft/paused) | agents_do:agent_capture_fields_set | now | COVERED |
 | delivery | Same for a live agent | agents_do:agent_capture_fields_set_live | confirm | COVERED |
 | delivery | Accept / turn down a lead-detail suggestion | agents_do:lead_suggestion_answer | confirm | COVERED |
@@ -331,7 +331,7 @@ D-935 troubleshooting and line-protection healer, D-936 proactive notes, D-937 P
 | team | Change role | team_do:team_member_role | confirm | COVERED |
 | team | Remove member | team_do:team_member_remove | confirm | COVERED |
 | team | Resend / cancel invitation | team_do:team_invitation | confirm | COVERED |
-| team | Add / remove / make default a team alert address | team_do:team_alert_contact | confirm | BUILT (D-938) |
+| team | Add / remove a team address on the hot-lead list | team_do:team_alert_contact | confirm | BUILT (D-938, D-967) |
 | team | Verify a team address with its emailed code | screen only | - | NEVER (emailed verification code) |
 | alerts | My WhatsApp hot-lead alerts on/off | screen only | - | NEVER (person's own consent record) |
 | alerts | Desktop alerts on/off | screen only | - | NEVER (browser permission prompt) |

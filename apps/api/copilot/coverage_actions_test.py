@@ -250,7 +250,7 @@ async def test_the_default_tier_is_already_in_force_on_a_new_account() -> None:
 # --- tell my team ----------------------------------------------------------------------------
 
 
-async def test_a_team_address_is_added_made_default_and_removed() -> None:
+async def test_a_team_address_is_added_and_removed() -> None:
     tenant_id, _slug, token = await _make_tenant()
     other_id, _o, other_token = await _make_tenant()
     added = await _do(
@@ -260,9 +260,9 @@ async def test_a_team_address_is_added_made_default_and_removed() -> None:
         {"act": "add", "team_contact_id": None, "address": " Desk@Example.com "},
     )
     assert added.applied is True
-    row = await _one(tenant_id, "SELECT id, address, is_default FROM team_alert_contacts")
+    row = await _one(tenant_id, "SELECT id, address FROM team_alert_contacts")
     contact_id = str(row[0])
-    assert (row[1], row[2]) == ("desk@example.com", True)
+    assert row[1] == "desk@example.com"
     # Another account's id is not found: RLS, not a WHERE clause.
     with pytest.raises(ProblemError):
         await _propose(
@@ -271,12 +271,6 @@ async def test_a_team_address_is_added_made_default_and_removed() -> None:
             "team_alert_contact",
             {"act": "remove", "team_contact_id": contact_id, "address": None},
         )
-    await _do(
-        tenant_id,
-        token,
-        "team_alert_contact",
-        {"act": "make_default", "team_contact_id": contact_id, "address": None},
-    )
     await _do(
         tenant_id,
         token,
@@ -308,22 +302,21 @@ async def test_an_agents_team_alert_is_saved_and_shown_in_its_handover_part() ->
     agent_id = await _agent_of(tenant_id)
     args: dict[str, Any] = {
         "agent_id": str(agent_id),
-        "team_contact_id": None,
         "on_outcomes": [],
         "on_answers": [],
-        "in_call": False,
+        "in_call": True,
     }
     proposal = await _propose(tenant_id, token, "agent_team_alert_set", args)
-    assert proposal.current == "never"
+    assert proposal.current == "only for hot leads"
     done = await _confirm(tenant_id, _user_of(token), proposal.token)
     assert done.applied is True
-    assert "no confirmed team address" in done.detail or "Nothing is sent" in done.detail
+    assert "once a team address is confirmed" in done.detail
     saved = await _one(
         tenant_id, "SELECT count(*) FROM team_alert_rules WHERE agent_id = :a", a=agent_id
     )
     assert saved[0] == 1
     part = await _read("agent_settings", tenant_id, {"agent_id": str(agent_id), "part": "handover"})
-    assert "Tells the team:" in part
+    assert "hears about every hot lead" in part
     assert "Outcomes it can watch:" in part
 
 
@@ -337,7 +330,6 @@ async def test_a_team_alert_refuses_an_outcome_the_agent_does_not_have() -> None
             "agent_team_alert_set",
             {
                 "agent_id": str(agent_id),
-                "team_contact_id": None,
                 "on_outcomes": ["no_such_outcome"],
                 "on_answers": [],
                 "in_call": False,
@@ -356,7 +348,6 @@ async def test_a_team_alert_answer_must_be_key_equals_value() -> None:
             "agent_team_alert_set",
             {
                 "agent_id": str(agent_id),
-                "team_contact_id": None,
                 "on_outcomes": [],
                 "on_answers": ["no equals sign"],
                 "in_call": False,
@@ -376,7 +367,6 @@ async def test_a_team_alert_for_another_accounts_agent_is_refused() -> None:
             "agent_team_alert_set",
             {
                 "agent_id": str(foreign),
-                "team_contact_id": None,
                 "on_outcomes": [],
                 "on_answers": [],
                 "in_call": False,

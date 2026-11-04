@@ -13706,23 +13706,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/team-alerts/contacts/{contact_id}/default": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Make a team address the one agents use unless they name another */
-        post: operations["default_team_contact_v1_team_alerts_contacts__contact_id__default_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/team-alerts/contacts/{contact_id}/verify": {
         parameters: {
             query?: never;
@@ -23572,7 +23555,7 @@ export interface components {
             /** Name */
             name: string;
             /** Needs */
-            needs: ("outbound_agent" | "whatsapp_template" | "team_address")[];
+            needs: ("outbound_agent" | "whatsapp_template")[];
             settings: components["schemas"]["Settings"];
             /** Steps */
             steps: (components["schemas"]["CallStepOut"] | components["schemas"]["DecideStepOut"] | components["schemas"]["WaitStepOut"] | components["schemas"]["WhatsAppStepOut"] | components["schemas"]["AssignStepOut"] | components["schemas"]["SetStatusStepOut"] | components["schemas"]["TellTeamStepOut"] | components["schemas"]["ActionStepOut"] | components["schemas"]["EndStepOut"])[];
@@ -33173,6 +33156,8 @@ export interface components {
         };
         /** TeamAlertChoiceOut */
         TeamAlertChoiceOut: {
+            /** Hot */
+            hot: boolean;
             /** Key */
             key: string;
             /** Label */
@@ -33182,8 +33167,6 @@ export interface components {
         };
         /** TeamAlertRuleIn */
         TeamAlertRuleIn: {
-            /** Contact Id */
-            contact_id?: string | null;
             /**
              * In Call
              * @default false
@@ -33196,8 +33179,6 @@ export interface components {
         };
         /** TeamAlertRuleOut */
         TeamAlertRuleOut: {
-            /** Contact Id */
-            contact_id: string | null;
             /** Fields */
             fields: components["schemas"]["TeamAlertChoiceOut"][];
             /** In Call */
@@ -33210,8 +33191,8 @@ export interface components {
             on_outcomes: string[];
             /** Outcomes */
             outcomes: components["schemas"]["TeamAlertChoiceOut"][];
-            /** Sends To */
-            sends_to: string | null;
+            /** Team Addresses */
+            team_addresses: number;
         };
         /** TeamCodeIn */
         TeamCodeIn: {
@@ -33244,8 +33225,6 @@ export interface components {
              * Format: uuid
              */
             id: string;
-            /** Is Default */
-            is_default: boolean;
             /** Verified */
             verified: boolean;
             /** Whatsapp Account Id */
@@ -33372,8 +33351,6 @@ export interface components {
         };
         /** TellTeamStep */
         TellTeamStep: {
-            /** Contact Id */
-            contact_id?: string | null;
             /** Id */
             id: string;
             /**
@@ -33388,8 +33365,6 @@ export interface components {
         };
         /** TellTeamStepOut */
         TellTeamStepOut: {
-            /** Contact Id */
-            contact_id?: string | null;
             /** Id */
             id: string;
             /**
@@ -62214,37 +62189,6 @@ export interface operations {
         };
     };
     resend_team_code_v1_team_alerts_contacts__contact_id__code_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                contact_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TeamContactsOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    default_team_contact_v1_team_alerts_contacts__contact_id__default_post: {
         parameters: {
             query?: never;
             header?: never;

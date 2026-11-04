@@ -708,7 +708,6 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("PUT", "/v1/agents/{agent_id}/team-alert", {}, {}),
     ("POST", "/v1/team-alerts/contacts/{contact_id}/code", {}, {}),
     ("POST", "/v1/team-alerts/contacts/{contact_id}/verify", {"code": "123456"}, {}),
-    ("POST", "/v1/team-alerts/contacts/{contact_id}/default", {}, {}),
     ("DELETE", "/v1/team-alerts/contacts/{contact_id}", {}, {}),
     # D-907. Would change a neighbour's agent's silences and raise its longest call.
     ("POST", "/v1/agents/{agent_id}/call-handling/give-callers-time", {}, {}),
@@ -1266,9 +1265,6 @@ async def test_every_id_route_in_the_client_space_is_swept() -> None:
 #: body id without first reading it under the caller's RLS (`db/ownership.assert_visible`)
 #: stores a cross-tenant reference and answers 2xx (OWASP API1:2023, BOLA).
 _BODY_REFERENCE_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str], str], ...] = (
-    # D-904: the team address an agent's alerts go to; a neighbour's would send this
-    # business's callers' numbers to the other business's team.
-    ("PUT", "/v1/agents/{agent_id}/team-alert", {"contact_id": "{contact_id}"}, {}, "Team address"),
     ("POST", "/v1/lead-fields/replace", {"agent_ids": ["{agent_id}"]}, {}, "Agent"),
     (
         "POST",

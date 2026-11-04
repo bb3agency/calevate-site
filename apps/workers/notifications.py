@@ -59,6 +59,7 @@ from apps.api.core.transport import EmailPurpose, get_transport
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session
+from apps.api.team_alerts import service as team_alerts
 from apps.workers.auth_email import CONSOLE_BASE
 from apps.workers.email_render import from_text
 from apps.workers.redaction import redact
@@ -119,6 +120,16 @@ async def notify_hot_lead(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
         # the address — the deep link in the body needs it and a second round trip to
         # fetch one column would be one more thing to fail inside the 2-minute SLO.
         name, phone, status, summary, billing_email, slug = row
+
+        if billing_email and await team_alerts.team_covers(
+            session, call_id=call_id, channel=CHANNEL, address=billing_email
+        ):
+            # The owner's address is also a team address told about this call, with the
+            # full number: one email per inbox per call. The WhatsApp leg is its own.
+            await enqueue_hot_lead_whatsapp(
+                session, tenant_id=tenant_id, lead_id=lead_id, call_id=call_id, triggers=triggers
+            )
+            return "covered_by_team"
 
         if billing_email:
             body = _compose(name, phone, status, summary, triggers, slug=slug, lead_id=lead_id)
@@ -362,13 +373,14 @@ def _compose(
     """
     masked = redact(phone).text
     lines = [
-        f"A lead was marked {status} by your AI agent.",
+        "A lead was flagged for you by your AI agent.",
         "",
         f"Name: {_one_line(name) or 'not captured'}",
         f"Phone: {masked}",
+        f"Status: {status}",
     ]
     if triggers:
-        lines.append(f"Triggered by: {', '.join(triggers)}")
+        lines.append(f"Why: {_one_line(', '.join(triggers))}")
     spoken = _without_blank_lines(redact(summary).text) if summary else ""
     if spoken:
         lines += ["", "Call summary:", spoken]

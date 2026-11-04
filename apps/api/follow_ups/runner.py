@@ -1167,22 +1167,20 @@ async def _tell_team(session: AsyncSession, run: Run, step: d.TellTeamStep) -> S
             text("SELECT agent_id FROM calls WHERE id = :cid"), {"cid": run.last_call_id}
         )
     ).scalar()
-    contact_id = await team_alerts.resolved_contact(
-        session,
-        team_alerts.Rule(contact_id=step.contact_id, on_outcomes=(), on_fields=(), in_call=False),
-    )
-    if agent is None or contact_id is None:
-        return StepResult.go("next", "not_sent:no_address")
-    queued = await team_alerts.queue_for_follow_up(
+    if agent is None:
+        return StepResult.go("next", "not_sent:no_call")
+    told = await team_alerts.queue_for_follow_up(
         session,
         tenant_id=run.tenant_id,
         agent_id=UUID(str(agent)),
         call_id=run.last_call_id,
-        contact_id=contact_id,
+        lead_id=run.lead_id,
         why=step.why,
         follow_up_id=run.follow_up_id,
     )
-    return StepResult.go("next", "sent" if queued else "already_told")
+    if told == "nobody":
+        return StepResult.go("next", "not_sent:no_address")
+    return StepResult.go("next", "sent" if told == "queued" else "already_told")
 
 
 async def _set_status(session: AsyncSession, run: Run, step: d.SetStatusStep) -> StepResult:

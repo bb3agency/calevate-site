@@ -140,6 +140,14 @@ def test_every_step_reads_as_one_plain_line(raw: dict[str, object], line: str) -
     assert d.summary(d.load_steps([raw])[0], names) == line
 
 
+def test_a_saved_tell_team_step_that_named_an_address_still_loads() -> None:
+    """Steps saved while a step chose one team address keep loading; the list hears now."""
+    [step] = _steps(
+        {"id": "s1", "kind": "tell_team", "contact_id": str(uuid.uuid4()), "why": "Hot one"}
+    )
+    assert isinstance(step, d.TellTeamStep) and step.why == "Hot one"
+
+
 def test_names_fill_the_summaries() -> None:
     agent, template, user, action = (uuid.uuid4() for _ in range(4))
     names = d.Names(

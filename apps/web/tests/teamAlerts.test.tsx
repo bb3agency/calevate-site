@@ -2,13 +2,15 @@ import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { TeamAlertsPanel } from "@/app/c/[slug]/agents/panels/teamAlerts";
+import { TeamList } from "@/app/c/[slug]/settings/alerts/TeamList";
 
 import { renderClientPage, type ApiCall } from "./harness";
 import { OWNER_ME, teamAlertReads } from "./fixtures/sharedReads";
 
 /**
- * TELL MY TEAM (D-904): the owner adds a team address (confirmed by a code), and chooses when
- * this agent tells the team. WhatsApp is offered only when the account has its own WhatsApp
+ * WHO HEARS ABOUT HOT LEADS (D-904, D-967): the team half of the one list on Settings → Alerts
+ * (each address confirmed by a code), and on an agent only WHEN: a hot outcome always counts,
+ * the owner may add more. WhatsApp is offered only when the account has its own WhatsApp
  * connected; otherwise one line says why it is not there.
  */
 
@@ -18,11 +20,19 @@ function routes(overrides: Record<string, unknown> = {}) {
   return { "/v1/me": OWNER_ME, ...teamAlertReads(), ...overrides };
 }
 
-describe("Tell my team", () => {
+function list() {
+  return (
+    <ul>
+      <TeamList canWrite reason={null} />
+    </ul>
+  );
+}
+
+describe("the team on the hot-lead list", () => {
   it("adds an email address and hides WhatsApp without the account's own connection", async () => {
     const reads = teamAlertReads();
     let added = false;
-    const { calls } = await renderClientPage(<TeamAlertsPanel agent={AGENT} />, {
+    const { calls } = await renderClientPage(list(), {
       ...routes(),
       "/v1/team-alerts/contacts": (call: ApiCall) => {
         if (call.method === "POST") added = true;
@@ -34,7 +44,6 @@ describe("Tell my team", () => {
                   id: "c1",
                   channel: "email",
                   address: "team@rytu.in",
-                  is_default: true,
                   verified: false,
                   whatsapp_account_id: null,
                 },
@@ -43,23 +52,21 @@ describe("Tell my team", () => {
           : reads["/v1/team-alerts/contacts"];
       },
     });
-    expect(
-      await screen.findByText("WhatsApp needs your own account."),
-    ).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: "Add someone from your team" }));
+    expect(screen.getByText("WhatsApp needs your own account.")).toBeTruthy();
     expect(screen.queryByText("WhatsApp, from your own account")).toBeNull();
-    expect(screen.getByText("Nothing is sent until an address is confirmed.")).toBeTruthy();
 
-    fireEvent.change(screen.getByLabelText("Team email"), { target: { value: "team@rytu.in" } });
+    fireEvent.change(screen.getByLabelText("Their email"), { target: { value: "team@rytu.in" } });
     fireEvent.click(screen.getByRole("button", { name: "Add and send code" }));
     await waitFor(() => expect(calls.some((c) => c.method === "POST")).toBe(true));
     const post = calls.find((c) => c.method === "POST");
     expect(JSON.parse(post?.body ?? "{}")).toEqual({ channel: "email", address: "team@rytu.in" });
-    expect(await screen.findByText("Waiting for the code")).toBeTruthy();
+    expect(await screen.findByText(/Waiting for the code/)).toBeTruthy();
   });
 
   it("offers WhatsApp when the account has its own connection", async () => {
     await renderClientPage(
-      <TeamAlertsPanel agent={AGENT} />,
+      list(),
       routes({
         "/v1/team-alerts/contacts": {
           contacts: [],
@@ -68,12 +75,15 @@ describe("Tell my team", () => {
         },
       }),
     );
-    fireEvent.click(await screen.findByLabelText("WhatsApp, from your own account"));
-    expect(screen.getByLabelText("Team WhatsApp number")).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: "Add someone from your team" }));
+    fireEvent.click(screen.getByLabelText("WhatsApp, from your own account"));
+    expect(screen.getByLabelText("Their WhatsApp number")).toBeTruthy();
     expect(screen.getByLabelText("Approved template")).toBeTruthy();
   });
+});
 
-  it("saves when the agent tells the team", async () => {
+describe("what an agent tells the hot-lead list about", () => {
+  it("keeps a hot outcome ticked and saves what the owner adds", async () => {
     const reads = teamAlertReads();
     const { calls } = await renderClientPage(
       <TeamAlertsPanel agent={AGENT} />,
@@ -84,12 +94,14 @@ describe("Tell my team", () => {
             : reads["/v1/agents/agent-1/team-alert"],
       }),
     );
-    fireEvent.click(await screen.findByLabelText("Booked"));
+    const hot = (await screen.findByLabelText(/Ready to buy/)) as HTMLInputElement;
+    expect(hot.checked && hot.disabled).toBe(true);
+    expect(screen.getByText("You hear about these. No team yet.")).toBeTruthy();
+    fireEvent.click(screen.getByLabelText("Booked"));
     fireEvent.click(screen.getByLabelText(/Tell the team during the call, too/));
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(calls.some((c) => c.method === "PUT")).toBe(true));
     expect(JSON.parse(calls.find((c) => c.method === "PUT")?.body ?? "{}")).toEqual({
-      contact_id: null,
       on_outcomes: ["booked"],
       on_fields: [],
       in_call: true,

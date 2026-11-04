@@ -302,16 +302,6 @@ async def problems_of(
             {"uid": step.user_id},
         ):
             problems.append(Problem(step.id, "teammate_unknown", "Choose someone on your team."))
-        elif isinstance(step, d.TellTeamStep) and not await _exists(
-            session,
-            "SELECT 1 FROM team_alert_contacts WHERE removed_at IS NULL AND verified_at IS NOT "
-            "NULL AND (CASE WHEN CAST(:cid AS uuid) IS NULL THEN is_default "
-            "ELSE id = CAST(:cid AS uuid) END)",
-            {"cid": step.contact_id},
-        ):
-            problems.append(
-                Problem(step.id, "team_address_missing", "Add and confirm a team address first.")
-            )
         elif isinstance(step, d.ActionStep) and not await _exists(
             session, "SELECT 1 FROM action_tools WHERE id = :id AND enabled", {"id": step.action_id}
         ):

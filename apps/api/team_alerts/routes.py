@@ -1,13 +1,15 @@
-"""Tell my team (D-904), as endpoints.
+"""Who hears about hot leads (D-904): the team addresses and each agent's rule, as endpoints.
 
     GET    /v1/team-alerts/contacts                    the team addresses
     POST   /v1/team-alerts/contacts                    add one; a code is mailed to it (owner)
     POST   /v1/team-alerts/contacts/{id}/code          mail a new code (owner)
     POST   /v1/team-alerts/contacts/{id}/verify        enter the code (owner)
-    POST   /v1/team-alerts/contacts/{id}/default       the address agents use by default (owner)
     DELETE /v1/team-alerts/contacts/{id}               stop sending there (owner)
-    GET    /v1/agents/{agent_id}/team-alert            when this agent tells the team
+    GET    /v1/agents/{agent_id}/team-alert            when this agent tells the list
     PUT    /v1/agents/{agent_id}/team-alert            set it (owner)
+
+The owner is on the list without an entry here: their email always, their WhatsApp once they
+opt in (`compliance/whatsapp_optin_routes.py`).
 
 Every write is `org:manage`: these choose who outside the dashboard receives a customer's full
 number, which is the owner's decision.
@@ -64,7 +66,6 @@ class TeamContactOut(BaseModel):
     channel: Channel
     #: The team's own email address or WhatsApp number, which the owner typed.
     address: str
-    is_default: bool
     verified: bool
     #: WhatsApp only: the client's own connection it is sent through; null once that
     #: connection is deleted, and then nothing is sent there.
@@ -139,18 +140,18 @@ class TeamAlertChoiceOut(BaseModel):
     key: str
     label: str
     values: list[str]
+    #: Outcomes only: it moves the lead to Hot, so the list always hears of it.
+    hot: bool
 
 
 class TeamAlertRuleOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    #: Null follows the account's default address.
-    contact_id: UUID | None
     on_outcomes: list[str]
     on_fields: list[FieldTriggerIO]
     in_call: bool
-    #: The verified address alerts go to now; null when none does, so nothing is sent.
-    sends_to: UUID | None
+    #: Confirmed team addresses that hear now; the owner hears besides.
+    team_addresses: int
     #: Whether the agent can tell the team during a call now.
     in_call_live: bool
     outcomes: list[TeamAlertChoiceOut]
@@ -160,7 +161,6 @@ class TeamAlertRuleOut(BaseModel):
 class TeamAlertRuleIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    contact_id: UUID | None = None
     on_outcomes: list[Annotated[str, Field(max_length=_VALUE_MAX)]] = Field(
         default_factory=list, max_length=_OUTCOMES_MAX
     )
@@ -173,7 +173,6 @@ def _contact_out(contact: service.Contact) -> TeamContactOut:
         id=contact.id,
         channel="whatsapp" if contact.channel == "whatsapp" else "email",
         address=contact.address,
-        is_default=contact.is_default,
         verified=contact.verified,
         whatsapp_account_id=contact.whatsapp_account_id,
     )
@@ -181,15 +180,18 @@ def _contact_out(contact: service.Contact) -> TeamContactOut:
 
 def _rule_out(view: RuleView) -> TeamAlertRuleOut:
     return TeamAlertRuleOut(
-        contact_id=view.rule.contact_id,
         on_outcomes=list(view.rule.on_outcomes),
         on_fields=[FieldTriggerIO(key=f.key, values=list(f.values)) for f in view.rule.on_fields],
         in_call=view.rule.in_call,
-        sends_to=view.sends_to,
+        team_addresses=view.team_addresses,
         in_call_live=view.in_call_live,
-        outcomes=[TeamAlertChoiceOut(key=o.key, label=o.label, values=[]) for o in view.outcomes],
+        outcomes=[
+            TeamAlertChoiceOut(key=o.key, label=o.label, values=[], hot=o.hot)
+            for o in view.outcomes
+        ],
         fields=[
-            TeamAlertChoiceOut(key=f.key, label=f.label, values=list(f.values)) for f in view.fields
+            TeamAlertChoiceOut(key=f.key, label=f.label, values=list(f.values), hot=False)
+            for f in view.fields
         ],
     )
 
@@ -296,21 +298,6 @@ async def verify_team_contact(
     return await _contacts_out(session)
 
 
-@router.post(
-    "/v1/team-alerts/contacts/{contact_id}/default",
-    response_model=TeamContactsOut,
-    openapi_extra=permission_meta("org:manage"),
-    summary="Make a team address the one agents use unless they name another",
-)
-async def default_team_contact(
-    contact_id: UUID, session: Session, request: Request, principal: Owner
-) -> TeamContactsOut:
-    await service.set_default(session, contact_id=contact_id)
-    await _audit(session, request, principal, "team_alert.contact_default", str(contact_id))
-    await service.resync_agents(session, await service.agents_with_rules(session))
-    return await _contacts_out(session)
-
-
 @router.delete(
     "/v1/team-alerts/contacts/{contact_id}",
     status_code=204,
@@ -351,7 +338,6 @@ async def set_team_alert_rule(
 ) -> TeamAlertRuleOut:
     assert principal.tenant_id is not None
     rule = Rule(
-        contact_id=payload.contact_id,
         on_outcomes=tuple(payload.on_outcomes),
         on_fields=tuple(FieldTrigger(f.key, tuple(f.values)) for f in payload.on_fields),
         in_call=payload.in_call,
@@ -371,7 +357,6 @@ async def set_team_alert_rule(
             "outcomes": str(len(rule.on_outcomes)),
             "fields": str(len(rule.on_fields)),
             "in_call": str(rule.in_call),
-            "own_contact": str(rule.contact_id is not None),
         },
     )
     return _rule_out(view)

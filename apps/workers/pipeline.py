@@ -275,18 +275,10 @@ def _party_e164(raw: str | None) -> str | None:
 
 POSTCALL_JOB = "run_post_call_pipeline"
 INGEST_JOB = "ingest_engine_event"
-# The two names this module ENQUEUES rather than defines, promoted from literals (P6.9).
-# They lived as bare strings at four call sites, which made them invisible to
-# `tests/job_registration_test.py` — the guard whose entire job is noticing a job name no
-# worker answers to. That guard could not see them because it inspected `node.args[0]` for
-# every enqueuer, and `enqueue_outbox`'s first positional is the SESSION.
-#
-# Declared HERE rather than beside their functions for `compliance/deletion.DELETION_JOB`'s
-# reason: the constant sits with the enqueuer, so `apps/api` never has to import
-# `apps/workers` to name a job. `notify_hot_lead` lives in `workers/notifications.py` and
-# `deliver_outbound_webhook` in `workers/outbound_webhooks.py`; both are registered in
-# `settings.FUNCTIONS`, which is now what the guard actually checks these against.
-HOT_LEAD_JOB = "notify_hot_lead"
+# A name this module ENQUEUES rather than defines, as a constant so
+# `tests/job_registration_test.py` can check it against `settings.FUNCTIONS`. Declared beside
+# the enqueuer so `apps/api` never imports `apps/workers` to name a job; the job itself lives
+# in `workers/outbound_webhooks.py`.
 OUTBOUND_WEBHOOK_JOB = "deliver_outbound_webhook"
 #: The client's after-call actions for one finished call (D-700), registered in
 #: `workers/settings.py` from `workers/client_actions.run_after_call_actions`.
@@ -1606,34 +1598,21 @@ async def _run_post_call_stages(
                 ),
             )
 
-    # STEP 6 — notifications, through the OUTBOX so a crash cannot lose them.
-    if lead_id is not None and extraction is not None:
-        with span("pipeline.notify_hot_lead", call_id=str(call_id), lead_id=str(lead_id)) as stage:
+    # STEP 6 — tell everyone who hears about hot leads (the owner and the team addresses),
+    # through the OUTBOX so a crash cannot lose it, once per person per channel per call.
+    if extraction is not None:
+        with span("pipeline.notify_hot_lead", call_id=str(call_id)) as stage:
             outcome = await _maybe_notify_hot_lead(
                 tenant_id,
+                agent_id,
                 lead_id,
                 call_id,
                 business_outcome,
                 connected=snapshot.status == "completed",
+                data=extraction.data,
+                labels={f.key: f.label for f in spec.fields},
             )
             set_span_attributes(stage, outcome=outcome)
-
-    # STEP 6b — tell the business's own team (D-904), when the outcome or a choice the owner
-    # picked says so. After extraction, through the outbox, once per call and address.
-    if extraction is not None:
-        with span("pipeline.team_alert", call_id=str(call_id)) as stage:
-            async with tenant_session(tenant_id) as session:
-                team_outcome = await team_alerts.queue_after_call(
-                    session,
-                    tenant_id=tenant_id,
-                    agent_id=agent_id,
-                    call_id=call_id,
-                    outcome_key=business_outcome.key if business_outcome else None,
-                    outcome_label=business_outcome.label if business_outcome else None,
-                    data=extraction.data,
-                    labels={f.key: f.label for f in spec.fields},
-                )
-            set_span_attributes(stage, outcome=team_outcome)
 
     # The recording copy started at STEP 1 settles here: a copy that failed raises its
     # `Retry` now, after the lead and the meter are in, and the re-run finds both done.
@@ -2079,16 +2058,6 @@ async def _mark_crm_notified(session: AsyncSession, call_id: UUID) -> None:
         ),
         {"cid": call_id},
     )
-
-
-def hot_lead_dedupe_key(*, lead_id: UUID, call_id: UUID) -> str:
-    """The key that makes the hot-lead alert happen once per (lead, call).
-
-    A function rather than an f-string at the call site because `whatsapp.py` derives its
-    own key from the same pair, and two spellings of one keyspace is how the email leg and
-    the WhatsApp leg stop agreeing about whether a lead was already alerted on.
-    """
-    return f"hot-lead:{lead_id}:{call_id}"
 
 
 async def _stored_turns(tenant_id: UUID, call_id: UUID) -> list[TranscriptTurn]:
@@ -5053,44 +5022,43 @@ def reads_hot(business_outcome: BusinessOutcome | None, *, connected: bool) -> b
 
 async def _maybe_notify_hot_lead(
     tenant_id: UUID,
-    lead_id: UUID,
+    agent_id: UUID,
+    lead_id: UUID | None,
     call_id: UUID,
     business_outcome: BusinessOutcome | None,
     *,
     connected: bool,
+    data: dict[str, Any],
+    labels: dict[str, str],
 ) -> str:
-    """Tell the owner about a lead this call made hot (FLOWS §6), once per lead per call.
+    """Tell everyone who hears about hot leads about this call (FLOWS §6), when it made its
+    lead hot or the agent's rule matched (`team_alerts.queue_after_call`).
 
-    The status moves through `_advance_lead_status`, so the move is recorded on the lead's
-    timeline and reaches a CRM as `lead.updated`; after `_upsert_lead` has already moved it
-    that call is a no-op. The alert is queued whether or not the status moved: a person may
-    have set the lead's status, and a second hot call from a lead already hot is still news.
-    `enqueue_outbox_once` keyed on (lead, call) keeps a replay from queueing it twice.
+    A hot call moves the lead through `_advance_lead_status`, so the move is recorded on the
+    lead's timeline and reaches a CRM as `lead.updated`; after `_upsert_lead` has already
+    moved it that call is a no-op. The alert is queued whether or not the status moved: a
+    person may have set the lead's status, and a second hot call from a lead already hot is
+    still news. Each person is queued once per call, so a replay queues nothing.
 
-    The trigger named in the alert is the outcome's label, which the owner or the AI draft
-    wrote: never anything the caller said.
-
-    Returns `not_hot`, `queued` or `already_queued` for the stage span: an owner asking
-    "why did I not get the alert" needs the first told apart from the last.
+    Returns `not_worth_telling`, `queued` or `already_told` for the stage span: an owner
+    asking "why did I not get the alert" needs the first told apart from the last.
     """
-    if business_outcome is None or not reads_hot(business_outcome, connected=connected):
-        return "not_hot"
+    hot = business_outcome is not None and reads_hot(business_outcome, connected=connected)
     async with tenant_session(tenant_id) as session:
-        await _advance_lead_status(session, lead_id, "hot")
-        queued = await enqueue_outbox_once(
+        if hot and lead_id is not None:
+            await _advance_lead_status(session, lead_id, "hot")
+        return await team_alerts.queue_after_call(
             session,
-            job=HOT_LEAD_JOB,
-            payload={
-                "tenant_id": str(tenant_id),
-                "lead_id": str(lead_id),
-                "call_id": str(call_id),
-                "triggers": [business_outcome.label],
-            },
-            dedupe_key=hot_lead_dedupe_key(lead_id=lead_id, call_id=call_id),
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            call_id=call_id,
+            lead_id=lead_id,
+            hot=hot,
+            outcome_key=business_outcome.key if business_outcome else None,
+            outcome_label=business_outcome.label if business_outcome else None,
+            data=data,
+            labels=labels,
         )
-        if queued is None:
-            return "already_queued"
-    return "queued"
 
 
 # --- job 3: reconciliation ----------------------------------------------------

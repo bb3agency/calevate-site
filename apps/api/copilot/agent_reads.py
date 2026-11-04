@@ -145,7 +145,7 @@ async def _handover_part(session: AsyncSession, agent_id: UUID) -> list[str]:
 
 
 async def _team_alert_lines(session: AsyncSession, agent_id: UUID) -> list[str]:
-    """ "Tell my team" (D-904): the agent's rule and the keys and ids
+    """Who hears about hot leads (D-904): the agent's rule and the keys and ids
     `agent_team_alert_set` and `team_alert_contact` take."""
     from apps.api.team_alerts import service as team_alerts
 
@@ -153,25 +153,27 @@ async def _team_alert_lines(session: AsyncSession, agent_id: UUID) -> list[str]:
     rule = view.rule
     addresses = await team_alerts.list_contacts(session)
     return [
-        "Tells the team: outcomes "
+        "The hot-lead list (the owner and every confirmed team address) hears about every hot "
+        "lead, and from this agent also: outcomes "
         + (", ".join(rule.on_outcomes) or "none")
         + "; answers "
         + ("; ".join(f"{t.key}={'|'.join(t.values)}" for t in rule.on_fields) or "none")
-        + f"; during the call {_on(rule.in_call)}; "
-        + (
-            "sends to "
-            + (f"[team_contact_id {rule.contact_id}]" if rule.contact_id else "the default")
-        )
-        + ("." if view.sends_to else ", but no confirmed team address, so nothing is sent."),
+        + f"; during the call {_on(rule.in_call)}"
+        + ("." if view.in_call_live or not rule.in_call else ", once a team address is confirmed."),
         "Outcomes it can watch: "
-        + (", ".join(f"{o.label} ({o.key})" for o in view.outcomes) or "none"),
+        + (
+            ", ".join(
+                f"{o.label} ({o.key}{', makes the lead hot' if o.hot else ''})"
+                for o in view.outcomes
+            )
+            or "none"
+        ),
         "Answers it can watch: "
         + ("; ".join(f"{f.label} ({f.key}): {', '.join(f.values)}" for f in view.fields) or "none"),
-        "Team alert addresses: "
+        "Team addresses on the list: "
         + (
             "; ".join(
                 f"{c.address} ({c.channel}"
-                + (", default" if c.is_default else "")
                 + ("" if c.verified else ", code not typed yet")
                 + f") [team_contact_id {c.id}]"
                 for c in addresses

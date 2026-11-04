@@ -1,14 +1,13 @@
 "use client";
 
 /**
- * Tell my team (D-904): the business's own team addresses and, per agent, when the team hears
- * about a caller.
+ * Who hears about hot leads (D-904, D-967): the business's own team addresses beside the owner,
+ * and, per agent, what besides a hot lead the list hears about.
  *
  *   GET    /v1/team-alerts/contacts                 `org:read`
  *   POST   /v1/team-alerts/contacts                 `org:manage` (a code is sent to it)
  *   POST   /v1/team-alerts/contacts/{id}/code       `org:manage`
  *   POST   /v1/team-alerts/contacts/{id}/verify     `org:manage`
- *   POST   /v1/team-alerts/contacts/{id}/default    `org:manage`
  *   DELETE /v1/team-alerts/contacts/{id}            `org:manage`
  *   GET    /v1/agents/{agent_id}/team-alert         `agents:read`
  *   PUT    /v1/agents/{agent_id}/team-alert         `org:manage`
@@ -55,7 +54,7 @@ export function useTeamAlertRule(session: Session, agentId: string): UseQueryRes
   });
 }
 
-/** Every contact change can move which address an agent sends to, so the rules refetch too. */
+/** A contact change moves how many hear and whether an agent may tell the team during a call, so the rules refetch too. */
 function useContactMutation<V>(
   session: Session,
   request: (vars: V) => Promise<TeamContacts | undefined>,
@@ -89,12 +88,6 @@ export function useVerifyTeamContact(session: Session) {
 export function useResendTeamCode(session: Session) {
   return useContactMutation(session, (id: string) =>
     apiRequest<TeamContacts>(session, `${CONTACTS_PATH}/${id}/code`, { method: "POST" }),
-  );
-}
-
-export function useDefaultTeamContact(session: Session) {
-  return useContactMutation(session, (id: string) =>
-    apiRequest<TeamContacts>(session, `${CONTACTS_PATH}/${id}/default`, { method: "POST" }),
   );
 }
 

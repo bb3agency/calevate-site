@@ -160,8 +160,10 @@ and `settings.max_days` (default 14, at most 30) ends anything still waiting.
   `follow-up:<run_id>:<step_id>`), as the system actor `follow-up:<follow_up_id>`.
 * **`assign`**, **`set_status`**: `crm.service.set_lead_assignee` / `set_lead_status`, audited
   as the follow-up.
-* **`tell_team`**: `team_alerts` delivery (email or the client's own WhatsApp), keyed on the run
-  and step so a retry never alerts twice.
+* **`tell_team`**: tells everyone who hears about hot leads (the owner and every confirmed team
+  address, `team_alerts.queue_for_follow_up`, D-967) about the run's last call, once per person
+  per call, so a call the pipeline already alerted on is not alerted on again. A step saved with
+  a `contact_id` loads with it dropped.
 * **`action`**: the after-call action executor (`actions/execution.execute_action`) for this
   lead's latest call.
 

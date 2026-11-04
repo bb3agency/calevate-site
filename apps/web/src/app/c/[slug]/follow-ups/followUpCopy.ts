@@ -254,10 +254,9 @@ export function currentWait(step: FollowUpStep): { amount: number; unit: WaitUni
 
 /**
  * What a ready-made Follow-up needs that the account lacks (`needs`), as the button that
- * goes and fixes it. A team address is set on an agent's settings, so it opens Agents.
+ * goes and fixes it.
  */
 export const NEED_FIXES: Record<FollowUpStarterNeed, { label: string; path: string }> = {
   outbound_agent: { label: "Set up an agent that calls", path: "agents/new" },
   whatsapp_template: { label: "Connect WhatsApp", path: "integrations" },
-  team_address: { label: "Add who to tell", path: "agents" },
 };

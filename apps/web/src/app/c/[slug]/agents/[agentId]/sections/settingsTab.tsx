@@ -70,9 +70,9 @@ export function SettingsTab({ agent, slug }: { agent: Agent; slug: string }) {
 
         <Section
           headingLevel={3}
-          title="Tell my team"
-          description="Callers it can't help go to your team."
-          info={<p>Your team gets the caller&apos;s name and number, so nobody is left waiting.</p>}
+          title="Hot-lead alerts"
+          description="Which calls this agent tells you and your team about."
+          info={<p>Who hears is set once, on Settings, Alerts.</p>}
         >
           <TeamAlertsPanel agent={agent} />
         </Section>

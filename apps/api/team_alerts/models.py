@@ -1,12 +1,14 @@
 """Tables behind "Tell my team" (D-904, migration c4e9a2f7d816).
 
-`team_alert_contacts` — the business's own addresses that may receive a caller's full
-details, each verified once by a code mailed to it. Account-wide: one team inbox serves
-every agent, and one of them may be the default an agent without a choice of its own uses.
-Soft-removed (`removed_at`) so the alerts already sent to it keep their reference.
+`team_alert_contacts` — the business's own addresses that hear about hot leads beside the
+owner, each verified once by a code mailed to it. Account-wide: every confirmed address hears
+about every alert. Soft-removed (`removed_at`) so the alerts already sent to it keep their
+reference. `is_default` is no longer read (the whole list hears); it stays until a later
+release drops it (hard rule 8).
 
-`team_alert_rules` — per agent, when to tell the team: chosen business outcomes, chosen values
-of chosen choice fields, and whether the agent may tell the team during the call.
+`team_alert_rules` — per agent, what besides a hot lead the list hears about: chosen business
+outcomes, chosen values of chosen choice fields, and whether the agent may tell the team during
+the call. `contact_id` is no longer read, for the same reason as `is_default`.
 
 `team_alerts` — one row per (call, address): the idempotency key and the delivery record. Ids,
 the trigger, the matched reasons (outcome keys and choice values the owner configured, never a
@@ -120,7 +122,7 @@ class TeamAlertRule(PKMixin, TimestampMixin, Base):
     agent_id: Mapped[UUID] = mapped_column(
         ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
     )
-    #: NULL follows the account's default address.
+    #: No longer read (see the module docstring).
     contact_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("team_alert_contacts.id", ondelete="SET NULL")
     )

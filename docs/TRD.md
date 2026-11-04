@@ -1380,8 +1380,9 @@ authenticated Get Execution is the TRUTH → persist CallEvent + turns → enque
    redacted transcript is the default view; raw restricted by role
 3. extraction (per §7) → upsert Lead
 4. usage metering → usage_events rows (see §9)
-5. notifications: hot-lead rules → client email/WhatsApp; the business's own team told
-   on the outcomes or choice answers the owner picked (`team_alerts.queue_after_call`, D-904)
+5. notifications: the hot-lead list (owner email/WhatsApp and the business's own team
+   addresses) told once per person per channel when the call made its lead hot or matched the
+   agent's rule (`team_alerts.queue_after_call`, D-904, D-967)
 6. campaign-contact resolution (close or re-queue on the FLOWS §5 retry ladder)
 7. outbound CRM sync (`call.completed` through the outbox, D-23) — summary, never transcript;
    then the client's after-call actions (D-700)
