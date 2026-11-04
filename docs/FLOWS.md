@@ -36,17 +36,20 @@ Trigger: Sri opens Admin → New Client: one screen, one "Create and invite" (D-
      its violation is translated back into the same 409 the probe would have given.
 2. **Plan**: setup fee, retainer, included minutes, overage rate, hard caps → plans row.
 3. **Business setup, by the CLIENT (D-695; was the operator's "intake")**: reached from the
-   dashboard checklist and Settings (since D-855 a new owner meets their agent first, 3a),
-   `/c/{slug}/setup` is a guided wizard with one topic per step — hours
+   dashboard's Next steps and Settings → Business profile (since D-855 a new owner meets
+   their agent first, 3a), Business profile's "One at a time" mode
+   (`/c/{slug}/settings/business?mode=steps`; the old `/c/{slug}/setup` redirects there) asks
+   one topic per step — hours
    (closed is an answer, distinct from not answered), addresses/branches, services +
    prices (digit strings), common questions, staff names and how to say them, booking
    rules, people who can take a call (Indian mobiles), languages — every step skippable. The
    languages are where a new agent's reply languages start; each agent's own list is changed
    on that agent, and a later change here does not rewrite existing agents (D-815).
-   Progress is stored server-side per client (`business_profiles.setup_*`); a checklist
-   on the dashboard resumes any step and folds away when everything is answered or
-   skipped and nothing blocks going live, or when hidden. The same facts are edited later
-   under Settings → Business profile, by the owner or by an operator in view-as. ONE
+   Progress is stored server-side per client (`business_profiles.setup_*`); a step in the
+   dashboard's Next steps resumes the next question and leaves when everything is answered
+   or skipped and nothing blocks going live, or when hidden. The same facts are on one page
+   in Business profile's "All answers" mode, edited by the owner or by an operator in
+   view-as. ONE
    profile per client: every agent's [T0 FACTS] is compiled from it and every save
    re-syncs every agent (facts and, on ThinnestAI, the facts document) with no publishing
    by anyone. An agent cannot go LIVE until the profile has hours, an address, a service

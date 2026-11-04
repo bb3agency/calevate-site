@@ -5,7 +5,7 @@
  *
  * A gap is a question the agent could not answer on a real call — surfaced as URGENT
  * because the same question lands on the next caller too. This is the data behind the
- * dashboard-home "What needs you" count and the link it carries. Gaps are answered and
+ * dashboard's "Next steps" count and the link it carries. Gaps are answered and
  * dismissed in the Questions to answer list (`teachQuestions.ts`, D-893), which closes every
  * agent's gap on the topic at once.
  *

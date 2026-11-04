@@ -38,9 +38,9 @@ export function NextSteps({ created }: { created: { id: string; slug: string } }
           <li className="flex gap-2">
             <ListChecks aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
             <span>
-              The owner fills in their business setup after they join. You can help from{" "}
+              The owner fills in their business profile after they join. You can help from{" "}
               <a
-                href={viewAsHref(created.slug, "/setup")}
+                href={viewAsHref(created.slug, "/settings/business")}
                 className="rounded-sm font-medium text-brand-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
               >
                 view as client

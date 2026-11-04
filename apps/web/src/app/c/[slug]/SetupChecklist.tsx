@@ -1,48 +1,25 @@
 "use client";
 
-import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { Checklist, type ChecklistItem } from "@/components/console/checklist";
-import {
-  STEPS,
-  setupHref,
-  stepStates,
-  useBusinessProfile,
-  useSetupAction,
-} from "@/lib/api/businessProfile";
-import { useWriteAccess } from "@/lib/api/hooks";
+import { STEPS, setupHref, stepStates, useBusinessProfile } from "@/lib/api/businessProfile";
 import { useClientRealm } from "@/lib/api/session";
 
 /**
- * The setup checklist (D-695): what is left of the business setup, each row resuming its
- * step. On the DASHBOARD only when the server says so (`setup.on_dashboard`, founder 22 Oct
- * 2026): the account's first day, or later when recent calls show a missing step cost
- * something, and then each such row says why (`setup.nudges`). Under SETTINGS (Business
- * profile) it always shows, so a finished or hidden list is never lost.
+ * What is answered of the business profile (D-695), on Business profile: each row opens its
+ * question one at a time. Always shown there, so a finished list, or one hidden from the
+ * dashboard's next steps, is never lost.
  *
  * Renders nothing while loading or on a failed read: the checklist is help, and a guess
  * about what is left would be worse than no list (§52).
  */
-export function SetupChecklist({ placement = "dashboard" }: { placement?: "dashboard" | "settings" }) {
+export function SetupChecklist() {
   const { session, href: realmHref } = useClientRealm();
-  // Paths below are relative to this account: "/setup" is /c/<slug>/setup.
   const href = (path: string) => realmHref(`/c/${session.orgSlug}${path}`);
   const profile = useBusinessProfile(session);
-  const write = useWriteAccess(session, "org:manage", "hide the setup checklist");
-  const dismiss = useSetupAction(session);
-  // On success the list leaves the dashboard with the button that hid it, so the toast is
-  // the only place the result can be said, with where to find the list again.
-  const dismissFeedback = useActionFeedback(dismiss, {
-    errorTitle: "Could not hide the setup list",
-    successToast: "Setup list hidden",
-    successDescription: "It is always under Settings, Business profile.",
-  });
 
   const data = profile.data;
   if (!data) return null;
   const finished = data.setup.complete && data.blockers.length === 0;
-  const onDashboard = placement === "dashboard";
-  if (onDashboard && !data.setup.on_dashboard) return null;
-
   const states = stepStates(data);
   const blocking = new Set(data.blockers.map((b) => b.step));
   const why = new Map(data.setup.nudges.map((n) => [n.step, n.message]));
@@ -64,36 +41,14 @@ export function SetupChecklist({ placement = "dashboard" }: { placement?: "dashb
       link: state === "done" ? undefined : { href: setupHref(href, step.id), label: "Open" },
     };
   });
-  const label = onDashboard
-    ? why.size > 0
-      ? "Your calls show something is missing"
-      : "Set up your business"
-    : finished
-      ? "Your setup is complete"
-      : "Your setup";
 
   return (
-    <div className={onDashboard ? "border-y border-line py-4" : ""}>
-      <Checklist
-        label={label}
-        items={items}
-        collapsible={onDashboard}
-        headingLevel={2}
-        emphasizeNext
-        foldDone
-      />
-      {write.allowed && onDashboard && (
-        <ActionButton
-          variant="secondary-sm"
-          status={dismissFeedback.status}
-          pendingLabel="Hiding"
-          successLabel="Hidden"
-          onClick={() => dismissFeedback.run({ action: "dismiss" })}
-          className="mt-3"
-        >
-          Hide this list
-        </ActionButton>
-      )}
-    </div>
+    <Checklist
+      label={finished ? "Your setup is complete" : "Your setup"}
+      items={items}
+      headingLevel={2}
+      emphasizeNext
+      foldDone
+    />
   );
 }

@@ -1,20 +1,22 @@
 "use client";
 
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import type { ReactNode } from "react";
 
 import { InfoTip } from "@/components/console/infoTip";
+import { SegmentedControl, type SegmentedOption } from "@/components/interior/segmented-control";
 import { PageHeader } from "@/components/console/pageHeader";
 import { Section } from "@/components/console/section";
 import { ProblemNotice, SECONDARY_BUTTON, Skeleton, formatPhone } from "@/components/ui";
 import { useAgents } from "@/lib/api/agents";
 import { useCampaignNumbers, type CampaignNumber } from "@/lib/api/campaigns";
 import { useOwnNumbersStatus } from "@/lib/api/ownNumbers";
-import Link from "next/link";
-
-import { ExistingNumberPrompt } from "@/components/forwarding/ExistingNumberPrompt";
 import { useClientRealm } from "@/lib/api/session";
+import { EXISTING_SECTION, FROM_CALEVATE_SECTION } from "@/lib/phoneNumbersSection";
 
 import { BuyNumber } from "./BuyNumber";
+import { CallsAtOnce, ExistingNumberSection, SaveNumber } from "./ExistingNumber";
 import { NumberAssignment } from "./NumberAssignment";
 import { OwnNumbersJourney, ReleaseOwnNumber } from "./OwnNumbers";
 import { TrialLockNotice } from "../TrialLockNotice";
@@ -22,9 +24,44 @@ import { HeldNumberLine } from "../HeldNumberNotice";
 import { StatusPill } from "@/components/console/statusPill";
 
 /**
- * THE NUMBERS THIS BUSINESS ANSWERS AND CALLS FROM (D-537).
- *
- * PRIMARY JOB: see each number, what it is doing, and put it on an agent.
+ * PHONE NUMBERS: the numbers this business answers and calls from, in two sections of one
+ * screen. "Numbers from Calevate" are the ones we provide (D-537); "Your existing number" is
+ * the line callers already know, forwarded to one of them (D-746). One screen, because a
+ * client setting up forwarding needs both halves and used to find them under two sidebar
+ * entries with near-identical names. The section is in the address (`?section=existing`), so
+ * the retired forwarding screen's redirect, a bookmark and "Get codes and test" all open the
+ * right half.
+ */
+export function PhoneNumberScreen() {
+  const { session, href } = useClientRealm();
+  const router = useRouter();
+  const params = useSearchParams();
+  const section = params.get("section") === EXISTING_SECTION ? EXISTING_SECTION : FROM_CALEVATE_SECTION;
+  const sectionHref = (to: string) =>
+    href(`/c/${session.orgSlug}/phone-number${to === FROM_CALEVATE_SECTION ? "" : `?section=${to}`}`);
+
+  return (
+    <div className="max-w-4xl space-y-6 pb-12">
+      <PageHeader description="The numbers your agents answer and call from." />
+      <SegmentedControl
+        label="Which numbers"
+        options={SECTIONS}
+        value={section}
+        onValueChange={(to) => router.replace(sectionHref(to), { scroll: false })}
+        fill
+      />
+      {section === EXISTING_SECTION ? (
+        <ExistingNumberSection fromCalevateHref={sectionHref(FROM_CALEVATE_SECTION)} />
+      ) : (
+        <CalevateNumbers existingHref={sectionHref(EXISTING_SECTION)} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * NUMBERS FROM CALEVATE (D-537). PRIMARY JOB: see each number, what it is doing, and put it
+ * on an agent.
  *
  * Two kinds of number, told apart by the server's own `supplied_by_us`: one bought for
  * this account is one to forward TO; one the account manager recorded is what the agents
@@ -41,8 +78,8 @@ import { StatusPill } from "@/components/console/statusPill";
  * pricing decision is OPERATIONS §2 gate 26, and the steps differ per operator), so the
  * screen says what to ASK for, in the words an Indian operator uses.
  */
-export function PhoneNumberScreen() {
-  const { session, href } = useClientRealm();
+function CalevateNumbers({ existingHref }: { existingHref: string }) {
+  const { session } = useClientRealm();
   const numbers = useCampaignNumbers(session);
   const rows = numbers.data;
   const ours = rows?.filter((number) => number.supplied_by_us) ?? [];
@@ -73,13 +110,10 @@ export function PhoneNumberScreen() {
   );
 
   return (
-    <div className="max-w-4xl space-y-6 pb-12">
-      <PageHeader description="The numbers your agents answer and call from." />
+    <div className="space-y-6">
       {/* The own-number flow says the trial's state and offers credit itself; a second
           notice above it would be a second primary action for the same step. */}
       {own.data?.available === false && <TrialLockNotice lock="numbers" />}
-      <ExistingNumberPrompt session={session} href={href} />
-
       {/* With no number yet, getting one IS the job, so it comes first. */}
       {none && getNumber}
 
@@ -102,7 +136,8 @@ export function PhoneNumberScreen() {
             >
               <div className="space-y-3">
                 <Link
-                  href={href(`/c/${session.orgSlug}/settings/phone-numbers`)}
+                  href={existingHref}
+                  scroll={false}
                   className={`${SECONDARY_BUTTON} w-full justify-center sm:w-auto`}
                 >
                   Get codes and test
@@ -161,9 +196,16 @@ export function PhoneNumberScreen() {
       )}
 
       {!none && getNumber}
+      <CallsAtOnce session={session} />
+      <SaveNumber session={session} />
     </div>
   );
 }
+
+const SECTIONS: SegmentedOption[] = [
+  { value: FROM_CALEVATE_SECTION, label: "From Calevate" },
+  { value: EXISTING_SECTION, label: "Your existing number" },
+];
 
 /** A short line of what to do about a number that cannot answer yet; the why behind ⓘ. */
 function WaitLine({ why, children }: { why: string; children: ReactNode }) {

@@ -22,6 +22,7 @@ import {
 } from "@tanstack/react-query";
 
 import { LANGUAGE_CHOICES } from "@/lib/agentState";
+import { STEPS_MODE } from "@/lib/businessProfileMode";
 
 import { adminSession } from "./admin";
 import { agentKeys } from "./agents";
@@ -82,9 +83,11 @@ export function stepCopy(id: StepId): StepCopy {
   return STEPS.find((step) => step.id === id) ?? STEPS[0];
 }
 
-/** Where a step is answered, in the wizard. */
+export { STEPS_MODE };
+
+/** Where a step is answered: the business profile, one question at a time. */
 export function setupHref(href: (path: string) => string, step?: StepId): string {
-  return href(step ? `/setup?step=${step}` : "/setup");
+  return href(`/settings/business?mode=${STEPS_MODE}${step ? `&step=${step}` : ""}`);
 }
 
 /* ------------------------------------------------------------------------ the draft */

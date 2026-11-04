@@ -32,7 +32,7 @@ import {
 } from "@/lib/api/trialCalls";
 
 import { EarlierTestCalls, TestCallFollow } from "./TestCallStatus";
-import { HOME, TRIAL } from "./setup/_ui/copy";
+import { HOME, TRIAL } from "./_ui/copy";
 import { Why } from "@/components/why";
 
 /**

@@ -48,7 +48,7 @@ export function ExistingNumberPrompt({ session, href }: { session: Session; href
       info="Your existing phone forwards calls to your Calevate number. You choose when: only calls you miss, or every call."
       action={
         <>
-          <Link href={href(`/c/${slug}/setup/existing-number`)} className={TEXT_ACTION}>
+          <Link href={href(`/c/${slug}/phone-number/existing-number`)} className={TEXT_ACTION}>
             Set it up
           </Link>
           <button

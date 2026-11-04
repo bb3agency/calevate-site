@@ -148,7 +148,7 @@ async def _plan_number_assign(
         current=current,
         proposed=proposed,
         cost=None,
-        reversal="Choose another agent for it at any time on the Your phone number screen.",
+        reversal="Choose another agent for it at any time on the Phone numbers screen.",
         args={
             "number_id": str(parsed.number_id),
             "agent_id": None if parsed.agent_id is None else str(parsed.agent_id),
@@ -195,7 +195,7 @@ NUMBER_ASSIGN: Final = ActionTool(
     permission="org:manage",
     object_type="phone_number",
     audit_action="number.assigned",
-    where="on the Your phone number screen",
+    where="on the Phone numbers screen",
     schema=action_schema(
         "number_assign",
         "Propose which agent answers and calls from one of the account's numbers, or none."

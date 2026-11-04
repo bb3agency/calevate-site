@@ -1,8 +1,12 @@
-"use client";
+import { redirectWithin } from "@/lib/routeRedirect";
 
-import { ExistingNumberScreen } from "./ExistingNumberScreen";
-
-/** The route is chrome and nothing else (UX-DOCTRINE §6). */
-export default function ExistingNumberPage() {
-  return <ExistingNumberScreen />;
+/** Retired route: the existing-number guide lives under Phone numbers now. */
+export default async function Page({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  await redirectWithin(params, searchParams, "/phone-number/existing-number");
 }

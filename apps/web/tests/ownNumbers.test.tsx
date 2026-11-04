@@ -10,7 +10,7 @@ import { OWN_NUMBERS_PATHS, type OwnNumbersStatus } from "@/lib/api/ownNumbers";
 import { expectNoA11yViolations } from "./a11y";
 import { DLT_NOT_RECORDED, KYC_NOT_STARTED } from "./fixtures/sharedReads";
 import { problem, renderClientPage, type ApiCall, type Routes } from "./harness";
-import { NO_FORWARDING_ROUTES } from "./fixtures/forwarding";
+import { NO_FORWARDING_ROUTES, PHONE_NUMBERS_SETTINGS_ROUTES } from "./fixtures/forwarding";
 
 /**
  * A phone number in the business's own name (D-693), on the client's phone-number screen.
@@ -65,6 +65,7 @@ function routes(own: OwnNumbersStatus, extra: Routes = {}): Routes {
   return {
     "/v1/me": OWNER,
     ...NO_FORWARDING_ROUTES,
+    ...PHONE_NUMBERS_SETTINGS_ROUTES,
     "/v1/campaigns/numbers": [],
     "/v1/agents": [{ id: "agent-1", name: "Reception", status: "live" }],
     [OWN_NUMBERS_PATHS.status]: own,

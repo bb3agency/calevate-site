@@ -21,7 +21,7 @@ import {
 } from "@/lib/firstAgent";
 
 import { ChipChoice, StepScreen } from "./shell";
-import { FIRST } from "../../setup/_ui/copy";
+import { FIRST } from "../../_ui/copy";
 
 /**
  * STEP 1, ITS JOB (D-855; founder, 23 Oct 2026): what the agent does, then the language it

@@ -798,7 +798,7 @@ async def forwarded_line_quiet(
                 detail=FORWARDED_QUIET_DETAIL,
                 rule=None,
                 occurred_at=row[2],
-                href="/settings/phone-numbers",
+                href="/phone-number?section=existing",
             )
             for row in rows
         ],

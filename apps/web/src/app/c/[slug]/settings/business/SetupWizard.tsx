@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
@@ -21,6 +20,7 @@ import {
   draftFromProfile,
   rebaseDraft,
   fieldMessage,
+  setupHref,
   stepStates,
   toPatch,
   useBusinessProfile,
@@ -37,7 +37,7 @@ import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 
 import { SetupDone } from "./SetupDone";
-import { SETUP } from "./_ui/copy";
+import { SETUP } from "../../_ui/copy";
 import { Why } from "@/components/why";
 
 const EASE = [0.23, 1, 0.32, 1] as const;
@@ -54,32 +54,34 @@ export function splitHint(hint: string): { lead: string; rest: string | null } {
 }
 
 /**
- * Business setup: the guided wizard a client meets on first login (D-695).
+ * The business profile asked one question at a time (D-695): the mode a client meets on
+ * first login, and the one the dashboard's next steps resume (`setupHref`). The same facts
+ * as the full profile, saved by the same call; only the pacing differs.
  *
  * Primary job: get the business's facts in, one topic per step, every step skippable.
  * Progress is the server's (`setup.steps`), so a client who leaves on step 3 resumes on
- * step 3 from any device, and the dashboard checklist reads the same states.
+ * step 3 from any device, and the dashboard reads the same states.
  *
  * Only BUSINESS facts are asked. What each agent says, its voice and its language stay on
  * the agent's own screens.
  */
 export function SetupWizard() {
   const { session, href: realmHref } = useClientRealm();
-  // Paths below are relative to this account: "/setup" is /c/<slug>/setup.
+  // Paths below are relative to this account: "/agents" is /c/<slug>/agents.
   const href = (path: string) => realmHref(`/c/${session.orgSlug}${path}`);
   const profile = useBusinessProfile(session);
   const write = useWriteAccess(session, "org:manage", "fill in the business profile");
 
   useCopilotSurface({
-    route: "/c/{slug}/setup",
-    title: "Business setup",
+    route: "/c/{slug}/settings/business",
+    title: "Business profile, one question at a time",
     realm: "client",
     fields: [],
     facts: [
       {
         key: "state",
         label: "What is on screen",
-        value: profile.data ? "the setup steps have loaded" : profile.error ? "the setup failed to load" : "still loading",
+        value: profile.data ? "the questions have loaded" : profile.error ? "the questions failed to load" : "still loading",
       },
     ],
     apply: noFill,
@@ -171,7 +173,7 @@ function Wizard({
     save.reset();
     setIndex(to);
     const step = STEPS[to];
-    router.replace(href(step ? `/setup?step=${step.id}` : "/setup"), { scroll: false });
+    router.replace(setupHref(href, step?.id), { scroll: false });
   };
 
   const step = STEPS[index];
@@ -305,12 +307,6 @@ function Wizard({
             )}
           </motion.section>
         </AnimatePresence>
-        <p className="mt-3 text-meta text-ink-muted">
-          {SETUP.changeLater}{" "}
-          <Link href={href("/settings/business")} className="font-medium text-brand-strong hover:underline">
-            {SETUP.profile}
-          </Link>
-        </p>
       </div>
     </div>
   );

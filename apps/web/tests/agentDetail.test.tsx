@@ -2088,7 +2088,7 @@ describe("switching an agent on, off and deleting it (D-440, D-527)", () => {
       fireEvent.click(switchOn);
     });
     expect(await screen.findByText("Do these first, then it can take calls.")).toBeTruthy();
-    const link = screen.getAllByRole("link").find((a) => a.getAttribute("href")?.includes("/setup?step=hours"));
+    const link = screen.getAllByRole("link").find((a) => a.getAttribute("href")?.includes("/settings/business?mode=steps&step=hours"));
     expect(link).toBeTruthy();
   });
 

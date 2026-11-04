@@ -9,7 +9,7 @@ import type { Session } from "@/lib/api/client";
 import { useLineIncidents } from "@/lib/api/healer";
 
 import { HOME_NOTICE_LINK, ReadFailedRow } from "./homeNotices";
-import { HOME } from "./setup/_ui/copy";
+import { HOME } from "./_ui/copy";
 
 /**
  * A problem with one of the client's lines, at the top of the dashboard, while it lasts.

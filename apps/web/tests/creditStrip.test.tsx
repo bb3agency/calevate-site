@@ -9,7 +9,7 @@ import { prepaidWallet } from "./fixtures/sharedReads";
 /**
  * THE CREDIT WARNING ON A PHONE. The bar's credit chip is hidden under `sm` for want of
  * room, so on a phone the same warning is a strip with one button, on every client screen
- * but the dashboard, where "What needs you" says it already.
+ * but the dashboard, where "Next steps" says it already.
  */
 
 const where = vi.hoisted(() => ({ pathname: "/c/acme/leads" }));

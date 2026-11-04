@@ -37,12 +37,10 @@ import {
   GitMerge,
   LayoutDashboard,
   LifeBuoy,
-  ListChecks,
   Megaphone,
   MessageSquare,
   Phone,
   PhoneCall,
-  PhoneForwarded,
   PhoneOutgoing,
   PhoneOff,
   ScrollText,
@@ -115,7 +113,9 @@ export function clientNavigation(slug: string): NavGroup[] {
         // D-874: named for what an owner asks ("what do my agents know?"), not for the
         // machinery. The path keeps its old segment so existing links still land.
         { href: `/c/${slug}/knowledge`, label: "What your agents know", icon: BookOpen },
-        { href: `/c/${slug}/phone-number`, label: "Your phone number", icon: Phone },
+        // Calevate's numbers and the client's existing one forwarded to them, as two
+        // sections of one screen. The path keeps its old segment so existing links land.
+        { href: `/c/${slug}/phone-number`, label: "Phone numbers", icon: Phone },
         { href: `/c/${slug}/performance`, label: "Performance", icon: BarChart3 },
         { href: `/c/${slug}/assistant`, label: "Pip", icon: PipIcon },
       ],
@@ -160,13 +160,12 @@ export function clientNavigation(slug: string): NavGroup[] {
       heading: "Settings & account",
       items: [
         // The business's own facts, which every agent answers with (D-695): first in
-        // the group because an agent cannot take calls without them. The setup is the
-        // same facts asked one at a time, and is where the dashboard checklist resumes.
+        // the group because an agent cannot take calls without them. Answering them one
+        // at a time is a mode of this screen, where the dashboard's next steps resume.
         { href: `/c/${slug}/settings/business`, label: "Business profile", icon: Store },
         // What every call writes down for a lead (founder decision 15): beside the profile
         // because a custom business's own details are drafted from it.
         { href: `/c/${slug}/settings/lead-details`, label: "Lead details", icon: ClipboardList },
-        { href: `/c/${slug}/setup`, label: "Business setup", icon: ListChecks },
         { href: `/c/${slug}/settings/team`, label: "Team", icon: UserCog },
         // The one screen where the owner can agree to be messaged about their own
         // account. It sits here rather than under "Compliance & data" on purpose: that
@@ -177,9 +176,6 @@ export function clientNavigation(slug: string): NavGroup[] {
         // wrong with a line lately (D-701). Beside Alerts: both are about what we do for
         // the owner when something needs them.
         { href: `/c/${slug}/settings/line-protection`, label: "Line protection", icon: LifeBuoy },
-        // The number callers already know, forwarded to the Calevate number (D-746): its
-        // codes, its test, and the save-our-number message.
-        { href: `/c/${slug}/settings/phone-numbers`, label: "Phone numbers", icon: PhoneForwarded },
         // Which AI model every agent thinks with, and what each one costs a minute. It
         // sits in this group rather than beside "Agents" because it is an ACCOUNT-wide
         // default that happens to be about agents — the same reason the spending limit

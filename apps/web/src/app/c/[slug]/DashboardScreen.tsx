@@ -11,10 +11,11 @@ import { Metric } from "@/components/console/metric";
 import { useAgentStats, useAgents } from "@/lib/api/agents";
 import { useAnalyticsStats } from "@/lib/api/analytics";
 import { useAttention } from "@/lib/api/attention";
-import { useBusinessProfile } from "@/lib/api/businessProfile";
+import { setupHref, useBusinessProfile } from "@/lib/api/businessProfile";
 import { useCampaignNumbers, useCampaigns } from "@/lib/api/campaigns";
 import { useFirstRun } from "@/lib/api/firstRun";
 import { useForwarding } from "@/lib/api/forwarding";
+import { useGoLive } from "@/lib/api/goLive";
 import { useLineIncidents } from "@/lib/api/healer";
 import { useCalls, useDashboard, useMe, useUsage, useWriteAccess } from "@/lib/api/hooks";
 import { useKnowledgeGaps } from "@/lib/api/knowledgeGaps";
@@ -29,22 +30,18 @@ import { CallingCreditTile } from "./CallingCreditTile";
 import { CostPerLead } from "./CostPerLead";
 import { DailySummaryOffer } from "./DailySummaryOffer";
 import { DailyCalls } from "./DailyCalls";
-import { FirstAgentInvite } from "./FirstAgentInvite";
 import { HeldNumberNotice } from "./HeldNumberNotice";
 import { ReadFailedRow } from "./homeNotices";
 import { LatestCalls } from "./LatestCalls";
 import { LineNotice } from "./LineNotice";
 import { OutcomeSplit } from "./OutcomeSplit";
-import { ReadinessPanel } from "./ReadinessPanel";
 import { SentimentSplit } from "./SentimentSplit";
-import { SetupChecklist } from "./SetupChecklist";
 import { SpendThisMonth } from "./SpendThisMonth";
-import { GoLiveInvite } from "./GoLiveInvite";
 import { TrialCallPanel } from "./TrialCallPanel";
-import { WhatNeedsYou } from "./WhatNeedsYou";
+import { NextSteps } from "./NextSteps";
 import { WeekRecap } from "./WeekRecap";
 import { ExistingNumberPrompt } from "@/components/forwarding/ExistingNumberPrompt";
-import { HOME } from "./setup/_ui/copy";
+import { HOME } from "./_ui/copy";
 
 /**
  * The client's home screen.
@@ -118,6 +115,8 @@ export function DashboardScreen({ slug }: { slug: string }) {
     if (firstRunUnstarted) router.replace(href(`/c/${slug}/agents/first`));
   }, [firstRunUnstarted, router, href, slug]);
   const campaignAccess = useWriteAccess(session, "leads:dispatch", "start or run campaigns");
+  const setupAccess = useWriteAccess(session, "org:manage", "hide the setup step");
+  const goLive = useGoLive(session);
   const pinAccess = useWriteAccess(session, "copilot:use", "change the pinned charts");
   /*
    * THE NOTICES' READS START WITH THE DASHBOARD'S, not after it. The line notice, the setup
@@ -129,7 +128,8 @@ export function DashboardScreen({ slug }: { slug: string }) {
    * notice read does not hold the page: only a read still in flight does.
    */
   const gaps = useKnowledgeGaps(session, { status: "open", limit: 20 });
-  const notices = [useLineIncidents(session), useBusinessProfile(session), useForwarding(session), gaps];
+  const profile = useBusinessProfile(session);
+  const notices = [useLineIncidents(session), profile, useForwarding(session), gaps];
 
   /*
    * THIS SCREEN, DECLARED TO THE ASSISTANT (`lib/copilot/registry.ts`).
@@ -307,26 +307,28 @@ export function DashboardScreen({ slug }: { slug: string }) {
         ) : numbers.data ? (
           <HeldNumberNotice numbers={numbers.data} topUpHref={href(`/c/${slug}/billing?tab=credits`)} />
         ) : null}
-        {agents.data?.length === 0 && agentAccess.allowed ? (
-          <FirstAgentInvite href={(path) => href(`/c/${slug}${path}`)} started={firstRunDue && !firstRunUnstarted} />
-        ) : null}
-        <GoLiveInvite session={session} href={(path) => href(`/c/${slug}${path}`)} />
-        {/* The business checklist waits while the first agent is still to meet: the owner's
-            first job is the agent, and eight unticked rows under it read as homework. */}
-        {firstRunDue ? null : <SetupChecklist />}
         <ExistingNumberPrompt session={session} href={href} />
         <TrialCallPanel slug={slug} trial={data.trial} />
       </div>
 
-      {/* FIRST, WHAT TO ACT ON (founder, REDESIGN-2): the queue, hot leads, calls that
-          did not connect, unanswered questions and credit — before any figure. Each fact
-          on this page is said once: hot leads and the struggled count live here, the
-          figures in "This week", each agent's state in "Your agents". */}
-      <WhatNeedsYou
+      {/* FIRST, WHAT TO DO (founder, REDESIGN-2): one ranked list of next steps — the
+          first agent, going live, the business's facts, the queue, hot leads, calls that
+          did not connect, unanswered questions, credit and readiness fixes — before any
+          figure. Each fact on this page is said once: the figures are in "This week",
+          each agent's state in "Your agents". */}
+      <NextSteps
         data={data}
         attention={attention}
         wallet={wallet}
         gaps={gaps}
+        readiness={readiness}
+        profile={profile.data}
+        guide={goLive.data}
+        firstAgent={
+          agents.data?.length === 0 && agentAccess.allowed ? { started: firstRunDue && !firstRunUnstarted } : null
+        }
+        canHideSetup={setupAccess.allowed}
+        session={session}
         href={(path) => href(`/c/${slug}${path}`)}
       />
 
@@ -369,7 +371,6 @@ export function DashboardScreen({ slug }: { slug: string }) {
         </div>
 
         <div className="space-y-10 page-lg:col-span-4">
-          <ReadinessPanel readiness={readiness} href={(path) => href(`/c/${slug}${path}`)} />
           <DailySummaryOffer session={session} />
           {/* MONEY — what is left to spend, then what this month has cost. Each read has
               its own loading and failure arm (§52); a failed read is never a dash. */}
@@ -391,9 +392,9 @@ export function DashboardScreen({ slug }: { slug: string }) {
                   ) : (
                     <>
                       <span className="block">{HOME.afterHoursDefault}</span>
-                      {/* The hours step of business setup, offered to the roles that may edit it. */}
+                      {/* The hours question of the business profile, offered to the roles that may edit it. */}
                       {agentAccess.allowed ? (
-                        <Link href={href(`/c/${slug}/setup?step=hours`)} className={`${SECONDARY_BUTTON_SM} mt-2`}>
+                        <Link href={setupHref((path) => href(`/c/${slug}${path}`), "hours")} className={`${SECONDARY_BUTTON_SM} mt-2`}>
                           {HOME.afterHoursAdd}
                         </Link>
                       ) : null}

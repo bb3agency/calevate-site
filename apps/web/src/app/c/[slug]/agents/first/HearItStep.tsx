@@ -30,7 +30,7 @@ import { lookup } from "@/lib/lookup";
 import { CallStage, limitIcon, type CallPhase } from "./LiveStage";
 import { OpeningLine } from "./OpeningLine";
 import { StepScreen, TickRow } from "./shell";
-import { FIRST } from "../../setup/_ui/copy";
+import { FIRST } from "../../_ui/copy";
 
 /** The three things a new owner should know before they hear their agent (D-855). */
 export const HONEST_WORDS = [

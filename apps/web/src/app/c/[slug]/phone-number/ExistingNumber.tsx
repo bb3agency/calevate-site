@@ -6,7 +6,6 @@ import { useState } from "react";
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { EmptyState } from "@/components/console/emptyState";
-import { PageHeader } from "@/components/console/pageHeader";
 import { Section, TEXT_ACTION, TEXT_ACTION_DANGER } from "@/components/console/section";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
 import { StatusPill } from "@/components/console/statusPill";
@@ -49,24 +48,24 @@ import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
 
 /**
- * SETTINGS > PHONE NUMBERS (D-746): the number callers already know, how its calls reach
- * the agent, the codes for the client's own phone, the test, and the "save our number"
- * message. Primary job: see that the forward works, and fix it when it does not.
+ * "YOUR EXISTING NUMBER" on Phone numbers (D-746): the number callers already know, how its
+ * calls reach the agent, the codes for the client's own phone and the test. Primary job: see
+ * that the forward works, and fix it when it does not.
  */
-export function PhoneNumbersScreen() {
+export function ExistingNumberSection({ fromCalevateHref }: { fromCalevateHref: string }) {
   const { session, href } = useClientRealm();
   const slug = session.orgSlug;
   const forwarding = useForwarding(session);
   const write = useWriteAccess(session, "org:manage", "change how your number forwards");
-  const guide = href(`/c/${slug}/setup/existing-number`);
+  const guide = href(`/c/${slug}/phone-number/existing-number`);
   const data = forwarding.data;
 
   return (
-    <div className="max-w-2xl space-y-10 pb-12">
-      <PageHeader description="Your own number, answered by your agent." />
+    <div className="space-y-3">
       <RestrictionNote reason={write.reason} />
       <Section
         title="Your existing number"
+        description="Keep the number callers know. Its calls reach your agent."
         action={
           data && data.lines.length > 0 && data.lines.length < data.max_lines ? (
             <Link href={guide} className={TEXT_ACTION}>
@@ -90,10 +89,7 @@ export function PhoneNumbersScreen() {
                   Set it up
                 </Link>
               ) : (
-                <Link
-                  href={href(`/c/${slug}/phone-number`)}
-                  className={`${PRIMARY_BUTTON} w-full justify-center sm:w-auto`}
-                >
+                <Link href={fromCalevateHref} scroll={false} className={`${PRIMARY_BUTTON} w-full justify-center sm:w-auto`}>
                   Get your Calevate number first
                 </Link>
               )
@@ -113,15 +109,13 @@ export function PhoneNumbersScreen() {
           </div>
         )}
       </Section>
-      <CallsAtOnce session={session} />
-      <SaveNumber session={session} />
     </div>
   );
 }
 
 /** How many calls the account can have at once. Only Calevate changes it, so the row
  *  says whom to ask rather than offering a control. */
-function CallsAtOnce({ session }: { session: Session }) {
+export function CallsAtOnce({ session }: { session: Session }) {
   const lines = useMyCallLines(session);
   return (
     <Section title="Calls at once">
@@ -324,7 +318,7 @@ function LineSettings({
   );
 }
 
-function SaveNumber({ session }: { session: Session }) {
+export function SaveNumber({ session }: { session: Session }) {
   const state = useSaveNumberSwitch(session);
   const set = useSetSaveNumber(session);
   // The switch itself shows the new state; a refusal is drawn under it.

@@ -8,7 +8,7 @@ import { PATHS } from "@/lib/api/numberProvisioning";
 import { expectNoA11yViolations } from "./a11y";
 import { OWN_NUMBERS_OFF, OWN_NUMBERS_STATUS_PATH } from "./fixtures/sharedReads";
 import { problem, renderClientPage, stillLoading, type Routes } from "./harness";
-import { NO_FORWARDING_ROUTES } from "./fixtures/forwarding";
+import { NO_FORWARDING_ROUTES, PHONE_NUMBERS_SETTINGS_ROUTES } from "./fixtures/forwarding";
 
 /**
  * GETTING A PHONE NUMBER, AND THE STATE EVERY CLIENT IS ACTUALLY IN.
@@ -113,6 +113,7 @@ function routes(extra: Routes = {}): Routes {
   return {
     "/v1/me": OWNER,
     ...NO_FORWARDING_ROUTES,
+    ...PHONE_NUMBERS_SETTINGS_ROUTES,
     "/v1/campaigns/numbers": heldNumbers(),
     "/v1/agents": [{ id: "agent-1", name: "Reception", status: "live" }],
     "/v1/compliance/kyc": kyc(true),
@@ -557,6 +558,17 @@ describe("a number we supplied says which link is missing", () => {
     expect(screen.getByText("Not ready yet")).toBeTruthy();
     expect(container.textContent).toContain("Pick an agent below before you forward.");
     expect(container.textContent).toContain("Still connecting. Nothing to do yet.");
+  });
+
+  it("sends the forwarding codes to the other section of the same screen", async () => {
+    await renderClientPage(
+      <PhoneNumberPage />,
+      routes({ "/v1/campaigns/numbers": [supplied("num-1", "agent-1")] }),
+    );
+    expect(screen.getByRole("radio", { name: "From Calevate" }).getAttribute("aria-checked")).toBe("true");
+    expect((await screen.findByRole("link", { name: "Get codes and test" })).getAttribute("href")).toBe(
+      "/c/acme/phone-number?section=existing",
+    );
   });
 });
 

@@ -14,7 +14,7 @@ import { activeTrial, walletState, type Wallet } from "@/lib/api/wallet";
 import { canDialOut, isAnsweringNow, isDeleted } from "@/lib/agentState";
 
 import { statItems } from "./analyticsFigures";
-import { HOME } from "./setup/_ui/copy";
+import { HOME } from "./_ui/copy";
 import { trialUrgency, trialView } from "./TrialBanner";
 
 /** May this reader use the action? `useWriteAccess(...).allowed`, read by the screen. */
@@ -36,7 +36,7 @@ export interface RecapAction {
  * THE DASHBOARD'S ONE BLOCK OF FIGURES, AND WHAT TO DO NEXT.
  *
  * Four figures for the last 7 days, each against the 7 days before (`/v1/analytics/stats`),
- * then at most three actions. Hot leads are not here: "What needs you today" says them with
+ * then at most three actions. Hot leads are not here: "Next steps" says them with
  * their action. Whether each agent is on is said once, by "Your agents".
  *
  * The first action is the one this account most needs now (`recapActions`), filled; the

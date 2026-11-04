@@ -1,4 +1,4 @@
-import { redirect } from "next/navigation";
+import { redirectWithin } from "./routeRedirect";
 
 /**
  * WHERE THE FOUR RETIRED BILLING ROUTES GO (D-525).
@@ -37,12 +37,5 @@ export async function redirectToBillingTab(
   searchParams: Promise<Record<string, string | string[] | undefined>>,
   tab: "credits" | "transactions" | "usage" | "statements",
 ): Promise<never> {
-  const { slug } = await params;
-  const query = new URLSearchParams();
-  for (const [key, value] of Object.entries(await searchParams)) {
-    if (key === "tab" || value === undefined) continue;
-    for (const item of Array.isArray(value) ? value : [value]) query.append(key, item);
-  }
-  query.set("tab", tab);
-  redirect(`/c/${slug}/billing?${query.toString()}`);
+  return redirectWithin(params, searchParams, "/billing", { tab });
 }

@@ -2,7 +2,7 @@ import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { QueryClient } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { goLiveOffered } from "@/app/c/[slug]/GoLiveInvite";
+import { goLiveOffered } from "@/app/c/[slug]/NextSteps";
 import { TrialCallCard } from "@/app/c/[slug]/TrialCallPanel";
 import { moveChecklist, stageOf } from "@/app/c/[slug]/go-live/GoLiveGuide";
 import GoLivePage from "@/app/c/[slug]/go-live/page";

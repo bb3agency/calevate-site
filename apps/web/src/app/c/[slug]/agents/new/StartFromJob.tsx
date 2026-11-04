@@ -29,7 +29,7 @@ import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
 import { hasKey } from "@/lib/lookup";
 
-import { NEW_AGENT } from "../../setup/_ui/copy";
+import { NEW_AGENT } from "../../_ui/copy";
 
 /**
  * STEP 1 OF THE NEW-AGENT FLOW: PICK A JOB, NAME IT, CREATE IT (founder, 3 Nov 2026).

@@ -15,6 +15,13 @@ export const NO_FORWARDING: Forwarding = {
 
 export const NO_FORWARDING_ROUTES = { "/v1/forwarding": NO_FORWARDING };
 
+/** The two account-wide settings at the foot of Phone numbers, calls at once and the
+ *  save-our-number message, in a quiet state. */
+export const PHONE_NUMBERS_SETTINGS_ROUTES = {
+  "/v1/call-lines": { call_lines: 1, in_progress: 0, on_trial: false },
+  "/v1/forwarding/save-number": { enabled: false },
+};
+
 export const LINE = {
   id: "l1",
   e164: "+919812345678",
