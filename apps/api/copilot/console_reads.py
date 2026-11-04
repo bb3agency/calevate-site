@@ -456,9 +456,7 @@ async def _numbers_list(
     body = _listing(
         lines,
         shown_of="numbers",
-        nothing=_nothing(
-            "phone numbers", next_step="One is bought on the Phone numbers screen."
-        ),
+        nothing=_nothing("phone numbers", next_step="One is bought on the Phone numbers screen."),
     )
     if engine_has_workspaces():
         readiness = await purchase_readiness(session, tenant_id=context.tenant_id)
