@@ -22,7 +22,7 @@ import { CALLING_NUMBERS_NOT_APPLICABLE, CALLING_NUMBERS_PATH } from "./harness"
  *
  * There is exactly ONE at a time and the branches are mutually exclusive: a campaign with
  * outstanding blockers gets a dead "Launch campaign", and a campaign the gate has cleared
- * gets a live "Launch campaign" that opens the confirmation (`LaunchConfirm`). One label
+ * gets a live "Call N people" that launches at once (`LaunchConfirm`). One finder
  * keeps every assertion below about the SAME question — may this person start dialling,
  * and are they told why not.
  *
@@ -31,7 +31,7 @@ import { CALLING_NUMBERS_NOT_APPLICABLE, CALLING_NUMBERS_PATH } from "./harness"
  */
 function launchButton(): HTMLButtonElement {
   return screen.getByRole("button", {
-    name: /^Launch campaign$/,
+    name: /^(Launch campaign|Call \d[\d,]* (people|person))$/,
   }) as HTMLButtonElement;
 }
 
@@ -131,7 +131,7 @@ const AGENT: Agent = {
 };
 
 /** Draft, because the "Before you launch" card only exists for a draft. */
-const PROGRESS: CampaignProgress = progressFixture();
+const PROGRESS: CampaignProgress = progressFixture({ total: 4 });
 
 function check(...blockers: { rule: string; reason: string }[]): LaunchCheck {
   return { ready: blockers.length === 0, blockers };
@@ -455,103 +455,18 @@ describe("the launch panel for a viewer who may not launch", () => {
  * the scrub makes "the 'N contacts will be dialled' number **the client confirms** true".
  * These are the tests that make that sentence describe something real.
  */
-describe("the confirmation in front of a launch", () => {
+describe("launching", () => {
   const LAUNCHED = { status: "running", dialable: 120, dnc_scrubbed: 0 };
   const READY_PROGRESS: CampaignProgress = { ...PROGRESS, total: 120 };
   const LAUNCH_ROUTE = `POST /v1/campaigns/${CAMPAIGN_ID}/launch`;
 
-  async function openReview() {
-    const rendered = await openLaunchPanel(check(), ME, {
+  it("launches on one press (founder, 4 Nov 2026: pause and cancel are the way back)", async () => {
+    const { calls } = await openLaunchPanel(check(), ME, {
       [`/v1/campaigns/${CAMPAIGN_ID}`]: READY_PROGRESS,
       [LAUNCH_ROUTE]: LAUNCHED,
     });
-    fireEvent.click(screen.getByRole("button", { name: "Launch campaign" }));
-    return rendered;
-  }
-
-  it("does not dial on the first click, and restates what the launch will do", async () => {
-    const { container, calls } = await openReview();
-
-    // THE CLICK THAT USED TO PLACE 120 CALLS. It now opens a review and nothing else.
     expect(calls.some((call) => call.path.endsWith("/launch"))).toBe(false);
 
-    // The count is stated, from the server's `total` and never from the create form.
-    expect(container.textContent).toContain("This starts calling 120 people.");
-    // The irreversibility is named, because that is the thing being agreed to.
-    expect(container.textContent).toContain("can’t be taken back");
-    // The bound every campaign is under, and the concurrency this one carries.
-    expect(container.textContent).toContain("9am–9pm IST");
-    expect(container.textContent).toContain(
-      "Up to 3 calls at once.",
-    );
-  });
-
-  it("states this campaign's own window and dialling number, read back from the server", async () => {
-    // BOTH FIELDS WERE WRITE-ONLY until `ProgressOut` gained them: set in the create
-    // form, held as local state, returned by no endpoint. So the panel asking a client
-    // to authorise 120 calls could not say WHEN they would go out or WHAT would appear
-    // on the handset — the two facts most likely to be wrong about a campaign created
-    // weeks earlier on different settings.
-    const { container } = await openLaunchPanel(check(), ME, {
-      [`/v1/campaigns/${CAMPAIGN_ID}`]: {
-        ...READY_PROGRESS,
-        calling_hours: { start: "10:00", end: "18:00" },
-        number_e164: "+911140001234",
-      },
-      [LAUNCH_ROUTE]: LAUNCHED,
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Launch campaign" }));
-
-    // The platform bound is stated ANYWAY — a narrowing is additional, never a
-    // replacement, because the legal window is true of every campaign.
-    expect(container.textContent).toContain("9am–9pm IST");
-    expect(container.textContent).toContain("10:00");
-    expect(container.textContent).toContain("18:00");
-    // Written for a reader through `formatPhone`, like every number on a screen.
-    expect(container.textContent).toContain("+91 11400 01234");
-  });
-
-  it("says in words that a campaign with no number of its own has none", async () => {
-    // A blank where a number belongs reads as "we could not read it". "The platform
-    // picks one" is a different fact and the person authorising the calls needs the
-    // difference — §52's rule applied to the confirmation rather than to a list.
-    const { container } = await openLaunchPanel(check(), ME, {
-      [`/v1/campaigns/${CAMPAIGN_ID}`]: {
-        ...READY_PROGRESS,
-        number_e164: null,
-      },
-      [LAUNCH_ROUTE]: LAUNCHED,
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Launch campaign" }));
-
-    expect(container.textContent).toContain("They see your agent's own number.");
-  });
-
-  it("keeps the danger button dead until the count has been typed", async () => {
-    const { calls } = await openReview();
-
-    const confirm = screen.getByRole("button", {
-      name: "Call 120 people",
-    }) as HTMLButtonElement;
-    expect(confirm.disabled).toBe(true);
-
-    // A number that is not THE number proves nothing — the risk here is the count, not
-    // the button, so a near miss must not arm it.
-    fireEvent.change(screen.getByLabelText("Type 120 to confirm"), {
-      target: { value: "12" },
-    });
-    expect(
-      (
-        screen.getByRole("button", {
-          name: "Call 120 people",
-        }) as HTMLButtonElement
-      ).disabled,
-    ).toBe(true);
-    expect(calls.some((call) => call.path.endsWith("/launch"))).toBe(false);
-
-    fireEvent.change(screen.getByLabelText("Type 120 to confirm"), {
-      target: { value: "120" },
-    });
     fireEvent.click(screen.getByRole("button", { name: "Call 120 people" }));
 
     await screen.findByText(/Calling 120 people/);
@@ -560,12 +475,33 @@ describe("the confirmation in front of a launch", () => {
     expect(launched[0].method).toBe("POST");
   });
 
+  it("says beside the button when, from where and how many at once, as the server reports", async () => {
+    const { container } = await openLaunchPanel(check(), ME, {
+      [`/v1/campaigns/${CAMPAIGN_ID}`]: {
+        ...READY_PROGRESS,
+        calling_hours: { start: "10:00", end: "18:00" },
+        number_e164: "+911140001234",
+      },
+      [LAUNCH_ROUTE]: LAUNCHED,
+    });
+    await screen.findByRole("button", { name: "Call 120 people" });
+    expect(container.textContent).toContain("10:00–18:00 IST");
+    expect(container.textContent).toContain("+91 11400 01234");
+    expect(container.textContent).toContain("up to 3 at once");
+  });
+
+  it("says in words that a campaign with no number of its own rings from the agent's", async () => {
+    const { container } = await openLaunchPanel(check(), ME, {
+      [`/v1/campaigns/${CAMPAIGN_ID}`]: { ...READY_PROGRESS, number_e164: null },
+      [LAUNCH_ROUTE]: LAUNCHED,
+    });
+    await screen.findByRole("button", { name: "Call 120 people" });
+    expect(container.textContent).toContain("from your agent's number");
+  });
+
   it("offers no launch at all when the campaign's progress could not be read", async () => {
-    // §52 applies hardest to a confirmation: a manufactured `0` under "this will call N
-    // people" is the one number nobody would question. The card that holds the launch is
-    // gated on a status that comes from the same read, so a failed progress request takes
-    // the whole thing off screen rather than offering an uncountable launch — and the
-    // launch check's green sentence must not appear on its own either.
+    // A manufactured `0` under "Call N people" is the one number nobody would question, so
+    // a failed progress read takes the launch off screen, with the green sentence.
     const { container } = await renderClientPage(campaignPage(), {
       "/v1/me": ME,
       ...detailRoutes(),
@@ -579,9 +515,7 @@ describe("the confirmation in front of a launch", () => {
     });
     await screen.findByRole("alert");
 
-    expect(
-      screen.queryByRole("button", { name: "Launch campaign" }),
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Launch campaign" })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Call \d/ })).toBeNull();
     expect(container.textContent).not.toContain("Everything checks out.");
   });

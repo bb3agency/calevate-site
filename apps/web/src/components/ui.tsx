@@ -13,7 +13,7 @@
 import clsx from "clsx";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useCallback, useEffect, useRef } from "react";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 
 import { lookup } from "@/lib/lookup";
 import { InfoTip } from "@/components/console/infoTip";
@@ -1340,10 +1340,12 @@ export function NoticeBox({
 export function ScrollRegion({
   label,
   className,
+  style,
   children,
 }: {
   label: string;
   className?: string;
+  style?: CSSProperties;
   children: ReactNode;
 }) {
   return (
@@ -1351,6 +1353,7 @@ export function ScrollRegion({
       role="region"
       aria-label={label}
       className={clsx("overflow-x-auto", className)}
+      style={style}
       // The one place a non-interactive element must take focus — see above. The lint
       // rule's default allowed-roles list knows only `tabpanel` and predates the WAI
       // guidance for scrollable regions. Waived HERE, once, which is the point of the

@@ -87,26 +87,12 @@ describe("Launch waits for the launch check it relies on", () => {
     />
   );
 
-  it("does not open the confirmation while the check is re-running", () => {
-    const { rerender } = render(confirm("Checking your campaign again"));
-    expect(waitingReason(button("Launch campaign"))).toBe("Checking your campaign again");
-    fireEvent.click(button("Launch campaign"));
-    expect(screen.queryByText(/This starts calling/)).toBeNull();
-
-    rerender(confirm(null));
-    fireEvent.click(button("Launch campaign"));
-    expect(screen.getByText(/This starts calling/)).toBeTruthy();
-  });
-
-  it("holds an armed Call button while the check re-runs, then lets it dial", () => {
+  it("holds the Call button while the check re-runs, then lets it dial", () => {
     const onLaunch = vi.fn();
-    const { rerender } = render(confirm(null, onLaunch));
-    fireEvent.click(button("Launch campaign"));
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "3" } });
-    rerender(confirm("Checking your campaign again", onLaunch));
+    const { rerender } = render(confirm("Checking your campaign again", onLaunch));
+    expect(waitingReason(button("Call 3 people"))).toBe("Checking your campaign again");
     fireEvent.click(button("Call 3 people"));
     expect(onLaunch).not.toHaveBeenCalled();
-    expect(waitingReason(button("Call 3 people"))).toBe("Checking your campaign again");
 
     rerender(confirm(null, onLaunch));
     fireEvent.click(button("Call 3 people"));

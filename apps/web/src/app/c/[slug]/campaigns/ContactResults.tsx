@@ -228,7 +228,13 @@ export function ContactResults({
         )
       ) : (
         <>
-          <DataTable label="People on this campaign" rows={data.items} columns={columns} getRowId={(row) => row.id} />
+          <DataTable
+            label="People on this campaign"
+            rows={data.items}
+            columns={columns}
+            getRowId={(row) => row.id}
+            maxRows={5}
+          />
           {pages > 1 && <Pagination count={pages} page={page} onPageChange={setPage} label="People pages" />}
         </>
       )}

@@ -1,86 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
-
 import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
-import {
-  SECONDARY_BUTTON,
-  formatCount,
-  formatPhone,
-  NOTICE_BAR,
-  NOTICE_BASE,
-} from "@/components/ui";
-import { TypedConfirmation } from "@/components/typedConfirmation";
+import { formatCount, formatPhone } from "@/components/ui";
 
 /**
- * The gate in front of the one client action that dials real phone numbers.
+ * Launching a campaign: one press, with what it does said beside the button (founder,
+ * 4 Nov 2026: no further confirmation, because a running campaign can be paused or
+ * cancelled). The compliance gate is the server's and runs on every launch whatever this
+ * screen does (hard rule 5).
  *
- * ## Why this exists
- *
- * Launching was a bare `<button onClick={() => launch.mutate()}>` sitting under the
- * sentence "Everything checks out." One press, no restatement, no second step — on the
- * client action with the largest irreversible blast radius in the product. A placed call
- * cannot be recalled, it is made under TRAI to an Indian subscriber, and the campaign it
- * belongs to may hold thousands of them.
- *
- * It was also out of step with every comparable control this repo already ships: bulk
- * lead edit is two-step plus type-the-count (`leads/BulkActionBar.tsx`), DPDP erasure
- * types `ERASE`, the big red switch has a consequences panel plus a typed reason plus a
- * typed word, and global DNC release types `RELEASE`. Launching was the only one with no
- * gate at all.
- *
- * And the server had already assumed otherwise. `campaigns/service.py::launch_campaign`
- * says the scrub runs at launch *"so the 'N contacts will be dialled' number **the client
- * confirms** is true"* — a sentence about a confirmation that did not exist.
- *
- * ## The shape, and why it is `BulkActionBar`'s and not a new one
- *
- * Consequences ABOVE the control, decision made before the click — the ops
- * big-red-switch idiom, which the bulk bar already borrowed. Two ways of confirming one
- * class of thing is a defect even when both work (CLAUDE.md), so this is the same three
- * beats: a review button, a panel that restates what will happen, and a danger button
- * that is dead until the count has been typed.
- *
- * **The count is what must be typed, not a fixed word**, and the bulk bar's reasoning
- * carries over exactly: a fixed word proves the person meant to press the button, and the
- * risk here is not the button, it is the number beside it. Typing "1240" cannot be done
- * without reading it.
- *
- * It differs from `BulkActionBar` in one place: there is **no size threshold**. The bulk
- * bar types the count only above 25 rows, on the argument that a ceremony everybody
- * performs on three rows is a ceremony nobody reads on twelve hundred — and that argument
- * is about an action performed many times a day on a table. A campaign is launched once,
- * ever, and every launch is irreversible whatever the count. So the ceremony is never
- * worn out by repetition and it is always proportionate.
- *
- * ## What this panel may and may not state
- *
- * `contacts` is `ProgressOut.total` — the server's count of rows on this campaign — and
- * when it is `undefined` **there is no review to offer**. §52 applies to a confirmation
- * more than anywhere else: a manufactured `0` under "this will call N people" is the one
- * number nobody would question.
- *
- * That branch is a CONTRACT, not a reachable state from today's only call site: the
- * "Before you launch" card is itself gated on `status`, which is derived from the same
- * `progress` read, so a campaigns page that cannot read the progress renders no launch
- * card at all (`campaignLaunch.test.tsx` pins that). It is written here rather than
- * pushed onto the caller as a required prop because the rule belongs to the control —
- * "a launch must be able to say how many people it will call" is true of every caller,
- * and a required `number` would invite the next one to supply a `0`.
- *
- * Two things this panel has to restate were WRITE-ONLY until `ProgressOut` gained them:
- * **the campaign's own calling window** and **the number it dials from**. Both were set
- * in the create form, held as local state, and returned by no endpoint — so the panel
- * asking a client to authorise thousands of calls could not say when they would go out or
- * what would appear on the handset. Both are now read back, and both are stated exactly
- * as the server reports them:
- *
- * - `callingHours` is the campaign's OWN NARROWING, `null` when it chose none. The
- *   platform's 9am–9pm IST bound is stated unconditionally either way, because it is true
- *   of every campaign; a narrowed window is stated IN ADDITION, never instead.
- * - `numberE164` is `null` when the campaign has no number of its own, and that is said
- *   in words rather than left blank — "the platform picks one" and "we could not read it"
- *   are different facts to somebody deciding whether to authorise the calls.
+ * `contacts` is `ProgressOut.total`, the server's count of rows on the campaign; while it
+ * is `undefined` there is no launch to offer, because "This calls 0 people" would be the
+ * one number nobody questioned. The calling window and the number are stated as the server
+ * reports them: `callingHours` null means the platform's 9am–9pm IST window alone, and
+ * `numberE164` null means the agent's own line.
  */
 export function LaunchConfirm({
   contacts,
@@ -98,7 +31,7 @@ export function LaunchConfirm({
    * people were added), or null. Launch is greyed with this line until the read lands.
    */
   waiting?: string | null;
-  /** `ProgressOut.total` — `undefined` while it is unknown, and then there is no review. */
+  /** `ProgressOut.total` — `undefined` while it is unknown, and then there is no launch. */
   contacts: number | undefined;
   /** `ProgressOut.effective_concurrency`: the slider under the plan ceiling and line pool. */
   concurrency: number | undefined;
@@ -113,17 +46,6 @@ export function LaunchConfirm({
   status: FeedbackStatus;
   onLaunch: () => void;
 }) {
-  const [confirming, setConfirming] = useState(false);
-  const [typed, setTyped] = useState("");
-
-  // A changed count retracts a confirmation in progress — the bulk bar's rule, and it
-  // matters more here because this screen POLLS: contacts can be added in another tab
-  // while the panel is open, and a person must not spend a confirmation of 40 on 4,000.
-  useEffect(() => {
-    setConfirming(false);
-    setTyped("");
-  }, [contacts]);
-
   if (contacts === undefined) {
     return (
       <p className="text-sm text-ink-muted">
@@ -133,97 +55,28 @@ export function LaunchConfirm({
   }
 
   const people = contacts === 1 ? "person" : "people";
-  const pending = status === "pending";
-  const armed = canWrite && typed.trim() === String(contacts);
-
-  if (!confirming) {
-    return (
-      <div className="space-y-3">
-        <ActionButton
-          title={writeReason}
-          disabled={!canWrite || pending}
-          waitingFor={canWrite ? waiting : null}
-          onClick={() => setConfirming(true)}
-          className="w-full sm:w-auto"
-        >
-          Launch campaign
-        </ActionButton>
-      </div>
-    );
-  }
+  const hours = callingHours ? `${callingHours.start}–${callingHours.end} IST` : "9am–9pm IST";
+  const from = numberE164 ? `from ${formatPhone(numberE164)}` : "from your agent's number";
+  const atOnce = concurrency !== undefined ? `, up to ${formatCount(concurrency)} at once` : "";
 
   return (
-    <div className="space-y-3">
-      <div className={`${NOTICE_BASE} ${NOTICE_BAR.warn}`}>
-        <p className="font-semibold">
-          <span>
-            This starts calling {formatCount(contacts)} {people}.
-          </span>
-        </p>
-        <ul className="mt-2 list-disc space-y-1 pl-5 text-ink-muted">
-          <li>
-            {callingHours ? (
-              <>
-                Calls only between{" "}
-                <strong>
-                  {callingHours.start}&ndash;{callingHours.end} IST
-                </strong>{" "}
-                (never outside 9am&ndash;9pm IST).
-              </>
-            ) : (
-              "Calls only between 9am–9pm IST."
-            )}
-          </li>
-          <li>Asked if it&rsquo;s an AI or recorded, your agent tells the truth.</li>
-          <li>
-            {numberE164 ? (
-              <>
-                They see <strong>{formatPhone(numberE164)}</strong> on their phone.
-              </>
-            ) : (
-              "They see your agent's own number."
-            )}
-          </li>
-          {concurrency !== undefined && <li>Up to {formatCount(concurrency)} calls at once.</li>}
-          <li>People on your do-not-call list are skipped.</li>
-          <li>
-            <strong>A call made can&rsquo;t be taken back.</strong> Pause stops the rest.
-          </li>
-        </ul>
-        <div className="mt-3">
-          <TypedConfirmation
-            phrase={String(contacts)}
-            value={typed}
-            onChange={setTyped}
-            inputMode="numeric"
-          />
-        </div>
-      </div>
-
-      <div className="flex flex-wrap items-start gap-2">
-        <div className="flex flex-col gap-1">
-          <ActionButton
-            variant="danger"
-            title={writeReason}
-            disabled={!armed}
-            waitingFor={armed ? waiting : null}
-            status={status}
-            pendingLabel="Launching"
-            successLabel="Launched"
-            onClick={onLaunch}
-          >
-            {`Call ${formatCount(contacts)} ${people}`}
-          </ActionButton>
-        </div>
-        <button
-          type="button"
-          disabled={pending}
-          onClick={() => setConfirming(false)}
-          className={SECONDARY_BUTTON}
-        >
-          Cancel
-        </button>
-      </div>
+    <div className="space-y-2">
+      <ActionButton
+        variant="primary"
+        title={writeReason}
+        disabled={!canWrite || contacts === 0}
+        waitingFor={canWrite ? waiting : null}
+        status={status}
+        pendingLabel="Launching"
+        successLabel="Launched"
+        onClick={onLaunch}
+        className="w-full sm:w-auto"
+      >
+        {`Call ${formatCount(contacts)} ${people}`}
+      </ActionButton>
+      <p className="text-meta text-ink-muted">
+        {`Calls ${hours}, ${from}${atOnce}. Do-not-call numbers are skipped. Pause any time.`}
+      </p>
     </div>
   );
 }

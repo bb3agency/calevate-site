@@ -587,7 +587,7 @@ describe("the leads on a phone", () => {
   });
 
   it("scrolls inside its own named region, never the page", () => {
-    expect(dataTable).toMatch(/<ScrollRegion label=\{label\}/);
+    expect(dataTable).toMatch(/<ScrollRegion\s+label=\{label\}/);
   });
 
   it("pins the Name column", () => {

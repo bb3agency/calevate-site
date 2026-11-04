@@ -7,7 +7,7 @@
 // because the consoles' rows wrap, hold controls and change height, which upstream's
 // fixed-height absolutely-positioned rows cannot.
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
@@ -261,6 +261,11 @@ export type DataTableProps<T> = {
   };
   /** Shown in place of the rows when there are none (an `EmptyState`, a sentence). */
   empty?: ReactNode;
+  /**
+   * Show at most this many rows; the rest scroll inside the table under a header that stays
+   * put. Measured from the rows as drawn, so a two-line row counts as one row.
+   */
+  maxRows?: number;
 };
 
 const CHECKBOX =
@@ -303,7 +308,30 @@ export function DataTable<T>({
   announceArrivals,
   selection,
   empty,
+  maxRows,
 }: DataTableProps<T>) {
+  const tableRef = useRef<HTMLTableElement>(null);
+  const [cap, setCap] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const table = tableRef.current;
+    if (!maxRows || !table) return;
+    const measure = () => {
+      const body = table.tBodies[0];
+      const last = body?.rows[maxRows - 1];
+      if (!body || body.rows.length <= maxRows || !last) {
+        setCap(null);
+        return;
+      }
+      // No layout (a test, a hidden tab) measures 0: show every row rather than none.
+      const height = last.offsetTop + last.offsetHeight;
+      setCap(height > 0 ? height : null);
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(table);
+    return () => observer.disconnect();
+  }, [maxRows, rows.length]);
   const [internal, setInternal] = useState<SortState>(defaultSort);
   const sort = controlled !== undefined ? controlled : internal;
   const ordered = useMemo(() => sortRows(rows, columns, sort), [rows, columns, sort]);
@@ -383,10 +411,14 @@ export function DataTable<T>({
       {/* `relative`: absolutely positioned descendants (visually hidden header text, a
           row's stretched link) must take this scroller as their containing block, or they
           escape its clipping and widen the page. */}
-      <ScrollRegion label={label} className="scroll-shadow-x relative">
-        <table className={`w-full border-collapse text-left text-sm ${CARD_TABLE}`}>
+      <ScrollRegion
+        label={label}
+        className={`scroll-shadow-x relative ${cap !== null ? "overflow-y-auto overscroll-contain" : ""}`}
+        style={cap !== null ? { maxHeight: cap } : undefined}
+      >
+        <table ref={tableRef} className={`w-full border-collapse text-left text-sm ${CARD_TABLE}`}>
           <caption className="sr-only">{label}</caption>
-          <thead className="max-sm:hidden">
+          <thead className={`max-sm:hidden ${cap !== null ? "sticky top-0 z-raised bg-surface" : ""}`}>
             <tr className="border-b border-line">
               {selection ? (
                 <th scope="col" className="w-10 px-3 py-2">
