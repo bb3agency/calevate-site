@@ -480,9 +480,6 @@ def test_advice_is_passed_through_and_never_scored() -> None:
     inputs = readiness.ReadinessInputs(
         agent_id=uuid.uuid4(),
         agent_name="A",
-        tests_passed=1,
-        tests_counted=1,
-        has_test_run=True,
         knowledge_items=9,
         open_gaps=0,
         opening_chars=40,

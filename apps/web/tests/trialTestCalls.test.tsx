@@ -29,7 +29,6 @@ const CREDITS = "/c/acme/billing?tab=credits";
 const HREFS = {
   creditsHref: CREDITS,
   verifyHref: "/c/acme/verify-business",
-  phoneHref: "/c/acme/phone-number",
   agentsHref: "/c/acme/agents",
   newAgentHref: "/c/acme/agents/first",
 };

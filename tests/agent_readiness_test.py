@@ -26,9 +26,6 @@ AGENT = uuid.UUID("01890000-0000-7000-8000-000000000001")
 FULL = readiness.ReadinessInputs(
     agent_id=AGENT,
     agent_name="Reception",
-    tests_passed=10,
-    tests_counted=10,
-    has_test_run=True,
     knowledge_items=8,
     open_gaps=0,
     opening_chars=60,
@@ -56,8 +53,6 @@ def test_each_component_follows_its_rule() -> None:
     out = readiness.score(
         replace(
             FULL,
-            tests_passed=7,
-            tests_counted=10,
             knowledge_items=3,
             open_gaps=2,
             opening_chars=OPENING_LINE_MAX_CHARS + 1,
@@ -67,37 +62,30 @@ def test_each_component_follows_its_rule() -> None:
         now=NOW,
     )
     assert _points(out) == {
-        "tests": 25,  # 35 * 7 / 10 = 24.5, half up
-        "knowledge": 14,  # (5 for 1-4 items + (10 - 2*2)) * 25 / 20 = 13.75
-        "opening": 5,  # set, but too long to be spoken
-        "live": 8,  # live, with a draft waiting
-        "missed": 4,  # 10 - 2*3
+        "knowledge": 22,  # (5 for 1-4 items + (10 - 2*2)) * 40 / 20
+        "opening": 7,  # set, but too long to be spoken
+        "live": 13,  # live, with a draft waiting
+        "missed": 6,  # 15 - 3*3
     }
-    assert out.score == 56
+    assert out.score == 48
 
 
-def test_half_points_round_up_and_components_never_go_negative() -> None:
-    out = readiness.score(
-        replace(FULL, tests_passed=1, tests_counted=2, open_gaps=9, missed_7d=40), now=NOW
-    )
+def test_components_never_go_negative() -> None:
+    out = readiness.score(replace(FULL, open_gaps=9, missed_7d=40), now=NOW)
     points = _points(out)
-    assert points["tests"] == 18  # 17.5 rounds half up
-    assert points["knowledge"] == 13  # (10 for stock + max(0, 10 - 18)) * 25 / 20 = 12.5
+    assert points["knowledge"] == 20  # (10 for stock + max(0, 10 - 18)) * 40 / 20
     assert points["missed"] == 0
 
 
 def test_an_opening_line_that_does_not_fit_the_greeting_budget_loses_points() -> None:
     out = readiness.score(replace(FULL, opening_chars=50, opening_room=40), now=NOW)
-    assert _points(out)["opening"] == 5
+    assert _points(out)["opening"] == 7
 
 
 def test_fixes_come_biggest_first_with_ties_in_component_order() -> None:
     empty = readiness.ReadinessInputs(
         agent_id=AGENT,
         agent_name="New",
-        tests_passed=0,
-        tests_counted=0,
-        has_test_run=False,
         knowledge_items=0,
         open_gaps=0,
         opening_chars=0,
@@ -109,16 +97,14 @@ def test_fixes_come_biggest_first_with_ties_in_component_order() -> None:
         missed_7d=0,
     )
     out = readiness.score(empty, now=NOW)
-    # knowledge: no gaps, 10 * 25 / 20 = 12.5 → 13; missed 10; not live costs nothing (D-916)
-    assert out.score == 38
+    # knowledge: no gaps, 10 * 40 / 20 = 20; missed 15; not live costs nothing (D-916)
+    assert out.score == 60
     assert [(f.component, f.points) for f in out.fixes] == [
-        ("tests", 35),
-        ("opening", 15),
-        ("knowledge", 12),
+        ("knowledge", 20),
+        ("opening", 20),
     ]
-    assert out.fixes[0].href == f"/agents/{AGENT}?section=training&focus=tests"
-    assert out.fixes[2].href == "/knowledge"
-    assert _points(out)["live"] == 15
+    assert out.fixes[0].href == "/knowledge"
+    assert _points(out)["live"] == 25
 
 
 def _client() -> AsyncClient:
@@ -151,8 +137,7 @@ async def test_the_reads_score_the_stored_agent_and_stay_inside_the_account() ->
     body = one.json()
     points = {c["key"]: c["points"] for c in body["components"]}
     assert set(points) == set(readiness.MAX_POINTS)
-    assert points["knowledge"] == 19  # (one fact (5) + no open gaps (10)) * 25 / 20 = 18.75
-    assert points["tests"] == 0
+    assert points["knowledge"] == 30  # (one fact (5) + no open gaps (10)) * 40 / 20
     assert body["score"] == sum(points.values())
     assert account.status_code == 200
     assert account.json()["score"] == body["score"]

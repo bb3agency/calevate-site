@@ -51,19 +51,17 @@ import { Why } from "@/components/why";
  * dashboard down. Renders NOTHING for an account that is not on a trial — a placeholder on
  * every other dashboard would be noise — and the dashboard says its own read's failure.
  *
- * AFTER THE FIRST PAYMENT the same card offers the owner's PAID test calls (D-859,
- * `paid_test_calls`): from the agent's own number once it has one, from the shared trial
- * number until then (option A), billed like any call, with no trial words in it.
+ * A paying account has no card here: its test calls are placed per agent, on the agent's
+ * Training tab (`agents/[agentId]/sections/tryIt.tsx`, D-859; founder, 4 Nov 2026).
  */
 export function TrialCallPanel({ slug, trial }: { slug: string; trial: TrialPanel | null | undefined }) {
   const { href } = useClientRealm();
-  if (!trial?.on_trial && !trial?.paid_test_calls) return null;
+  if (!trial?.on_trial) return null;
   return (
     <TrialCallCard
       trial={trial}
       creditsHref={href(`/c/${slug}/billing?tab=credits`)}
       verifyHref={href(`/c/${slug}/verify-business`)}
-      phoneHref={href(`/c/${slug}/phone-number`)}
       agentsHref={href(`/c/${slug}/agents`)}
       newAgentHref={href(`/c/${slug}/agents/first`)}
     />
@@ -154,14 +152,12 @@ export function TrialCallCard({
   trial,
   creditsHref,
   verifyHref,
-  phoneHref,
   agentsHref,
   newAgentHref,
 }: {
   trial: TrialPanel;
   creditsHref: string;
   verifyHref: string;
-  phoneHref: string;
   agentsHref: string;
   newAgentHref: string;
 }) {
@@ -174,9 +170,7 @@ export function TrialCallCard({
 
   // Every agent can be test-called, including a draft and one that only answers calls: a
   // draft is got ready first (the same `/prepare` the first run uses), and the server says in
-  // its own words what stops that. After payment the call rings from the agent's own number
-  // once it has one, and from the shared Calevate number until then (D-859, option A).
-  const paid = trial.paid_test_calls === true;
+  // its own words what stops that.
   const dialers = agents.data?.filter((agent) => !isDeleted(agent));
   const chosen = agentId || (dialers !== undefined && dialers.length > 0 ? dialers[0].id : "");
   const chosenAgent = dialers?.find((agent) => agent.id === chosen);
@@ -208,37 +202,26 @@ export function TrialCallCard({
   const earlier = recent.data?.filter((row) => row.id !== followedId).slice(0, 2);
 
   return (
-    <Card title={paid ? TRIAL.paidTitle : TRIAL.title}>
+    <Card title={TRIAL.title}>
       <div className="space-y-4">
         <ul className="flex flex-wrap gap-2" aria-label="Your trial at a glance">
-          {paid ? null : (
-            <Chip title={trial.ends_at ? `Ends ${formatIST(trial.ends_at)} IST` : undefined}>
+          <Chip title={trial.ends_at ? `Ends ${formatIST(trial.ends_at)} IST` : undefined}>
               {TRIAL.daysLeft(trial.days_remaining)}
             </Chip>
-          )}
           <Chip>{TRIAL.callsToday(trial.calls_today, trial.daily_cap)}</Chip>
-          {paid ? <Chip>{TRIAL.billedLikeAnyCall}</Chip> : null}
         </ul>
-        {paid ? null : <TrialMinutes trial={trial} />}
+        <TrialMinutes trial={trial} />
 
         {/* The rules a test call keeps, one line; the whole of them behind a tap. */}
         <div>
           <p className="text-meta text-ink-muted">
-            {paid && trial.own_number_max_call_seconds
-              ? trial.shared_line
-                ? TRIAL.ownRules(minutesText(trial.own_number_max_call_seconds), minutesText(trial.max_call_seconds))
-                : TRIAL.ownOnlyRules(minutesText(trial.own_number_max_call_seconds))
-              : TRIAL.rules(minutesText(trial.max_call_seconds))}
+            {TRIAL.rules(minutesText(trial.max_call_seconds))}
           </p>
           <Why label={TRIAL.howItWorks}>
             <p>
-              {paid
-                ? trial.shared_line
-                  ? "Rings from your number, or a shared one until you have one. Billed like any call."
-                  : "Rings from your number. Billed like any call."
-                : "Pick an agent, type an Indian number. It rings from a shared number with its usual greeting."}
+              Pick an agent, type an Indian number. It rings from a shared number with its usual greeting.
             </p>
-            {trial.ends_at && !paid ? <p>Your trial ends {formatIST(trial.ends_at)} IST.</p> : null}
+            {trial.ends_at ? <p>Your trial ends {formatIST(trial.ends_at)} IST.</p> : null}
             <p>
               The do-not-call list still applies. Calls go out 9am to 9pm unless the number is your own. The
               agent always says it is an AI when asked.
@@ -257,21 +240,11 @@ export function TrialCallCard({
           />
         )}
 
-        {trial.needs_number ? (
-          <NoticeBox
-            tone="neutral"
-            title={trial.blocked_reason ?? ""}
-            action={
-              <Link href={phoneHref} className={PRIMARY_BUTTON_SM}>
-                {TRIAL.needsNumberAction}
-              </Link>
-            }
-          />
-        ) : trial.blocked_reason && trial.pledge_accepted ? (
+        {trial.blocked_reason && trial.pledge_accepted && (
           <p role="status" className="text-sm text-warn">
             {trial.blocked_reason}
           </p>
-        ) : null}
+        )}
 
         <form
           className="flex flex-wrap items-end gap-3"
@@ -377,7 +350,7 @@ export function TrialCallCard({
             key={followedId}
             callId={followedId}
             callerNumber={followedId === placedId ? place.data?.caller_number : null}
-            paid={paid}
+            paid={false}
             heading={followedId === placedId ? "This test call" : "Your last test call"}
           />
         ) : null}
@@ -392,14 +365,13 @@ export function TrialCallCard({
           </Link>
         ) : null}
 
-        {paid ? null : (
           <NoticeBox
             tone="neutral"
             title={TRIAL.goLive}
             action={<RowLink href={creditsHref}>{TRIAL.goLiveAction}</RowLink>}
             info="Ends the trial. Opens verification, your number, calls in and campaigns."
           />
-        )}
+
       </div>
     </Card>
   );

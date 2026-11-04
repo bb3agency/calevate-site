@@ -18,8 +18,7 @@
  */
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 
 import { useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
 import { TEXT_ACTION } from "@/components/console/section";
@@ -45,10 +44,6 @@ import { CALL_HANDLING_ANCHOR } from "../sections/settingsTab";
 import { Results } from "./TestResults";
 import { FirstRun, Running, Stopped, Verdict } from "./TestSummary";
 import { NOTHING_CHANGED_CODE, SETTING_LINK, countsOf, isFixable, oursNote } from "./testCopy";
-
-/** `?focus=tests` opens the agent on its practice tests with the run button focused. */
-export const FOCUS_PARAM = "focus";
-export const FOCUS_TESTS = "tests";
 
 /** What Pip is asked for the fixes, in the words the owner sees in its ask box (D-820). */
 export const FIX_ALL_REQUEST = "Suggest fixes for the tests this agent failed.";
@@ -157,22 +152,8 @@ export function TestSection({
   };
   const canRun = data?.available === true && write.allowed && !testing;
 
-  // `?focus=tests` (the readiness fix "Run the practice tests"): land on this section with its
-  // first button focused, once, after the tests read has arrived.
-  const focusTests = useSearchParams().get(FOCUS_PARAM) === FOCUS_TESTS;
-  const root = useRef<HTMLDivElement>(null);
-  const focused = useRef(false);
-  const loaded = data !== undefined;
-  useEffect(() => {
-    if (!focusTests || !loaded || focused.current || !root.current) return;
-    focused.current = true;
-    const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    root.current.scrollIntoView({ block: "center", behavior: still ? "auto" : "smooth" });
-    root.current.querySelector<HTMLButtonElement>("button:not([disabled])")?.focus({ preventScroll: true });
-  }, [focusTests, loaded]);
-
   return (
-    <div ref={root} className="space-y-5">
+    <div className="space-y-5">
       {data?.waiting_update && (
         // The server's words: `data-server-text` keeps them out of the line-length guard.
         <div data-server-text>

@@ -2,30 +2,29 @@
 
 The gauge on each agent and on the dashboard (founder decision f7d9f716, point 2). It is
 computed on every read from what is already stored; nothing is written and nothing is
-cached, so the number moves the moment a test finishes or knowledge is added.
+cached, so the number moves the moment knowledge is added or a change goes live.
 
-THE FORMULA (five components, 100 points; `score()` is the whole of it and is pure):
+THE FORMULA (four components, 100 points; `score()` is the whole of it and is pure):
 
 | component  | max | points                                                                 |
 |------------|-----|------------------------------------------------------------------------|
-| tests      |  35 | 35 * passed / counted, rounded half up, on the latest finished run,   |
-|            |     | the owner's score (`trial_results.owner_score`); 0 with no such run    |
-| knowledge  |  25 | D-870's 20-point reading scaled by 25/20, rounded half up. That        |
+| knowledge  |  40 | D-870's 20-point reading scaled by 40/20, rounded half up. That        |
 |            |     | reading is 10 for live knowledge (live sources + facts on file: 0 → 0, |
 |            |     | 1-4 → 5, 5+ → 10) plus max(0, 10 - 2 * this agent's open knowledge     |
 |            |     | gaps); the sum is scaled once, so the rounding happens once           |
-| opening    |  15 | 15 when the opening line is set, at most `OPENING_LINE_MAX_CHARS` and  |
-|            |     | fits the greeting budget with the notices as they are; 5 when set but  |
+| opening    |  20 | 20 when the opening line is set, at most `OPENING_LINE_MAX_CHARS` and  |
+|            |     | fits the greeting budget with the notices as they are; 7 when set but  |
 |            |     | too long; 0 when empty                                                 |
-| live       |  15 | 15 when not live (D-916); live: 8, and 7 more when no draft is waiting |
-|            |     | and the calling system's copy is not out of sync                       |
+| live       |  25 | 25 when not live (D-916); live: 13, and 12 more when no draft is       |
+|            |     | waiting and the calling system's copy is not out of sync              |
 |            |     | (`DRIFT_STATES_OUT_OF_SYNC`)                                           |
-| missed     |  10 | max(0, 10 - 2 * questions it could not answer in the last 7 days)      |
+| missed     |  15 | max(0, 15 - 3 * questions it could not answer in the last 7 days)      |
 
-Why these weights: the practice tests are the closest thing to a real caller and carry the
-most; knowledge and missed questions are the two halves of "does it know the business";
-the opening line is what every caller hears first; a live agent whose callers hear an
-out-of-date version is not ready, while one not live yet is not marked down for it (D-916).
+Practice tests are not scored (founder, 4 Nov 2026): running them is optional, and a score
+that asked for them added work before a client could start calling. Knowledge and missed
+questions are the two halves of "does it know the business"; the opening line is what every
+caller hears first; a live agent whose callers hear an out-of-date version is not ready, while
+one not live yet is not marked down for it (D-916).
 
 The opening notices (D-163) are not a component: whether an agent volunteers "I am an AI"
 or "this call is recorded" is the owner's choice and does not make it more or less ready
@@ -56,7 +55,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.actions.calendar import calendar_configured
-from apps.api.agents import script_builder, test_conversations
+from apps.api.agents import script_builder
 from apps.api.agents.call_rules import OPENING_LINE_MAX_CHARS
 from apps.api.agents.capability_manifest import books_visits, lint_context_for
 from apps.api.agents.reconciliation import DRIFT_STATES_OUT_OF_SYNC
@@ -65,19 +64,21 @@ from apps.api.agents.schemas import AgentOut
 from apps.api.agents.script_lint import plain, script_problems
 from apps.api.core.errors import ProblemError
 
-ComponentKey = Literal["tests", "knowledge", "opening", "live", "missed"]
+ComponentKey = Literal["knowledge", "opening", "live", "missed"]
 ComponentState = Literal["full", "partial", "none"]
 
 MAX_POINTS: Final[dict[ComponentKey, int]] = {
-    "tests": 35,
-    "knowledge": 25,
-    "opening": 15,
-    "live": 15,
-    "missed": 10,
+    "knowledge": 40,
+    "opening": 20,
+    "live": 25,
+    "missed": 15,
 }
+#: An opening line that is set but too long to be spoken in full.
+OPENING_TOO_LONG_POINTS: Final = 7
+#: Points lost per question it could not answer in the last 7 days.
+MISSED_POINTS_EACH: Final = 3
 COMPONENT_ORDER: Final[tuple[ComponentKey, ...]] = tuple(MAX_POINTS)
 COMPONENT_LABELS: Final[dict[ComponentKey, str]] = {
-    "tests": "Practice tests",
     "knowledge": "What it knows",
     "opening": "Opening line",
     "live": "Callers hear the latest version",
@@ -89,7 +90,7 @@ KNOWLEDGE_PLENTY: Final = 5
 #: D-870's knowledge reading, which D-873 scales to `MAX_POINTS["knowledge"]`.
 KNOWLEDGE_READING_MAX: Final = 20
 #: The share of the live points for being published and live; the rest is for being in sync.
-LIVE_POINTS_PUBLISHED: Final = 8
+LIVE_POINTS_PUBLISHED: Final = 13
 
 
 class ReadinessFixOut(BaseModel):
@@ -168,9 +169,6 @@ class ReadinessInputs:
 
     agent_id: UUID
     agent_name: str
-    tests_passed: int
-    tests_counted: int
-    has_test_run: bool
     knowledge_items: int
     open_gaps: int
     opening_chars: int
@@ -223,28 +221,6 @@ def score(i: ReadinessInputs, *, now: datetime) -> AgentReadinessOut:
                 ReadinessFixOut(component=key, action=fix[0], href=fix[1], points=maximum - points)
             )
 
-    # tests
-    if not i.has_test_run or i.tests_counted == 0:
-        add(
-            "tests",
-            0,
-            "No practice test has finished yet.",
-            (
-                "Run the practice tests to see how it handles real questions.",
-                f"{base}?section=training&focus=tests",
-            ),
-        )
-    else:
-        add(
-            "tests",
-            _scaled_half_up(i.tests_passed, MAX_POINTS["tests"], i.tests_counted),
-            f"{i.tests_passed} of {i.tests_counted} practice tests passed.",
-            (
-                "Fix the practice tests that failed, then test again.",
-                f"{base}?section=training&focus=tests",
-            ),
-        )
-
     # knowledge
     stock = 0 if i.knowledge_items == 0 else 5 if i.knowledge_items < KNOWLEDGE_PLENTY else 10
     gaps = max(0, 10 - 2 * i.open_gaps)
@@ -272,12 +248,17 @@ def score(i: ReadinessInputs, *, now: datetime) -> AgentReadinessOut:
     elif i.opening_chars > OPENING_LINE_MAX_CHARS or not fits:
         add(
             "opening",
-            5,
+            OPENING_TOO_LONG_POINTS,
             f"The opening line is {i.opening_chars} characters, too long to be spoken in full.",
             ("Shorten the opening line to a greeting and one question.", f"{base}?section=script"),
         )
     else:
-        add("opening", 15, f"The opening line is {i.opening_chars} characters.", None)
+        add(
+            "opening",
+            MAX_POINTS["opening"],
+            f"The opening line is {i.opening_chars} characters.",
+            None,
+        )
 
     # live
     if not (i.published and i.live):
@@ -297,7 +278,7 @@ def score(i: ReadinessInputs, *, now: datetime) -> AgentReadinessOut:
     # missed questions
     add(
         "missed",
-        10 - 2 * i.missed_7d,
+        MAX_POINTS["missed"] - MISSED_POINTS_EACH * i.missed_7d,
         f"{_plural(i.missed_7d, 'question', 'questions')} it could not answer in the last 7 days.",
         ("Teach it the answers callers asked for.", f"{base}?section=training"),
     )
@@ -400,16 +381,10 @@ async def gather(
             },
         )
     ).one()
-    runs = await test_conversations.recent_runs(session, agent.id)
-    latest = runs[0] if runs else None
-    owner = latest.score if latest is not None else None
     budget = agent.greeting_budget
     return ReadinessInputs(
         agent_id=agent.id,
         agent_name=agent.name,
-        tests_passed=owner.passed if owner else 0,
-        tests_counted=owner.counted if owner else 0,
-        has_test_run=latest is not None,
         knowledge_items=await knowledge_items(session) if knowledge is None else knowledge,
         open_gaps=int(facts.open_gaps),
         opening_chars=len(agent.script_opening_line.strip()),

@@ -118,7 +118,6 @@ describe("a test call waits for the one still ringing", () => {
   const HREFS = {
     creditsHref: "/c/acme/billing?tab=credits",
     verifyHref: "/c/acme/verify-business",
-    phoneHref: "/c/acme/phone-number",
     agentsHref: "/c/acme/agents",
     newAgentHref: "/c/acme/agents/first",
   };

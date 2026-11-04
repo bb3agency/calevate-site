@@ -29974,7 +29974,7 @@ export interface components {
              * Key
              * @enum {string}
              */
-            key: "tests" | "knowledge" | "opening" | "live" | "missed";
+            key: "knowledge" | "opening" | "live" | "missed";
             /** Label */
             label: string;
             /** Max Points */
@@ -29995,7 +29995,7 @@ export interface components {
              * Component
              * @enum {string}
              */
-            component: "tests" | "knowledge" | "opening" | "live" | "missed";
+            component: "knowledge" | "opening" | "live" | "missed";
             /** Href */
             href: string;
             /** Points */

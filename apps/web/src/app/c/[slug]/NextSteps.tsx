@@ -349,7 +349,7 @@ export function NextSteps({
         text: fix.action,
         detail: scored.agents.length > 1 && agentName ? agentName : undefined,
         to: fix.href,
-        label: fix.component === "tests" ? HOME.readinessRunTests : HOME.readinessFix,
+        label: HOME.readinessFix,
       });
     }
   }

@@ -884,15 +884,15 @@ export function agentReadiness(agentId = "agent-1", name = "Reception"): AgentRe
     score: 85,
     max_score: 100,
     components: [
-      { key: "tests", label: "Practice tests", points: 35, max_points: 35, state: "full", detail: "All 4 tests passed." },
-      { key: "opening", label: "Opening line", points: 0, max_points: 15, state: "none", detail: "No opening line yet." },
+      { key: "knowledge", label: "What it knows", points: 40, max_points: 40, state: "full", detail: "8 things added for your agents; 0 open questions to answer." },
+      { key: "opening", label: "Opening line", points: 0, max_points: 20, state: "none", detail: "No opening line yet." },
     ],
     fixes: [
       {
         component: "opening",
         action: "Write the opening line callers hear first.",
         href: `/agents/${agentId}?section=script`,
-        points: 15,
+        points: 20,
       },
     ],
     computed_at: "2026-10-24T05:00:00Z",

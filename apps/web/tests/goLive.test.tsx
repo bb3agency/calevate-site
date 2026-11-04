@@ -3,12 +3,10 @@ import { QueryClient } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { goLiveOffered } from "@/app/c/[slug]/NextSteps";
-import { TrialCallCard } from "@/app/c/[slug]/TrialCallPanel";
 import { moveChecklist, stageOf } from "@/app/c/[slug]/go-live/GoLiveGuide";
 import GoLivePage from "@/app/c/[slug]/go-live/page";
 import type { GoLive } from "@/lib/api/goLive";
 import { pollMs } from "@/lib/api/goLive";
-import type { TrialPanel } from "@/lib/api/trialCalls";
 
 import { OWNER_ME, agentRow } from "./fixtures/sharedReads";
 import { problem, renderClientPage } from "./harness";
@@ -174,44 +172,5 @@ describe("the guide", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Switch on" }));
     expect(await screen.findByText(/Attach your number to this agent first/)).toBeTruthy();
     expect(calls.some((call) => call.method === "POST" && call.path === "/v1/agents/a1/activate")).toBe(true);
-  });
-});
-
-describe("the dashboard's test-call card after payment", () => {
-  const paid: TrialPanel = {
-    on_trial: false,
-    paid_test_calls: true,
-    status: null,
-    ends_at: null,
-    days_remaining: null,
-    free_minutes: null,
-    minutes_used: 0,
-    minutes_left: null,
-    calls_today: 1,
-    daily_cap: 10,
-    max_call_seconds: 180,
-    pledge_accepted: true,
-    shared_line: false,
-    needs_number: false,
-    can_call: false,
-    blocked_reason: "Test calls now ring from your own number. Get your number and switch this agent on, then call it here.",
-  };
-
-  it("has no trial words and no add-credit prompt", async () => {
-    await renderClientPage(
-      <TrialCallCard
-        trial={paid}
-        creditsHref="/c/acme/billing"
-        verifyHref="/c/acme/verify-business"
-        phoneHref="/c/acme/phone-number"
-        agentsHref="/c/acme/agents"
-        newAgentHref="/c/acme/agents/first"
-      />,
-      routes(),
-    );
-    expect(await screen.findByText("Call your agent yourself")).toBeTruthy();
-    const text = document.body.textContent ?? "";
-    expect(text).not.toMatch(/free trial|Days left|Free minutes|Add credit/i);
-    expect(text).toMatch(/billed like any call/i);
   });
 });

@@ -52,13 +52,17 @@ export function TryIt({
   onNumber: (next: string) => void;
   bare?: boolean;
 }) {
+  // A paying account test-calls its agents here too (D-859), from its own number and billed
+  // like any call; the dashboard no longer carries a test-call box of its own.
+  const paid = useTrialPanel(useClientSession()).data?.paid_test_calls === true;
+  const testable = onTrial || paid;
   let body;
-  if (onTrial && canTestCall(agent)) {
-    body = <TrialTestCall agent={agent} number={number} onNumber={onNumber} />;
-  } else if (!onTrial && isAnsweringNow(agent) && agent.direction !== "outbound" && agent.inbound_number_count > 0) {
+  if (testable && canTestCall(agent)) {
+    body = <TrialTestCall agent={agent} number={number} onNumber={onNumber} paid={paid} slug={slug} />;
+  } else if (!testable && isAnsweringNow(agent) && agent.direction !== "outbound" && agent.inbound_number_count > 0) {
     body = <RingYourNumber slug={slug} />;
   } else {
-    body = <NoCallYet agent={agent} slug={slug} onTrial={onTrial} />;
+    body = <NoCallYet agent={agent} slug={slug} onTrial={testable} />;
   }
   return <BareContext.Provider value={bare}>{body}</BareContext.Provider>;
 }
@@ -131,11 +135,17 @@ function TrialTestCall({
   agent,
   number,
   onNumber,
+  paid,
+  slug,
 }: {
   agent: Agent;
   number: string;
   onNumber: (next: string) => void;
+  /** A paying account: rings from its own number, billed like any call. */
+  paid: boolean;
+  slug: string;
 }) {
+  const { href } = useClientRealm();
   const session = useClientSession();
   const panel = useTrialPanel(session);
   const place = usePlaceTrialCall(session);
@@ -211,7 +221,7 @@ function TrialTestCall({
             <TestCallFollow
               callId={place.data.call_id}
               callerNumber={place.data.caller_number}
-              paid={false}
+              paid={paid}
               heading="This test call"
               link={false}
             />
@@ -230,7 +240,18 @@ function TrialTestCall({
 
   return (
     <PracticeFrame
-      description={`${agent.name} rings you from a shared trial number.`}
+      description={
+        paid
+          ? `${agent.name} rings you from your number. Billed like any call.`
+          : `${agent.name} rings you from a shared trial number.`
+      }
+      action={
+        paid && panel.data?.needs_number ? (
+          <Link href={href(`/c/${slug}/phone-number`)} className={SECONDARY_BUTTON}>
+            Get a number
+          </Link>
+        ) : undefined
+      }
     >
       {body}
     </PracticeFrame>

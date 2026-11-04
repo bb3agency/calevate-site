@@ -2437,7 +2437,7 @@ const CLIENT_SCREENS: Screen[] = [
         score: 62,
         agents: [],
         top_fixes: [
-          { component: "tests", action: "Run the practice tests to see how it handles real questions.", href: "/agents/agent-1?section=training", points: 30 },
+          { component: "opening", action: "Write the opening line callers hear first.", href: "/agents/agent-1?section=script", points: 20 },
           { component: "knowledge", action: "Add what your business does to Knowledge.", href: "/knowledge", points: 10 },
         ],
         computed_at: "2026-10-24T05:00:00Z",
@@ -5851,6 +5851,8 @@ const TRAINING_TAB_ROUTES = {
     pinned_not_yet_on: [],
   },
   "/v1/kb/teach/open": { teaching: null },
+  // The practice call asks whether this account test-calls its agents (a trial or a paid one).
+  "/v1/trial": { on_trial: false, paid_test_calls: false, calls_today: 0, daily_cap: 0, max_call_seconds: 0, pledge_accepted: true, shared_line: false, needs_number: false, can_call: false, minutes_used: 0 },
 };
 
 /**

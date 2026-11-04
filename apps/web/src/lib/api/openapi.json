@@ -44414,7 +44414,6 @@
           },
           "key": {
             "enum": [
-              "tests",
               "knowledge",
               "opening",
               "live",
@@ -44465,7 +44464,6 @@
           },
           "component": {
             "enum": [
-              "tests",
               "knowledge",
               "opening",
               "live",
