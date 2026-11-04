@@ -1,7 +1,7 @@
 """campaigns: purpose and goal; calls: whether the call reached the campaign's goal
 
 Revision ID: f2c8a6d4b1e9
-Revises: b7e3d9a2c5f1
+Revises: c3f8a1d6e9b4
 Create Date: 2026-11-04 12:00:00.000000
 
 Three nullable columns:
@@ -26,7 +26,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "f2c8a6d4b1e9"
-down_revision: str | None = "b7e3d9a2c5f1"
+down_revision: str | None = "c3f8a1d6e9b4"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

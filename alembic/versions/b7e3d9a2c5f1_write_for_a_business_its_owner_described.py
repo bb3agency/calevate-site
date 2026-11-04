@@ -61,13 +61,15 @@ NAMES = (
 )
 
 _TABLES = ("organizations", "business_profiles", "first_runs")
+_LIFT = "ALTER TABLE {} NO FORCE ROW LEVEL SECURITY"
+_RESTORE = "ALTER TABLE {} FORCE ROW LEVEL SECURITY"
 
 
 def upgrade() -> None:
     # The FORCE bracket (`f4a2c7e19d63`): all three are FORCE-RLS'd, so without it the
     # owner's read matches no rows and nothing is queued.
     for table in _TABLES:
-        op.execute(f"ALTER TABLE {table} NO FORCE ROW LEVEL SECURITY")
+        op.execute(_LIFT.format(table))
     steps = execute_data_statement(
         sa.text(STEPS), note="Queued job steps for described accounts without them."
     )
@@ -76,7 +78,7 @@ def upgrade() -> None:
     )
     log.info("described businesses: %s step writing(s), %s naming(s) queued", steps, names)
     for table in reversed(_TABLES):
-        op.execute(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY")
+        op.execute(_RESTORE.format(table))
 
 
 def downgrade() -> None:
