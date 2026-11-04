@@ -3101,6 +3101,7 @@ const CLIENT_SCREENS: Screen[] = [
     element: () => <AttentionPage params={slug} />,
     routes: {
       "/v1/me": ME,
+      [NOTIFICATIONS_PATH]: { items: [], unread: 0, attention_total: 2, seen_through: null },
       "/v1/attention": {
         total: 2,
         counts: { lead_blocked: 1, campaign_stalled: 1 },

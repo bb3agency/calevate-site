@@ -21,6 +21,7 @@ import {
 import { useAttention } from "@/lib/api/attention";
 import { useWriteAccess } from "@/lib/api/hooks";
 import {
+  BELL_ROWS,
   useMarkNotificationsSeen,
   useNotifications,
   type Notification,
@@ -163,9 +164,6 @@ function NotificationBell({ slug }: { slug: string }) {
     />
   );
 }
-
-/** Rows the bell asks for; the attention screen has the rest. */
-const BELL_ROWS = 20;
 
 /**
  * The credit chip's phone twin: the bar has no room for the chip under `sm`, so on a phone

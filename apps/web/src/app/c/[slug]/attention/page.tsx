@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { use, useState } from "react";
+import { use, useEffect, useState } from "react";
 
 import { EmptySketch } from "@/components/console/emptySketch";
 import { EmptyState } from "@/components/console/emptyState";
@@ -9,7 +9,8 @@ import { PageHeader } from "@/components/console/pageHeader";
 import { SegmentedControl } from "@/components/interior/segmented-control";
 import { ProblemNotice, RestrictionNote, SECONDARY_BUTTON, ScrollRegion, Skeleton, formatCount } from "@/components/ui";
 import { useAttention, type AttentionKind } from "@/lib/api/attention";
-import { useMe } from "@/lib/api/hooks";
+import { useMe, useWriteAccess } from "@/lib/api/hooks";
+import { BELL_ROWS, unseenAttention, useMarkNotificationsSeen, useNotifications } from "@/lib/api/notifications";
 import { useClientRealm } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
 
@@ -55,6 +56,20 @@ export default function AttentionPage({ params }: { params: Promise<{ slug: stri
   // it the control's option: back to everything, rather than an empty list nobody can leave.
   const filter = chosen === ALL || kinds.some((kind) => kind === chosen) ? chosen : ALL;
   useAttentionCopilot(queue, me, { value: filter, all: ALL, kinds, set: setFilter });
+
+  // Opening the queue counts as seeing it, as closing the bell does: the sidebar badge
+  // counts unseen problems, so it drops here. Marked through the newest problem on the
+  // feed, so an announcement newer than it stays unread.
+  const feed = useNotifications(session, BELL_ROWS);
+  const markSeen = useMarkNotificationsSeen(session);
+  const mayMark = useWriteAccess(session, "leads:write", "mark notifications read").allowed;
+  const newestUnseen = (unseenAttention(feed.data) ?? 0) > 0
+    ? feed.data?.items.find((item) => item.source === "attention")?.occurred_at
+    : undefined;
+  const { mutate: mark } = markSeen;
+  useEffect(() => {
+    if (newestUnseen && mayMark) mark(newestUnseen);
+  }, [newestUnseen, mayMark, mark]);
 
   const refused = me.data !== undefined && !me.data.permissions.includes("leads:read");
   if (refused) {

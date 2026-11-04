@@ -343,3 +343,49 @@ async def test_the_daily_walk_queues_a_number_still_waiting_for_an_approved_clie
             {"id": number_id},
         )
         assert await queue_waiting_moves(session, tenant_id=tenant_id) == 0
+
+
+async def test_giving_a_calevate_held_number_to_an_agent_moves_it_into_the_clients_account(
+    vendor: MovingVendor,
+) -> None:
+    """Founder, 4 Nov 2026: choosing who answers a number still in Calevate's account was
+    refused with a sentence about platform accounts and workspaces."""
+    from apps.api.campaigns import number_catalog
+
+    tenant_id, number_id, number, workspace, _scoped = await _platform_held_number(vendor)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE phone_numbers SET activated_at = now() WHERE id = :id"), {"id": number_id}
+        )
+        agent_id = (
+            await session.execute(
+                text("SELECT agent_id FROM phone_numbers WHERE id = :id"), {"id": number_id}
+            )
+        ).scalar_one()
+        await number_catalog.assign_number_to_agent(
+            session, tenant_id=tenant_id, number_id=number_id, agent_id=agent_id
+        )
+    assert vendor.moves == [(None, number, workspace)]
+    assert (await _held_ref(tenant_id, number_id))[0] == f"{number}@{workspace}"
+
+
+async def test_a_refused_move_on_assign_is_told_in_the_clients_words(
+    vendor: MovingVendor,
+) -> None:
+    from apps.api.campaigns import number_catalog
+
+    vendor.refuse = "number_move_needs_business_details"
+    tenant_id, number_id, number, _workspace, _scoped = await _platform_held_number(vendor)
+    with pytest.raises(ProblemError) as refused:
+        async with tenant_session(tenant_id) as session:
+            agent_id = (
+                await session.execute(
+                    text("SELECT agent_id FROM phone_numbers WHERE id = :id"), {"id": number_id}
+                )
+            ).scalar_one()
+            await number_catalog.assign_number_to_agent(
+                session, tenant_id=tenant_id, number_id=number_id, agent_id=agent_id
+            )
+    assert refused.value.code == "engine_number_not_in_client_account"
+    assert "workspace" not in refused.value.detail and "platform" not in refused.value.detail
+    assert (await _held_ref(tenant_id, number_id))[0] == number

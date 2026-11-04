@@ -29,6 +29,21 @@ export const notificationKeys = {
   feed: (org: string) => ["notifications", org] as const,
 };
 
+/**
+ * Rows the bell asks for; the attention screen has the rest. Shared because the feed key
+ * carries no limit, so every reader of it must ask for the same page.
+ */
+export const BELL_ROWS = 20;
+
+/**
+ * Problems on the feed this person has not seen yet: what the sidebar's "Needs attention"
+ * badge counts, so it drops once the bell or the queue has been opened. The queue's own
+ * `total` counts problems still unresolved, seen or not, and stays on that screen.
+ */
+export function unseenAttention(feed: NotificationFeed | undefined): number | undefined {
+  return feed?.items.filter((item) => item.source === "attention" && item.unread).length;
+}
+
 export function useNotifications(session: Session, limit = 30): UseQueryResult<NotificationFeed> {
   return useQuery({
     queryKey: notificationKeys.feed(session.orgSlug),

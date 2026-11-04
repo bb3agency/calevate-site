@@ -1,12 +1,13 @@
 import { QueryClient } from "@tanstack/react-query";
-import { act, fireEvent, screen } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import AttentionPage from "@/app/c/[slug]/attention/page";
 import type { AttentionItem, AttentionQueue } from "@/lib/api/attention";
 import type { Me } from "@/lib/api/client";
 
-import { problem, renderClientPage } from "./harness";
+import { problem, renderClientPage, stillLoading } from "./harness";
+import { EMPTY_NOTIFICATIONS, NOTIFICATIONS_PATH } from "./fixtures/sharedReads";
 
 /**
  * The "needs attention" queue — the screen that carries the platform's promise that
@@ -81,7 +82,7 @@ function queue(over: Partial<AttentionQueue> = {}): AttentionQueue {
 const page = <AttentionPage params={Promise.resolve({ slug: "acme" })} />;
 
 function routes(over: Record<string, unknown> = {}) {
-  return { "/v1/me": ME, "/v1/attention": queue(), ...over };
+  return { "/v1/me": ME, "/v1/attention": queue(), [NOTIFICATIONS_PATH]: EMPTY_NOTIFICATIONS, ...over };
 }
 
 describe("the needs-attention queue", () => {
@@ -254,6 +255,7 @@ describe("the needs-attention queue", () => {
     const { container } = await renderClientPage(page, {
       "/v1/me": { ...ME, permissions: ["calls:read"] },
       "/v1/attention": problem(403, { title: "Forbidden" }),
+      [NOTIFICATIONS_PATH]: EMPTY_NOTIFICATIONS,
     });
 
     await screen.findByText(/You need access to leads/);
@@ -262,5 +264,45 @@ describe("the needs-attention queue", () => {
       "a permission is not a fault",
     ).toBeNull();
     expect(container.textContent).not.toContain("No problems right now");
+  });
+
+  it("marks the problems on screen as seen, so the sidebar badge drops", async () => {
+    const unseen = (id: string, at: string, unread: boolean) => ({
+      id: `attention:lead_blocked:${id}`,
+      source: "attention",
+      kind: "lead_blocked",
+      tone: "warning",
+      title: `Item ${id}`,
+      detail: null,
+      href: "/leads",
+      link_label: null,
+      occurred_at: at,
+      unread,
+    });
+    const { calls } = await renderClientPage(
+      page,
+      routes({
+        "/v1/me": { ...ME, permissions: [...ME.permissions, "leads:write"] },
+        [NOTIFICATIONS_PATH]: {
+          items: [unseen("b", "2026-08-13T05:00:00Z", true), unseen("a", "2026-08-13T04:30:00Z", false)],
+          unread: 1,
+          attention_total: 2,
+          seen_through: "2026-08-13T04:45:00Z",
+        },
+        "POST /v1/notifications/seen": stillLoading(),
+      }),
+    );
+
+    await screen.findByText("+919876543210 was not called");
+    await waitFor(() => expect(calls.some((call) => call.path === "/v1/notifications/seen")).toBe(true));
+    const marks = calls.filter((call) => call.method === "POST" && call.path === "/v1/notifications/seen");
+    expect(marks.map((call) => JSON.parse(call.body ?? "{}"))).toEqual([{ through: "2026-08-13T05:00:00Z" }]);
+  });
+
+  it("marks nothing when every problem has been seen", async () => {
+    const { calls } = await renderClientPage(page, routes());
+
+    await screen.findByText("+919876543210 was not called");
+    expect(calls.some((call) => call.path === "/v1/notifications/seen")).toBe(false);
   });
 });

@@ -21,8 +21,8 @@ import {
 import { Avatar } from "@/components/ui";
 import { clientAuthn, CLIENT_ACCOUNT_PATH, CLIENT_SIGN_IN_PATH } from "@/lib/authn/clientAuthn";
 import { useAgreementsReadiness } from "@/lib/api/agreements";
-import { useAttention } from "@/lib/api/attention";
 import { useMe } from "@/lib/api/hooks";
+import { BELL_ROWS, unseenAttention, useNotifications } from "@/lib/api/notifications";
 import { useClientRealm } from "@/lib/api/session";
 import { clientNavigation, type NavGroup, type NavItem } from "@/lib/clientNav";
 import { currentNavItem } from "@/lib/nav";
@@ -70,8 +70,10 @@ export function ClientSidebar({
   // list can disagree with the gate that refuses the dial.
   const readiness = useAgreementsReadiness(session);
   const outstanding = readiness.data?.outstanding_documents;
-  // The header bell's own query (same key), so the queue's count costs no request here.
-  const waiting = useAttention(session).data?.total;
+  // Problems not seen yet, from the header bell's own query (same key, no extra request):
+  // opening the bell or the queue marks them seen and the badge drops. Unresolved problems
+  // stay listed on the screen itself.
+  const waiting = unseenAttention(useNotifications(session, BELL_ROWS).data);
   const groups = clientNavigation(slug).map((group) => ({
     ...group,
     items: group.items.map((item): NavItem =>

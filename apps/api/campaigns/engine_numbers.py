@@ -269,10 +269,14 @@ async def platform_line_agent() -> str | None:
 
 
 async def assert_number_can_answer(
-    session: AsyncSession, *, number_id: UUID, agent_id: UUID | None
+    session: AsyncSession, *, tenant_id: UUID, number_id: UUID, agent_id: UUID | None
 ) -> None:
-    """Refuse binding a voice-platform number to an agent in another workspace (D-693): the
-    vendor could not find the agent there, so the binding would be ours alone."""
+    """Make a client's number answerable by the agent the client picked (D-693).
+
+    A number answers only an agent in its own workspace. One Calevate still holds for this
+    client (developer workspace) is moved into the client's workspace here, keeping its
+    digits, rather than refused: the client has no way to move it. Called from the client's
+    own screen, so a refusal is in the client's words."""
     if engine_number_provider() is None or agent_id is None:
         return
     ref = (
@@ -281,8 +285,33 @@ async def assert_number_can_answer(
             {"nid": number_id, "p": engine_number_provider()},
         )
     ).scalar()
-    if isinstance(ref, str) and ref:
-        await assert_same_workspace(session, number_ref=ref, agent_id=agent_id)
+    if (
+        not isinstance(ref, str)
+        or not ref
+        or not await _agent_in_other_workspace(session, number_ref=ref, agent_id=agent_id)
+    ):
+        return
+    if scope_of(ref) is None:
+        try:
+            await move_into_client_workspace(session, tenant_id=tenant_id, number_id=number_id)
+        except ProblemError as exc:
+            log.warning(
+                "engine_number_move_on_assign_refused",
+                extra={"tenant_id": str(tenant_id), "number_id": str(number_id), "code": exc.code},
+            )
+            raise _not_in_client_account_yet() from exc
+        return
+    raise _not_in_client_account_yet()
+
+
+def _not_in_client_account_yet() -> ProblemError:
+    return ProblemError.business_rule(
+        "engine_number_not_in_client_account",
+        "This number isn't ready for your agents yet.",
+        remediation=(
+            "We're finishing setting it up. Try again in a few minutes, or contact us if it stays."
+        ),
+    )
 
 
 @dataclass(frozen=True, slots=True)

@@ -352,7 +352,9 @@ async def assign_number_to_agent(
         raise ProblemError.not_found("Number")
     activated_at, released_at = row
     # A voice-platform number answers only an agent in its own workspace (D-693).
-    await engine_numbers.assert_number_can_answer(session, number_id=number_id, agent_id=agent_id)
+    await engine_numbers.assert_number_can_answer(
+        session, tenant_id=tenant_id, number_id=number_id, agent_id=agent_id
+    )
     if agent_id is not None and released_at is None and activated_at is None:
         # RAISES on an unverified holder, in `provisioning.py` where the other two gates
         # live, so the three refusals a client can meet on a number are written once each.
