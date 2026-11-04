@@ -12398,6 +12398,10 @@
             "title": "Hot Leads",
             "type": "integer"
           },
+          "interested_leads": {
+            "title": "Interested Leads",
+            "type": "integer"
+          },
           "leads": {
             "title": "Leads",
             "type": "integer"
@@ -12472,6 +12476,7 @@
           "sentiment",
           "leads",
           "hot_leads",
+          "interested_leads",
           "recent_leads",
           "opt_outs",
           "credits_spent_inr",

@@ -901,7 +901,8 @@ async def _campaign_detail(
                 f"not given {field['not_captured']}."
             )
         lines.append(
-            f"Leads from this campaign: {found['leads']} ({found['hot_leads']} hot); "
+            f"People called with a lead record: {found['leads']}; interested "
+            f"{found['interested_leads']} ({found['hot_leads']} hot); "
             f"opt-outs {found['opt_outs']}."
         )
     if progress["status"] in ("draft", "scheduled"):

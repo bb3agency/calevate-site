@@ -315,8 +315,11 @@ class CampaignResultsOut(Strict):
     #: People by what their latest answered call came to (D-913).
     outcome_tags: dict[str, int]
     sentiment: dict[str, int]
+    #: Everyone the campaign's calls made a lead record for, interested or not.
     leads: int
     hot_leads: int
+    #: People whose lead is interested, hot or won.
+    interested_leads: int
     recent_leads: list[CampaignLeadOut]
     opt_outs: int
     #: What these calls took from the credit balance, in rupees (NUMERIC). None for a role

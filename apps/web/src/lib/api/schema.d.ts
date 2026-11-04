@@ -18059,6 +18059,8 @@ export interface components {
             goal?: components["schemas"]["GoalCountsOut"] | null;
             /** Hot Leads */
             hot_leads: number;
+            /** Interested Leads */
+            interested_leads: number;
             /** Leads */
             leads: number;
             /** Opt Outs */

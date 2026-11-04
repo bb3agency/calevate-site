@@ -379,10 +379,16 @@ async def summary(
             {"cid": campaign_id},
         )
     ).all()
+    # Every person called gets a lead record, so `leads` is everyone reached by the list;
+    # `interested_leads` is the people who showed interest, which is what an owner means by
+    # "leads" on a campaign's results.
     leads = (
         await session.execute(
             text(
-                "SELECT count(DISTINCT l.id), count(DISTINCT l.id) FILTER (WHERE l.status = 'hot') "
+                "SELECT count(DISTINCT l.id), "
+                "count(DISTINCT l.id) FILTER (WHERE l.status = 'hot'), "
+                "count(DISTINCT l.id) "
+                "FILTER (WHERE l.status IN ('interested', 'hot', 'won')) "
                 "FROM calls k JOIN leads l ON l.id = k.lead_id "
                 "WHERE k.campaign_id = :cid AND l.deleted_at IS NULL"
             ),
@@ -444,6 +450,7 @@ async def summary(
         "sentiment": {str(s): int(c) for s, c in sentiment_rows},
         "leads": int(leads[0]),
         "hot_leads": int(leads[1]),
+        "interested_leads": int(leads[2]),
         "recent_leads": [
             {"id": r[0], "name": r[1], "status": r[2], "updated_at": r[3]} for r in recent
         ],

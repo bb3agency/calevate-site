@@ -858,6 +858,26 @@ async def test_results_count_outcomes_from_the_calls_and_spend_in_rupees() -> No
     assert Decimal(summary["credits_spent_inr"]) == Decimal("7.50")
 
 
+async def test_results_count_interested_people_apart_from_everyone_called() -> None:
+    account = await _account()
+    campaign_id = await _campaign(account, contacts=4, status="running")
+    for n, status in enumerate(("contacted", "new", "interested", "hot")):
+        phone = f"+91987650010{n}"
+        lead_id = await _lead(account, phone=phone, status=status)
+        call_id = await _call(account, campaign_id, status="completed", to=phone, duration=30)
+        async with tenant_session(account.tenant_id) as session:
+            await session.execute(
+                text("UPDATE calls SET lead_id = :l WHERE id = :c"), {"l": lead_id, "c": call_id}
+            )
+    async with _client() as client:
+        summary = (
+            await client.get(f"/v1/campaigns/{campaign_id}/results", headers=account.headers)
+        ).json()
+    assert summary["leads"] == 4
+    assert summary["interested_leads"] == 2
+    assert summary["hot_leads"] == 1
+
+
 async def test_results_break_down_the_agents_outcomes_and_each_choice_field() -> None:
     """D-905: counts per business outcome over the answered calls, and per value of each
     enum the agent captures over the people reached, with the gaps counted too."""
