@@ -32,6 +32,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.campaigns.engine_numbers import is_platform_line, owe_number_move
 from apps.api.compliance.kyc import NumberingSubmission, numbering_submission_bundle
 from apps.api.compliance.kyc_documents import current_documents, open_document
 from apps.api.core.errors import ProblemError
@@ -124,18 +125,12 @@ _WAITING_MOVES_SQL: Final = (
 
 
 async def queue_waiting_moves(session: AsyncSession, *, tenant_id: UUID) -> int:
-    from apps.api.campaigns.engine_numbers import MOVE_NUMBER_JOB, is_platform_line
-
     rows = (await session.execute(text(_WAITING_MOVES_SQL))).all()
     queued = 0
     for number_id, ref, e164 in rows:
         if is_platform_line(str(ref)) or is_platform_line(str(e164)):
             continue
-        await enqueue_outbox(
-            session,
-            job=MOVE_NUMBER_JOB,
-            payload={"tenant_id": str(tenant_id), "number_id": str(number_id), "attempt": 1},
-        )
+        await owe_number_move(session, tenant_id=tenant_id, number_id=number_id)
         queued += 1
     if queued:
         log.info("engine_number_moves_queued", extra={"tenant_id": str(tenant_id), "count": queued})

@@ -76,6 +76,7 @@ from apps.api.engine.thinnest_numbers import (
 from apps.api.engine.thinnest_workspace import in_workspace, workspace_not_provisioned
 from apps.api.engine.trial_line import TrialLineAgent
 from apps.api.engine.vendor_http import EngineRejectedError
+from apps.api.reliability.service import enqueue_outbox
 from apps.api.tenancy.engine_workspace import (
     active_workspaces,
     resolve_workspace,
@@ -1246,6 +1247,15 @@ async def queue_number_move(tenant_id: UUID, number_id: UUID, *, attempt: int) -
     )
 
 
+async def owe_number_move(session: AsyncSession, *, tenant_id: UUID, number_id: UUID) -> None:
+    """Owe this number its move, in the caller's transaction: sent once the caller commits."""
+    await enqueue_outbox(
+        session,
+        job=MOVE_NUMBER_JOB,
+        payload={"tenant_id": str(tenant_id), "number_id": str(number_id), "attempt": 1},
+    )
+
+
 def refusal_for_move(exc: EngineRejectedError) -> ProblemError:
     """A vendor refusal of a move in our words. Admin realm, so the vendor's code rides in
     the remediation an operator reads."""
@@ -1387,6 +1397,7 @@ __all__ = [
     "live_tenants",
     "move_into_client_workspace",
     "numbers_can_forward",
+    "owe_number_move",
     "platform_lines",
     "price_recorded_number",
     "queue_number_move",
