@@ -3837,6 +3837,7 @@ const CLIENT_SCREENS: Screen[] = [
     element: () => <AlertsPage />,
     routes: {
       "/v1/me": ME,
+      "/v1/team-alerts/contacts": teamAlertReads()["/v1/team-alerts/contacts"],
       [DAILY_SUMMARY_PATH]: { enabled: false, email_addresses: 1, whatsapp: true },
       "/v1/compliance/whatsapp-alerts": {
         status: "none",

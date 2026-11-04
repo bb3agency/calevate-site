@@ -39,13 +39,21 @@ export function TeamList({ canWrite, reason }: { canWrite: boolean; reason: stri
   const contacts = useTeamContacts(session);
   const [adding, setAdding] = useState(false);
 
-  if (contacts.isLoading) return <Skeleton rows={2} label="Checking your team" />;
+  if (contacts.isLoading) {
+    return (
+      <li className="py-4">
+        <Skeleton rows={2} label="Checking your team" />
+      </li>
+    );
+  }
   if (contacts.error || !contacts.data) {
     return (
-      <ProblemNotice
+      <li className="py-4">
+        <ProblemNotice
         error={contacts.error ?? new Error("Your team could not be read just now.")}
         onRetry={() => void contacts.refetch()}
       />
+      </li>
     );
   }
   const data = contacts.data;

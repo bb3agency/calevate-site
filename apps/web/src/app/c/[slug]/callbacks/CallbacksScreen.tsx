@@ -281,8 +281,8 @@ export function CallbacksScreen() {
               ("A new enquiry who did not answer the last try"), never the caller's words. */}
           {row.note && <p className="text-meta text-ink-muted">Note: {row.note}</p>}
           {row.follow_up && (
-            <p className="flex flex-wrap items-center text-meta text-ink-muted">
-              Booked by the Follow-up
+            <p className="text-meta text-ink-muted">
+              Booked by the Follow-up{" "}
               <Link
                 href={href(`/c/${session.orgSlug}/follow-ups/${row.follow_up.id}`)}
                 className={`${TEXT_ACTION_SM} min-w-0 break-words`}

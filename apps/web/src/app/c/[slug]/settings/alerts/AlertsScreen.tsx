@@ -142,13 +142,15 @@ export function AlertsScreen() {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="flex items-center gap-2 text-body text-ink">
                     <ServiceLogo service="whatsapp" className="h-5 w-5" />
-                    WhatsApp
-                    <span className="text-meta text-ink-muted">
-                      {current.messageable
-                        ? current.captured_at
-                          ? `On since ${formatIST(current.captured_at)}`
-                          : "On"
-                        : "Off"}
+                    <span>
+                      WhatsApp{" "}
+                      <span className="text-meta text-ink-muted">
+                        {current.messageable
+                          ? current.captured_at
+                            ? `On since ${formatIST(current.captured_at)}`
+                            : "On"
+                          : "Off"}
+                      </span>
                     </span>
                   </p>
                 </div>
