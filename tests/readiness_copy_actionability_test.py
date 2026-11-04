@@ -54,7 +54,7 @@ def test_the_verification_route_is_only_a_redirect() -> None:
     modules = sorted(VERIFICATION_ROUTE.glob("*.ts*"))
     assert [module.name for module in modules] == ["page.tsx"], modules
     source = modules[0].read_text(encoding="utf-8")
-    assert "redirect(" in source and "/verify-business" in source
+    assert ("redirect(" in source or "redirectWithin(" in source) and "/verify-business" in source
     assert not any(token in source for token in ("useMutation", "<form")), (
         "the Verification route renders a screen again; re-check `readiness.ROW_COPY`, "
         "whose wording names Verify your business for every step a client takes"

@@ -43,7 +43,6 @@ async def _source(tenant_id: uuid.UUID) -> tuple[uuid.UUID, str]:
             session,
             tenant_id=tenant_id,
             source="website_form",
-            agent_id=None,
             mapping={"phone": "phone_number"},
             supplied_secret=None,
         )
