@@ -67,7 +67,6 @@ _STATUS_WORDS: Final = {"draft": "Draft", "live": "On", "paused": "Paused", "off
 _NEEDS: Final = {
     "outbound_agent": "a published agent that makes calls (agents_do agent_create, agent_publish)",
     "whatsapp_template": "an approved WhatsApp message (the WhatsApp screen)",
-    "team_address": "a confirmed team alert email (team_do team_alert_contact)",
 }
 
 #: How a definition is written, returned by `follow_ups_list` and with every refusal of a
@@ -90,7 +89,7 @@ FORMAT: Final = (
     "business_name | text (+text)}] one per blank; next {sent, not_sent}\n"
     "- assign: user_id; next\n"
     "- set_status: status contacted|interested|hot|won|lost; next\n"
-    "- tell_team: contact_id (null: the default address), why (up to 120 characters); next; "
+    "- tell_team: why (up to 120 characters), told to everyone who hears about hot leads; next; "
     "needs a call before it\n"
     "- action: action_id; next {done, failed}; needs a call before it\n"
     "- end: goal true|false\n"

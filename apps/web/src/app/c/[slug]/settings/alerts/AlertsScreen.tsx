@@ -1,16 +1,16 @@
 "use client";
 
+import Link from "next/link";
+
 import { DailySummary } from "./DailySummary";
 import { DesktopAlerts } from "./DesktopAlerts";
-
+import { TeamList } from "./TeamList";
 
 import { useActionFeedback } from "@/components/arc/feedback";
-import { InfoTip } from "@/components/console/infoTip";
 import { PageHeader } from "@/components/console/pageHeader";
+import { Section, TEXT_ACTION } from "@/components/console/section";
 import { ServiceLogo } from "@/components/console/serviceLogo";
-import { SettingRow, SettingRows } from "@/components/console/settingRow";
 import {
-  Disclosure,
   NoticeBox,
   ProblemNotice,
   RestrictionNote,
@@ -19,7 +19,7 @@ import {
   formatISTStamp,
 } from "@/components/ui";
 import { useWriteAccess } from "@/lib/api/hooks";
-import { useClientSession } from "@/lib/api/session";
+import { useClientRealm } from "@/lib/api/session";
 import { useMyAlertOptIn, useRecordMyAlertOptIn } from "@/lib/api/whatsappAlerts";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
@@ -27,46 +27,27 @@ import { noFill } from "@/lib/copilot/types";
 import { GrantControl, WithdrawControl } from "./consentControls";
 
 /**
- * WhatsApp alerts for hot leads — the client's own opt-in.
+ * WHO HEARS ABOUT HOT LEADS (D-967): one list. The owner is its first row (email always, to
+ * the account email; WhatsApp once they agree here), the team addresses are the rest
+ * (`TeamList`). Everyone on it hears about the same calls, once per person per channel per
+ * call. What counts is set on each agent: an outcome that makes a lead hot, plus anything its
+ * own rule adds.
  *
- * ## Why this screen exists
+ * The owner's WhatsApp is a CONSENT, and three things about it are the server's, never this
+ * screen's:
  *
- * FLOWS §6 promises a WhatsApp and an email to the owner within two minutes of a hot
- * lead, and only the email has ever been sent. Not because the transport is missing —
- * `notify_hot_lead_whatsapp` refuses with `recipient_not_opted_in`, correctly, because
- * Meta's policy requires the business owner to have opted in to receive messages from us.
- * The ledger that records that opt-in shipped with an API and no screen, so the ONE
- * person who is allowed to give it (the account owner, in the first person — a CHECK
- * constraint enforces it) had no way to.
+ * 1. The notice text and its version (`whatsapp_optin.ALERT_NOTICE_TEXT`), shown and sent back
+ *    as given, so a cached build agreeing to an old text is refused rather than recorded.
+ * 2. Whether the channel can deliver at all (`delivery_available`): the grant is withheld with
+ *    its reason while it cannot. Withdrawing never is.
+ * 3. Whether alerts are on (`messageable`), computed from the read the worker runs.
  *
- * ## What this screen must never do, and the API is shaped to stop it
- *
- * 1. **Show its own copy of the notice.** The exact sentence is
- *    `whatsapp_optin.ALERT_NOTICE_TEXT`, delivered on every response with its version,
- *    and it is rendered from there. A `notice_version` in a database row is only evidence
- *    if the wording it names can be reproduced years later, and a string that lives in a
- *    React component cannot be. The version this screen SHOWS is the version it sends
- *    back, so a cached build agreeing to last quarter's text is refused
- *    (`alert_optin_notice_out_of_date`) rather than recorded.
- * 2. **Offer an opt-in for a channel nothing can send on.** `delivery_available` is a
- *    different question from consent: no WhatsApp Business account exists yet (D-91), and
- *    a tick-box that quietly records an agreement to receive messages this deployment
- *    cannot deliver is the "looks finished" failure the WhatsApp seam was built to avoid.
- *    So the grant is withheld with its reason while the channel is unavailable — and
- *    WITHDRAWING never is. Taking consent back must not depend on our vendor situation.
- * 3. **Decide for itself whether alerts are on.** `messageable` is the server's verdict,
- *    computed from the same read the hot-lead worker runs. A screen that re-derived it
- *    would eventually show a tick beside an alert that is never sent.
- *
- * §52 governs the rest: the read is a skeleton while it is in flight and a refusal when
- * it fails, and neither is "alerts are off" — which is the one wrong answer here, because
- * a client who reads it turns on something that is already on, or stops waiting for a
- * message that is coming.
+ * A read in flight is a skeleton and a failed one a refusal; neither is "alerts are off".
  *
  * NO `<h1>`: the app shell renders the page title from the nav list it also renders.
  */
 export function AlertsScreen() {
-  const session = useClientSession();
+  const { session, href } = useClientRealm();
   const state = useMyAlertOptIn(session);
   const record = useRecordMyAlertOptIn(session);
   const recordFeedback = useActionFeedback(record, { errorDisplay: "inline" });
@@ -76,30 +57,21 @@ export function AlertsScreen() {
   const feedbackFor = (act: "granted" | "withdrawn") =>
     record.variables?.status === act ? recordFeedback.status : "idle";
   /**
-   * `org:manage` — the permission that already governs the account's own settings, and
-   * the one only the `owner` role holds. Agreeing to receive WhatsApp about your own
-   * business is exactly that decision, and a staff member cannot make it on the owner's
-   * behalf: the subject of an opt-in is the only person who can give it.
+   * `org:manage`, which only the owner holds: agreeing to receive WhatsApp is the owner's own
+   * consent, and choosing who else receives a caller's full number is the owner's decision.
    */
-  const write = useWriteAccess(session, "org:manage", "turn WhatsApp alerts on or off");
+  const write = useWriteAccess(session, "org:manage", "change who hears about hot leads");
 
   const current = state.data;
 
   /*
-   * THIS SCREEN, DECLARED TO THE ASSISTANT (`lib/copilot/registry.ts`).
-   *
-   * NOTHING IS WRITABLE, and on this screen that is a rule rather than a shrug: the one
-   * act here is a CONSENT, recorded against a person and a notice version, and "the
-   * subject of an opt-in is the only person who can give it" is the sentence the
-   * permission comment above already makes. An assistant that could flip it would be
-   * manufacturing consent on somebody's behalf.
-   *
-   * The consent NOTICE TEXT is not sent either — it is a versioned legal string, and the
-   * version identifier says everything an answer here needs.
+   * NOTHING IS WRITABLE BY THE ASSISTANT HERE: the owner's WhatsApp is a consent recorded
+   * against a person and a notice version, and team addresses are confirmed by a code typed
+   * here. Pip adds or removes team emails through its own `team_alert_contact` action.
    */
   useCopilotSurface({
     route: "/c/{slug}/settings/alerts",
-    title: "Hot-lead alerts",
+    title: "Who hears about hot leads",
     realm: "client",
     fields: [],
     facts: [
@@ -107,7 +79,7 @@ export function AlertsScreen() {
         key: "state",
         label: "What is on screen",
         value: current
-          ? "the alert settings below have loaded"
+          ? "the hot-lead list below has loaded"
           : state.error != null
             ? "the settings failed to load — this is NOT evidence that alerts are off"
             : "still loading",
@@ -116,11 +88,10 @@ export function AlertsScreen() {
         ? [
             {
               key: "messageable",
-              label: "Are hot-lead alerts going to this person's WhatsApp?",
+              label: "Are hot-lead alerts going to the owner's WhatsApp?",
               value: current.messageable ? "yes" : "no",
             },
             { key: "opt_in_status", label: "Recorded consent status", value: current.status },
-            { key: "channel", label: "Channel the consent was given on", value: current.channel ?? "none recorded" },
             { key: "captured_at", label: "When it was recorded (IST)", value: formatISTStamp(current.captured_at, "never") },
             {
               key: "delivery_available",
@@ -133,7 +104,7 @@ export function AlertsScreen() {
         : []),
       {
         key: "may_change",
-        label: "May this session turn alerts on or off?",
+        label: "May this session change who hears?",
         value: write.allowed ? "yes" : `no — ${write.reason ?? "no reason given"}`,
       },
     ],
@@ -142,63 +113,50 @@ export function AlertsScreen() {
 
   return (
     <div className="max-w-2xl space-y-10 pb-12">
-      <PageHeader
-        description={
-          <>
-            Hear about every hot lead fast.{" "}
-            <InfoTip label="hot-lead alerts" className="-my-3">
-              <p>
-                When a call produces a hot lead, we message the account owner within two
-                minutes. The email always goes out; WhatsApp only goes out if you have
-                agreed to receive it here.
-              </p>
-            </InfoTip>
-          </>
-        }
-      />
+      <PageHeader description="Who hears about hot leads, and your daily summary." />
 
       <RestrictionNote reason={write.reason} />
 
-      {state.error != null && (
-        <ProblemNotice error={state.error} onRetry={() => state.refetch()} />
-      )}
-
-      {state.isLoading ? (
-        <Skeleton rows={3} label="Checking your alert settings" />
-      ) : !current ? null : (
-        <>
-          {/* Above the row it explains, so the dead "I agree" below reads as ours to fix. */}
-          {!current.delivery_available && (
-            <NoticeBox tone="warn" title="WhatsApp is not ready yet">
-              <p>Our side, not yours. Email still works.</p>
-            </NoticeBox>
-          )}
-
-          <section className="border-y border-line">
-            <SettingRows>
-              <SettingRow
-                label="WhatsApp alerts"
-                icon={<ServiceLogo service="whatsapp" className="h-5 w-5" />}
-                hint={
-                  current.messageable ? (
-                    <>
-                      To your profile mobile.
-                      {current.captured_at && (
-                        <> Agreed {formatIST(current.captured_at)}.</>
-                      )}
-                    </>
-                  ) : current.status === "withdrawn" ? (
-                    "You turned these off. Email continues."
-                  ) : (
-                    "Not turned on yet."
-                  )
-                }
-                value={<AlertStatePill on={current.messageable} />}
-              />
-              {/* The consent controls sit under the row, in full: granting is an agreement to
-                  the server's own notice text, so it is that text and a button naming the
-                  act — never a switch that records consent without the notice being read. */}
-              <div className="py-4">
+      <Section
+        title="Who hears about hot leads"
+        description="Each person once per hot lead, within two minutes."
+        info={
+          <p>
+            You get the caller&apos;s name and a link. Your team gets their full number too,
+            so they can call back.
+          </p>
+        }
+      >
+        <ul className="divide-y divide-line border-y border-line">
+          <li className="space-y-3 py-4">
+            <div>
+              <p className="text-body font-medium text-ink">You</p>
+              <p className="text-meta text-ink-muted">Email to your account email · Always on</p>
+            </div>
+            {state.error != null ? (
+              <ProblemNotice error={state.error} onRetry={() => state.refetch()} />
+            ) : !current ? (
+              <Skeleton rows={1} label="Checking your WhatsApp alerts" />
+            ) : (
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="flex items-center gap-2 text-body text-ink">
+                    <ServiceLogo service="whatsapp" className="h-5 w-5" />
+                    WhatsApp
+                    <span className="text-meta text-ink-muted">
+                      {current.messageable
+                        ? current.captured_at
+                          ? `On since ${formatIST(current.captured_at)}`
+                          : "On"
+                        : "Off"}
+                    </span>
+                  </p>
+                </div>
+                {!current.delivery_available && !current.messageable ? (
+                  <NoticeBox tone="warn" title="WhatsApp is not ready yet">
+                    <p>Our side, not yours. Email still works.</p>
+                  </NoticeBox>
+                ) : null}
                 {record.error != null && <ProblemNotice error={record.error} />}
                 {current.messageable ? (
                   <WithdrawControl
@@ -213,15 +171,12 @@ export function AlertsScreen() {
                     }
                   />
                 ) : (
+                  // The agreement is the server's own sentence and a button that means it,
+                  // never a switch that records consent without the notice on screen.
                   <GrantControl
                     notice={current.current_notice_text}
                     allowed={write.allowed && current.delivery_available}
-                    reason={
-                      write.reason ??
-                      (current.delivery_available
-                        ? null
-                        : "Opens once WhatsApp is ready.")
-                    }
+                    reason={write.reason ?? (current.delivery_available ? null : "Opens once WhatsApp is ready.")}
                     status={feedbackFor("granted")}
                     onGrant={() =>
                       record.mutate({
@@ -232,37 +187,20 @@ export function AlertsScreen() {
                   />
                 )}
               </div>
-            </SettingRows>
-          </section>
+            )}
+          </li>
+          <TeamList canWrite={write.allowed} reason={write.reason} />
+        </ul>
+        <p className="mt-3 flex flex-wrap items-center gap-x-3 text-meta text-ink-muted">
+          <span>What counts as hot is set on each agent.</span>
+          <Link href={href(`/c/${session.orgSlug}/agents`)} className={TEXT_ACTION}>
+            Open agents
+          </Link>
+        </p>
+      </Section>
 
-          <Disclosure
-            variant="inline"
-            headingLevel={2}
-            title="What we send"
-            subtitle="One message per hot lead. Only to you."
-          >
-            <ul className="space-y-2 text-body text-ink-muted">
-              <li>One message per hot lead, to the owner.</li>
-              <li>Never marketing. Never to your customers.</li>
-              <li>Messages to customers are set on Messaging consent.</li>
-              <li>We keep a record of each time you turn this on or off.</li>
-            </ul>
-          </Disclosure>
-        </>
-      )}
       <DailySummary />
       <DesktopAlerts />
     </div>
-  );
-}
-
-/** On or off, in words; the colour is the second channel (WCAG 1.4.1). */
-function AlertStatePill({ on }: { on: boolean }) {
-  return (
-    <span
-      className={`text-body font-medium ${on ? "text-brand-strong dark:text-brand-bright" : "text-ink-muted"}`}
-    >
-      {on ? "On" : "Off"}
-    </span>
   );
 }

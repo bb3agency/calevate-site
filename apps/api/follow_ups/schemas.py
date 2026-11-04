@@ -246,8 +246,8 @@ class FollowUpStarterOut(_Strict):
     #: False when the account already has it (only "Call new leads" is one per account).
     available: bool
     #: What the account still has to set up for it to publish (an approved WhatsApp
-    #: message, an agent that calls, a team address). Empty when it can publish as it is.
-    needs: list[Literal["outbound_agent", "whatsapp_template", "team_address"]]
+    #: message, an agent that calls). Empty when it can publish as it is.
+    needs: list[Literal["outbound_agent", "whatsapp_template"]]
 
 
 class FollowUpStartersOut(_Strict):

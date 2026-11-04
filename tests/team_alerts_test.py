@@ -1,5 +1,5 @@
-"""Tell my team (D-904): verified team addresses, per-agent triggers, the in-call action, and
-one alert per call and address with the caller's full number."""
+"""Who hears about hot leads (D-904): verified team addresses, per-agent triggers, the in-call
+action, and one alert per person per call, the team's with the caller's full number."""
 
 from __future__ import annotations
 
@@ -130,7 +130,6 @@ async def test_a_team_address_is_verified_by_the_code_mailed_to_it() -> None:
             session, tenant_id=t.tenant_id, address="team@example.com"
         )
     assert contact.address == "team@example.com" and not contact.verified
-    assert contact.is_default, "the first address is the account default"
     assert again.id == contact.id, "the same address is not added twice"
     code = await _code_for(t.tenant_id, contact.id)
     wrong = "000000" if code != "000000" else "111111"
@@ -250,7 +249,7 @@ async def test_whatsapp_goes_only_through_the_clients_own_connection(
             session,
             tenant_id=t.tenant_id,
             agent_id=t.agent_id,
-            rule=Rule(contact_id=contact.id, in_call=True),
+            rule=Rule(in_call=True),
         )
     call_id = await _call(t)
     assert (
@@ -283,7 +282,7 @@ async def test_a_rule_names_only_what_the_agent_has() -> None:
                 session,
                 tenant_id=t.tenant_id,
                 agent_id=t.agent_id,
-                rule=Rule(contact_id=None, on_fields=(FieldTrigger("budget_band", ("nope",)),)),
+                rule=Rule(on_fields=(FieldTrigger("budget_band", ("nope",)),)),
             )
     assert refused.value.code == "team_alert_choice_unknown"
 
@@ -300,7 +299,7 @@ async def test_a_chosen_answer_tells_the_team_once_per_call(
             session,
             tenant_id=t.tenant_id,
             agent_id=t.agent_id,
-            rule=Rule(contact_id=None, on_fields=(FieldTrigger("budget_band", ("over_50l",)),)),
+            rule=Rule(on_fields=(FieldTrigger("budget_band", ("over_50l",)),)),
         )
     call_id = await _call(t)
 
@@ -311,15 +310,17 @@ async def test_a_chosen_answer_tells_the_team_once_per_call(
                 tenant_id=t.tenant_id,
                 agent_id=t.agent_id,
                 call_id=call_id,
+                lead_id=None,
+                hot=False,
                 outcome_key=None,
                 outcome_label=None,
                 data=data,
                 labels={"budget_band": "Budget band"},
             )
 
-    assert await _after({"budget_band": "under_20l"}) == "no_trigger"
+    assert await _after({"budget_band": "under_20l"}) == "not_worth_telling"
     assert await _after({"budget_band": "over_50l"}) == "queued"
-    assert await _after({"budget_band": "over_50l"}) == "already_queued"
+    assert await _after({"budget_band": "over_50l"}) == "already_told"
 
     payloads = await _alert_payloads(t.tenant_id)
     assert len(payloads) == 1
@@ -342,7 +343,7 @@ async def test_a_chosen_answer_tells_the_team_once_per_call(
     assert row is not None and row[0] == "sent" and row[1] == contact_id
 
 
-async def test_without_a_verified_address_nothing_is_queued() -> None:
+async def test_an_unconfirmed_address_hears_nothing_and_without_a_lead_nobody_does() -> None:
     t = await _tenant()
     await _use_schema(t)
     async with tenant_session(t.tenant_id) as session:
@@ -351,19 +352,124 @@ async def test_without_a_verified_address_nothing_is_queued() -> None:
             session,
             tenant_id=t.tenant_id,
             agent_id=t.agent_id,
-            rule=Rule(contact_id=None, on_fields=(FieldTrigger("budget_band", ("over_50l",)),)),
+            rule=Rule(on_fields=(FieldTrigger("budget_band", ("over_50l",)),)),
         )
         outcome = await service.queue_after_call(
             session,
             tenant_id=t.tenant_id,
             agent_id=t.agent_id,
             call_id=await _call(t),
+            lead_id=None,
+            hot=False,
             outcome_key=None,
             outcome_label=None,
             data={"budget_band": "over_50l"},
             labels={},
         )
-    assert outcome == "no_contact"
+    assert outcome == "nobody"
+    assert await _alert_payloads(t.tenant_id) == []
+
+
+async def _owner_payloads(tenant_id: UUID) -> list[dict[str, Any]]:
+    async with tenant_session(tenant_id) as session:
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT payload FROM outbox_messages WHERE job = :job "
+                    "AND payload->>'tenant_id' = :tid"
+                ),
+                {"job": service.OWNER_JOB, "tid": str(tenant_id)},
+            )
+        ).all()
+    return [dict(r[0]) for r in rows]
+
+
+async def test_one_hot_call_tells_each_person_once_whatever_tells_them() -> None:
+    """The owner and every team address hear about a hot call once: the pipeline's hot
+    outcome, the agent's own rule and a Follow-up about the same call add nothing."""
+    t = await _tenant()
+    first = await _verified_contact(t, "desk@example.com")
+    second = await _verified_contact(t, "sales@example.com")
+    call_id = await _call(t)
+    lead_id = uuid7()
+    async with tenant_session(t.tenant_id) as session:
+        outcome = (await service.read_rule(session, agent_id=t.agent_id)).outcomes[0]
+        await service.save_rule(
+            session,
+            tenant_id=t.tenant_id,
+            agent_id=t.agent_id,
+            rule=Rule(on_outcomes=(outcome.key,)),
+        )
+        told = await service.queue_after_call(
+            session,
+            tenant_id=t.tenant_id,
+            agent_id=t.agent_id,
+            call_id=call_id,
+            lead_id=lead_id,
+            hot=True,
+            outcome_key=outcome.key,
+            outcome_label="Ready to buy",
+            data={},
+            labels={},
+        )
+        again = await service.queue_for_follow_up(
+            session,
+            tenant_id=t.tenant_id,
+            agent_id=t.agent_id,
+            call_id=call_id,
+            lead_id=lead_id,
+            why="An interested lead",
+            follow_up_id=uuid7(),
+        )
+    assert (told, again) == ("queued", "already_told")
+    team = await _alert_payloads(t.tenant_id)
+    assert len(team) == 2, "each team address once"
+    async with tenant_session(t.tenant_id) as session:
+        contacts = {
+            r[0]
+            for r in (
+                await session.execute(
+                    text("SELECT contact_id FROM team_alerts WHERE call_id = :c"), {"c": call_id}
+                )
+            ).all()
+        }
+        reasons = (
+            await session.execute(
+                text("SELECT reasons FROM team_alerts WHERE call_id = :c LIMIT 1"),
+                {"c": call_id},
+            )
+        ).scalar_one()
+    assert contacts == {first, second}
+    assert reasons == [{"kind": "outcome", "key": outcome.key, "label": "Ready to buy"}], (
+        "a hot outcome the rule also watches is one reason, not two"
+    )
+    owner = await _owner_payloads(t.tenant_id)
+    assert len(owner) == 1 and owner[0]["triggers"] == ["Ready to buy"]
+
+
+async def test_an_owner_address_on_the_team_list_hears_it_once() -> None:
+    t = await _tenant()
+    await _verified_contact(t, "owner@example.com")
+    call_id = await _call(t)
+    async with tenant_session(t.tenant_id) as session:
+        await service.tell_everyone(
+            session,
+            tenant_id=t.tenant_id,
+            agent_id=t.agent_id,
+            call_id=call_id,
+            lead_id=uuid7(),
+            trigger="after_call",
+            reasons=[{"kind": "in_call"}],
+        )
+        assert await service.team_covers(
+            session, call_id=call_id, channel="email", address=" Owner@Example.com "
+        )
+        assert not await service.team_covers(
+            session, call_id=call_id, channel="email", address="other@example.com"
+        )
+        assert not await service.team_covers(
+            session, call_id=uuid7(), channel="email", address="owner@example.com"
+        ), "an address told about another call does not cover this one"
 
 
 async def test_an_exhausted_alert_is_failed_and_alarmed(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -377,7 +483,7 @@ async def test_an_exhausted_alert_is_failed_and_alarmed(monkeypatch: pytest.Monk
             session,
             tenant_id=t.tenant_id,
             agent_id=t.agent_id,
-            rule=Rule(contact_id=None, in_call=True),
+            rule=Rule(in_call=True),
         )
     call_id = await _call(t)
     assert (
@@ -422,7 +528,7 @@ async def test_the_agent_can_tell_the_team_only_when_it_has_the_action(
             session,
             tenant_id=t.tenant_id,
             agent_id=t.agent_id,
-            rule=Rule(contact_id=None, in_call=True),
+            rule=Rule(in_call=True),
         )
         definitions = await engine_actions.client_definitions(
             session, "thinnest", "ag_x", t.agent_id
@@ -461,19 +567,21 @@ async def test_the_agent_can_tell_the_team_only_when_it_has_the_action(
             session,
             tenant_id=t.tenant_id,
             agent_id=t.agent_id,
-            rule=Rule(contact_id=None, on_outcomes=(outcome_key,), in_call=True),
+            rule=Rule(on_outcomes=(outcome_key,), in_call=True),
         )
         after = await service.queue_after_call(
             session,
             tenant_id=t.tenant_id,
             agent_id=t.agent_id,
             call_id=call_id,
+            lead_id=None,
+            hot=False,
             outcome_key=outcome_key,
             outcome_label="x",
             data={},
             labels={},
         )
-    assert after == "already_queued"
+    assert after == "already_told"
 
 
 def test_a_client_action_cannot_take_the_team_action_name() -> None:
@@ -509,7 +617,7 @@ async def test_another_client_sees_none_of_it() -> None:
             session,
             tenant_id=t.tenant_id,
             agent_id=t.agent_id,
-            rule=Rule(contact_id=None, in_call=True),
+            rule=Rule(in_call=True),
         )
     await service.queue_in_call(
         tenant_id=t.tenant_id, agent_id=t.agent_id, call_id=await _call(t), problem="help"
@@ -537,7 +645,6 @@ async def test_the_routes_serve_the_owner_and_refuse_a_stranger() -> None:
             "id": contact["id"],
             "channel": "email",
             "address": "help@example.com",
-            "is_default": True,
             "verified": False,
             "whatsapp_account_id": None,
         }
@@ -567,7 +674,7 @@ async def test_the_routes_serve_the_owner_and_refuse_a_stranger() -> None:
         )
         assert put.status_code == 200, put.text
         rule = put.json()
-        assert rule["sends_to"] == contact["id"] and rule["in_call_live"] is True
+        assert rule["team_addresses"] == 1 and rule["in_call_live"] is True
 
         assert (
             await client.get(f"/v1/agents/{t.agent_id}/team-alert", headers=stranger.headers)

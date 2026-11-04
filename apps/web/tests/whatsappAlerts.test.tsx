@@ -85,8 +85,13 @@ function clientRoutes(
   me: unknown = ME,
   over: Routes = {},
 ): Routes {
-  return { "/v1/me": me, [WHATSAPP_ALERTS_PATH]: state, ...DAILY_SUMMARY_OFF, ...over };
+  return { "/v1/me": me, [WHATSAPP_ALERTS_PATH]: state, ...DAILY_SUMMARY_OFF, ...NO_TEAM, ...over };
 }
+
+/** The team half of the hot-lead list on the same screen (D-967), empty. */
+const NO_TEAM: Routes = {
+  "/v1/team-alerts/contacts": { contacts: [], max_contacts: 10, whatsapp_accounts: [] },
+};
 
 /** The daily summary switch on the same screen (D-944), off. */
 const DAILY_SUMMARY_OFF: Routes = {
@@ -130,6 +135,7 @@ describe("the client's own WhatsApp alert opt-in", () => {
     const { calls } = await renderClientPage(<AlertsPage />, {
       "/v1/me": ME,
       ...DAILY_SUMMARY_OFF,
+      ...NO_TEAM,
       [WHATSAPP_ALERTS_PATH]: () =>
         granted ? optIn({ status: "granted", messageable: true }) : optIn(),
       [`POST ${WHATSAPP_ALERTS_PATH}`]: () => {
@@ -284,7 +290,7 @@ describe("the client's own WhatsApp alert opt-in", () => {
       // `useWriteAccess`'s own sentence — the one place in this app that answers "may
       // this session write", so the wording is its and not this screen's.
       expect(container.textContent).toContain(
-        "Only an account owner can turn WhatsApp alerts on or off",
+        "Only an account owner can change who hears about hot leads",
       );
     });
   });

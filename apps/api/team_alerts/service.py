@@ -1,14 +1,22 @@
-"""Tell my team (D-904): who on the business's team hears, when, and the one queue it goes through.
+"""Who hears about hot leads: one list, one rule of when, one queue.
 
-A caller the agent could not help is handed to the business's OWN team with their name and
-full number, so nobody leaves it to the caller to chase. Two ways in, one alert:
+The list is the account owner (email to the account's email, WhatsApp once they opt in; the
+`notify_hot_lead` job) and the team addresses below. Everyone on it hears about the same calls,
+and each person once per channel per call, whatever told them first. Three ways in:
 
-* **After the call** (`queue_after_call`, post-call pipeline): when the call's business outcome
-  is one the owner chose, or a choice field the owner chose took one of the chosen values.
+* **After the call** (`queue_after_call`, post-call pipeline): when the call made its lead hot
+  (the agent's outcome for it moves the lead to Hot), when the agent's own rule matched (an
+  outcome or an answer the owner chose), or when the agent already told the team during it.
 * **During the call** (`queue_in_call`, the agent's `tell_the_team` action): the agent says what
-  the problem is and the team is told at once. The action exists on an agent only while that
-  agent's rule allows it AND a verified address will receive it (`in_call_live`), so "I'll tell
-  our team" is only ever said by an agent that can.
+  the problem is and the team addresses are told at once; the owner hears after the call, once
+  there is a lead to open. The action exists on an agent only while that agent's rule allows it
+  AND a verified team address will receive it (`in_call_live`), so "I'll tell our team" is only
+  ever said by an agent that can.
+* **A Follow-up's "tell the team" step** (`queue_for_follow_up`): the same list, about the call
+  the run last placed.
+
+The rule is per agent because what it watches is: each agent has its own outcomes and its own
+answers. Who hears is per account.
 
 An address is an email (always offered) or a WhatsApp number, which is offered only when the
 client has its own WhatsApp account or provider connected and is sent only through it, with
@@ -16,8 +24,10 @@ the client's own approved template (founder, 27 Oct 2026; `team_alerts/whatsapp.
 kind is verified once by a code sent to it the same way alerts will be.
 
 Whatever the trigger, one `team_alerts` row per (call, address), inserted ON CONFLICT DO
-NOTHING, and one outbox job keyed the same, so a pipeline re-run or a repeated action never
-sends twice.
+NOTHING, and one outbox job keyed the same; the owner's alert is one outbox job per (lead, call)
+(`owner_dedupe_key`). So a pipeline re-run, a repeated action or a Follow-up about a call
+already told never sends twice. An owner whose own email or WhatsApp number is also a confirmed
+team address hears it once, as a team address (`team_covers`).
 
 WHY THE FULL NUMBER GOES IN THIS ALERT when the hot-lead email masks it
 (`workers/notifications._compose`): that email goes to `organizations.billing_email`, an
@@ -59,6 +69,15 @@ log = get_logger(__name__)
 #: The worker jobs (`apps/workers/team_alerts.py`).
 CODE_JOB: Final = "send_team_contact_code"
 ALERT_JOB: Final = "deliver_team_alert"
+#: The owner's alert (`apps/workers/notifications.notify_hot_lead`), which queues the
+#: owner's WhatsApp beside it.
+OWNER_JOB: Final = "notify_hot_lead"
+
+
+def owner_dedupe_key(*, lead_id: UUID, call_id: UUID) -> str:
+    """The owner is told once per (lead, call), whichever trigger reaches the call first."""
+    return f"hot-lead:{lead_id}:{call_id}"
+
 
 MAX_CONTACTS: Final = 10
 CODE_TTL: Final = timedelta(minutes=30)
@@ -97,7 +116,6 @@ def _code_domain(contact_id: UUID) -> str:
 class Contact:
     id: UUID
     address: str
-    is_default: bool
     verified: bool
     code_sent_at: datetime | None
     channel: str = "email"
@@ -125,7 +143,6 @@ class FieldTrigger:
 
 @dataclass(frozen=True, slots=True)
 class Rule:
-    contact_id: UUID | None
     on_outcomes: tuple[str, ...] = ()
     on_fields: tuple[FieldTrigger, ...] = ()
     in_call: bool = False
@@ -136,6 +153,8 @@ class Choice:
     key: str
     label: str
     values: tuple[str, ...] = ()
+    #: Outcomes only: this outcome moves the lead to Hot, so the list always hears of it.
+    hot: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,16 +162,21 @@ class RuleView:
     rule: Rule
     outcomes: list[Choice] = field(default_factory=list)
     fields: list[Choice] = field(default_factory=list)
-    #: The verified address this agent's alerts go to now, or None (nothing is sent).
-    sends_to: UUID | None = None
+    #: Confirmed team addresses that hear now (the owner is told besides).
+    team_addresses: int = 0
     in_call_live: bool = False
 
 
 # --- contacts -------------------------------------------------------------------------
 
 _CONTACT_COLUMNS: Final = (
-    "id, address, is_default, verified_at IS NOT NULL, code_sent_at, channel, "
-    "whatsapp_credential_id"
+    "id, address, verified_at IS NOT NULL, code_sent_at, channel, whatsapp_credential_id"
+)
+
+#: A team address that receives alerts now: confirmed, and for WhatsApp still connected.
+_LIVE_SQL: Final = (
+    "removed_at IS NULL AND verified_at IS NOT NULL "
+    "AND (channel = 'email' OR whatsapp_credential_id IS NOT NULL)"
 )
 
 
@@ -160,11 +184,10 @@ def _contact(row: Any) -> Contact:
     return Contact(
         id=row[0],
         address=str(row[1]),
-        is_default=bool(row[2]),
-        verified=bool(row[3]),
-        code_sent_at=row[4],
-        channel=str(row[5]),
-        whatsapp_account_id=row[6],
+        verified=bool(row[2]),
+        code_sent_at=row[3],
+        channel=str(row[4]),
+        whatsapp_account_id=row[5],
     )
 
 
@@ -308,12 +331,10 @@ async def add_contact(
     contact_id = uuid7()
     await session.execute(
         text(
-            "INSERT INTO team_alert_contacts (id, tenant_id, channel, address, is_default, "
+            "INSERT INTO team_alert_contacts (id, tenant_id, channel, address, "
             "whatsapp_credential_id, whatsapp_template, whatsapp_language, whatsapp_number_id, "
             "whatsapp_values, created_at, updated_at) VALUES (:id, :tid, :channel, :address, "
-            "NOT EXISTS (SELECT 1 FROM team_alert_contacts WHERE is_default "
-            "AND removed_at IS NULL), :cred, :template, :language, :number_id, "
-            "CAST(:values AS jsonb), now(), now())"
+            ":cred, :template, :language, :number_id, CAST(:values AS jsonb), now(), now())"
         ),
         {
             "id": contact_id,
@@ -411,25 +432,9 @@ def refuse_verify(outcome: VerifyOutcome) -> ProblemError:
     )
 
 
-async def set_default(session: AsyncSession, *, contact_id: UUID) -> Contact:
-    await _live_contact(session, contact_id, lock=True)
-    await session.execute(
-        text(
-            "UPDATE team_alert_contacts SET is_default = false, updated_at = now() "
-            "WHERE is_default AND id <> :id"
-        ),
-        {"id": contact_id},
-    )
-    await session.execute(
-        text("UPDATE team_alert_contacts SET is_default = true, updated_at = now() WHERE id = :id"),
-        {"id": contact_id},
-    )
-    return await _live_contact(session, contact_id)
-
-
 async def remove_contact(session: AsyncSession, *, contact_id: UUID) -> list[UUID]:
-    """Stop sending to this address. Agents that named it follow the default again. Returns
-    the agents with a rule, whose in-call action may have to go."""
+    """Stop sending to this address. Returns the agents with an in-call rule, whose action
+    goes when this was the last address that could hear it."""
     await _live_contact(session, contact_id, lock=True)
     await session.execute(
         text(
@@ -438,14 +443,35 @@ async def remove_contact(session: AsyncSession, *, contact_id: UUID) -> list[UUI
         ),
         {"id": contact_id},
     )
-    await session.execute(
-        text(
-            "UPDATE team_alert_rules SET contact_id = NULL, updated_at = now() "
-            "WHERE contact_id = :id"
-        ),
-        {"id": contact_id},
-    )
     return await agents_with_rules(session)
+
+
+async def live_contacts(session: AsyncSession) -> list[UUID]:
+    """Every team address that hears now, oldest first."""
+    rows = (
+        await session.execute(
+            text(f"SELECT id FROM team_alert_contacts WHERE {_LIVE_SQL} ORDER BY created_at")
+        )
+    ).all()
+    return [UUID(str(r[0])) for r in rows]
+
+
+async def team_covers(session: AsyncSession, *, call_id: UUID, channel: str, address: str) -> bool:
+    """Was a team alert about this call queued to this owner address? Then the owner's own
+    alert on that channel is skipped: the team alert reaches the same inbox or phone, with
+    more. Asked of the call's alerts rather than of the list, so an address added after the
+    call was told cannot swallow the owner's alert."""
+    row = (
+        await session.execute(
+            text(
+                "SELECT 1 FROM team_alerts a JOIN team_alert_contacts c ON c.id = a.contact_id "
+                "WHERE a.call_id = :cid AND a.status <> 'cancelled' "
+                "AND c.channel = :channel AND c.address = :address LIMIT 1"
+            ),
+            {"cid": call_id, "channel": channel, "address": address.strip().lower()},
+        )
+    ).first()
+    return row is not None
 
 
 async def agents_with_rules(session: AsyncSession) -> list[UUID]:
@@ -462,8 +488,7 @@ async def load_rule(session: AsyncSession, agent_id: UUID) -> Rule | None:
     row = (
         await session.execute(
             text(
-                "SELECT contact_id, on_outcomes, on_fields, in_call FROM team_alert_rules "
-                "WHERE agent_id = :aid"
+                "SELECT on_outcomes, on_fields, in_call FROM team_alert_rules WHERE agent_id = :aid"
             ),
             {"aid": agent_id},
         )
@@ -472,39 +497,20 @@ async def load_rule(session: AsyncSession, agent_id: UUID) -> Rule | None:
         return None
     fields = tuple(
         FieldTrigger(str(f["key"]), tuple(str(v) for v in f.get("values") or ()))
-        for f in (row[2] or [])
+        for f in (row[1] or [])
         if isinstance(f, dict) and f.get("key")
     )
     return Rule(
-        contact_id=row[0],
-        on_outcomes=tuple(str(k) for k in (row[1] or [])),
+        on_outcomes=tuple(str(k) for k in (row[0] or [])),
         on_fields=fields,
-        in_call=bool(row[3]),
+        in_call=bool(row[2]),
     )
-
-
-async def resolved_contact(session: AsyncSession, rule: Rule) -> UUID | None:
-    """The VERIFIED address this rule sends to: its own, else the account default."""
-    row = (
-        await session.execute(
-            text(
-                "SELECT id FROM team_alert_contacts WHERE removed_at IS NULL "
-                "AND verified_at IS NOT NULL "
-                "AND (channel = 'email' OR whatsapp_credential_id IS NOT NULL) AND "
-                "(CASE WHEN CAST(:cid AS uuid) IS NULL THEN is_default "
-                "ELSE id = CAST(:cid AS uuid) END) "
-                "LIMIT 1"
-            ),
-            {"cid": rule.contact_id},
-        )
-    ).first()
-    return UUID(str(row[0])) if row is not None else None
 
 
 async def in_call_live(session: AsyncSession, agent_id: UUID) -> bool:
     """Whether `tell_the_team` is one of this agent's in-call actions now."""
     rule = await load_rule(session, agent_id)
-    return rule is not None and rule.in_call and await resolved_contact(session, rule) is not None
+    return rule is not None and rule.in_call and bool(await live_contacts(session))
 
 
 async def _agent_choices(
@@ -529,19 +535,19 @@ async def _agent_choices(
         for f in with_core(row[1], await core_labels(session))
         if f.type == "enum" and f.enum_values
     ]
-    return [Choice(o.key, o.label) for o in outcomes], fields
+    return [Choice(o.key, o.label, hot=o.lead_status == "hot") for o in outcomes], fields
 
 
 async def read_rule(session: AsyncSession, *, agent_id: UUID) -> RuleView:
     outcomes, fields = await _agent_choices(session, agent_id)
-    rule = await load_rule(session, agent_id) or Rule(contact_id=None)
-    sends_to = await resolved_contact(session, rule)
+    rule = await load_rule(session, agent_id) or Rule()
+    heard_by = len(await live_contacts(session))
     return RuleView(
         rule=rule,
         outcomes=outcomes,
         fields=fields,
-        sends_to=sends_to,
-        in_call_live=rule.in_call and sends_to is not None,
+        team_addresses=heard_by,
+        in_call_live=rule.in_call and heard_by > 0,
     )
 
 
@@ -575,16 +581,14 @@ async def save_rule(
             or any(v not in choice.values for v in trigger.values)
         ):
             raise _refuse_choice("One of the chosen answers is no longer one this agent records.")
-    if rule.contact_id is not None:
-        await _live_contact(session, rule.contact_id)
     if rule.in_call:
         await _assert_room_for_action(session, agent_id)
     await session.execute(
         text(
-            "INSERT INTO team_alert_rules (id, tenant_id, agent_id, contact_id, on_outcomes, "
-            "on_fields, in_call, created_at, updated_at) VALUES (:id, :tid, :aid, :cid, "
+            "INSERT INTO team_alert_rules (id, tenant_id, agent_id, on_outcomes, "
+            "on_fields, in_call, created_at, updated_at) VALUES (:id, :tid, :aid, "
             "CAST(:outcomes AS jsonb), CAST(:fields AS jsonb), :in_call, now(), now()) "
-            "ON CONFLICT (agent_id) DO UPDATE SET contact_id = EXCLUDED.contact_id, "
+            "ON CONFLICT (agent_id) DO UPDATE SET "
             "on_outcomes = EXCLUDED.on_outcomes, on_fields = EXCLUDED.on_fields, "
             "in_call = EXCLUDED.in_call, updated_at = now()"
         ),
@@ -592,7 +596,6 @@ async def save_rule(
             "id": uuid7(),
             "tid": tenant_id,
             "aid": agent_id,
-            "cid": rule.contact_id,
             "outcomes": _json(list(dict.fromkeys(rule.on_outcomes))),
             "fields": _json([{"key": t.key, "values": list(t.values)} for t in rule.on_fields]),
             "in_call": rule.in_call,
@@ -720,39 +723,123 @@ async def _queue(
     return True
 
 
+def reason_label(reason: dict[str, Any]) -> str:
+    """One reason as the owner's alert names it: labels and values the owner configured, a
+    Follow-up's own `why`, never anything the caller said."""
+    kind = reason.get("kind")
+    if kind == "outcome":
+        return str(reason.get("label") or reason.get("key") or "")
+    if kind == "field":
+        values = ", ".join(str(v) for v in reason.get("values") or [])
+        return f"{reason.get('label') or reason.get('key')}: {values}"
+    if kind == "follow_up":
+        return str(reason.get("why") or "")
+    if kind == "in_call":
+        return "Needs a person"
+    return ""
+
+
+async def _tell_owner(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    lead_id: UUID,
+    call_id: UUID,
+    reasons: list[dict[str, Any]],
+) -> bool:
+    queued = await enqueue_outbox_once(
+        session,
+        job=OWNER_JOB,
+        payload={
+            "tenant_id": str(tenant_id),
+            "lead_id": str(lead_id),
+            "call_id": str(call_id),
+            "triggers": [label for label in (reason_label(r) for r in reasons) if label],
+        },
+        dedupe_key=owner_dedupe_key(lead_id=lead_id, call_id=call_id),
+    )
+    return queued is not None
+
+
+async def tell_everyone(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    agent_id: UUID,
+    call_id: UUID,
+    lead_id: UUID | None,
+    trigger: str,
+    reasons: list[dict[str, Any]],
+) -> str:
+    """Tell the whole list about this call: every team address, and the owner when there is a
+    lead to open. Anyone already told about this call is not told again. Returns `queued`,
+    `already_told`, or `nobody` when there is no team address and no lead."""
+    contacts = await live_contacts(session)
+    if not contacts and lead_id is None:
+        return "nobody"
+    told = False
+    for contact_id in contacts:
+        told |= await _queue(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            call_id=call_id,
+            contact_id=contact_id,
+            trigger=trigger,
+            reasons=reasons,
+        )
+    if lead_id is not None:
+        told |= await _tell_owner(
+            session, tenant_id=tenant_id, lead_id=lead_id, call_id=call_id, reasons=reasons
+        )
+    return "queued" if told else "already_told"
+
+
+async def _told_in_call(session: AsyncSession, call_id: UUID) -> bool:
+    row = (
+        await session.execute(
+            text("SELECT 1 FROM team_alerts WHERE call_id = :cid AND trigger = 'in_call' LIMIT 1"),
+            {"cid": call_id},
+        )
+    ).first()
+    return row is not None
+
+
 async def queue_after_call(
     session: AsyncSession,
     *,
     tenant_id: UUID,
     agent_id: UUID,
     call_id: UUID,
+    lead_id: UUID | None,
+    hot: bool,
     outcome_key: str | None,
     outcome_label: str | None,
     data: dict[str, Any],
     labels: dict[str, str],
 ) -> str:
-    """STEP 6b of the post-call pipeline. Returns what happened, for the stage span."""
-    rule = await load_rule(session, agent_id)
-    if rule is None:
-        return "no_rule"
+    """STEP 6 of the post-call pipeline: tell the list when the call made its lead hot, when
+    the agent's rule matched, or when the agent told the team during the call (the owner
+    hears of that here, once there is a lead). Returns what happened, for the stage span."""
+    rule = await load_rule(session, agent_id) or Rule()
     reasons = after_call_reasons(
         rule, outcome_key=outcome_key, outcome_label=outcome_label, data=data, labels=labels
     )
+    if hot and outcome_key and outcome_key not in rule.on_outcomes:
+        reasons.insert(0, {"kind": "outcome", "key": outcome_key, "label": outcome_label or ""})
+    if not reasons and await _told_in_call(session, call_id):
+        reasons = [{"kind": "in_call"}]
     if not reasons:
-        return "no_trigger"
-    contact_id = await resolved_contact(session, rule)
-    if contact_id is None:
-        return "no_contact"
-    queued = await _queue(
+        return "not_worth_telling"
+    return await tell_everyone(
         session,
         tenant_id=tenant_id,
         agent_id=agent_id,
         call_id=call_id,
-        contact_id=contact_id,
+        lead_id=lead_id,
         trigger="after_call",
         reasons=reasons,
     )
-    return "queued" if queued else "already_queued"
 
 
 async def queue_for_follow_up(
@@ -761,19 +848,18 @@ async def queue_for_follow_up(
     tenant_id: UUID,
     agent_id: UUID,
     call_id: UUID,
-    contact_id: UUID,
+    lead_id: UUID | None,
     why: str,
     follow_up_id: UUID,
-) -> bool:
-    """A Follow-up's "tell the team" step (D-940), about the call its run last placed.
-    Once per call and address, like every alert: a team already told about this call by
-    the agent's own rule is not told again."""
-    return await _queue(
+) -> str:
+    """A Follow-up's "tell the team" step (D-940), about the call its run last placed, to the
+    same list. Anyone already told about that call is not told again."""
+    return await tell_everyone(
         session,
         tenant_id=tenant_id,
         agent_id=agent_id,
         call_id=call_id,
-        contact_id=contact_id,
+        lead_id=lead_id,
         trigger="follow_up",
         reasons=[{"kind": "follow_up", "why": why, "follow_up_id": str(follow_up_id)}],
     )
@@ -789,24 +875,28 @@ def clean_problem(raw: object) -> str:
 async def queue_in_call(
     *, tenant_id: UUID, agent_id: UUID, call_id: UUID | None, problem: object
 ) -> InCallOutcome:
-    """The `tell_the_team` action: queue the alert now, with what the agent said is wrong."""
+    """The `tell_the_team` action: tell every team address now, with what the agent said is
+    wrong. The owner hears after the call (`queue_after_call`), once there is a lead."""
     if call_id is None:
         return "unavailable"
     async with tenant_session(tenant_id) as session:
         rule = await load_rule(session, agent_id)
-        contact_id = await resolved_contact(session, rule) if rule and rule.in_call else None
-        if contact_id is None:
+        contacts = await live_contacts(session) if rule and rule.in_call else []
+        if not contacts:
             return "unavailable"
-        queued = await _queue(
-            session,
-            tenant_id=tenant_id,
-            agent_id=agent_id,
-            call_id=call_id,
-            contact_id=contact_id,
-            trigger="in_call",
-            reasons=[{"kind": "in_call"}],
-            problem=clean_problem(problem) or None,
-        )
+        note = clean_problem(problem) or None
+        queued = False
+        for contact_id in contacts:
+            queued |= await _queue(
+                session,
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                call_id=call_id,
+                contact_id=contact_id,
+                trigger="in_call",
+                reasons=[{"kind": "in_call"}],
+                problem=note,
+            )
     log.info(
         "team_alert_in_call",
         extra={"tenant_id": str(tenant_id), "agent_id": str(agent_id), "queued": queued},
@@ -822,6 +912,7 @@ __all__ = [
     "ALERT_JOB",
     "CODE_JOB",
     "MAX_CONTACTS",
+    "OWNER_JOB",
     "TEAM_ACTION_DESCRIPTION",
     "TEAM_ACTION_NAME",
     "TEAM_PROBLEM_DESCRIPTION",
@@ -837,17 +928,20 @@ __all__ = [
     "clean_problem",
     "in_call_live",
     "list_contacts",
+    "live_contacts",
     "load_rule",
+    "owner_dedupe_key",
     "queue_after_call",
     "queue_for_follow_up",
     "queue_in_call",
     "read_rule",
+    "reason_label",
     "refuse_verify",
     "remove_contact",
     "resend_code",
-    "resolved_contact",
     "resync_agents",
     "save_rule",
-    "set_default",
+    "team_covers",
+    "tell_everyone",
     "verify_contact",
 ]

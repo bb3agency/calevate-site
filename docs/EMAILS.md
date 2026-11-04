@@ -67,8 +67,8 @@ Sender purposes (Part 2): **SEC** security · **NOT** notifications · **BIL** b
 
 | # | Email | Trigger | Recipient | Subject today | Code |
 |---|---|---|---|---|---|
-| L1 | Hot lead | a lead is marked hot after a call (2-minute SLO) | billing address | Hot lead from your AI agent | `workers/notifications.py` |
-| L2 | Caller needs your team | a call matches a team-alert rule | the rule's verified contacts | A caller needs your team | `workers/team_alerts.py` |
+| L1 | Hot lead | a call makes its lead hot or matches the agent's rule (2-minute SLO, D-967) | billing address, unless it is also a team address told about the call | Hot lead from your AI agent | `workers/notifications.py` |
+| L2 | Caller needs your team | the same calls as L1, to the team half of the hot-lead list | every verified team address | A caller needs your team | `workers/team_alerts.py` |
 | L3 | Caller-alert address code | a team contact address is added (SEC sender: it is a code) | that address | Your code for caller alerts | `workers/team_alerts.py` |
 
 ### Operator (`OPS`, to our own team only)

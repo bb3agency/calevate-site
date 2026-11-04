@@ -465,8 +465,10 @@ lives at real addresses: `/c/{slug}/campaigns` (paged list, status filter, searc
 ## 6. Post-Call Pipeline (worker jobs, keyed by call_id, idempotent)
 
 fetch_recording → redact_transcript → extract(schema) → upsert_lead(+repeat-caller flag on
-phone match) → meter_usage(write unit rows + update spend_state) → notify(hot-lead rules:
-e.g., a call whose business outcome moves the lead to hot ⇒ WhatsApp+email to owner within 2 min, D-841) →
+phone match) → meter_usage(write unit rows + update spend_state) → notify(the hot-lead list,
+D-841, D-967: a call whose business outcome moves the lead to hot, or that the agent's own rule
+picks ⇒ the owner (email, WhatsApp once opted in) and every confirmed team address, within
+2 min, once per person per channel per call) →
 resolve_campaign_contact → outbound_sync(call.completed via the outbox, D-23) →
 language_pass(its own job, D-931).
 The pipeline starts by copying ThinnestAI's expiring `recording.url` into our storage, beside the
@@ -525,12 +527,19 @@ Operators see the per-turn split ("Where the wait goes", step medians by turn de
 clients see the typical wait for an answer and how many replies looked up their
 information.
 
-**Tell my team (D-904).** When a call's outcome or a choice value matches an agent's
-`team_alert_rules`, or the agent tells the team during the call where the rule allows it,
-`team_alerts/service.py` queues one `team_alerts` row per (call, address) through the
-outbox; `workers/team_alerts.py` sends it by email, or on WhatsApp through the client's own
-connection, retries on the hot-lead ladder and alarms when the ladder is spent. The row's
-`sent` status is the dedupe. Each address is verified once by an emailed code.
+**Who hears about hot leads (D-904, D-967).** One list per account, on Settings → Alerts: the
+owner (email to the account email, always; WhatsApp once they opt in) and the team addresses,
+each verified once by a code. What counts is per agent: an outcome that moves the lead to hot
+always does, and the agent's `team_alert_rules` may add outcomes, choice answers and telling
+the team during the call. Every trigger (post-call step 6, the in-call `tell_the_team` action,
+a Follow-up's `tell_team` step) goes through `team_alerts/service.tell_everyone`: one
+`team_alerts` row per (call, address) and one owner job per (lead, call), both through the
+outbox, so each person hears once per channel per call. The in-call action tells the team at
+once and the owner after the call, once there is a lead. An owner address that is also a team
+address told about the call is skipped on that channel (`team_covers`). `workers/team_alerts.py`
+sends a team alert by email, or on WhatsApp through the client's own connection, retries on the
+hot-lead ladder and alarms when the ladder is spent; the owner's go through
+`workers/notifications.py` and `workers/whatsapp.py`.
 
 `embed_if_resolved(call corpus)` is M3, NOT in the shipped pipeline
 (`apps/workers/pipeline.py` stops at outbound sync).

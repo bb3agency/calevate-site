@@ -7,7 +7,7 @@ stored definition round-trips exactly. Two layers of checking, deliberately apar
   naming a step that exists and comes LATER in the list. Exits may only point forward, so a
   run always ends: the longest path is the step count, and `settings.max_days` ends
   anything still waiting (call retries are the one repeat, and they are bounded by `retries`).
-* **references** (`service.problems_of`): the agent, template, teammate, team address and
+* **references** (`service.problems_of`): the agent, template, teammate and
   action each exist in this account. They need a session.
 
 Both report the same `Problem(step_id, code, message)`, which is what the screen lists as
@@ -22,7 +22,7 @@ from datetime import time
 from typing import Annotated, Any, Final, Literal
 from uuid import UUID
 
-from pydantic import Field, TypeAdapter, ValidationError
+from pydantic import Field, TypeAdapter, ValidationError, model_validator
 
 from apps.api.core.schemas import Strict as _Strict
 
@@ -198,11 +198,20 @@ class SetStatusStep(_Strict):
 
 class TellTeamStep(_Strict):
     id: StepId
+    """Tells everyone who hears about hot leads (`team_alerts.queue_for_follow_up`)."""
+
     kind: Literal["tell_team"]
-    #: Null: the account's default team address.
-    contact_id: UUID | None = None
     why: str = Field(min_length=1, max_length=MAX_WHY_CHARS)
     next: Target = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_chosen_address(cls, raw: Any) -> Any:
+        # Steps saved while a step named one team address carry `contact_id`; the whole list
+        # hears now, so the stored key is read past rather than refused.
+        if isinstance(raw, dict) and "contact_id" in raw:
+            return {k: v for k, v in raw.items() if k != "contact_id"}
+        return raw
 
 
 class ActionStep(_Strict):

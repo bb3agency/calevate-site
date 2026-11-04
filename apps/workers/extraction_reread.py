@@ -287,7 +287,7 @@ async def reread_extraction(tenant_id: UUID, call_id: UUID, *, reuse: bool = Tru
 
     The attempt has already been claimed; this does the reading. Each stage is the
     pipeline's own and is safe to run again: the extraction is one row per call, the lead
-    files a call once (`_upsert_lead`), and the hot alert is queued once per lead per call.
+    files a call once (`_upsert_lead`), and the hot alert is queued once per person per call.
 
     A call whose stored failure is a truncation is read with reasoning off from the first
     request, since the default settings are what truncated; if that truncates too, the
@@ -335,14 +335,16 @@ async def reread_extraction(tenant_id: UUID, call_id: UUID, *, reuse: bool = Tru
         reading=extraction,
         business_move=business_outcome.lead_status if business_outcome else None,
     )
-    if lead_id is not None:
-        await _maybe_notify_hot_lead(
-            tenant_id,
-            lead_id,
-            call_id,
-            business_outcome,
-            connected=snapshot.status == "completed",
-        )
+    await _maybe_notify_hot_lead(
+        tenant_id,
+        agent_id,
+        lead_id,
+        call_id,
+        business_outcome,
+        connected=snapshot.status == "completed",
+        data=extraction.data,
+        labels={f.key: f.label for f in spec.fields},
+    )
 
     after = (call_outcome, business_outcome.key if business_outcome else None)
     async with tenant_session(tenant_id) as session:

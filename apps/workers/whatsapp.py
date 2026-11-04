@@ -183,6 +183,7 @@ from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session
 from apps.api.reliability.service import enqueue_outbox_once
+from apps.api.team_alerts import service as team_alerts
 
 log = get_logger(__name__)
 
@@ -555,10 +556,10 @@ async def resolve_destination(session: AsyncSession, tenant_id: UUID) -> Destina
 def _compose_variables(triggers: list[str]) -> tuple[str, ...]:
     """The single approved template variable: WHY this lead is hot.
 
-    A trigger is the label of the agent's business outcome that made the lead hot
-    (`pipeline._maybe_notify_hot_lead`), written by the owner or the AI draft from the
-    business's own details, never caller-supplied text, so nothing here can carry a
-    caller's name, number or words into a third party's system.
+    A trigger is a reason the owner configured (`team_alerts.reason_label`): an outcome's
+    label, a chosen answer, a Follow-up's own `why`. Written by the owner or the AI draft
+    from the business's own details, never caller-supplied text, so nothing here can carry
+    a caller's name, number or words into a third party's system.
     """
     return (", ".join(triggers) if triggers else "marked hot",)
 
@@ -590,6 +591,11 @@ async def notify_hot_lead_whatsapp(ctx: dict[str, Any], payload: dict[str, Any])
             return "duplicate"
 
         destination = await resolve_destination(session, tenant_id)
+        if destination is not None and await team_alerts.team_covers(
+            session, call_id=call_id, channel="whatsapp", address=destination.to_e164
+        ):
+            # The owner's number is also a team address told about this call.
+            return "covered_by_team"
         if destination is None:
             result = SendResult(SendStatus.REJECTED, reason="no_recipient")
         elif destination.opt_in_at is None:

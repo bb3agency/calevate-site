@@ -253,7 +253,7 @@ async def test_the_starters_are_filled_in_for_the_account() -> None:
             "payment_reminder",
         ]
         qualify = found[1]
-        assert set(qualify["needs"]) == {"outbound_agent", "whatsapp_template", "team_address"}
+        assert set(qualify["needs"]) == {"outbound_agent", "whatsapp_template"}
         made = await _create(
             http,
             t,

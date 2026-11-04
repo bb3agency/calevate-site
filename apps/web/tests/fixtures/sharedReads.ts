@@ -255,8 +255,8 @@ export function organizationCallHandling() {
   };
 }
 
-/** The reads an agent's Settings makes for Tell my team (D-904): no team address yet, and an
- * agent that tells nobody. */
+/** The hot-lead list's reads (D-904, D-967): no team address yet, and an agent whose rule adds
+ * nothing to its hot outcome. */
 export function teamAlertReads(agentId = "agent-1") {
   return {
     "/v1/team-alerts/contacts": {
@@ -265,13 +265,15 @@ export function teamAlertReads(agentId = "agent-1") {
       whatsapp_accounts: [],
     } satisfies TeamContacts,
     [`/v1/agents/${agentId}/team-alert`]: {
-      contact_id: null,
       on_outcomes: [],
       on_fields: [],
       in_call: false,
-      sends_to: null,
+      team_addresses: 0,
       in_call_live: false,
-      outcomes: [{ key: "booked", label: "Booked", values: [] }],
+      outcomes: [
+        { key: "ready", label: "Ready to buy", values: [], hot: true },
+        { key: "booked", label: "Booked", values: [], hot: false },
+      ],
       fields: [],
     } satisfies TeamAlertRule,
   };

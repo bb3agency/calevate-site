@@ -379,6 +379,8 @@ team_alerts(id, tenant_id, agent_id, call_id FK calls, contact_id, trigger IN (a
   -- an emailed code), one rule row per agent (which outcomes and choice values tell the
   -- team, and whether the agent may tell it during the call), and one delivery row per
   -- (call, address), which is also the idempotency key. All three FORCEd tenant_isolation;
+  -- D-967: `is_default` and `team_alert_rules.contact_id` are no longer read (every confirmed
+  -- address hears every alert); dropped in a later release (hard rule 8);
   -- zero-rows proof `tests/team_alerts_test.py`. The same migration widens
   -- `agent_test_cases.caller_lines` to 1..20 lines (was 6) so a guided procedure can be a
   -- saved test.

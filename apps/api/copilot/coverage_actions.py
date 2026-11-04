@@ -3,7 +3,8 @@
 Each calls the service function its own button's route calls, under the same permission:
 
 * `account_model_tier_set` — AI models screen, `PUT /v1/organization/llm-defaults`.
-* `agent_team_alert_set` — an agent's "Tell my team", `PUT /v1/agents/{id}/team-alert`.
+* `agent_team_alert_set` — what besides hot leads an agent tells the hot-lead list,
+  `PUT /v1/agents/{id}/team-alert`.
 * `team_alert_contact` — the team addresses, `/v1/team-alerts/contacts/**` (email only: a
   WhatsApp address needs the account's own template set up on the screen).
 * `knowledge_refresh` — approve a waiting upload, or read a PDF or page again,
@@ -169,7 +170,6 @@ class _AlertArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     agent_id: UUID
-    team_contact_id: UUID | None
     on_outcomes: Annotated[list[Annotated[str, Field(max_length=200)]], Field(max_length=50)]
     #: `key=value`, one per watched answer; a flat list costs the shared area schema less
     #: than the screen's `{key, values}` objects and is grouped back into them here.
@@ -196,16 +196,7 @@ def _rule_words(rule: Any, outcomes: Mapping[str, str], fields: Mapping[str, str
     parts += [f"when {fields.get(t.key, t.key)} is {' or '.join(t.values)}" for t in rule.on_fields]
     if rule.in_call:
         parts.append("during the call when the agent decides to")
-    return "; ".join(parts) or "never"
-
-
-async def _contact_words(session: AsyncSession, contact_id: UUID | None) -> str:
-    if contact_id is None:
-        return "the account's default team address"
-    from apps.api.team_alerts.service import _live_contact
-
-    contact = await _live_contact(session, contact_id)
-    return _masked(contact.address) + ("" if contact.verified else " (not confirmed yet)")
+    return "; ".join(parts) or "only for hot leads"
 
 
 async def _plan_alert(session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]) -> Plan:
@@ -230,18 +221,16 @@ async def _plan_alert(session: AsyncSession, actor: ToolActor, args: Mapping[str
                 "an answer is not one this agent records; take them from agent_settings handover"
             )
     wanted = Rule(
-        contact_id=parsed.team_contact_id,
         on_outcomes=tuple(parsed.on_outcomes),
         on_fields=on_fields,
         in_call=parsed.in_call,
     )
-    to = await _contact_words(session, parsed.team_contact_id)
     return Plan(
         object_id=str(parsed.agent_id),
-        title="Tell your team about callers",
+        title="Tell your hot-lead list about callers",
         summary=(
-            f"“{name}” will tell {to}: {_rule_words(wanted, outcomes, fields)}. The message "
-            "carries the caller's name, number and why."
+            f"Besides hot leads, “{name}” will tell everyone who hears about hot leads: "
+            f"{_rule_words(wanted, outcomes, fields)}."
         ),
         current=_rule_words(view.rule, outcomes, fields),
         proposed=_rule_words(wanted, outcomes, fields),
@@ -249,9 +238,6 @@ async def _plan_alert(session: AsyncSession, actor: ToolActor, args: Mapping[str
         reversal="Change or clear it at any time on the agent's Settings tab.",
         args={
             "agent_id": str(parsed.agent_id),
-            "team_contact_id": None
-            if parsed.team_contact_id is None
-            else str(parsed.team_contact_id),
             "on_outcomes": list(dict.fromkeys(parsed.on_outcomes)),
             "on_answers": [f"{t.key}={v}" for t in on_fields for v in t.values],
             "in_call": parsed.in_call,
@@ -267,7 +253,6 @@ async def _execute_alert(
     parsed = parse_args(_AlertArgs, args)
     await agent_name(session, parsed.agent_id)
     rule = Rule(
-        contact_id=parsed.team_contact_id,
         on_outcomes=tuple(parsed.on_outcomes),
         on_fields=_triggers(parsed.on_answers),
         in_call=parsed.in_call,
@@ -277,16 +262,16 @@ async def _execute_alert(
         applied=True,
         detail="Saved."
         + (
-            ""
-            if view.sends_to is not None
-            else " Nothing is sent until a team address is confirmed on the Alerts screen."
+            " The agent tells the team during calls once a team address is confirmed on the "
+            "Alerts screen."
+            if rule.in_call and not view.in_call_live
+            else ""
         ),
         audit_summary={
             "agent_id": str(parsed.agent_id),
             "outcomes": str(len(rule.on_outcomes)),
             "fields": str(len(rule.on_fields)),
             "in_call": str(rule.in_call),
-            "own_contact": str(rule.contact_id is not None),
         },
     )
 
@@ -301,11 +286,10 @@ AGENT_TEAM_ALERT_SET: Final = ActionTool(
     where="on the agent's Settings tab",
     schema=action_schema(
         "agent_team_alert_set",
-        "When one agent tells the team about a caller: the WHOLE rule. Keys and ids from "
-        "agent_settings `handover`." + PROPOSES_ONLY,
+        "What besides hot leads one agent tells everyone on the hot-lead list about: the "
+        "WHOLE rule. Keys from agent_settings `handover`." + PROPOSES_ONLY,
         {
             "agent_id": {"type": "string"},
-            "team_contact_id": _nullable({"type": "string"}),
             "on_outcomes": {"type": "array", "items": {"type": "string"}},
             "on_answers": {"type": "array", "items": {"type": "string"}},
             "in_call": {"type": "boolean"},
@@ -320,7 +304,7 @@ AGENT_TEAM_ALERT_SET: Final = ActionTool(
 # TEAM ADDRESSES
 # =========================================================================================
 
-ContactAct = Literal["add", "remove", "make_default", "resend_code"]
+ContactAct = Literal["add", "remove", "resend_code"]
 
 
 class _ContactArgs(BaseModel):
@@ -334,14 +318,12 @@ class _ContactArgs(BaseModel):
 #: The audit action each act's own route writes (`team_alerts/routes.py`).
 _CONTACT_AUDIT: Final[dict[str, str]] = {
     "remove": "team_alert.contact_removed",
-    "make_default": "team_alert.contact_default",
     "resend_code": "team_alert.code_sent",
 }
 
 _CONTACT_TITLES: Final[dict[str, str]] = {
     "add": "Add a team address",
     "remove": "Stop telling a team address",
-    "make_default": "Make this the team address agents use",
     "resend_code": "Send a new code to a team address",
 }
 
@@ -375,15 +357,14 @@ async def _plan_contact(session: AsyncSession, actor: ToolActor, args: Mapping[s
     contact = await _live_contact(session, parsed.team_contact_id)
     shown = _masked(contact.address)
     summaries = {
-        "remove": f"{shown} stops getting caller alerts; agents that used it use the default.",
-        "make_default": f"Agents that name no address will tell {shown}.",
+        "remove": f"{shown} stops hearing about hot leads.",
         "resend_code": f"A new code is sent to {shown}.",
     }
     return Plan(
         object_id=str(parsed.team_contact_id),
         title=_CONTACT_TITLES[parsed.act],
         summary=summaries[parsed.act],
-        current=shown + (" (default)" if contact.is_default else ""),
+        current=shown + ("" if contact.verified else " (not confirmed yet)"),
         proposed=shown,
         cost=None,
         reversal="Add it again on the Alerts screen; it needs a new code."
@@ -416,10 +397,6 @@ async def _execute_contact(
         agents = await service.remove_contact(session, contact_id=parsed.team_contact_id)
         await service.resync_agents(session, agents)
         detail = "Removed."
-    elif parsed.act == "make_default":
-        await service.set_default(session, contact_id=parsed.team_contact_id)
-        await service.resync_agents(session, await service.agents_with_rules(session))
-        detail = "It is the default now."
     else:
         await service.resend_code(
             session, tenant_id=actor.tenant_id, contact_id=parsed.team_contact_id
@@ -443,10 +420,9 @@ TEAM_ALERT_CONTACT: Final = ActionTool(
     where="on the Alerts screen",
     schema=action_schema(
         "team_alert_contact",
-        "Add an email the team is told about callers at, or remove, make default or resend "
-        "the code of one." + PROPOSES_ONLY,
+        "Add a team email to the hot-lead list, or remove one or resend its code." + PROPOSES_ONLY,
         {
-            "act": {"type": "string", "enum": ["add", "remove", "make_default", "resend_code"]},
+            "act": {"type": "string", "enum": ["add", "remove", "resend_code"]},
             "team_contact_id": _nullable({"type": "string"}),
             "address": _nullable({"type": "string"}),
         },
