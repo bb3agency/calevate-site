@@ -1,7 +1,7 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { SetupWizard } from "@/app/c/[slug]/setup/SetupWizard";
+import { SetupWizard } from "@/app/c/[slug]/settings/business/SetupWizard";
 import { SetupChecklist } from "@/app/c/[slug]/SetupChecklist";
 import { BusinessProfileScreen } from "@/app/c/[slug]/settings/business/BusinessProfileScreen";
 import {
@@ -197,7 +197,7 @@ describe("the business profile screen", () => {
     const blockers = screen.getByRole("region", { name: "Finish your business profile" });
     const row = within(blockers).getByText("Services and prices").closest("li") as HTMLElement;
     const link = within(row).getByRole("link", { name: /Open/ });
-    expect(link.getAttribute("href")).toContain("/c/acme/setup?step=services");
+    expect(link.getAttribute("href")).toContain("/c/acme/settings/business?mode=steps&step=services");
     expect(container.textContent).toContain("Sunrise Dental");
   });
 
@@ -224,6 +224,17 @@ describe("the business profile screen", () => {
     expect((textboxesOf(5)[0] as HTMLInputElement).value).toBe("Walk-ins before noon only");
   });
 
+  it("asks the same facts one at a time, where the dashboard's next steps resume", async () => {
+    window.history.replaceState(null, "", "/c/acme/settings/business?mode=steps&step=hours");
+    await renderClientPage(<BusinessProfileScreen />, {
+      "/v1/me": OWNER,
+      "/v1/business-profile": profile(),
+    });
+    expect(await screen.findByRole("heading", { name: "When are you open?" })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: "One at a time" }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.queryByText("Your business")).toBeNull();
+  });
+
   it("is read-only for staff, with the reason on screen", async () => {
     await renderClientPage(<BusinessProfileScreen />, {
       "/v1/me": { ...OWNER, role: "staff", permissions: ["org:read", "agents:read"] },
@@ -234,47 +245,13 @@ describe("the business profile screen", () => {
   });
 });
 
-describe("the setup checklist's two places (founder, 22 Oct 2026)", () => {
-  it("is always under Settings, even when the dashboard does not show it", async () => {
+describe("the setup checklist on Business profile (founder, 22 Oct 2026)", () => {
+  it("shows even when the dashboard does not", async () => {
     const off = profile({ setup: { ...profile().setup, dismissed: true, on_dashboard: false } });
-    await renderClientPage(<SetupChecklist placement="settings" />, {
+    await renderClientPage(<SetupChecklist />, {
       "/v1/me": OWNER,
       "/v1/business-profile": off,
     });
     expect(await screen.findByText("Your setup")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Hide this list" })).toBeNull();
-  });
-
-  it("is not on the dashboard when the server says it is not due", async () => {
-    // After the first day, with no call showing a missing step.
-    const off = profile({ setup: { ...profile().setup, on_dashboard: false } });
-    const { container } = await renderClientPage(<SetupChecklist />, {
-      "/v1/me": OWNER,
-      "/v1/business-profile": off,
-    });
-    await waitFor(() => expect(container.textContent).toBe(""));
-  });
-
-  it("comes back saying why, on the step the calls show is missing", async () => {
-    const back = profile({
-      setup: {
-        ...profile().setup,
-        on_dashboard: true,
-        nudges: [
-          {
-            step: "contacts",
-            message: "3 calls in the last 14 days needed a person, and nobody is set up to take calls.",
-          },
-        ],
-      },
-    });
-    await renderClientPage(<SetupChecklist />, {
-      "/v1/me": OWNER,
-      "/v1/business-profile": back,
-    });
-    expect(await screen.findByText("Your calls show something is missing")).toBeTruthy();
-    expect(
-      screen.getByText("3 calls in the last 14 days needed a person, and nobody is set up to take calls."),
-    ).toBeTruthy();
   });
 });

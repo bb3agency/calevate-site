@@ -26,7 +26,7 @@ interface BuildRow {
   result?: string;
   state: RowState;
 }
-import { FIRST } from "../../setup/_ui/copy";
+import { FIRST } from "../../_ui/copy";
 
 /** Each step's name on the stage, and what it says while it is worked on, in the order the
  *  worker takes them (`apps/workers/first_run.build_first_agent`). */

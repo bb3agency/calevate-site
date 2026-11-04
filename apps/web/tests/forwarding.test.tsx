@@ -1,10 +1,12 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import PhoneNumbersSettingsPage from "@/app/c/[slug]/settings/phone-numbers/page";
-import ExistingNumberPage from "@/app/c/[slug]/setup/existing-number/page";
+import PhoneNumberPage from "@/app/c/[slug]/phone-number/page";
+import { SaveNumber } from "@/app/c/[slug]/phone-number/ExistingNumber";
+import ExistingNumberPage from "@/app/c/[slug]/phone-number/existing-number/page";
 import { ForwardingCard } from "@/app/admin/tenants/[tenantId]/numbers/ForwardingCard";
 import { dialledForm, renderCode } from "@/lib/api/forwarding";
+import { useClientRealm } from "@/lib/api/session";
 
 import { ADMIN_FORWARDING, CODES, LINE, READY_TO_FORWARD, SETTLED_TEST, WITH_LINE } from "./fixtures/forwarding";
 import { renderAdminPage, renderClientPage, type Routes } from "./harness";
@@ -24,7 +26,6 @@ function settingsRoutes(over: Routes = {}): Routes {
     "/v1/forwarding/codes": CODES,
     "/v1/forwarding/lines/l1/tests?limit=5": [SETTLED_TEST],
     "/v1/forwarding/save-number": { enabled: false },
-    "/v1/call-lines": { call_lines: 2, in_progress: 0, on_trial: false },
     ...over,
   };
 }
@@ -37,7 +38,18 @@ describe("dialled form of the Calevate number", () => {
   });
 });
 
-describe("Settings > Phone numbers", () => {
+/** Phone numbers, opened on its "Your existing number" section. */
+function PhoneNumbersSettingsPage() {
+  window.history.replaceState(null, "", "/c/acme/phone-number?section=existing");
+  return <PhoneNumberPage />;
+}
+
+function SaveNumberSetting() {
+  const { session } = useClientRealm();
+  return <SaveNumber session={session} />;
+}
+
+describe("Phone numbers > Your existing number", () => {
   it("shows the line, its findings and the quiet notice", async () => {
     await renderClientPage(<PhoneNumbersSettingsPage />, settingsRoutes());
     expect(await screen.findByText("+91 98123 45678")).toBeTruthy();
@@ -115,7 +127,7 @@ describe("Settings > Phone numbers", () => {
   });
 
   it("offers the save-our-number switch, off by default", async () => {
-    await renderClientPage(<PhoneNumbersSettingsPage />, settingsRoutes());
+    await renderClientPage(<SaveNumberSetting />, settingsRoutes());
     const toggle = await screen.findByRole("switch", { name: /Send one message after a booking/ });
     expect((toggle as HTMLInputElement).checked).toBe(false);
   });

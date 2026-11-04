@@ -3,15 +3,19 @@
 import { Section } from "@/components/console/section";
 
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 
 import { ProfileBlockers } from "@/components/businessProfile/ProfileBlockers";
 import { SectionEditor, stepProblem } from "@/components/businessProfile/SectionEditor";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
+import { SegmentedControl, type SegmentedOption } from "@/components/interior/segmented-control";
 import { ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
 import {
   STEPS,
+  STEPS_MODE,
   draftFromProfile,
+  setupHref,
   useBusinessProfile,
   type BusinessProfile,
   type ProfileDraft,
@@ -25,18 +29,48 @@ import { useVerticalExamples } from "@/lib/useVerticalExamples";
 import { SetupChecklist } from "../../SetupChecklist";
 import { BusinessCopySection } from "./BusinessCopySection";
 import { ProfileSection } from "./ProfileSection";
+import { SetupWizard } from "./SetupWizard";
+
+const MODES: SegmentedOption[] = [
+  { value: "all", label: "All answers" },
+  { value: STEPS_MODE, label: "One at a time" },
+];
 
 /**
  * Business profile: the business's facts, which every agent of the account answers with
- * (D-695). Primary job: change a fact and have every agent say it, with no publishing.
- *
- * One section per topic, each saved on its own, so fixing a price never resends the hours.
- * Readable by everyone on the account; editable by an owner, and by an operator in a
- * view-as session.
+ * (D-695). Two ways through the same facts, saved by the same call: every topic on one
+ * page, or one question at a time (`?mode=steps`, where a new client starts and where the
+ * dashboard's next steps resume). One screen rather than two sidebar entries, so a client
+ * never wonders which of them holds the answer.
  */
 export function BusinessProfileScreen() {
   const { session, href: realmHref } = useClientRealm();
-  // Paths below are relative to this account: "/setup" is /c/<slug>/setup.
+  const href = (path: string) => realmHref(`/c/${session.orgSlug}${path}`);
+  const router = useRouter();
+  const params = useSearchParams();
+  const steps = params.get("mode") === STEPS_MODE;
+  return (
+    <div className="space-y-5">
+      <SegmentedControl
+        label="How to answer"
+        options={MODES}
+        value={steps ? STEPS_MODE : "all"}
+        onValueChange={(mode) =>
+          router.replace(mode === STEPS_MODE ? setupHref(href) : href("/settings/business"), { scroll: false })
+        }
+        fill
+      />
+      {steps ? <SetupWizard /> : <AllAnswers />}
+    </div>
+  );
+}
+
+/** Every topic on one page, each saved on its own, so fixing a price never resends the
+ *  hours. Readable by everyone on the account; editable by an owner, and by an operator in
+ *  a view-as session. */
+function AllAnswers() {
+  const { session, href: realmHref } = useClientRealm();
+  // Paths below are relative to this account: "/verify-business" is /c/<slug>/verify-business.
   const href = (path: string) => realmHref(`/c/${session.orgSlug}${path}`);
   const profile = useBusinessProfile(session);
   const write = useWriteAccess(session, "org:manage", "change the business profile");
@@ -103,7 +137,7 @@ function Profile({
     <div className="max-w-3xl space-y-5">
       {reason && <RestrictionNote reason={reason} />}
       <ProfileBlockers blockers={profile.blockers} href={href} />
-      <SetupChecklist placement="settings" />
+      <SetupChecklist />
 
       <Section title="Your business">
         <SettingRows>

@@ -6,8 +6,8 @@ import { HEARD_FAILURES } from "@/app/c/[slug]/agents/first/BriefStep";
 import { HONEST_WORDS } from "@/app/c/[slug]/agents/first/HearItStep";
 import { JOBS } from "@/app/c/[slug]/agents/new/StartFromJob";
 import { MOVE_COPY, NUMBER_COPY, VERIFY_COPY } from "@/app/c/[slug]/go-live/GoLiveGuide";
-import { splitHint } from "@/app/c/[slug]/setup/SetupWizard";
-import { ATTENTION, FIRST, GO_LIVE, HOME, NEW_AGENT, SETUP, TRIAL } from "@/app/c/[slug]/setup/_ui/copy";
+import { splitHint } from "@/app/c/[slug]/settings/business/SetupWizard";
+import { ATTENTION, FIRST, GO_LIVE, HOME, NEW_AGENT, SETUP, TRIAL } from "@/app/c/[slug]/_ui/copy";
 import { Why } from "@/components/why";
 import { STEPS } from "@/lib/api/businessProfile";
 

@@ -370,7 +370,7 @@ async def assert_ready_to_go_live(
         detail="Your agent needs a few facts about your business before it can take calls: "
         + " ".join(BLOCKER_COPY[code] for code in blockers),
         status=409,
-        remediation="Open Business setup, fill in these steps, then try again.",
+        remediation="Open Business profile, answer these questions, then try again.",
         fields=[
             {"field": f"setup.{BLOCKER_STEPS[code]}", "rule": code, "message": BLOCKER_COPY[code]}
             for code in blockers

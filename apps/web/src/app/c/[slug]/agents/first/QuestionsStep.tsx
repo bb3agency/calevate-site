@@ -38,7 +38,7 @@ import {
 
 import { ReadingStage } from "./LiveStage";
 import { ChipChoice, StepScreen } from "./shell";
-import { FIRST } from "../../setup/_ui/copy";
+import { FIRST } from "../../_ui/copy";
 
 /**
  * THE FOLLOW-UP QUESTIONS (D-855; founder, 23 Oct 2026): a few, one at a time, each one

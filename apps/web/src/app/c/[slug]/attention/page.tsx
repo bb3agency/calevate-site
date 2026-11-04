@@ -14,7 +14,7 @@ import { lookup } from "@/lib/lookup";
 
 import { useAttentionCopilot } from "./copilot";
 import { KIND_COPY, Row, byUrgency } from "./rows";
-import { ATTENTION } from "../setup/_ui/copy";
+import { ATTENTION } from "../_ui/copy";
 
 const ALL = "all";
 

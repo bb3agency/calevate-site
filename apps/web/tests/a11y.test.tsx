@@ -120,11 +120,9 @@ import QaSamplingPage from "@/app/admin/qa-sampling/page";
 import QaSampleReviewPage from "@/app/admin/qa-sampling/[sampleId]/page";
 import AlertsPage from "@/app/c/[slug]/settings/alerts/page";
 import LineProtectionPage from "@/app/c/[slug]/settings/line-protection/page";
-import PhoneNumbersSettingsPage from "@/app/c/[slug]/settings/phone-numbers/page";
-import ExistingNumberPage from "@/app/c/[slug]/setup/existing-number/page";
+import ExistingNumberPage from "@/app/c/[slug]/phone-number/existing-number/page";
 import BusinessProfilePage from "@/app/c/[slug]/settings/business/page";
 import LeadDetailsPage from "@/app/c/[slug]/settings/lead-details/page";
-import SetupPage from "@/app/c/[slug]/setup/page";
 import ClientLlmModelPage from "@/app/c/[slug]/settings/models/page";
 import TeamPage from "@/app/c/[slug]/settings/team/page";
 import BillingPage from "@/app/c/[slug]/billing/page";
@@ -896,7 +894,7 @@ const AGENT_MISTAKES = {
 
 /**
  * One OPEN knowledge gap — a question a live agent could not answer, found from a redacted
- * transcript. Populated so the dashboard's "What needs you" row and its link render rather
+ * transcript. Populated so the dashboard's "Next steps" row and its link render rather
  * than its empty state.
  */
 const KNOWLEDGE_GAP = {
@@ -2230,23 +2228,22 @@ const HEALER_PROPOSALS = {
 
 const CLIENT_SCREENS: Screen[] = [
   {
-    // D-746: a working line with both findings, quiet for three days, the codes open on
-    // Airtel, one settled test, and the save-our-number switch.
-    file: "c/[slug]/settings/phone-numbers/page.tsx",
+    // D-746: Phone numbers on "Your existing number": a working line with both findings,
+    // quiet for three days, the codes open on Airtel and one settled test.
+    file: "c/[slug]/phone-number/page.tsx",
+    search: "section=existing",
     realm: "client",
-    element: () => <PhoneNumbersSettingsPage />,
+    element: () => <PhoneNumberPage />,
     routes: {
       "/v1/me": ME,
       "/v1/forwarding": WITH_LINE,
       "/v1/forwarding/codes": CODES,
       "/v1/forwarding/lines/l1/tests?limit=5": [SETTLED_TEST],
-      "/v1/forwarding/save-number": { enabled: true },
-      "/v1/call-lines": { call_lines: 2, in_progress: 1, on_trial: false },
     },
   },
   {
     // D-746: the onboarding guide's first step (a Calevate number, no existing number).
-    file: "c/[slug]/setup/existing-number/page.tsx",
+    file: "c/[slug]/phone-number/existing-number/page.tsx",
     realm: "client",
     element: () => <ExistingNumberPage />,
     routes: {
@@ -2364,7 +2361,7 @@ const CLIENT_SCREENS: Screen[] = [
       [COST_PER_RESULT_ROUTE]: COST_PER_RESULT,
       // A Calevate number and no existing number yet, so the forwarding prompt is swept.
       "/v1/forwarding": READY_TO_FORWARD,
-      // Setup not finished, so the dashboard's setup checklist is swept.
+      // Setup not finished, so the setup step in the dashboard's next steps is swept.
       "/v1/business-profile": businessProfileFixture({
         setup: {
           steps: [
@@ -2428,7 +2425,7 @@ const CLIENT_SCREENS: Screen[] = [
       "/v1/agents": [AGENT],
       "/v1/agents/stats": [{ agent_id: "agent-1", status: "live", calls_total: 12, calls_connected: 9, calls_inbound: 0, calls_outbound: 12, last_call_at: "2026-08-13T05:00:00Z", outcomes: { resolved: 6, needs_follow_up: 2, transferred: 0, dropped: 1 } }],
       // One OPEN gap, so the sweep covers the "questions your agents could not answer" row
-      // and its link in "What needs you today". The full gap card is swept on the agent page.
+      // and its link in "Next steps". The full gap card is swept on the agent page.
       "/v1/knowledge-gaps?status=open&limit=20": {
         items: [KNOWLEDGE_GAP],
         open_count: 1,
@@ -3617,7 +3614,8 @@ const CLIENT_SCREENS: Screen[] = [
     element: () => <PhoneNumberPage />,
     routes: {
       "/v1/me": ME,
-      "/v1/forwarding": READY_TO_FORWARD,
+      "/v1/call-lines": { call_lines: 2, in_progress: 1, on_trial: false },
+      "/v1/forwarding/save-number": { enabled: true },
       "/v1/campaigns/numbers": [
         {
           id: "num-1",
@@ -3816,9 +3814,11 @@ const CLIENT_SCREENS: Screen[] = [
     },
   },
   {
-    file: "c/[slug]/setup/page.tsx",
+    // The same facts asked one at a time.
+    file: "c/[slug]/settings/business/page.tsx",
+    search: "mode=steps",
     realm: "client",
-    element: () => <SetupPage />,
+    element: () => <BusinessProfilePage />,
     routes: { "/v1/me": ME, "/v1/business-profile": businessProfileFixture(), "/v1/agents": [] },
   },
   {

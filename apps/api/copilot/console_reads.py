@@ -451,7 +451,7 @@ async def _numbers_list(
         lines,
         shown_of="numbers",
         nothing=_nothing(
-            "phone numbers", next_step="One is bought on the Your phone number screen."
+            "phone numbers", next_step="One is bought on the Phone numbers screen."
         ),
     )
     if engine_has_workspaces():
@@ -466,7 +466,7 @@ async def _numbers_list(
         else:
             body += (
                 f"\nA new number cannot be bought yet: {readiness.blocker or readiness.step}. "
-                "The Your phone number screen walks through it."
+                "The Phone numbers screen walks through it."
             )
     return body + await _forwarding_and_lines(session, context.tenant_id)
 

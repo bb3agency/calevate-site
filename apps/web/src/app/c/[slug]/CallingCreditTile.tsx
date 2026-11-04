@@ -22,7 +22,7 @@ import {
 } from "@/lib/api/wallet";
 
 import { MoneyRowPending } from "./moneyRow";
-import { HOME } from "./setup/_ui/copy";
+import { HOME } from "./_ui/copy";
 
 /**
  * How much calling credit is left, and what that means today.

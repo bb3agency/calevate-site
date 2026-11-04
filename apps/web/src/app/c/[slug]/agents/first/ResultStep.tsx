@@ -37,7 +37,7 @@ import { Monogram, VoiceLine } from "./AgentTakingShape";
 import { CallStage } from "./LiveStage";
 import { OpeningLine } from "./OpeningLine";
 import { StepScreen } from "./shell";
-import { FIRST } from "../../setup/_ui/copy";
+import { FIRST } from "../../_ui/copy";
 import { Why } from "@/components/why";
 
 /** A call that did not connect has nothing to show; it gets "Try again" instead. */

@@ -32,7 +32,7 @@ import { useDesktopAlerts } from "@/lib/desktopAlerts";
 
 import { consoleHref } from "./ClientAnnouncements";
 import { currentItem } from "./ClientSidebar";
-import { HOME } from "./setup/_ui/copy";
+import { HOME } from "./_ui/copy";
 import { TrialChip, trialView } from "./TrialBanner";
 
 /**
@@ -170,7 +170,7 @@ const BELL_ROWS = 20;
 /**
  * The credit chip's phone twin: the bar has no room for the chip under `sm`, so on a phone
  * the same warning is a strip under the bar, one line and one button, on every screen but
- * the dashboard, whose "What needs you" already says it with the same button.
+ * the dashboard, whose "Next steps" already says it with the same button.
  */
 export function CreditStrip({ slug }: { slug: string }) {
   const pathname = usePathname();

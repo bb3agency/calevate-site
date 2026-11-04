@@ -12,7 +12,7 @@ import { NumberField } from "@/components/arc/number-field";
 import { Disclosure, Skeleton, formatCallCap } from "@/components/ui";
 import type { useLanes } from "@/lib/api/publishing";
 
-import { NEW_AGENT } from "../../setup/_ui/copy";
+import { NEW_AGENT } from "../../_ui/copy";
 import { Why } from "@/components/why";
 
 /**

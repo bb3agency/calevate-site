@@ -246,7 +246,7 @@ D-935 troubleshooting and line-protection healer, D-936 proactive notes, D-937 P
 | knowledge | Discard a teaching in review | (none) | now | MISSING |
 | knowledge | Voice-note into the teach box | screen only | - | NAV |
 
-### Numbers `/phone-number`, `/settings/phone-numbers`, `/setup/existing-number`
+### Phone numbers `/phone-number` (both sections), `/phone-number/existing-number`
 
 | Screen | Action or question | Pip tool:action | Tier | Status |
 |---|---|---|---|---|

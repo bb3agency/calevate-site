@@ -244,16 +244,24 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
     ),
     Screen(
         route="/c/{slug}/phone-number",
-        name="Your phone number",
+        name="Phone numbers",
         group=None,
         summary=(
-            "The number to point your existing business phone at, and what to tell your operator."
+            "Two sections: the numbers Calevate provides (getting one, which agent answers "
+            "it, calls at once, the save-our-number message), and the business's existing "
+            "number forwarded to one of them (phone codes, the forwarding test)."
         ),
         aliases=(
             "phone number",
+            "your phone number",
             "my number",
-            "forwarding",
             "did",
+            "forwarding",
+            "existing number",
+            "call forwarding",
+            "forward my number",
+            "divert",
+            "test forwarding",
         ),
     ),
     Screen(
@@ -373,9 +381,15 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         name="Business profile",
         group=SETTINGS_GROUP,
         summary="The business's hours, address, services and prices, common questions, "
-        "staff, booking rules, people who take calls and languages — what every agent says.",
+        "staff, booking rules, people who take calls and languages — what every agent says. "
+        "Every answer on one page, or one question at a time, every question skippable.",
         aliases=(
             "business details",
+            "business setup",
+            "setup",
+            "onboarding",
+            "getting started",
+            "setup wizard",
             "opening hours",
             "address",
             "prices",
@@ -400,14 +414,6 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         ),
     ),
     Screen(
-        route="/c/{slug}/setup",
-        name="Business setup",
-        group=SETTINGS_GROUP,
-        summary="A step-by-step walk through the business profile, one topic at a time, "
-        "every step skippable.",
-        aliases=("setup", "onboarding", "getting started", "setup wizard"),
-    ),
-    Screen(
         route="/c/{slug}/settings/team",
         name="Team",
         group=SETTINGS_GROUP,
@@ -428,20 +434,6 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         summary="What happens to callers if an agent cannot take calls, the backup phone "
         "calls go to, and anything that went wrong with a line lately.",
         aliases=("backup number", "forward calls", "fallback phone", "line down", "outage"),
-    ),
-    Screen(
-        route="/c/{slug}/settings/phone-numbers",
-        name="Phone numbers",
-        group=SETTINGS_GROUP,
-        summary="The number callers already know, forwarded to the Calevate number: how its "
-        "calls reach the agent, phone codes, the forwarding test, the save-our-number message.",
-        aliases=(
-            "existing number",
-            "call forwarding",
-            "forward my number",
-            "divert",
-            "test forwarding",
-        ),
     ),
     Screen(
         route="/c/{slug}/settings/models",

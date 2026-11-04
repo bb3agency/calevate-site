@@ -853,7 +853,7 @@ that a truncated copy says so.
   captured at commit from every write (`apps/api/live/capture.py`) and published to Redis
   pub/sub as hints. TRD §8a has the mechanics. WebSockets remain NOT planned — we have no
   client→server streaming need; revisit only via a decision-log entry.
-- **Covered screens.** Client: dashboard (figures, This week, What needs you today, Where
+- **Covered screens.** Client: dashboard (figures, This week, Next steps, Where
   your agents struggled, latest calls, agents at a glance), calls list and call detail,
   leads and lead detail, campaigns list, detail, results and people, call-backs, knowledge
   and knowledge gaps, billing, wallet, credit and usage, numbers and forwarding,

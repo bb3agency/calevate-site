@@ -9,7 +9,8 @@
 const plural = (count: number, one: string, many: string) => (count === 1 ? one : many);
 
 export const HOME = {
-  needsTitle: "What needs you",
+  nextTitle: "Next steps",
+  seeAll: "See all",
   hotLeads: (n: number) => `${plural(n, "hot lead", "hot leads")} to call back`,
   hotLeadsAction: "Call back",
   missed: (n: number) => `${plural(n, "missed call", "missed calls")} today`,
@@ -36,6 +37,7 @@ export const HOME = {
   meetStart: "Build my agent",
   meetContinue: "Continue",
   goLiveTitle: "Go live",
+  goLiveStepOf: (at: number, of: number) => `Go live: step ${at} of ${of}`,
   goLiveContinue: "Continue",
   goLiveStep: {
     move: "Moving your agents",
@@ -48,9 +50,14 @@ export const HOME = {
   quietLastWeek: (n: number, shown = String(n)) => `${shown} ${plural(n, "call", "calls")} last week`,
   quietLeads: (n: number, shown = String(n)) => `${shown} new ${plural(n, "lead", "leads")}`,
   quietNoAgent: "No agent yet",
-  readinessPending: "Not scored yet",
-  readinessDone: "All fixed. Ready for calls.",
-  readinessFixes: "Fix next",
+  readinessScore: (score: number) => `Ready for calls: ${score} of 100`,
+  readinessFix: "Fix",
+  readinessFailed: "Couldn't check how ready your agents are",
+  setupTitle: "Set up your business",
+  setupNeeded: "Your agents need this to take calls",
+  setupLeft: (left: number, next: string) => `${left} left. Next: ${next}`,
+  setupAction: "Continue",
+  setupHide: "Hide from dashboard",
   creditStatusStopped: "Calls in and out stopped",
   creditStatusLow: "Running low",
   creditStatusHealthy: "Healthy",
@@ -118,8 +125,6 @@ export const SETUP = {
   needed: "Needed for calls",
   stepOf: (at: number, of: number) => `Step ${at} of ${of}`,
   allSeen: "All steps seen",
-  changeLater: "Change answers later in",
-  profile: "Business profile",
   readyTitle: "Your agents have what they need",
   readyHint: "Agents now use these answers.",
   almostTitle: "Almost there",
@@ -130,7 +135,7 @@ export const SETUP = {
   needNumber: "Get your Calevate number first",
   needNumberAction: "Get a number",
   existingDone: "Your existing number is set up",
-  existingSettings: "Open settings",
+  existingSettings: "See your number",
 } as const;
 
 export const FIRST = {

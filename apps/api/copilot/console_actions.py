@@ -1,5 +1,5 @@
 """The client assistant's console actions (D-698): the buttons on the Leads, Campaigns,
-Agents, Calls, Call-backs, Knowledge base and Your phone number screens, as tools.
+Agents, Calls, Call-backs, Knowledge base and Phone numbers screens, as tools.
 
 Every tool here follows `docs/COPILOT-CONTRACT.md`. Read §1 for the tiers before adding
 one; what follows is only what is particular to this module.
@@ -3047,7 +3047,7 @@ async def _execute_number_buy(
     )
     return Executed(
         applied=not bought.replayed,
-        detail="The number is yours and appears on the Your phone number screen.",
+        detail="The number is yours and appears on the Phone numbers screen.",
         audit_summary={
             "inr_per_month": None
             if bought.client_inr_per_month is None
@@ -3068,7 +3068,7 @@ NUMBER_BUY: Final = ActionTool(
     # Spends credit on a vendor (D-893 F4): the same emailed code an export or a stored key
     # asks for, so a sentence typed into Pip cannot buy a number on its own.
     action_code=account_code("buy_number"),
-    where="on the Your phone number screen",
+    where="on the Phone numbers screen",
     schema=action_schema(
         "number_buy",
         "Propose renting a new phone number in a city (see `numbers_available`). It spends "
@@ -3152,7 +3152,7 @@ NUMBER_RELEASE: Final = ActionTool(
     permission="org:manage",
     object_type="phone_number",
     audit_action="number.released",
-    where="on the Your phone number screen",
+    where="on the Phone numbers screen",
     schema=action_schema(
         "number_release",
         "Propose giving up one of the account's phone numbers for good." + PROPOSES_ONLY,

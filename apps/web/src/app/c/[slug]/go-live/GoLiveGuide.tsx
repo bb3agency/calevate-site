@@ -25,7 +25,7 @@ import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
 
 import { StepRail, StepScreen } from "../agents/first/shell";
-import { GO_LIVE } from "../setup/_ui/copy";
+import { GO_LIVE } from "../_ui/copy";
 import { Why } from "@/components/why";
 
 /** The route this screen lives on, for links into it. */

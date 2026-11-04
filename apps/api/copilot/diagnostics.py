@@ -454,7 +454,7 @@ async def diagnose_agent(session: AsyncSession, tenant_id: UUID, agent_id: UUID)
                 label,
                 f"{name}'s number is on hold.",
                 *evidence,
-                fix=screen_fix("Open your number", "Your phone number"),
+                fix=screen_fix("Open your number", "Phone numbers"),
             )
         if not any(n.activated for n in mine):
             return problem(

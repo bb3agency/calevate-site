@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { skippedNote } from "@/app/c/[slug]/agents/[agentId]/script/ImprovementReview";
 import { TOUR_STEPS } from "@/app/c/[slug]/agents/[agentId]/tour/tourModel";
-import { splitHint } from "@/app/c/[slug]/setup/SetupWizard";
+import { splitHint } from "@/app/c/[slug]/settings/business/SetupWizard";
 import { openingWaitsLine } from "@/components/callHandlingRows";
 import { modeSummary } from "@/components/forwarding/copy";
 import { originLine } from "@/components/leadFields/CallOutcomesView";

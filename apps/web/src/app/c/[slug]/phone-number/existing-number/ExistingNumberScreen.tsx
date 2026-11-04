@@ -10,8 +10,9 @@ import { NoticeBox, PRIMARY_BUTTON, ProblemNotice, RestrictionNote, SECONDARY_BU
 import { useForwarding } from "@/lib/api/forwarding";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
+import { EXISTING_SECTION } from "@/lib/phoneNumbersSection";
 
-import { SETUP } from "../_ui/copy";
+import { SETUP } from "../../_ui/copy";
 import { Why } from "@/components/why";
 
 /**
@@ -24,7 +25,7 @@ export function ExistingNumberScreen() {
   const slug = session.orgSlug;
   const forwarding = useForwarding(session);
   const write = useWriteAccess(session, "org:manage", "set up your existing number");
-  const settings = href(`/c/${slug}/settings/phone-numbers`);
+  const settings = href(`/c/${slug}/phone-number?section=${EXISTING_SECTION}`);
   const leave = () => {
     dismissExistingNumberPrompt(slug);
     router.push(href(`/c/${slug}`));
@@ -78,8 +79,12 @@ export function ExistingNumberScreen() {
   return (
     <div className="max-w-2xl space-y-6 pb-12">
       <div>
-        <PageHeader title={SETUP.existingTitle} description={SETUP.existingHint} />
-        <Why label={SETUP.existingWhy}>Calls reach your agent through call forwarding on your phone.</Why>
+        <PageHeader
+          title={SETUP.existingTitle}
+          description={SETUP.existingHint}
+          back={{ href: settings, label: "Phone numbers" }}
+        />
+        <Why label={SETUP.existingWhy}>Your phone forwards its calls to your agent.</Why>
       </div>
       <RestrictionNote reason={write.reason} />
       {body}
