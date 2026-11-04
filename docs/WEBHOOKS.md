@@ -386,8 +386,8 @@ Errors are RFC-9457 `application/problem+json`. A wrong or missing `X-Ingest-Sec
 - **404** `not_found` — unknown **or deactivated** webhook id (deliberately
   indistinguishable to a probing sender).
 - **422** `ingest_not_json` (body is not JSON), `ingest_no_phone` (no dialable number;
-  includes a `fields` array naming `phone`), `ingest_no_agent` (source not yet attached
-  to an agent — fix in the console).
+  includes a `fields` array naming `phone`), `ingest_no_agent` (no agent calls new leads
+  yet — choose one in the "Call new leads" Follow-up).
 
 `retryable` tells you whether retrying can possibly help; for all of the above it is
 `false` — fix the request instead.

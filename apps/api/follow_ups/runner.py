@@ -196,6 +196,13 @@ async def new_lead_follow_up(
 
         if await ensure_call_new_leads(session, tenant_id=await session_tenant(session)):
             follow_ups = await live_follow_ups(session, "new_lead")
+    return matching_new_lead_follow_up(follow_ups, source_id)
+
+
+def matching_new_lead_follow_up(
+    follow_ups: list[LiveFollowUp], source_id: UUID | None
+) -> LiveFollowUp | None:
+    """Of the live new-lead Follow-ups, the one a new lead from `source_id` starts."""
     for follow_up in follow_ups:
         trigger = follow_up.trigger
         assert isinstance(trigger, d.NewLeadTrigger)
@@ -1698,6 +1705,7 @@ __all__ = [
     "link_run_to_call",
     "live_follow_ups",
     "load_run",
+    "matching_new_lead_follow_up",
     "new_lead_follow_up",
     "on_call_ended",
     "parse_callback_key",

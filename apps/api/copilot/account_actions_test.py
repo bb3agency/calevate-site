@@ -155,7 +155,6 @@ def test_only_the_reviewed_account_actions_skip_the_click() -> None:
         "ai_allowance_extra",
         "auto_recharge_set",
         "held_lead_decide",
-        "lead_source_edit",
         "lead_source_switch",
         "team_invite",
     ):
@@ -460,13 +459,7 @@ async def test_the_backup_phone_is_set_and_removed_and_a_landline_is_refused() -
 
 async def test_a_lead_source_shows_its_secret_once_and_never_logs_it() -> None:
     tenant_id, _slug, token = await _make_tenant()
-    agent_id = await _agent_of(tenant_id)
-    done = await _do(
-        tenant_id,
-        token,
-        "lead_source_create",
-        {"source": "website_form", "agent_id": str(agent_id)},
-    )
+    done = await _do(tenant_id, token, "lead_source_create", {"source": "website_form"})
     assert "X-Ingest-Secret" in done.detail or "Copy it now" in done.detail
     assert "secret was shown once" in await _action_summary(tenant_id, "lead_source_create")
     source_id = str((await _one(tenant_id, "SELECT id FROM inbound_webhooks"))[0])
@@ -480,10 +473,9 @@ async def test_a_lead_source_shows_its_secret_once_and_never_logs_it() -> None:
     assert "shown once" in await _action_summary(tenant_id, "lead_source_rotate")
 
 
-async def test_a_lead_source_is_paused_resumed_and_repointed_only_on_a_click() -> None:
+async def test_a_lead_source_is_paused_and_resumed_only_on_a_click() -> None:
     tenant_id, _slug, token = await _make_tenant()
-    agent_id = await _agent_of(tenant_id)
-    await _do(tenant_id, token, "lead_source_create", {"source": "custom", "agent_id": None})
+    await _do(tenant_id, token, "lead_source_create", {"source": "custom"})
     source_id = str((await _one(tenant_id, "SELECT id FROM inbound_webhooks"))[0])
 
     # A resumed source rings every new lead, so neither direction runs without a click.
@@ -503,14 +495,6 @@ async def test_a_lead_source_is_paused_resumed_and_repointed_only_on_a_click() -
         await _propose(
             tenant_id, token, "lead_source_switch", {"lead_source_id": source_id, "on": True}
         )
-
-    # An agentless source refuses every lead; naming an agent starts them ringing.
-    pointing = {"lead_source_id": source_id, "agent_id": str(agent_id)}
-    with pytest.raises(write_tools.WriteRefusedError):
-        await _run(tenant_id, token, "lead_source_edit", pointing)
-    assert (await _one(tenant_id, "SELECT agent_id FROM inbound_webhooks"))[0] is None
-    await _do(tenant_id, token, "lead_source_edit", pointing)
-    assert (await _one(tenant_id, "SELECT agent_id FROM inbound_webhooks"))[0] == agent_id
 
 
 async def test_the_calling_rules_merge_with_the_plan_and_held_leads_are_decided() -> None:

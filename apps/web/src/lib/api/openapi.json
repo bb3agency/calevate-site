@@ -19338,18 +19338,6 @@
       "CreateLeadSourceIn": {
         "additionalProperties": false,
         "properties": {
-          "agent_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Agent Id"
-          },
           "app_secret": {
             "anyOf": [
               {
@@ -33538,8 +33526,9 @@
         "title": "LeadSearchIn",
         "type": "object"
       },
-      "LeadSourceAgentOut": {
+      "LeadSourceCallerOut": {
         "additionalProperties": false,
+        "description": "Who calls this source's new leads, decided by `service.new_lead_caller`.",
         "properties": {
           "agent_id": {
             "anyOf": [
@@ -33553,17 +33542,70 @@
             ],
             "title": "Agent Id"
           },
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
+          "agent_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Name"
+          },
+          "called": {
+            "title": "Called",
+            "type": "boolean"
+          },
+          "chosen_by": {
+            "anyOf": [
+              {
+                "enum": [
+                  "follow_up",
+                  "source",
+                  "account"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chosen By"
+          },
+          "follow_up_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Follow Up Id"
+          },
+          "follow_up_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Follow Up Name"
           }
         },
         "required": [
-          "id",
-          "agent_id"
+          "agent_id",
+          "agent_name",
+          "chosen_by",
+          "called",
+          "follow_up_id",
+          "follow_up_name"
         ],
-        "title": "LeadSourceAgentOut",
+        "title": "LeadSourceCallerOut",
         "type": "object"
       },
       "LeadSourceConsentBasisIn": {
@@ -33812,17 +33854,8 @@
             "title": "Active",
             "type": "boolean"
           },
-          "agent_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Agent Id"
+          "caller": {
+            "$ref": "#/components/schemas/LeadSourceCallerOut"
           },
           "consent_basis": {
             "enum": [
@@ -33883,7 +33916,7 @@
           "id",
           "source",
           "ingest_path",
-          "agent_id",
+          "caller",
           "active",
           "mapping",
           "secret_fingerprint",
@@ -59331,28 +59364,6 @@
           "events"
         ],
         "title": "UpdateEndpointIn",
-        "type": "object"
-      },
-      "UpdateLeadSourceIn": {
-        "additionalProperties": false,
-        "properties": {
-          "agent_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Agent Id"
-          }
-        },
-        "required": [
-          "agent_id"
-        ],
-        "title": "UpdateLeadSourceIn",
         "type": "object"
       },
       "UploadOut": {
@@ -92075,55 +92086,6 @@
           }
         },
         "summary": "Disable \u2014 kept, not deleted, so the delivery history stays readable",
-        "tags": [
-          "lead-ingest"
-        ],
-        "x-calevate-permission": "org:manage"
-      },
-      "patch": {
-        "description": "Points the source at another agent, or at none. The secret and the address are unchanged. Refused with a 404 for an agent of another account and `agent_archived` for a deleted one.",
-        "operationId": "update_lead_source_v1_lead_sources__webhook_id__patch",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "webhook_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Webhook Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateLeadSourceIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LeadSourceAgentOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "Choose which agent answers leads from this source",
         "tags": [
           "lead-ingest"
         ],

@@ -412,6 +412,14 @@ async def create_agent(
             created_by=created_by,
             language=language_primary,
         )
+        if "call_new_leads" in starter_jobs(starter):
+            # The job "Call new leads instantly" means "this agent calls new leads", and the
+            # "Call new leads" Follow-up is the one place that says who does.
+            from apps.api.follow_ups.service import make_new_lead_caller
+
+            await make_new_lead_caller(
+                session, tenant_id=tenant_id, agent_id=agent_id, user_id=created_by
+            )
     log.info(
         "agent_created",
         extra={

@@ -1066,31 +1066,26 @@ class _SourceCreateArgs(BaseModel):
         "housing",
         "leadsquared",
     ]
-    agent_id: UUID | None
 
 
 async def _plan_source_create(
     session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
 ) -> Plan:
-    del actor
+    del actor, session
     parsed = parse_args(_SourceCreateArgs, args)
-    agent = None if parsed.agent_id is None else await agent_name(session, parsed.agent_id)
     return Plan(
         object_id="",
         title="Add a lead source",
         summary=(
-            f"Make an address your {parsed.source.replace('_', ' ')} can send new leads to"
-            + (f"; “{agent}” calls them" if agent else "; choose an agent before leads arrive")
-            + ". Its secret is shown once, on the confirmation."
+            f"Make an address your {parsed.source.replace('_', ' ')} can send new leads to; "
+            "the agent in Call new leads calls them. Its secret is shown once, on the "
+            "confirmation."
         ),
         current=None,
         proposed=parsed.source,
         cost=None,
         reversal="Pause it on the Lead sources screen.",
-        args={
-            "source": parsed.source,
-            "agent_id": None if parsed.agent_id is None else str(parsed.agent_id),
-        },
+        args={"source": parsed.source},
     )
 
 
@@ -1107,7 +1102,6 @@ async def _execute_source_create(
         session,
         tenant_id=actor.tenant_id,
         source=parsed.source,
-        agent_id=parsed.agent_id,
         mapping={},
         supplied_secret=None,
     )
@@ -1139,101 +1133,25 @@ LEAD_SOURCE_CREATE: Final = ActionTool(
     schema=action_schema(
         "lead_source_create",
         "Propose a new lead source address (portals and LeadSquared get one with the secret "
-        "in it). Meta Lead Ads is set up on the Lead sources screen." + PROPOSES_ONLY,
-        {
-            "source": {"type": "string", "enum": _SOURCE_KINDS},
-            "agent_id": {"anyOf": [{"type": "string"}, {"type": "null"}]},
-        },
+        "in it). Meta Lead Ads is set up on the Lead sources screen. Who calls its leads is "
+        "the agent in the 'Call new leads' Follow-up." + PROPOSES_ONLY,
+        {"source": {"type": "string", "enum": _SOURCE_KINDS}},
     ),
     plan=_plan_source_create,
     execute=_execute_source_create,
 )
 
 
-class _SourceAgentArgs(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    lead_source_id: UUID
-    agent_id: UUID | None
-
-
-async def _source_row(session: AsyncSession, source_id: UUID) -> tuple[str, UUID | None, bool]:
+async def _source_row(session: AsyncSession, source_id: UUID) -> tuple[str, bool]:
     row = (
         await session.execute(
-            text("SELECT source, agent_id, active FROM inbound_webhooks WHERE id = :id"),
+            text("SELECT source, active FROM inbound_webhooks WHERE id = :id"),
             {"id": source_id},
         )
     ).first()
     if row is None:
         raise ProblemError.not_found("Lead source")
-    return str(row[0]), _uuid_or_none(row[1]), bool(row[2])
-
-
-async def _plan_source_agent(
-    session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
-) -> Plan:
-    del actor
-    parsed = parse_args(_SourceAgentArgs, args)
-    source, current_agent, _active = await _source_row(session, parsed.lead_source_id)
-    current = "no agent" if current_agent is None else await agent_name(session, current_agent)
-    proposed = "no agent" if parsed.agent_id is None else await agent_name(session, parsed.agent_id)
-    return Plan(
-        object_id=str(parsed.lead_source_id),
-        title="Change who answers a lead source",
-        summary=f"New leads from {source.replace('_', ' ')} go to “{proposed}”.",
-        current=current,
-        proposed=proposed,
-        cost=None,
-        reversal="Choose the previous agent again at any time.",
-        args={
-            "lead_source_id": str(parsed.lead_source_id),
-            "agent_id": None if parsed.agent_id is None else str(parsed.agent_id),
-        },
-    )
-
-
-async def _execute_source_agent(
-    session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
-) -> Executed:
-    """`ingest.service.set_source_agent` — `PATCH /v1/lead-sources/{id}`'s call."""
-    from apps.api.ingest.service import set_source_agent
-
-    del actor
-    parsed = parse_args(_SourceAgentArgs, args)
-    previous = await set_source_agent(
-        session, webhook_id=parsed.lead_source_id, agent_id=parsed.agent_id
-    )
-    return Executed(
-        applied=previous != parsed.agent_id,
-        detail="Saved. New leads from it go to the chosen agent.",
-        audit_summary={"agent_id": None if parsed.agent_id is None else str(parsed.agent_id)},
-    )
-
-
-#: CONFIRM. Ingest refuses every lead from a source with no agent (`ingest_no_agent`), so
-#: pointing an agentless source at an agent starts speed-to-lead dialling: it reaches callers
-#: and spends credit, outside the immediate tier's bar (the same reason as
-#: `LEAD_SOURCE_SWITCH`).
-LEAD_SOURCE_EDIT: Final = ActionTool(
-    name="lead_source_edit",
-    tier="confirm",
-    undo=None,
-    permission="org:manage",
-    object_type="inbound_webhook",
-    audit_action="lead_source.agent_changed",
-    where="on the Lead sources screen",
-    schema=action_schema(
-        "lead_source_edit",
-        "Propose which agent answers leads from one lead source (ids from "
-        "`integrations_status`)." + PROPOSES_ONLY,
-        {
-            "lead_source_id": {"type": "string"},
-            "agent_id": {"anyOf": [{"type": "string"}, {"type": "null"}]},
-        },
-    ),
-    plan=_plan_source_agent,
-    execute=_execute_source_agent,
-)
+    return str(row[0]), bool(row[1])
 
 
 class _FieldPair(BaseModel):
@@ -1409,7 +1327,7 @@ async def _plan_source_switch(
 ) -> Plan:
     del actor
     parsed = parse_args(_SourceSwitchArgs, args)
-    source, _agent, active = await _source_row(session, parsed.lead_source_id)
+    source, active = await _source_row(session, parsed.lead_source_id)
     if active == parsed.on:
         raise WriteRefusedError(f"that lead source is already {'on' if active else 'paused'}")
     return Plan(
@@ -1485,7 +1403,7 @@ async def _plan_source_rotate(
     from apps.api.ingest.service import CLIENT_SUPPLIED_SECRET_SOURCES
 
     parsed = parse_args(_SourceRotateArgs, args)
-    source, _agent, _active = await _source_row(session, parsed.lead_source_id)
+    source, _active = await _source_row(session, parsed.lead_source_id)
     if source in CLIENT_SUPPLIED_SECRET_SOURCES:
         raise WriteRefusedError(
             "this source uses the person's own app secret; it is replaced on the Lead sources "
@@ -2606,7 +2524,6 @@ ACCOUNT_ACTIONS: Final[tuple[ActionTool, ...]] = (
     TEAM_INVITATION,
     LINE_PROTECTION_PHONE,
     LEAD_SOURCE_CREATE,
-    LEAD_SOURCE_EDIT,
     LEAD_SOURCE_SWITCH,
     LEAD_SOURCE_ROTATE,
     LEAD_CALLING_RULES,

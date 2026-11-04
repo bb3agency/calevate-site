@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
-from uuid import UUID
 
 import httpx
 import pytest
@@ -126,7 +125,7 @@ async def test_the_minted_secret_actually_authenticates_a_real_delivery() -> Non
             headers={SECRET_HEADER: source["secret"]},
         )
     assert wrong.status_code == 401, wrong.text
-    # 422 `ingest_no_agent` — no agent is attached, which is a decision made AFTER the
+    # 422 `ingest_no_agent` — no agent can call yet, which is a decision made AFTER the
     # credential was accepted. Anything but 401 proves the secret authenticated.
     assert right.status_code != 401, right.text
 
@@ -367,22 +366,6 @@ async def test_one_tenants_lead_sources_are_invisible_and_untouchable_to_another
     assert disable_b.status_code == 404, disable_b.text
     assert enable_b.status_code == 404, enable_b.text
     assert still_a.status_code != 401, "B's attempts must not have rotated or disabled A"
-
-
-async def test_an_agent_from_another_tenant_cannot_be_attached() -> None:
-    """The foreign key is to the GLOBAL `agents` table and knows nothing about tenancy,
-    so without an explicit tenant-scoped read this would create a source that dispatches
-    through somebody else's agent."""
-    tenant_a, slug_a, token_a = await _make_tenant()
-    _, slug_b, token_b = await _make_tenant()
-    async with tenant_session(tenant_a) as session:
-        agent_a = (await session.execute(text("SELECT id FROM agents LIMIT 1"))).scalar_one()
-
-    async with _client() as http:
-        refused = await _create_source(http, slug_b, token_b, agent_id=str(agent_a))
-        allowed = await _create_source(http, slug_a, token_a, agent_id=str(agent_a))
-    assert refused.status_code == 404, refused.text
-    assert allowed.status_code == 201, allowed.text
 
 
 # --- refusals a client can act on ---------------------------------------------
@@ -681,7 +664,6 @@ async def _one_source(tenant_id: uuid.UUID) -> uuid.UUID:
             session,
             tenant_id=tenant_id,
             source="website_form",
-            agent_id=None,
             mapping={"phone": "phone_number"},
             supplied_secret=None,
         )
@@ -773,42 +755,19 @@ async def test_set_active_on_a_source_that_does_not_exist_is_a_404_not_a_shrug()
             assert raised.value.status == 404
 
 
-async def test_the_service_refuses_an_agent_that_is_not_this_tenants() -> None:
-    """The foreign key is to the GLOBAL `agents` table, so it would accept this. The
-    route test above proves the 404 over HTTP; this pins the check at the function that
-    makes it, including the unknown-id case a foreign-agent test does not reach."""
+async def test_the_service_writes_a_source_and_lists_it_by_fingerprint() -> None:
     tenant_a, _slug_a, _token_a = await _make_tenant()
-    tenant_b, _slug_b, _token_b = await _make_tenant()
-    async with tenant_session(tenant_a) as session:
-        agent_a = (await session.execute(text("SELECT id FROM agents LIMIT 1"))).scalar_one()
-
-    for scope, target in (("another tenant's agent", agent_a), ("no agent at all", uuid.uuid4())):
-        async with tenant_session(tenant_b) as session:
-            with pytest.raises(ProblemError) as raised:
-                await service.create_lead_source(
-                    session,
-                    tenant_id=tenant_b,
-                    source="website_form",
-                    agent_id=UUID(str(target)),
-                    mapping={},
-                    supplied_secret=None,
-                )
-        assert raised.value.code == "not_found", scope
-
-    # And the same call with an agent that IS theirs writes the row and mints a secret.
     async with tenant_session(tenant_a) as session:
         webhook_id, secret = await service.create_lead_source(
             session,
             tenant_id=tenant_a,
             source="website_form",
-            agent_id=UUID(str(agent_a)),
             mapping={},
             supplied_secret=None,
         )
         listed = await service.list_lead_sources(session)
     assert secret
     assert [row.id for row in listed] == [webhook_id]
-    assert listed[0].agent_id == agent_a
     assert listed[0].active is True
     assert listed[0].secret_fingerprint == secret_fingerprint(secret)
     assert listed[0].previous_secret_expires_at is None

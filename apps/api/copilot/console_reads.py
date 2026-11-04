@@ -77,7 +77,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import ADMIN_ROLES, role_has
 from apps.api.crm import service as crm_service
 from apps.api.crm.attention import attention_queue, failed_deliveries
-from apps.api.ingest.service import list_lead_sources
+from apps.api.ingest.service import SourceCaller, list_lead_sources, source_callers
 from apps.api.quality.service import list_reports
 from apps.api.teach import questions as teach_questions
 
@@ -684,6 +684,17 @@ async def _verification_status(
 # --- integrations_status ---------------------------------------------------------------
 
 
+def _source_caller_line(found: SourceCaller) -> str:
+    if not found.called:
+        return " (its new leads are kept, not called: no live new-lead Follow-up takes them)"
+    if found.caller.agent_id is None:
+        return " (no agent can call its new leads)"
+    return (
+        _clean(f" (new leads called by {found.agent_name or 'an agent'})")
+        + f" [agent_id {found.caller.agent_id}]"
+    )
+
+
 async def _integrations_status(
     session: AsyncSession, context: ToolContext, args: Mapping[str, Any]
 ) -> str:
@@ -699,11 +710,12 @@ async def _integrations_status(
     from apps.api.integrations.routes import list_endpoints
 
     sources = await list_lead_sources(session, limit=MAX_ROWS)
+    callers = await source_callers(session, sources)
     lines = [f"Lead sources: {len(sources)}."]
     lines.extend(
         _clean(f"- {s.source} · {'on' if s.active else 'paused'}")
         + f" [lead_source_id {s.id}]"
-        + (f" [agent_id {s.agent_id}]" if s.agent_id else " (no agent chosen)")
+        + _source_caller_line(callers[s.id])
         for s in sources
     )
     plan = await lead_policy.load_plan(session)

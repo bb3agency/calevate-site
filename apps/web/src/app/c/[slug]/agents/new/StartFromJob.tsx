@@ -44,7 +44,14 @@ import { NEW_AGENT } from "../../setup/_ui/copy";
 /** `AgentCreateIn.opening_line`'s limit (`call_rules.OPENING_LINE_MAX_CHARS`). */
 const OPENING_MAX_CHARS = 120;
 
-export const JOBS: { job: StarterJob; title: string; line: string; icon: typeof PhoneIncoming }[] = [
+export const JOBS: {
+  job: StarterJob;
+  title: string;
+  line: string;
+  icon: typeof PhoneIncoming;
+  /** What creating it changes beyond the agent itself, said before the owner creates it. */
+  effect?: string;
+}[] = [
   {
     job: "answer_calls",
     title: "Answer my calls",
@@ -56,6 +63,8 @@ export const JOBS: { job: StarterJob; title: string; line: string; icon: typeof 
     title: "Call new leads instantly",
     line: "Rings each new enquiry within minutes.",
     icon: Zap,
+    // The server names it in the "Call new leads" Follow-up (`make_new_lead_caller`).
+    effect: "It becomes the agent in Call new leads once it is live.",
   },
   {
     job: "call_leads",
@@ -216,6 +225,7 @@ function StarterPreviewStep({
         <div>
           <h2 className="text-title text-ink">{job.title}</h2>
           <p className="mt-1 text-body text-ink-muted">We write its script for your business once you create it.</p>
+          {job.effect ? <p className="mt-1 text-body text-ink-muted">{job.effect}</p> : null}
         </div>
       </div>
 

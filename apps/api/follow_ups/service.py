@@ -610,6 +610,82 @@ async def publish(
     return await get(session, row.id)
 
 
+def _with_caller(steps: list[d.AnyStep], agent_id: UUID) -> list[d.AnyStep] | None:
+    """`steps` with the first call step naming `agent_id`; None when there is no call step."""
+    for index, step in enumerate(steps):
+        if isinstance(step, d.CallStep):
+            changed = step.model_copy(update={"agent_id": agent_id})
+            return [*steps[:index], changed, *steps[index + 1 :]]
+    return None
+
+
+async def make_new_lead_caller(
+    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID, user_id: UUID | None
+) -> UUID | None:
+    """Make `agent_id` the agent that calls new leads: the first call step of the account's
+    "Call new leads" names it in a new live version, and in the draft when there is one.
+    Returns the Follow-up's id, or None when it has no call step to name the agent in.
+
+    This is what creating an agent for the job "Call new leads instantly" does, so the job is
+    not a second place that says who calls new leads. The version is written here rather than
+    through `publish` because the agent is born a draft and `publish` refuses an unpublished
+    agent; until it is published, `ingest.service.new_lead_caller` passes over it to the next
+    agent in its order, and the Follow-up's problems say to publish it. The status is kept:
+    a Follow-up the owner turned off stays off."""
+    await runner.ensure_call_new_leads(session, tenant_id=tenant_id)
+    await _lock_tenant(session, tenant_id)
+    found = (
+        await session.execute(text("SELECT id FROM follow_ups WHERE starter = 'call_new_leads'"))
+    ).scalar()
+    if found is None:
+        return None
+    row = await get(session, UUID(str(found)), lock=True)
+    live = (
+        (await runner.version(session, row.live_version_id))
+        if row.live_version_id is not None
+        else None
+    )
+    new_live = _with_caller(live.steps, agent_id) if live is not None else None
+    new_draft = _with_caller(row.draft, agent_id) if row.draft is not None else None
+    if new_live is None and new_draft is None:
+        return None
+    if live is not None and new_live is not None:
+        version_id = uuid7()
+        await session.execute(
+            text(
+                "INSERT INTO follow_up_versions (id, tenant_id, follow_up_id, number, steps, "
+                "trigger, settings, published_by) SELECT :id, :tid, :fid, coalesce(max(number), "
+                "0) + 1, CAST(:steps AS jsonb), CAST(:trigger AS jsonb), CAST(:settings AS jsonb), "
+                ":by FROM follow_up_versions WHERE follow_up_id = :fid"
+            ),
+            {
+                "id": version_id,
+                "tid": tenant_id,
+                "fid": row.id,
+                "steps": _json(d.dump_steps(new_live)),
+                "trigger": _json(d.dump_trigger(live.trigger)),
+                "settings": _json(d.dump_settings(live.settings)),
+                "by": user_id,
+            },
+        )
+        await session.execute(
+            text(
+                "UPDATE follow_ups SET live_version_id = :vid, updated_at = now() WHERE id = :fid"
+            ),
+            {"vid": version_id, "fid": row.id},
+        )
+    if new_draft is not None:
+        same = new_live is not None and d.dump_steps(new_draft) == d.dump_steps(new_live)
+        await session.execute(
+            text(
+                "UPDATE follow_ups SET draft = CAST(:draft AS jsonb), updated_at = now() "
+                "WHERE id = :fid"
+            ),
+            {"fid": row.id, "draft": None if same else _json(d.dump_steps(new_draft))},
+        )
+    return row.id
+
+
 async def pause(session: AsyncSession, follow_up_id: UUID) -> Row:
     """Runs wait where they are; a call already booked is called off and booked again on
     resume."""
@@ -992,6 +1068,7 @@ __all__ = [
     "get_run",
     "list_all",
     "list_runs",
+    "make_new_lead_caller",
     "names",
     "pause",
     "problems_of",

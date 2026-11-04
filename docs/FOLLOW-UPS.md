@@ -264,6 +264,7 @@ schemas.py` and the OpenAPI snapshot are the exact shapes.
   point to a LATER step (`step_goes_back`); `decide`, `tell_team` and `action` need a `call`
   before them unless the trigger is `call_ended` (`needs_a_call`).
 * **`call`.** `agent_id` null is the lead's own agent (what a plan with no calling agent did).
+  For a NEW lead, which has no agent yet, see "Who calls a new lead" below.
   `wait_seconds` (0..3600, optional) is an exact wait carried over from the old plan and wins
   over `wait_minutes`; any wait edit clears it. `retry_minutes` is 10..1440, the old plan's
   floor, so every migrated plan stays valid. The next try is booked when a try is dialled
@@ -314,6 +315,23 @@ schemas.py` and the OpenAPI snapshot are the exact shapes.
 * **A try unanswered while paused** keeps the step's remaining tries: the run is due again
   at that try and books it once the Follow-up is live.
 * **Pause** calls off the run's booked call-backs; **resume** books them again at once.
+* **Who calls a new lead.** The new-lead Follow-up is the one place that says it; a lead
+  source has no agent setting (no picker, no `agent_id` on `POST /v1/lead-sources`, no
+  `PATCH /v1/lead-sources/{id}`, no Pip `lead_source_edit`). `ingest.service.new_lead_caller`
+  takes the first PUBLISHED agent of: the Follow-up's first call step's agent; the agent a
+  source was set up with before this (`inbound_webhooks.agent_id`, kept for those rows, never
+  written now); the account's oldest published agent that places calls. A named agent that
+  is not published is passed over. Nobody named and nobody able to call is 422
+  `ingest_no_agent`; an agent named but none published is 422 `agent_not_published`.
+  `GET /v1/lead-sources` returns each source's `caller: {agent_id, agent_name, chosen_by
+  (follow_up | source | account), called, follow_up_id, follow_up_name}` from the same
+  function, and the Lead sources row links to that Follow-up.
+* **"Call new leads instantly".** Creating an agent with that job (`POST /v1/agents`
+  `starter`, Pip's `agent_create`, the first-run build) names it in the first call step of
+  the account's "Call new leads", in a new live version (and its draft, if any)
+  (`follow_ups.service.make_new_lead_caller`). It is written there rather than through
+  publish because the agent is born a draft; until it is published the order above passes
+  over it. A Follow-up that is off stays off.
 * **Leads & hours** (`/v1/lead-calling`) no longer takes or returns `calling_agent_id`,
   `wait_seconds`, `retry_attempts`, `retry_interval_minutes`; it returns
   `new_leads_follow_up: {id, name, status} | null` so the screen can say "Call new leads is
@@ -366,7 +384,8 @@ the screen's own function; turning off and publishing have none. `follow_up_star
 ## Where it touches existing code
 
 * `apps/api/ingest/service.py::ingest_lead`: reads the live `new_lead` Follow-up for the source
-  instead of `lead_policy.load_plan`'s agent, wait and retries; starts the run.
+  instead of `lead_policy.load_plan`'s agent, wait and retries; picks the agent with
+  `new_lead_caller`; starts the run.
 * `apps/api/ingest/lead_policy.py`: keeps hours, days, holidays, after-hours and
   `detect_machines`; `book_retry` becomes the run's retry.
 * `apps/workers/callbacks.py`: a `follow-up:` call-back is dialled like any other; refused for

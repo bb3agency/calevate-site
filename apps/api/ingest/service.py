@@ -36,7 +36,7 @@ import time
 import unicodedata
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Final, Literal
 from uuid import UUID
 
 from calevate_shared.calling_window import (
@@ -49,7 +49,6 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.service import DialUnconfirmedError, dispatch_call
-from apps.api.agents.write_guard import assert_agent_writable
 from apps.api.callbacks.service import RETRY_AFTER, cancel_for_phones
 from apps.api.callbacks.service import book as book_callback
 from apps.api.compliance import service as compliance_service
@@ -70,13 +69,12 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.loadshed import get_platform_status
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
-from apps.api.db.ownership import assert_visible
 from apps.api.db.result import rowcount_of
 from apps.api.engine.dial_lines import LINES_BUSY_RULE
 from apps.api.engine.vendor_http import NUMBER_DAILY_LIMIT_CODE
 from apps.api.follow_ups import runner as follow_up_runner
 from apps.api.follow_ups.definition import CallStep, first_step
-from apps.api.follow_ups.runner import CallbackRef
+from apps.api.follow_ups.runner import CallbackRef, LiveFollowUp
 from apps.api.ingest import portals
 from apps.api.ingest.lead_policy import align, hold_lead, load_plan, when_to_call
 from apps.api.ingest.sealed_secret import open_source_secret, seal_source_secret
@@ -385,6 +383,154 @@ def submission_is_stale(submitted: datetime | None, *, received_at: float) -> bo
     return datetime.fromtimestamp(received_at, UTC) - submitted > TRANSACTIONAL_WINDOW
 
 
+# --- who calls a new lead ---------------------------------------------------------------
+
+#: Why an agent calls a new lead, in the order `new_lead_caller` tries them.
+CallerChoice = Literal["follow_up", "source", "account"]
+
+_PUBLISHED_AGENT: Final = (
+    "deleted_at IS NULL AND archived_at IS NULL AND engine_agent_ref IS NOT NULL "
+    "AND engine_agent_ref <> ''"
+)
+
+
+@dataclass(frozen=True, slots=True)
+class NewLeadCaller:
+    #: The published agent that calls; None when none can.
+    agent_id: UUID | None
+    chosen_by: CallerChoice | None
+    #: The Follow-up or the source named an agent, published or not: what tells
+    #: `agent_not_published` from `ingest_no_agent` when nobody can call.
+    named: bool
+
+
+def first_call_step(follow_up: LiveFollowUp | None) -> CallStep | None:
+    """The Follow-up's first step when it is a call: the call a new lead gets at once."""
+    first = first_step(follow_up.steps) if follow_up is not None else None
+    return first if isinstance(first, CallStep) else None
+
+
+async def account_calling_agent(session: AsyncSession) -> UUID | None:
+    """The account's oldest published agent that places calls."""
+    value = (
+        await session.execute(
+            text(
+                f"SELECT id FROM agents WHERE {_PUBLISHED_AGENT} AND direction <> 'inbound' "
+                "ORDER BY created_at, id LIMIT 1"
+            )
+        )
+    ).scalar()
+    return None if value is None else UUID(str(value))
+
+
+async def new_lead_caller(
+    session: AsyncSession,
+    *,
+    step_agent_id: UUID | None,
+    source_agent_id: UUID | None,
+    account_agent_id: UUID | None,
+) -> NewLeadCaller:
+    """Who calls a new lead: the first PUBLISHED agent of
+
+    1. the one the new-lead Follow-up's call step names. "Call new leads" is where a client
+       chooses who calls new leads (D-940), and nothing else sets it;
+    2. the one the lead source was set up with, for sources made before that choice moved to
+       the Follow-up. No screen, route or Pip action sets a source's agent any more;
+    3. the account's oldest calling agent (`account_calling_agent`), so a step left on "the
+       lead's own agent" still has someone to call with.
+
+    A named agent that is not published (a draft, or archived since it was chosen) is passed
+    over rather than losing the lead, so an agent made for "Call new leads instantly" takes
+    over the moment it is published."""
+    named: list[tuple[UUID, CallerChoice]] = []
+    if step_agent_id is not None:
+        named.append((step_agent_id, "follow_up"))
+    if source_agent_id is not None:
+        named.append((source_agent_id, "source"))
+    if named:
+        rows = await session.execute(
+            text(f"SELECT id FROM agents WHERE id = ANY(:ids) AND {_PUBLISHED_AGENT}"),
+            {"ids": [agent for agent, _ in named]},
+        )
+        published = {UUID(str(row[0])) for row in rows.all()}
+        for agent, chosen_by in named:
+            if agent in published:
+                return NewLeadCaller(agent_id=agent, chosen_by=chosen_by, named=True)
+    if account_agent_id is not None:
+        return NewLeadCaller(agent_id=account_agent_id, chosen_by="account", named=bool(named))
+    return NewLeadCaller(agent_id=None, chosen_by=None, named=bool(named))
+
+
+@dataclass(frozen=True, slots=True)
+class SourceCaller:
+    """Who calls one lead source's new leads, as its row on the Lead sources screen says."""
+
+    caller: NewLeadCaller
+    agent_name: str | None
+    #: A new lead from this source starts a Follow-up. False: it is kept and not called.
+    called: bool
+    #: Where the client changes it: the Follow-up its leads start, else "Call new leads".
+    follow_up_id: UUID | None
+    follow_up_name: str | None
+
+
+async def source_callers(
+    session: AsyncSession, sources: list[LeadSourceSummary]
+) -> dict[UUID, SourceCaller]:
+    """`ingest_lead`'s answer for a lead from each source arriving now, read without writing:
+    an account that never had "Call new leads" is given it on its first lead
+    (`runner.new_lead_follow_up`), so here it counts as on with the default step."""
+    if not sources:
+        return {}
+    live = await follow_up_runner.live_follow_ups(session, "new_lead")
+    standing = (
+        await session.execute(
+            text("SELECT id, name FROM follow_ups WHERE starter = 'call_new_leads' LIMIT 1")
+        )
+    ).first()
+    names: dict[UUID, str] = {}
+    if live:
+        rows = await session.execute(
+            text("SELECT id, name FROM follow_ups WHERE id = ANY(:ids)"),
+            {"ids": [f.id for f in live]},
+        )
+        names = {UUID(str(row[0])): str(row[1]) for row in rows.all()}
+    account_agent = await account_calling_agent(session)
+    found: dict[UUID, tuple[NewLeadCaller, bool, UUID | None, str | None]] = {}
+    for source in sources:
+        follow_up = follow_up_runner.matching_new_lead_follow_up(live, source.id)
+        step = first_call_step(follow_up)
+        caller = await new_lead_caller(
+            session,
+            step_agent_id=step.agent_id if step is not None else None,
+            source_agent_id=source.agent_id,
+            account_agent_id=account_agent,
+        )
+        if follow_up is not None:
+            found[source.id] = (caller, True, follow_up.id, names.get(follow_up.id))
+        elif standing is not None:
+            found[source.id] = (caller, False, UUID(str(standing[0])), str(standing[1]))
+        else:
+            found[source.id] = (caller, not live, None, None)
+    agent_ids = {c.agent_id for c, *_ in found.values() if c.agent_id is not None}
+    agent_names: dict[UUID, str] = {}
+    if agent_ids:
+        rows = await session.execute(
+            text("SELECT id, name FROM agents WHERE id = ANY(:ids)"), {"ids": list(agent_ids)}
+        )
+        agent_names = {UUID(str(row[0])): str(row[1]) for row in rows.all()}
+    return {
+        source_id: SourceCaller(
+            caller=caller,
+            agent_name=agent_names.get(caller.agent_id) if caller.agent_id else None,
+            called=called,
+            follow_up_id=follow_up_id,
+            follow_up_name=follow_up_name,
+        )
+        for source_id, (caller, called, follow_up_id, follow_up_name) in found.items()
+    }
+
+
 async def ingest_lead(
     session: AsyncSession,
     *,
@@ -426,28 +572,28 @@ async def ingest_lead(
         )
     name = str(mapped.get("name") or "").strip() or None
 
-    # WHICH AGENT CALLS: the live new-lead Follow-up's first call step (D-940; the old
-    # plan's agent, wait and retries became the "Call new leads" Follow-up), else the agent
-    # the source was created with. A chosen agent that is no longer published falls back to
-    # the source's, so a Follow-up edited around an archived agent does not lose leads. The
-    # calling hours, days, holidays and after-hours choice stay the account's.
+    # Which agent calls is `new_lead_caller`'s order; the wait and retries are the Follow-up's
+    # call step (D-940); the calling hours, days, holidays and after-hours choice stay the
+    # account's.
     follow_up = await follow_up_runner.new_lead_follow_up(session, source_id=config.id)
-    first = first_step(follow_up.steps) if follow_up is not None else None
-    call_step = first if isinstance(first, CallStep) else None
+    call_step = first_call_step(follow_up)
     hours = await load_plan(session)
     plan = (
         follow_up_runner.call_plan(hours, call_step, call_step.agent_id)
         if call_step is not None
         else hours
     )
-    candidates = [
-        a for a in ((call_step.agent_id if call_step else None), config.agent_id) if a is not None
-    ]
-    if not candidates:
+    caller = await new_lead_caller(
+        session,
+        step_agent_id=call_step.agent_id if call_step is not None else None,
+        source_agent_id=config.agent_id,
+        account_agent_id=await account_calling_agent(session),
+    )
+    if caller.agent_id is None and not caller.named:
         raise ProblemError.business_rule(
             "ingest_no_agent",
-            "This lead source has no agent attached yet.",
-            remediation="Choose an agent for this lead source, or one in Call new leads.",
+            "No agent calls new leads yet.",
+            remediation="Choose an agent in Call new leads, under Follow-ups.",
         )
 
     # THE SAME REFUSAL `dispatch_call` ALREADY MAKES, MOVED IN FRONT OF THE INSERT.
@@ -474,19 +620,8 @@ async def ingest_lead(
     # they publish, every later lead both lands and expires on schedule. Keeping the lead
     # instead would mean the platform can hold personal data with no route to it, which
     # is the invariant the sweep is built on.
-    agent_id = candidates[0]
-    ref = None
-    for candidate in dict.fromkeys(candidates):
-        ref = (
-            await session.execute(
-                text("SELECT engine_agent_ref FROM agents WHERE id = :aid AND deleted_at IS NULL"),
-                {"aid": candidate},
-            )
-        ).scalar()
-        if isinstance(ref, str) and ref:
-            agent_id = candidate
-            break
-    if not isinstance(ref, str) or not ref:
+    agent_id = caller.agent_id
+    if agent_id is None:
         raise ProblemError.business_rule(
             "agent_not_published",
             "This agent has not been published to the voice platform yet.",
@@ -1298,7 +1433,6 @@ async def create_lead_source(
     *,
     tenant_id: UUID,
     source: str,
-    agent_id: UUID | None,
     mapping: dict[str, str],
     supplied_secret: str | None,
 ) -> tuple[UUID, str | None]:
@@ -1308,19 +1442,13 @@ async def create_lead_source(
     Created ACTIVE, for the reason `create_sheets_endpoint` gives: there is a route to
     disable and a route to re-enable, so an inactive-on-create row would be a source
     that silently 404s every delivery while its screen says it exists.
+
+    Created with no agent: who calls its leads is the "Call new leads" Follow-up's choice
+    (`new_lead_caller`).
     """
     # A pushed sender's body is not ours to shape, so an empty mapping on one of them means
     # "the sender's documented fields", never "take the body as it comes".
     cleaned = validate_mapping(mapping or portals.preset_mapping(source))
-    # The FK on `inbound_webhooks.agent_id` is to `agents` and knows nothing about
-    # tenancy — PostgreSQL checks it with row security bypassed — so without this a
-    # config row could dispatch through another tenant's agent (`db/ownership.py`).
-    await assert_visible(session, "agent", agent_id)
-    if agent_id is not None:
-        # A lead source dispatches through its agent, so pointing one at a deleted agent
-        # builds a delivery path that can never place a call. Body-carried id again, so the
-        # route-level guard cannot see it.
-        await assert_agent_writable(session, agent_id, verb="given a lead source")
 
     needs_supplied = source in CLIENT_SUPPLIED_SECRET_SOURCES
     if needs_supplied and not supplied_secret:
@@ -1351,9 +1479,9 @@ async def create_lead_source(
     webhook_id = uuid7()
     await session.execute(
         text(
-            "INSERT INTO inbound_webhooks (id, tenant_id, source, secret_ref, agent_id, "
+            "INSERT INTO inbound_webhooks (id, tenant_id, source, secret_ref, "
             "mapping, active, created_at, updated_at) VALUES (:id, :tid, :source, :secret, "
-            ":aid, CAST(:mapping AS jsonb), true, now(), now())"
+            "CAST(:mapping AS jsonb), true, now(), now())"
         ),
         {
             "id": webhook_id,
@@ -1367,7 +1495,6 @@ async def create_lead_source(
             "secret": seal_source_secret(
                 supplied_secret or minted or "", tenant_id=tenant_id, webhook_id=webhook_id
             ),
-            "aid": agent_id,
             "mapping": _json(cleaned),
         },
     )
@@ -1485,33 +1612,6 @@ async def rotate_secret(
     return Rotation(secret=minted, previous_secret_expires_at=row[0], source=source)
 
 
-async def set_source_agent(
-    session: AsyncSession, *, webhook_id: UUID, agent_id: UUID | None
-) -> UUID | None:
-    """Point a lead source at another agent (or none): `PATCH /v1/lead-sources/{id}` and
-    Pip's `lead_source_edit`. Returns the agent it had, for the audit row.
-
-    The agent is checked as at creation (`create_lead_source`): visible to this tenant and
-    not deleted, because the FK knows nothing about tenancy and a deleted agent can never
-    place the call. The row is locked so two edits serialise."""
-    await assert_visible(session, "agent", agent_id)
-    if agent_id is not None:
-        await assert_agent_writable(session, agent_id, verb="given a lead source")
-    row = (
-        await session.execute(
-            text("SELECT agent_id FROM inbound_webhooks WHERE id = :id FOR UPDATE"),
-            {"id": webhook_id},
-        )
-    ).first()
-    if row is None:
-        raise ProblemError.not_found("Lead source")
-    await session.execute(
-        text("UPDATE inbound_webhooks SET agent_id = :aid, updated_at = now() WHERE id = :id"),
-        {"id": webhook_id, "aid": agent_id},
-    )
-    return None if row[0] is None else UUID(str(row[0]))
-
-
 async def set_source_consent_basis(
     session: AsyncSession, *, webhook_id: UUID, consent_basis: str
 ) -> str:
@@ -1543,8 +1643,8 @@ async def set_source_mapping(
     """Replace which form fields a lead source reads: `PUT /v1/lead-sources/{id}/mapping`
     and Pip's `lead_source_mapping`. Returns `(before, after)`, for the audit row and Undo.
 
-    Checked exactly as at creation (`validate_mapping`); the secret, the address and the
-    agent are unchanged. Leads already received keep what they were saved with. The row is
+    Checked exactly as at creation (`validate_mapping`); the secret and the address are
+    unchanged. Leads already received keep what they were saved with. The row is
     locked so two edits serialise. An empty mapping on a pushed sender restores its preset,
     as at creation."""
     row = (
@@ -1606,23 +1706,29 @@ __all__ = [
     "MAX_GRACE_MINUTES",
     "NO_CONSENT_FIELD_RULE",
     "PHONE_MAPPING_KEYS",
+    "CallerChoice",
     "IngestConfig",
     "LeadSourceSummary",
+    "NewLeadCaller",
     "Rotation",
+    "SourceCaller",
+    "account_calling_agent",
     "apply_mapping",
     "create_lead_source",
+    "first_call_step",
     "ingest_lead",
     "lead_data",
     "list_lead_sources",
     "load_config",
     "mint_secret",
+    "new_lead_caller",
     "normalize_phone",
     "readable_mapping",
     "rotate_secret",
     "set_active",
-    "set_source_agent",
     "set_source_consent_basis",
     "set_source_mapping",
+    "source_callers",
     "validate_mapping",
     "verify_ingest_secret",
 ]

@@ -265,7 +265,6 @@ def test_the_tool_schemas_are_the_same_bytes_for_every_caller() -> None:
         "team_invitation",
         "line_protection_phone",
         "lead_source_create",
-        "lead_source_edit",
         "lead_source_switch",
         "lead_source_rotate",
         "lead_calling_rules",

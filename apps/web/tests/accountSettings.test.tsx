@@ -3,18 +3,14 @@ import { describe, expect, it } from "vitest";
 
 import { type AlertLine, LowBalanceAlertPanel } from "@/app/c/[slug]/billing/LowBalanceAlertPanel";
 import { EditEndpointDrawer } from "@/app/c/[slug]/integrations/EditEndpointDrawer";
-import { AgentDrawer } from "@/app/c/[slug]/lead-sources/AgentDrawer";
-import type { Agent } from "@/lib/api/agents";
-import { useAgents } from "@/lib/api/agents";
 import type { Endpoint } from "@/lib/api/integrations";
-import type { LeadSource } from "@/lib/api/leadSources";
 import { useClientSession } from "@/lib/api/session";
 
 import { problem, renderClientPage } from "./harness";
 
 /**
  * D-893 lane L6: the account settings a page and Pip share — a destination's events and
- * extras, the agent a lead source rings with, and the low-credit warning line. Each sends
+ * extras and the low-credit warning line. Each sends
  * exactly what the server's own model expects and says a refusal where it happened.
  */
 
@@ -102,45 +98,6 @@ describe("changing what a destination is sent", () => {
       fireEvent.click(screen.getByRole("button", { name: "Save" }));
     });
     await screen.findByText(/switched off, so there is nothing to change/);
-  });
-});
-
-const SOURCE: LeadSource = {
-  id: "0192f3a4-5b6c-7d8e-9f01-23456789abcd",
-  source: "website_form",
-  ingest_path: "/hooks/v1/ingest/x",
-  agent_id: null,
-  active: true,
-  mapping: {},
-  secret_fingerprint: "cd34",
-  previous_secret_expires_at: null,
-  consent_basis: "inquiry",
-  created_at: "2026-10-20T10:00:00Z",
-  updated_at: "2026-10-20T10:00:00Z",
-};
-
-function AgentHarness({ onClose }: { onClose: () => void }) {
-  const session = useClientSession();
-  return <AgentDrawer source={SOURCE} agents={useAgents(session)} session={session} onClose={onClose} />;
-}
-
-describe("choosing who answers a lead source", () => {
-  it("opens on no agent and saves the chosen one", async () => {
-    const agents: Partial<Agent>[] = [{ id: "a1", name: "Reception" }];
-    const { calls } = await renderClientPage(<AgentHarness onClose={() => undefined} />, {
-      "/v1/me": ME,
-      "/v1/agents": agents,
-      [`PATCH /v1/lead-sources/${SOURCE.id}`]: { id: SOURCE.id, agent_id: "a1" },
-    });
-    const picker = (await screen.findByRole("combobox", { name: "Agent" })) as HTMLSelectElement;
-    await waitFor(() => expect(picker.options.length).toBe(2));
-    expect(picker.value).toBe("");
-    fireEvent.change(picker, { target: { value: "a1" } });
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    });
-    await waitFor(() => expect(calls.some((c) => c.method === "PATCH")).toBe(true));
-    expect(JSON.parse(calls.find((c) => c.method === "PATCH")?.body ?? "{}")).toEqual({ agent_id: "a1" });
   });
 });
 

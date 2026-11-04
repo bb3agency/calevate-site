@@ -161,7 +161,6 @@ STEP_LABELS: Final[dict[str, StepLabel]] = {
     "team_invitation": _l("Preparing the invitation change", "Prepared the invitation change"),
     "line_protection_phone": _l("Preparing the backup phone", "Prepared the backup phone"),
     "lead_source_create": _l("Preparing the lead source", "Prepared the lead source"),
-    "lead_source_edit": _l("Changing the lead source's agent", "Changed the lead source's agent"),
     "lead_source_mapping": _l(
         "Changing the lead source's fields", "Changed the lead source's fields"
     ),
