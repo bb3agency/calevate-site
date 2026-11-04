@@ -484,6 +484,9 @@ NOT_PLACED_WORDS: Final[dict[str, str]] = {
         "agent, so it was not made."
     ),
     "unstated": "This call was waiting to be placed and could not be made.",
+    "lines_full": (
+        "Not placed: all your call lines were busy. The campaign tries again when a line is free."
+    ),
 }
 
 

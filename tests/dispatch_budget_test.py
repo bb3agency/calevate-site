@@ -44,7 +44,8 @@ from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.api.engine import reset_engine_cache
 from apps.api.engine.fake import FakeEngine
-from apps.api.engine.vendor_http import EngineRejectedError
+from apps.api.engine.vendor_http import EngineRejectedError, lines_busy_error
+from apps.api.tenancy.models import CALL_LINES_MAX
 from apps.workers import campaign_dispatch
 from apps.workers.campaign_dispatch import ACTIVE_STATUSES, TenantWork
 from calevate_shared.engine import CallContext
@@ -124,6 +125,12 @@ async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
                 "engine_agent_ref = :ref WHERE id = :a"
             ),
             {"ref": ref, "a": agent_id},
+        )
+        # The account's own lines at their most, so this file's pool and plan rules are
+        # what limit a tick; the lines test sets its own.
+        await session.execute(
+            text("UPDATE organizations SET call_lines = :n WHERE id = :t"),
+            {"n": CALL_LINES_MAX, "t": tenant_id},
         )
         await campaigns.record_dlt_registration(
             session,
@@ -1233,3 +1240,120 @@ async def test_an_unanswered_dial_is_put_on_the_ladder_once_its_wait_has_passed(
     assert count == 1
     assert rows[settled] == "pending:1:true", "back on the ladder, at the policy's first rung"
     assert rows[waiting].startswith("dialing:1:"), "the pipeline's window is still open"
+
+
+# ------------------------------------ the account's own call lines are the ceiling
+
+
+async def test_a_campaign_never_dials_more_at_once_than_the_accounts_call_lines(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Founder, 4 Nov 2026: a campaign set to three at once on an account with two lines
+    dialled three, and the voice platform refused the third (`allottedCallLines`, "how many
+    of your call lines this customer may use at once", create-customer.md:633-641, snapshot
+    2026-10-29). The dialler budgets with the account's lines, as the screen states them."""
+    tenant_id, agent_id = await _tenant()
+    number_id, template_id = await _dlt_rows(tenant_id, agent_id)
+    campaign_id = await _launched_campaign(
+        tenant_id,
+        agent_id,
+        number_id,
+        template_id,
+        name="Three at once, two lines",
+        phones=("9876640001", "9876640002", "9876640003"),
+    )
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE organizations SET call_lines = 2 WHERE id = :t"), {"t": tenant_id}
+        )
+        await session.execute(
+            text("UPDATE campaigns SET concurrency = 3 WHERE id = :c"), {"c": campaign_id}
+        )
+        shown = await campaigns.effective_concurrency(session, tenant_id=tenant_id, slider=3)
+    assert shown == 2, "the screen says the number that will dial"
+    monkeypatch.setattr(campaign_dispatch, "_outbound_pool", lambda: 10)
+    _pin_scan(monkeypatch, [TenantWork(tenant_id, 0, True, False, False)])
+
+    outcome = await campaign_dispatch._run_tick()
+
+    assert outcome.startswith("dialled=2 "), outcome
+    assert [status for status, _ in await _contacts(tenant_id, campaign_id)] == [
+        "dialing",
+        "dialing",
+        "pending",
+    ]
+
+
+class _LinesFullAfterOne(FakeEngine):
+    """The voice platform placing one call, then refusing with every line in use."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.placed = 0
+
+    async def start_outbound_call(self, ref: str, to: str, ctx: CallContext) -> str:
+        if self.placed:
+            raise lines_busy_error()
+        self.placed += 1
+        return await super().start_outbound_call(ref, to, ctx)
+
+
+async def test_lines_full_waits_a_minute_spends_no_attempt_and_reports_no_failed_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The person behind a full line is dialled once one frees, not thirty minutes later;
+    the people behind them are not dialled into the same refusal; and the refused dial is
+    recorded as not placed for lines, which the attention list does not call a failure."""
+    from apps.api.crm.attention import failed_calls
+
+    tenant_id, agent_id = await _tenant()
+    number_id, template_id = await _dlt_rows(tenant_id, agent_id)
+    campaign_id = await _launched_campaign(
+        tenant_id,
+        agent_id,
+        number_id,
+        template_id,
+        name="Lines fill up",
+        phones=("9876650001", "9876650002", "9876650003"),
+    )
+    engine = _LinesFullAfterOne()
+    monkeypatch.setattr("apps.api.agents.service.get_engine", lambda: engine)
+
+    result = await campaign_dispatch._dispatch_for_campaign(
+        tenant_id, campaign_id, 3, campaigns.DEFAULT_RETRY_POLICY
+    )
+
+    assert result == {"dialled": 1, "blocked": 2, "exhausted": 0}, result
+    assert engine.placed == 1
+    assert await _contacts(tenant_id, campaign_id) == [
+        ("dialing", 1),
+        ("pending", 0),
+        ("pending", 0),
+    ]
+    async with tenant_session(tenant_id) as session:
+        waits = (
+            (
+                await session.execute(
+                    text(
+                        "SELECT next_attempt_at - now() FROM campaign_contacts "
+                        "WHERE campaign_id = :c AND status = 'pending'"
+                    ),
+                    {"c": campaign_id},
+                )
+            )
+            .scalars()
+            .all()
+        )
+        reasons = (
+            (
+                await session.execute(
+                    text("SELECT not_placed_reason FROM calls WHERE status = 'failed'")
+                )
+            )
+            .scalars()
+            .all()
+        )
+        reported = await failed_calls(session)
+    assert all(wait <= timedelta(minutes=1) for wait in waits), waits
+    assert reasons == ["lines_full"], "only the one dial reached the platform"
+    assert reported.items == [], "a dial refused for lines is not a failed call"

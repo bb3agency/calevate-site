@@ -227,6 +227,7 @@ from apps.api.engine.thinnest_workspace import (
     workspace_not_provisioned,
 )
 from apps.api.engine.vendor_http import (
+    LINES_BUSY_CODE,
     NUMBER_DAILY_LIMIT_CODE,
     RECIPIENT_OPTED_OUT_CODE,
     EngineRateLimitedError,
@@ -4696,13 +4697,16 @@ async def _close_unplaced_dial(
     which side of that judgement a refusal fell on, and "why was this dial abandoned" is
     a question an operator asks about one call id.
     """
+    # Every line in use is the account's capacity, not this call's fault: marked so the
+    # attention list does not report it as a failed call and the call page says why.
+    reason = "lines_full" if code == LINES_BUSY_CODE else None
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
-                "UPDATE calls SET status = 'failed', updated_at = now() "
-                "WHERE id = :id AND status = 'queued'"
+                "UPDATE calls SET status = 'failed', not_placed_reason = :reason, "
+                "updated_at = now() WHERE id = :id AND status = 'queued'"
             ),
-            {"id": call_id},
+            {"id": call_id, "reason": reason},
         )
     log.info(
         "dial_not_placed",

@@ -2482,3 +2482,35 @@ does not fit, because ThinnestAI hosts the whole call.
 >
 > Thanks,
 > Umesh
+
+## 47. Two calls out from one number at the same moment, and a "busy" nobody heard (DRAFTED 4 Nov 2026, unsent)
+
+What happened (production, Rytu Khata's campaign, 4 Nov 2026 17:54 IST, our logs and call rows):
+two calls were placed two seconds apart from the same number (Rytu Khata's number, rented
+from ThinnestAI) by the same agent. The first was answered and ran 53 s (`out_6fb7f44a…`). The
+second (`out_f99845ed…`) came back as `missed` with `hangup: busy` after 24 s, and the person
+says their phone was free and never rang. A third dial a second later was refused with
+`concurrent_calls` (the customer workspace's `allottedCallLines` is 2, which is correct and is
+now respected on our side).
+
+The docs list `busy` separately from `rejected` and `unreachable` (`get-call.md:947-962`,
+snapshot 2026-10-29) and say calls are held to the plan's concurrent lines (`place-call.md:7`),
+but nothing says how many calls one rented number can carry at the same moment. Until this is
+answered, our assumption-free position is: a second simultaneous call from one number can be
+reported `busy` for a reason on the calling side.
+
+> Subject: Can one rented number carry two outgoing calls at the same moment?
+>
+> Hi Ashutosh,
+>
+> On 4 Nov at 17:54 IST one of our agents placed two calls two seconds apart from the same
+> number you rented us. The first was answered. The second (call out_f99845ed) came back as
+> missed with hangup "busy" after about 24 seconds, but the person we called says their phone
+> was free and never rang.
+>
+> 1. How many outgoing calls can one of your rented Indian numbers carry at the same moment?
+> 2. When that is exceeded, is the extra call reported as "busy", or refused before it is placed?
+> 3. Could you check what the carrier returned for out_f99845ed?
+>
+> Thanks,
+> Umesh

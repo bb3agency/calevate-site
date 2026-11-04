@@ -704,6 +704,9 @@ async def failed_calls(session: AsyncSession, *, limit: int = DEFAULT_LIMIT) -> 
                 "SELECT c.id, c.direction, l.name, c.created_at, count(*) OVER () AS matching "
                 "FROM calls c LEFT JOIN leads l ON l.id = c.lead_id AND l.deleted_at IS NULL "
                 "WHERE c.status = 'failed' "
+                # A dial refused because every line was in use never rang anybody; it is
+                # retried within a minute, so it is not a failed call to report.
+                "  AND c.not_placed_reason IS DISTINCT FROM 'lines_full' "
                 "  AND c.created_at > now() - make_interval(days => :window) "
                 "ORDER BY c.created_at DESC, c.id LIMIT :limit"
             ),

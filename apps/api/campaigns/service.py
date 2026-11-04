@@ -109,6 +109,7 @@ from apps.api.db.transition import transition_status
 from apps.api.engine.dial_lines import outbound_line_pool
 from apps.api.ingest.service import normalize_phone
 from apps.api.legal.service import agreements_blocker
+from apps.api.tenancy.call_lines import read_call_lines
 
 log = get_logger(__name__)
 
@@ -532,15 +533,17 @@ def tenant_line_ceiling(configured: int | None, pool: int) -> int:
 
 async def effective_concurrency(session: AsyncSession, *, tenant_id: UUID, slider: int) -> int:
     """The most calls this campaign can have at once right now: its slider, under the plan's
-    ceiling, under the shared outbound pool. Other campaigns of the same account share the
-    plan ceiling, so this is the most, not a promise."""
+    ceiling, under the shared outbound pool, under the account's own call lines (the
+    dispatcher budgets with the same three). Other campaigns of the same account share the
+    lines, so this is the most, not a promise."""
     configured = (
         await session.execute(
             text(f"SELECT ({plan_in_effect_sql('concurrency_ceiling', at=NOW_SQL)})"),
             {"tid": tenant_id},
         )
     ).scalar()
-    return min(slider, tenant_line_ceiling(configured, outbound_line_pool()))
+    lines = (await read_call_lines(session, tenant_id=tenant_id)).lines
+    return min(slider, tenant_line_ceiling(configured, outbound_line_pool()), lines)
 
 
 #: Why a paused campaign is paused, as one word, over `campaigns c` (D-773). The automatic

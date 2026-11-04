@@ -34,8 +34,14 @@ Speaker = Literal["agent", "caller"]
 #: states its reason as prose; the adapter maps the cases it knows to a code here and every
 #: other reason to `unstated`, so no vendor sentence reaches storage or a client.
 #: `from_number_withdrawn`: the number the call was to ring from was taken off the agent.
-NotPlacedReason = Literal["from_number_withdrawn", "unstated"]
-NOT_PLACED_REASONS: tuple[NotPlacedReason, ...] = ("from_number_withdrawn", "unstated")
+#: `lines_full`: every one of the account's call lines was in use, so the dial was refused
+#: before anything rang (written by our dial path, not read from the engine).
+NotPlacedReason = Literal["from_number_withdrawn", "unstated", "lines_full"]
+NOT_PLACED_REASONS: tuple[NotPlacedReason, ...] = (
+    "from_number_withdrawn",
+    "unstated",
+    "lines_full",
+)
 
 # Statuses after which no further audio is expected. `completed` is the only one that
 # also implies cost/recording/transcript are populated (Bolna fills them ~2-3 min after

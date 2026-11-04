@@ -86,7 +86,7 @@ import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
-from typing import Any, NamedTuple
+from typing import Any, Final, NamedTuple
 from uuid import UUID
 
 from sqlalchemy import text
@@ -138,8 +138,9 @@ from apps.api.engine.dial_lines import dial_backoff_remaining_s, outbound_line_p
 
 # OUR normalized engine error, not a vendor payload shape — hard rule 2 bounds what
 # may cross this line and an HTTP status is on the safe side of it.
-from apps.api.engine.vendor_http import EngineRejectedError
+from apps.api.engine.vendor_http import LINES_BUSY_CODE, EngineRejectedError
 from apps.api.integrations import service as integrations
+from apps.api.tenancy.call_lines import CALL_LINES_BUSY_RULE, read_call_lines
 
 # The call-back pass this tick runs (D-514). NOT an arq job of its own, and the reason is
 # the shared outbound pool: a call-back and a campaign contact compete for the same
@@ -688,6 +689,10 @@ async def _plan_tenant(
         # Clamped to the pool: rule 3 can only ever narrow rules 1+2, never widen
         # them. See `tenant_line_ceiling` for why the clamp is not a `plans` constraint.
         ceiling = tenant_line_ceiling(row[0] if row is not None else None, pool)
+        # The account's own call lines are the hard ceiling: its voice-platform workspace
+        # refuses any call past them (`allottedCallLines`, `tenancy/call_lines.py`), so
+        # budgeting above them only buys refused dials.
+        ceiling = min(ceiling, (await read_call_lines(session, tenant_id=work.tenant_id)).lines)
         # The campaign may have been paused between the scan and this read — that is
         # a race the client WINS, and it costs one session, not a dial.
         campaigns: list[dict[str, Any]] = list(row[1] or []) if row is not None else []
@@ -951,8 +956,15 @@ async def _dispatch_for_campaign(
     # runs in its own short transaction, so losing one loses at most one dial's
     # bookkeeping and never un-rings a phone.
 
+    # Set once the account's lines refuse a dial: every contact claimed behind it would be
+    # refused the same way, so they wait for a line instead of each spending a request.
+    lines_full = False
     for contact_id, phone, name, custom, attempts in claimed:
         async with tenant_session(tenant_id) as session:
+            if lines_full:
+                await _refuse_contact(session, contact_id, rule=LINES_BUSY_CODE)
+                blocked += 1
+                continue
             # THE CAMPAIGN's own two live facts, re-read per contact for exactly the
             # reason the big red switch is: the claim COMMITTED, and everything after it
             # is a phone ringing. A pause the client pressed — or one of FLOWS §5's
@@ -1071,6 +1083,7 @@ async def _dispatch_for_campaign(
                     # The attempt is refunded; spending a rung on it would exhaust a
                     # reachable lead on refusals that were about us.
                     await _refuse_contact(session, contact_id, rule=_refusal_rule(exc))
+                    lines_full = lines_full or _refusal_rule(exc) == LINES_BUSY_CODE
                     blocked += 1
                     log.warning(
                         "campaign_dial_refused",
@@ -1361,6 +1374,13 @@ _SETTLE_PERSON_REFUSED = "status = 'dnc_blocked'"
 _SETTLE_REFUNDED = (
     "status = 'pending', next_attempt_at = now() + interval '30 minutes', attempts = attempts - 1"
 )
+#: Every line in use, at the voice platform or under our own cap: a line frees when any call
+#: ends, so the contact is dialled as soon as one does rather than after the thirty minutes
+#: a halt or a closed hour is given. A minute is two ticks; the attempt is refunded the same.
+_SETTLE_LINE_WAIT = (
+    "status = 'pending', next_attempt_at = now() + interval '1 minute', attempts = attempts - 1"
+)
+_LINE_LIMIT_RULES: Final = frozenset({LINES_BUSY_CODE, CALL_LINES_BUSY_RULE})
 
 
 async def settle_recalled_contact(
@@ -1424,6 +1444,8 @@ async def _refuse_contact(session: Any, contact_id: UUID, *, rule: str) -> None:
     # not the gate's, so it is not a member of the gate's set.
     if rule in PERSON_LEVEL_REFUSALS or rule in ENGINE_PERSON_REFUSALS:
         settle = _SETTLE_PERSON_REFUSED
+    elif rule in _LINE_LIMIT_RULES:
+        settle = _SETTLE_LINE_WAIT
     else:
         settle = _SETTLE_REFUNDED
     await session.execute(

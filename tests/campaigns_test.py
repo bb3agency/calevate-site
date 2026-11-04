@@ -1096,6 +1096,10 @@ async def test_an_unanswered_dial_comes_back_later_and_then_gives_up() -> None:
 async def test_a_connected_call_closes_the_contact_and_completes_the_campaign() -> None:
     tenant_id, _, campaign_id = await _ready_campaign(phones=("9876500001", "9876500002"))
     async with tenant_session(tenant_id) as session:
+        # Both people in one tick needs two lines: a tick dials no more than the account's.
+        await session.execute(
+            text("UPDATE organizations SET call_lines = 2 WHERE id = :t"), {"t": tenant_id}
+        )
         await service.launch_campaign(session, tenant_id=tenant_id, campaign_id=campaign_id)
 
     await _quiesce(campaign_id)
@@ -1122,6 +1126,12 @@ async def test_a_connected_call_closes_the_contact_and_completes_the_campaign() 
                 )
                 == "connected"
             )
+        # The call itself ends too, as the engine's call-ended event records it: until it
+        # does, the call holds one of the account's two lines.
+        await session.execute(
+            text("UPDATE calls SET status = 'completed', ended_at = now() WHERE id = ANY(:ids)"),
+            {"ids": list(call_ids)},
+        )
 
     await dispatch_campaign_tick({})
     async with tenant_session(tenant_id) as session:
