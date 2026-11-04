@@ -575,7 +575,7 @@ export type LeadsToCampaign =
   | { campaignId: string; lens: LeadLens; expectedCount: number };
 
 /**
- * Leads onto a campaign (D-893 F2), from the Leads screen's "Add to a campaign" and the
+ * Leads onto a campaign (D-893 F2), from the Leads screen's "Call these leads in a campaign" and the
  * campaign's own picker alike: ticked ids, or a lens. The count the person confirmed
  * travels with it, so a set that moved is refused rather than added; a set larger than one
  * request adds comes back as a `plan_id` the screen shows as a plan card.

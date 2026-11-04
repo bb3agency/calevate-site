@@ -251,7 +251,6 @@ async def test_the_starters_are_filled_in_for_the_account() -> None:
             "missed_call_callback",
             "appointment_reminder",
             "payment_reminder",
-            "win_back",
         ]
         qualify = found[1]
         assert set(qualify["needs"]) == {"outbound_agent", "whatsapp_template", "team_address"}

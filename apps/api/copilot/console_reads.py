@@ -365,8 +365,14 @@ async def _callbacks_list(
                 if row["last_refusal_rule"]
                 else ""
             )
+            + (
+                f" · booked by the Follow-up {row['follow_up_name']}"
+                if row.get("follow_up_id")
+                else ""
+            )
         )
         + f" [callback_id {row['id']}]"
+        + (f" [follow_up_id {row['follow_up_id']}]" if row.get("follow_up_id") else "")
         + (f" [lead_id {row['lead_id']}]" if row["lead_id"] else "")
         for row in rows
     ]

@@ -254,7 +254,7 @@ function CallFilters({
           onChange={(next) => onDirection(DIRECTIONS.find((d) => d.value === next)?.value)}
         />
         <Choice
-          label="Follow-up"
+          label="Handled"
           value={followUp}
           options={FOLLOW_UP}
           onChange={(next) => onFollowUp(FOLLOW_UP.find((f) => f.value === next)?.value)}

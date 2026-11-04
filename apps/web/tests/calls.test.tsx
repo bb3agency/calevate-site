@@ -196,7 +196,7 @@ describe("the call log", () => {
         "/v1/calls?follow_up=not_done&callback_open=false&limit=100": [],
       }),
     );
-    fireEvent.change(await screen.findByRole("combobox", { name: "Follow-up" }), {
+    fireEvent.change(await screen.findByRole("combobox", { name: "Handled" }), {
       target: { value: "not_done" },
     });
     fireEvent.change(screen.getByRole("combobox", { name: "Call-back" }), {

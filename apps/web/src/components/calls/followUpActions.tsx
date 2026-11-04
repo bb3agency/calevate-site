@@ -84,11 +84,11 @@ export type FollowUpTarget = {
 
 export type Dialer = { id: string; name: string };
 
-/** The swipe's three lead outcomes, in the order offered. Follow-up is stored as `interested`. */
+/** The swipe's three lead outcomes, in the order offered. */
 const LEAD_MARKS: { status: LeadStatus; label: string; hint: string }[] = [
   { status: SWIPE_LEAD_STATUS.won, label: "Won", hint: "They bought or booked." },
   { status: SWIPE_LEAD_STATUS.lost, label: "Lost", hint: "They are not going ahead." },
-  { status: SWIPE_LEAD_STATUS.followUp, label: "Follow up", hint: "Still interested. Shown as Interested in the list." },
+  { status: SWIPE_LEAD_STATUS.followUp, label: "Interested", hint: "Not decided yet. Worth another call." },
 ];
 
 const CALL_MARKS: { state: CallFollowUpState | null; label: string; hint: string }[] = [
@@ -440,7 +440,7 @@ export function useFollowUpActions(
   };
   const menuItems = (target: FollowUpTarget): MenuItem[] => {
     const a = forTarget(target);
-    return [a.callNow, { ...a.mark, label: target.callId ? "Mark this call" : "Mark this lead" }, a.laterAction, { ...a.whatsapp, label: "Send a WhatsApp follow-up" }].map(
+    return [a.callNow, { ...a.mark, label: target.callId ? "Mark this call" : "Mark this lead" }, a.laterAction, { ...a.whatsapp, label: "Send a WhatsApp" }].map(
       (action) => ({
         id: action.id,
         label: action.label,
@@ -870,7 +870,7 @@ function WhatsAppDialog({
 
   return (
     <ModalDialog
-      title="Send a WhatsApp follow-up"
+      title="Send a WhatsApp"
       description={
         <>
           <span className="block break-words font-medium text-ink">{target.name}</span>

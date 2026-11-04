@@ -21,7 +21,7 @@ import type { useCallBack, useCallbackEligibility, useWriteAccess } from "@/lib/
  * repeat it. A refusal by permission keeps the disabled button with the reason on screen
  * (UX-DOCTRINE §4), because the action exists and someone else in the account can take it.
  */
-export function FollowUpAction({
+export function CallBackAction({
   eligibility,
   callback,
   status,
@@ -48,7 +48,7 @@ export function FollowUpAction({
   if (eligibility.isLoading) {
     return (
       <div className="max-w-xs">
-        <Skeleton rows={1} label="Checking whether this call can be followed up" />
+        <Skeleton rows={1} label="Checking whether this call can be called back" />
       </div>
     );
   }
@@ -69,7 +69,7 @@ export function FollowUpAction({
     return (
       <div className="space-y-3">
         <NoticeBox tone="ok">
-          Calling back now (follow-up #{callback.data.follow_up_number}).
+          Calling back now (call-back #{callback.data.follow_up_number}).
         </NoticeBox>
         {lead}
       </div>
@@ -81,7 +81,7 @@ export function FollowUpAction({
     return (
       <div className="space-y-3">
         <NoticeBox tone="warn">
-          {callback.data.blocked_reason ?? "This follow-up call was not allowed."}
+          {callback.data.blocked_reason ?? "This call-back was not allowed."}
         </NoticeBox>
         {lead}
       </div>

@@ -205,7 +205,11 @@ account's **Leads & hours** and the campaign-free gate, and every WhatsApp to th
 | `missed_call_callback` | call ended, inbound, missed | wait 5 minutes → call → decide |
 | `appointment_reminder` | lead date `visit_date`, -1 day, 10:00 | WhatsApp reminder → wait 3 hours → call |
 | `payment_reminder` | lead date `due_date`, -2 days, 11:00 | WhatsApp → wait 1 day → call |
-| `win_back` | manual | call → decide → WhatsApp |
+
+`win_back` (manual: call → decide → WhatsApp) was withdrawn on 4 Nov 2026: calling a list of
+leads the client picks is a campaign, and two ways to do it was one too many. The key stays
+valid on `follow_ups.starter` so Follow-ups already made from it keep working; it is no longer
+offered. The Follow-ups screen and Pip point a one-off call list at Campaigns.
 
 ## The migration of the new-lead plan
 
@@ -362,6 +366,12 @@ the screen's own function; turning off and publishing have none. `follow_up_star
   problems listed as buttons that open the step. Tabs: **Steps**, **Runs** (lead, where they
   are, last result, Stop), **Results** (count per step and per exit, last 30 days).
 * Phone width: the same list, one column; menus become sheets.
+* **Leads**: with leads ticked, **Call these leads** adds them to a campaign. **Run a
+  Follow-up** shows beside it only when a live Follow-up is started by hand.
+* **Call-backs**: a call step's booked call-back is listed with the others and names the
+  Follow-up that booked it, linked (`GET /v1/callbacks` `follow_up: {id, name}`). On client
+  screens "Follow-up" means only these journeys; a call placed again on an earlier call is a
+  call-back.
 
 ## Where it touches existing code
 

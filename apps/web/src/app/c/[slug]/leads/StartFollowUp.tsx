@@ -25,10 +25,12 @@ import { TYPED_CONFIRMATION_FROM, type BulkSelection } from "./BulkActionBar";
 export const START_FOLLOW_UP_PARAM = "follow_up";
 
 /**
- * "Start a Follow-up" for the leads the table has selected (D-940): the same shape as
+ * "Run a Follow-up" for the leads the table has selected (D-940): the same shape as
  * `AddToCampaign`, beside it rather than inside the bulk bar, because it starts something
  * that runs on each lead rather than changing a field. Only a Follow-up that is ON and is
- * started by hand is offered; the others start themselves.
+ * started by hand is offered; the others start themselves. With none, the row is absent:
+ * calling the picked leads is `AddToCampaign`'s "Call these leads", and a second calling
+ * button with nothing behind it would only compete with it.
  *
  * The scope is the bulk bar's: ticked rows go as `lead_ids`, every matching lead goes as
  * the table's lens with the count the person confirmed. More than one request takes comes
@@ -79,8 +81,6 @@ export function StartFollowUp(props: StartFollowUpProps) {
 
 function Chooser({
   session,
-  slug,
-  href,
   selection,
   lens,
   filteredTotal,
@@ -134,51 +134,42 @@ function Chooser({
     );
   };
 
+  if (followUps.error != null) {
+    return <ProblemNotice error={followUps.error} onRetry={() => followUps.refetch()} />;
+  }
+  // Calling picked leads is "Call these leads" (a campaign); this row only exists for a live
+  // Follow-up that is started by hand, so it says nothing while loading or when there is none.
+  if (startable.length === 0) return null;
+
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
         <div className="min-w-0 flex-1 basis-56">
           <label htmlFor={selectId} className={FIELD_LABEL}>
-            Start a Follow-up
+            Run a Follow-up
           </label>
-          {followUps.isLoading ? (
-            <select id={selectId} disabled className={`${FIELD_INLINE} mt-1 w-full touch:min-h-11`}>
-              <option>Loading your Follow-ups…</option>
-            </select>
-          ) : followUps.error || !followUps.data ? null : startable.length === 0 ? (
-            <p className="mt-1 text-body text-ink-muted">
-              None you start by hand is on.{" "}
-              <Link href={href(`/c/${slug}/follow-ups`)} className={TEXT_ACTION}>
-                See Follow-ups
-              </Link>
-            </p>
-          ) : (
-            <select
-              id={selectId}
-              value={chosen?.id ?? ""}
-              onChange={(event) => setChosenId(event.target.value)}
-              className={`${FIELD_INLINE} mt-1 w-full touch:min-h-11`}
-            >
-              {startable.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
-            </select>
-          )}
-        </div>
-        {startable.length > 0 && (
-          <ActionButton
-            variant="secondary-sm"
-            disabled={!canStart || count === undefined || !chosen}
-            title={startReason ?? undefined}
-            onClick={() => setConfirming(true)}
+          <select
+            id={selectId}
+            value={chosen?.id ?? ""}
+            onChange={(event) => setChosenId(event.target.value)}
+            className={`${FIELD_INLINE} mt-1 w-full touch:min-h-11`}
           >
-            {count === undefined ? "Start for these leads" : `Start for ${formatCount(count)} ${noun}`}
-          </ActionButton>
-        )}
+            {startable.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <ActionButton
+          variant="secondary-sm"
+          disabled={!canStart || count === undefined || !chosen}
+          title={startReason ?? undefined}
+          onClick={() => setConfirming(true)}
+        >
+          {count === undefined ? "Start for these leads" : `Start for ${formatCount(count)} ${noun}`}
+        </ActionButton>
       </div>
-      {followUps.error != null && <ProblemNotice error={followUps.error} onRetry={() => followUps.refetch()} />}
 
       {confirming && chosen && count !== undefined ? (
         <ConfirmDialog

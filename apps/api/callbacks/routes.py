@@ -83,6 +83,13 @@ _ENDINGS: dict[str, str] = {
 }
 
 
+class CallbackFollowUpOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    name: str
+
+
 class ScheduledCallbackOut(BaseModel):
     """One promise. Instants are UTC on the wire and rendered in IST by the browser —
     the repo convention, and the reason this model carries no formatted string: a time
@@ -112,6 +119,9 @@ class ScheduledCallbackOut(BaseModel):
     #: Waiting, and on hold because its campaign is paused (D-914): it is called once the
     #: campaign resumes, at the next moment the calling hours allow.
     held: bool
+    #: The Follow-up whose call step booked this (D-940); null for one a caller asked for
+    #: or a person booked.
+    follow_up: CallbackFollowUpOut | None
 
 
 def _view(row: dict[str, object]) -> ScheduledCallbackOut:
@@ -146,6 +156,11 @@ def _view(row: dict[str, object]) -> ScheduledCallbackOut:
         settled_at=row["settled_at"],  # type: ignore[arg-type]
         note=str(row["note"]) if row["note"] else None,
         held=held,
+        follow_up=(
+            CallbackFollowUpOut(id=UUID(str(row["follow_up_id"])), name=str(row["follow_up_name"]))
+            if row.get("follow_up_id")
+            else None
+        ),
     )
 
 
@@ -370,6 +385,7 @@ async def change_callbacks(
 
 __all__ = [
     "MAX_PAGE",
+    "CallbackFollowUpOut",
     "CallbackMoveIn",
     "CallbacksBulkIn",
     "CallbacksBulkOut",

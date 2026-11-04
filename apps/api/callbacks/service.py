@@ -847,6 +847,23 @@ async def cancel_one(session: AsyncSession, callback_id: UUID, *, reason: str) -
     return rowcount_of(result) > 0
 
 
+#: What the client's list and detail read of a call-back aliased `s`, with the Follow-up whose
+#: call step booked it (`follow_ups.runner.CALLBACK_PREFIX`, D-940) when one did. The run id is
+#: cast only once the key has a Follow-up's shape, so the join uses the run's primary key and
+#: no other source's key is ever cast.
+_CLIENT_COLUMNS: Final = (
+    "s.id, s.agent_id, s.phone_e164, s.requested_at, s.status, s.attempts, "
+    "s.last_refusal_rule, s.last_refusal_reason, s.last_call_id, s.lead_id, s.note, "
+    f"s.settled_at, {_HELD} AS held, f.id AS follow_up_id, f.name AS follow_up_name"
+)
+_CLIENT_FROM: Final = (
+    "scheduled_callbacks s LEFT JOIN follow_up_runs r ON r.id = CASE WHEN "
+    "s.source_execution_id ~ '^follow-up:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-"
+    "[0-9a-f]{12}:' THEN split_part(s.source_execution_id, ':', 2)::uuid END "
+    "LEFT JOIN follow_ups f ON f.id = r.follow_up_id"
+)
+
+
 async def list_callbacks(
     session: AsyncSession, *, limit: int, open_only: bool = False
 ) -> list[dict[str, Any]]:
@@ -858,14 +875,12 @@ async def list_callbacks(
     cuts from the end and the promises due next are the ones somebody has to act on; the
     other way round, a client with more open promises than the page lost today's.
     """
-    where, order = (" WHERE status = 'scheduled'", "ASC") if open_only else ("", "DESC")
+    where, order = (" WHERE s.status = 'scheduled'", "ASC") if open_only else ("", "DESC")
     rows = (
         await session.execute(
             text(
-                "SELECT id, agent_id, phone_e164, requested_at, status, attempts, "
-                "  last_refusal_rule, last_refusal_reason, last_call_id, lead_id, note, "
-                f"  settled_at, {_HELD} AS held "
-                f"FROM scheduled_callbacks s{where} ORDER BY requested_at {order}, id LIMIT :n"
+                f"SELECT {_CLIENT_COLUMNS} FROM {_CLIENT_FROM}{where} "
+                f"ORDER BY s.requested_at {order}, s.id LIMIT :n"
             ),
             {"n": limit},
         )
@@ -876,11 +891,7 @@ async def list_callbacks(
 async def get_callback(session: AsyncSession, callback_id: UUID) -> dict[str, Any] | None:
     row = (
         await session.execute(
-            text(
-                "SELECT id, agent_id, phone_e164, requested_at, status, attempts, "
-                "  last_refusal_rule, last_refusal_reason, last_call_id, lead_id, note, "
-                f"  settled_at, {_HELD} AS held FROM scheduled_callbacks s WHERE id = :id"
-            ),
+            text(f"SELECT {_CLIENT_COLUMNS} FROM {_CLIENT_FROM} WHERE s.id = :id"),
             {"id": callback_id},
         )
     ).mappings()

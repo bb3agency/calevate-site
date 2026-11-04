@@ -27,7 +27,7 @@ type Screen =
 const QUESTIONS: Record<Screen, readonly string[]> = {
   dashboard: ["What needs me today?", "How did calls go this week?", "Which leads should I call back first?"],
   attention: ["What needs me first?", "Why did a campaign pause?", "How do I teach an agent an answer?"],
-  calls: ["Which calls need a follow-up?", "Summarise today's calls", "Who called more than once this week?"],
+  calls: ["Which calls still need someone?", "Summarise today's calls", "Who called more than once this week?"],
   call: ["What did this caller want?", "Should I call them back?", "What did the agent promise?"],
   leads: ["Which hot leads should I call first?", "What are people asking for most?", "Show this week's new leads"],
   lead: ["What does this person want?", "When did we last speak to them?", "What should I do next?"],

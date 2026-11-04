@@ -172,7 +172,7 @@ describe("the actions that reach a person", () => {
       }),
     );
     await openMenuItem(/WhatsApp/);
-    const dialog = await screen.findByRole("dialog", { name: /WhatsApp follow-up/ });
+    const dialog = await screen.findByRole("dialog", { name: /Send a WhatsApp/ });
     expect(await within(dialog).findByText("Connect your WhatsApp number first.")).toBeTruthy();
     expect(within(dialog).queryByRole("button", { name: "Send" })).toBeNull();
   });
@@ -203,7 +203,7 @@ describe("the actions that reach a person", () => {
       }),
     );
     await openMenuItem(/WhatsApp/);
-    const dialog = await screen.findByRole("dialog", { name: /WhatsApp follow-up/ });
+    const dialog = await screen.findByRole("dialog", { name: /Send a WhatsApp/ });
     fireEvent.click(await within(dialog).findByRole("button", { name: "Send" }));
     expect(within(dialog).getAllByText("Fill this in before sending.")).toHaveLength(2);
     fireEvent.change(within(dialog).getByLabelText("Name"), { target: { value: "Ramesh" } });

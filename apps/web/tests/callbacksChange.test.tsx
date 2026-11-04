@@ -40,6 +40,7 @@ function waiting(n: number): ScheduledCallback {
     settled_at: null,
     held: false,
     note: null,
+    follow_up: null,
   };
 }
 

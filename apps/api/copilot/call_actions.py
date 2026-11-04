@@ -90,7 +90,7 @@ async def _plan_call_back(session: AsyncSession, actor: ToolActor, args: Mapping
             "call so it carries on where it left off."
         ),
         current=None,
-        proposed=f"Follow-up call {check.follow_up_number}",
+        proposed=f"Call-back #{check.follow_up_number}",
         cost=_BILLED,
         reversal="A call cannot be taken back once it has started ringing.",
         args={"call_id": str(parsed.call_id)},
@@ -243,7 +243,7 @@ CALL_FOLLOW_UP_SET: Final = ActionTool(
     where="on the call and in Call logs",
     schema=action_schema(
         "call_follow_up_set",
-        "Mark one call's follow-up done (`resolved`), `needs_you`, or clear it (null)." + DOES_IT,
+        "Mark one call handled (`resolved`), `needs_you`, or clear the mark (null)." + DOES_IT,
         {
             "call_id": {"type": "string", "description": "The call's id."},
             "state": {

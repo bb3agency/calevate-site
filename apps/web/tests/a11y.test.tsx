@@ -3530,7 +3530,7 @@ const CLIENT_SCREENS: Screen[] = [
       "/v1/follow-ups/starters": {
         items: [
           { key: "missed_call_callback", name: "Call back missed calls", description: "Ring back anyone whose call you missed.", trigger: { kind: "call_ended", calls: "inbound", outcomes: ["missed"] }, steps: [], settings: FOLLOW_UP_SETTINGS, available: true, needs: [] },
-          { key: "win_back", name: "Win back", description: "Call old enquiries that went quiet.", trigger: { kind: "manual" }, steps: [], settings: FOLLOW_UP_SETTINGS, available: false, needs: ["outbound_agent", "whatsapp_template"] },
+          { key: "payment_reminder", name: "Payment reminder", description: "Remind them before a payment is due, then call.", trigger: { kind: "lead_date", field: "due_date", offset_days: -2, at: "11:00" }, steps: [], settings: FOLLOW_UP_SETTINGS, available: false, needs: ["outbound_agent", "whatsapp_template"] },
         ],
       } satisfies FollowUpStartersOut,
     },

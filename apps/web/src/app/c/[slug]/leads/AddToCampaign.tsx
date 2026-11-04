@@ -23,7 +23,9 @@ import { TYPED_CONFIRMATION_FROM, type BulkSelection } from "./BulkActionBar";
 const OPEN_STATUSES = new Set(["draft", "scheduled"]);
 
 /**
- * "Add to a campaign" for the leads the table has selected (D-893 lane L3, item 12).
+ * "Call these leads in a campaign" for the leads the table has selected (D-893 lane L3, item
+ * 12): the one bulk way to call picked leads. `StartFollowUp` sits beside it only for a
+ * Follow-up started by hand.
  *
  * Its own row under the bulk bar rather than a third verb inside it: the bulk bar's verbs
  * change a field on each lead and report changed/unchanged, while this one puts the leads
@@ -128,7 +130,7 @@ function Chooser({
       <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
         <div className="min-w-0 flex-1 basis-56">
           <label htmlFor={selectId} className={FIELD_LABEL}>
-            Add to a campaign
+            Call these leads in a campaign
           </label>
           {campaigns.isLoading ? (
             <select id={selectId} disabled className={`${FIELD_INLINE} mt-1 w-full touch:min-h-11`}>

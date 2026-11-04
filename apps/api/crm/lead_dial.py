@@ -270,7 +270,7 @@ async def place_call_back(
                 "The voice platform did not answer us, and it may have started the call anyway."
             ),
             remediation=(
-                "Check this call's follow-ups in a minute before trying again — calling "
+                "Check this call's call-backs in a minute before trying again — calling "
                 "again could ring them twice."
             ),
         ) from unconfirmed
