@@ -3252,7 +3252,14 @@ const CLIENT_SCREENS: Screen[] = [
           {
             id: "018f3c00-0000-7000-8000-000000000001",
             source: "meta_lead_ads",
-            agent_id: null,
+            caller: {
+              agent_id: "agent-1",
+              agent_name: "Reception",
+              chosen_by: "follow_up",
+              called: true,
+              follow_up_id: "018f3c00-0000-7000-8000-0000000000f1",
+              follow_up_name: "Call new leads",
+            },
             active: true,
             mapping: { phone: "phone_number" },
             secret_fingerprint: "a1b2c3d4",

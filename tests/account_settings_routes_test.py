@@ -193,10 +193,16 @@ async def test_staff_may_not_edit_an_endpoint() -> None:
 # --- lead sources --------------------------------------------------------------------------
 
 
-async def test_a_lead_source_is_pointed_at_another_agent_or_none() -> None:
+async def test_a_lead_source_says_who_calls_its_leads() -> None:
     tenant_id, slug, token = await _make_tenant()
     async with tenant_session(tenant_id) as session:
         agent_id = (await session.execute(text("SELECT id FROM agents LIMIT 1"))).scalar_one()
+        await session.execute(
+            text(
+                "UPDATE agents SET direction = 'outbound', engine_agent_ref = :ref WHERE id = :aid"
+            ),
+            {"ref": f"fakeagent_{uuid.uuid4().hex[:8]}", "aid": agent_id},
+        )
     async with _client() as http:
         created = await http.post(
             "/v1/lead-sources",
@@ -204,25 +210,14 @@ async def test_a_lead_source_is_pointed_at_another_agent_or_none() -> None:
             headers=_headers(slug, token),
         )
         assert created.status_code == 201, created.text
-        source_id = created.json()["id"]
-        pointed = await http.patch(
-            f"/v1/lead-sources/{source_id}",
-            json={"agent_id": str(agent_id)},
-            headers=_headers(slug, token),
-        )
-        cleared = await http.patch(
-            f"/v1/lead-sources/{source_id}", json={"agent_id": None}, headers=_headers(slug, token)
-        )
-        foreign = await http.patch(
-            f"/v1/lead-sources/{source_id}",
-            json={"agent_id": str(uuid.uuid4())},
-            headers=_headers(slug, token),
-        )
-    assert pointed.status_code == 200, pointed.text
-    assert pointed.json()["agent_id"] == str(agent_id)
-    assert cleared.json()["agent_id"] is None
-    assert foreign.status_code == 404
-    assert (await _audit_actions(tenant_id)).count("lead_source.agent_changed") == 2
+        listed = await http.get("/v1/lead-sources", headers=_headers(slug, token))
+    assert listed.status_code == 200, listed.text
+    caller = listed.json()["items"][0]["caller"]
+    assert caller["agent_id"] == str(agent_id)
+    assert caller["chosen_by"] == "account"
+    # This account never had "Call new leads"; its first lead gives it one, so it is called.
+    assert caller["called"] is True
+    assert caller["follow_up_id"] is None
 
 
 # --- the low-balance line ------------------------------------------------------------------

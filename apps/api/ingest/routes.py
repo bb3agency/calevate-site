@@ -37,6 +37,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
 from apps.api.db.session import ingest_config_session, tenant_session
+from apps.api.follow_ups.runner import live_follow_ups, matching_new_lead_follow_up
 from apps.api.ingest import meta, portals, service
 from apps.api.ingest.service import (
     STALE_SUBMISSION_RULE,
@@ -885,10 +886,7 @@ class CreateLeadSourceIn(BaseModel):
         "housing",
         "leadsquared",
     ]
-    # Which agent answers leads from this source. Optional because the honest answer at
-    # setup time is often "not yet" — `ingest_lead` refuses with `ingest_no_agent` and
-    # names the fix, rather than this route forcing a guess.
-    agent_id: UUID | None = None
+    # No agent: who calls a source's leads is chosen in the "Call new leads" Follow-up.
     # `dict[str, str]`, not `dict[str, Any]`: a mapping value is a field NAME, and the
     # loose type is also the shape `scripts/check_redaction_exposure.py` refuses on a
     # response model. Validated in `service.validate_mapping`.
@@ -915,6 +913,24 @@ class LeadSourceCreatedOut(BaseModel):
     push_path: str | None = None
 
 
+class LeadSourceCallerOut(BaseModel):
+    """Who calls this source's new leads, decided by `service.new_lead_caller`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: The agent that calls them; null when no agent can.
+    agent_id: UUID | None
+    agent_name: str | None
+    #: Why that agent: the Follow-up's call step names it, the source was set up with it
+    #: before that choice moved to the Follow-up, or it is the account's oldest calling agent.
+    chosen_by: Literal["follow_up", "source", "account"] | None
+    #: False when no live Follow-up starts a new lead from this source: kept, not called.
+    called: bool
+    #: Where to change it: the Follow-up its new leads start, else "Call new leads".
+    follow_up_id: UUID | None
+    follow_up_name: str | None
+
+
 class LeadSourceOut(BaseModel):
     """A lead source as the config screen sees it — fingerprint only, never a value."""
 
@@ -925,7 +941,7 @@ class LeadSourceOut(BaseModel):
     # Where the sender posts, built by `_ingest_path` like the create response's, so the
     # screen can offer it again later without re-deriving the route in the browser.
     ingest_path: str
-    agent_id: UUID | None
+    caller: LeadSourceCallerOut
     active: bool
     mapping: dict[str, str]
     secret_fingerprint: str
@@ -1426,11 +1442,21 @@ async def test_webhook(
             ),
         ),
     ]
-    if phone is None or config.agent_id is None:
-        if config.agent_id is None:
+    follow_up = matching_new_lead_follow_up(await live_follow_ups(session, "new_lead"), config.id)
+    call_step = service.first_call_step(follow_up)
+    caller = await service.new_lead_caller(
+        session,
+        step_agent_id=call_step.agent_id if call_step is not None else None,
+        source_agent_id=config.agent_id,
+        account_agent_id=await service.account_calling_agent(session),
+    )
+    if phone is None or caller.agent_id is None:
+        if caller.agent_id is None:
             steps.append(
                 LeadSourceDryRunStepOut(
-                    step="agent", ok=False, detail="No agent attached to this source."
+                    step="agent",
+                    ok=False,
+                    detail="No live agent calls new leads. Choose one in Call new leads.",
                 )
             )
         return LeadSourceDryRunOut(would_call=False, steps=steps)
@@ -1513,7 +1539,7 @@ async def test_webhook(
         return LeadSourceDryRunOut(would_call=False, steps=steps)
 
     decision = await check_dispatch(
-        session, tenant_id=principal.tenant_id, agent_id=config.agent_id, phone_e164=phone
+        session, tenant_id=principal.tenant_id, agent_id=caller.agent_id, phone_e164=phone
     )
     steps.append(
         LeadSourceDryRunStepOut(
@@ -1574,13 +1600,15 @@ async def list_lead_sources(
     here, because a hand-written predicate beside the policy is a second, weaker
     boundary that the next query forgets.
     """
+    rows = await service.list_lead_sources(session, limit=limit)
+    callers = await service.source_callers(session, rows)
     return LeadSourceListOut(
         items=[
             LeadSourceOut(
                 id=row.id,
                 source=row.source,
                 ingest_path=_ingest_path(row.id, row.source),
-                agent_id=row.agent_id,
+                caller=_caller_out(callers[row.id]),
                 active=row.active,
                 mapping=row.mapping,
                 secret_fingerprint=row.secret_fingerprint,
@@ -1589,9 +1617,20 @@ async def list_lead_sources(
                 updated_at=row.updated_at,
                 consent_basis="application" if row.consent_basis == "application" else "inquiry",
             )
-            for row in await service.list_lead_sources(session, limit=limit)
+            for row in rows
         ],
         secret_header=SECRET_HEADER,
+    )
+
+
+def _caller_out(found: service.SourceCaller) -> LeadSourceCallerOut:
+    return LeadSourceCallerOut(
+        agent_id=found.caller.agent_id,
+        agent_name=found.agent_name,
+        chosen_by=found.caller.chosen_by,
+        called=found.called,
+        follow_up_id=found.follow_up_id,
+        follow_up_name=found.follow_up_name,
     )
 
 
@@ -1638,7 +1677,6 @@ async def create_lead_source(
         session,
         tenant_id=principal.tenant_id,
         source=payload.source,
-        agent_id=payload.agent_id,
         mapping=payload.mapping,
         supplied_secret=payload.app_secret,
     )
@@ -1650,7 +1688,7 @@ async def create_lead_source(
         object_type="inbound_webhook",
         object_id=str(webhook_id),
         ip=client_request_ip(request),
-        summary={"source": payload.source, "agent_id": str(payload.agent_id or "")},
+        summary={"source": payload.source},
     )
     return LeadSourceCreatedOut(
         id=webhook_id,
@@ -1778,57 +1816,6 @@ async def enable_lead_source(
             object_id=str(webhook_id),
             ip=client_request_ip(request),
         )
-
-
-class UpdateLeadSourceIn(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    #: Which agent answers leads from this source; null leaves new leads waiting with
-    #: `ingest_no_agent` until one is chosen.
-    agent_id: UUID | None
-
-
-class LeadSourceAgentOut(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    id: UUID
-    agent_id: UUID | None
-
-
-@sources_router.patch(
-    "/{webhook_id}",
-    response_model=LeadSourceAgentOut,
-    openapi_extra=permission_meta("org:manage"),
-    summary="Choose which agent answers leads from this source",
-    description=(
-        "Points the source at another agent, or at none. The secret and the address are "
-        "unchanged. Refused with a 404 for an agent of another account and "
-        "`agent_archived` for a deleted one."
-    ),
-)
-async def update_lead_source(
-    webhook_id: UUID,
-    payload: UpdateLeadSourceIn,
-    session: SessionDep,
-    request: Request,
-    principal: Principal = Depends(requires("org:manage")),
-) -> LeadSourceAgentOut:
-    assert principal.tenant_id is not None
-    previous = await service.set_source_agent(
-        session, webhook_id=webhook_id, agent_id=payload.agent_id
-    )
-    if previous != payload.agent_id:
-        await write_audit(
-            session,
-            action="lead_source.agent_changed",
-            actor=principal,
-            tenant_id=principal.tenant_id,
-            object_type="inbound_webhook",
-            object_id=str(webhook_id),
-            ip=client_request_ip(request),
-            summary={"agent_id": str(payload.agent_id or ""), "was": str(previous or "")},
-        )
-    return LeadSourceAgentOut(id=webhook_id, agent_id=payload.agent_id)
 
 
 class LeadSourceMappingIn(BaseModel):

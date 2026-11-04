@@ -120,7 +120,14 @@ function leadSource(over: Partial<LeadSource> = {}): LeadSource {
     id: SOURCE_ID,
     source: "meta_lead_ads",
     ingest_path: `/hooks/v1/ingest/meta/${SOURCE_ID}`,
-    agent_id: null,
+    caller: {
+      agent_id: null,
+      agent_name: null,
+      chosen_by: null,
+      called: true,
+      follow_up_id: null,
+      follow_up_name: null,
+    },
     active: true,
     mapping: { phone: "phone_number" },
     secret_fingerprint: "a1b2c3d4",
@@ -1002,81 +1009,56 @@ describe("provisioning a lead source", () => {
   });
 });
 
-/**
- * The agent picker, which is the difference between a lead source and a lead source that
- * rings somebody.
- *
- * `(agents.data ?? []).map(...)` left the `<select>` holding one option — "Not yet — save
- * leads, don't call" — on a failed `/v1/agents`. That option is a legitimate choice, so
- * nothing on screen looked wrong: a client picks the only thing offered and walks away
- * having built a source that quietly saves leads and never dials, believing they have no
- * agents. §52's "failure is a refusal", on a form rather than on a table.
- */
-describe("the agent that answers a new lead source", () => {
-  it("refuses, and blocks the save, rather than offering 'don't call' as the only choice", async () => {
+/** Who calls a source's new leads: the "Call new leads" Follow-up decides, the row says so. */
+describe("who calls a source's new leads", () => {
+  const FOLLOW_UP_ID = "018f3c00-0000-7000-8000-0000000000f1";
+
+  it("names the agent and links to the Follow-up that chooses it", async () => {
     const { container } = await renderPage({
-      [AGENTS_PATH]: problem(503, {
-        title: "Service unavailable",
-        retryable: true,
-      }),
+      [SOURCES_PATH]: sourceList(
+        leadSource({
+          caller: {
+            agent_id: "a1",
+            agent_name: "Riya",
+            chosen_by: "follow_up",
+            called: true,
+            follow_up_id: FOLLOW_UP_ID,
+            follow_up_name: "Call new leads",
+          },
+        }),
+      ),
     });
-    expect(container.textContent).not.toContain("Not yet — save leads, don't call");
-    await openAdd();
-    const drawer = document.body;
-
-    // The refusal is PRESENT — not merely the picker absent, which an empty card also
-    // satisfies — and it says what saving anyway would have done.
-    expect(drawer.textContent).toContain("Couldn't load your agents.");
-    expect(drawer.textContent).toContain("Saving now would never ring anyone.");
-    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
-    expect(screen.queryByLabelText("Agent to answer these leads")).toBeNull();
-    expect(drawer.textContent).not.toContain(
-      "Not yet — save leads, don't call",
-    );
-
-    // …and the form cannot be sent, because otherwise that sentence is not true.
-    expect(
-      (
-        screen.getByRole("button", {
-          name: "Add lead source",
-        }) as HTMLButtonElement
-      ).disabled,
-    ).toBe(true);
+    await screen.findAllByText("Riya");
+    const links = screen.getAllByRole("link", { name: /^Change: who calls leads from/ });
+    expect(links[0]?.getAttribute("href")).toContain(`/follow-ups/${FOLLOW_UP_ID}`);
+    expect(container.textContent).not.toContain("Saved, not called");
   });
 
-  it("offers 'don't call' when the server actually said the account has no agents", async () => {
-    // The premise of the test above. An empty list is a FACT here; the option is right.
-    await renderPage({ [AGENTS_PATH]: [] });
-    await openAdd();
-    const container = document.body;
-
-    expect(screen.getByLabelText("Agent to answer these leads")).toBeDefined();
-    expect(container.textContent).toContain("Not yet — save leads, don't call");
-    expect(container.textContent).not.toContain(
-      "We could not read your agents just now",
-    );
-    expect(
-      (
-        screen.getByRole("button", {
-          name: "Add lead source",
-        }) as HTMLButtonElement
-      ).disabled,
-    ).toBe(false);
+  it("says leads are saved, not called, when Call new leads is off", async () => {
+    await renderPage({
+      [SOURCES_PATH]: sourceList(
+        leadSource({
+          caller: {
+            agent_id: "a1",
+            agent_name: "Riya",
+            chosen_by: "account",
+            called: false,
+            follow_up_id: FOLLOW_UP_ID,
+            follow_up_name: "Call new leads",
+          },
+        }),
+      ),
+    });
+    await screen.findAllByText("Saved, not called");
+    const links = screen.getAllByRole("link", { name: /^Turn on: who calls leads from/ });
+    expect(links[0]?.getAttribute("href")).toContain(`/follow-ups/${FOLLOW_UP_ID}`);
   });
 
-  it("waits rather than claiming the list is empty while it is still reading", async () => {
-    await renderPage({ [AGENTS_PATH]: stillLoading() });
-    await openAdd();
-    const container = document.body;
-
-    const picker = screen.getByLabelText(
-      "Agent to answer these leads",
-    ) as HTMLSelectElement;
-    expect(picker.disabled).toBe(true);
-    expect(container.textContent).toContain("Reading your agents…");
-    expect(container.textContent).not.toContain(
-      "Not yet — save leads, don't call",
-    );
+  it("asks for an agent when nobody can call", async () => {
+    await renderPage({ [SOURCES_PATH]: sourceList(leadSource()) });
+    await screen.findAllByText("Nobody yet");
+    const links = screen.getAllByRole("link", { name: /^Choose: who calls leads from/ });
+    expect(links[0]?.getAttribute("href")).toMatch(/\/follow-ups$/);
   });
 });
 

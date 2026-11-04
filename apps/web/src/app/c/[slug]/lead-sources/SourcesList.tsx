@@ -1,6 +1,7 @@
 "use client";
 
 import { FlaskConical, Webhook } from "lucide-react";
+import Link from "next/link";
 
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import { EmptySketch } from "@/components/console/emptySketch";
@@ -16,15 +17,48 @@ import {
   ToggleSwitch,
   formatIST,
 } from "@/components/ui";
-import type { Agent } from "@/lib/api/agents";
+import { TEXT_ACTION } from "@/components/console/section";
 import { API_BASE } from "@/lib/api/client";
 import type { IngestActivity, LeadSource, useLeadSources } from "@/lib/api/leadSources";
+import { useClientRealm } from "@/lib/api/session";
 
 import { META_SOURCE, fieldsMenuLabel, isPushSource, sourceLabel, sourceLogo } from "./sourceKinds";
 
 /** One row's name, everywhere it is spoken: the kind plus the last eight characters of its id (uuid7 ids share their leading, time-ordered half). */
 export function rowName(source: LeadSource): string {
   return `${sourceLabel(source.source)} · ${source.id.slice(-8)}`;
+}
+
+/**
+ * WHO CALLS ONE SOURCE'S NEW LEADS, read from the server (`LeadSourceOut.caller`). The
+ * "Call new leads" Follow-up is the one place that chooses the agent, so the row only says
+ * who it is and links there.
+ */
+function CalledBy({ source }: { source: LeadSource }) {
+  const { session, href } = useClientRealm();
+  const caller = source.caller;
+  const target = caller.follow_up_id
+    ? `/c/${session.orgSlug}/follow-ups/${caller.follow_up_id}`
+    : `/c/${session.orgSlug}/follow-ups`;
+  const [line, action] = !caller.called
+    ? ["Saved, not called", "Turn on"]
+    : caller.agent_name
+      ? [caller.agent_name, "Change"]
+      : ["Nobody yet", "Choose"];
+  return (
+    <div className="min-w-0">
+      <p className={`truncate text-body ${caller.called && caller.agent_name ? "text-ink" : "text-warn"}`}>
+        {line}
+      </p>
+      <Link
+        href={href(target)}
+        className={TEXT_ACTION}
+        aria-label={`${action}: who calls leads from ${rowName(source)}`}
+      >
+        {action}
+      </Link>
+    </div>
+  );
 }
 
 /**
@@ -41,27 +75,23 @@ export function rowName(source: LeadSource): string {
  */
 export function SourcesList({
   sources,
-  agents,
   activity,
   canWrite,
   busy,
   onToggle,
   onTest,
   onRotate,
-  onAgent,
   onFields,
   onMeta,
   onAdd,
 }: {
   sources: ReturnType<typeof useLeadSources>;
-  agents: Agent[] | undefined;
   activity: IngestActivity | undefined;
   canWrite: boolean;
   busy: boolean;
   onToggle: (source: LeadSource) => void;
   onTest: (source: LeadSource) => void;
   onRotate: (source: LeadSource) => void;
-  onAgent: (source: LeadSource) => void;
   onFields: (source: LeadSource) => void;
   onMeta: (source: LeadSource) => void;
   /** Absent for a viewer who may not add one. */
@@ -93,10 +123,6 @@ export function SourcesList({
     );
   }
 
-  const agentName = (id: string | null) =>
-    id === null
-      ? "Saves leads, doesn't call"
-      : (agents?.find((agent) => agent.id === id)?.name ?? "An agent not in your list");
   // Recoverable Meta leads per source, from the delivery log's own server-derived flag.
   const waiting = (id: string) =>
     activity?.items.filter((item) => item.lead_source_id === id && item.recoverable).length ?? 0;
@@ -126,15 +152,19 @@ export function SourcesList({
               {waiting(row.id)} unread {waiting(row.id) === 1 ? "lead" : "leads"} to recover
             </p>
           )}
+          {/* The "Called by" column is hidden on a phone; the same answer sits here. */}
+          <div className="mt-1 md:hidden">
+            <CalledBy source={row} />
+          </div>
         </div>
         </div>
       ),
     },
     {
       id: "agent",
-      header: "Answered by",
+      header: "Called by",
       hideBelow: "md",
-      cell: (row) => <span className="text-body text-ink-muted">{agentName(row.agent_id)}</span>,
+      cell: (row) => <CalledBy source={row} />,
     },
     {
       id: "active",
@@ -163,12 +193,6 @@ export function SourcesList({
           ...(row.source === META_SOURCE
             ? [{ id: "meta", label: "Meta setup and recovery", onSelect: () => onMeta(row) }]
             : []),
-          {
-            id: "agent",
-            label: "Choose who answers",
-            onSelect: () => onAgent(row),
-            disabled: !canWrite,
-          },
           {
             id: "fields",
             label: fieldsMenuLabel(row.source),

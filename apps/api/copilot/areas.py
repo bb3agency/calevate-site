@@ -357,7 +357,6 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
     AreaEntry("team_invitation", "team", "resend or cancel an invitation"),
     AreaEntry("line_protection_phone", "settings", "backup phone when the agent cannot answer"),
     AreaEntry("lead_source_create", "integrations", "a new lead source address"),
-    AreaEntry("lead_source_edit", "integrations", "which agent answers a lead source"),
     AreaEntry("lead_source_switch", "integrations", "pause or resume a lead source"),
     AreaEntry("lead_source_rotate", "integrations", "a new secret for a lead source"),
     AreaEntry("lead_calling_rules", "integrations", "when and how new leads are called"),

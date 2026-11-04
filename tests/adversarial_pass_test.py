@@ -781,7 +781,6 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("DELETE", "/v1/invitations/{invitation_id}", {}, {}),
     ("POST", "/v1/invitations/{invitation_id}/resend", {}, {}),
     ("DELETE", "/v1/lead-sources/{webhook_id}", {}, {}),
-    ("PATCH", "/v1/lead-sources/{webhook_id}", {"agent_id": None}, {}),
     ("PUT", "/v1/lead-sources/{webhook_id}/mapping", {"mapping": {}}, {}),
     ("POST", "/v1/lead-sources/{webhook_id}/enable", {}, {}),
     ("POST", "/v1/lead-sources/{webhook_id}/meta/redrive", {}, {}),
@@ -1290,8 +1289,6 @@ _BODY_REFERENCE_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str],
         {},
         "WhatsApp account",
     ),
-    ("POST", "/v1/lead-sources", {"source": "website_form", "agent_id": "{agent_id}"}, {}, "Agent"),
-    ("PATCH", "/v1/lead-sources/{webhook_id}", {"agent_id": "{agent_id}"}, {}, "Agent"),
 )
 
 

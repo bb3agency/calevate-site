@@ -10656,11 +10656,7 @@ export interface paths {
         delete: operations["disable_lead_source_v1_lead_sources__webhook_id__delete"];
         options?: never;
         head?: never;
-        /**
-         * Choose which agent answers leads from this source
-         * @description Points the source at another agent, or at none. The secret and the address are unchanged. Refused with a 404 for an agent of another account and `agent_archived` for a deleted one.
-         */
-        patch: operations["update_lead_source_v1_lead_sources__webhook_id__patch"];
+        patch?: never;
         trace?: never;
     };
     "/v1/lead-sources/{webhook_id}/consent-basis": {
@@ -20781,8 +20777,6 @@ export interface components {
         };
         /** CreateLeadSourceIn */
         CreateLeadSourceIn: {
-            /** Agent Id */
-            agent_id?: string | null;
             /** App Secret */
             app_secret?: string | null;
             /** Mapping */
@@ -26033,15 +26027,23 @@ export interface components {
              */
             test_calls: boolean;
         };
-        /** LeadSourceAgentOut */
-        LeadSourceAgentOut: {
+        /**
+         * LeadSourceCallerOut
+         * @description Who calls this source's new leads, decided by `service.new_lead_caller`.
+         */
+        LeadSourceCallerOut: {
             /** Agent Id */
             agent_id: string | null;
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
+            /** Agent Name */
+            agent_name: string | null;
+            /** Called */
+            called: boolean;
+            /** Chosen By */
+            chosen_by: ("follow_up" | "source" | "account") | null;
+            /** Follow Up Id */
+            follow_up_id: string | null;
+            /** Follow Up Name */
+            follow_up_name: string | null;
         };
         /** LeadSourceConsentBasisIn */
         LeadSourceConsentBasisIn: {
@@ -26164,8 +26166,7 @@ export interface components {
         LeadSourceOut: {
             /** Active */
             active: boolean;
-            /** Agent Id */
-            agent_id: string | null;
+            caller: components["schemas"]["LeadSourceCallerOut"];
             /**
              * Consent Basis
              * @enum {string}
@@ -35678,11 +35679,6 @@ export interface components {
              * @default false
              */
             include_transcript: boolean;
-        };
-        /** UpdateLeadSourceIn */
-        UpdateLeadSourceIn: {
-            /** Agent Id */
-            agent_id: string | null;
         };
         /**
          * UploadOut
@@ -56790,41 +56786,6 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    update_lead_source_v1_lead_sources__webhook_id__patch: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                webhook_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateLeadSourceIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LeadSourceAgentOut"];
-                };
             };
             /** @description RFC-9457 problem+json */
             default: {

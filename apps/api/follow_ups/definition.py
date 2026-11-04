@@ -130,7 +130,8 @@ class ActionExits(_Strict):
 class CallStep(_Strict):
     id: StepId
     kind: Literal["call"]
-    #: Null: the lead's own agent (the agent its source or call gave it).
+    #: Null: the lead's own agent (the agent its call gave it; for a new lead, the one
+    #: `ingest.service.new_lead_caller` picks).
     agent_id: UUID | None = None
     wait_minutes: int = Field(0, ge=0, le=CALL_WAIT_MAX_MINUTES)
     #: An exact wait carried over from the old new-lead plan, which counted seconds. When

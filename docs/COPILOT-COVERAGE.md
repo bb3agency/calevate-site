@@ -269,7 +269,7 @@ D-935 troubleshooting and line-protection healer, D-936 proactive notes, D-937 P
 |---|---|---|---|---|
 | lead sources | "Are my lead sources working?" | integrations_find:integrations_status | read | COVERED |
 | lead sources | New lead source | integrations_do:lead_source_create | confirm | COVERED |
-| lead sources | Which agent answers it | integrations_do:lead_source_edit | confirm | COVERED |
+| lead sources | Which agent calls its leads (the "Call new leads" Follow-up's call step) | leads_do:follow_up_draft (follow_up_id) | confirm | COVERED |
 | lead sources | Pause / resume | integrations_do:lead_source_switch | confirm | COVERED |
 | lead sources | New secret | integrations_do:lead_source_rotate | confirm | COVERED |
 | lead sources | Field mapping | integrations_do:lead_source_mapping | confirm | COVERED |

@@ -29,7 +29,6 @@ import {
 import { useClientSession } from "@/lib/api/session";
 
 import { AddSourceDrawer } from "./AddSourceDrawer";
-import { AgentDrawer } from "./AgentDrawer";
 import { FieldsDrawer } from "./FieldsDrawer";
 import { CallingPlan } from "./CallingPlan";
 import { DeliveryLog } from "./DeliveryLog";
@@ -108,7 +107,6 @@ export function LeadSourcesScreen() {
 
   const [adding, setAdding] = useState(false);
   const [rotating, setRotating] = useState<LeadSource | null>(null);
-  const [choosingAgent, setChoosingAgent] = useState<LeadSource | null>(null);
   const [editingFields, setEditingFields] = useState<LeadSource | null>(null);
   const [testSourceId, setTestSourceId] = useState("");
   const [metaSourceId, setMetaSourceId] = useState("");
@@ -215,14 +213,12 @@ export function LeadSourcesScreen() {
       <h2 className="pt-2 text-heading text-ink">Where leads come from</h2>
       <SourcesList
         sources={sources}
-        agents={agents.data}
         activity={activity.data}
         canWrite={write.allowed}
         busy={setActiveFeedback.status === "pending"}
         onToggle={(item) => setActiveFeedback.run({ webhookId: item.id, active: !item.active })}
         onTest={openTest}
         onRotate={setRotating}
-        onAgent={setChoosingAgent}
         onFields={setEditingFields}
         onMeta={(item) => openMeta(item.id)}
         onAdd={write.allowed ? () => setAdding(true) : undefined}
@@ -246,17 +242,8 @@ export function LeadSourcesScreen() {
         onClose={() => setAdding(false)}
         create={create}
         createStatus={createFeedback.status}
-        agents={agents}
         canWrite={write.allowed}
       />
-      {choosingAgent && (
-        <AgentDrawer
-          source={choosingAgent}
-          agents={agents}
-          session={session}
-          onClose={() => setChoosingAgent(null)}
-        />
-      )}
       {editingFields && (
         <FieldsDrawer source={editingFields} session={session} onClose={() => setEditingFields(null)} />
       )}

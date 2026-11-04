@@ -695,6 +695,12 @@ async def _lead_source(tenant_id: uuid.UUID, agent_id: uuid.UUID | None) -> uuid
 async def test_the_dry_run_answers_a_declared_model_step_by_step() -> None:
     tenant_id, agent_id, headers = await _owner_tenant("dry")
     webhook_id = await _lead_source(tenant_id, agent_id)
+    # Published but not switched on: the agent calls new leads, and the gate refuses it.
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE agents SET engine_agent_ref = :ref WHERE id = :aid"),
+            {"ref": f"fakeagent_{uuid.uuid4().hex[:8]}", "aid": agent_id},
+        )
 
     async with _client() as http:
         response = await http.post(
@@ -718,7 +724,7 @@ async def test_the_dry_run_answers_a_declared_model_step_by_step() -> None:
     mapping_step, phone_step, gate_step = verdict.steps
     assert mapping_step.mapped_fields == ["full_name", "phone_number"], "KEYS, never values"
     assert phone_step.ok is True and phone_step.mapped_fields is None
-    # A freshly created org's agent is not published, so the gate refuses and NAMES the
+    # The agent is not switched on, so the gate refuses and NAMES the
     # rule — which is the branch that fills in `rule`, null on every other step. The
     # point is that the gate was CONSULTED (same function, same live DNC read) and its
     # verdict reported rather than acted on.

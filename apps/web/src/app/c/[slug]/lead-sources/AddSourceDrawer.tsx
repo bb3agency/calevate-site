@@ -16,9 +16,7 @@ import {
   PRIMARY_BUTTON,
   ProblemNotice,
   SECONDARY_BUTTON,
-  SECONDARY_BUTTON_SM,
 } from "@/components/ui";
-import type { useAgents } from "@/lib/api/agents";
 import type { useCreateLeadSource } from "@/lib/api/leadSources";
 
 import { ChoiceCards } from "@/components/console/choiceCards";
@@ -46,8 +44,9 @@ const KINDS = [
 type Kind = (typeof KINDS)[number]["value"];
 
 /**
- * ADD A LEAD SOURCE: which kind, which agent answers, and (rarely) the form's own field
- * names. The success step is the one moment the minted secret exists in plaintext.
+ * ADD A LEAD SOURCE: which kind and (rarely) the form's own field names. Who calls its leads
+ * is the "Call new leads" Follow-up's choice, not the source's. The success step is the one
+ * moment the minted secret exists in plaintext.
  *
  * Every control sits in one `fieldset disabled` for a viewer without `org:manage`, so the
  * form cannot be filled in and discovered inert at the last click.
@@ -57,7 +56,6 @@ export function AddSourceDrawer({
   onClose,
   create,
   createStatus,
-  agents,
   canWrite,
 }: {
   open: boolean;
@@ -65,14 +63,12 @@ export function AddSourceDrawer({
   create: ReturnType<typeof useCreateLeadSource>;
   /** The add's state from the screen's `useActionFeedback`. */
   createStatus: FeedbackStatus;
-  agents: ReturnType<typeof useAgents>;
   canWrite: boolean;
 }) {
   const formId = useId();
   const [kind, setKind] = useState<Kind>("webhook");
   const [webhookKind, setWebhookKind] = useState<WebhookKind>("website_form");
   const [pushKind, setPushKind] = useState<PushSource>("indiamart");
-  const [agentId, setAgentId] = useState("");
   const [phoneField, setPhoneField] = useState("phone");
   const [nameField, setNameField] = useState("name");
   const [consentField, setConsentField] = useState("");
@@ -83,8 +79,6 @@ export function AddSourceDrawer({
   const appSecretErrorId = `${useId()}-app-secret-error`;
   const isMeta = kind === "meta";
   const isPush = kind === "push";
-  /** §52: no agent list (failed, or paused offline) means the choice cannot be made yet. */
-  const agentsUnread = agents.error != null || (!agents.isLoading && !agents.data);
 
   const close = () => {
     setIssued(null);
@@ -104,7 +98,6 @@ export function AddSourceDrawer({
     create.mutate(
       {
         source: isMeta ? META_SOURCE : isPush ? pushKind : webhookKind,
-        agent_id: agentId || null,
         mapping,
         ...(isMeta && appSecret.trim() ? { app_secret: appSecret.trim() } : {}),
       },
@@ -140,15 +133,12 @@ export function AddSourceDrawer({
             <button type="button" onClick={close} className={SECONDARY_BUTTON}>
               Cancel
             </button>
-            {/* Blocked while the agent list is unreadable: the form would otherwise POST
-                with no agent and make exactly the silent never-dialling source the
-                sentence beside the picker promises to prevent. */}
             <ActionButton
               type="submit"
               form={formId}
               status={createStatus}
               successLabel="Added"
-              disabled={!canWrite || agentsUnread}
+              disabled={!canWrite}
             >
               Add lead source
             </ActionButton>
@@ -215,38 +205,6 @@ export function AddSourceDrawer({
               </label>
             )}
 
-            <div>
-              <span className={FIELD_LABEL}>Which agent answers them</span>
-              {agentsUnread ? (
-                // An empty picker over a failed read offers "don't call" as the only choice,
-                // and a client would build a source that never rings anyone.
-                <div className="mt-1 space-y-2 rounded-md border border-line bg-surface px-3 py-2 text-meta text-ink-muted">
-                  <p>Couldn&apos;t load your agents.</p>
-                  <p>Saving now would never ring anyone.</p>
-                  <button type="button" className={SECONDARY_BUTTON_SM} onClick={() => void agents.refetch()}>
-                    Try again
-                  </button>
-                </div>
-              ) : (
-                <select
-                  aria-label="Agent to answer these leads"
-                  value={agentId}
-                  disabled={agents.isLoading}
-                  onChange={(e) => setAgentId(e.target.value)}
-                  className={`${FIELD} mt-1 block w-full`}
-                >
-                  {/* A source with no agent SAVES leads and never dials them: say it. */}
-                  <option value="">
-                    {agents.isLoading ? "Reading your agents…" : "Not yet — save leads, don't call"}
-                  </option>
-                  {(agents.data ?? []).map((agent) => (
-                    <option key={agent.id} value={agent.id}>
-                      {agent.name}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </div>
 
             {isMeta && (
               <div className="text-meta text-ink-muted">
@@ -275,16 +233,17 @@ export function AddSourceDrawer({
 
             {/* Consent is not a formality on this path: a lead that does not affirm it is
                 saved and never dialled (FLOWS §4). The sentence stays visible. */}
-            {isPush ? (
-              <div className="text-meta text-ink-muted">
-                <p>Enquiries sent to you are called within seven days.</p>
-                <p>Bought leads are saved, not called.</p>
-              </div>
-            ) : (
-              <p className="text-meta text-ink-muted">
-                Leads who don&apos;t agree to calls are never called.
-              </p>
-            )}
+            <div className="text-meta text-ink-muted">
+              <p>The agent in Call new leads calls them.</p>
+              {isPush ? (
+                <>
+                  <p>Enquiries sent to you are called within seven days.</p>
+                  <p>Bought leads are saved, not called.</p>
+                </>
+              ) : (
+                <p>Leads who don&apos;t agree to calls are never called.</p>
+              )}
+            </div>
             {isPush ? null : (
             <Disclosure
               variant="inline"
