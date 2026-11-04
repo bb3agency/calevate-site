@@ -238,6 +238,36 @@ async def assert_same_workspace(
         raise _other_workspace_refusal()
 
 
+async def _agent_in_other_workspace(
+    session: AsyncSession, *, number_ref: str, agent_id: UUID | None
+) -> bool:
+    """Is `agent_id` published in another workspace than the one holding `number_ref`?"""
+    if agent_id is None:
+        return False
+    ref = (
+        await session.execute(
+            text("SELECT engine_agent_ref FROM agents WHERE id = :aid AND deleted_at IS NULL"),
+            {"aid": agent_id},
+        )
+    ).scalar()
+    return isinstance(ref, str) and bool(ref) and scope_of(ref) != scope_of(number_ref)
+
+
+async def platform_line_agent() -> str | None:
+    """The never-answering agent Calevate's test lines answer with, read without changing
+    anything; None when there is none or it cannot be read."""
+    if _TRIAL_LINE_AGENT is not None:
+        return _TRIAL_LINE_AGENT
+    engine = _trial_line_engine()
+    if engine is None:
+        return None
+    try:
+        agent = await engine.read_trial_line_agent()
+    except ProblemError:
+        return None
+    return agent.ref if agent is not None else None
+
+
 async def assert_number_can_answer(
     session: AsyncSession, *, number_id: UUID, agent_id: UUID | None
 ) -> None:
@@ -269,6 +299,9 @@ class RecordedEngineNumber:
     #: `charged`, `invoiced`, `trial` (free), `closed`, `replayed`, or None when the number
     #: is not priced. A screen words its sentence from this, never from the price alone.
     first_period: RentalOutcome | None = None
+    #: Why a number given to an agent in the client's own workspace could not be moved there
+    #: yet (recorded, and answering nobody until it is); None when moved or not needed.
+    move_refusal: str | None = None
 
 
 async def record_engine_number(
@@ -313,7 +346,18 @@ async def record_engine_number(
             remediation="Leave the handle blank; it is read from the voice platform.",
         )
     answering = held.answering_agent_ref
-    if answering is not None and not await _is_this_clients_agent(session, answering):
+    platform_held = is_platform_held(vendor_ref)
+    # A number Calevate's test calls rang from is answered by our own never-answering line
+    # agent and lent to whichever trial agent called last: both are ours to replace, not
+    # another client's, so neither refuses it (founder, 4 Nov 2026).
+    ours_to_replace = (
+        platform_held and answering is not None and answering == await platform_line_agent()
+    )
+    if (
+        not ours_to_replace
+        and answering is not None
+        and not await _is_this_clients_agent(session, answering)
+    ):
         raise ProblemError.conflict(
             "engine_number_answered_by_other_client",
             "An agent that is not one of this client's answers this number on the voice platform.",
@@ -326,7 +370,10 @@ async def record_engine_number(
     # agent's caller ID to this client. `callingAgent` is documented on the single read only
     # (`get-phone-number.md:405-418`; the list carries `agent` alone), so it is read here.
     calling = (
-        held.calling_agent_ref or (await thinnest_numbers().get_number(vendor_ref)).calling_agent
+        None
+        if ours_to_replace
+        else held.calling_agent_ref
+        or (await thinnest_numbers().get_number(vendor_ref)).calling_agent
     )
     if calling is not None and not await _is_this_clients_agent(session, calling):
         raise ProblemError.conflict(
@@ -338,7 +385,14 @@ async def record_engine_number(
                 "Outbound agent in the voice platform's console first."
             ),
         )
-    await assert_same_workspace(session, number_ref=vendor_ref, agent_id=agent_id)
+    # A Calevate-held number given to an agent in the client's own workspace is moved there
+    # right after recording (keeping its digits), instead of refused: that move is the only
+    # way such an agent can answer it.
+    move_after = platform_held and await _agent_in_other_workspace(
+        session, number_ref=vendor_ref, agent_id=agent_id
+    )
+    if not move_after:
+        await assert_same_workspace(session, number_ref=vendor_ref, agent_id=agent_id)
     price = await require_attested_price_inr(session) if held.engine_owned else None
     declared = series or series_for_e164(held.e164) or "standard"
     number_id = await agents_service.provision_number(
@@ -376,6 +430,17 @@ async def record_engine_number(
             inr_per_month=price.inr_per_month,
         )
     attachment = await sync_number_attachment(session, number_id=number_id)
+    move_refusal: str | None = None
+    if move_after:
+        try:
+            vendor_ref = await move_into_client_workspace(
+                session, tenant_id=tenant_id, number_id=number_id, platform_line_released=True
+            )
+            attachment = await sync_number_attachment(session, number_id=number_id)
+        except ProblemError as exc:
+            # Recorded either way: the number answers nobody until it is moved, and the
+            # screen offers the move with this reason.
+            move_refusal = exc.detail
     platform_held = is_platform_held(vendor_ref)
     log.info(
         "engine_number_recorded",
@@ -395,6 +460,7 @@ async def record_engine_number(
         attachment=attachment,
         platform_held=platform_held,
         first_period=first_period,
+        move_refusal=move_refusal,
     )
 
 
@@ -1134,7 +1200,11 @@ _MOVABLE_SQL: Final = (
 
 
 async def move_into_client_workspace(
-    session: AsyncSession, *, tenant_id: UUID, number_id: UUID
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    number_id: UUID,
+    platform_line_released: bool = False,
 ) -> str:
     """Move one of this client's numbers into its own workspace, keeping the digits, and
     answer its new handle.
@@ -1160,7 +1230,9 @@ async def move_into_client_workspace(
             remediation="Buy a number for this client from its Numbers page.",
         )
     current = str(row[0])
-    if is_platform_line(current) or is_platform_line(str(row[2])):
+    # `platform_line_released`: the record step has just taken it off test use, which this
+    # process's settings may not show yet.
+    if not platform_line_released and (is_platform_line(current) or is_platform_line(str(row[2]))):
         raise ProblemError.conflict(
             "engine_number_is_platform_line",
             "This number is one Calevate's own test calls ring from (free-trial or forwarding "

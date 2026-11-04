@@ -30224,6 +30224,8 @@ export interface components {
             e164: string;
             /** First Period */
             first_period?: ("charged" | "invoiced" | "replayed" | "closed" | "trial" | "before_first_period") | null;
+            /** Move Refusal */
+            move_refusal?: string | null;
             /**
              * Number Id
              * Format: uuid

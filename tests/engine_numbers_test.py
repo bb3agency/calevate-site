@@ -366,6 +366,36 @@ async def test_a_calevate_number_is_offered_only_while_no_client_and_no_test_cal
     assert stored is None
 
 
+async def test_the_trial_number_answered_by_calevates_line_agent_can_be_given(
+    vendor: FakeVendor, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Founder, 4 Nov 2026: giving the shared trial number was refused as "another client's
+    agent answers it" — the agent was Calevate's own line agent, and the one it was lent to
+    for calling out was the last trial client's."""
+    admin_id, headers = await _admin()
+    await _attested(admin_id)
+    tenant_id, agent_id, ref = await _client_with_agent()
+    _trial_client, _trial_agent, trial_ref = await _client_with_agent()
+    trial = _number()
+    vendor.hold(trial, agent="ag_line")
+    vendor.numbers[trial]["callingAgent"] = trial_ref
+    monkeypatch.setattr(engine_numbers, "_TRIAL_LINE_AGENT", "ag_line")
+    monkeypatch.setattr(get_settings(), "trial_caller_number", f"+{trial}")
+
+    async def idle(_session: Any) -> int:
+        return 0
+
+    monkeypatch.setattr(number_routes, "calls_on_platform_lines", idle)
+    page = await _get(f"/v1/admin/numbers/tenants/{tenant_id}/engine", headers)
+    assert {n["e164"]: n for n in page.json()["numbers"]}[f"+{trial}"]["unassigned"] is True
+
+    given = await _record(tenant_id, {"e164": f"+{trial}", "agent_id": str(agent_id)}, headers)
+
+    assert given.status_code == 201, given.text
+    assert vendor.numbers[trial]["agent"] == ref
+    assert vendor.numbers[trial]["callingAgent"] is None
+
+
 async def test_the_record_route_refuses_off_the_engine(monkeypatch: pytest.MonkeyPatch) -> None:
     _admin_id, headers = await _admin()
     tenant_id, _agent_id, _ref = await _client_with_agent()

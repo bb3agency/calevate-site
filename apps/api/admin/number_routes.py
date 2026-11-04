@@ -648,6 +648,7 @@ async def tenant_engine_numbers(
     # A platform number is offered unless another client holds it. One Calevate's own test
     # calls ring from (`engine_numbers.platform_lines`) is offered too, marked `test_line`.
     elsewhere = await recorded_number_digits() - set(recorded)
+    line_agent = await engine_numbers.platform_line_agent()
     numbers: list[EngineNumberOut] = []
     other = 0
     answering: set[str] = set()
@@ -658,9 +659,12 @@ async def tenant_engine_numbers(
         if platform_held and digits(number.e164) in elsewhere:
             other += 1
             continue
-        # A test line is answered by Calevate's own never-answering line agent, which is no
-        # client's: it is offered (giving it takes it off test use), not counted as theirs.
-        ref = None if test_line else number.answering_agent_ref
+        # A test line (or one that was, before it was taken off test use) is answered by
+        # Calevate's own never-answering line agent, which is no client's: it is offered,
+        # not counted as another client's.
+        ref = number.answering_agent_ref
+        if test_line or (platform_held and ref is not None and ref == line_agent):
+            ref = None
         if ref is not None and ref not in ours:
             other += 1
             continue
@@ -730,6 +734,9 @@ class RecordedEngineNumberOut(BaseModel):
     #: What became of the client's first month: `charged`, `invoiced`, `trial` (free),
     #: `closed`, `replayed`, or null when the number is not priced.
     first_period: RentalOutcome | None = None
+    #: A Calevate number given to an agent in the client's own workspace is moved there at
+    #: once; this is why it could not be yet (it answers nobody until moved), else null.
+    move_refusal: str | None = None
 
 
 @router.post(
@@ -809,6 +816,7 @@ async def record_tenant_engine_number(
         platform_attachment=recorded.attachment,
         platform_held=recorded.platform_held,
         first_period=recorded.first_period,
+        move_refusal=recorded.move_refusal,
     )
 
 

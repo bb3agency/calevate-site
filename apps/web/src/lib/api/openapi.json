@@ -45034,6 +45034,17 @@
             ],
             "title": "First Period"
           },
+          "move_refusal": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Move Refusal"
+          },
           "number_id": {
             "format": "uuid",
             "title": "Number Id",
