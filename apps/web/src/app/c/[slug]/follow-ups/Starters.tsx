@@ -13,6 +13,7 @@ import type { Session } from "@/lib/api/client";
 import {
   useCreateFollowUp,
   useFollowUpStarters,
+  type FollowUpCreateIn,
   type FollowUpStarterOut,
 } from "@/lib/api/followUps";
 import { openAssistant } from "@/lib/copilot/launcher";
@@ -22,6 +23,14 @@ import { NEED_FIXES, triggerWords } from "./followUpCopy";
 
 /** What "New Follow-up" puts in Pip's ask box. Prefilled, never sent. */
 export const NEW_FOLLOW_UP_PROMPT = "Make a new Follow-up. Describe what should happen to a lead: ";
+
+function withoutSummary(
+  step: FollowUpStarterOut["steps"][number],
+): FollowUpCreateIn["steps"][number] {
+  const sent: Partial<typeof step> = { ...step };
+  delete sent.summary;
+  return sent as FollowUpCreateIn["steps"][number];
+}
 
 /** Opens Pip with the request written; the owner finishes the sentence and presses Ask. */
 export function NewFollowUpButton() {
@@ -63,7 +72,8 @@ export function Starters({
       {
         name: starter.name,
         trigger: starter.trigger,
-        steps: starter.steps,
+        // `summary` is the server's line for showing a step; a step sent back may not carry it.
+        steps: starter.steps.map(withoutSummary),
         settings: starter.settings,
         starter: starter.key,
       },

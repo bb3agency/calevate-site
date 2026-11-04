@@ -341,6 +341,9 @@ describe("the Follow-ups list", () => {
     expect(sent.starter).toBe("missed_call_callback");
     expect(sent.name).toBe("Call back missed calls");
     expect(sent.trigger.kind).toBe("call_ended");
+    // The server refuses a step that carries its display line back.
+    expect(sent.steps.length).toBeGreaterThan(0);
+    expect(sent.steps.some((step: Record<string, unknown>) => "summary" in step)).toBe(false);
     // Made, and the page is moving to it: a second press must not make a second draft.
     await waitFor(() => expect((starter as HTMLButtonElement).disabled).toBe(true));
     await act(async () => {

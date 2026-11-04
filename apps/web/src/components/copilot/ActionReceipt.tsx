@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CheckCircle2, Undo2 } from "lucide-react";
+import { CheckCircle2, ChevronDown, Undo2 } from "lucide-react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { ProblemNotice, TONE_INK } from "@/components/ui";
@@ -54,24 +54,29 @@ export function ActionReceipt({
   const undone = undo.data;
   return (
     <div className="border-l-2 border-brand pl-3">
-      <p className="flex items-center gap-1.5 text-xs font-medium text-ink">
-        <CheckCircle2 aria-hidden className={`h-3.5 w-3.5 ${undone !== undefined ? TONE_INK.neutral : TONE_INK.ok}`} />
-        {undone !== undefined ? "Undone" : action.applied ? "Done" : "Already done"}
-      </p>
-      <p className="mt-0.5 text-xs text-ink">{action.title}</p>
-      <p className="mt-0.5 text-xs text-ink-muted">{undone?.detail ?? action.detail}</p>
-      {undone === undefined && (
-        <dl className="mt-1.5 space-y-1 text-xs">
-          <div className="flex gap-1.5">
-            <dt className="shrink-0 text-ink-faint">Where</dt>
-            <dd className="text-ink-muted">{action.where}</dd>
-          </div>
-          <div className="flex gap-1.5">
-            <dt className="shrink-0 text-ink-faint">Undo</dt>
-            <dd className="text-ink-muted">{action.reversal}</dd>
-          </div>
-        </dl>
-      )}
+      {/* Folded: Pip's reply already says what changed, so the receipt's words sit behind
+          the summary and only Undo stays out (founder, 4 Nov 2026). */}
+      <details className="group">
+        <summary className="flex cursor-pointer list-none items-center gap-1.5 text-xs font-medium text-ink [&::-webkit-details-marker]:hidden">
+          <CheckCircle2 aria-hidden className={`h-3.5 w-3.5 shrink-0 ${undone !== undefined ? TONE_INK.neutral : TONE_INK.ok}`} />
+          <span>{undone !== undefined ? "Undone" : action.applied ? "Done" : "Already done"}</span>
+          <span className="min-w-0 font-normal text-ink-muted">{action.title}</span>
+          <ChevronDown aria-hidden className="h-3.5 w-3.5 shrink-0 transition-transform group-open:rotate-180" />
+        </summary>
+        <p className="mt-0.5 text-xs text-ink-muted">{undone?.detail ?? action.detail}</p>
+        {undone === undefined && (
+          <dl className="mt-1.5 space-y-1 text-xs">
+            <div className="flex gap-1.5">
+              <dt className="shrink-0 text-ink-faint">Where</dt>
+              <dd className="text-ink-muted">{action.where}</dd>
+            </div>
+            <div className="flex gap-1.5">
+              <dt className="shrink-0 text-ink-faint">Undo</dt>
+              <dd className="text-ink-muted">{action.reversal}</dd>
+            </div>
+          </dl>
+        )}
+      </details>
       {undone === undefined && open && action.action_id != null && (
         <ActionButton
           variant="secondary"
