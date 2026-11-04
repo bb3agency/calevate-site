@@ -2368,3 +2368,62 @@ founder adds the two call ids (before and after the change) from the Calls page 
 >
 > Thanks,
 > Umesh
+
+## 44. One number for all of a client's agents, calling out at the same time (DRAFTED 4 Nov 2026, unsent)
+
+The founder's rule (4 Nov 2026): a number given to a client serves every agent of that client.
+What we built on what the docs say today:
+
+* Incoming calls: the number's one answering agent (`update-phone-number.md:7`, "`agent` makes
+  the number that agent's line").
+* Outgoing calls: before each dial from another agent we lend the number to it
+  (`callingAgent`) and give it the `phone` surface (§13 answer, line 891 above).
+* A number is lent to one agent at a time, and lending ends no call: a ringing or answered
+  call carries on; a call still waiting to be placed that named the number fails
+  (VERIFIED-VENDOR-DOCS, `snapshots/2026-10-29/pages/channels/phone-numbers.md:748-753`; also
+  the answer at line 1090 above).
+
+Because we cannot see from our side when a call stops "waiting to be placed" (Get Call's
+`scheduled`), we hold a lent number for the whole of the borrowing agent's live calls, so a
+second agent's dial waits until the first agent has no live call on it. The founder wants two
+outbound agents calling from one number at the same time. The questions below decide whether
+we can drop that hold.
+
+> Subject: Two agents calling out from one number at the same time
+>
+> Hi Ashutosh,
+>
+> Our clients usually have one or two numbers and several agents: say Harsha answers the
+> number, Swathi calls back qualified leads and Arjun runs a new campaign, all from the same
+> number. Your Numbers page says a number is lent to one agent at a time, that lending it to a
+> second agent ends no call, and that a call still waiting to be placed that named the number
+> fails. Today we lend the number to whichever agent is about to dial and, to be safe, wait
+> until the other agent's calls on it have ended. We would like Swathi and Arjun to have calls
+> going at the same time.
+>
+> 1. **Can a number be in several agents' calling lists at once?** For example `callingAgent`
+>    taking a list, or Place Call accepting as `from` any number the workspace holds. That
+>    would let every agent of a customer call out from its numbers with no lending at all,
+>    which is what we need. If not today, is it something you could add, and when?
+> 2. **If not, is lending per call the way you intend?** We would lend the number to Swathi,
+>    place her call, then lend it to Arjun a second later and place his, while Swathi's is
+>    ringing or answered. Is that safe to do many times a minute, and does it have any effect
+>    on a call that is ringing or answered (caller ID shown, recording, transfer, the
+>    post-call webhook, `from` on the call record)?
+> 3. **How long can a placed call stay "waiting to be placed" (`scheduled`)?** Only while our
+>    concurrent-call limit is full, or also for the 200-a-day limit, `retry`, the hour window,
+>    or anything else? Does Place Call's response tell us the call is already ringing, or is
+>    there a webhook or event the moment a call leaves `scheduled`?
+> 4. **A retry.** If Place Call names `from` and a `retry`, and the number is lent to another
+>    agent before the retry is due, does the retry fail like a waiting call, or ring from the
+>    agent's other numbers?
+> 5. **Limits on one number shared by agents.** Is the 200 calls a day counted per number
+>    across all the agents that call from it, or per agent and number? Does "one person always
+>    sees the same number" apply to calls we place one by one through Place Call, or only to
+>    your campaigns?
+> 6. **Ringing back.** A person who rings the number back reaches Harsha (the agent that
+>    answers it), not Swathi or Arjun. Is there a way to send a ring-back to the agent that last
+>    called that person, or should we have Harsha hand the call over (`handOver`)?
+>
+> Thanks,
+> Umesh

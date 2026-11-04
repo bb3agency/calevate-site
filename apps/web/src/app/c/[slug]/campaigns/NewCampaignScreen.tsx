@@ -80,7 +80,7 @@ export function NewCampaignScreen({ slug }: { slug: string }) {
     // Once a draft exists, Create would make a second one: a failed follow-up is finished
     // on that draft's own page, which the notice links to.
     if (!selectedAgentId || followUp !== null) return;
-    const usable = campaignNumbers(numbers.data, selectedAgentId).some((n) => n.id === form.numberId);
+    const usable = campaignNumbers(numbers.data).some((n) => n.id === form.numberId);
     create.mutate(
       {
         agent_id: selectedAgentId,

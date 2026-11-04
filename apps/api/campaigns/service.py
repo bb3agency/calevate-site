@@ -216,18 +216,6 @@ PURCHASED_LIST_REASON = (
     "This list is recorded as purchased. Calevate does not dial bought or rented "
     "contact lists, because there is no record of the customers having agreed to be called."
 )
-# The TWO ways one campaign's number can fail to be the number its calls come from
-# (D-420), beside each other for this block's reason. Both are the same rule —
-# `number_not_bound_to_agent` — because both are the same violated claim; only the
-# remediation differs, and a client can act on neither without being told which it is.
-UNBOUND_NUMBER_REASON = (
-    "This number is not assigned to any agent, so calls from this campaign would go out "
-    "from a platform number instead of it. Assign it to this campaign's agent."
-)
-OTHER_AGENT_NUMBER_REASON = (
-    "This number is assigned to a different agent, so calls from this campaign would not "
-    "come from it. Assign it to this campaign's agent, or pick this agent's own number."
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -245,9 +233,6 @@ class _CampaignFacts:
     status: str
     classification: str
     number_id: UUID | None
-    #: WHICH AGENT THIS NUMBER IS BOUND TO, and the campaign's own agent beside it —
-    #: the pair `number_not_bound_to_agent` compares (D-420).
-    number_agent_id: UUID | None
     #: The carrier the number is held on and the legs it was bought for: a campaign that
     #: dials on our carrier must present a number that carrier holds for outgoing calls.
     number_provider: str | None
@@ -270,7 +255,7 @@ async def _campaign_facts(session: AsyncSession, campaign_id: UUID) -> _Campaign
         await session.execute(
             text(
                 "SELECT c.status, c.classification, "
-                "  n.id AS number_id, n.agent_id AS number_agent_id, "
+                "  n.id AS number_id, "
                 "  c.agent_id, "
                 "  n.provider AS number_provider, n.direction AS number_direction, "
                 # The AI sentence, not the legacy bundle (D-163) — the launch gate asks
@@ -294,16 +279,15 @@ async def _campaign_facts(session: AsyncSession, campaign_id: UUID) -> _Campaign
         status=str(row[0]),
         classification=str(row[1]),
         number_id=row[2],
-        number_agent_id=row[3],
-        agent_id=row[4],
-        number_provider=row[5],
-        number_direction=row[6],
-        agent_status=row[7],
-        disclosure=row[8],
-        agent_direction=row[9],
-        agent_deleted=row[10] is not None,
-        consent_source=row[11],
-        consent_collected_at=row[12],
+        agent_id=row[3],
+        number_provider=row[4],
+        number_direction=row[5],
+        agent_status=row[6],
+        disclosure=row[7],
+        agent_direction=row[8],
+        agent_deleted=row[9] is not None,
+        consent_source=row[10],
+        consent_collected_at=row[11],
     )
 
 
@@ -397,9 +381,10 @@ def _channel_blockers(facts: _CampaignFacts) -> list[LaunchBlocker]:
     number-registration columns stay (hard rule 8) and are no longer asked. What remains:
 
     * the classification must be one a campaign can carry (`transactional` cannot be);
-    * if the campaign names a number, the calls must actually come from it: bound to this
-      campaign's agent (D-420/D-424) and, on a carrier we dial through, held on it for
-      outgoing calls. A campaign with no number dials from its agent's own line.
+    * if the campaign names a number, the calls must actually come from it: on a carrier we
+      dial through, held on it for outgoing calls. Any of the client's numbers will do; it
+      is lent to the campaign's agent at each dial. A campaign with no number dials from
+      its agent's own line, or the client's oldest.
     """
     blockers: list[LaunchBlocker] = []
 
@@ -409,17 +394,8 @@ def _channel_blockers(facts: _CampaignFacts) -> list[LaunchBlocker]:
 
     if facts.number_id is None:
         return blockers
-    # The `is None` chooses the WORDING, never the verdict: any state in which the
-    # campaign's number is not this campaign's agent's number refuses.
-    if facts.number_agent_id != facts.agent_id:
-        blockers.append(
-            LaunchBlocker(
-                "number_not_bound_to_agent",
-                UNBOUND_NUMBER_REASON
-                if facts.number_agent_id is None
-                else OTHER_AGENT_NUMBER_REASON,
-            )
-        )
+    # Any of the client's numbers may carry any of its agents' calls (founder, 4 Nov 2026):
+    # the dial lends it to the campaign's agent (`agents.service._lend_client_number`).
     refused = number_dial_refusal(facts.number_provider, facts.number_direction)
     if refused is not None:
         blockers.append(refused)

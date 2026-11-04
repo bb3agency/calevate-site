@@ -41,8 +41,9 @@ export function EngineNumbersPanel({
       description={
         <>
           This deployment&apos;s calls run on {platform}. Numbers are rented in the {platform}{" "}
-          console; record each one here for this client, then choose its agent below — the
-          list is what {platform} holds right now.
+          console; record each one here for this client — the list is what {platform} holds
+          right now. Every agent of this client calls out from any of its numbers; you only
+          choose who answers when someone rings it.
         </>
       }
     >

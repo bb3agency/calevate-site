@@ -68,7 +68,7 @@ export function RecordEngineNumber({
         record.mutate({
           e164,
           direction,
-          agent_id: agentId === NO_AGENT ? null : agentId,
+          agent_id: agentId === NO_AGENT || direction === "outbound" ? null : agentId,
         });
       }}
     >
@@ -84,21 +84,25 @@ export function RecordEngineNumber({
           <option value="outbound">Outgoing calls only</option>
         </select>
       </label>
-      <label className="flex flex-col gap-1">
-        <span className={FIELD_LABEL}>Agent</span>
-        <select
-          className={FIELD_INLINE}
-          value={agentId}
-          onChange={(ev) => setAgentId(ev.target.value)}
-        >
-          <option value={NO_AGENT}>None yet</option>
-          {agents.map((agent) => (
-            <option key={agent.agent_id} value={agent.agent_id}>
-              {agent.name}
-            </option>
-          ))}
-        </select>
-      </label>
+      {/* Every agent of the client calls out from any of its numbers (each call borrows
+          it), so the only choice is who picks up when someone rings it. */}
+      {direction !== "outbound" && (
+        <label className="flex flex-col gap-1">
+          <span className={FIELD_LABEL}>Answers incoming calls</span>
+          <select
+            className={FIELD_INLINE}
+            value={agentId}
+            onChange={(ev) => setAgentId(ev.target.value)}
+          >
+            <option value={NO_AGENT}>Nobody yet</option>
+            {agents.map((agent) => (
+              <option key={agent.agent_id} value={agent.agent_id}>
+                {agent.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <ActionButton
         type="submit"
         variant="secondary-sm"

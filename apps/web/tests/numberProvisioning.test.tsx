@@ -413,7 +413,7 @@ describe("choosing what a number is used for", () => {
       }),
     );
 
-    fireEvent.change(await screen.findByLabelText(/^agent$/i), {
+    fireEvent.change(await screen.findByLabelText(/^answers incoming calls$/i), {
       target: { value: "agent-1" },
     });
     fireEvent.click((await directionOf()).getByRole("radio", { name: /^both$/i }));
@@ -460,7 +460,7 @@ describe("choosing what a number is used for", () => {
       }),
     );
 
-    const select = (await screen.findByLabelText(/^agent$/i)) as HTMLSelectElement;
+    const select = (await screen.findByLabelText(/^answers incoming calls$/i)) as HTMLSelectElement;
     expect(select.value).toBe("agent-1");
     expect(
       (await directionOf()).getByRole("radio", { name: /^both$/i }).getAttribute("aria-checked"),
@@ -496,7 +496,7 @@ describe("choosing what a number is used for", () => {
       }),
     );
 
-    const select = (await screen.findByLabelText(/^agent$/i)) as HTMLSelectElement;
+    const select = (await screen.findByLabelText(/^answers incoming calls$/i)) as HTMLSelectElement;
     // Not silently shown as "Nobody", which is the opposite of the truth.
     expect(select.value).toBe("agent-gone");
     expect(select.selectedOptions[0]?.textContent).toMatch(/not in your list/i);
@@ -517,7 +517,7 @@ describe("choosing what a number is used for", () => {
       }),
     );
 
-    fireEvent.change(await screen.findByLabelText(/^agent$/i), {
+    fireEvent.change(await screen.findByLabelText(/^answers incoming calls$/i), {
       target: { value: "agent-1" },
     });
     fireEvent.click(screen.getByRole("button", { name: /^save$/i }));

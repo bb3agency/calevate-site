@@ -162,7 +162,7 @@ export function NewCampaignFlow({
   };
 
   const problem = tried.has(step) ? problemAt(step) : null;
-  const usableNumber = campaignNumbers(numbers.data, selectedAgentId).find((n) => n.id === form.numberId);
+  const usableNumber = campaignNumbers(numbers.data).find((n) => n.id === form.numberId);
 
   const steps = [
     {

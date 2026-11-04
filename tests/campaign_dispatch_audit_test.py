@@ -464,12 +464,12 @@ async def test_the_dispatch_gate_names_the_launch_gate_s_own_rules() -> None:
     """Two gates, one vocabulary. A dispatch-time refusal a client cannot look up in the
     launch-check screen is a campaign that has silently stopped, and SURFACES §2b exists
     to stop exactly that."""
-    tenant_id, _, campaign_id, number_id, _ = await _launched()
+    tenant_id, _, campaign_id, _number_id, _ = await _launched()
 
     async with tenant_session(tenant_id) as session:
-        # D-692: the binding rule is the one number rule still asked.
         await session.execute(
-            text("UPDATE phone_numbers SET agent_id = NULL WHERE id = :n"), {"n": number_id}
+            text("UPDATE campaigns SET classification = 'transactional' WHERE id = :c"),
+            {"c": campaign_id},
         )
         standing = await campaigns.dispatch_blockers(
             session, tenant_id=tenant_id, campaign_id=campaign_id
@@ -479,7 +479,7 @@ async def test_the_dispatch_gate_names_the_launch_gate_s_own_rules() -> None:
         )
 
     standing_rules = [b.rule for b in standing]
-    assert standing_rules == ["number_not_bound_to_agent"], standing_rules
+    assert standing_rules == ["classification_not_campaignable"], standing_rules
     assert {b.rule for b in standing} <= {b.rule for b in launch}, (
         "every dispatch-time rule must be one the launch screen can also explain"
     )

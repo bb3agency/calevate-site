@@ -46,7 +46,6 @@ def _facts(classification: str, **overrides: object) -> _CampaignFacts:
         "status": "draft",
         "classification": classification,
         "number_id": uuid4(),
-        "number_agent_id": _AGENT_ID,
         # Held where the engine places calls, for both legs, so the carrier rule is satisfied.
         "number_provider": outbound_number_provider(),
         "number_direction": "both",
@@ -96,16 +95,6 @@ def test_the_refusal_says_what_to_file_instead() -> None:
     assert "service campaign" in reason
     assert "promotional" in reason
     assert "instant-callback" in reason
-
-
-def test_the_rules_that_do_not_depend_on_classification_still_fire() -> None:
-    """A transactional campaign whose number is bound elsewhere is told both, because the
-    binding is wrong whatever the campaign calls itself."""
-    broken = _facts("transactional", number_agent_id=uuid4())
-    assert _rules(_channel_blockers(broken)) == {
-        "classification_not_campaignable",
-        "number_not_bound_to_agent",
-    }
 
 
 def test_service_and_promotional_campaigns_are_untouched() -> None:

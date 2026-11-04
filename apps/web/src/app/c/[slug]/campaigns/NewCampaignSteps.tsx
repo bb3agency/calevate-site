@@ -33,15 +33,12 @@ export interface ListQuery<T> {
 }
 
 /**
- * The numbers a campaign of this agent can call from: the launch gate's own predicate
- * (`places_calls`) and the agent binding it also checks (`number_not_bound_to_agent`), so
- * the picker never offers a number the launch then refuses.
+ * The numbers a campaign can call from: the launch gate's own predicate (`places_calls`),
+ * so the picker never offers a number the launch then refuses. Any of the account's numbers
+ * serves any of its agents; the call lends it to the campaign's agent.
  */
-export function campaignNumbers(
-  numbers: CampaignNumber[] | undefined,
-  agentId: string,
-): CampaignNumber[] {
-  return (numbers ?? []).filter((number) => number.places_calls && number.agent_id === agentId);
+export function campaignNumbers(numbers: CampaignNumber[] | undefined): CampaignNumber[] {
+  return (numbers ?? []).filter((number) => number.places_calls);
 }
 
 /** "30 min", "2 hours", "1 day": a gap between tries as a person says it. */
@@ -176,7 +173,7 @@ export function BasicsStep({
   /** The edit page has no template field: `PATCH` does not change it. */
   showTemplate?: boolean;
 }) {
-  const usable = campaignNumbers(numbers.data, selectedAgentId);
+  const usable = campaignNumbers(numbers.data);
   const { session, href } = useClientRealm();
   const registration = usePeRegistration(session);
   const eg = useVerticalExamples();
@@ -246,8 +243,8 @@ export function BasicsStep({
           {numbers.data && (
             <span className={FIELD_HINT}>
               {usable.length === 0
-                ? "No number set up for this agent. Its own is used."
-                : "Only numbers this agent can call from."}
+                ? "No number can make calls yet. The agent's own line is used."
+                : "Any of your numbers. Every agent can call from them."}
             </span>
           )}
         </label>

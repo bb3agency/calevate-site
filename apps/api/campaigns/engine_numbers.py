@@ -560,6 +560,10 @@ async def sync_number_attachment(session: AsyncSession, *, number_id: UUID) -> S
     )
     if crossed:
         agent = calling = None
+    # A number lent to another of the client's agents for a call still under way keeps that
+    # lend: re-pointing it mid-call is undocumented. The next sync after the call puts back
+    # what our row says.
+    calling = await _lent_for_a_live_call(session, number_id) or calling
     try:
         result = await _attach(number_ref, agent=agent, calling_agent=calling)
     except ProblemError as exc:
@@ -583,6 +587,30 @@ async def sync_number_attachment(session: AsyncSession, *, number_id: UUID) -> S
     if crossed and result.outcome in ("unchanged", "applied"):
         return "other_workspace"
     return result.outcome
+
+
+_LENT_FOR_A_LIVE_CALL_SQL: Final = (
+    "SELECT a.engine_agent_ref FROM calls c "
+    "JOIN phone_numbers n ON n.e164 = c.from_e164 AND n.tenant_id = c.tenant_id "
+    "JOIN agents a ON a.id = c.agent_id "
+    "WHERE n.id = :nid AND c.direction = 'outbound' "
+    "AND (n.agent_id IS NULL OR c.agent_id <> n.agent_id) "
+    "AND c.status IN ('queued', 'ringing', 'in_progress') "
+    "AND c.created_at > now() - make_interval(secs => :horizon) "
+    "ORDER BY c.created_at DESC LIMIT 1"
+)
+
+
+async def _lent_for_a_live_call(session: AsyncSession, number_id: UUID) -> str | None:
+    from apps.api.engine.dial_lines import ENGINE_LINE_HORIZON
+
+    ref = (
+        await session.execute(
+            text(_LENT_FOR_A_LIVE_CALL_SQL),
+            {"nid": number_id, "horizon": ENGINE_LINE_HORIZON.total_seconds()},
+        )
+    ).scalar()
+    return ref if isinstance(ref, str) and ref else None
 
 
 def _attachment_failed(number_id: UUID, *, outcome: str, refusal: str | None) -> None:
@@ -947,6 +975,30 @@ async def lend_platform_line(number: str, agent_ref: str) -> bool:
         return False
     except ProblemError as exc:
         _trial_line_failed(stage, outcome="refused", refusal=exc.code)
+        return False
+    return True
+
+
+async def lend_client_number(number: str, agent_ref: str) -> bool:
+    """Lend one of a client's numbers to `agent_ref` for calling out, keeping whoever answers
+    it (founder, 4 Nov 2026: a client's number serves all its agents). The calling agent is
+    given the `phone` surface, which an agent with no number of its own is published
+    without (`lend_platform_line`). True once the platform holds exactly that. The caller
+    holds the number for the call (`agents.service._hold_client_number`)."""
+    engine = _trial_line_engine()
+    try:
+        current = await thinnest_numbers().get_number(number)
+        result = await _attach(number, agent=current.answering_agent, calling_agent=agent_ref)
+        if result.outcome in ("partial", "refused"):
+            log.warning("client_number_lend_refused", extra={"refusal": result.refusal})
+            return False
+        if engine is not None:
+            await engine.call_out_on_phone(agent_ref)
+    except EngineRejectedError as exc:
+        log.warning("client_number_lend_refused", extra={"refusal": exc.vendor_code or exc.code})
+        return False
+    except ProblemError as exc:
+        log.warning("client_number_lend_refused", extra={"refusal": exc.code})
         return False
     return True
 

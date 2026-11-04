@@ -57,11 +57,6 @@ export const BLOCKER_COPY: Record<string, BlockerNote> = {
     why: "Nobody is left to call. Add other people.",
     owner: "client",
   },
-  number_not_bound_to_agent: {
-    text: "Your number isn't set up on this agent.",
-    why: "Give the number to the agent on the Phone number page, or choose another number.",
-    owner: "client",
-  },
   number_not_on_carrier: {
     text: "Your chosen number can't make calls.",
     why: "Choose another number, or none to use your agent's own.",

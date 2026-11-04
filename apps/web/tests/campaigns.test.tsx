@@ -353,7 +353,7 @@ describe("choosing which agent makes the calls (D-440)", () => {
 });
 
 describe("the number picker", () => {
-  it("offers only numbers that can make this agent's calls", async () => {
+  it("offers every number of the account that can make calls, whichever agent answers it", async () => {
     const base = {
       series: "standard",
       dlt_status: "unregistered",
@@ -383,8 +383,8 @@ describe("the number picker", () => {
     );
     await screen.findByText("Calling from");
     const picker = screen.getByRole("combobox", { name: /^Calling from/ }) as HTMLSelectElement;
-    expect(Array.from(picker.options).map((o) => o.value)).toEqual(["", "n-ok"]);
-    expect(container.textContent).toContain("Only numbers this agent can call from.");
+    expect(Array.from(picker.options).map((o) => o.value)).toEqual(["", "n-ok", "n-other"]);
+    expect(container.textContent).toContain("Any of your numbers. Every agent can call from them.");
   });
 });
 

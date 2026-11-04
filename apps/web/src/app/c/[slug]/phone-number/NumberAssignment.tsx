@@ -100,11 +100,12 @@ export function NumberAssignment({
 
   return (
     <section className="border-t border-line pt-4">
-      <h3 className="text-body font-semibold text-ink">Agent for this number</h3>
+      <h3 className="text-body font-semibold text-ink">Who answers this number</h3>
+      <p className="mt-1 text-meta text-ink-muted">All your agents can call out from it.</p>
 
       <div className="mt-3">
         <label className={FIELD_LABEL} htmlFor={`agent-${numberId}`}>
-          Agent
+          Answers incoming calls
         </label>
         <select
           id={`agent-${numberId}`}
@@ -115,7 +116,7 @@ export function NumberAssignment({
             setAgentId(event.target.value === NOBODY ? null : event.target.value)
           }
         >
-          <option value={NOBODY}>No agent</option>
+          <option value={NOBODY}>Nobody</option>
           {unlisted !== null && (
             <option value={unlisted}>Current agent (not in your list)</option>
           )}

@@ -28,7 +28,6 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from apps.api.agents import prompts
 from apps.api.agents import service as agents_service
-from apps.api.campaigns import service as campaigns_service
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
@@ -223,12 +222,17 @@ async def test_the_campaigns_chosen_number_is_presented_among_several() -> None:
     assert (await get_engine().get_execution(handle)).from_e164 == chosen
 
 
-async def test_a_campaign_number_the_agent_no_longer_holds_refuses_the_dial() -> None:
+async def test_a_campaign_number_the_client_no_longer_holds_refuses_the_dial() -> None:
     """Sending another number would break the campaign gate's promise that its calls come
     from the number it names; refused before the intent row, so nothing was seized."""
     tenant_id, agent_id = await _tenant()
     await _number(tenant_id, agent_id=agent_id)
     unbound_id, _ = await _number(tenant_id, agent_id=None)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE phone_numbers SET released_at = now() WHERE id = :n"),
+            {"n": unbound_id},
+        )
     await _publish(tenant_id, agent_id)
 
     with pytest.raises(ProblemError) as excinfo:
@@ -251,22 +255,27 @@ async def test_an_account_with_no_number_still_dials() -> None:
     assert (await get_engine().get_execution(handle)).from_e164 == ENGINE_POOL_NUMBER
 
 
-async def test_another_agents_number_cannot_be_the_campaigns_approved_header() -> None:
-    """The launch gate refuses the contradiction it could not previously see.
-
-    The header a dial presents is resolved from the number bound to the AGENT, so a
-    campaign whose approved number belongs to a different agent is a campaign whose
-    series check, header registration and whole PE/TM model describe one number while
-    another one dials.
-    """
+async def test_an_agent_with_no_number_of_its_own_rings_from_its_clients_number() -> None:
+    """Founder, 4 Nov 2026: a client's number serves all its agents, not only the one that
+    answers it."""
     tenant_id, agent_id = await _tenant()
-    other_agent = uuid7()
+    _, theirs = await _number(tenant_id, agent_id=None)
+    await _publish(tenant_id, agent_id)
+
+    handle = await _dial(tenant_id, agent_id, "+919876500007")
+
+    assert (await get_engine().get_execution(handle)).from_e164 == theirs
+
+
+async def test_a_number_another_agent_is_calling_out_on_is_held_until_its_call_ends() -> None:
+    """A number is lent to one agent at a time (`update-phone-number.md:144-145`): while one
+    agent's call is live on it, another agent's dial is refused as lines busy (tried again
+    later), and the same agent's next call is not."""
+    tenant_id, agent_id = await _tenant()
+    number_id, e164 = await _number(tenant_id, agent_id=None)
+    other = uuid7()
     async with tenant_session(tenant_id) as session:
         await session.execute(
-            # A COPY of the seeded agent, so the second agent differs from the first in
-            # exactly one thing: which one this campaign names. Column list read off the
-            # row rather than typed, so a schema change cannot make this fixture describe
-            # an agent shape that no longer exists.
             text(
                 "INSERT INTO agents (id, tenant_id, name, direction, status, disclosure_line, "
                 "ai_disclosure_line, recording_notice_line, caller_memory_notice_line, "
@@ -274,92 +283,26 @@ async def test_another_agents_number_cannot_be_the_campaigns_approved_header() -
                 "status, disclosure_line, ai_disclosure_line, recording_notice_line, "
                 "caller_memory_notice_line, now(), now() FROM agents WHERE id = :src"
             ),
-            {"new": other_agent, "src": agent_id},
+            {"new": other, "src": agent_id},
         )
-    number_id, _ = await _number(tenant_id, agent_id=other_agent)
+        await session.execute(
+            text(
+                "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, "
+                "from_e164, to_e164, status, created_at, updated_at) VALUES (:id, :tid, :aid, "
+                ":ecid, 'outbound', :e, '+919876500099', 'in_progress', now(), now())"
+            ),
+            {"id": uuid7(), "tid": tenant_id, "aid": other, "ecid": f"x-{uuid7()}", "e": e164},
+        )
+    line = agents_service.CallerLine(
+        number_id=number_id, e164=e164, own=False, engine_number_ref="ref"
+    )
 
     async with tenant_session(tenant_id) as session:
-        campaign_id = await campaigns_service.create_campaign(
-            session,
-            tenant_id=tenant_id,
-            agent_id=agent_id,
-            name="Reminders",
-            classification="service",
-            number_id=number_id,
-            dlt_template_id=None,
-            concurrency=1,
-            consent_source="existing_customer",
-            consent_collected_at=datetime.now(UTC) - timedelta(days=7),
-        )
-        rules = {
-            blocker.rule
-            for blocker in await campaigns_service.launch_blockers(
-                session, tenant_id=tenant_id, campaign_id=campaign_id
-            )
-        }
-    assert "number_not_bound_to_agent" in rules, (
-        "the gate approved a header that this campaign's agent will never dial from"
-    )
+        with pytest.raises(ProblemError) as busy:
+            await agents_service._hold_client_number(session, number=line, agent_id=agent_id)
+        await agents_service._hold_client_number(session, number=line, agent_id=other)
 
-
-async def test_a_number_bound_to_nobody_cannot_be_the_campaigns_approved_header() -> None:
-    """The other half of the same claim, and the one with the wider blast radius (D-424).
-
-    An approved number bound to a DIFFERENT agent at least dials SOME registered header.
-    A number bound to NO agent resolves to nothing — `resolve_caller_id` returns None,
-    which is a legitimate answer on the single-lead and callback paths — and the dial then
-    goes out on the engine's own pool. So every campaign on the platform would present the
-    vendor's number while its 140/160 series check, its header registration and its whole
-    PE/TM model described a number nobody heard.
-
-    Asked at BOTH gates on purpose. `launch_blockers` is a photograph taken when the
-    button was clicked; a number can be unassigned from an agent while the campaign runs,
-    and `dispatch_blockers` is what re-reads it on every tick.
-    """
-    tenant_id, agent_id = await _tenant()
-    number_id, _ = await _number(tenant_id, agent_id=None)
-
-    async with tenant_session(tenant_id) as session:
-        campaign_id = await campaigns_service.create_campaign(
-            session,
-            tenant_id=tenant_id,
-            agent_id=agent_id,
-            name="Reminders",
-            classification="service",
-            number_id=number_id,
-            dlt_template_id=None,
-            concurrency=1,
-            consent_source="existing_customer",
-            consent_collected_at=datetime.now(UTC) - timedelta(days=7),
-        )
-        at_launch = {
-            blocker.rule: blocker.reason
-            for blocker in await campaigns_service.launch_blockers(
-                session, tenant_id=tenant_id, campaign_id=campaign_id
-            )
-        }
-        per_tick = {
-            blocker.rule
-            for blocker in await campaigns_service.dispatch_blockers(
-                session, tenant_id=tenant_id, campaign_id=campaign_id
-            )
-        }
-
-    assert "number_not_bound_to_agent" in at_launch, (
-        "the gate approved a header no agent dials from, so the campaign would have gone "
-        "out on the engine's own pool with our own records showing it cleared"
-    )
-    assert "number_not_bound_to_agent" in per_tick, (
-        "the rule is a photograph at launch only — a number unassigned mid-campaign "
-        "would keep dialling"
-    )
-    # The VERDICT is shared; the REMEDIATION is not. A client who never assigned the
-    # number and a client who assigned it elsewhere have different next actions, and a
-    # single sentence covering both would be actionable for neither.
-    assert at_launch["number_not_bound_to_agent"] == campaigns_service.UNBOUND_NUMBER_REASON
-    assert campaigns_service.UNBOUND_NUMBER_REASON != campaigns_service.OTHER_AGENT_NUMBER_REASON, (
-        "two states, two next actions, and the client can only act on the one they are in"
-    )
+    assert agents_service.dial_was_not_placed(busy.value)
 
 
 # --- inbound routing -----------------------------------------------------------------

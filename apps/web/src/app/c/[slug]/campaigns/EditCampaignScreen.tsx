@@ -127,7 +127,7 @@ export function EditCampaignScreen({ slug, campaignId }: { slug: string; campaig
       form.name.trim().length < 2 ? "Give this campaign a name." : !selectedAgentId ? "Choose the agent that makes these calls." : window;
     setProblem(next);
     if (next) return;
-    const usable = campaignNumbers(numbers.data, selectedAgentId).some((n) => n.id === form.numberId);
+    const usable = campaignNumbers(numbers.data).some((n) => n.id === form.numberId);
     update.mutate(
       {
         name: form.name.trim(),

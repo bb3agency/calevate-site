@@ -3696,21 +3696,25 @@ async def republish_running_variants(
     )
 
 
-#: The numbers an agent can place calls from: bound to it and, when the engine presents only
-#: numbers it holds (`:carrier` set), held there and set up for outgoing calls. A caller id
-#: the dialling account does not hold is one it cannot present, and a number bought for
-#: inbound only is not one to place calls from; `:carrier` is NULL on an engine with no such
-#: rule (`outbound_number_provider`).
+#: The numbers an agent can place calls from: every number of its client (founder, 4 Nov
+#: 2026: a client's number serves all its agents), the agent's own first, and, when the
+#: engine presents only numbers it holds (`:carrier` set), held there and set up for
+#: outgoing calls. `agent_id` on a number is who ANSWERS it; another agent calls out on it
+#: by having it lent for the call (`_lend_client_number`). A caller id the dialling account
+#: does not hold is one it cannot present, and a number bought for inbound only is not one
+#: to place calls from; `:carrier` is NULL on an engine with no such rule
+#: (`outbound_number_provider`). Read under the tenant's RLS, so only its own numbers.
 #:
 #: `dlt_status` is not asked (D-793): no client registers on DLT since D-692, every number
 #: is inserted `pending` and nothing outbound requires `registered`, so filtering on it hid
 #: every client number from the dial.
 _AGENT_CALLER_ID_SQL = (
-    "SELECT id, e164 FROM phone_numbers "
-    "WHERE agent_id = :aid "
+    "SELECT id, e164, agent_id IS NOT DISTINCT FROM :aid, engine_number_ref "
+    "FROM phone_numbers "
+    "WHERE released_at IS NULL "
     "AND (CAST(:carrier AS text) IS NULL "
     "     OR (provider = :carrier AND direction IN ('outbound', 'both'))) "
-    "ORDER BY created_at, id"
+    "ORDER BY agent_id IS NOT DISTINCT FROM :aid DESC, created_at, id"
 )
 
 #: The rules the dial gate refuses a header under when the engine presents only its numbers.
@@ -3762,16 +3766,40 @@ NUMBER_INBOUND_ONLY_REASON = (
 )
 
 
-async def agent_outbound_numbers(
-    session: AsyncSession, *, agent_id: UUID
-) -> list[tuple[UUID, str]]:
-    """`(id, e164)` of every number this agent can place calls from, oldest first."""
+@dataclass(frozen=True, slots=True)
+class CallerLine:
+    """A number a dial can ring from, and whether it is the dialling agent's own."""
+
+    number_id: UUID
+    e164: str
+    #: The agent answers it (or it was lent to it by its record): no lend is needed.
+    own: bool
+    engine_number_ref: str | None
+
+
+async def caller_lines(session: AsyncSession, *, agent_id: UUID) -> list[CallerLine]:
+    """Every number this agent can place calls from, its own first, then oldest first."""
     rows = (
         await session.execute(
             text(_AGENT_CALLER_ID_SQL), {"aid": agent_id, "carrier": outbound_number_provider()}
         )
     ).all()
-    return [(UUID(str(row[0])), str(row[1])) for row in rows]
+    return [
+        CallerLine(
+            number_id=UUID(str(row[0])),
+            e164=str(row[1]),
+            own=bool(row[2]),
+            engine_number_ref=str(row[3]) if row[3] else None,
+        )
+        for row in rows
+    ]
+
+
+async def agent_outbound_numbers(
+    session: AsyncSession, *, agent_id: UUID
+) -> list[tuple[UUID, str]]:
+    """`(id, e164)` of every number this agent can place calls from, its own first."""
+    return [(line.number_id, line.e164) for line in await caller_lines(session, agent_id=agent_id)]
 
 
 async def resolve_caller_id(
@@ -3779,23 +3807,33 @@ async def resolve_caller_id(
 ) -> str | None:
     """The number this dial rings from, or None to let the engine use the agent's own line.
 
-    The candidates are the agent's outbound numbers (`agent_outbound_numbers`, D-793):
+    The candidates are every outbound number of the agent's client (`caller_lines`, D-793):
 
     * `number_id` (a campaign's chosen number) is presented when it is one of them. When it
-      no longer is — unassigned or changed since the tick's `dispatch_blockers` — the dial
+      no longer is — released or changed since the tick's `dispatch_blockers` — the dial
       is refused with `CAMPAIGN_NUMBER_UNAVAILABLE_CODE` rather than sent from another
       number, because the campaign gate promises the calls come from the number it names;
-    * otherwise exactly one candidate is presented;
-    * otherwise (none, or several and nothing chose) None: ThinnestAI then rings from the
+    * otherwise the agent's own number when it has exactly one;
+    * otherwise, with no number of its own, the client's oldest (lent for the call);
+    * otherwise (several of its own and nothing chose) None: ThinnestAI then rings from the
       agent's own line (`place-call.md:708-715,971-977`), which beats the old
       `agent_caller_id_ambiguous` refusal — that guarded a 140/160 DLT class choice nobody
       makes since D-692, and refusing would stop every dial of a multi-number agent.
 
     Ids and counts in the log line, never a number (hard rule 6).
     """
-    rows = await agent_outbound_numbers(session, agent_id=agent_id)
+    line = await choose_caller_line(session, agent_id=agent_id, number_id=number_id)
+    return line.e164 if line is not None else None
+
+
+async def choose_caller_line(
+    session: AsyncSession, *, agent_id: UUID, number_id: UUID | None = None
+) -> CallerLine | None:
+    """`resolve_caller_id`'s choice with what the dial needs to know about it. An agent with
+    no number of its own rings from its client's oldest one, lent to it for the call."""
+    lines = await caller_lines(session, agent_id=agent_id)
     if number_id is not None:
-        chosen = next((e164 for row_id, e164 in rows if row_id == number_id), None)
+        chosen = next((line for line in lines if line.number_id == number_id), None)
         if chosen is None:
             log.warning(
                 CAMPAIGN_NUMBER_UNAVAILABLE_CODE,
@@ -3810,7 +3848,10 @@ async def resolve_caller_id(
                 ),
             )
         return chosen
-    return rows[0][1] if len(rows) == 1 else None
+    own = [line for line in lines if line.own]
+    if own:
+        return own[0] if len(own) == 1 else None
+    return lines[0] if lines else None
 
 
 async def _recall_for_dial(
@@ -4168,10 +4209,21 @@ async def dispatch_call(
     # (D-420). On the caller's session, so it is read under this tenant's RLS and can only
     # ever see this tenant's numbers; and BEFORE the intent row, so a refusal costs one
     # indexed read and leaves no `queued` call behind for a dial that was never placed.
-    from_e164 = (
-        trial.from_e164
+    line = (
+        None
         if trial is not None
-        else await resolve_caller_id(session, agent_id=agent_id, number_id=number_id)
+        else await choose_caller_line(session, agent_id=agent_id, number_id=number_id)
+    )
+    from_e164 = trial.from_e164 if trial is not None else line.e164 if line else None
+    # Another agent's number on an engine that rings only from numbers lent to the caller:
+    # held for this call and lent to it just before the dial (`_lend_client_number`).
+    borrowed = (
+        line
+        if line is not None
+        and not line.own
+        and line.engine_number_ref
+        and outbound_number_provider() is not None
+        else None
     )
 
     # The stable unit: the lead when there is one, the destination otherwise. See
@@ -4222,6 +4274,8 @@ async def dispatch_call(
                 )
         if engine_capped:
             await _hold_engine_line(intent)
+        if borrowed is not None:
+            await _hold_client_number(intent, number=borrowed, agent_id=agent_id)
         await intent.execute(
             text(
                 "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, from_e164, "
@@ -4255,6 +4309,8 @@ async def dispatch_call(
 
     if trial is not None:
         await _lend_trial_line(tenant_id, call_id=call_id, agent_ref=dial_ref)
+    if borrowed is not None:
+        await _lend_client_number(tenant_id, call_id=call_id, number=borrowed, agent_ref=dial_ref)
     from apps.api.actions.pre_dial import CallerPrefill, pre_dial_lookup
     from apps.api.campaigns.contact_details import lead_details
 
@@ -4518,6 +4574,62 @@ async def _lend_trial_line(tenant_id: UUID, *, call_id: UUID, agent_ref: str) ->
     raise ProblemError.business_rule(
         TRIAL_LINE_UNAVAILABLE_RULE,
         "Test calls are not available right now.",
+        remediation="Try again in a few minutes.",
+    )
+
+
+#: The rule a dial is closed under when the client's number could not be lent to its agent.
+CLIENT_NUMBER_UNAVAILABLE_RULE: Final = "client_number_unavailable"
+
+_NUMBER_LENT_ELSEWHERE_SQL: Final = (
+    "SELECT count(*) FROM calls WHERE from_e164 = :e164 AND agent_id <> :aid "
+    "AND direction = 'outbound' AND status = ANY(:statuses) "
+    "AND created_at > now() - make_interval(secs => :horizon)"
+)
+
+
+async def _hold_client_number(session: AsyncSession, *, number: CallerLine, agent_id: UUID) -> None:
+    """Refuse the dial while another agent is calling out on this number.
+
+    A number is lent to one agent at a time (`update-phone-number.md:144-145`) and what
+    re-pointing it does to a call in progress is not documented, so a borrowed number is
+    held for the whole call, as the trial line is: the lock serialises the count with the
+    intent row, and from commit that row's status is the hold. The same agent's calls share
+    it freely. Refused as `lines_busy`, which every caller already treats as not placed and
+    tries again."""
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+        {"key": f"client-number-lend:{number.number_id}"},
+    )
+    others = (
+        await session.execute(
+            text(_NUMBER_LENT_ELSEWHERE_SQL),
+            {
+                "e164": number.e164,
+                "aid": agent_id,
+                "statuses": _ENGINE_LINE_STATUSES,
+                "horizon": ENGINE_LINE_HORIZON.total_seconds(),
+            },
+        )
+    ).scalar_one()
+    if others:
+        log.info("dial_refused_number_lent_elsewhere", extra={"number_id": str(number.number_id)})
+        raise lines_busy()
+
+
+async def _lend_client_number(
+    tenant_id: UUID, *, call_id: UUID, number: CallerLine, agent_ref: str
+) -> None:
+    """Lend the client's number to the agent about to dial, or close the dial unplaced."""
+    from apps.api.campaigns.engine_numbers import lend_client_number
+
+    assert number.engine_number_ref is not None
+    if await lend_client_number(number.engine_number_ref, agent_ref):
+        return
+    await _close_unplaced_dial(tenant_id, call_id=call_id, code=CLIENT_NUMBER_UNAVAILABLE_RULE)
+    raise ProblemError.business_rule(
+        CLIENT_NUMBER_UNAVAILABLE_RULE,
+        "The calling number could not be made ready for this agent just now.",
         remediation="Try again in a few minutes.",
     )
 

@@ -152,7 +152,7 @@ describe("recording a number the voice platform holds", () => {
     });
 
     fireEvent.click(await screen.findByRole("button", { name: "Record this number" }));
-    fireEvent.change(screen.getByLabelText("Agent"), { target: { value: AGENT } });
+    fireEvent.change(screen.getByLabelText("Answers incoming calls"), { target: { value: AGENT } });
     fireEvent.change(screen.getByLabelText("Used for"), { target: { value: "inbound" } });
     fireEvent.click(screen.getByRole("button", { name: "Record" }));
 
